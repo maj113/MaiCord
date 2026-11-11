@@ -1,4 +1,5 @@
 #include "dev_console.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/name_list.hpp"
@@ -32,10 +33,7 @@ static_assert(name_list_count(kCallNames) == static_cast<u32>(PluginCallKind::la
 } // namespace
 
 void DevText::add(const Utf8View& text) noexcept {
-    const u32 room = kDevLineTextBytes - used;
-    const u32 bytes = utf8_truncated_length(text, room);
-    copy_bytes(data + used, text.data, bytes);
-    used += bytes;
+    used += utf8_copy_truncated(data + used, kDevLineTextBytes - used, text);
 }
 
 __declspec(noinline) void DevText::add(const char* text) noexcept {
@@ -44,10 +42,7 @@ __declspec(noinline) void DevText::add(const char* text) noexcept {
 
 void DevText::number(u64 value) noexcept {
     char digits[20];
-    u32 count = 0;
-    do digits[count++] = static_cast<char>('0' + value % 10), value /= 10;
-    while (value);
-    while (count) add({&digits[--count], 1});
+    add({digits, decimal_write(digits, value)});
 }
 
 void application_dev_console_enable(bool on) noexcept {
@@ -73,10 +68,8 @@ void application_dev_console_add(DevLineKind kind, const Utf8View& name, const U
     else slot = g.first, g.first = (g.first + 1) % kDevConsoleLines;
     DevLine& line = g.lines[slot];
     line.kind = kind;
-    line.name_bytes = static_cast<u8>(utf8_truncated_length(name, kDevLineNameBytes));
-    copy_bytes(line.name, name.data, line.name_bytes);
-    line.text_bytes = static_cast<u8>(utf8_truncated_length(text, kDevLineTextBytes));
-    copy_bytes(line.text, text.data, line.text_bytes);
+    utf8_assign(line.name, line.name_bytes, name);
+    utf8_assign(line.text, line.text_bytes, text);
     // One line each: a plugin's text may hold line breaks or controls.
     for (u32 i = 0; i < line.text_bytes; ++i)
         if (static_cast<u8>(line.text[i]) < 0x20 || line.text[i] == 0x7f) line.text[i] = ' ';

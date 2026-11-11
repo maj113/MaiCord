@@ -1,15 +1,13 @@
 #include "maicord/ui/chat/messages/received_attachment_menu.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 // The first seven entries are still-image formats with special CDN wording.
 constexpr u32 kImageExtensionCount = 7;
-constexpr Utf8View kMediaExtensions[]{utf8_literal("png"),  utf8_literal("jpg"),  utf8_literal("jpeg"),
-                                      utf8_literal("webp"), utf8_literal("avif"), utf8_literal("bmp"),
-                                      utf8_literal("svg"),  utf8_literal("gif"),  utf8_literal("mp4"),
-                                      utf8_literal("webm"), utf8_literal("mov")};
-constexpr u32 kMediaExtensionCount = sizeof(kMediaExtensions) / sizeof(kMediaExtensions[0]);
+constexpr char kMediaExtensions[] = "png\0jpg\0jpeg\0webp\0avif\0bmp\0svg\0gif\0mp4\0webm\0mov\0";
+constexpr u32 kMediaExtensionCount = name_list_count(kMediaExtensions);
 // Index of the final path extension, or kMediaExtensionCount when no extension matches.
 u32 path_extension(Utf8View path) noexcept {
     u32 dot = path.bytes;
@@ -24,8 +22,9 @@ u32 path_extension(Utf8View path) noexcept {
     if (dot == path.bytes)
         return kMediaExtensionCount;
     const Utf8View extension{path.data + dot + 1, path.bytes - dot - 1};
-    for (u32 index = 0; index < kMediaExtensionCount; ++index)
-        if (ascii_equal_ignore_case(extension, kMediaExtensions[index]))
+    u32 index = 0;
+    for (NameList list{kMediaExtensions}; list; list.next(), ++index)
+        if (ascii_equal_ignore_case(extension, list.name()))
             return index;
     return kMediaExtensionCount;
 }
@@ -36,10 +35,8 @@ bool secure_url(const Utf8View& url) noexcept {
            ascii_equal_ignore_case({url.data, kSecureScheme.bytes}, kSecureScheme);
 }
 inline Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept {
-    static constexpr Utf8View labels[2][3]{
-        {utf8_literal("Copy Link"), utf8_literal("Copy Image Link"), utf8_literal("Copy Media Link")},
-        {utf8_literal("Open Link"), utf8_literal("Open Image Link"), utf8_literal("Open Media Link")}};
-    return labels[open][static_cast<u32>(link)];
+    return name_list_at("Copy Link\0Copy Image Link\0Copy Media Link\0Open Link\0Open Image Link\0Open Media Link\0",
+                        (open ? 3u : 0u) + static_cast<u32>(link));
 }
 } // namespace
 

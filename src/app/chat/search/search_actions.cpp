@@ -9,6 +9,7 @@
 #include "navigation.hpp"
 #include "maicord/ui/chat/search/query.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord::app_detail {
 namespace search_detail {
@@ -295,15 +296,11 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         break;
     }
     if (ui_search_action_filter(target.action)) {
-        const Utf8View tokens[] = {
-            utf8_literal("from:"),     utf8_literal("in:"),       utf8_literal("has:"),
-            utf8_literal("mentions:"), utf8_literal("on:"),       utf8_literal("before:"),
-            utf8_literal("after:"),    utf8_literal("pinned:"),   utf8_literal("linkFrom:"),
-            utf8_literal("fileType:"), utf8_literal("fileName:"), utf8_literal("authorType:")};
         if (application_composer_text_input_composing())
             return false;
-        const auto token =
-            tokens[static_cast<u8>(target.action) - static_cast<u8>(UiSearchAction::filter_from)];
+        const auto token = name_list_at(
+            "from:\0in:\0has:\0mentions:\0on:\0before:\0after:\0pinned:\0linkFrom:\0fileType:\0fileName:\0authorType:\0",
+            static_cast<u8>(target.action) - static_cast<u8>(UiSearchAction::filter_from));
         const auto text = message_composer_text(s.edit);
         const u32 first = minimum(s.edit.anchor, s.edit.caret), last = maximum(s.edit.anchor, s.edit.caret);
         char inserted[16];

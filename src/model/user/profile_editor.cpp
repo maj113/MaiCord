@@ -50,7 +50,7 @@ bool resets(ProfileEditorTab tab, const ProfileEditorDraft& draft, ProfileEditor
 
 u32 profile_name_font_index(u16 id) noexcept {
     for (u32 i = 0; i < kProfileNameFontCount; ++i)
-        if (kProfileNameFonts[i].id == id)
+        if (kProfileNameFontIds[i] == id)
             return i;
     return ~0u;
 }
@@ -64,7 +64,7 @@ u32 profile_name_effect_index(u16 id) noexcept {
 
 ProfileNameStyle profile_name_style_with_effect(const ProfileNameStyle& style, u32 index) noexcept {
     const auto& effect = kProfileNameEffects[index < kProfileNameEffectCount ? index : 0];
-    ProfileNameStyle out{style.font ? style.font : kProfileNameFonts[0].id, effect.id, effect.colors, {}};
+    ProfileNameStyle out{style.font ? style.font : kProfileNameFontIds[0], effect.id, effect.colors, {}};
     for (u32 i = 0; i < effect.colors; ++i)
         out.colors[i] = effect.defaults[i];
     // A classic effect's chosen colours carry over to another classic effect; a palette (Gummy, Prism) starts whole.

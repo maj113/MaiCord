@@ -68,5 +68,7 @@ struct UiSearchFilterChoiceSource {
 // current is a read-only check, never a matching callback.
 // Replacements are value-only. The Forward label emits snapshot, which
 // the query parser accepts as its canonical search spelling.
-ConstSlice<UiSearchFilterChoiceView> ui_search_filter_fixed_choices(UiSearchFilterKind kind) noexcept;
+// Row `index` of a value filter's fixed list (has, pinned, authorType, fileType); false past its end and for other
+// kinds.
+bool ui_search_filter_fixed_choice(UiSearchFilterKind kind, u32 index, UiSearchFilterChoiceView* row) noexcept;
 } // namespace maicord

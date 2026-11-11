@@ -6,6 +6,7 @@
 // formats (and PNG and an HTML <img> for images) from a Payload that lives until the source is cancelled or replaced;
 // `send` events write it into the pipe the receiver passes. Dropped file lists become DroppedFiles.
 #include "maicord/core/heap.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -34,29 +35,25 @@ constexpr u32 kListLimit = 1u << 20;
 constexpr u32 kWriteMs = 3000;
 constexpr u32 kDropActionCopy = 1;
 
-struct MimeName {
-    const char* name;
-    u32 bit;
-};
-
-constexpr MimeName kMimes[] = {
-    {"text/plain;charset=utf-8", mime_text_utf8}, {"UTF8_STRING", mime_utf8_string},
-    {"text/plain", mime_text_plain},              {"image/png", mime_png},
-    {"text/html", mime_html},                     {"text/uri-list", mime_uri_list},
-    {"x-special/gnome-copied-files", mime_gnome_files},
-};
+// The mime types and their bits, in the same order.
+constexpr char kMimes[] = "text/plain;charset=utf-8\0UTF8_STRING\0text/plain\0image/png\0text/html\0text/uri-list\0"
+                          "x-special/gnome-copied-files\0";
+constexpr u32 kMimeBits[] = {mime_text_utf8, mime_utf8_string, mime_text_plain, mime_png,
+                             mime_html,      mime_uri_list,    mime_gnome_files};
 
 u32 mime_bit(const char* mime) noexcept {
-    for (const MimeName& entry : kMimes)
-        if (c_string_equal(mime, entry.name))
-            return entry.bit;
+    u32 index = 0;
+    for (NameList list{kMimes}; list; list.next(), ++index)
+        if (c_string_equal(mime, list.at))
+            return kMimeBits[index];
     return 0;
 }
 
 const char* mime_name(u32 bit) noexcept {
-    for (const MimeName& entry : kMimes)
-        if (entry.bit == bit)
-            return entry.name;
+    u32 index = 0;
+    for (NameList list{kMimes}; list; list.next(), ++index)
+        if (kMimeBits[index] == bit)
+            return list.at;
     return nullptr;
 }
 

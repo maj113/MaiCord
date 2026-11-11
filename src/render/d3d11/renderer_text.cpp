@@ -267,44 +267,42 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 fir
     return true;
 }
 
-struct FontAsset {
-    const wchar_t* family;
-    const wchar_t* file;
-    float tracking;
-};
-constexpr FontAsset text_fonts[]{{L"Segoe UI", nullptr, 0},
-                                 {L"Bahnschrift", nullptr, 0},
-                                 {L"Georgia", nullptr, 0},
-                                 {L"Arial Rounded MT Bold", nullptr, 0},
-                                 {L"Consolas", nullptr, 0},
-                                 {L"Segoe Print", nullptr, 0},
-                                 {L"Orbitron", L"Orbitron.ttf", .03f},
-                                 {L"Bangers", L"Bangers.ttf", 0},
-                                 {L"MaiCord BioRhyme", L"BioRhyme.ttf", 0},
-                                 {L"Cherry Bomb One", L"CherryBomb.ttf", .04f},
-                                 {L"Chicle", L"Chicle.ttf", 0},
-                                 {L"Compagnon", L"Compagnon.otf", 0},
-                                 {L"MaiCord MuseoModerno", L"MuseoModerno.ttf", .01f},
-                                 {L"MaiCord Medieval", L"NeoCastel.otf", .02f},
-                                 {L"MaiCord Pixelify", L"Pixelify.ttf", .02f},
-                                 {L"Ribes", L"Ribes.otf", 0},
-                                 {L"Sinistre", L"Sinistre.otf", .01f},
-                                 {L"Zilla Slab", L"ZillaSlab.ttf", .03f},
-                                 {L"MaiCord Playpen", L"Playpen.ttf", 0},
-                                 {L"New Rocker", L"NewRocker.ttf", 0},
-                                 {L"Kalam", L"Kalam.ttf", 0}};
-static_assert(sizeof(text_fonts) / sizeof(text_fonts[0]) == static_cast<u32>(UiTextFace::count));
-// The family of face `index`. The six system faces take the platform's own names: Windows names them in the table
+// The font of each UiTextFace, in face order: the first kSystemFaces are system faces the platform names, the rest ship
+// in the fonts directory beside the executable. Their family names, the file names of the shipped ones and every face's
+// extra tracking.
+constexpr u32 kSystemFaces = 6;
+constexpr wchar_t kFontFamilies[] =
+    L"Segoe UI\0Bahnschrift\0Georgia\0Arial Rounded MT Bold\0Consolas\0Segoe Print\0Orbitron\0Bangers\0"
+    L"MaiCord BioRhyme\0Cherry Bomb One\0Chicle\0Compagnon\0MaiCord MuseoModerno\0MaiCord Medieval\0"
+    L"MaiCord Pixelify\0Ribes\0Sinistre\0Zilla Slab\0MaiCord Playpen\0New Rocker\0Kalam\0";
+constexpr wchar_t kFontFiles[] =
+    L"Orbitron.ttf\0Bangers.ttf\0BioRhyme.ttf\0CherryBomb.ttf\0Chicle.ttf\0Compagnon.otf\0MuseoModerno.ttf\0"
+    L"NeoCastel.otf\0Pixelify.ttf\0Ribes.otf\0Sinistre.otf\0ZillaSlab.ttf\0Playpen.ttf\0NewRocker.ttf\0Kalam.ttf\0";
+constexpr float kFontTracking[]{0,    0,    0,    0,    0,   0,   .03f, 0,    0,   .04f, 0,
+                                0,    .01f, .02f, .02f, 0,   .01f, .03f, 0,   0,    0};
+// The index-th name of a list of NUL-terminated wide names; the list's own terminator past its last.
+constexpr const wchar_t* wide_name_at(const wchar_t* list, u32 index) noexcept {
+    for (; index; --index)
+        while (*list++) {
+        }
+    return list;
+}
+constexpr u32 kFontCount = static_cast<u32>(UiTextFace::count);
+static_assert(sizeof(kFontTracking) / sizeof(kFontTracking[0]) == kFontCount &&
+              wide_name_at(kFontFamilies, kFontCount) == kFontFamilies + sizeof(kFontFamilies) / sizeof(wchar_t) - 1 &&
+              wide_name_at(kFontFiles, kFontCount - kSystemFaces) ==
+                  kFontFiles + sizeof(kFontFiles) / sizeof(wchar_t) - 1);
+// The family of face `index`. The six system faces take the platform's own names: Windows names them in the list
 // above; Linux resolves the interface, display, serif, rounded, monospace and handwriting roles to installed families
 // (maicord/platform/font/default_fonts.hpp).
-__forceinline const wchar_t* text_font_family(const FontAsset& asset, u32 index) noexcept {
+__forceinline const wchar_t* text_font_family(u32 index) noexcept {
 #if defined(_WIN32)
-    (void)index;
-    return asset.family;
+    return wide_name_at(kFontFamilies, index);
 #else
     static constexpr DefaultFont roles[]{DefaultFont::ui,   DefaultFont::display,   DefaultFont::serif,
                                          DefaultFont::rounded, DefaultFont::monospace, DefaultFont::handwriting};
-    return index < sizeof(roles) / sizeof(roles[0]) ? default_font_family(roles[index]) : asset.family;
+    return index < sizeof(roles) / sizeof(roles[0]) ? default_font_family(roles[index])
+                                                    : wide_name_at(kFontFamilies, index);
 #endif
 }
 // Whether a file or directory exists at `path`.
@@ -313,9 +311,9 @@ bool file_path_exists(const wchar_t* path) noexcept {
     return file_path_stat(path, &stat);
 }
 bool profile_font_path(u32 index, wchar_t* path) noexcept {
-    const auto* file_name = text_fonts[index].file;
-    if (!file_name)
+    if (index < kSystemFaces)
         return false;
+    const wchar_t* file_name = wide_name_at(kFontFiles, index - kSystemFaces);
     const u32 count = executable_path(path, 1024);
     if (!count || count >= 900)
         return false;
@@ -356,16 +354,15 @@ bool create_face_format(const TextSystem& system, const wchar_t* family, u32 sco
 bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u32* native_format) noexcept {
     const u32 index = static_cast<u32>(face);
     auto& system = owner.system;
-    const auto& asset = text_fonts[index];
     wchar_t path[1024];
-    const bool private_font = asset.file != nullptr;
+    const bool private_font = index >= kSystemFaces;
     if (private_font && (!profile_font_path(index, path) || !file_path_exists(path)))
         return false;
     if (!system.native_text)
         return false;
     u32 scope{};
     return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
-           create_face_format(system, text_font_family(asset, index), scope, native_format);
+           create_face_format(system, text_font_family(index), scope, native_format);
 }
 // The format of font `font` at `system`'s em size, kept in `*cache` (one of the renderer's per-face format sets).
 u32 face_format(const TextSystem& system, u32 font, u32* cache) noexcept {
@@ -376,7 +373,7 @@ u32 face_format(const TextSystem& system, u32 font, u32* cache) noexcept {
         // are registered directly.
         const bool available = profile_font_path(font, path) && file_path_exists(path);
         if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
-            create_face_format(system, text_font_family(text_fonts[font], font), scope, &format))
+            create_face_format(system, text_font_family(font), scope, &format))
             *cache = format;
     }
     return *cache;
@@ -399,15 +396,15 @@ TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcep
     if (index == static_cast<u32>(UiTextFace::mono) && owner) {
         const auto selected = static_cast<u32>(owner->policy.value.code_face);
         system.native_format = chat ? face_format(system, selected, &formats[index]) : owner->native_code_format;
-        system.tracking = text_fonts[selected].tracking;
-        system.fixed_weight = text_fonts[selected].file != nullptr;
+        system.tracking = kFontTracking[selected];
+        system.fixed_weight = selected >= kSystemFaces;
     } else {
         // The body face of `normal` keeps the body system's tracking and weight.
         system.native_format =
             face_format(system, index ? index : static_cast<u32>(owner->policy.value.body_face), &formats[index]);
         if (index) {
-            system.tracking = text_fonts[index].tracking;
-            system.fixed_weight = text_fonts[index].file != nullptr;
+            system.tracking = kFontTracking[index];
+            system.fixed_weight = index >= kSystemFaces;
         }
     }
     return chat && !system.native_format ? renderer->glyph_text.system : system;
@@ -1462,12 +1459,12 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
     // Fresh zeroed storage supplies the system fields; policy defaults are replaced below.
     static_assert(is_trivial_v<TextSystem>);
     owner->policy.value = value;
-    owner->policy.code_fixed_weight = text_fonts[static_cast<u32>(value.code_face)].file != nullptr;
+    owner->policy.code_fixed_weight = static_cast<u32>(value.code_face) >= kSystemFaces;
     auto& system = owner->system;
     system.em_size = value.body_size;
     system.typography = &owner->policy;
-    system.tracking = text_fonts[static_cast<u32>(value.body_face)].tracking;
-    system.fixed_weight = text_fonts[static_cast<u32>(value.body_face)].file != nullptr;
+    system.tracking = kFontTracking[static_cast<u32>(value.body_face)];
+    system.fixed_weight = static_cast<u32>(value.body_face) >= kSystemFaces;
     if (!source.native_fonts || !native_font_session_retain(source.native_fonts)) {
         release_typography_owner(owner);
         return false;

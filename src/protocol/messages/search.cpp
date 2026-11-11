@@ -1,6 +1,7 @@
 #include "maicord/protocol/messages/search.hpp"
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/messages/card_excerpt.hpp"
 
@@ -453,10 +454,7 @@ bool visit_tab(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-constexpr const char* kHasNames[] = {"link",  "embed",   "file", "video",   "image",
-                                     "sound", "sticker", "poll", "snapshot"};
-constexpr const char* kAuthorTypeNames[] = {"user", "bot", "webhook"};
-constexpr const char* kTabNames[] = {"messages", "media", "files", "links", "pins"};
+constexpr char kTabNames[] = "messages\0media\0files\0links\0pins\0";
 
 bool printable(const char* text, u32 bytes) noexcept {
     for (u32 index = 0; index < bytes; ++index) {
@@ -510,11 +508,12 @@ bool append_terms(ProtocolWriter* writer, const MessageSearchQuery& query) noexc
             (!append_parameter(writer, term.name) ||
              !protocol_write(writer, percent_text({term.value, term.bytes}))))
             return false;
-    for (u32 bit = 0; bit < 3; ++bit)
+    u32 bit = 0;
+    for (NameList list{kMessageSearchAuthorTypeNames}; list; list.next(), ++bit)
         for (u32 excluded = 0; excluded < 2; ++excluded)
             if (((excluded ? query.author_types_excluded : query.author_types) >> bit) & 1u)
                 if (!append_parameter(writer, "author_type") || (excluded && !protocol_write(writer, '-')) ||
-                    !protocol_write(writer, kAuthorTypeNames[bit]))
+                    !protocol_write(writer, list.name()))
                     return false;
     return true;
 }
@@ -579,11 +578,12 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
               append_ids(&writer, "mentions", query.mention_ids, query.mention_count) &&
               append_ids(&writer, "channel_id", query.channel_ids, query.channel_count);
     const u16 has = effective_has(query, query.tab);
-    for (u32 bit = 0; bit < 9; ++bit)
+    u32 bit = 0;
+    for (NameList list{kMessageSearchHasNames}; list; list.next(), ++bit)
         for (u32 excluded = 0; excluded < 2; ++excluded)
             if (((excluded ? query.has_excluded : has) >> bit) & 1u)
                 written = written && append_parameter(&writer, "has") &&
-                          (!excluded || protocol_write(&writer, '-')) && protocol_write(&writer, kHasNames[bit]);
+                          (!excluded || protocol_write(&writer, '-')) && protocol_write(&writer, list.name());
     written = written && append_terms(&writer, query);
     if (query.min_id) {
         written = written && append_parameter(&writer, "min_id") && protocol_write(&writer, query.min_id);
@@ -612,19 +612,19 @@ void json_ids(JsonBody& b, const char* name, const u64* ids, u8 count) noexcept 
         b.element(snowflake_text(ids[index]));
     b.end_array();
 }
-void json_flags(JsonBody& b, const char* name, u32 included, u32 excluded, const char* const* names,
-                u32 count) noexcept {
+void json_flags(JsonBody& b, const char* name, u32 included, u32 excluded, const char* names) noexcept {
     if (!included && !excluded)
         return;
     b.begin_array(name);
-    for (u32 bit = 0; bit < count; ++bit)
+    u32 bit = 0;
+    for (NameList list{names}; list; list.next(), ++bit)
         for (u32 negated = 0; negated < 2; ++negated)
             if (((negated ? excluded : included) >> bit) & 1u) {
                 b.next();
                 b.put('"');
                 if (negated)
                     b.put('-');
-                b.put(names[bit], '"');
+                b.put(list.name(), '"');
             }
     b.end_array();
 }
@@ -636,14 +636,14 @@ void json_term(JsonBody& b, const char* name, const char* value, u8 bytes) noexc
     b.end_array();
 }
 void json_tab(JsonBody& b, const MessageSearchQuery& query, MessageSearchTab tab, u32 offset, u32 limit) noexcept {
-    b.begin_object(kTabNames[static_cast<u8>(tab)]);
+    b.begin_object(name_list_at(kTabNames, static_cast<u8>(tab)).data);
     b.member("sort_by", query.sort == MessageSearchSort::relevance ? "\"relevance\"" : "\"timestamp\"");
     b.member("sort_order", query.sort == MessageSearchSort::oldest ? "\"asc\"" : "\"desc\"");
     b.member_if(query.content_bytes, "content", json_text({query.content, query.content_bytes}));
     json_ids(b, "author_id", query.author_ids, query.author_count);
-    json_flags(b, "author_type", query.author_types, query.author_types_excluded, kAuthorTypeNames, 3);
+    json_flags(b, "author_type", query.author_types, query.author_types_excluded, kMessageSearchAuthorTypeNames);
     json_ids(b, "mentions", query.mention_ids, query.mention_count);
-    json_flags(b, "has", effective_has(query, tab), query.has_excluded, kHasNames, 9);
+    json_flags(b, "has", effective_has(query, tab), query.has_excluded, kMessageSearchHasNames);
     json_term(b, "link_hostname", query.link_hostname, query.hostname_bytes);
     json_term(b, "attachment_extension", query.attachment_extension, query.extension_bytes);
     json_term(b, "attachment_filename", query.attachment_filename, query.filename_bytes);

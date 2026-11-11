@@ -65,7 +65,7 @@ UiRect offset(UiRect r, float dx, float dy) noexcept {
 u32 established(u64 guild_id, char* output) noexcept {
     if (!guild_id)
         return 0;
-    const u64 unix_ms = (guild_id >> 22) + 1'420'070'400'000ull;
+    const u64 unix_ms = (guild_id >> 22) + kSnowflakeEpochMilliseconds;
     const CivilDate date = civil_date_from_days(static_cast<i64>(unix_ms / 86'400'000ull));
     const u32 month = date.month;
     const u64 year = static_cast<u64>(date.year);
@@ -123,6 +123,14 @@ float layout_name_line(UiGuildCardScene& s, UiTextMeasureCache* cache, float y) 
     }
     return y + kNameHeight;
 }
+// "+ N more".
+u32 more_label(char* output, u32 count) noexcept {
+    output[0] = '+';
+    output[1] = ' ';
+    const u32 bytes = 2 + decimal_write(output + 2, count);
+    copy_bytes(output + bytes, " more", 5);
+    return bytes + 5;
+}
 // Trait chips wrap at most kUiGuildCardTraitLines lines; the traits that do not fit fold into "+ N more".
 float layout_traits(UiGuildCardScene& s, UiTextMeasureCache* cache, float y) noexcept {
     const float content = kW - 2 * kP;
@@ -137,23 +145,13 @@ float layout_traits(UiGuildCardScene& s, UiTextMeasureCache* cache, float y) noe
     }
     // The official list reserves room for the widest label it could show ("+ 1N more" for N traits).
     char reserve[16];
-    u32 bytes = 0;
-    reserve[bytes++] = '+';
-    reserve[bytes++] = ' ';
-    reserve[bytes++] = '1';
-    bytes += decimal_write(reserve + bytes, s.trait_count);
-    copy_bytes(reserve + bytes, " more", 5);
     const float reserved =
-        whole(measure(cache, {reserve, bytes + 5}, kInfoStyle, content, true, 11).width) + 2 * kTraitInset;
+        whole(measure(cache, {reserve, more_label(reserve, 10 + s.trait_count)}, kInfoStyle, content, true, 11).width) +
+        2 * kTraitInset;
     s.visible_traits = ui_guild_card_visible_traits(widths, s.trait_count, reserved, content, kUiGuildCardTraitLines);
     const u32 hidden = s.trait_count - s.visible_traits;
     if (hidden) {
-        bytes = 0;
-        s.overflow_text[bytes++] = '+';
-        s.overflow_text[bytes++] = ' ';
-        bytes += decimal_write(s.overflow_text + bytes, hidden);
-        copy_bytes(s.overflow_text + bytes, " more", 5);
-        s.overflow_bytes = bytes + 5;
+        s.overflow_bytes = more_label(s.overflow_text, hidden);
         // The tooltip's chips: one line per folded trait, a Unicode emoji leading its label.
         for (u32 i = s.visible_traits; i < s.trait_count; ++i) {
             if (s.overflow_hint_bytes)
@@ -191,15 +189,12 @@ float layout_relative(UiGuildCardScene& s, UiTextMeasureCache* cache) noexcept {
     s.banner = {0, 0, kW, kUiGuildCardBanner};
     s.icon_ring = {kP, kIconTop - kRing, kP + kUiGuildCardIcon + 2 * kRing, kIconTop + kUiGuildCardIcon + kRing};
     s.icon = {kP + kRing, kIconTop, kP + kRing + kUiGuildCardIcon, kIconTop + kUiGuildCardIcon};
-    s.name = s.server_badge = s.tag_chip = s.tag_badge = s.tag_text = s.online_dot = s.online = s.members_dot =
-        s.members = {};
-    s.established = s.description = s.overflow = s.button = s.status_icon = s.status_title = s.status_text = {};
-    for (auto& trait : s.traits)
-        reset_value(&trait);
-    for (auto& game : s.games)
-        reset_value(&game);
-    reset_value(&s.games_more);
-    reset_value(&s.game_name);
+    // Everything panel-relative after the icon starts empty: name to status_text (the traits among them) and the
+    // games row.
+    clear_bytes(&s.name, static_cast<u32>(__builtin_offsetof(UiGuildCardScene, status_text) + sizeof(UiRect) -
+                                          __builtin_offsetof(UiGuildCardScene, name)));
+    clear_bytes(&s.games, static_cast<u32>(__builtin_offsetof(UiGuildCardScene, game_name) + sizeof(UiRect) -
+                                           __builtin_offsetof(UiGuildCardScene, games)));
     s.visible_traits = s.overflow_bytes = s.overflow_hint_bytes = s.games_more_bytes = 0;
     const float content = kW - 2 * kP;
     // The header starts 8 below the icon's ring plate.
@@ -346,8 +341,8 @@ u32 badge_hint(const UiGuildCardServer& server, UiGuildCardBadge kind, char* out
 }
 } // namespace
 
-bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardContent& content, UiRect anchor,
-                        UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* cache) noexcept {
+bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardContent& content, const UiRect& anchor,
+                        const UiRect& viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* cache) noexcept {
     if (!identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) ||
         !ui_hover_card_initialize(*s, utf8_literal("Server profile"))) {
         if (s->active)

@@ -65,6 +65,10 @@ enum MessageSearchHas : u16 {
     search_has_poll = 1u << 7,
     search_has_snapshot = 1u << 8,
 };
+// The has: and authorType: values in bit order (search_has_*, author_types), one name each; a list ends at its own
+// terminator.
+inline constexpr char kMessageSearchHasNames[] = "link\0embed\0file\0video\0image\0sound\0sticker\0poll\0snapshot\0";
+inline constexpr char kMessageSearchAuthorTypeNames[] = "user\0bot\0webhook\0";
 
 // The request owns its query text, so nothing borrowed crosses an async boundary.
 // The limits are MaiCord's own, not the server's limits.

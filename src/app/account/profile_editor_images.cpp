@@ -328,7 +328,7 @@ void shuffle() noexcept {
     p.draft.theme[0] = color_picker_rgb({hue, .45f + next(40) / 100.f, .55f + next(40) / 100.f});
     p.draft.theme[1] = color_picker_rgb({hue < .5f ? hue + .5f : hue - .5f, .45f + next(40) / 100.f, .3f + next(40) / 100.f});
     p.draft.name_style_set = true;
-    p.draft.name_style = profile_name_style_with_effect({kProfileNameFonts[next(kProfileNameFontCount)].id, 0, 0, {}},
+    p.draft.name_style = profile_name_style_with_effect({kProfileNameFontIds[next(kProfileNameFontCount)], 0, 0, {}},
                                                         next(kProfileNameEffectCount));
 }
 // Leaving Try It Out returns every field the account can't save to its saved value; other edits stay.
@@ -585,9 +585,9 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
                                                              : profile_name_effect_index(style.effect);
         PopupItem items[kProfileNameFontCount]{};
         const u32 count = fonts ? kProfileNameFontCount : kProfileNameEffectCount;
-        for (u32 i = 0; i < count; ++i)
-            items[i] = {fonts ? kProfileNameFonts[i].name : kProfileNameEffects[i].name,
-                        (fonts ? popup_font : popup_effect) + i + 1, dropdown_flags(i == current)};
+        NameList name{fonts ? kProfileNameFontNames : kProfileNameEffectNames};
+        for (u32 i = 0; i < count; ++i, name.next())
+            items[i] = {name.name(), (fonts ? popup_font : popup_effect) + i + 1, dropdown_flags(i == current)};
         open_dropdown(target, {items, count});
         return;
     }
@@ -629,7 +629,7 @@ void choose_option(u32 action) noexcept {
         auto& style = p.draft.name_style;
         if (!profile_name_style_set(style))
             style = profile_name_style_with_effect(style, 0);
-        style.font = kProfileNameFonts[action - popup_font - 1].id;
+        style.font = kProfileNameFontIds[action - popup_font - 1];
         p.draft.name_style_set = true;
     } else if (action)
         select_guild(action - 1);

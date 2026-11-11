@@ -389,9 +389,8 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
             prefix = without_prefix(prefix, '-');
         if (kind == UiSearchFilterKind::file_type)
             prefix = without_prefix(prefix, '.');
-        const auto fixed = ui_search_filter_fixed_choices(kind);
-        for (u32 i = 0; i < fixed.count; ++i) {
-            const auto& row = fixed[i];
+        UiSearchFilterChoiceView row;
+        for (u32 i = 0; ui_search_filter_fixed_choice(kind, i, &row); ++i) {
             ++b.scans;
             if (!choice_match(prefix, row.label, {}, row.value))
                 continue;

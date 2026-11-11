@@ -6,6 +6,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -117,19 +118,18 @@ bool link_target_parse(Utf8View url, LinkTarget* target) noexcept {
 }
 
 bool link_trust_builtin_host(Utf8View host) noexcept {
-    static constexpr Utf8View exact[] = {utf8_literal("discord.gg"),           utf8_literal("discord.gift"),
-                                  utf8_literal("discord.new"),          utf8_literal("media.discordapp.net"),
-                                  utf8_literal("open.spotify.com"),     utf8_literal("www.spotify.com")};
-    for (const auto value : exact)
-        if (utf8_equal(host, value))
+    for (NameList list{"discord.gg\0discord.gift\0discord.new\0media.discordapp.net\0open.spotify.com\0"
+                       "www.spotify.com\0"};
+         list; list.next())
+        if (utf8_equal(host, list.name()))
             return true;
     // /(?:^|\.)(?:discordapp|discord|discordmerch)\.com$/
-    static constexpr Utf8View owned[] = {utf8_literal("discordapp.com"), utf8_literal("discord.com"),
-                                  utf8_literal("discordmerch.com")};
-    for (const auto value : owned)
+    for (NameList list{"discordapp.com\0discord.com\0discordmerch.com\0"}; list; list.next()) {
+        const Utf8View value = list.name();
         if (utf8_equal(host, value) ||
             (ends_with(host, value) && host.bytes > value.bytes && host.data[host.bytes - value.bytes - 1] == '.'))
             return true;
+    }
     return false;
 }
 

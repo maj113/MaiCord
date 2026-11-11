@@ -8,6 +8,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/virtual_memory.hpp"
@@ -281,31 +282,35 @@ bool toggle_detection(u32 entry) noexcept {
 }
 // "Last played 3 days ago", with the official client's relative-time thresholds (moment's fromNow).
 Utf8View played_text(u64 played_ms, char (&output)[kPlayedTextBytes]) noexcept {
+    // The spans in order: below which the text applies and the unit counted before it (1: none).
     struct Span {
         u64 below, unit;
-        Utf8View text; // After the rounded count when `unit` is above 1.
     };
     constexpr u64 kDay = 86'400;
     constexpr Span kSpans[]{
-        {45, 1, utf8_literal("a few seconds ago")}, {90, 1, utf8_literal("a minute ago")},
-        {45 * 60, 60, utf8_literal(" minutes ago")}, {90 * 60, 1, utf8_literal("an hour ago")},
-        {22 * 3600, 3600, utf8_literal(" hours ago")}, {36 * 3600, 1, utf8_literal("a day ago")},
-        {26 * kDay, kDay, utf8_literal(" days ago")}, {45 * kDay, 1, utf8_literal("a month ago")},
-        {320 * kDay, 304 * kDay / 10, utf8_literal(" months ago")}, {548 * kDay, 1, utf8_literal("a year ago")},
-        {~0ull, 365 * kDay, utf8_literal(" years ago")},
+        {45, 1},          {90, 1},        {45 * 60, 60},        {90 * 60, 1},
+        {22 * 3600, 3600}, {36 * 3600, 1}, {26 * kDay, kDay},   {45 * kDay, 1},
+        {320 * kDay, 304 * kDay / 10}, {548 * kDay, 1}, {~0ull, 365 * kDay},
     };
+    // Their texts, after the rounded count when the unit is above 1.
+    constexpr char kTexts[] = "a few seconds ago\0a minute ago\0 minutes ago\0an hour ago\0 hours ago\0a day ago\0"
+                              " days ago\0a month ago\0 months ago\0a year ago\0 years ago\0";
+    static_assert(name_list_count(kTexts) == sizeof(kSpans) / sizeof(kSpans[0]));
     const u64 now_ms = clock_unix_milliseconds();
     const u64 seconds = now_ms > played_ms ? (now_ms - played_ms) / 1000 : 0;
     constexpr Utf8View kLead = utf8_literal("Last played ");
     copy_bytes(output, kLead.data, kLead.bytes);
     u32 used = kLead.bytes;
+    NameList text{kTexts};
     for (const auto& span : kSpans) {
-        if (seconds >= span.below)
+        if (seconds >= span.below) {
+            text.next();
             continue;
+        }
         if (span.unit > 1)
             used += decimal_write(output + used, (seconds + span.unit / 2) / span.unit);
-        copy_bytes(output + used, span.text.data, span.text.bytes);
-        return {output, used + span.text.bytes};
+        copy_bytes(output + used, text.at, text.bytes);
+        return {output, used + text.bytes};
     }
     return {};
 }

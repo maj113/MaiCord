@@ -1,6 +1,7 @@
 #include "maicord/app/account/login/captcha_challenge.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -31,19 +32,16 @@ Slice<char> storage(CaptchaChallenge* challenge, u32 offset, u32 capacity) noexc
 } // namespace
 
 CaptchaProvider captcha_provider_from_service(const ConstSlice<u8>& service) noexcept {
-    struct Name {
-        Utf8View text;
-        CaptchaProvider provider;
-    };
-    static constexpr Name kNames[] = {{utf8_literal("hcaptcha"), CaptchaProvider::hcaptcha},
-                                      {utf8_literal("recaptcha"), CaptchaProvider::recaptcha},
-                                      {utf8_literal("recaptcha_enterprise"), CaptchaProvider::recaptcha_enterprise},
-                                      {utf8_literal("recaptcha-enterprise"), CaptchaProvider::recaptcha_enterprise},
-                                      {utf8_literal("turnstile"), CaptchaProvider::turnstile}};
+    // The service names and their providers, in the same order.
+    static constexpr char kNames[] = "hcaptcha\0recaptcha\0recaptcha_enterprise\0recaptcha-enterprise\0turnstile\0";
+    static constexpr CaptchaProvider kProviders[] = {CaptchaProvider::hcaptcha, CaptchaProvider::recaptcha,
+                                                     CaptchaProvider::recaptcha_enterprise,
+                                                     CaptchaProvider::recaptcha_enterprise, CaptchaProvider::turnstile};
     const Utf8View view{reinterpret_cast<const char*>(service.data), service.count};
-    for (const Name& name : kNames) {
-        if (ascii_equal_ignore_case(view, name.text)) {
-            return name.provider;
+    u32 index = 0;
+    for (NameList list{kNames}; list; list.next(), ++index) {
+        if (ascii_equal_ignore_case(view, list.name())) {
+            return kProviders[index];
         }
     }
     return CaptchaProvider::unknown;

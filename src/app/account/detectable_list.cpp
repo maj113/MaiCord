@@ -3,6 +3,7 @@
 #include "maicord/app/account/game_detection.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
@@ -227,9 +228,7 @@ struct Fetched {
 bool gunzip(Body* body) noexcept {
     if (body->used < 18)
         return false;
-    const u8* tail = body->bytes.base + body->used - 4;
-    const u32 size = tail[0] | static_cast<u32>(tail[1]) << 8 | static_cast<u32>(tail[2]) << 16 |
-                     static_cast<u32>(tail[3]) << 24;
+    const u32 size = byte_load_le32(body->bytes.base + body->used - 4);
     ReservedBytes inflated{};
     DeflateWorkspace* workspace = nullptr;
     bool ok = size && size <= body->limit && reserved_bytes_initialize(&inflated, size) &&

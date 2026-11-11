@@ -679,7 +679,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
     const u64 now_ms = clock_unix_milliseconds();
     sticker_frecency = sticker_frecency_group(utf8_literal("72"), 2, now_ms);
     u32 entries = 0;
-    const auto entry = [](void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+    const auto entry = [](void* context, Utf8View key, const FrecencyItem& item) noexcept {
         *static_cast<u32*>(context) += utf8_equal(key, utf8_literal("72")) && item.recent_count == 2 ? 1 : 100;
         return true;
     };

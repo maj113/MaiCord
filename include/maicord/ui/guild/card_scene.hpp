@@ -127,8 +127,8 @@ struct UiGuildCardScene : UiHoverCard {
 
 // Shows (or re-projects) the card for identity (the guild) beside anchor
 // inside viewport; measure sizes the description and traits when given.
-bool ui_guild_card_show(UiGuildCardScene*, u64 identity, const UiGuildCardContent&, UiRect anchor, UiRect viewport,
-                        u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept;
+bool ui_guild_card_show(UiGuildCardScene*, u64 identity, const UiGuildCardContent&, const UiRect& anchor,
+                        const UiRect& viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept;
 void ui_guild_card_close(UiGuildCardScene*) noexcept;
 bool ui_guild_card_tick(UiGuildCardScene*, u64 now_ms, bool reduced_motion) noexcept;
 u64 ui_guild_card_next_wake(const UiGuildCardScene&, bool reduced_motion) noexcept;

@@ -48,8 +48,9 @@ struct QrCodeRectResult {
 };
 
 // Encodes payload in the smallest version from minimum_version that holds it, up to the largest version
-// `maximum_size` modules allow; writes the modules into `modules` (room for maximum_size squared bits) and the side
-// and mask. Transactional: false, with nothing written, when no allowed version holds it.
+// `maximum_size` modules (a symbol side, 21 + 4 * k) allow; writes the modules into `modules` (room for maximum_size
+// squared bits) and the side and mask, none of them null. Transactional: false, with nothing written, when no allowed
+// version holds it.
 bool qr_code_encode_m(ConstSlice<u8> payload, u32 minimum_version, u32 maximum_size, u8* modules, u8* size,
                       u8* mask) noexcept;
 template <u32 MaximumSize>

@@ -6,6 +6,7 @@
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/decimal.hpp"
 
@@ -163,12 +164,9 @@ bool save(CustomThemeOwner& o) noexcept {
     return true;
 }
 Utf8View builtin_name(ClientTheme theme) noexcept {
-    static constexpr Utf8View names[]{utf8_literal("Dark"),   utf8_literal("AMOLED"),
-                               utf8_literal("Aurora"), utf8_literal("Sunset"),
-                               utf8_literal("Ocean"),  utf8_literal("Custom gradient"),
-                               utf8_literal("Light"),  utf8_literal("Custom light gradient")};
     const auto index = static_cast<u32>(theme);
-    return index < 8 ? names[index] : utf8_literal("Dark");
+    return name_list_at("Dark\0AMOLED\0Aurora\0Sunset\0Ocean\0Custom gradient\0Light\0Custom light gradient\0",
+                        index < 8 ? index : 0);
 }
 Utf8View document_name(const ClientThemeDocument& d) noexcept {
     return d.name_bytes ? Utf8View{d.name, d.name_bytes} : utf8_literal("Imported theme");

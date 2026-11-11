@@ -1,6 +1,7 @@
 #include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -423,11 +424,7 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
     reset_value<TlsStream>(stream);
     network_connection_reset(&stream->connection);
     stream->server_name = server_name;
-    u32 digits = 1;
-    for (u32 value = port; value >= 10; value /= 10)
-        ++digits;
-    for (u32 i = digits, value = port; i; --i, value /= 10)
-        stream->service[i - 1] = static_cast<wchar_t>(L'0' + value % 10);
+    decimal_write(stream->service, port);
     stream->buffers = buffers;
     return byte_queue_initialize(&stream->encrypted_input, buffers.encrypted_input);
 }

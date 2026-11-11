@@ -119,9 +119,7 @@ bool guild_tag_draft_equal(const GuildTagDraft& a, const GuildTagDraft& b) noexc
 void guild_tag_set_text(GuildTagDraft* draft, Utf8View text) noexcept {
     if (!draft || (!text.data && text.bytes))
         return;
-    const u32 bytes = utf8_truncated_length(text, kGuildAdminTagBytes);
-    copy_bytes(draft->tag, text.data, bytes);
-    draft->tag_bytes = static_cast<u8>(bytes);
+    utf8_assign(draft->tag, draft->tag_bytes, text);
 }
 
 bool guild_tag_renamed(const GuildTagDraft& draft, const GuildAdminProfile& stored) noexcept {

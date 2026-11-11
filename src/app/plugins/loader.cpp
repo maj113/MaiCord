@@ -3,6 +3,7 @@
 #include "maicord/app/plugins/text.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -608,10 +609,7 @@ u32 descriptor_path(int descriptor, char (&output)[32]) noexcept {
     constexpr char kPrefix[] = "/proc/self/fd/";
     u32 at = 0;
     for (; at + 1 < sizeof(kPrefix); ++at) output[at] = kPrefix[at];
-    char digits[12];
-    u32 count = 0;
-    for (u32 value = static_cast<u32>(descriptor); count == 0 || value; value /= 10) digits[count++] = static_cast<char>('0' + value % 10);
-    while (count) output[at++] = digits[--count];
+    at += decimal_write(output + at, static_cast<u32>(descriptor));
     output[at] = 0;
     return at;
 }

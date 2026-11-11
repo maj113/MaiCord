@@ -4,6 +4,7 @@
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/protocol/http/rest_route.hpp"
 #include "maicord/protocol/guild/admin.hpp"
@@ -496,60 +497,57 @@ enum class CommunityPath : u8 { guild, event, root };
 enum class CommunityTail : u8 { none, code, event_id, guild_id, session };
 struct CommunityRoute {
     u64 route_id;
-    const char* suffix;
-    u8 suffix_bytes;
     RestMethod method;
     CommunityPath path;
     CommunityTail tail;
 };
-template <usize Count>
-constexpr CommunityRoute community_route(u64 route_id, RestMethod method, const char (&suffix)[Count],
-                                         CommunityPath path = CommunityPath::guild,
+constexpr CommunityRoute community_route(u64 route_id, RestMethod method, CommunityPath path = CommunityPath::guild,
                                          CommunityTail tail = CommunityTail::none) noexcept {
-    return {route_id, suffix, static_cast<u8>(Count - 1), method, path, tail};
+    return {route_id, method, path, tail};
 }
-// One row per GuildCommunityOperation, in its order.
+// One row per GuildCommunityOperation, in its order, and its suffix in kCommunitySuffixes.
 constexpr CommunityRoute kCommunityRoutes[]{
-    community_route(kGuildVerificationGetRouteId, RestMethod::get, "/member-verification?with_guild=false"),
-    community_route(kGuildVerificationSubmitRouteId, RestMethod::put, "/requests/@me"),
-    community_route(kGuildOnboardingGetRouteId, RestMethod::get, "/onboarding"),
-    community_route(kGuildOnboardingSubmitRouteId, RestMethod::post, "/onboarding-responses"),
-    community_route(kGuildEventsListRouteId, RestMethod::get, "/scheduled-events?with_user_count=true"),
-    community_route(kGuildEventGetRouteId, RestMethod::get, "?with_user_count=true", CommunityPath::event),
-    community_route(kGuildEventCreateRouteId, RestMethod::post, "/scheduled-events"),
-    community_route(kGuildEventInterestRouteId, RestMethod::put, "/users/@me", CommunityPath::event),
-    community_route(kGuildEventInterestRouteId, RestMethod::delete_method, "/users/@me", CommunityPath::event),
-    community_route(kGuildEventRsvpsRouteId, RestMethod::get, "/api/v9/users/@me/scheduled-events?guild_ids=",
-                    CommunityPath::root, CommunityTail::guild_id),
-    community_route(kGuildOnboardingSubmitRouteId, RestMethod::put, "/onboarding-responses"),
-    community_route(kGuildProfileGetRouteId, RestMethod::get, "/profile"),
-    // Joining a discoverable server from its tag is a lurker join (lurker=true); session_id names the Gateway
-    // session that receives the GUILD_CREATE.
-    community_route(kGuildJoinRouteId, RestMethod::put, "/members/@me?lurker=true", CommunityPath::guild,
-                    CommunityTail::session),
-    community_route(kGuildVerificationUpdateRouteId, RestMethod::patch, "/member-verification"),
-    community_route(kGuildTemplatesRouteId, RestMethod::get, "/templates"),
-    community_route(kGuildTemplatesRouteId, RestMethod::post, "/templates"),
-    community_route(kGuildTemplateRouteId, RestMethod::put, "/templates/", CommunityPath::guild, CommunityTail::code),
-    community_route(kGuildTemplateRouteId, RestMethod::patch, "/templates/", CommunityPath::guild,
-                    CommunityTail::code),
-    community_route(kGuildTemplateRouteId, RestMethod::delete_method, "/templates/", CommunityPath::guild,
-                    CommunityTail::code),
-    community_route(kGuildDiscoveryRequirementsRouteId, RestMethod::get, "/discovery-requirements"),
-    community_route(kGuildDiscoveryMetadataRouteId, RestMethod::get, "/discovery-metadata"),
-    community_route(kGuildDiscoveryMetadataRouteId, RestMethod::patch, "/discovery-metadata"),
-    // The official client asks in its own locale for every category.
-    community_route(kDiscoveryCategoriesRouteId, RestMethod::get,
-                    "/api/v9/discovery/categories?locale=en-US&primary_only=false", CommunityPath::root),
-    community_route(kGuildDiscoverySubcategoryRouteId, RestMethod::put, "/discovery-categories/",
-                    CommunityPath::guild, CommunityTail::event_id),
-    community_route(kGuildDiscoverySubcategoryRouteId, RestMethod::delete_method, "/discovery-categories/",
-                    CommunityPath::guild, CommunityTail::event_id),
-    community_route(kGuildProfileVisibilityRouteId, RestMethod::patch, "/profile"),
-    community_route(kGuildJoinRequestsRouteId, RestMethod::get, "/requests?status=SUBMITTED&limit=25"),
+    community_route(kGuildVerificationGetRouteId, RestMethod::get),
+    community_route(kGuildVerificationSubmitRouteId, RestMethod::put),
+    community_route(kGuildOnboardingGetRouteId, RestMethod::get),
+    community_route(kGuildOnboardingSubmitRouteId, RestMethod::post),
+    community_route(kGuildEventsListRouteId, RestMethod::get),
+    community_route(kGuildEventGetRouteId, RestMethod::get, CommunityPath::event),
+    community_route(kGuildEventCreateRouteId, RestMethod::post),
+    community_route(kGuildEventInterestRouteId, RestMethod::put, CommunityPath::event),
+    community_route(kGuildEventInterestRouteId, RestMethod::delete_method, CommunityPath::event),
+    community_route(kGuildEventRsvpsRouteId, RestMethod::get, CommunityPath::root, CommunityTail::guild_id),
+    community_route(kGuildOnboardingSubmitRouteId, RestMethod::put),
+    community_route(kGuildProfileGetRouteId, RestMethod::get),
+    community_route(kGuildJoinRouteId, RestMethod::put, CommunityPath::guild, CommunityTail::session),
+    community_route(kGuildVerificationUpdateRouteId, RestMethod::patch),
+    community_route(kGuildTemplatesRouteId, RestMethod::get),
+    community_route(kGuildTemplatesRouteId, RestMethod::post),
+    community_route(kGuildTemplateRouteId, RestMethod::put, CommunityPath::guild, CommunityTail::code),
+    community_route(kGuildTemplateRouteId, RestMethod::patch, CommunityPath::guild, CommunityTail::code),
+    community_route(kGuildTemplateRouteId, RestMethod::delete_method, CommunityPath::guild, CommunityTail::code),
+    community_route(kGuildDiscoveryRequirementsRouteId, RestMethod::get),
+    community_route(kGuildDiscoveryMetadataRouteId, RestMethod::get),
+    community_route(kGuildDiscoveryMetadataRouteId, RestMethod::patch),
+    community_route(kDiscoveryCategoriesRouteId, RestMethod::get, CommunityPath::root),
+    community_route(kGuildDiscoverySubcategoryRouteId, RestMethod::put, CommunityPath::guild, CommunityTail::event_id),
+    community_route(kGuildDiscoverySubcategoryRouteId, RestMethod::delete_method, CommunityPath::guild,
+                    CommunityTail::event_id),
+    community_route(kGuildProfileVisibilityRouteId, RestMethod::patch),
+    community_route(kGuildJoinRequestsRouteId, RestMethod::get),
 };
+// Their suffixes. Joining a discoverable server from its tag is a lurker join (lurker=true); session_id names the
+// Gateway session that receives the GUILD_CREATE. The official client asks in its own locale for every category.
+constexpr char kCommunitySuffixes[] =
+    "/member-verification?with_guild=false\0/requests/@me\0/onboarding\0/onboarding-responses\0"
+    "/scheduled-events?with_user_count=true\0?with_user_count=true\0/scheduled-events\0/users/@me\0/users/@me\0"
+    "/api/v9/users/@me/scheduled-events?guild_ids=\0/onboarding-responses\0/profile\0/members/@me?lurker=true\0"
+    "/member-verification\0/templates\0/templates\0/templates/\0/templates/\0/templates/\0/discovery-requirements\0"
+    "/discovery-metadata\0/discovery-metadata\0/api/v9/discovery/categories?locale=en-US&primary_only=false\0"
+    "/discovery-categories/\0/discovery-categories/\0/profile\0/requests?status=SUBMITTED&limit=25\0";
 static_assert(sizeof(kCommunityRoutes) / sizeof(kCommunityRoutes[0]) ==
-              static_cast<usize>(GuildCommunityOperation::count));
+                  static_cast<usize>(GuildCommunityOperation::count) &&
+              name_list_count(kCommunitySuffixes) == static_cast<usize>(GuildCommunityOperation::count));
 } // namespace
 
 GuildCommunityWriteResult guild_community_write_target(const GuildCommunityRequest& request,
@@ -567,12 +565,14 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
             return result;
         }
     }
-    const auto& r = kCommunityRoutes[static_cast<u32>(request.operation)];
+    const auto index = static_cast<u32>(request.operation);
+    const auto& r = kCommunityRoutes[index];
+    const Utf8View suffix = name_list_at(kCommunitySuffixes, index);
     RouteWriter route{};
     bool ok = route_writer_initialize(&route, target) &&
               (r.path == CommunityPath::root || route_write(&route, "/api/v9/guilds/", request.guild_id)) &&
               (r.path != CommunityPath::event || route_write(&route, "/scheduled-events/", request.event_id)) &&
-              route_append_bytes(&route, r.suffix, r.suffix_bytes);
+              route_append_bytes(&route, suffix.data, suffix.bytes);
     switch (r.tail) {
     case CommunityTail::code: ok = ok && route_write(&route, request.code); break;
     case CommunityTail::event_id: ok = ok && route_write(&route, request.event_id); break;

@@ -2,17 +2,22 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
-u32 author_type(Utf8View value) noexcept {
-    const Utf8View labels[] = {utf8_literal("user"), utf8_literal("bot"), utf8_literal("webhook")};
-    for (u32 i = 0; i < 3; ++i)
-        if (utf8_equal(value, labels[i]))
-            return 1u << i;
+// The flag (1 << index) of the list's name that `value` is, or 0.
+u32 name_flag(const char* names, Utf8View value) noexcept {
+    u32 flag = 1;
+    for (NameList list{names}; list; list.next(), flag <<= 1)
+        if (utf8_equal(value, list.name()))
+            return flag;
     return 0;
+}
+u32 author_type(Utf8View value) noexcept {
+    return name_flag(kMessageSearchAuthorTypeNames, value);
 }
 // A negated value ("-link") moves the flag to the excluded set.
 bool negatable(const Utf8View& value, u32 (*parse)(Utf8View) noexcept, u32* included, u32* excluded) noexcept {
@@ -116,14 +121,8 @@ bool date(Utf8View value, u64* day) noexcept {
 u32 has(Utf8View value) noexcept {
     // The search UI calls forwarded-message snapshots "Forward"; the
     // REST search parameter retains its snapshot spelling.
-    if (utf8_equal(value, utf8_literal("forward"))) return search_has_snapshot;
-    const Utf8View labels[] = {utf8_literal("link"),    utf8_literal("embed"), utf8_literal("file"),
-                               utf8_literal("video"),   utf8_literal("image"), utf8_literal("sound"),
-                               utf8_literal("sticker"), utf8_literal("poll"),  utf8_literal("snapshot")};
-    for (u32 i = 0; i < 9; ++i)
-        if (utf8_equal(value, labels[i]))
-            return 1u << i;
-    return 0;
+    return utf8_equal(value, utf8_literal("forward")) ? search_has_snapshot
+                                                       : name_flag(kMessageSearchHasNames, value);
 }
 } // namespace
 UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchScope scope, u64 scope_id,
@@ -176,15 +175,12 @@ UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchSco
         Utf8View value{token.data + minimum(colon + 1, token.bytes),
                        token.bytes - minimum(colon + 1, token.bytes)};
         bool filter = colon < token.bytes, ok = true;
-        const Utf8View keys[] = {
-            utf8_literal("from"),      utf8_literal("mentions"), utf8_literal("in"),
-            utf8_literal("has"),       utf8_literal("pinned"),   utf8_literal("before"),
-            utf8_literal("after"),     utf8_literal("on"),       utf8_literal("during"),
-            utf8_literal("linkFrom"),  utf8_literal("fileType"), utf8_literal("fileName"),
-            utf8_literal("authorType")};
         u32 kind = 0;
-        while (filter && kind < 13 && !ascii_equal_ignore_case(key, keys[kind]))
-            ++kind;
+        if (filter)
+            for (NameList list{"from\0mentions\0in\0has\0pinned\0before\0after\0on\0during\0linkFrom\0fileType\0fileName\0"
+                               "authorType\0"};
+                 list && !ascii_equal_ignore_case(key, list.name()); list.next())
+                ++kind;
         const bool recognized = filter && kind < 13;
         const bool dated = kind >= 5 && kind <= 8;
         char decoded[kMessageSearchContentBytes];

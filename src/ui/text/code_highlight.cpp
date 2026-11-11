@@ -1,5 +1,6 @@
 #include "maicord/ui/text/code_highlight.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/text/style.hpp"
 
 // Runs once per fenced code block (the parsed message is cached): compiled for size.
@@ -17,15 +18,6 @@ bool identifier_begin(char value) noexcept {
 
 bool identifier_continue(char value) noexcept {
     return identifier_begin(value) || ascii_is_digit(value);
-}
-
-bool tag_equal(Utf8View tag, const char* expected, u32 expected_bytes) noexcept {
-    for (u32 index = 0; index < expected_bytes; ++index) {
-        if (ascii_lower(tag.data[index]) != expected[index]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 bool c_family(CodeLanguage language) noexcept {
@@ -432,47 +424,22 @@ CodeLanguage code_language_from_tag(Utf8View tag) noexcept {
     while (tag.bytes != 0 && tag.data[tag.bytes - 1] == '\r') {
         --tag.bytes;
     }
-    struct Alias { const char* name; u8 bytes; CodeLanguage language; };
-    static constexpr Alias aliases[]{
-        {"c", 1, CodeLanguage::c},
-        {"cpp", 3, CodeLanguage::cpp},
-        {"c++", 3, CodeLanguage::cpp},
-        {"cc", 2, CodeLanguage::cpp},
-        {"cxx", 3, CodeLanguage::cpp},
-        {"cs", 2, CodeLanguage::csharp},
-        {"csharp", 6, CodeLanguage::csharp},
-        {"rs", 2, CodeLanguage::rust},
-        {"rust", 4, CodeLanguage::rust},
-        {"js", 2, CodeLanguage::javascript},
-        {"javascript", 10, CodeLanguage::javascript},
-        {"jsx", 3, CodeLanguage::javascript},
-        {"ts", 2, CodeLanguage::typescript},
-        {"typescript", 10, CodeLanguage::typescript},
-        {"tsx", 3, CodeLanguage::typescript},
-        {"java", 4, CodeLanguage::java},
-        {"json", 4, CodeLanguage::json},
-        {"jsonc", 5, CodeLanguage::json},
-        {"py", 2, CodeLanguage::python},
-        {"python", 6, CodeLanguage::python},
-        {"ps1", 3, CodeLanguage::powershell},
-        {"powershell", 10, CodeLanguage::powershell},
-        {"sh", 2, CodeLanguage::shell},
-        {"bash", 4, CodeLanguage::shell},
-        {"zsh", 3, CodeLanguage::shell},
-        {"shell", 5, CodeLanguage::shell},
-        {"hlsl", 4, CodeLanguage::hlsl},
-        {"glsl", 4, CodeLanguage::glsl},
-        {"vert", 4, CodeLanguage::glsl},
-        {"frag", 4, CodeLanguage::glsl},
-        {"sql", 3, CodeLanguage::sql},
-        {"html", 4, CodeLanguage::markup},
-        {"xml", 3, CodeLanguage::markup},
-        {"css", 3, CodeLanguage::css},
-        {"ansi", 4, CodeLanguage::ansi},
-    };
-    for (const auto& alias : aliases)
-        if (tag.bytes == alias.bytes && tag_equal(tag, alias.name, alias.bytes))
-            return alias.language;
+    // The tags, one name each, and their languages in the same order.
+    static constexpr char names[] = "c\0cpp\0c++\0cc\0cxx\0cs\0csharp\0rs\0rust\0js\0javascript\0jsx\0ts\0typescript\0tsx\0"
+                                    "java\0json\0jsonc\0py\0python\0ps1\0powershell\0sh\0bash\0zsh\0shell\0hlsl\0glsl\0"
+                                    "vert\0frag\0sql\0html\0xml\0css\0ansi\0";
+    using L = CodeLanguage;
+    static constexpr L languages[]{L::c,          L::cpp,        L::cpp,   L::cpp,   L::cpp,   L::csharp, L::csharp,
+                                   L::rust,       L::rust,       L::javascript, L::javascript, L::javascript,
+                                   L::typescript, L::typescript, L::typescript, L::java, L::json, L::json,
+                                   L::python,     L::python,     L::powershell, L::powershell, L::shell, L::shell,
+                                   L::shell,      L::shell,      L::hlsl,  L::glsl,  L::glsl,   L::glsl,   L::sql,
+                                   L::markup,     L::markup,     L::css,   L::ansi};
+    static_assert(name_list_count(names) == sizeof(languages));
+    u32 index = 0;
+    for (NameList list{names}; list; list.next(), ++index)
+        if (ascii_equal_ignore_case(tag, list.name()))
+            return languages[index];
     return CodeLanguage::none;
 }
 

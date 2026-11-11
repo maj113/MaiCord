@@ -1,5 +1,6 @@
 #include "message_rich_store_internal.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace message_rich_store_detail {
@@ -944,29 +945,26 @@ namespace {
 // only when the content type is absent or an opaque binary.
 enum class AudioRuleKind : u8 { mime, generic_suffix, suffix };
 struct AudioRule {
-    Utf8View text;
     MediaAttachmentFormat format;
     AudioRuleKind kind;
 };
+// One row per text of kAudioRuleTexts, in its order. MPEG-4 audio: AAC in an audio-only MP4/QuickTime container.
+// Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data before any native playback resource is
+// opened.
 constexpr AudioRule kAudioRules[] = {
-    {utf8_literal("audio/ogg"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::mime},
-    {utf8_literal("audio/mpeg"), MediaAttachmentFormat::mp3, AudioRuleKind::mime},
-    {utf8_literal("audio/mp3"), MediaAttachmentFormat::mp3, AudioRuleKind::mime},
-    {utf8_literal("audio/wav"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
-    {utf8_literal("audio/x-wav"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
-    {utf8_literal("audio/vnd.wave"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
-    {utf8_literal(".mp3"), MediaAttachmentFormat::mp3, AudioRuleKind::generic_suffix},
-    {utf8_literal(".wav"), MediaAttachmentFormat::wav, AudioRuleKind::generic_suffix},
-    // MPEG-4 audio: AAC in an audio-only MP4/QuickTime container.
-    {utf8_literal("audio/mp4"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
-    {utf8_literal("audio/x-m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
-    {utf8_literal("audio/m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
-    {utf8_literal(".m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::generic_suffix},
-    // Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data
-    // before any native playback resource is opened.
-    {utf8_literal(".ogg"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
-    {utf8_literal(".opus"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
+    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::mime},  {MediaAttachmentFormat::mp3, AudioRuleKind::mime},
+    {MediaAttachmentFormat::mp3, AudioRuleKind::mime},       {MediaAttachmentFormat::wav, AudioRuleKind::mime},
+    {MediaAttachmentFormat::wav, AudioRuleKind::mime},       {MediaAttachmentFormat::wav, AudioRuleKind::mime},
+    {MediaAttachmentFormat::mp3, AudioRuleKind::generic_suffix},
+    {MediaAttachmentFormat::wav, AudioRuleKind::generic_suffix},
+    {MediaAttachmentFormat::m4a, AudioRuleKind::mime},       {MediaAttachmentFormat::m4a, AudioRuleKind::mime},
+    {MediaAttachmentFormat::m4a, AudioRuleKind::mime},       {MediaAttachmentFormat::m4a, AudioRuleKind::generic_suffix},
+    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
+    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
 };
+constexpr char kAudioRuleTexts[] = "audio/ogg\0audio/mpeg\0audio/mp3\0audio/wav\0audio/x-wav\0audio/vnd.wave\0.mp3\0"
+                                   ".wav\0audio/mp4\0audio/x-m4a\0audio/m4a\0.m4a\0.ogg\0.opus\0";
+static_assert(name_list_count(kAudioRuleTexts) == sizeof(kAudioRules) / sizeof(kAudioRules[0]));
 
 // ASCII case-insensitive; `text` is lower case.
 bool equal_lower(Utf8View value, Utf8View text, bool tail) noexcept {
@@ -996,12 +994,14 @@ MediaAttachmentFormat message_rich_attachment_audio_format(
         --type.bytes;
     const bool generic = !type.bytes || equal_lower(type, utf8_literal("application/octet-stream"), false) ||
                          equal_lower(type, utf8_literal("binary/octet-stream"), false);
+    NameList text{kAudioRuleTexts};
     #pragma clang loop unroll(disable)
     for (const AudioRule& rule : kAudioRules) {
         const bool mime = rule.kind == AudioRuleKind::mime;
         if ((rule.kind != AudioRuleKind::generic_suffix || generic) &&
-            equal_lower(mime ? type : name, rule.text, !mime))
+            equal_lower(mime ? type : name, text.name(), !mime))
             return rule.format;
+        text.next();
     }
     return MediaAttachmentFormat::unknown;
 }

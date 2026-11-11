@@ -1,5 +1,6 @@
 #include "embed_player_internal.hpp"
 #include "maicord/protocol/media/cdn_http.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 using namespace embed_player_detail;
@@ -71,10 +72,11 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
             !is_text({target.data+target.bytes-4,4}, ".mp4") ||
             !imgur_video_id({target.data+1,target.bytes-5})) return false;
     } else if (cdn == CdnHost::streamable_video) {
-        static constexpr Utf8View hosts[]{utf8_literal("cdn-cf-east.streamable.com"), utf8_literal("cdn-cf-west.streamable.com"),
-            utf8_literal("cdn-b-east.streamable.com"), utf8_literal("cdn-b-west.streamable.com")};
         bool allowed = false;
-        for (auto name : hosts) allowed = allowed || ascii_equal_ignore_case(host, name);
+        for (NameList list{"cdn-cf-east.streamable.com\0cdn-cf-west.streamable.com\0cdn-b-east.streamable.com\0"
+                           "cdn-b-west.streamable.com\0"};
+             list; list.next())
+            allowed = allowed || ascii_equal_ignore_case(host, list.name());
         const u32 prefix_bytes = has_prefix(target, "/video/mp4/") ? 11
             : has_prefix(target, "/video/mp4-mobile/") ? 18 : 0;
         const u32 path_end = query_at(target);

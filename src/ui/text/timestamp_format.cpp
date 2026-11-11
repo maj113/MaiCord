@@ -1,6 +1,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/name_list.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
@@ -86,21 +87,22 @@ bool append_time(Slice<char> output, u32* used, const CalendarTime& time, bool s
 TimestampFormatResult format_relative(u64 timestamp, u64 now, Slice<char> output) noexcept {
     const bool future = timestamp > now;
     const u64 difference = future ? timestamp - now : now - timestamp;
+    // The units from the largest: seconds in a unit and how often to refresh, and their names in the same order.
     static constexpr struct {
         u64 seconds, refresh;
-        const char* name;
-        u32 bytes;
-    } units[] = {{31'536'000, 86'400, "year", 4}, {2'592'000, 86'400, "month", 5}, {604'800, 3'600, "week", 4},
-                 {86'400, 3'600, "day", 3},       {3'600, 60, "hour", 4},          {60, 1, "minute", 6},
-                 {1, 1, "second", 6}};
+    } units[] = {{31'536'000, 86'400}, {2'592'000, 86'400}, {604'800, 3'600}, {86'400, 3'600},
+                 {3'600, 60},          {60, 1},             {1, 1}};
+    NameList name{"year\0month\0week\0day\0hour\0minute\0second\0"};
     const auto* unit = units;
-    while (unit->seconds > 1 && difference < unit->seconds)
+    while (unit->seconds > 1 && difference < unit->seconds) {
         ++unit;
+        name.next();
+    }
     const u64 amount = maximum<u64>(1, difference / unit->seconds);
     u32 used = 0;
     const bool written = (!future || append_ascii(output, &used, "in ", 3)) &&
                          append_u64(output, &used, amount) && append_ascii(output, &used, " ", 1) &&
-                         append_ascii(output, &used, unit->name, unit->bytes) &&
+                         append_ascii(output, &used, name.at, name.bytes) &&
                          (amount == 1 || append_ascii(output, &used, "s", 1)) &&
                          (future || append_ascii(output, &used, " ago", 4));
     return TimestampFormatResult{written && now <= ~0ull - unit->refresh ? now + unit->refresh : 0,

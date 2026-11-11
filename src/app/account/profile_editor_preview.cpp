@@ -722,10 +722,11 @@ void project_controls(TextBank& bank) noexcept {
     const bool style_allowed = (g.enabled & profile_editor_name_style) != 0;
     const auto& style = p.draft.name_style;
     const bool styled = profile_name_style_set(style);
-    for (u32 i = 0; i < kProfileNameFontCount; ++i)
-        p.font_choices[i] = kProfileNameFonts[i].name;
-    for (u32 i = 0; i < kProfileNameEffectCount; ++i)
-        p.effect_choices[i] = kProfileNameEffects[i].name;
+    NameList font_name{kProfileNameFontNames}, effect_name{kProfileNameEffectNames};
+    for (u32 i = 0; i < kProfileNameFontCount; ++i, font_name.next())
+        p.font_choices[i] = font_name.name();
+    for (u32 i = 0; i < kProfileNameEffectCount; ++i, effect_name.next())
+        p.effect_choices[i] = effect_name.name();
     const u32 font = styled ? profile_name_font_index(style.font) : ~0u;
     const u32 name_effect = styled ? profile_name_effect_index(style.effect) : ~0u;
     auto& fonts = row(control_name_style, UiSettingsControlKind::choice, edit && style_allowed);

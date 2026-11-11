@@ -136,14 +136,9 @@ bool focus_tile(UiGoLiveScene& s, u32 index) noexcept {
     ++s.revision;
     return true;
 }
-void copy_text(char* destination, u32 capacity, Utf8View text, u8* bytes) noexcept {
-    const u32 count = utf8_truncated_length(text, capacity);
-    copy_bytes(destination, text.data, count);
-    *bytes = static_cast<u8>(count);
-}
 } // namespace
 
-bool ui_go_live_scene_update(UiGoLiveScene* s, const UiGoLiveContent& c, UiRect viewport) noexcept {
+bool ui_go_live_scene_update(UiGoLiveScene* s, const UiGoLiveContent& c, const UiRect& viewport) noexcept {
     if (!s || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 360 || ui_rect_height(viewport) < 320 ||
         c.mode > UiGoLiveMode::unavailable || c.tab > UiGoLiveTab::screens || c.kind > UiGoLiveSystemKind::window ||
         c.sources.count > kUiGoLiveMaximumSources || !initialize(*s))
@@ -162,21 +157,18 @@ bool ui_go_live_scene_update(UiGoLiveScene* s, const UiGoLiveContent& c, UiRect 
     s->nitro = c.nitro;
     s->change_source = c.change_source;
     s->content_revision = c.revision;
-    copy_text(s->title, sizeof(s->title), c.title, &s->title_bytes);
-    copy_text(s->summary, sizeof(s->summary), c.summary, &s->summary_bytes);
-    copy_text(s->detail, sizeof(s->detail), c.detail, &s->detail_bytes);
-    copy_text(s->notice, sizeof(s->notice), c.notice, &s->notice_bytes);
-    const u32 body = utf8_truncated_length(c.body, sizeof(s->body_text));
-    copy_bytes(s->body_text, c.body.data, body);
-    s->body_bytes = static_cast<u16>(body);
+    utf8_assign(s->title, s->title_bytes, c.title);
+    utf8_assign(s->summary, s->summary_bytes, c.summary);
+    utf8_assign(s->detail, s->detail_bytes, c.detail);
+    utf8_assign(s->notice, s->notice_bytes, c.notice);
+    utf8_assign(s->body_text, s->body_bytes, c.body);
     // A tile keeps its focus across refreshes while its source is still listed.
     const u32 focus = focused_tile(*s);
     const u64 focus_id = focus < s->source_count ? s->sources[focus].id : 0;
     s->source_count = c.mode == UiGoLiveMode::picker ? c.sources.count : 0;
     for (u32 i = 0; i < s->source_count; ++i) {
         const auto& source = c.sources[i];
-        const u32 bytes = utf8_truncated_length(source.name, kUiGoLiveNameBytes);
-        copy_bytes(s->names[i], source.name.data, bytes);
+        const u32 bytes = utf8_copy_truncated(s->names[i], source.name);
         s->sources[i] = source;
         s->sources[i].name = {s->names[i], bytes};
     }
@@ -411,10 +403,10 @@ bool ui_go_live_scene_text_output(const UiGoLiveScene& s, const Theme& t, UiText
     UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
     const Color muted = t.text_secondary;
     if (s.mode == UiGoLiveMode::picker) {
-        static constexpr Utf8View kTabs[]{utf8_literal("Applications"), utf8_literal("Entire Screen")};
         for (u32 i = 0; i < 2; ++i)
-            text(s.tabs[i], kTabs[i], s.tab_rectangles[i], static_cast<u32>(s.tab) == i ? t.text_primary : muted,
-                 text_style_bold | text_style_subtext, ui_text_center | ui_text_middle);
+            text(s.tabs[i], i ? utf8_literal("Entire Screen") : utf8_literal("Applications"), s.tab_rectangles[i],
+                 static_cast<u32>(s.tab) == i ? t.text_primary : muted, text_style_bold | text_style_subtext,
+                 ui_text_center | ui_text_middle);
         for (u32 i = 0; text.ok() && i < s.source_count; ++i) {
             const auto tile = tile_absolute(s, i);
             if (!ui_rect_intersects(tile, s.body))
@@ -446,10 +438,10 @@ bool ui_go_live_scene_text_output(const UiGoLiveScene& s, const Theme& t, UiText
              t.text_primary, text_style_bold, ui_text_center | ui_text_middle);
     }
     if (s.mode == UiGoLiveMode::system_picker) {
-        static constexpr Utf8View kKinds[]{utf8_literal("Share entire screen"), utf8_literal("Share a window")};
         for (u32 i = 0; i < 2; ++i) {
             const auto r = s.kind_rectangles[i];
-            text(s.kinds[i], kKinds[i], {r.left + 8, r.top + 76, r.right - 8, r.bottom - 16}, t.text_primary,
+            text(s.kinds[i], i ? utf8_literal("Share a window") : utf8_literal("Share entire screen"),
+                 {r.left + 8, r.top + 76, r.right - 8, r.bottom - 16}, t.text_primary,
                  text_style_subtext | text_style_bold, ui_text_center | ui_text_middle);
         }
         text(s.root,

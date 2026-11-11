@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -90,14 +91,10 @@ EmbedProvider provider(const Url& u) noexcept {
         if (ascii_equal_ignore_case(u.host, {at, bytes})) return found;
         at += bytes + 1;
     }
-    static constexpr Utf8View regions[]{utf8_literal("com"), utf8_literal("co.uk"), utf8_literal("de"),
-        utf8_literal("co.jp"), utf8_literal("es"), utf8_literal("fr"), utf8_literal("it"),
-        utf8_literal("com.au"), utf8_literal("in"), utf8_literal("ca"), utf8_literal("com.mx"),
-        utf8_literal("com.br")};
     constexpr auto amazon = utf8_literal("music.amazon.");
     if (u.host.bytes > amazon.bytes && ascii_equal_ignore_case({u.host.data, amazon.bytes}, amazon))
-        for (auto region : regions)
-            if (ascii_equal_ignore_case({u.host.data + amazon.bytes, u.host.bytes - amazon.bytes}, region))
+        for (NameList list{"com\0co.uk\0de\0co.jp\0es\0fr\0it\0com.au\0in\0ca\0com.mx\0com.br\0"}; list; list.next())
+            if (ascii_equal_ignore_case({u.host.data + amazon.bytes, u.host.bytes - amazon.bytes}, list.name()))
                 return EmbedProvider::amazon_music;
     return EmbedProvider::none;
 }
@@ -208,9 +205,8 @@ static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
         if (!equal({path.data + first, separators[1] - first}, utf8_literal("sets"))) return {};
     } else {
         const Utf8View leaf{path.data + first, path.bytes - first};
-        static constexpr Utf8View collections[]{utf8_literal("sets"), utf8_literal("tracks"), utf8_literal("albums"),
-            utf8_literal("likes"), utf8_literal("reposts"), utf8_literal("popular-tracks")};
-        for (auto name : collections) if (equal(leaf, name)) return {};
+        for (NameList list{"sets\0tracks\0albums\0likes\0reposts\0popular-tracks\0"}; list; list.next())
+            if (equal(leaf, list.name())) return {};
     }
     return path;
 }
@@ -526,11 +522,11 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
         auto path=parsed.path;
         if(path.bytes && path.data[0]=='/') {
             path={path.data+1,path.bytes-1};
-            static constexpr Utf8View endings[]{utf8_literal("/embed"),utf8_literal(".gifv"),utf8_literal(".mp4")};
-            for(auto ending:endings) if(path.bytes>ending.bytes &&
-                equal({path.data+path.bytes-ending.bytes,ending.bytes},ending)) {
-                path.bytes-=ending.bytes;break;
-            }
+            for (NameList list{"/embed\0.gifv\0.mp4\0"}; list; list.next())
+                if (path.bytes > list.bytes && equal({path.data + path.bytes - list.bytes, list.bytes}, list.name())) {
+                    path.bytes -= list.bytes;
+                    break;
+                }
             if(imgur_video_id(path)) out.id=path;
         }
         return out;
@@ -578,9 +574,9 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
             if (end > 1 && prefix(rest, utf8_literal("/clip/"))) out.id = {rest.data + 6, rest.bytes - 6};
             else if (!rest.bytes || equal(rest, utf8_literal("/"))) {
                 const Utf8View channel{parsed.path.data + 1, end - 1};
-                static constexpr Utf8View reserved[]{utf8_literal("directory"), utf8_literal("downloads"), utf8_literal("search"),
-                    utf8_literal("settings"), utf8_literal("login"), utf8_literal("signup"), utf8_literal("videos"), utf8_literal("p")};
-                for (auto name : reserved) if (ascii_equal_ignore_case(channel, name)) return {};
+                for (NameList list{"directory\0downloads\0search\0settings\0login\0signup\0videos\0p\0"}; list;
+                     list.next())
+                    if (ascii_equal_ignore_case(channel, list.name())) return {};
                 if (twitch_channel_id(channel)) { out.id = channel; out.provider = EmbedProvider::twitch_live; return out; }
             }
         }
@@ -588,9 +584,11 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
         return out;
     }
     if (out.provider == EmbedProvider::tiktok) {
-        static constexpr Utf8View paths[]{utf8_literal("/player/v1/"), utf8_literal("/embed/v2/"), utf8_literal("/embed/")};
-        for (auto path : paths)
-            if (prefix(parsed.path, path)) { out.id = {parsed.path.data + path.bytes, parsed.path.bytes - path.bytes}; break; }
+        for (NameList list{"/player/v1/\0/embed/v2/\0/embed/\0"}; list; list.next())
+            if (prefix(parsed.path, list.name())) {
+                out.id = {parsed.path.data + list.bytes, parsed.path.bytes - list.bytes};
+                break;
+            }
         if (!out.id.bytes && prefix(parsed.path, utf8_literal("/@"))) {
             u32 end = 2;
             while (end < parsed.path.bytes && parsed.path.data[end] != '/') ++end;
@@ -607,9 +605,9 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
     } else if (equal(parsed.path, utf8_literal("/watch"))) {
         if (!parameter(parsed.query, utf8_literal("v"), &out.id)) return {};
     } else {
-        static constexpr Utf8View paths[]{utf8_literal("/embed/"), utf8_literal("/shorts/"), utf8_literal("/live/")};
-        for (auto path : paths)
-            if (prefix(parsed.path, path)) out.id = {parsed.path.data + path.bytes, parsed.path.bytes - path.bytes};
+        for (NameList list{"/embed/\0/shorts/\0/live/\0"}; list; list.next())
+            if (prefix(parsed.path, list.name()))
+                out.id = {parsed.path.data + list.bytes, parsed.path.bytes - list.bytes};
     }
     if (!id_valid(out.id)) { reset_value(&out.id); return out; }
     Utf8View start{}, time{};

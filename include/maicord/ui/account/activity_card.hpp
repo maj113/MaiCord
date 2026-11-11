@@ -110,7 +110,7 @@ struct UiActivityCard {
     float fraction;
     UserActivityArtwork art;
     // The ticking items (kUiActivityCardNone when absent).
-    u8 clock, clock_glyph, elapsed, bar;
+    u8 clock, clock_glyph, bar;
 };
 // False for a custom status (not a card).
 bool ui_activity_card_layout(const UserActivity&, const UiActivityCardInput&, UiActivityCard*) noexcept;

@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/gateway/commands.hpp"
@@ -497,17 +498,11 @@ bool rest_audit_reason_valid(const ConstSlice<u8>& encoded) noexcept {
 }
 
 namespace {
-constexpr Utf8View kExtraHeaderNames[] = {
-    utf8_literal("X-Captcha-Key"),
-    utf8_literal("X-Captcha-Rqtoken"),
-    utf8_literal("X-Captcha-Session-Id"),
-    utf8_literal("X-Context-Properties"),
-    utf8_literal("X-Discord-MFA-Authorization"),
-    utf8_literal("X-Discord-Original-MD5"),
-};
+constexpr char kExtraHeaderNames[] = "X-Captcha-Key\0X-Captcha-Rqtoken\0X-Captcha-Session-Id\0X-Context-Properties\0"
+                                     "X-Discord-MFA-Authorization\0X-Discord-Original-MD5\0";
 bool extra_header_name(const u8* data, u32 bytes) noexcept {
-    for (const auto name : kExtraHeaderNames)
-        if (name.bytes == bytes && bytes_equal(name.data, data, bytes))
+    for (NameList list{kExtraHeaderNames}; list; list.next())
+        if (list.bytes == bytes && bytes_equal(list.at, data, bytes))
             return true;
     return false;
 }

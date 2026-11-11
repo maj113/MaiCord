@@ -4,6 +4,7 @@
 #include "maicord/core/interlocked.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord {
@@ -151,9 +152,8 @@ u32 https_exchange_head(const UpdateHttpRequest& request, const HttpsExchangeOpt
             if (!ascii_is_alnum(h.name.data[j]) && h.name.data[j] != '-') ok = false;
         for (u32 j = 0; j < h.value.bytes; ++j)
             if (h.value.data[j] < ' ' || h.value.data[j] > '~') ok = false;
-        static constexpr Utf8View reserved[]{utf8_literal("Host"), utf8_literal("Content-Length"),
-            utf8_literal("Transfer-Encoding"), utf8_literal("Connection"), utf8_literal("Accept-Encoding")};
-        for (auto name : reserved) if (ascii_equal_ignore_case(h.name, name)) ok = false;
+        for (NameList list{"Host\0Content-Length\0Transfer-Encoding\0Connection\0Accept-Encoding\0"}; list; list.next())
+            if (ascii_equal_ignore_case(h.name, list.name())) ok = false;
         for (u32 j = 0; j < i; ++j)
             if (ascii_equal_ignore_case(h.name, options.headers[j].name)) ok = false;
         agent |= ascii_equal_ignore_case(h.name, utf8_literal("User-Agent"));

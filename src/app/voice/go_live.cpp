@@ -19,6 +19,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/os_text.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/os/thread.hpp"
@@ -176,32 +177,16 @@ GoLiveSettings settings() noexcept {
 }
 
 // Labels.
-struct Text {
-    char* data;
-    u32 capacity, bytes;
-    Text& operator<<(Utf8View v) noexcept {
-        const u32 n = minimum(v.bytes, capacity - bytes);
-        copy_bytes(data + bytes, v.data, n);
-        bytes += n;
-        return *this;
-    }
-    Text& operator<<(u32 value) noexcept {
-        char digits[10];
-        u32 n = 0;
-        do
-            digits[n++] = static_cast<char>('0' + value % 10);
-        while ((value /= 10) && n < 10);
-        while (n && bytes < capacity)
-            data[bytes++] = digits[--n];
-        return *this;
-    }
-    Utf8View view() const noexcept { return {data, bytes}; }
-};
-template <u32 N> Text text(char (&buffer)[N]) noexcept {
+template <u32 N> TextBank text(char (&buffer)[N]) noexcept {
     return {buffer, N, 0};
 }
-Text& resolution(Text& t, u16 value) noexcept {
-    return value ? t << value << utf8_literal("p") : t << utf8_literal("Source");
+void resolution(TextBank& t, u16 value) noexcept {
+    if (value) {
+        t.number(value);
+        t.add("p");
+    } else {
+        t.add("Source");
+    }
 }
 Utf8View preset_name(StreamPreset p) noexcept {
     return p == StreamPreset::video ? utf8_literal("Gaming")
@@ -213,17 +198,19 @@ Utf8View preset_name(StreamPreset p) noexcept {
 void project_summary() noexcept {
     const auto q = resolved();
     auto s = text(ui.summary);
-    s << preset_name(preset());
-    ui.summary_bytes = s.bytes;
+    ui.summary_bytes = s.add(preset_name(preset())).bytes;
     auto d = text(ui.detail);
     if (preset() == StreamPreset::video)
-        d << utf8_literal("Smoother video \xE2\x80\xA2 ");
+        d.add("Smoother video \xE2\x80\xA2 ");
     else if (preset() == StreamPreset::text)
-        d << utf8_literal("Clearer text \xE2\x80\xA2 ");
-    resolution(d, q.resolution) << utf8_literal(" ") << q.fps << utf8_literal("fps");
+        d.add("Clearer text \xE2\x80\xA2 ");
+    resolution(d, q.resolution);
+    d.add(" ");
+    d.number(q.fps);
+    d.add("fps");
     if (prefs().stream_muted && audio_available())
-        d << utf8_literal(" \xE2\x80\xA2 Stream audio muted");
-    ui.detail_bytes = d.bytes;
+        d.add(" \xE2\x80\xA2 Stream audio muted");
+    ui.detail_bytes = d.used;
 }
 
 // Thumbnails live where the renderer routes their keys (the large preview atlas) and are forgotten when the dialog
@@ -356,7 +343,7 @@ void close_menu() noexcept {
         dismiss_popup();
     ui.menu = Menu::none;
 }
-PopupItem row(Utf8View label, u32 action, u16 flags, Utf8View detail = {}) noexcept {
+PopupItem row(const Utf8View& label, u32 action, u16 flags, const Utf8View& detail = {}) noexcept {
     PopupItem item{};
     popup_item_set(&item, label, action, flags);
     if (detail.bytes) {
@@ -369,18 +356,29 @@ u16 checked(bool on) noexcept {
     return static_cast<u16>(popup_item_enabled | (on ? popup_item_checked : 0));
 }
 // A quality choice of a menu: a checked row, or a disabled one asking for Nitro where the account's tier lacks it.
-PopupItem quality_row(Utf8View label, u32 action, StreamQuality quality, bool selected, u8 premium, u8 tier) noexcept {
+PopupItem quality_row(const Utf8View& label, u32 action, StreamQuality quality, bool selected, u8 premium,
+                      u8 tier) noexcept {
     return stream_quality_allowed(StreamPreset::custom, quality, premium, tier)
                ? row(label, action, checked(selected))
                : row(label, action, popup_item_none, utf8_literal("Nitro"));
 }
 // Without sound sharing the row stays, disabled, and says why.
-PopupItem audio_row(Utf8View label, u32 action, bool on) noexcept {
+PopupItem audio_row(const Utf8View& label, u32 action, bool on) noexcept {
     return audio_available() ? row(label, action, checked(on))
                              : row(label, action, popup_item_none, audio_unavailable_reason());
 }
 constexpr Utf8View kResolutions[]{utf8_literal("480p"), utf8_literal("720p"), utf8_literal("1080p"),
                                   utf8_literal("1440p"), utf8_literal("Source")};
+// A preset's line in the Options menu: "Smoother video (720p, 30fps)".
+Utf8View preset_detail(char (&buffer)[64], const Utf8View& lead, StreamQuality q) noexcept {
+    auto t = text(buffer);
+    t.add(lead);
+    resolution(t, q.resolution);
+    t.add(", ");
+    t.number(q.fps);
+    t.add("fps)");
+    return t.view();
+}
 bool show_menu(Menu menu, const UiRect& anchor, ConstSlice<PopupItem> items, bool above) noexcept {
     const auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, kMenuOwner, items, anchor,
                                          application_viewport_dips(), 248.0f, above);
@@ -402,14 +400,10 @@ bool open_options(const UiRect& anchor) noexcept {
     items[n++] = row(utf8_literal("Stream Mode"), kTitleFirst, popup_item_none);
     const StreamQuality video = stream_preset_quality(StreamPreset::video, {}, premium, tier);
     const StreamQuality clear = stream_preset_quality(StreamPreset::text, {}, premium, tier);
-    auto v = text(ui.labels[0]);
-    resolution(v << utf8_literal("Smoother video ("), video.resolution) << utf8_literal(", ") << video.fps
-                                                                          << utf8_literal("fps)");
-    auto t = text(ui.labels[1]);
-    resolution(t << utf8_literal("Clearer text ("), clear.resolution) << utf8_literal(", ") << clear.fps
-                                                                         << utf8_literal("fps)");
-    items[n++] = row(preset_name(StreamPreset::video), kPresetVideo, checked(preset() == StreamPreset::video), v.view());
-    items[n++] = row(preset_name(StreamPreset::text), kPresetText, checked(preset() == StreamPreset::text), t.view());
+    items[n++] = row(preset_name(StreamPreset::video), kPresetVideo, checked(preset() == StreamPreset::video),
+                     preset_detail(ui.labels[0], utf8_literal("Smoother video ("), video));
+    items[n++] = row(preset_name(StreamPreset::text), kPresetText, checked(preset() == StreamPreset::text),
+                     preset_detail(ui.labels[1], utf8_literal("Clearer text ("), clear));
     items[n++] = row(preset_name(StreamPreset::custom), kPresetCustom, checked(preset() == StreamPreset::custom));
     if (preset() == StreamPreset::custom) {
         // The dialog offers 720p and up, as the official client's; 1080p and up need Nitro or the server's boosts.
@@ -460,10 +454,9 @@ bool open_manage(const UiRect& anchor) noexcept {
     return show_menu(Menu::manage, anchor, {items, n}, true);
 }
 
-void set_notice(Utf8View message) noexcept {
+void set_notice(const Utf8View& message) noexcept {
     auto t = text(ui.notice);
-    t << message;
-    ui.notice_bytes = t.bytes;
+    ui.notice_bytes = t.add(message).bytes;
 }
 void open_modal(bool change_source) noexcept {
     if (g_app.popup_scene.active)
@@ -696,7 +689,8 @@ bool application_go_live_viewers_open(const UiRect& anchor) noexcept {
     PopupItem items[1 + kGoLiveViewerIds];
     u32 n = 0;
     auto header = text(ui.labels[2]);
-    header << utf8_literal("Spectators - ") << s.viewer_count;
+    header.add("Spectators - ");
+    header.number(s.viewer_count);
     items[n++] = row(header.view(), kTitleFirst, popup_item_none);
     for (u32 i = 0; i < s.viewer_count && i < kGoLiveViewerIds; ++i) {
         const auto* user = user_store_find(users, s.viewer_ids[i]);

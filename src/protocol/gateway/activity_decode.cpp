@@ -1,6 +1,7 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
@@ -125,18 +126,16 @@ Utf8View session_platform(const UserActivity& a) noexcept {
     while (end < session.bytes && session.data[end] != ',')
         ++end;
     const Utf8View type{session.data + 2, end - 2};
-    struct Name {
-        Utf8View type, name;
-    };
-    static constexpr Name names[] = {
-        {utf8_literal("battlenet"), utf8_literal("Battle.net")}, {utf8_literal("epicgames"), utf8_literal("Epic Games")},
-        {utf8_literal("leagueoflegends"), utf8_literal("League of Legends")},
-        {utf8_literal("playstation"), utf8_literal("PlayStation")}, {utf8_literal("riotgames"), utf8_literal("Riot Games")},
-        {utf8_literal("roblox"), utf8_literal("Roblox")},         {utf8_literal("steam"), utf8_literal("Steam")},
-        {utf8_literal("xbox"), utf8_literal("Xbox")}};
-    for (const auto& n : names)
-        if (utf8_equal(n.type, type))
-            return n.name;
+    // Each service's type and its name, one after the other.
+    for (NameList list{"battlenet\0Battle.net\0epicgames\0Epic Games\0leagueoflegends\0League of Legends\0"
+                       "playstation\0PlayStation\0riotgames\0Riot Games\0roblox\0Roblox\0steam\0Steam\0xbox\0Xbox\0"};
+         list;) {
+        const bool match = utf8_equal(list.name(), type);
+        list.next();
+        if (match)
+            return list.name();
+        list.next();
+    }
     return {};
 }
 } // namespace
@@ -157,10 +156,11 @@ u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
     }
     const auto platform = session_platform(a);
     if (platform.bytes && a.type != UserActivityType::custom) {
-        static constexpr Utf8View verbs[] = {utf8_literal("Playing on "),   utf8_literal("Live on "),
-                                      utf8_literal("Listening on "), utf8_literal("Watching on "),
-                                      {},                            utf8_literal("Competing on ")};
-        w.put(verbs[static_cast<u32>(a.type)], platform);
+        // The verbs of every type but custom, in type order.
+        const u32 type = static_cast<u32>(a.type);
+        w.put(name_list_at("Playing on \0Live on \0Listening on \0Watching on \0Competing on \0",
+                           type > static_cast<u32>(UserActivityType::custom) ? type - 1 : type),
+              platform);
         return w.finish();
     }
     const Utf8View verb = activity_verb(a.type, true);
@@ -342,11 +342,9 @@ struct Pending {
 UserActivityPlatform platform(const JsonValue& v) noexcept {
     char text[16];
     const u32 bytes = decode(v, text, sizeof(text), true);
-    static constexpr Utf8View names[] = {utf8_literal("desktop"),  utf8_literal("xbox"),     utf8_literal("ps4"),
-                                  utf8_literal("ps5"),      utf8_literal("ios"),      utf8_literal("android"),
-                                  utf8_literal("embedded"), utf8_literal("samsung"),  utf8_literal("meta_quest")};
-    for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
-        if (utf8_equal(names[i], {text, bytes}))
+    u32 i = 0;
+    for (NameList list{"desktop\0xbox\0ps4\0ps5\0ios\0android\0embedded\0samsung\0meta_quest\0"}; list; list.next(), ++i)
+        if (utf8_equal(list.name(), {text, bytes}))
             return static_cast<UserActivityPlatform>(i);
     return UserActivityPlatform::desktop;
 }

@@ -15,31 +15,31 @@ bool portal_sandboxed() noexcept {
     return snap && *snap;
 }
 
-u32 portal_interface_version(const char* interface, u32 timeout_ms) noexcept {
-    if (!session_bus_open())
-        return 0;
-    Connection* c = session_bus();
-    if (!c)
-        return 0;
+u32 portal_property(Connection* c, const char* interface, const char* name, u32 timeout_ms) noexcept {
     Builder body;
     builder_init(&body);
     builder_string(&body, interface);
-    builder_string(&body, "version");
+    builder_string(&body, name);
     const CallTarget target{"org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
                             "org.freedesktop.DBus.Properties", "Get"};
     Message reply;
     const Status status = connection_call_sync(c, target, &body, timeout_ms, &reply);
     builder_release(&body);
-    u32 version = 0;
+    u32 value = 0;
     if (status == Status::ok) {
         Reader r;
         message_reader(reply, &r);
-        if (!reader_enter_variant(&r, nullptr) || !reader_u32(&r, &version))
-            version = 0;
+        if (!reader_enter_variant(&r, nullptr) || !reader_u32(&r, &value))
+            value = 0;
     }
     if (status == Status::ok || status == Status::error_reply)
         message_release(&reply);
-    return version;
+    return value;
+}
+
+u32 portal_interface_version(const char* interface, u32 timeout_ms) noexcept {
+    Connection* c = session_bus_open() ? session_bus() : nullptr;
+    return c ? portal_property(c, interface, "version", timeout_ms) : 0;
 }
 
 namespace {

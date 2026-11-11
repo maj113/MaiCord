@@ -1,6 +1,7 @@
 #include "maicord/ui/media/image_viewer.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/voice/video_scene.hpp"
@@ -301,12 +302,11 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("ImageViewer"), style, {}, 1}});
     if (!root.ok())
         return false;
-    const Utf8View labels[]{utf8_literal("Zoom out"),      utf8_literal("Zoom in"),    utf8_literal("Fit image"),
-                            utf8_literal("Close image"),   utf8_literal("Save image"), utf8_literal("Open original"),
-                            utf8_literal("Copy image"),    utf8_literal("Full screen"), utf8_literal("Previous"),
-                            utf8_literal("Next"),          utf8_literal("Jump to message"), utf8_literal("Retry"),
-                            utf8_literal("Open in new tab")};
-    for (u32 i = 0; i < ui_image_viewer_button_count; ++i) {
+    constexpr char kLabels[] = "Zoom out\0Zoom in\0Fit image\0Close image\0Save image\0Open original\0Copy image\0"
+                               "Full screen\0Previous\0Next\0Jump to message\0Retry\0Open in new tab\0";
+    static_assert(name_list_count(kLabels) == ui_image_viewer_button_count);
+    NameList label{kLabels};
+    for (u32 i = 0; i < ui_image_viewer_button_count; ++i, label.next()) {
         const bool chevron = i == ui_image_viewer_previous || i == ui_image_viewer_next;
         const bool retry = i == ui_image_viewer_retry;
         auto button_style = ui_layout_style();
@@ -317,7 +317,7 @@ bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixel
         button_style.vertical_alignment = chevron ? UiLayoutAlignment::center : UiLayoutAlignment::start;
         const auto button = ui_widget_manager_add(
             &v->widgets, root.handle,
-            {10 + i, UiWidgetKind::button, ui_widget_none, {labels[i], button_style, {}, 10 + i}});
+            {10 + i, UiWidgetKind::button, ui_widget_none, {label.name(), button_style, {}, 10 + i}});
         if (!button.ok())
             return false;
         v->buttons[i] = button.handle;

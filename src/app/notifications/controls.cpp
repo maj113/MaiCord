@@ -10,6 +10,7 @@
 #include "maicord/protocol/user/guild_settings.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -26,10 +27,9 @@ enum : u32 {
     action_suppress_everyone = kNotificationMenuActionFirst + 40,
     action_suppress_roles,
 };
-constexpr Utf8View kWindowLabels[]{utf8_literal("For 15 minutes"), utf8_literal("For 1 hour"),
-                                   utf8_literal("For 3 hours"),    utf8_literal("For 8 hours"),
-                                   utf8_literal("For 24 hours"),   utf8_literal("Until I turn it back on")};
-static_assert(sizeof(kWindowLabels) / sizeof(kWindowLabels[0]) == kUserGuildMuteWindowCount);
+constexpr char kWindowLabels[] = "For 15 minutes\0For 1 hour\0For 3 hours\0For 8 hours\0For 24 hours\0"
+                                 "Until I turn it back on\0";
+static_assert(name_list_count(kWindowLabels) == kUserGuildMuteWindowCount);
 constexpr u32 kQueueCapacity = 8;
 // A full rescan also runs periodically to catch replaced channel records.
 constexpr u64 kRescanMilliseconds = 30'000;
@@ -130,8 +130,9 @@ MessageNotificationLevel effective_level(u64 guild, u64 channel) noexcept {
 bool open_follow_up(u64 guild, u64 channel, bool mute) noexcept {
     u32 count = 0;
     if (mute) {
-        for (u32 i = 0; i < kUserGuildMuteWindowCount; ++i)
-            owner.items[count++] = row(kWindowLabels[i], action_window + i);
+        NameList label{kWindowLabels};
+        for (u32 i = 0; i < kUserGuildMuteWindowCount; ++i, label.next())
+            owner.items[count++] = row(label.name(), action_window + i);
     } else {
         const auto level = effective_level(guild, channel);
         const auto choice = [&](Utf8View label, MessageNotificationLevel value) noexcept {
@@ -293,14 +294,13 @@ u32 application_notification_menu_items(u64 guild_id, u64 channel_id,
     const auto setting = current_setting(guild, channel_id);
     const bool muted = message_notification_muted(setting, clock_unix_milliseconds());
     const bool dm = channel_is_private(type);
-    static constexpr Utf8View mute_labels[]{utf8_literal("Mute server"), utf8_literal("Mute category"),
-                                     utf8_literal("Mute conversation"), utf8_literal("Mute channel")};
-    static constexpr Utf8View unmute_labels[]{utf8_literal("Unmute server"), utf8_literal("Unmute category"),
-                                       utf8_literal("Unmute conversation"), utf8_literal("Unmute channel")};
+    // The mute labels, then the unmute ones: server, category, conversation, channel.
+    static constexpr char labels[] = "Mute server\0Mute category\0Mute conversation\0Mute channel\0Unmute server\0"
+                                     "Unmute category\0Unmute conversation\0Unmute channel\0";
     const u32 index = !channel_id ? 0 : type == 4 ? 1 : dm ? 2 : 3;
     u32 count = 0;
     auto& first = output[count++];
-    first = row(muted ? unmute_labels[index] : mute_labels[index], muted ? action_unmute : action_mute,
+    first = row(name_list_at(labels, (muted ? 4 : 0) + index), muted ? action_unmute : action_mute,
                 popup_item_separator_before);
     if (muted && setting.mute_end_ms) {
         first.detail = until_text(setting.mute_end_ms);

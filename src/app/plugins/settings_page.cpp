@@ -6,22 +6,16 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 
-// Windows virtual-key codes the keybind text names.
-struct KeyName {
-    u32 vk;
-    Utf8View name;
-};
-constexpr KeyName kKeyNames[]{
-    {0x20, utf8_literal("Space")},   {0x0D, utf8_literal("Enter")},  {0x09, utf8_literal("Tab")},
-    {0x1B, utf8_literal("Escape")},  {0x08, utf8_literal("Backspace")}, {0x2E, utf8_literal("Delete")},
-    {0x2D, utf8_literal("Insert")},  {0x24, utf8_literal("Home")},   {0x23, utf8_literal("End")},
-    {0x21, utf8_literal("PageUp")},  {0x22, utf8_literal("PageDown")}, {0x26, utf8_literal("Up")},
-    {0x28, utf8_literal("Down")},    {0x25, utf8_literal("Left")},   {0x27, utf8_literal("Right")},
-};
+// Windows virtual-key codes the keybind text names, and their names in the same order.
+constexpr u8 kKeyCodes[]{0x20, 0x0D, 0x09, 0x1B, 0x08, 0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25, 0x27};
+constexpr char kKeyNames[] =
+    "Space\0Enter\0Tab\0Escape\0Backspace\0Delete\0Insert\0Home\0End\0PageUp\0PageDown\0Up\0Down\0Left\0Right\0";
+static_assert(name_list_count(kKeyNames) == sizeof(kKeyCodes));
 constexpr u32 kFirstFunctionKey = 0x70, kFunctionKeys = 24;
 
 const mc_setting_def* settings_of(const PluginBinding& binding) noexcept {
@@ -55,8 +49,9 @@ u32 write_key(u32 key, Slice<char> out) noexcept {
         w.add("F", 1);
         w.number(vk - kFirstFunctionKey + 1);
     } else {
-        for (const KeyName& entry : kKeyNames)
-            if (entry.vk == vk) w.add(entry.name);
+        u32 index = 0;
+        for (NameList list{kKeyNames}; list; list.next(), ++index)
+            if (kKeyCodes[index] == vk) w.add(list.name());
     }
     return w.ok ? w.used : 0;
 }
@@ -79,8 +74,9 @@ bool parse_key(Utf8View text, u32* key) noexcept {
             if (!decimal_parse({token.data + 1, token.bytes - 1}, &number) || !number || number > kFunctionKeys) return false;
             vk = kFirstFunctionKey + static_cast<u32>(number) - 1;
         } else {
-            for (const KeyName& entry : kKeyNames)
-                if (ascii_equal_ignore_case(token, entry.name)) vk = entry.vk;
+            u32 index = 0;
+            for (NameList list{kKeyNames}; list; list.next(), ++index)
+                if (ascii_equal_ignore_case(token, list.name())) vk = kKeyCodes[index];
             if (!vk) return false;
         }
         first = end + 1;

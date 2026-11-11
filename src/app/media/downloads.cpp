@@ -1,5 +1,6 @@
 #include "downloads_internal.hpp"
 #include "maicord/os/text.hpp"
+#include "maicord/core/name_list.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "policy.hpp"
 #include "../account/account_menu.hpp"
@@ -547,11 +548,9 @@ namespace {
 // Pictures confirm as images, by the saved name's extension.
 bool image_file(const DownloadJob& j) noexcept {
     const Utf8View name = job_name(j);
-    static constexpr Utf8View kImages[]{utf8_literal(".png"), utf8_literal(".jpg"), utf8_literal(".jpeg"),
-                                 utf8_literal(".gif"), utf8_literal(".webp"), utf8_literal(".avif")};
-    for (const auto extension : kImages)
-        if (name.bytes > extension.bytes &&
-            ascii_equal_ignore_case({name.data + name.bytes - extension.bytes, extension.bytes}, extension))
+    for (NameList list{".png\0.jpg\0.jpeg\0.gif\0.webp\0.avif\0"}; list; list.next())
+        if (name.bytes > list.bytes &&
+            ascii_equal_ignore_case({name.data + name.bytes - list.bytes, list.bytes}, list.name()))
             return true;
     return false;
 }

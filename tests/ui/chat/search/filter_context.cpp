@@ -1,6 +1,15 @@
 #include "maicord/ui/chat/search/filter_context.hpp"
 
 namespace maicord {
+namespace {
+// A kind's fixed rows (at most the maximum and one more, so an overlong list shows); their count.
+u32 fixed_choices(UiSearchFilterKind kind, UiSearchFilterChoiceView (&rows)[kUiSearchFilterChoiceMaximum + 1]) noexcept {
+    u32 count = 0;
+    while (count < kUiSearchFilterChoiceMaximum + 1 && ui_search_filter_fixed_choice(kind, count, &rows[count]))
+        ++count;
+    return count;
+}
+} // namespace
 void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexcept {
     const auto empty = ui_search_filter_context(utf8_literal("from:"), 5, 5);
     check(empty.kind == UiSearchFilterKind::from && empty.token_begin == 0 && empty.token_end == 5 &&
@@ -104,18 +113,20 @@ void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexc
     const auto copied = unicode;
     check(copied.value().data != unicode.value().data && utf8_equal(copied.value(), unicode.value()),
           "search_filter_context_copy_owns_decoded_bytes_without_self_pointer_aba");
-    const auto has = ui_search_filter_fixed_choices(UiSearchFilterKind::has);
-    const auto pinned = ui_search_filter_fixed_choices(UiSearchFilterKind::pinned);
-    bool unique = has.count == 9;
-    for (u32 i = 0; i < has.count; ++i)
+    UiSearchFilterChoiceView has[kUiSearchFilterChoiceMaximum + 1], pinned[kUiSearchFilterChoiceMaximum + 1],
+        none[kUiSearchFilterChoiceMaximum + 1];
+    const u32 has_count = fixed_choices(UiSearchFilterKind::has, has);
+    const u32 pinned_count = fixed_choices(UiSearchFilterKind::pinned, pinned);
+    bool unique = has_count == 9;
+    for (u32 i = 0; i < has_count; ++i)
         for (u32 j = 0; j < i; ++j)
             unique = unique && !utf8_equal(has[i].value, has[j].value);
     check(unique && utf8_equal(has[8].label, utf8_literal("Forward")) &&
               utf8_equal(has[8].value, utf8_literal("snapshot")) && has[8].semantic == 8,
           "search_filter_fixed_has_choices_are_unique_and_forward_uses_canonical_value");
-    check(pinned.count == 2 && utf8_equal(pinned[0].value, utf8_literal("true")) &&
+    check(pinned_count == 2 && utf8_equal(pinned[0].value, utf8_literal("true")) &&
               utf8_equal(pinned[1].value, utf8_literal("false")) &&
-              ui_search_filter_fixed_choices(UiSearchFilterKind::from).count == 0,
+              fixed_choices(UiSearchFilterKind::from, none) == 0,
           "search_filter_fixed_pinned_choices_are_bounded_and_user_choices_are_not_fabricated");
     constexpr auto keys = utf8_literal("authorType:b fileType:p LinkFrom:you filename:\"Q");
     check(
@@ -125,14 +136,28 @@ void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexc
             ui_search_filter_context(keys, keys.bytes, keys.bytes).kind == UiSearchFilterKind::file_name &&
             utf8_equal(ui_search_filter_context(keys, keys.bytes, keys.bytes).prefix(), utf8_literal("Q")),
         "search_filter_context_recognizes_camel_case_keys_without_case");
-    const auto authors = ui_search_filter_fixed_choices(UiSearchFilterKind::author_type);
-    const auto types = ui_search_filter_fixed_choices(UiSearchFilterKind::file_type);
-    bool distinct = types.count == kUiSearchFilterChoiceMaximum;
-    for (u32 i = 0; i < types.count; ++i)
+    UiSearchFilterChoiceView authors[kUiSearchFilterChoiceMaximum + 1], types[kUiSearchFilterChoiceMaximum + 1],
+        unused[kUiSearchFilterChoiceMaximum + 1];
+    const u32 author_count = fixed_choices(UiSearchFilterKind::author_type, authors);
+    const u32 type_count = fixed_choices(UiSearchFilterKind::file_type, types);
+    bool distinct = type_count == kUiSearchFilterChoiceMaximum;
+    for (u32 i = 0; i < type_count; ++i)
         for (u32 j = 0; j < i; ++j)
             distinct = distinct && types[i].id != types[j].id;
-    check(authors.count == 3 && utf8_equal(authors[2].value, utf8_literal("webhook")) && distinct &&
-              ui_search_filter_fixed_choices(UiSearchFilterKind::link_from).count == 0,
+    check(author_count == 3 && utf8_equal(authors[2].value, utf8_literal("webhook")) && distinct &&
+              fixed_choices(UiSearchFilterKind::link_from, unused) == 0,
           "search_filter_fixed_author_type_and_file_type_choices_are_bounded_and_distinct");
+    check(types[0].id == 1 && types[0].semantic == 0 && utf8_equal(types[0].label, utf8_literal("png")) &&
+              utf8_equal(types[0].detail, utf8_literal("Image")) && utf8_equal(types[0].value, utf8_literal("png")) &&
+              types[6].id == 7 && types[6].semantic == 2 && utf8_equal(types[6].detail, utf8_literal("Audio")) &&
+              types[8].semantic == 3 && utf8_equal(types[8].detail, utf8_literal("Text")) &&
+              types[9].id == 10 && types[9].semantic == 4 && utf8_equal(types[9].label, utf8_literal("zip")) &&
+              utf8_equal(types[9].detail, utf8_literal("Archive")) && utf8_equal(types[9].value, utf8_literal("zip")) &&
+              authors[0].id == 0 && authors[1].semantic == 1 && utf8_equal(authors[1].label, utf8_literal("Bot")) &&
+              utf8_equal(authors[1].value, utf8_literal("bot")) && !authors[1].detail.bytes &&
+              has[0].semantic == 0 && utf8_equal(has[0].label, utf8_literal("Link")) &&
+              utf8_equal(has[0].value, utf8_literal("link")) && utf8_equal(has[5].value, utf8_literal("sound")) &&
+              utf8_equal(pinned[1].label, utf8_literal("False")) && pinned[1].semantic == 1,
+          "search_filter_fixed_rows_keep_their_labels_values_details_icons_and_ids");
 }
 } // namespace maicord

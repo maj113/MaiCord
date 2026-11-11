@@ -623,7 +623,12 @@ BOOL CALLBACK visit_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM parameter) {
     info.cbSize = sizeof(info);
     if (list.count >= list.output.count || !GetMonitorInfoW(monitor, &info))
         return TRUE;
-    CaptureSource& source = list.output[list.count++];
+    // The primary screen goes first: the ones before it move up.
+    CaptureSource* const screens = list.output.data;
+    const u32 at = (info.dwFlags & MONITORINFOF_PRIMARY) ? 0 : list.count;
+    copy_bytes(screens + at + 1, screens + at, (list.count - at) * static_cast<u32>(sizeof(CaptureSource)));
+    ++list.count;
+    CaptureSource& source = screens[at];
     reset_value(&source);
     source.handle = reinterpret_cast<u64>(monitor);
     source.kind = CaptureSourceKind::screen;
@@ -688,13 +693,6 @@ u32 capture_sources(Slice<CaptureSource> output) noexcept {
     EnumDisplayMonitors(nullptr, nullptr, visit_monitor, reinterpret_cast<LPARAM>(&list));
     // The primary screen first, then "Screen 1", "Screen 2", ... in that order.
     const u32 screens = list.count;
-    for (u32 i = 1; i < screens; ++i)
-        if (output[i].primary) {
-            const CaptureSource primary = output[i];
-            for (u32 k = i; k > 0; --k)
-                copy_value(&output[k], output[k - 1]);
-            copy_value(&output[0], primary);
-        }
     for (u32 i = 0; i < screens; ++i) {
         static constexpr char kScreen[] = "Screen ";
         copy_bytes(output[i].name, kScreen, sizeof(kScreen) - 1);

@@ -296,9 +296,7 @@ bool widget_game(void* opaque, u32, JsonValue v) noexcept {
     // A long comment is cut at a character boundary.
     char text[1024];
     const auto comment = short_text(f[1].value, text, sizeof(text));
-    const u32 bytes = utf8_truncated_length(comment, sizeof(g.comment.data));
-    copy_bytes(g.comment.data, comment.data, bytes);
-    g.comment.bytes = static_cast<u16>(bytes);
+    utf8_assign(g.comment.data, g.comment.bytes, comment);
     if (f[2].value.kind == JsonValueKind::array)
         static_cast<void>(json_visit_indexed_array(*c.doc, f[2].value, 64, widget_tag, &g.tags));
     ++p.widget_game_count;

@@ -14,8 +14,7 @@ bool panel(const ProfileScene& s) noexcept {
     return s.presentation == ProfilePresentation::panel;
 }
 bool append_truncated(char* data, u16* used, u32 capacity, const char* text, u32 bytes) noexcept {
-    const u32 kept = utf8_truncated_length({text, bytes}, capacity - *used);
-    copy_bytes(data + *used, text, kept);
+    const u32 kept = utf8_copy_truncated(data + *used, capacity - *used, {text, bytes});
     *used = static_cast<u16>(*used + kept);
     return kept == bytes;
 }

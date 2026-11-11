@@ -1,4 +1,5 @@
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
 #include "maicord/platform/font/system_font_locator.hpp"
@@ -40,15 +41,14 @@ bool is_space(char c) noexcept {
 }
 
 // The style words a GTK font description may carry after the family ("Noto Sans Bold Italic 11").
-constexpr const char* const kStyleWords[] = {
-    "Regular",  "Roman",     "Normal",    "Book",       "Medium",     "Bold",       "Semi-Bold",    "Demi-Bold",
-    "Ultra-Bold", "Extra-Bold", "Heavy",    "Light",      "Semi-Light", "Ultra-Light", "Extra-Light", "Thin",
-    "Italic",   "Oblique",   "Condensed", "Semi-Condensed", "Expanded", "Semi-Expanded", "Semibold",  "Semilight",
-};
+constexpr char kStyleWords[] =
+    "Regular\0Roman\0Normal\0Book\0Medium\0Bold\0Semi-Bold\0Demi-Bold\0Ultra-Bold\0Extra-Bold\0Heavy\0Light\0"
+    "Semi-Light\0Ultra-Light\0Extra-Light\0Thin\0Italic\0Oblique\0Condensed\0Semi-Condensed\0Expanded\0"
+    "Semi-Expanded\0Semibold\0Semilight\0";
 
 bool style_word(const char* word, u32 length) noexcept {
-    for (const char* style : kStyleWords)
-        if (equal_ignore_case(word, length, style))
+    for (NameList list{kStyleWords}; list; list.next())
+        if (equal_ignore_case(word, length, list.at))
             return true;
     return false;
 }

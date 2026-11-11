@@ -34,13 +34,10 @@ bool same_card(const UserActivity& a, const UserActivity& b) noexcept {
            (name.bytes && other.bytes && utf8_equal(name, other));
 }
 template <u32 N> void set(ProfileString<N>* out, Utf8View value) noexcept {
-    out->bytes = static_cast<u16>(utf8_truncated_length(value, N));
-    copy_bytes(out->data, value.data, out->bytes);
+    utf8_assign(out->data, out->bytes, value);
 }
 template <u32 N> void put(ProfileString<N>* out, Utf8View value) noexcept {
-    const u32 bytes = utf8_truncated_length(value, N - out->bytes);
-    copy_bytes(out->data + out->bytes, value.data, bytes);
-    out->bytes = static_cast<u16>(out->bytes + bytes);
+    out->bytes = static_cast<u16>(out->bytes + utf8_copy_truncated(out->data + out->bytes, N - out->bytes, value));
 }
 // Digits left-padded with zeros to width.
 void padded(TextWriter& w, u64 value, u32 width) noexcept {

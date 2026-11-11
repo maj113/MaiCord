@@ -23,8 +23,7 @@ Metrics metrics(UiActivityCardSize size) noexcept {
                                                 : Metrics{0, 32, 16, 12};
 }
 template <u32 N> Utf8View keep(ProfileString<N>* out, Utf8View value) noexcept {
-    out->bytes = static_cast<u16>(utf8_truncated_length(value, N));
-    copy_bytes(out->data, value.data, out->bytes);
+    utf8_assign(out->data, out->bytes, value);
     return out->view();
 }
 UiRect offset(const UiRect& r, UiPoint o) noexcept {
@@ -35,7 +34,7 @@ struct Builder {
     const UiActivityCardInput& in;
 
     // kUiActivityCardItems holds the most a layout adds.
-    UiActivityCardItem* add(Role role, const UiRect& r, Utf8View text = {}, u32 flags = 0,
+    UiActivityCardItem* add(Role role, const UiRect& r, const Utf8View& text = {}, u32 flags = 0,
                             Tone tone = Tone::normal) noexcept {
         auto* item = &c.items[c.count++];
         *item = {r, text, {}, flags, role, tone, Act::none, 0, UiIcon::count, false, false};
@@ -45,18 +44,18 @@ struct Builder {
     u8 last() const noexcept {
         return static_cast<u8>(c.count - 1);
     }
-    UiSize measure(Utf8View text, u32 flags, float width, bool wrap) const noexcept {
+    UiSize measure(const Utf8View& text, u32 flags, float width, bool wrap) const noexcept {
         if (in.measure)
             return in.measure(in.context, text, flags, width, wrap);
         const bool xs = (flags & kTextStyleHeadingMask) == kXs;
         return {minimum(width, text.bytes * (xs ? 6.f : 7.f)), xs ? kLine : kTitle};
     }
     // One line's width in whole DIPs, at most limit.
-    float width(Utf8View text, u32 flags, float limit = 4096) const noexcept {
+    float width(const Utf8View& text, u32 flags, float limit = 4096) const noexcept {
         return minimum(limit, static_cast<float>(static_cast<u32>(measure(text, flags, 4096, false).width + .999f)));
     }
     // A changing time string's width at its length (digits as 8s).
-    float clock_width(Utf8View text) const noexcept {
+    float clock_width(const Utf8View& text) const noexcept {
         char widest[16];
         const u32 bytes = minimum<u32>(text.bytes, sizeof(widest));
         for (u32 i = 0; i < bytes; ++i)
@@ -65,7 +64,7 @@ struct Builder {
     }
     // A text line: the full card wraps it; elsewhere it stays on one line and
     // a cut-off line carries its full text as its hint. Returns its height.
-    float text(Role role, float x, float y, float w, Utf8View value, u32 flags, float line, Tone tone,
+    float text(Role role, float x, float y, float w, const Utf8View& value, u32 flags, float line, Tone tone,
                Act action = Act::none) noexcept {
         if (!value.bytes)
             return 0;
@@ -80,7 +79,7 @@ struct Builder {
     }
     // A button's plate, glyph and label in the official arrangement: the
     // content centred, at least 16 DIPs from each side.
-    void button(const UiRect& r, Utf8View label, UiIcon glyph, Act action, u8 index, Utf8View hint,
+    void button(const UiRect& r, const Utf8View& label, UiIcon glyph, Act action, u8 index, const Utf8View& hint,
                 bool disabled) noexcept {
         auto* plate = add(Role::button, r, label);
         plate->action = action;
@@ -116,7 +115,7 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
     auto& c = *out;
     if (!profile_activity_content(a, in.bot, in.self, &c.content))
         return false;
-    c.clock = c.clock_glyph = c.elapsed = c.bar = kUiActivityCardNone;
+    c.clock = c.clock_glyph = c.bar = kUiActivityCardNone;
     const auto& t = c.content;
     const auto m = metrics(in.size);
     const bool compact = in.size == UiActivityCardSize::compact, full = in.size == UiActivityCardSize::full;
@@ -183,7 +182,7 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
     }
     const bool join = action == Act::join;
     const Utf8View button_hint = join ? t.hint.view() : Utf8View{};
-    const auto natural = [&](Utf8View label) noexcept {
+    const auto natural = [&](const Utf8View& label) noexcept {
         return b.width(label, kSm | kBold, 400) + 32 + (glyph != UiIcon::count ? 24.f : 0.f);
     };
     float text_right = right;
@@ -208,7 +207,7 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
         if (cy > row)
             cy += 4;
         float x = 0, line_top = cy;
-        const auto chip = [&](ProfileActivityGlyph kind, Utf8View text, bool ticking) noexcept {
+        const auto chip = [&](ProfileActivityGlyph kind, const Utf8View& text, bool ticking) noexcept {
             const float label = ticking ? b.clock_width(text) : b.width(text, kXs);
             const float w = minimum(column, 16 + label);
             if (x > 0 && x + w > column) {
@@ -250,7 +249,6 @@ bool ui_activity_card_layout(const UserActivity& a, const UiActivityCardInput& i
         total.bytes = static_cast<u16>(profile_activity_track_text(progress.duration, {total.data, sizeof(total.data)}));
         const float label = maximum(b.clock_width(elapsed.view()), b.clock_width(total.view()));
         b.add(Role::elapsed, {text_left, cy, text_left + label, cy + kLine}, elapsed.view(), kXs);
-        c.elapsed = b.last();
         b.add(Role::total, {text_right - label, cy, text_right, cy + kLine}, total.view(), kXs);
         b.add(Role::bar, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
         c.bar = b.last();

@@ -3,6 +3,7 @@
 #include "../chat/composer/text_input.hpp"
 #include "../settings/emoji_preferences.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -256,12 +257,7 @@ u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
     char needle[24];
     u32 bytes = 0;
     needle[bytes++] = '"';
-    char digits[20];
-    u32 count = 0;
-    for (u64 value = sticker_id; value; value /= 10)
-        digits[count++] = static_cast<char>('0' + value % 10);
-    while (count)
-        needle[bytes++] = digits[--count];
+    bytes += decimal_write(needle + bytes, sticker_id);
     needle[bytes++] = '"';
     for (u32 i = 0; i < g_sticker_store.count; ++i) {
         const auto& list = g_sticker_store.lists[i];

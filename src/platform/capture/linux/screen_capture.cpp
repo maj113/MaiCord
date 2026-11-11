@@ -166,29 +166,6 @@ u32 request(Runtime& r, Step step, u32 types = 0, u32 cursor_mode = 0) noexcept 
     return r.code;
 }
 
-// A u property of the ScreenCast interface; 0 when it is missing.
-u32 screencast_property(Connection* connection, const char* name) noexcept {
-    Builder body;
-    builder_init(&body);
-    builder_string(&body, kScreenCast);
-    builder_string(&body, name);
-    Message reply{};
-    const Status status = connection_call_sync(
-        connection, {kPortalName, kPortalPath, "org.freedesktop.DBus.Properties", "Get"}, &body, kCallTimeoutMs, &reply);
-    builder_release(&body);
-    u32 value = 0;
-    if (status == Status::ok) {
-        Reader reader;
-        message_reader(reply, &reader);
-        const char* signature = nullptr;
-        if (reader_enter_variant(&reader, &signature) && c_string_equal(signature, "u"))
-            reader_u32(&reader, &value);
-    }
-    if (status == Status::ok || status == Status::error_reply)
-        message_release(&reply);
-    return value;
-}
-
 // OpenPipeWireRemote: the fd of the PipeWire remote the session's streams are reached through, owned by the caller.
 int open_remote(Runtime& r) noexcept {
     Builder body;
@@ -229,7 +206,7 @@ CaptureEnd run(Runtime& r) noexcept {
     r.connection = connection_open_session();
     if (!r.connection)
         return CaptureEnd::failed;
-    const u32 version = screencast_property(r.connection, "version");
+    const u32 version = portal_property(r.connection, kScreenCast, "version", kCallTimeoutMs);
     if (!version) {
         log_write(LogLevel::warning, "capture", "screencast_portal_missing");
         return CaptureEnd::unsupported;
@@ -242,11 +219,12 @@ CaptureEnd run(Runtime& r) noexcept {
     const SignalMatch closed{kPortalName, r.session, "org.freedesktop.portal.Session", "Closed", nullptr};
     connection_subscribe(r.connection, closed, on_session_closed, &r);
 
-    const u32 available_types = screencast_property(r.connection, "AvailableSourceTypes");
+    const u32 available_types = portal_property(r.connection, kScreenCast, "AvailableSourceTypes", kCallTimeoutMs);
     const u32 wanted_types = (r.options.kinds & (1u << static_cast<u8>(CaptureSourceKind::screen)) ? 1u : 0u) |
                              (r.options.kinds & (1u << static_cast<u8>(CaptureSourceKind::window)) ? 2u : 0u);
     const u32 types = available_types ? (wanted_types ? wanted_types : 3u) & available_types : 0u;
-    const u32 cursor_modes = version >= 2 ? screencast_property(r.connection, "AvailableCursorModes") : 0;
+    const u32 cursor_modes =
+        version >= 2 ? portal_property(r.connection, kScreenCast, "AvailableCursorModes", kCallTimeoutMs) : 0;
     const u32 cursor_mode = r.options.cursor && (cursor_modes & kCursorEmbedded) ? kCursorEmbedded
                             : (cursor_modes & kCursorHidden)                      ? kCursorHidden
                                                                                   : 0;

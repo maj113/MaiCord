@@ -21,6 +21,7 @@
 #include "maicord/platform/crypto/random.hpp"
 #include "maicord/platform/crypto/xchacha20_poly1305.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/secret_service.hpp"
@@ -123,12 +124,7 @@ long install_key(const char* path, const u8 (&key)[32]) noexcept {
     const char suffix[] = ".tmp.";
     copy_bytes(temporary + length, suffix, sizeof(suffix) - 1);
     length += sizeof(suffix) - 1;
-    char digits[12];
-    u32 digit_count = 0;
-    for (u32 pid = process_id(); pid || digit_count == 0; pid /= 10)
-        digits[digit_count++] = static_cast<char>('0' + pid % 10);
-    while (digit_count)
-        temporary[length++] = digits[--digit_count];
+    length += decimal_write(temporary + length, process_id());
     temporary[length] = 0;
 
     const long opened = sys_openat(kAtCurrentDirectory, temporary,

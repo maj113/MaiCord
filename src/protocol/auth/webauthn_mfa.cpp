@@ -1,5 +1,7 @@
 #include "maicord/protocol/auth/webauthn_mfa.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 
@@ -380,18 +382,7 @@ void emit_binary(Emitter* e, const ConstSlice<u8>& value) noexcept {
 
 void emit_integer(Emitter* e, i32 value) noexcept {
     char digits[12];
-    u32 count = 0;
-    u32 magnitude = value < 0 ? 0u - static_cast<u32>(value) : static_cast<u32>(value);
-    do {
-        digits[count++] = static_cast<char>('0' + magnitude % 10);
-        magnitude /= 10;
-    } while (magnitude != 0);
-    if (value < 0) {
-        emit_text(e, utf8_literal("-"));
-    }
-    while (count != 0) {
-        emit_text(e, Utf8View{&digits[--count], 1});
-    }
+    emit_text(e, {digits, decimal_write_signed(digits, value)});
 }
 
 // The values of a PublicKeyCredential JSON (an assertion or an attestation).
@@ -429,17 +420,16 @@ void emit_template(Emitter* e, const char* text, const CredentialValues& values)
         } else if (slot == slot_algorithm) {
             emit_integer(e, values.algorithm);
         } else if (slot == slot_transports) {
-            constexpr Utf8View kNames[] = {utf8_literal("\"usb\""), utf8_literal("\"nfc\""), utf8_literal("\"ble\""),
-                                           utf8_literal("\"internal\""), utf8_literal("\"hybrid\"")};
             constexpr u32 kBits[] = {webauthn_transport_usb, webauthn_transport_nfc, webauthn_transport_ble,
                                      webauthn_transport_internal, webauthn_transport_hybrid};
             bool first = true;
-            for (u32 index = 0; index < 5; ++index) {
+            u32 index = 0;
+            for (NameList list{"\"usb\"\0\"nfc\"\0\"ble\"\0\"internal\"\0\"hybrid\"\0"}; list; list.next(), ++index) {
                 if ((values.transports & kBits[index]) != 0) {
                     if (!first) {
                         emit_text(e, utf8_literal(","));
                     }
-                    emit_text(e, kNames[index]);
+                    emit_text(e, list.name());
                     first = false;
                 }
             }

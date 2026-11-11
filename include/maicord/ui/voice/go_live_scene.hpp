@@ -82,7 +82,7 @@ struct UiGoLiveScene {
     u32 opens; // Bumped each time the dialog appears (its entrance's identity).
     bool busy, nitro, change_source, active;
 };
-bool ui_go_live_scene_update(UiGoLiveScene*, const UiGoLiveContent&, UiRect viewport) noexcept;
+bool ui_go_live_scene_update(UiGoLiveScene*, const UiGoLiveContent&, const UiRect& viewport) noexcept;
 void ui_go_live_scene_release(UiGoLiveScene*) noexcept;
 UiGoLiveTarget ui_go_live_scene_target(const UiGoLiveScene&, UiWidgetHandle) noexcept;
 UiGoLiveTarget ui_go_live_scene_hit_test(const UiGoLiveScene&, float x, float y) noexcept;

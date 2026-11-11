@@ -1,5 +1,7 @@
 #include "maicord/ui/chat/search/filter_context.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
+#include "maicord/protocol/messages/search.hpp"
 
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
@@ -11,11 +13,11 @@ bool boundary(Utf8View text, u32 at) noexcept {
                                (static_cast<u8>(text.data[at]) & 0xc0u) != 0x80u);
 }
 UiSearchFilterKind filter_kind(Utf8View key) noexcept {
-    const Utf8View names[]{utf8_literal("from"),       utf8_literal("in"),       utf8_literal("mentions"),
-                           utf8_literal("has"),        utf8_literal("pinned"),   utf8_literal("authorType"),
-                           utf8_literal("fileType"),   utf8_literal("linkFrom"), utf8_literal("fileName")};
-    for (u32 i = 0; i < 9; ++i)
-        if (ascii_equal_ignore_case(key, names[i])) return static_cast<UiSearchFilterKind>(i + 1);
+    u32 index = 1;
+    for (NameList list{"from\0in\0mentions\0has\0pinned\0authorType\0fileType\0linkFrom\0fileName\0"}; list;
+         list.next(), ++index)
+        if (ascii_equal_ignore_case(key, list.name()))
+            return static_cast<UiSearchFilterKind>(index);
     return UiSearchFilterKind::none;
 }
 bool decode(Utf8View query, u32 caret, UiSearchFilterContext& out) noexcept {
@@ -39,39 +41,6 @@ bool decode(Utf8View query, u32 caret, UiSearchFilterContext& out) noexcept {
     out.has_value = out.value_bytes != 0;
     return true;
 }
-constexpr UiSearchFilterChoiceView has_choices[]{
-    {0, 0, utf8_literal("Link"), {}, utf8_literal("link")},
-    {0, 1, utf8_literal("Embed"), {}, utf8_literal("embed")},
-    {0, 2, utf8_literal("File"), {}, utf8_literal("file")},
-    {0, 3, utf8_literal("Video"), {}, utf8_literal("video")},
-    {0, 4, utf8_literal("Image"), {}, utf8_literal("image")},
-    {0, 5, utf8_literal("Sound"), {}, utf8_literal("sound")},
-    {0, 6, utf8_literal("Sticker"), {}, utf8_literal("sticker")},
-    {0, 7, utf8_literal("Poll"), {}, utf8_literal("poll")},
-    {0, 8, utf8_literal("Forward"), {}, utf8_literal("snapshot")},
-};
-constexpr UiSearchFilterChoiceView pinned_choices[]{
-    {0, 0, utf8_literal("True"), {}, utf8_literal("true")},
-    {0, 1, utf8_literal("False"), {}, utf8_literal("false")},
-};
-constexpr UiSearchFilterChoiceView author_type_choices[]{
-    {0, 0, utf8_literal("User"), {}, utf8_literal("user")},
-    {0, 1, utf8_literal("Bot"), {}, utf8_literal("bot")},
-    {0, 2, utf8_literal("Webhook"), {}, utf8_literal("webhook")},
-};
-// Semantics pick the row icon: 0 image, 1 video, 2 audio, 3 document, 4 archive.
-constexpr UiSearchFilterChoiceView file_type_choices[]{
-    {1, 0, utf8_literal("png"), utf8_literal("Image"), utf8_literal("png")},
-    {2, 0, utf8_literal("jpg"), utf8_literal("Image"), utf8_literal("jpg")},
-    {3, 0, utf8_literal("gif"), utf8_literal("Image"), utf8_literal("gif")},
-    {4, 0, utf8_literal("webp"), utf8_literal("Image"), utf8_literal("webp")},
-    {5, 1, utf8_literal("mp4"), utf8_literal("Video"), utf8_literal("mp4")},
-    {6, 1, utf8_literal("mov"), utf8_literal("Video"), utf8_literal("mov")},
-    {7, 2, utf8_literal("mp3"), utf8_literal("Audio"), utf8_literal("mp3")},
-    {8, 3, utf8_literal("pdf"), utf8_literal("Document"), utf8_literal("pdf")},
-    {9, 3, utf8_literal("txt"), utf8_literal("Text"), utf8_literal("txt")},
-    {10, 4, utf8_literal("zip"), utf8_literal("Archive"), utf8_literal("zip")},
-};
 } // namespace
 
 UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 caret) noexcept {
@@ -125,11 +94,41 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
     return result;
 }
 
-ConstSlice<UiSearchFilterChoiceView> ui_search_filter_fixed_choices(UiSearchFilterKind kind) noexcept {
-    if (kind == UiSearchFilterKind::has) return {has_choices, 9};
-    if (kind == UiSearchFilterKind::pinned) return {pinned_choices, 2};
-    if (kind == UiSearchFilterKind::author_type) return {author_type_choices, 3};
-    if (kind == UiSearchFilterKind::file_type) return {file_type_choices, 10};
-    return {};
+// The fixed rows of the value filters, in order. Each kind lists its labels, its values (absent: the labels) and its
+// details (absent: none), one name per row. A row's semantic is its index and its id 0; a file type's semantic is its
+// icon (0 image, 1 video, 2 audio, 3 document, 4 archive) and its id its index + 1.
+bool ui_search_filter_fixed_choice(UiSearchFilterKind kind, u32 index, UiSearchFilterChoiceView* row) noexcept {
+    const char *labels, *values = nullptr, *details = nullptr;
+    switch (kind) {
+    case UiSearchFilterKind::has:
+        labels = "Link\0Embed\0File\0Video\0Image\0Sound\0Sticker\0Poll\0Forward\0";
+        values = kMessageSearchHasNames;
+        break;
+    case UiSearchFilterKind::pinned:
+        labels = "True\0False\0";
+        values = "true\0false\0";
+        break;
+    case UiSearchFilterKind::author_type:
+        labels = "User\0Bot\0Webhook\0";
+        values = kMessageSearchAuthorTypeNames;
+        break;
+    case UiSearchFilterKind::file_type:
+        labels = "png\0jpg\0gif\0webp\0mp4\0mov\0mp3\0pdf\0txt\0zip\0";
+        details = "Image\0Image\0Image\0Image\0Video\0Video\0Audio\0Document\0Text\0Archive\0";
+        break;
+    default: return false;
+    }
+    const Utf8View label = name_list_at(labels, index);
+    if (!label.bytes)
+        return false;
+    static constexpr u8 file_icons[]{0, 0, 0, 0, 1, 1, 2, 3, 3, 4};
+    const bool file = !values;
+    *row = {file ? index + 1 : 0,
+            file ? file_icons[index] : index,
+            label,
+            details ? name_list_at(details, index) : Utf8View{},
+            name_list_at(values ? values : labels, index),
+            {}};
+    return true;
 }
 } // namespace maicord

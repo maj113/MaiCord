@@ -358,13 +358,19 @@ bool valid_size(u32 size) noexcept {
     return size >= 21 && size <= kQrCodeMaximumSize && (size - 17) % 4 == 0;
 }
 
+// Bit y * size + x of the packed modules, inside the symbol.
+bool packed_module(const u8* modules, u32 size, u32 x, u32 y) noexcept {
+    const u32 index = module_index(size, x, y);
+    return ((modules[index >> 3] >> (index & 7u)) & 1u) != 0;
+}
+
 } // namespace
 
 bool qr_code_encode_m(ConstSlice<u8> payload, u32 minimum_version, u32 maximum_size, u8* modules, u8* size,
                       u8* mask) noexcept {
-    const u32 maximum_version = valid_size(maximum_size) ? (maximum_size - 17) / 4 : 0;
-    if (!modules || !size || !mask || !payload.data || payload.count == 0 || minimum_version == 0 ||
-        minimum_version > maximum_version) {
+    // Only the QrCodeOf overloads call this: their pointers are the symbol's own and their size is a checked constant.
+    const u32 maximum_version = (maximum_size - 17) / 4;
+    if (!payload.data || payload.count == 0 || minimum_version == 0 || minimum_version > maximum_version) {
         return false;
     }
     // The smallest version whose data codewords hold the mode, the count and the bytes.
@@ -457,11 +463,8 @@ bool qr_code_encode_m(ConstSlice<u8> payload, u32 minimum_version, u32 maximum_s
 }
 
 bool qr_code_module(QrCodeModules code, u32 x, u32 y) noexcept {
-    if (!code.modules || !valid_size(code.size) || x >= code.size || y >= code.size) {
-        return false;
-    }
-    const u32 index = module_index(code.size, x, y);
-    return ((code.modules[index >> 3] >> (index & 7u)) & 1u) != 0;
+    return code.modules && valid_size(code.size) && x < code.size && y < code.size &&
+           packed_module(code.modules, code.size, x, y);
 }
 
 namespace {
@@ -479,14 +482,14 @@ u32 compact_rect_pass(QrCodeModules code, const Slice<QrCodeRect>& output,
         u32 next_count = 0;
         u32 x = 0;
         while (x < size) {
-            while (x < size && !qr_code_module(code, x, y)) {
+            while (x < size && !packed_module(code.modules, size, x, y)) {
                 ++x;
             }
             if (x == size) {
                 break;
             }
             const u32 left = x;
-            while (x < size && qr_code_module(code, x, y)) {
+            while (x < size && packed_module(code.modules, size, x, y)) {
                 ++x;
             }
             QrCodeRect rectangle{static_cast<u8>(left),

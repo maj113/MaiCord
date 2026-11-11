@@ -2,14 +2,15 @@
 // English names (D19), the hour cycle from the locale environment.
 #include "maicord/os/date_format.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/sys/linux/process.hpp"
 
 namespace maicord {
 namespace {
 
-constexpr const char* kMonths[12] = {"January", "February", "March",     "April",   "May",      "June",
-                                     "July",    "August",   "September", "October", "November", "December"};
-constexpr const char* kDays[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+constexpr char kMonths[] = "January\0February\0March\0April\0May\0June\0July\0August\0September\0October\0November\0"
+                           "December\0";
+constexpr char kDays[] = "Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday\0";
 
 // Characters counted past the capacity are not written but still counted, so a null output asks for the size.
 struct Output {
@@ -96,12 +97,12 @@ void date_picture(const wchar_t* picture, const CalendarTime& t, Output* output)
             if (run <= 2)
                 output->put_number(t.wDay, run);
             else
-                output->put_ascii(kDays[weekday(t)], run == 3 ? 3 : ~0u);
+                output->put_ascii(name_list_at(kDays, weekday(t)).data, run == 3 ? 3 : ~0u);
         } else if (c == L'M') {
             if (run <= 2)
                 output->put_number(t.wMonth, run);
             else
-                output->put_ascii(kMonths[t.wMonth - 1], run == 3 ? 3 : ~0u);
+                output->put_ascii(name_list_at(kMonths, static_cast<u32>(t.wMonth - 1)).data, run == 3 ? 3 : ~0u);
         } else if (c == L'y') {
             if (run <= 2)
                 output->put_number(t.wYear % 100, run);
