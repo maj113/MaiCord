@@ -105,9 +105,11 @@ bool window_inject(Window window, const WindowEvent& event, WindowEventResult* r
 
 // Fatal startup errors, before a window exists.
 void window_fatal_message(Utf8View title, Utf8View text) noexcept;
+#if defined(_WIN32)
 // The application's own icon as stored in the program: the smallest PNG image (8-bit palette) whose side is at least
-// `extent` and at most `largest`. Empty when there is none.
+// `extent` and at most `largest`. Empty when there is none. (Linux draws the brand mark instead: app_icon_decode.)
 ConstSlice<u8> window_app_icon_png(u32 extent, u32 largest, u32* side) noexcept;
+#endif
 
 // Cross-thread wake: the cause reaches the window as a wake event with a and b.
 struct Waker {

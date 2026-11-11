@@ -3,7 +3,6 @@
 // protocols in extras.cpp; the shared state is in backend.hpp. The window has no buffers: the GPU backend's EGL surface commits.
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/resource.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/test_hook.hpp"
 #include "maicord/platform/window/wayland.hpp"
@@ -749,33 +748,6 @@ void window_set_title(Window window, Utf8View title) noexcept {
     copy_bytes(text, title.data, length);
     text[length] = 0;
     xdg_toplevel_set_title(g.window.toplevel, text);
-}
-
-// The program's icon: the ICO file the image carries (program_resource 1, PNG-compressed images, written by
-// tools/generate_app_icon.py), the stored image closest above the wanted size.
-ConstSlice<u8> window_app_icon_png(u32 extent, u32 largest, u32* side) noexcept {
-    const ConstSlice<u8> icon = program_resource(nullptr, 1);
-    if (!icon.data || icon.count < 6 || !side)
-        return {};
-    // ICONDIR: three 16-bit words, then 16-byte entries: width, height (0 is 256), ..., image size, image offset.
-    const u32 count = minimum<u32>(icon.data[4] | icon.data[5] << 8, (icon.count - 6) / 16);
-    u32 best = 0;
-    ConstSlice<u8> image{};
-    for (u32 i = 0; i < count; ++i) {
-        const u8* entry = icon.data + 6 + i * 16;
-        const u32 size = entry[0] ? entry[0] : 256;
-        const u32 bytes = entry[8] | entry[9] << 8 | entry[10] << 16 | static_cast<u32>(entry[11]) << 24;
-        const u32 offset = entry[12] | entry[13] << 8 | entry[14] << 16 | static_cast<u32>(entry[15]) << 24;
-        if (size >= extent && size <= largest && (!best || size < best) && offset <= icon.count &&
-            bytes <= icon.count - offset) {
-            best = size;
-            image = {icon.data + offset, bytes};
-        }
-    }
-    if (!best)
-        return {};
-    *side = best;
-    return image;
 }
 
 void window_minimize(Window window) noexcept {

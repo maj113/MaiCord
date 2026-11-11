@@ -204,7 +204,7 @@ bool regional_flag_layer_outline(const RegionalFlagLayer& layer, GlyphOutline* o
     const ConstSlice<u8> result_range{reinterpret_cast<const u8*>(output),sizeof(GlyphOutline)};
     const ConstSlice<u8> path_range=layer.path;
     if(!output||!byte_range_valid(layer_range)||!byte_range_valid(result_range)||
-        !byte_range_valid(path_range)||layer.path.count>kRegionalFlagScratchBytes||
+        !byte_range_valid(path_range)||layer.path.count>kRegionalFlagMaximumRecordBytes||
         byte_ranges_overlap(layer_range,result_range)||byte_ranges_overlap(path_range,result_range)||
         !output->commands||!output->capacity||output->capacity>kRegionalFlagMaximumCommands)return false;
     const ConstSlice<u8> commands_range{reinterpret_cast<const u8*>(output->commands),output->capacity*static_cast<u32>(sizeof(GlyphPathCommand))};

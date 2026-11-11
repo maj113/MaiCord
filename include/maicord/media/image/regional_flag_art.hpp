@@ -7,13 +7,12 @@ namespace maicord {
 // identity table, compiled at build time (tools/generate_regional_flag_bundle.py
 // documents the record) into one binary record per flag: its filled layers in
 // paint order, each a fill, a fill rule and either SVG path commands in tenths
-// of the 36-unit view box or a circle or ellipse. Records ship deflate-compressed
-// in groups of similar flags; the flag's group is inflated into caller-owned
-// scratch of at least kRegionalFlagScratchBytes and the record borrows it, so
-// concurrent callers need distinct scratch. Absent for unsupported sequences;
-// no network work.
-inline constexpr u32 kRegionalFlagScratchBytes = 18 * 1024;
-ConstSlice<u8> regional_flag_bundled_record(u16 sequence, Slice<u8> scratch) noexcept;
+// of the 36-unit view box or a circle or ellipse. The records ship as one deflate
+// stream that the first request inflates for the process lifetime (into private
+// pages; inflated_block.hpp), so a record stays valid and readable from any thread.
+// Absent for unsupported sequences; no network work.
+inline constexpr u32 kRegionalFlagMaximumRecordBytes = 18 * 1024;
+ConstSlice<u8> regional_flag_bundled_record(u16 sequence) noexcept;
 
 // Hundredths of a view-box unit per stored path number (the generator's PATH_UNIT).
 inline constexpr u32 kRegionalFlagPathUnit = 10;

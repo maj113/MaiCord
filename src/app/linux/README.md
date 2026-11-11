@@ -2,7 +2,7 @@
 
 The client is the `MaiCord` target of `cmake/client.cmake`: the shell (`src/app/shell`) with this directory's entry and window
 glue, over the Wayland backend only (`maicord_window_null` is the tests'). Resources Windows takes from `.rc` are embedded
-(`core/linux/resource.cpp`: sounds and the icon, which `window_app_icon_png` reads as an ICO).
+(`core/linux/resource.cpp`: the sounds; the caption's program icon is the brand mark `app_icon_decode` renders, not an ICO).
 
 Not in `maicord_app_client` on Linux: `src/app/shell` (the client's own sources), `src/app/windows` (Win32 entry and window
 procedure), `src/app/linux` (this), and the UI Automation server (`accessibility.cpp`; `src/app/accessibility/linux` stands in with the

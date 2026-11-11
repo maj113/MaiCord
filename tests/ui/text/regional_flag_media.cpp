@@ -5,8 +5,7 @@
 namespace maicord {
 namespace {
 // The generator's checksum of every flag's verified record.
-struct FlagGroup { u32 packed_offset, packed_bytes, raw_bytes; };
-struct FlagEntry { u16 sequence, offset, bytes; u8 group; };
+struct FlagEntry { u32 offset; u16 sequence, bytes; };
 #include "regional_flag_bundle.inc"
 } // namespace
 void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept {
@@ -76,11 +75,9 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
           "regional flags: existing stop releases the media owner without new workers or codec banks");
     check(account_media_initialize(&media).ok(),"local flags: fresh media owner initializes");
     u32 local_count=0;bool local_ok=media.started;
-    static u8 bundle_scratch[kRegionalFlagScratchBytes];
-    const Slice<u8> flag_scratch{bundle_scratch,sizeof(bundle_scratch)};
     u64 checksum=0xCBF29CE484222325ull;
     for(u16 sequence=1;local_ok && sequence<680;++sequence){
-        const auto local=regional_flag_bundled_record(sequence,flag_scratch);
+        const auto local=regional_flag_bundled_record(sequence);
         if(!local.count)continue;
         ++local_count;
         for(u32 i=0;i<local.count;++i)checksum=(checksum^local.data[i])*0x100000001B3ull;
@@ -95,22 +92,22 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
     }
     check(checksum==kFlagRecordChecksum,
         "local flags: inflated records match the generator's verified records byte for byte");
-    check(local_ok && local_count==262 && !regional_flag_bundled_record(1,flag_scratch).count &&
-        !regional_flag_bundled_record(680,flag_scratch).count &&
-        !regional_flag_bundled_record(3,{bundle_scratch,16}).count,
+    check(local_ok && local_count==262 && !regional_flag_bundled_record(1).count &&
+        !regional_flag_bundled_record(680).count,
         "local flags: all 262 pinned flags validate and publish on a cold owner without network or cache entries");
-    // Groups inflate on every call: descending and alternating access must
-    // re-inflate and still return byte-exact, readable artwork.
-    bool groups_ok=true;u32 groups_seen=0;
-    for(u16 step=0;groups_ok && step<679;++step){
+    // The stream inflates once: descending and alternating access return the
+    // same kept records, still readable.
+    bool records_ok=true;u32 records_seen=0;
+    for(u16 step=0;records_ok && step<679;++step){
         const u16 sequence=static_cast<u16>(step&1 ? 679-step/2 : 1+step/2);
-        const auto flag=regional_flag_bundled_record(sequence,flag_scratch);
+        const auto flag=regional_flag_bundled_record(sequence);
         if(!flag.count)continue;
-        ++groups_seen;
+        ++records_seen;
         RegionalFlagArt art;
-        groups_ok=flag.data[flag.count-1]==0xFF && regional_flag_record_parse(flag,&art) && art.count;
+        records_ok=flag.data==regional_flag_bundled_record(sequence).data && flag.data[flag.count-1]==0xFF &&
+            regional_flag_record_parse(flag,&art) && art.count;
     }
-    check(groups_ok && groups_seen==262,"local flags: alternating group access re-inflates exact readable records");
+    check(records_ok && records_seen==262,"local flags: alternating access reads the kept, exact readable records");
     check(account_media_stop(&media,1000),"local flags: media owner stops");
 }
 } // namespace maicord

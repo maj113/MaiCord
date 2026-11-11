@@ -60,8 +60,8 @@ add_custom_command(
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 
 # Regional flags ship as binary layer records (fills and path commands, no SVG
-# left to parse) deflate-compressed in groups; the generator compiles the
-# committed Twemoji sources and the account module inflates a group on demand.
+# left to parse) in one deflate stream; the generator compiles the committed
+# Twemoji sources and the first flag request inflates the stream once.
 file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
 set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
@@ -126,7 +126,7 @@ add_custom_command(
     VERBATIM)
 
 # The executable's icon (the tray mark on the violet brand tile, PNG-compressed): the file the Windows resource
-# compiler takes and src/core/linux/resource.cpp #embeds.
+# compiler takes (Linux renders the mark instead).
 set(MAICORD_APP_ICON "${MAICORD_GENERATED_DIRECTORY}/maicord.ico")
 add_custom_command(
     OUTPUT "${MAICORD_APP_ICON}"

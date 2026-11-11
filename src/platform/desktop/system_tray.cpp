@@ -54,8 +54,9 @@ float rounded_distance(float px, float py, float c, float h, float r) noexcept {
     const float ox = maximum(qx, 0.f), oy = maximum(qy, 0.f);
     return taskbar_attention_root(ox * ox + oy * oy) + minimum(maximum(qx, qy), 0.f) - r;
 }
+} // namespace
 
-void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept {
+void tray_mark_render(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept {
     const float e = static_cast<float>(extent), c = e * .5f;
     const auto& points = kBrandMarkPoints;
     const float half_stroke = maximum(e * kBrandMarkStroke * .5f, .85f);
@@ -76,6 +77,7 @@ void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) 
             pixels[y * extent + x] = (static_cast<u32>(tile * 255.f + .5f) << 24) | (shaded & 0x00FFFFFFu);
         }
 }
+namespace {
 // Clears a ring around the overlay so it reads against the tile, like the official status cutout.
 void cut(Slice<u32> pixels, u32 extent, float cx, float cy, float radius) noexcept {
     for (u32 y = 0; y < extent; ++y)
@@ -183,7 +185,7 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
                       Slice<u32> pixels) noexcept {
     if (extent < 16 || extent > kTrayIconMaximumExtent || !pixels.data || pixels.count < extent * extent)
         return false;
-    render_mark(palette, extent, pixels);
+    tray_mark_render(palette, extent, pixels);
     const float e = static_cast<float>(extent);
     if (state == TrayIconState::normal || (state == TrayIconState::unread && !badge))
         return true;

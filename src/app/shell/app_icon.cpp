@@ -1,11 +1,28 @@
 #include "app_icon.hpp"
-#include "maicord/core/scratch_pages.hpp"
 
+#if defined(_WIN32)
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/platform/window/window.hpp"
+#else
+#include "maicord/platform/desktop/system_tray.hpp"
+#endif
 
 namespace maicord {
 
+#if !defined(_WIN32)
+bool app_icon_decode(u32 extent, u32* pixels) noexcept {
+    if (!pixels || !extent || extent > kAppIconLargestExtent)
+        return false;
+    tray_mark_render(tray_icon_brand_palette({}), extent, {pixels, extent * extent});
+    for (u32 i = 0; i < extent * extent; ++i) {
+        const u32 p = pixels[i], alpha = p >> 24;
+        const auto channel = [&](u32 shift) noexcept { return ((p >> shift & 255) * alpha + 127) / 255 << shift; };
+        pixels[i] = channel(0) | channel(8) | channel(16) | alpha << 24;
+    }
+    return true;
+}
+#else
 bool app_icon_decode(u32 extent, u32* pixels) noexcept {
     constexpr u32 kLargest = kAppIconLargestExtent;
     u32 best = 0;
@@ -66,5 +83,6 @@ bool app_icon_decode(u32 extent, u32* pixels) noexcept {
         }
     return true;
 }
+#endif
 
 } // namespace maicord

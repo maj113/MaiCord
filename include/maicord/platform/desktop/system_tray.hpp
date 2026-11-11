@@ -64,6 +64,9 @@ constexpr TrayIconPalette tray_icon_brand_palette(const TrayIconPalette& themed)
     return {0xFF000000u | kBrandMarkTop, 0xFF000000u | kBrandMarkBottom, themed.success, themed.danger, 0xFFFFFFFFu};
 }
 inline constexpr u32 kTrayIconMaximumExtent = 64;
+// The mark alone (rounded tile with an "M"), straight alpha, at any extent: the tray icon without its state overlay
+// and, on Linux, the caption's program icon.
+void tray_mark_render(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept;
 // MaiCord's mark (rounded tile with an "M") plus the state overlay in the
 // lower-right corner: green dot (connected), ringed dot (speaking), struck
 // disc (muted), crossed disc (deafened), red dot or count (unread).

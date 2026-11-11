@@ -382,9 +382,11 @@ bool window_post(const Waker& waker, u64 a, u64 b) noexcept {
     return true;
 }
 
+#if defined(_WIN32)
 ConstSlice<u8> window_app_icon_png(u32, u32, u32*) noexcept {
     return {};
 }
+#endif
 
 // Fatal messages have nowhere to go without a desktop.
 void window_fatal_message(Utf8View, Utf8View) noexcept {}

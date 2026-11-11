@@ -126,7 +126,7 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
     const ConstSlice<u8> encoded = encoded_view;
     const bool lottie = lottie_asset(key);
     if (!supported_key(key) || (!lottie && key.kind != MediaAssetKind::regional_flag) || !encoded.data ||
-        encoded.count > (lottie ? kLottieMaximumBytes : kRegionalFlagScratchBytes))
+        encoded.count > (lottie ? kLottieMaximumBytes : kRegionalFlagMaximumRecordBytes))
         return false;
     // Both vector kinds compile here into the shared paint workspace; the
     // client only rasterizes the borrowed program.
@@ -165,11 +165,8 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
     return true;
 }
 
-// Separate frame so the inflate scratch only occupies stack on this path.
-__declspec(noinline) bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept {
-    u8 scratch[kRegionalFlagScratchBytes];
-    return publish_vector(media, key,
-                          regional_flag_bundled_record(static_cast<u16>(key.id), {scratch, sizeof(scratch)}), 0);
+bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept {
+    return publish_vector(media, key, regional_flag_bundled_record(static_cast<u16>(key.id)), 0);
 }
 
 bool consume_response(void* opaque, const CdnClientResponse& response,

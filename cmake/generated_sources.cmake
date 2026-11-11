@@ -17,11 +17,6 @@ if(MAICORD_LINUX)
     maicord_embed_pack(src/ui/text/emoji_catalog.cpp "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
     maicord_embed_pack(src/ui/widgets/icon_pack.cpp "${MAICORD_ICON_PACK_INCLUDE}")
     maicord_embed_pack(src/app/media/regional_flag_assets.cpp "${MAICORD_REGIONAL_FLAG_BUNDLE}")
-    # resource.cpp #embeds the executable's icon and the sounds. The icon's #embed sits in an include of its own because
-    # a quoted #embed is looked up beside the file that names it.
-    maicord_embed_pack(src/core/linux/resource.cpp "${MAICORD_APP_ICON}")
-    file(WRITE "${MAICORD_GENERATED_DIRECTORY}/app_icon.inc" "#embed \"maicord.ico\"\n")
-
     # The GLSL shader pack of maicord_gpu_gles_shaders: the hand-written twins (src/render/shaders/gles) of the shaders
     # the Windows branch below packs, in the same order (tools/build_gles_shader_pack.py reads the maicord_shader calls).
     set(MAICORD_GLES_SHADER_PACK "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack_gles.inc")

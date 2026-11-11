@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the pinned Twemoji regional-flag SVGs into binary records in deflate groups.
+"""Compile the pinned Twemoji regional-flag SVGs into binary records in one deflate stream.
 
 Input: assets/regional_flags/<codepoints>.svg (CC BY 4.0, see
 assets/licenses/Twemoji-graphics.txt). The flag sequence is derived from the
@@ -16,7 +16,8 @@ admitted ellipse rotation), the fill's three sRGB bytes, then for a path its SVG
 path commands (the letter, the varint count of its numbers, the zigzag varint
 numbers in tenths; a zero letter ends the path) and for a circle or ellipse its
 centre and radii (zigzag varint hundredths). 0xFF ends the record. Output is a
-deterministic C++ include with one zlib stream per group of similar records.
+deterministic C++ include with one zlib stream of the records, similar ones adjacent;
+the client inflates it once, on the first flag it draws.
 """
 import argparse
 from collections import Counter
@@ -27,8 +28,6 @@ import zlib
 import optimal_deflate
 from font_reference.embed_fixture import embed_arrays, write_if_changed
 
-# A request inflates its flag's whole group: records up to this many bytes, or one larger record alone.
-GROUP_RAW_BUDGET = 16 * 1024
 PACKED_FILE = "regional_flag_packed.bin"  # beside the include, read by #embed
 SUBDIVISIONS = {"gbeng": 677, "gbsct": 678, "gbwls": 679}
 
@@ -337,50 +336,29 @@ def best_deflate(data):
     return best
 
 
-def adjacent_groups(flags):
-    groups, current, raw = [], [], 0
-    for sequence, record in flags:
-        if current and raw + len(record) > GROUP_RAW_BUDGET:
-            groups.append(current)
-            current, raw = [], 0
-        current.append((sequence, record))
-        raw += len(record)
-    groups.append(current)
-
-    return groups
-
-
-def group_flags(flags):
-    # Keep each flag's inflated byte count at or below its previous adjacent group.
-    baseline = adjacent_groups(flags)
-    limits = {sequence: sum(len(record) for _, record in group)
-              for group in baseline for sequence, _ in group}
-    # Sample short byte strings to find shared artwork. Bytes most flags share
-    # provide little compression benefit, so omit features shared by many flags.
+def stream_order(flags):
+    """The records in one deflate stream, each next to the flags it shares the most artwork with (within the
+    window's last 30 KB). Short byte strings sample the artwork; ones most flags share help little, so they are
+    left out."""
     features = [{record[i:i + 6] for i in range(0, len(record) - 5, 3)} for _, record in flags]
     frequency = Counter(feature for row in features for feature in row)
     features = [{feature for feature in row if frequency[feature] < len(flags) // 3}
                 for row in features]
-    remaining, groups = set(range(len(flags))), []
-    while remaining:
-        seed = max(remaining, key=lambda i: (len(flags[i][1]), -i))
-        remaining.remove(seed)
-        group, raw, limit = [flags[seed]], len(flags[seed][1]), limits[flags[seed][0]]
-        shared = features[seed].copy()
-        while True:
-            choices = [i for i in remaining
-                       if raw + len(flags[i][1]) <= min(limit, limits[flags[i][0]])]
-            if not choices:
+    remaining, order = set(range(len(flags))), []
+    chosen = max(remaining, key=lambda i: (len(flags[i][1]), -i))
+    while True:
+        remaining.remove(chosen)
+        order.append(chosen)
+        if not remaining:
+            return [flags[i] for i in order]
+        window, raw = set(), 0
+        for i in reversed(order):
+            window |= features[i]
+            raw += len(flags[i][1])
+            if raw > 30000:
                 break
-            chosen = max(choices, key=lambda i: (
-                len(shared & features[i]) / max(1, len(features[i])), len(flags[i][1]), -i))
-            remaining.remove(chosen)
-            group.append(flags[chosen])
-            raw += len(flags[chosen][1])
-            limit = min(limit, limits[flags[chosen][0]])
-            shared |= features[chosen]
-        groups.append(group)
-    return groups
+        chosen = max(remaining, key=lambda i: (
+            len(window & features[i]) / max(1, len(features[i])), len(flags[i][1]), -i))
 
 
 def main():
@@ -401,41 +379,26 @@ def main():
         for byte in record:
             checksum = (checksum ^ byte) * 0x100000001B3 % (1 << 64)
 
-    groups, entries = group_flags(flags), []
+    offsets, raw_data = {}, bytearray()
+    for _, record in stream_order(flags):
+        if record not in offsets:
+            offsets[record] = len(raw_data)
+            raw_data += record
     cache = optimal_deflate.DeflateCache("regional_flags")
-    assert len(groups) <= 256
-
-    blob, group_rows, maximum_raw = bytearray(), [], 0
-    for index, group in enumerate(groups):
-        offsets, raw_data = {}, bytearray()
-        for _, record in group:
-            if record not in offsets:
-                offsets[record] = len(raw_data)
-                raw_data += record
-        packed = cache.stream(bytes(raw_data), best_deflate)
-        assert zlib.decompress(packed) == raw_data
-        group_rows.append((len(blob), len(packed), len(raw_data)))
-        blob += packed
-        maximum_raw = max(maximum_raw, len(raw_data))
-        for sequence, record in group:
-            offset = offsets[record]
-            assert offset < 65536 and len(record) < 65536
-            entries.append((sequence, offset, len(record), index))
+    blob = cache.stream(bytes(raw_data), best_deflate)
     cache.save()
-
-    entries.sort()  # Runtime lookup remains a binary search by sequence.
+    assert zlib.decompress(blob) == raw_data and len(raw_data) < 1 << 32
+    entries = [(sequence, offsets[record], len(record)) for sequence, record in flags]  # sorted for a binary search
+    assert all(n < 65536 for _, _, n in entries)
     lines = ["// Generated by tools/generate_regional_flag_bundle.py; do not edit.",
              "// Twemoji artwork, CC BY 4.0, coordinates rounded. See assets/licenses/Twemoji-graphics.txt.",
              f"constexpr u64 kFlagRecordChecksum=0x{checksum:016X}ull;",
              f"constexpr u32 kFlagCount={len(entries)};",
              f"constexpr u32 kFlagPathUnit={PATH_UNIT};",
-             f"constexpr u32 kFlagGroupCount={len(groups)};",
-             f"constexpr u32 kFlagScratchBytes={maximum_raw};",
-             "constexpr FlagGroup kFlagGroups[]={"]
-    lines += [f"{{{o},{c},{r}}}," for o, c, r in group_rows]
-    lines.append("};")
-    lines.append("constexpr FlagEntry kFlagEntries[]={")
-    lines += [f"{{{s},{o},{n},{g}}}," for s, o, n, g in entries]
+             f"constexpr u32 kFlagRawBytes={len(raw_data)};",
+             f"constexpr u32 kFlagLargestRecord={max(n for _, _, n in entries)};",
+             "constexpr FlagEntry kFlagEntries[]={"]
+    lines += [f"{{{o},{s},{n}}}," for s, o, n in entries]
     lines.append("};")
     lines.append(embed_arrays([("constexpr u8 kFlagPacked[]", PACKED_FILE)]).rstrip("\n"))
     text = "\n".join(lines) + "\n"
