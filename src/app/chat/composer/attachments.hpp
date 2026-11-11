@@ -19,6 +19,8 @@ bool application_attachment_add_menu() noexcept;
 // Consumes the dropped files on every path, including rejection.
 bool application_drop_attachments(DroppedFiles* drop) noexcept;
 bool application_paste_attachments() noexcept;
+// The allowance the client knows for a file in the channel (upload_allowance_bytes): named when Discord refuses a
+// file as too large, never a reason to refuse one locally.
 u64 application_attachment_limit(u64 channel_id) noexcept;
 void application_sync_attachment_drop_target() noexcept;
 // The store's install dialog takes dropped files too (src/app/packages): while set, the window accepts drops even

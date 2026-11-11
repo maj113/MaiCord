@@ -246,16 +246,16 @@ u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept {
     return format_size(bytes, output, false);
 }
 
-u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, u32 others, Slice<char> output) noexcept {
+u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, Slice<char> output) noexcept {
     if (!output.data || !output.count)
         return 0;
     char size[24], cap[24];
     const u32 size_bytes = format_size(bytes, {size, 24}, true);
-    const u32 cap_bytes = format_size(limit, {cap, 24}, true);
+    const u32 cap_bytes = limit ? format_size(limit, {cap, 24}, true) : 0;
     const u32 name_bytes = name.data ? utf8_truncated_length(name, kUiAttachmentOverLimitNameBytes) : 0;
     u32 used = name_bytes ? append_bytes(output, 0, name.data, name_bytes) : append(output, 0, "This file");
     if (!bytes) {
-        used = append(output, used, " is over the ");
+        used = append(output, used, " is over ");
     } else {
         used = append(output, used, " is ");
         // Just over the limit both round to the same text; the exact count shows how far over.
@@ -265,14 +265,14 @@ u32 ui_attachment_over_limit_text(Utf8View name, u64 bytes, u64 limit, u32 other
         } else {
             used = append_bytes(output, used, size, size_bytes);
         }
-        used = append(output, used, ", over the ");
+        used = append(output, used, ", over ");
     }
-    used = append_bytes(output, used, cap, cap_bytes);
-    used = append(output, used, " limit");
-    if (others) {
-        used = append(output, used, " (and ");
-        used = append_unsigned(output, used, others);
-        used = append(output, used, " more)");
+    if (limit) {
+        used = append(output, used, "the ");
+        used = append_bytes(output, used, cap, cap_bytes);
+        used = append(output, used, " limit");
+    } else {
+        used = append(output, used, "Discord's limit");
     }
     return append(output, used, ".");
 }

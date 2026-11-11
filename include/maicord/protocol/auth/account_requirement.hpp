@@ -33,6 +33,11 @@ __declspec(noinline) constexpr bool api_rejection_requires_action(ApiRejection v
     return value.captcha ||
            (value.has_code && (value.code == 40002 || value.code == 40004 || value.code == 20026));
 }
+// Discord refused the request as too large: HTTP 413, or JSON code 40005 ("Request entity too large") or 50045
+// ("File uploaded exceeds the maximum size").
+constexpr bool api_rejection_too_large(u16 status_code, ApiRejection value) noexcept {
+    return status_code == 413 || (value.has_code && (value.code == 40005 || value.code == 50045));
+}
 // Retain only numeric codes and challenge presence. Never retain error prose,
 // captcha material, or nested validation values from the response body.
 bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* output) noexcept;

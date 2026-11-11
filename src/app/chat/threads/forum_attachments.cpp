@@ -6,6 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/chat/upload_allowance.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 namespace maicord::app_detail {
@@ -41,10 +42,10 @@ void status(ApplicationForumAttachments& owner, Utf8View text, bool error = true
     owner.status_bytes = minimum(text.bytes, static_cast<u32>(sizeof(owner.status)));
     copy_bytes(owner.status, text.data, owner.status_bytes); owner.error = error; changed(owner);
 }
-// "<name> is 27.3 MB, over the 10 MB limit." as the owner's error status.
-void size_status(ApplicationForumAttachments& owner, Utf8View name, u64 bytes, u32 others = 0) noexcept {
+// "<name> is 27.3 MB, over the 10 MB limit." as the owner's error status (a zero limit reads "Discord's").
+void size_status(ApplicationForumAttachments& owner, Utf8View name, u64 bytes, u64 limit) noexcept {
     char text[256];
-    const u32 used = ui_attachment_over_limit_text(name, bytes, application_attachment_limit(owner.ticket.parent_id), others, {text, sizeof(text)});
+    const u32 used = ui_attachment_over_limit_text(name, bytes, limit, {text, sizeof(text)});
     status(owner, {text, used});
 }
 void failed(ApplicationForumAttachments& owner, u64 id, MessageAttachmentDraftFailure failure, u16 code = 0) noexcept {
@@ -53,9 +54,13 @@ void failed(ApplicationForumAttachments& owner, u64 id, MessageAttachmentDraftFa
     if (row->phase == MessageAttachmentDraftPhase::failed && row->failure == failure && row->http_status == code) return;
     row->phase = MessageAttachmentDraftPhase::failed; row->failure = failure; row->http_status = code;
     ++owner.drafts.revision;
-    if (failure == MessageAttachmentDraftFailure::size_limit)
-        size_status(owner, message_attachment_drafts_filename(&owner.drafts, id), row->source.bytes);
-    else changed(owner);
+    // Discord refused the file as too large: the allowance the client knows is named when the file is over it,
+    // else Discord's own (an experiment or rule the client cannot see).
+    if (failure == MessageAttachmentDraftFailure::size_limit) {
+        const u64 limit = application_attachment_limit(owner.ticket.parent_id);
+        size_status(owner, message_attachment_drafts_filename(&owner.drafts, id), row->source.bytes,
+                    row->source.bytes > limit ? limit : 0);
+    } else changed(owner);
 }
 bool editable(const ApplicationForumAttachments& owner) noexcept {
     return source(owner) && !owner.locked && application_forum_post_editable(owner.ticket);
@@ -128,8 +133,9 @@ ApplicationForumAttachmentView application_forum_attachments_view(const Applicat
         owner.rows[i] = {ids[i], message_attachment_drafts_filename(&owner.drafts, ids[i]),
             message_attachment_drafts_description(&owner.drafts, ids[i]), row_status(*row), row->source.bytes,
             row->uploaded_bytes, row->phase, row->spoiler, can_edit,
-            can_edit && allowed && row->phase == MessageAttachmentDraftPhase::failed && row->failure != MessageAttachmentDraftFailure::source_changed};
-        ready = ready && row->phase == MessageAttachmentDraftPhase::ready && row->source.bytes <= application_attachment_limit(ticket.parent_id);
+            can_edit && allowed && row->phase == MessageAttachmentDraftPhase::failed &&
+                row->failure != MessageAttachmentDraftFailure::source_changed && row->failure != MessageAttachmentDraftFailure::size_limit};
+        ready = ready && row->phase == MessageAttachmentDraftPhase::ready;
     }
     return {{owner.rows, count}, {owner.status, owner.status_bytes}, owner.revision + owner.drafts.revision,
         allowed && !owner.locked && !owner.picker.runtime && count < kAttachmentUploadMaximumCount,
@@ -158,7 +164,7 @@ bool application_forum_attachments_paste(const ApplicationForumPostTicket& ticke
     ClipboardCapture* input = clipboard_capture_attachment();
     if (!input) { status(owner, utf8_literal("Could not read the clipboard attachment.")); return false; }
     const auto count = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {});
-    const auto result = native_file_picker_take_clipboard(&owner.picker, input, kAttachmentUploadMaximumCount - count, application_attachment_limit(ticket.parent_id));
+    const auto result = native_file_picker_take_clipboard(&owner.picker, input, kAttachmentUploadMaximumCount - count, kUploadLargestAllowanceBytes);
     clipboard_capture_release(input); return picked_start(owner, result);
 }
 bool application_forum_attachments_remove(const ApplicationForumPostTicket& ticket, u64 id) noexcept {
@@ -176,7 +182,7 @@ bool application_forum_attachments_retry(const ApplicationForumPostTicket& ticke
     auto& owner = *forum_attachments;
     auto* row = message_attachment_drafts_get(&owner.drafts, id);
     if (row->phase != MessageAttachmentDraftPhase::failed || row->failure == MessageAttachmentDraftFailure::source_changed ||
-        row->source.bytes > application_attachment_limit(ticket.parent_id)) return false;
+        row->failure == MessageAttachmentDraftFailure::size_limit) return false;
     row->phase = MessageAttachmentDraftPhase::waiting_url; row->failure = MessageAttachmentDraftFailure::none;
     row->retry_at_ms = 0; row->uploaded_bytes = 0;
     owner.error = false; owner.status_bytes = 0; ++owner.drafts.revision; changed(owner); return true;
@@ -208,14 +214,6 @@ bool application_forum_attachments_synchronize() noexcept {
         if (owner.url_id) failed(owner, owner.url_id, MessageAttachmentDraftFailure::request);
         if (!owner.error) status(owner, utf8_literal("You no longer have permission to attach files here."));
     }
-    if (owner.active_id && !owner.finishing) {
-        const auto* row = message_attachment_drafts_get(&owner.drafts, owner.active_id);
-        if (row && row->source.bytes > application_attachment_limit(owner.ticket.parent_id)) {
-            application_upload_lane_cancel(owner.lease);
-            failed(owner, owner.active_id, MessageAttachmentDraftFailure::size_limit);
-            owner.finishing = true;
-        }
-    }
     return true;
 }
 bool application_forum_attachments_pump() noexcept {
@@ -228,28 +226,20 @@ bool application_forum_attachments_pump() noexcept {
         if (picked.ok() && !owner.picker_cancelled && authorized(owner.ticket)) {
             MessageAttachmentFile files[kAttachmentUploadMaximumCount]{}; u64 ids[kAttachmentUploadMaximumCount]{};
             bool valid = picked.count && picked.count <= kAttachmentUploadMaximumCount;
-            const auto limit = application_attachment_limit(owner.ticket.parent_id);
-            u32 over = 0, largest = 0; u64 largest_bytes = 0;
             for (u32 i = 0; valid && i < picked.count; ++i) {
                 files[i].path = native_file_picker_path(&owner.picker, i); files[i].filename = native_file_picker_filename(&owner.picker, i);
                 files[i].content = native_file_picker_source(&owner.picker, i);
                 valid = native_file_picker_snapshot(&owner.picker, i, &files[i].snapshot);
-                if (valid && files[i].snapshot.bytes > limit) {
-                    if (!over || files[i].snapshot.bytes > largest_bytes) { largest = i; largest_bytes = files[i].snapshot.bytes; }
-                    ++over;
-                }
             }
-            if (over) {
-                char name[kAttachmentUploadMaximumFilenameBytes];
-                size_status(owner, {name, message_attachment_file_name(files[largest], {name, sizeof(name)})}, largest_bytes, over - 1);
-            } else if (!valid || message_attachment_drafts_add(&owner.drafts, owner.ticket.parent_id, {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) != MessageAttachmentDraftError::none)
+            if (!valid || message_attachment_drafts_add(&owner.drafts, owner.ticket.parent_id, {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) != MessageAttachmentDraftError::none)
                 status(owner, utf8_literal("Couldn't attach these files. Posts can have up to 10 files."));
         } else if (!owner.picker_cancelled && picked.error != NativeFilePickerError::cancelled) {
             if (picked.native_error == ERROR_FILE_TOO_LARGE) {
                 // The paste worker named the refused file or image and measured it.
                 char name[kAttachmentUploadMaximumFilenameBytes];
                 const MessageAttachmentFile refused{native_file_picker_oversize_name(&owner.picker), {}, {}, {}};
-                size_status(owner, {name, message_attachment_file_name(refused, {name, sizeof(name)})}, picked.oversize_bytes);
+                size_status(owner, {name, message_attachment_file_name(refused, {name, sizeof(name)})}, picked.oversize_bytes,
+                            kUploadLargestAllowanceBytes);
             } else status(owner, utf8_literal("Could not read the selected attachments."));
         }
         changed(owner);
@@ -260,8 +250,7 @@ bool application_forum_attachments_pump() noexcept {
         auto* row = message_attachment_drafts_get(&owner.drafts, owner.active_id);
         if (row && row->uploaded_bytes != progress.transfer.committed_bytes) { row->uploaded_bytes = progress.transfer.committed_bytes; changed(owner); }
         if (!owner.finishing && (progress.transfer.phase == HttpsFileUploadPhase::complete || progress.submit_error != HttpsFileUploadError::none)) {
-            if (row && progress.submit_error == HttpsFileUploadError::none && progress.transfer.ok() && authorized(owner.ticket) &&
-                row->source.bytes <= application_attachment_limit(owner.ticket.parent_id)) {
+            if (row && progress.submit_error == HttpsFileUploadError::none && progress.transfer.ok() && authorized(owner.ticket)) {
                 if (!message_attachment_drafts_uploaded(&owner.drafts, owner.active_id, {owner.uploaded_filename, owner.uploaded_bytes})) failed(owner, owner.active_id, MessageAttachmentDraftFailure::memory);
             } else if (row) failed(owner, owner.active_id,
                 progress.transfer.error == HttpsFileUploadError::source_changed || progress.transfer.error == HttpsFileUploadError::file_size ?
@@ -284,7 +273,6 @@ bool application_forum_attachments_url_candidate(const ApplicationForumPostTicke
         const u32 slot = owner.drafts.order[i]; const auto& row = owner.drafts.records[slot];
         if (!row.occupied || row.phase != MessageAttachmentDraftPhase::waiting_url || row.retry_at_ms > now) continue;
         const u64 id = (u64{row.generation} << 32) | (slot + 1);
-        if (row.source.bytes > application_attachment_limit(ticket.parent_id)) { failed(owner, id, MessageAttachmentDraftFailure::size_limit); continue; }
         reset_value(output); output->parent_id = ticket.parent_id; output->guild_id = owner.guild;
         output->operation = ForumPostOperation::attachment_url;
         output->upload_filename = message_attachment_drafts_filename(&owner.drafts, id);
@@ -312,12 +300,14 @@ void application_forum_attachments_url_response(const ApplicationForumPostTicket
     if (owner.url_id != id) return;
     owner.url_id = 0;
     auto* row = message_attachment_drafts_get(&owner.drafts, id);
-    const bool valid = row && source(owner) && authorized(ticket) && row->source.bytes <= application_attachment_limit(ticket.parent_id);
+    const bool valid = row && source(owner) && authorized(ticket);
     const auto decoded = valid && response.succeeded() &&
         body.data && body.bytes && body.bytes == response.body_bytes && body.bytes <= kForumPostMaximumResponseBytes ?
         attachment_upload_parse_response(body, static_cast<u32>(id), {owner.url, sizeof(owner.url)}, {owner.uploaded_filename, sizeof(owner.uploaded_filename)}) : AttachmentUploadResponse{};
     if (!decoded.ok) {
-        failed(owner, id, MessageAttachmentDraftFailure::request, response.status_code);
+        const bool too_large = valid && response.transport_ok() && api_rejection_too_large(response.status_code, response.rejection);
+        failed(owner, id, too_large ? MessageAttachmentDraftFailure::size_limit : MessageAttachmentDraftFailure::request,
+               response.status_code);
         if (response.status_code == 429 && row) row->retry_at_ms = response.retry_at_ms;
         application_upload_lane_release(&owner.lease);
     } else {
@@ -345,7 +335,7 @@ bool application_forum_attachments_prepare(const ApplicationForumPostTicket& tic
     if (found > refs.count || found > sizes.count || owner.picker.runtime || owner.active_id || owner.url_id || (found && !authorized(ticket))) return false;
     for (u32 i = 0; i < found; ++i) {
         const auto* row = message_attachment_drafts_get(&owner.drafts, ids[i]);
-        if (row->source.bytes > application_attachment_limit(ticket.parent_id) || !message_attachment_drafts_reference(&owner.drafts, ids[i], i, &refs[i])) return false;
+        if (!message_attachment_drafts_reference(&owner.drafts, ids[i], i, &refs[i])) return false;
         sizes[i] = row->source.bytes;
     }
     *count = found; return true;

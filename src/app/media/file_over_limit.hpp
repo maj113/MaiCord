@@ -10,6 +10,6 @@ inline Utf8View application_file_over_limit_text(ConstSlice<wchar_t> path, u64 b
                                                  Slice<char> storage) noexcept {
     char name[kAttachmentUploadMaximumFilenameBytes];
     const u32 name_bytes = message_attachment_file_name({path, {}, {}, {}}, {name, sizeof(name)});
-    return {storage.data, ui_attachment_over_limit_text({name, name_bytes}, bytes, limit, 0, storage)};
+    return {storage.data, ui_attachment_over_limit_text({name, name_bytes}, bytes, limit, storage)};
 }
 } // namespace maicord::app_detail

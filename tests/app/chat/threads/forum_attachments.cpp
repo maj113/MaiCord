@@ -204,29 +204,18 @@ void run() noexcept {
     wchar_t path[MAX_PATH]{}; u32 units{}; FileSnapshot snapshot{};
     if (file_drop_fixture::seed(path, &units, &snapshot)) {
         const ConstSlice<wchar_t> dropped{path, units};
+        // Over the allowance the client knows, Discord decides: the drop stages.
         fixture_limit = 4;
-        char expected[96]{}; u32 leaf = units, expected_bytes = 0;
-        while (leaf && path[leaf - 1] != L'\\') --leaf;
-        for (u32 i = leaf; i < units; ++i) expected[expected_bytes++] = static_cast<char>(path[i]);
-        constexpr auto expected_tail = utf8_literal(" is 8 B, over the 4 B limit.");
-        copy_bytes(expected + expected_bytes, expected_tail.data, expected_tail.bytes); expected_bytes += expected_tail.bytes;
-        check(application_forum_attachments_drop(ticket, file_drop_fixture::make({&dropped, 1})) &&
-            forum_attachments && file_drop_fixture::await(&forum_attachments->picker), "forum media: oversized native drop worker completes");
-        application_forum_attachments_pump();
-        check(!application_forum_attachments_view(ticket).rows.count && application_forum_attachments_view(ticket).error &&
-            utf8_equal(application_forum_attachments_view(ticket).status, {expected, expected_bytes}),
-            "forum media: a dropped file over the allowance names itself, its size and the limit");
-        check(file_drop_fixture::reap(&forum_attachments->picker), "forum media: oversized native drop worker joins within fixture bound");
-        fixture_limit = 1024;
         check(application_forum_attachments_drop(ticket, file_drop_fixture::make({&dropped, 1})) &&
             forum_attachments && file_drop_fixture::await(&forum_attachments->picker), "forum media: actual native drop worker prepares original file");
         application_forum_attachments_pump();
         const auto view = application_forum_attachments_view(ticket);
         UploadSource borrowed{}; FileSnapshot retained{}; ConstSlice<wchar_t> copied{};
-        check(view.rows.count == 1 && application_forum_attachments_source(ticket, view.rows[0].id, &borrowed, &retained, &copied) &&
+        check(view.rows.count == 1 && !view.error && application_forum_attachments_source(ticket, view.rows[0].id, &borrowed, &retained, &copied) &&
             retained.bytes == snapshot.bytes && file_identity_equal(retained.identity, snapshot.identity),
-            "forum media: native drop preserves parent-local captured file identity");
+            "forum media: a native drop over the known allowance stages with its captured file identity");
         check(file_drop_fixture::reap(&forum_attachments->picker), "forum media: native drop worker joins within fixture bound");
+        fixture_limit = 1024;
         application_forum_attachments_release(); DeleteFileW(path);
     } else check(false, "forum media: real drop fixture creation");
 
@@ -246,16 +235,18 @@ void run() noexcept {
         !message_store_find(g_app.message_view.store, 4020).ok() && !message_rich_store_find(rich_store, 4020),
         "forum media: fresher offselected starter delete wins over old HTTP rich snapshot");
 
-    ticket = intent(190); id = stage(ticket); upload.join = false;
-    application_forum_post_submit(191, now); receipt(191, 200, url_body()); fixture_limit = 4;
-    application_forum_attachments_synchronize();
-    check(forum_attachments->finishing && application_forum_attachments_view(ticket).rows[0].phase == MessageAttachmentDraftPhase::failed &&
-        !application_forum_attachments_view(ticket).ready && !application_upload_lane_available(),
-        "forum media: quota reduction cancels active transfer and prevents stale ready publication");
-    check(application_forum_attachments_view(ticket).error &&
+    ticket = intent(190); id = stage(ticket); fixture_limit = 4;
+    check(application_forum_post_pending(now) && application_forum_post_submit(191, now) &&
+        submitted.operation == ForumOperation::attachment_url && submitted.upload_bytes == 8,
+        "forum media: a file over the known allowance still asks Discord for an upload URL");
+    receipt(191, 400, {}, 0, {}, 50045);
+    check(!upload.id && application_upload_lane_available() &&
+        application_forum_attachments_view(ticket).rows[0].phase == MessageAttachmentDraftPhase::failed &&
+        !application_forum_attachments_view(ticket).rows[0].can_retry && !application_forum_attachments_retry(ticket, id) &&
+        application_forum_attachments_view(ticket).error &&
         utf8_equal(application_forum_attachments_view(ticket).status, utf8_literal("a.txt is 8 B, over the 4 B limit.")),
-        "forum media: a row pushed over the allowance names its file, size and the new limit");
-    upload.join = true; application_forum_attachments_pump(); fixture_limit = 1024;
+        "forum media: Discord's size refusal names the file, its size and the known limit, and is final");
+    fixture_limit = 1024;
 
     ticket = intent(195); id = stage(ticket); application_forum_post_submit(196, now);
     ++g_app.account.status.profile_id; application_forum_post_synchronize(); application_forum_attachments_synchronize();

@@ -92,6 +92,13 @@ void test_account_requirement(void (*check)(bool, const char*) noexcept) noexcep
               rejection.has_code && !rejection.code && !rejection.captcha &&
               !api_rejection_requires_action(rejection),
           "general and nested errors do not imply an account restriction");
+    check(api_rejection_decode(utf8_literal(R"({"code":50045,"message":"File uploaded exceeds the maximum size"})"),
+                               {scratch, 512}, &rejection) &&
+              api_rejection_too_large(400, rejection) && !api_rejection_requires_action(rejection) &&
+              utf8_equal(api_rejection_notice(rejection), utf8_literal("A file is over Discord's upload limit.")) &&
+              api_rejection_too_large(400, {40005, true, false}) && api_rejection_too_large(413, {}) &&
+              !api_rejection_too_large(400, {50035, true, false}),
+          "Discord's file size refusals (413, 40005, 50045) are recognized and shown");
     constexpr Utf8View invalid[] = {
         utf8_literal(R"({"code":40002,"code":0})"), utf8_literal(R"({"code":-1})"),
         utf8_literal(R"({"code":4294967296})"),     utf8_literal(R"({"code":"40004"})"),

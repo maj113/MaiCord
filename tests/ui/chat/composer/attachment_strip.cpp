@@ -69,30 +69,32 @@ void test_composer_attachment_strip(void (*check)(bool, const char*) noexcept) n
     // Over-limit notice: the file's own size next to the limit, one decimal, exact bytes when they would read alike.
     constexpr u64 mib = 1024ull * 1024;
     char notice[256];
-    const auto over = [&](Utf8View name, u64 bytes, u64 limit, u32 others, const char* expected) noexcept {
-        return text_equal({notice, 256}, ui_attachment_over_limit_text(name, bytes, limit, others, {notice, 256}), expected);
+    const auto over = [&](Utf8View name, u64 bytes, u64 limit, const char* expected) noexcept {
+        return text_equal({notice, 256}, ui_attachment_over_limit_text(name, bytes, limit, {notice, 256}), expected);
     };
-    check(over(utf8_literal("big.zip"), 28'626'125, 10 * mib, 0, "big.zip is 27.3 MB, over the 10 MB limit.") &&
-              over(utf8_literal("a.bin"), 10'590'618, 10 * mib, 0, "a.bin is 10.1 MB, over the 10 MB limit.") &&
-              over(utf8_literal("e.png"), 300 * 1024, 256 * 1024, 0, "e.png is 300 KB, over the 256 KB limit."),
+    check(over(utf8_literal("big.zip"), 28'626'125, 10 * mib, "big.zip is 27.3 MB, over the 10 MB limit.") &&
+              over(utf8_literal("a.bin"), 10'590'618, 10 * mib, "a.bin is 10.1 MB, over the 10 MB limit.") &&
+              over(utf8_literal("e.png"), 300 * 1024, 256 * 1024, "e.png is 300 KB, over the 256 KB limit."),
           "over-limit notice shows the file size with one decimal beside the limit");
-    check(over(utf8_literal("photo.png"), 10 * mib + 1, 10 * mib, 0, "photo.png is 10485761 bytes, over the 10 MB limit.") &&
-              over(utf8_literal("photo.png"), 10 * mib + 1000, 10 * mib, 0, "photo.png is 10486760 bytes, over the 10 MB limit.") &&
-              over(utf8_literal("a.bin"), 100 * mib + 1, 100 * mib, 0, "a.bin is 104857601 bytes, over the 100 MB limit."),
+    check(over(utf8_literal("photo.png"), 10 * mib + 1, 10 * mib, "photo.png is 10485761 bytes, over the 10 MB limit.") &&
+              over(utf8_literal("photo.png"), 10 * mib + 1000, 10 * mib, "photo.png is 10486760 bytes, over the 10 MB limit.") &&
+              over(utf8_literal("a.bin"), 100 * mib + 1, 100 * mib, "a.bin is 104857601 bytes, over the 100 MB limit."),
           "a file just over the limit gives its exact byte count instead of a size that reads like the limit");
-    check(over(utf8_literal("movie.mkv"), 1610612736ull, 500 * mib, 0, "movie.mkv is 1.5 GB, over the 500 MB limit.") &&
-              over(utf8_literal("disc.iso"), 4096 * mib, 1024 * mib, 0, "disc.iso is 4 GB, over the 1 GB limit."),
+    check(over(utf8_literal("movie.mkv"), 1610612736ull, 500 * mib, "movie.mkv is 1.5 GB, over the 500 MB limit.") &&
+              over(utf8_literal("disc.iso"), 4096 * mib, 1024 * mib, "disc.iso is 4 GB, over the 1 GB limit."),
           "over-limit notice for a large file reads in the unit of its size, the limit in its own");
-    check(over(utf8_literal("a.zip"), 28'626'125, 10 * mib, 2, "a.zip is 27.3 MB, over the 10 MB limit (and 2 more).") &&
-              over({}, 28'626'125, 10 * mib, 0, "This file is 27.3 MB, over the 10 MB limit.") &&
-              over(utf8_literal("x.png"), 0, 10 * mib, 0, "x.png is over the 10 MB limit."),
-          "over-limit notice counts further files, and handles a missing name or an unmeasured size");
+    check(over({}, 28'626'125, 10 * mib, "This file is 27.3 MB, over the 10 MB limit.") &&
+              over(utf8_literal("x.png"), 0, 10 * mib, "x.png is over the 10 MB limit."),
+          "over-limit notice handles a missing name or an unmeasured size");
+    check(over(utf8_literal("clip.mp4"), 17 * mib, 0, "clip.mp4 is 17 MB, over Discord's limit.") &&
+              over(utf8_literal("x.png"), 0, 0, "x.png is over Discord's limit."),
+          "a refusal the known allowance does not explain names Discord's limit");
     char long_name[97];
     for (u32 i = 0; i < 95; ++i) long_name[i] = 'n';
     long_name[95] = '\xC3'; long_name[96] = '\xA9';
-    const u32 cut = ui_attachment_over_limit_text({long_name, 97}, 28'626'125, 10 * mib, 0, {notice, 256});
+    const u32 cut = ui_attachment_over_limit_text({long_name, 97}, 28'626'125, 10 * mib, {notice, 256});
     check(cut == 95 + 34 && notice[94] == 'n' && notice[95] == ' ' &&
-              ui_attachment_over_limit_text(utf8_literal("0123456789"), 28'626'125, 10 * mib, 0, {notice, 12}) == 12,
+              ui_attachment_over_limit_text(utf8_literal("0123456789"), 28'626'125, 10 * mib, {notice, 12}) == 12,
           "over-limit notice cuts the name at 96 bytes without splitting a scalar and never overruns its output");
 
     // Geometry: 200 DIP tiles, 24 DIP gaps, action bar translated (25%, -25%).

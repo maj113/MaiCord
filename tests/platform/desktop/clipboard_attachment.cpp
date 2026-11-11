@@ -433,17 +433,22 @@ void test_clipboard_attachment(void (*check)(bool, const char*) noexcept) noexce
     CoUninitialize(); CloseHandle(provider.unreferenced);
 
     UploadPolicy policy{};
-    check(upload_allowance_bytes(0, 0, policy) == 10u * kUploadMiB &&
-        upload_allowance_bytes(1, 0, policy) == 50u * kUploadMiB &&
-        upload_allowance_bytes(3, 0, policy) == 50u * kUploadMiB &&
-        upload_allowance_bytes(2, 0, policy) == 500u * kUploadMiB &&
-        upload_allowance_bytes(0, 4, policy) == 250u * kUploadMiB,
-        "account and guild attachment allowances");
+    check(upload_allowance_bytes(0, 0, 0, policy) == 20u * kUploadMiB &&
+        upload_allowance_bytes(1, 0, 0, policy) == 50u * kUploadMiB &&
+        upload_allowance_bytes(3, 0, 0, policy) == 50u * kUploadMiB &&
+        upload_allowance_bytes(2, 0, 0, policy) == 500u * kUploadMiB &&
+        upload_allowance_bytes(0, 0, 4, policy) == 250u * kUploadMiB,
+        "account and guild attachment allowances start from Discord's 20 MiB");
+    check(upload_allowance_bytes(0, 1, 0, policy) == 20u * kUploadMiB &&
+        upload_allowance_bytes(0, 2, 0, policy) == 50u * kUploadMiB &&
+        upload_allowance_bytes(0, 3, 0, policy) == 100u * kUploadMiB &&
+        upload_allowance_bytes(2, 3, 0, policy) == 500u * kUploadMiB && upload_allowance_bytes(0, 2, 2, policy) == 100u * kUploadMiB,
+        "server boost levels 2 and 3 raise every member's allowance to 50 and 100 MiB");
     constexpr auto apex = utf8_literal("{\"assignments\":{\"1\":{\"123\":{\"assignments\":[[3942863072,3,0],[587404649,1,0],[981354709,1,0],[3383307794,1,0]]}}}}");
     u32 structural[512]{};
     JsonValue value{}; value.kind = JsonValueKind::object; value.source = apex;
     check(upload_policy_decode(value, 123, {structural, 512}, &policy) && policy.floor_bytes == 20u * kUploadMiB &&
-        upload_allowance_bytes(2, 4, policy) == 1024u * kUploadMiB && upload_allowance_bytes(0, 4, policy) == 20u * kUploadMiB,
+        upload_allowance_bytes(2, 0, 4, policy) == 1024u * kUploadMiB && upload_allowance_bytes(0, 0, 4, policy) == 20u * kUploadMiB,
         "Apex assignments apply base rollout precedence, Nitro rollout, and guild holdout");
     constexpr auto state = utf8_literal("{\"apex_experiments\":{\"assignments\":{\"1\":{\"456\":{\"assignments\":[]}}}}}");
     value.source = state; bool changed = true;

@@ -190,6 +190,9 @@ Utf8View api_rejection_notice(ApiRejection value) noexcept {
         return utf8_literal("Discord restricted this action. Check your account in Discord.");
     case 50013:
         return utf8_literal("Discord denied permission for this action.");
+    case 40005:
+    case 50045:
+        return utf8_literal("A file is over Discord's upload limit.");
     default:
         return {};
     }

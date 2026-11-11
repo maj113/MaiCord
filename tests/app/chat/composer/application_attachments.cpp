@@ -206,21 +206,28 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
         "stale file controls cannot mutate another channel's attachment");
     bool submitted = false;
     {
-        // Over the account's 10 MB allowance at upload time: the notice names the file, its size and the limit.
+        // Over the 20 MB allowance the client knows, a file still asks Discord, whose answer decides (an experiment
+        // may allow it); its refusal names the file, its size and the known limit.
         auto* oversized = message_attachment_drafts_get(&state->drafts, id);
         const u64 actual_bytes = oversized->source.bytes;
-        oversized->source.bytes = 10ull * 1024 * 1024 + 1;
-        check(application_attachment_submit_url(99, 0, &submitted) && !submitted &&
-            oversized->failure == MessageAttachmentDraftFailure::size_limit &&
-            utf8_equal({state->notice, state->notice_bytes}, utf8_literal("a.txt is 10485761 bytes, over the 10 MB limit.")),
-            "a staged file just over the allowance names its exact size and the limit");
-        oversized->phase = MessageAttachmentDraftPhase::waiting_url; oversized->failure = MessageAttachmentDraftFailure::none;
         oversized->source.bytes = 28'626'125;
-        check(application_attachment_submit_url(99, 0, &submitted) && !submitted &&
-            utf8_equal({state->notice, state->notice_bytes}, utf8_literal("a.txt is 27.3 MB, over the 10 MB limit.")),
-            "a large staged file shows its size in MB beside the limit");
+        check(application_attachment_submit_url(99, 0, &submitted) && submitted && state->url_id == id,
+            "a staged file over the known allowance still asks Discord for an upload URL");
+        RestClientResponse refused{}; refused.request_id = 99; refused.status_code = 400;
+        refused.rejection = {50045, true, false};
+        check(application_attachment_accept_url(refused, {}) && !state->url_id && !fake.starts &&
+            application_upload_lane_available() && oversized->failure == MessageAttachmentDraftFailure::size_limit &&
+            utf8_equal({state->notice, state->notice_bytes}, utf8_literal("a.txt is 27.3 MB, over the 20 MB limit.")),
+            "Discord's refusal of a file over the known allowance names its size and the limit");
         oversized->phase = MessageAttachmentDraftPhase::waiting_url; oversized->failure = MessageAttachmentDraftFailure::none;
-        oversized->source.bytes = actual_bytes; state->notice_bytes = 0;
+        oversized->source.bytes = actual_bytes;
+        check(application_attachment_submit_url(100, 0, &submitted) && submitted, "a file within the allowance asks Discord");
+        refused.request_id = 100; refused.status_code = 413; refused.rejection = {};
+        check(application_attachment_accept_url(refused, {}) && oversized->failure == MessageAttachmentDraftFailure::size_limit &&
+            utf8_equal({state->notice, state->notice_bytes}, utf8_literal("a.txt is 8 B, over Discord's limit.")),
+            "a refusal the known allowance does not explain names Discord's limit");
+        oversized->phase = MessageAttachmentDraftPhase::waiting_url; oversized->failure = MessageAttachmentDraftFailure::none;
+        state->notice_bytes = 0;
     }
     check(application_attachment_submit_url(101, 0, &submitted) && submitted && fake.channel == 7 &&
         !application_attachment_input().label.bytes, "attachment URL request retains channel across navigation");
@@ -425,25 +432,23 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
         g_app.account.status.profile_id = 77;
         check((GetWindowLongW(win32_hwnd(g_app.window), GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
             "attachment cancellation unregisters the window drop target");
-        // A dropped file over the allowance is refused with its name, exact size and the limit.
+        // A dropped file over the allowance the client knows (the owner's 17 MB against the old 10 MB floor) is
+        // staged for Discord to decide, without a notice.
         const HANDLE grown_file = CreateFileW(dropped_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
             OPEN_EXISTING, FILE_ATTRIBUTE_TEMPORARY, nullptr);
-        LARGE_INTEGER grown_size{}; grown_size.QuadPart = 10ll * 1024 * 1024 + 1;
+        LARGE_INTEGER grown_size{}; grown_size.QuadPart = 17ll * 1024 * 1024;
         const bool grown = grown_file != INVALID_HANDLE_VALUE && SetFilePointerEx(grown_file, grown_size, nullptr, FILE_BEGIN) &&
             SetEndOfFile(grown_file);
         if (grown_file != INVALID_HANDLE_VALUE) CloseHandle(grown_file);
-        char expected_notice[128]{}; u32 leaf = dropped_units, expected_bytes = 0;
-        while (leaf && dropped_path[leaf - 1] != L'\\') --leaf;
-        for (u32 i = leaf; i < dropped_units; ++i) expected_notice[expected_bytes++] = static_cast<char>(dropped_path[i]);
-        constexpr auto expected_tail = utf8_literal(" is 10485761 bytes, over the 10 MB limit.");
-        copy_bytes(expected_notice + expected_bytes, expected_tail.data, expected_tail.bytes); expected_bytes += expected_tail.bytes;
         dropped = file_drop_fixture::make({&dropped_file, 1});
-        check(grown && application_drop_attachments(dropped) && g_app.attachments, "oversized drop starts its preparation worker");
+        check(grown && application_drop_attachments(dropped) && g_app.attachments, "large drop starts its preparation worker");
         if (g_app.attachments) {
+            u64 large_id = 0;
             check(file_drop_fixture::await(&g_app.attachments->picker) && application_pump_attachments() &&
-                !g_app.attachments->drafts.count &&
-                utf8_equal({g_app.attachments->notice, g_app.attachments->notice_bytes}, {expected_notice, expected_bytes}),
-                "dropped file just over the allowance reports its name, exact byte count and the 10 MB limit");
+                message_attachment_drafts_channel(&g_app.attachments->drafts, 7, {&large_id, 1}) == 1 &&
+                message_attachment_drafts_get(&g_app.attachments->drafts, large_id)->source.bytes == 17ull * 1024 * 1024 &&
+                !g_app.attachments->notice_bytes,
+                "a dropped 17 MB file is staged for upload without a local size refusal");
             release_attachments();
         }
     }

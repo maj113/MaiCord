@@ -11,6 +11,7 @@
 #include "maicord/app/chat/composer/message_attachment_drafts.hpp"
 #include "maicord/app/voice/voice_message.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/model/chat/upload_allowance.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -111,9 +112,16 @@ void notice(ApplicationAttachments* state, const Utf8View& text) noexcept {
     state->notice_bytes = minimum(text.bytes, static_cast<u32>(sizeof(state->notice)));
     copy_bytes(state->notice, text.data, state->notice_bytes);
 }
-// "<name> is 27.3 MB, over the 10 MB limit." (the file's own size, the channel's allowance).
-void size_notice(ApplicationAttachments* state, Utf8View name, u64 bytes, u64 limit, u32 others = 0) noexcept {
-    state->notice_bytes = ui_attachment_over_limit_text(name, bytes, limit, others, {state->notice, sizeof(state->notice)});
+// "<name> is 27.3 MB, over the 10 MB limit." (the file's own size, the channel's allowance; 0 reads "Discord's").
+void size_notice(ApplicationAttachments* state, Utf8View name, u64 bytes, u64 limit) noexcept {
+    state->notice_bytes = ui_attachment_over_limit_text(name, bytes, limit, {state->notice, sizeof(state->notice)});
+}
+// Discord refused the draft as too large: the allowance the client knows is named when the file is over it, else
+// Discord's own (an experiment or rule the client cannot see).
+void refused_notice(ApplicationAttachments* state, u64 id, const MessageAttachmentDraft& record) noexcept {
+    const u64 limit = application_attachment_limit(record.channel_id);
+    size_notice(state, message_attachment_drafts_filename(&state->drafts, id), record.source.bytes,
+                record.source.bytes > limit ? limit : 0);
 }
 void fail(ApplicationAttachments* state, u64 id, MessageAttachmentDraftFailure failure, u16 status = 0) noexcept {
     if (auto* record = message_attachment_drafts_get(&state->drafts, id)) {
@@ -291,7 +299,7 @@ bool application_paste_attachments() noexcept {
     state->picker_channel = g_app.account_ui->active_channel_id;
     state->picker_consumed = false; state->picker_cancel_requested = false;
     const auto started = native_file_picker_take_clipboard(&state->picker, input, kAttachmentUploadMaximumCount - count,
-        application_attachment_limit(state->picker_channel));
+        kUploadLargestAllowanceBytes);
     clipboard_capture_release(input);
     if (started != NativeFilePickerError::none) {
         notice(state, utf8_literal("Could not prepare the clipboard attachment.")); return application_manage_attachments();
@@ -421,12 +429,7 @@ bool application_attachment_submit_url(u64 request_id, u64 now_ms, bool* submitt
     *submitted = false; auto* state = g_app.attachments;
     const u64 id = next_url(state, now_ms); if (!id || !application_upload_lane_available()) return true;
     auto* record = message_attachment_drafts_get(&state->drafts, id);
-    const u64 limit = application_attachment_limit(record->channel_id);
-    if (record->source.bytes > limit) {
-        fail(state, id, MessageAttachmentDraftFailure::size_limit);
-        size_notice(state, message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, limit);
-        return refresh_message_composer_ui();
-    }
+    // Over the allowance the client knows, the file still goes: Discord's answer decides.
     if (!application_upload_lane_acquire(ApplicationUploadOwner::composer, &state->upload_lease)) return true;
     const auto result = account_module_attachment_upload(g_app.account.instance, record->channel_id, static_cast<u32>(id),
         message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, request_id);
@@ -455,16 +458,10 @@ bool application_attachment_accept_url(const RestClientResponse& response, Utf8V
     if (!decoded.ok) {
         SecureZeroMemory(state->url, sizeof(state->url));
         SecureZeroMemory(state->uploaded_filename, sizeof(state->uploaded_filename));
-        fail(state, id, MessageAttachmentDraftFailure::request, response.status_code);
-        application_upload_lane_release(&state->upload_lease);
-        return refresh_message_composer_ui();
-    }
-    const u64 limit = application_attachment_limit(record->channel_id);
-    if (record->source.bytes > limit) {
-        SecureZeroMemory(state->url, sizeof(state->url));
-        SecureZeroMemory(state->uploaded_filename, sizeof(state->uploaded_filename));
-        fail(state, id, MessageAttachmentDraftFailure::size_limit);
-        size_notice(state, message_attachment_drafts_filename(&state->drafts, id), record->source.bytes, limit);
+        const bool too_large = response.transport_ok() && api_rejection_too_large(response.status_code, response.rejection);
+        fail(state, id, too_large ? MessageAttachmentDraftFailure::size_limit : MessageAttachmentDraftFailure::request,
+             response.status_code);
+        if (too_large) refused_notice(state, id, *record);
         application_upload_lane_release(&state->upload_lease);
         return refresh_message_composer_ui();
     }
@@ -495,28 +492,15 @@ bool application_pump_attachments() noexcept {
         if (picked.ok() && !state->picker_cancel_requested) {
             MessageAttachmentFile files[kAttachmentUploadMaximumCount]{}; u64 ids[kAttachmentUploadMaximumCount]{};
             bool valid = picked.count <= kAttachmentUploadMaximumCount;
-            bool too_large = false;
-            u32 over = 0, largest = 0; u64 largest_bytes = 0;
-            const u64 limit = application_attachment_limit(state->picker_channel);
             for (u32 i = 0; valid && i < picked.count; ++i) {
                 files[i].path = native_file_picker_path(&state->picker, i);
                 files[i].filename = native_file_picker_filename(&state->picker, i);
                 files[i].content = native_file_picker_source(&state->picker, i);
                 valid = native_file_picker_snapshot(&state->picker, i, &files[i].snapshot);
-                if (files[i].snapshot.bytes > limit) {
-                    if (!over || files[i].snapshot.bytes > largest_bytes) { largest = i; largest_bytes = files[i].snapshot.bytes; }
-                    ++over; too_large = true;
-                }
             }
-            const auto added = valid && !too_large ? message_attachment_drafts_add(&state->drafts, state->picker_channel,
+            const auto added = valid ? message_attachment_drafts_add(&state->drafts, state->picker_channel,
                 {files, picked.count}, {ids, kAttachmentUploadMaximumCount}) : MessageAttachmentDraftError::invalid_input;
             if (added != MessageAttachmentDraftError::none) {
-                if (too_large) {
-                    char name[kAttachmentUploadMaximumFilenameBytes];
-                    const u32 name_bytes = message_attachment_file_name(files[largest], {name, sizeof(name)});
-                    size_notice(state, {name, name_bytes}, largest_bytes, limit, over - 1);
-                }
-                else
                 notice(state, added == MessageAttachmentDraftError::empty_file ? utf8_literal("Files cannot be empty.") :
                     utf8_literal("Couldn't attach these files.")); show_notice = true;
             }
@@ -527,7 +511,7 @@ bool application_pump_attachments() noexcept {
                 char name[kAttachmentUploadMaximumFilenameBytes];
                 const MessageAttachmentFile refused{native_file_picker_oversize_name(&state->picker), {}, {}, {}};
                 const u32 name_bytes = message_attachment_file_name(refused, {name, sizeof(name)});
-                size_notice(state, {name, name_bytes}, picked.oversize_bytes, application_attachment_limit(state->picker_channel));
+                size_notice(state, {name, name_bytes}, picked.oversize_bytes, kUploadLargestAllowanceBytes);
             }
             else notice(state, picked.error == NativeFilePickerError::capacity ?
                 utf8_literal("You can only upload 10 files at a time.") :

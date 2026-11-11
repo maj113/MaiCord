@@ -3,6 +3,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/http/rest.hpp"
 #include "maicord/protocol/http/https_upload.hpp"
+#include "maicord/protocol/media/upload_allowance.hpp"
 
 namespace maicord {
 namespace {
@@ -89,5 +90,18 @@ void test_attachment_upload(void (*check)(bool, const char*) noexcept) noexcept 
         !write_message_create_body({}, 55, 0, 0, {}, {}, {body, sizeof(body)}).ok() &&
         !write_message_create_body({}, 55, 0, 0, {attachments, 2}, {}, {body, 10}).ok(),
         "message attachments reject duplicate IDs, wholly empty messages, and insufficient capacity");
+    // READY's apex_experiments as Discord sends it: an escaped installation key and evaluation id, other units and
+    // users, revision and tracked-variant columns, null flags; only this user's upload rollout counts.
+    constexpr auto ready_apex = utf8_literal(
+        "{\"assignments\":{\"2\":{\"inst\\u0041\":{\"evaluation_id\":\"a1\",\"assignments\":[[3942863072,1,0,2]]}},"
+        "\"1\":{\"77\":{\"evaluation_id\":\"b\",\"assignments\":[[981354709,1,0,2]]},\"123\":{\"evaluation_id\":\"cd\\\"65\\\\9a\","
+        "\"assignments\":[[3759954850,1,0,2],[3942863072,3,null,4,3],[4240376458,0,0,8],[981354709,0,2,3,1]]}}},"
+        "\"installation\":\"1731340800.abc\"}");
+    u32 apex_structurals[256]{};
+    JsonValue apex{}; apex.kind = JsonValueKind::object; apex.source = ready_apex;
+    UploadPolicy policy{};
+    check(upload_policy_decode(apex, 123, {apex_structurals, 256}, &policy) && policy.floor_bytes == 25u * kUploadMiB &&
+        !policy.nitro_bytes && !policy.guild_250_disabled,
+        "a READY apex payload with escapes and five-column assignments decodes the user's own upload rollout");
 }
 }
