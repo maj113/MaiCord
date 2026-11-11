@@ -7,6 +7,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "../encoding/json_helpers.hpp"
 #include "../encoding/json_field_lists.hpp"
@@ -241,13 +242,11 @@ bool code_member(void* opaque, JsonString name, JsonValue value) noexcept {
         json_value_to_u64(value, static_cast<u64*>(opaque));
     return true;
 }
-// The text operations (username … harvest_create), in operation order: the path under /api/v9, the JSON keys of the
-// texts ('|' separated; empty when the texts only name the path), the number of texts, the ones that may be empty
-// (bits) and what else the body or path holds.
+// The text operations (username … harvest_create), in operation order: the method, the number of texts, the ones that
+// may be empty (bits) and what else the body or path holds. Their lines in kTextLines, in the same order: the path
+// under /api/v9, then a space and the JSON keys of the texts ('|' separated) unless the texts only name the path.
 enum class Extra : u8 { none, phone_reason, regenerate, key_id, connection, consent, harvest, create_key };
 struct TextOperation {
-    const char* path;
-    const char* keys;
     RestMethod method;
     u8 texts, optional;
     Extra extra;
@@ -255,47 +254,76 @@ struct TextOperation {
 constexpr RestMethod get = RestMethod::get, post = RestMethod::post, patch = RestMethod::patch, put = RestMethod::put,
                      remove = RestMethod::delete_method;
 constexpr TextOperation kTextOperations[]{
-    {"/users/@me", "username|password", patch, 2, 0, Extra::none},
-    {"/users/@me", "password|new_password", patch, 2, 0, Extra::none},
-    {"/users/@me/email", "", put, 0, 0, Extra::none},
-    {"/users/@me/email/verify-code", "code", post, 1, 0, Extra::none},
-    {"/users/@me", "email|email_token|password", patch, 3, 2, Extra::none},
-    {"/users/@me/phone", "phone", post, 1, 0, Extra::phone_reason},
-    {"/phone-verifications/verify", "phone|code", post, 2, 0, Extra::none},
-    {"/users/@me/phone", "phone_token|password", post, 2, 0, Extra::phone_reason},
-    {"/users/@me/phone", "password", remove, 1, 0, Extra::phone_reason},
-    {"/users/@me/mfa/totp/enable", "code|secret", post, 2, 0, Extra::none},
-    {"/users/@me/mfa/totp/disable", "", post, 0, 0, Extra::none},
-    {"/users/@me/mfa/sms/enable", "", post, 0, 0, Extra::none},
-    {"/users/@me/mfa/sms/disable", "password", post, 1, 0, Extra::none},
-    {"/auth/verify/view-backup-codes-challenge", "password", post, 1, 0, Extra::none},
-    {"/users/@me/mfa/codes-verification", "key|nonce", post, 2, 0, Extra::regenerate},
-    {"/users/@me/mfa/webauthn/credentials", "", get, 0, 0, Extra::none},
-    {"/users/@me/mfa/webauthn/credentials", "name|ticket|credential", post, 3, 0, Extra::create_key},
-    {"/users/@me/mfa/webauthn/credentials/", "name", patch, 1, 0, Extra::key_id},
-    {"/users/@me/mfa/webauthn/credentials/", "", remove, 0, 0, Extra::key_id},
-    {"/users/@me/disable", "password", post, 1, 0, Extra::none},
-    {"/users/@me/delete", "password", post, 1, 0, Extra::none},
-    {"/mfa/finish", "ticket|mfa_type|data", post, 3, 0, Extra::none},
-    {"/auth/mfa/sms/send", "ticket", post, 1, 0, Extra::none},
-    {"/users/@me/connections", "", get, 0, 0, Extra::none},
-    {"/users/@me/connections/", "", patch, 2, 0, Extra::connection},
-    {"/users/@me/connections/", "", remove, 2, 0, Extra::connection},
-    {"/users/@me/consent", "", get, 0, 0, Extra::none},
-    {"/users/@me/consent", "", post, 0, 0, Extra::consent},
-    {"/users/@me/harvest", "", get, 0, 0, Extra::none},
-    {"/users/@me/harvest", "", post, 0, 0, Extra::harvest},
+    {patch, 2, 0, Extra::none},         {patch, 2, 0, Extra::none},
+    {put, 0, 0, Extra::none},           {post, 1, 0, Extra::none},
+    {patch, 3, 2, Extra::none},         {post, 1, 0, Extra::phone_reason},
+    {post, 2, 0, Extra::none},          {post, 2, 0, Extra::phone_reason},
+    {remove, 1, 0, Extra::phone_reason}, {post, 2, 0, Extra::none},
+    {post, 0, 0, Extra::none},          {post, 0, 0, Extra::none},
+    {post, 1, 0, Extra::none},          {post, 1, 0, Extra::none},
+    {post, 2, 0, Extra::regenerate},    {get, 0, 0, Extra::none},
+    {post, 3, 0, Extra::create_key},    {patch, 1, 0, Extra::key_id},
+    {remove, 0, 0, Extra::key_id},      {post, 1, 0, Extra::none},
+    {post, 1, 0, Extra::none},          {post, 3, 0, Extra::none},
+    {post, 1, 0, Extra::none},          {get, 0, 0, Extra::none},
+    {patch, 2, 0, Extra::connection},   {remove, 2, 0, Extra::connection},
+    {get, 0, 0, Extra::none},           {post, 0, 0, Extra::consent},
+    {get, 0, 0, Extra::none},           {post, 0, 0, Extra::harvest},
 };
+constexpr char kTextLines[] = "/users/@me username|password\0"
+                              "/users/@me password|new_password\0"
+                              "/users/@me/email\0"
+                              "/users/@me/email/verify-code code\0"
+                              "/users/@me email|email_token|password\0"
+                              "/users/@me/phone phone\0"
+                              "/phone-verifications/verify phone|code\0"
+                              "/users/@me/phone phone_token|password\0"
+                              "/users/@me/phone password\0"
+                              "/users/@me/mfa/totp/enable code|secret\0"
+                              "/users/@me/mfa/totp/disable\0"
+                              "/users/@me/mfa/sms/enable\0"
+                              "/users/@me/mfa/sms/disable password\0"
+                              "/auth/verify/view-backup-codes-challenge password\0"
+                              "/users/@me/mfa/codes-verification key|nonce\0"
+                              "/users/@me/mfa/webauthn/credentials\0"
+                              "/users/@me/mfa/webauthn/credentials name|ticket|credential\0"
+                              "/users/@me/mfa/webauthn/credentials/ name\0"
+                              "/users/@me/mfa/webauthn/credentials/\0"
+                              "/users/@me/disable password\0"
+                              "/users/@me/delete password\0"
+                              "/mfa/finish ticket|mfa_type|data\0"
+                              "/auth/mfa/sms/send ticket\0"
+                              "/users/@me/connections\0"
+                              "/users/@me/connections/\0"
+                              "/users/@me/connections/\0"
+                              "/users/@me/consent\0"
+                              "/users/@me/consent\0"
+                              "/users/@me/harvest\0"
+                              "/users/@me/harvest\0";
 constexpr u32 kFirstTextOperation = static_cast<u32>(Op::username);
-static_assert(sizeof(kTextOperations) / sizeof(kTextOperations[0]) ==
-              kAccountSettingsOperationCount - kFirstTextOperation);
+constexpr u32 kTextOperationCount = sizeof(kTextOperations) / sizeof(kTextOperations[0]);
+static_assert(kTextOperationCount == kAccountSettingsOperationCount - kFirstTextOperation &&
+              name_list_count(kTextLines) == kTextOperationCount);
 // harvest_create's option bits, in Userdoccers' harvest backend order.
-constexpr const char* kHarvestBackends[]{"Account", "Analytics", "Activities", "Ads", "Messages", "Servers", "Zendesk"};
-constexpr u8 kHarvestAll = (1u << (sizeof(kHarvestBackends) / sizeof(kHarvestBackends[0]))) - 1;
+constexpr char kHarvestBackends[] = "Account\0Analytics\0Activities\0Ads\0Messages\0Servers\0Zendesk\0";
+constexpr u8 kHarvestAll = (1u << name_list_count(kHarvestBackends)) - 1;
 
 const TextOperation* text_operation(Op operation) noexcept {
     const u32 index = static_cast<u32>(operation) - kFirstTextOperation;
-    return index < sizeof(kTextOperations) / sizeof(kTextOperations[0]) ? &kTextOperations[index] : nullptr;
+    return index < kTextOperationCount ? &kTextOperations[index] : nullptr;
+}
+// A text operation's path under /api/v9.
+Utf8View text_path(Op operation) noexcept {
+    const Utf8View line = name_list_at(kTextLines, static_cast<u32>(operation) - kFirstTextOperation);
+    u32 bytes = 0;
+    while (bytes < line.bytes && line.data[bytes] != ' ')
+        ++bytes;
+    return {line.data, bytes};
+}
+// Its keys: '|' separated, ending at NUL; empty when its texts only name the path.
+const char* text_keys(Op operation) noexcept {
+    const Utf8View path = text_path(operation);
+    return path.data + path.bytes + (path.data[path.bytes] == ' ');
 }
 // Comma-separated session hashes, 1 to 64 of them.
 bool hashes_valid(ConstSlice<u8> hashes) noexcept {
@@ -356,7 +384,7 @@ bool write_text_body(GuardedWriter& w, const AccountSettingsRequest& r, const Te
         w.put_text("\":");
         first = false;
     };
-    const char* key = spec.keys;
+    const char* key = text_keys(r.operation);
     for (u32 i = 0; *key && i < r.texts.count; ++i) {
         u32 length = 0;
         while (key[length] && key[length] != '|')
@@ -401,17 +429,19 @@ bool write_text_body(GuardedWriter& w, const AccountSettingsRequest& r, const Te
         w.put_byte(']');
         break;
     }
-    case Extra::harvest:
+    case Extra::harvest: {
         member("backends");
         w.put_byte('[');
-        for (u32 i = 0, written = 0; i < sizeof(kHarvestBackends) / sizeof(kHarvestBackends[0]); ++i)
-            if (r.option & (1u << i)) {
+        u32 bit = 1, written = 0;
+        for (NameList list{kHarvestBackends}; list; list.next(), bit <<= 1)
+            if (r.option & bit) {
                 w.put_text(written++ ? ",\"" : "\"");
-                w.put_text(kHarvestBackends[i]);
+                w.put_text(list.at);
                 w.put_byte('"');
             }
         w.put_byte(']');
         break;
+    }
     default:
         break;
     }
@@ -420,9 +450,9 @@ bool write_text_body(GuardedWriter& w, const AccountSettingsRequest& r, const Te
 }
 // Whether a text operation sends a body: its texts have keys, or it has members of its own.
 bool text_body(const AccountSettingsRequest& r, const TextOperation& spec) noexcept {
-    return (*spec.keys && r.texts.count) || spec.extra == Extra::phone_reason || spec.extra == Extra::regenerate ||
-           spec.extra == Extra::consent || spec.extra == Extra::harvest || spec.extra == Extra::create_key ||
-           r.operation == Op::connection_patch;
+    return (*text_keys(r.operation) && r.texts.count) || spec.extra == Extra::phone_reason ||
+           spec.extra == Extra::regenerate || spec.extra == Extra::consent || spec.extra == Extra::harvest ||
+           spec.extra == Extra::create_key || r.operation == Op::connection_patch;
 }
 } // namespace
 
@@ -479,7 +509,7 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
     if (const auto* spec = text_operation(r.operation)) {
         result.route_id = kAccountActionRouteId + static_cast<u64>(r.operation);
         result.method = spec->method;
-        if (!route_write(&route, "/api/v9", Utf8View{spec->path, static_cast<u32>(c_string_length(spec->path))}))
+        if (!route_write(&route, "/api/v9", text_path(r.operation)))
             return fail_capacity();
         if (spec->extra == Extra::key_id && !route_write(&route, r.id))
             return fail_capacity();

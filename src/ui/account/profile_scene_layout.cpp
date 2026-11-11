@@ -13,6 +13,12 @@ namespace profile_scene_detail {
 bool panel(const ProfileScene& s) noexcept {
     return s.presentation == ProfilePresentation::panel;
 }
+bool append_truncated(char* data, u16* used, u32 capacity, const char* text, u32 bytes) noexcept {
+    const u32 kept = utf8_truncated_length({text, bytes}, capacity - *used);
+    copy_bytes(data + *used, text, kept);
+    *used = static_cast<u16>(*used + kept);
+    return kept == bytes;
+}
 namespace {
 // A clipping container for scrolled or tabbed content.
 ProfilePart* clipped(ProfileScene* s, UiWidgetHandle parent, const UiRect& r) noexcept {
@@ -159,7 +165,7 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
         s->edit_rectangle = absolute({x0, footer_top, x0 + content, footer_top + footer_height});
         s->edit_content = ui_rect_inset(s->edit_rectangle, {12, 2, 12 + 32, 2});
         reset_value(&s->message_placeholder);
-        append(&s->message_placeholder, utf8_literal("Message @"));
+        append(&s->message_placeholder, "Message @");
         append(&s->message_placeholder, p.nickname.bytes ? p.nickname.view() : p.display_name.view());
         if (s->edit.focused)
             ui_widget_manager_focus(&s->widgets, s->message_field);
@@ -240,7 +246,7 @@ float connection_row(ProfileScene* s, UiWidgetHandle owner, float left, float to
     u64 created = 0;
     label.since.bytes = 0;
     if (c.created_at.bytes && parse_iso_timestamp({c.created_at.view(), 0, false}, &created)) {
-        append(&label.since, utf8_literal("Member since "));
+        append(&label.since, "Member since ");
         append_date(&label.since, created / 1000);
     }
     const u32 chip_count = profile_connection_chips(c, label.chips);
@@ -273,10 +279,10 @@ float connection_row(ProfileScene* s, UiWidgetHandle owner, float left, float to
     // What a screen reader reads for the link: the service and the account, and where it leads.
     label.access.bytes = 0;
     append(&label.access, service);
-    append(&label.access, utf8_literal(": "));
+    append(&label.access, ": ");
     append(&label.access, c.name.view());
     if (linked)
-        append(&label.access, utf8_literal(", opens in browser"));
+        append(&label.access, ", opens in browser");
     float bottom = y + 20;
     if (label.since.bytes) {
         caption(s, owner, {text_left, bottom, right, bottom + 16}, label.since.view(), kXs);
@@ -499,7 +505,7 @@ float activity_tab(ProfileScene* s, UiWidgetHandle owner, float width, float hei
     append(&title, p.nickname.bytes       ? p.nickname.view()
                    : p.display_name.bytes ? p.display_name.view()
                                           : p.username.view());
-    append(&title, utf8_literal(" doesn’t have any activity to share here"));
+    append(&title, " doesn’t have any activity to share here");
     const EmptyButton message{utf8_literal("Message"), UiIcon::direct_message, ProfileAction::message};
     return empty_tab(s, owner, width, height, title.view(), quip(*s, kNoActivityLines, 15), &message,
                      interactive(*s) && can_message(*s) ? 1u : 0u);
@@ -815,7 +821,7 @@ float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float 
         const auto& command = s->commands[i];
         auto& label = l.command_label[i];
         label.bytes = 0;
-        append(&label, utf8_literal("/"));
+        append(&label, "/");
         append(&label, command.name);
         const float text = text_width(s, label.view(), width - 24, kSm);
         const float w = minimum(width, maximum(60.f, text + 24));

@@ -230,67 +230,87 @@ MessageHistoryDecodeResult decode_page(const Utf8View& body,
                                        scratch.mention_users, scratch.rich);
 }
 
-// Retry, tick and fail serve both paged loads: each is a state machine over awaiting_page,
-// waiting_retry, request_required and failed.
-template <class State, class Machine>
-bool page_retry(Machine* machine, MessageHistoryCatchupFailure failure, u64 retry_at_ms) noexcept {
-    if (!machine || machine->state != State::awaiting_page || failure == MessageHistoryCatchupFailure::none ||
+// The two paged loads (catch-up and older) share these fields and four state values, so retry, tick, fail and the
+// REST completion have one body each: awaiting_page, waiting_retry, request_required and failed.
+struct PageLoad {
+    u8* state;
+    u64* retry_at_ms;
+    u8* transient_retries;
+    MessageHistoryCatchupFailure* last_failure;
+};
+constexpr u8 kPageRequestRequired = 1, kPageAwaiting = 2, kPageWaitingRetry = 3, kPageFailed = 5;
+template <class State> constexpr bool page_states_match() noexcept {
+    return static_cast<u8>(State::request_required) == kPageRequestRequired &&
+           static_cast<u8>(State::awaiting_page) == kPageAwaiting &&
+           static_cast<u8>(State::waiting_retry) == kPageWaitingRetry && static_cast<u8>(State::failed) == kPageFailed;
+}
+static_assert(page_states_match<MessageHistoryCatchupState>() && page_states_match<MessageHistoryOlderState>());
+template <class Machine> PageLoad page_load(Machine* machine) noexcept {
+    return {reinterpret_cast<u8*>(&machine->state), &machine->retry_at_ms, &machine->transient_retries,
+            &machine->last_failure};
+}
+
+bool page_retry(const PageLoad& load, MessageHistoryCatchupFailure failure, u64 retry_at_ms) noexcept {
+    if (*load.state != kPageAwaiting || failure == MessageHistoryCatchupFailure::none ||
         failure == MessageHistoryCatchupFailure::apply || retry_at_ms == 0) {
         return false;
     }
-    machine->last_failure = failure;
-    machine->retry_at_ms = retry_at_ms;
-    machine->state = State::waiting_retry;
+    *load.last_failure = failure;
+    *load.retry_at_ms = retry_at_ms;
+    *load.state = kPageWaitingRetry;
     return true;
 }
 
-template <class State, class Machine>
-bool page_tick(Machine* machine, u64 now_ms) noexcept {
-    if (!machine || machine->state != State::waiting_retry || now_ms < machine->retry_at_ms) {
+bool page_tick(const PageLoad& load, u64 now_ms) noexcept {
+    if (*load.state != kPageWaitingRetry || now_ms < *load.retry_at_ms) {
         return false;
     }
-    machine->retry_at_ms = 0;
-    machine->state = State::request_required;
+    *load.retry_at_ms = 0;
+    *load.state = kPageRequestRequired;
     return true;
 }
 
-template <class State, class Machine>
-bool page_fail(Machine* machine, MessageHistoryCatchupFailure failure) noexcept {
-    if (!machine || machine->state != State::awaiting_page || failure == MessageHistoryCatchupFailure::none) {
+bool page_fail(const PageLoad& load, MessageHistoryCatchupFailure failure) noexcept {
+    if (*load.state != kPageAwaiting || failure == MessageHistoryCatchupFailure::none) {
         return false;
     }
-    machine->last_failure = failure;
-    machine->state = State::failed;
+    *load.last_failure = failure;
+    *load.state = kPageFailed;
     return true;
+}
+template <class Machine> bool page_fail(Machine* machine, MessageHistoryCatchupFailure failure) noexcept {
+    return machine && page_fail(page_load(machine), failure);
 }
 
 // Shared REST completion of a catch-up or older page: transient failures retry, other failures
 // end the load, and a decoded page goes through apply_page.
-template <class State, class Machine, class Apply>
-MessageHistoryRestResult accept_page_rest(Machine* machine, const RestClientResponse& response,
+using PageApply = MessageHistoryApplyResult (*)(void* context, const MessageHistoryPage& page,
+                                                ConstSlice<GatewayMessageEvent> messages);
+MessageHistoryRestResult accept_page_rest(const PageLoad& load, const RestClientResponse& response,
                                           const MessageHistoryDecodeScratch& scratch, u64 now_ms,
                                           UserStore* users, GuildMemberStore* members, ChatStateStore* state,
-                                          MessageTimeline* timeline, Apply apply_page, Utf8View body) noexcept {
+                                          MessageTimeline* timeline, PageApply apply_page, void* apply_context,
+                                          Utf8View body) noexcept {
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
     if (history_transient_failure(response)) {
-        page_retry<State>(machine,
-                          response.transport_ok() ? MessageHistoryCatchupFailure::http_status
-                                                  : MessageHistoryCatchupFailure::transport,
-                          history_retry_deadline(&machine->transient_retries, response, now_ms));
+        page_retry(load,
+                   response.transport_ok() ? MessageHistoryCatchupFailure::http_status
+                                           : MessageHistoryCatchupFailure::transport,
+                   history_retry_deadline(load.transient_retries, response, now_ms));
         result.disposition = MessageHistoryRestDisposition::retry_scheduled;
         return result;
     }
     if (!response.transport_ok()) {
-        page_fail<State>(machine, MessageHistoryCatchupFailure::transport);
+        page_fail(load, MessageHistoryCatchupFailure::transport);
         result.error = MessageHistoryRestError::transport;
         return result;
     }
     if (response.status_code == 429) {
         if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
             response.retry_at_ms == 0 ||
-            !page_retry<State>(machine, MessageHistoryCatchupFailure::rate_limited, response.retry_at_ms)) {
-            page_fail<State>(machine, MessageHistoryCatchupFailure::rate_limited);
+            !page_retry(load, MessageHistoryCatchupFailure::rate_limited, response.retry_at_ms)) {
+            page_fail(load, MessageHistoryCatchupFailure::rate_limited);
             result.error = MessageHistoryRestError::rate_limit;
             return result;
         }
@@ -298,7 +318,7 @@ MessageHistoryRestResult accept_page_rest(Machine* machine, const RestClientResp
         return result;
     }
     if (response.status_code != 200) {
-        page_fail<State>(machine, MessageHistoryCatchupFailure::http_status);
+        page_fail(load, MessageHistoryCatchupFailure::http_status);
         result.error = MessageHistoryRestError::http_status;
         return result;
     }
@@ -306,11 +326,11 @@ MessageHistoryRestResult accept_page_rest(Machine* machine, const RestClientResp
     const ConstSlice<GatewayMessageEvent> decoded{scratch.messages.data, result.decode.page.count};
     if (!result.decode.ok() || !observe_history_users(users, decoded) ||
         !observe_history_members(members, state, decoded)) {
-        page_fail<State>(machine, MessageHistoryCatchupFailure::decode);
+        page_fail(load, MessageHistoryCatchupFailure::decode);
         result.error = MessageHistoryRestError::decode;
         return result;
     }
-    result.apply = apply_page(result.decode.page, decoded);
+    result.apply = apply_page(apply_context, result.decode.page, decoded);
     if (!result.apply.ok() || !message_history_apply_mention_flags(timeline, state, decoded)) {
         result.error = MessageHistoryRestError::apply;
         return result;
@@ -975,12 +995,12 @@ bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
 }
 
 bool message_history_catchup_tick(MessageHistoryCatchup* catchup, u64 now_ms) noexcept {
-    return page_tick<MessageHistoryCatchupState>(catchup, now_ms);
+    return catchup && page_tick(page_load(catchup), now_ms);
 }
 
 bool message_history_catchup_fail(MessageHistoryCatchup* catchup,
                                   MessageHistoryCatchupFailure failure) noexcept {
-    return page_fail<MessageHistoryCatchupState>(catchup, failure);
+    return page_fail(catchup, failure);
 }
 
 MessageHistoryApplyResult message_history_catchup_apply_page(
@@ -991,7 +1011,7 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
         catchup->state != MessageHistoryCatchupState::awaiting_page ||
         !page_matches_summary(page, messages) ||
         (messages.count != 0 && page.channel_id != catchup->channel_id)) {
-        page_fail<MessageHistoryCatchupState>(catchup, MessageHistoryCatchupFailure::decode);
+        page_fail(catchup, MessageHistoryCatchupFailure::decode);
         return apply_error(MessageHistoryApplyError::invalid_page);
     }
     // Browsing forward extends the loaded window without jumping to its new
@@ -1005,7 +1025,7 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
         message_timeline_apply_history_page(pump->timeline, messages, MessageHistoryDirection::newer,
                                             empty_content_availability, catchup->cursor_after == 0);
     if (!applied.ok()) {
-        page_fail<MessageHistoryCatchupState>(catchup, MessageHistoryCatchupFailure::apply);
+        page_fail(catchup, MessageHistoryCatchupFailure::apply);
         if (applied.destructive_failure) {
             pump->resync_required = true;
         }
@@ -1110,11 +1130,11 @@ bool message_history_older_take_query(MessageHistoryOlder* older,
 }
 
 bool message_history_older_tick(MessageHistoryOlder* older, u64 now_ms) noexcept {
-    return page_tick<MessageHistoryOlderState>(older, now_ms);
+    return older && page_tick(page_load(older), now_ms);
 }
 
 bool message_history_older_fail(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure) noexcept {
-    return page_fail<MessageHistoryOlderState>(older, failure);
+    return page_fail(older, failure);
 }
 
 MessageHistoryApplyResult message_history_older_apply_page(
@@ -1125,13 +1145,13 @@ MessageHistoryApplyResult message_history_older_apply_page(
         !page_matches_summary(page, messages) || messages.count > older->request_limit ||
         (messages.count != 0 &&
          (page.channel_id != older->channel_id || page.newest_id >= older->cursor_before))) {
-        page_fail<MessageHistoryOlderState>(older, MessageHistoryCatchupFailure::decode);
+        page_fail(older, MessageHistoryCatchupFailure::decode);
         return apply_error(MessageHistoryApplyError::invalid_page);
     }
     const MessageHistoryApplyResult applied = message_timeline_apply_history_page(
         timeline, messages, MessageHistoryDirection::older, empty_content_availability);
     if (!applied.ok()) {
-        page_fail<MessageHistoryOlderState>(older, MessageHistoryCatchupFailure::apply);
+        page_fail(older, MessageHistoryCatchupFailure::apply);
         return applied;
     }
     older->transient_retries = 0;
@@ -1164,12 +1184,18 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
         invalid.error = MessageHistoryRestError::invalid_input;
         return invalid;
     }
-    return accept_page_rest<MessageHistoryCatchupState>(
-        catchup, response, scratch, now_ms, pump->users, pump->members, pump->state, pump->timeline,
-        [&](const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
-            return message_history_catchup_apply_page(catchup, pump, page, messages, empty_content_availability);
+    struct Apply {
+        MessageHistoryCatchup* catchup;
+        MessageEventPump* pump;
+        MessageContentAvailability availability;
+    } apply{catchup, pump, empty_content_availability};
+    return accept_page_rest(
+        page_load(catchup), response, scratch, now_ms, pump->users, pump->members, pump->state, pump->timeline,
+        [](void* context, const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
+            const auto& a = *static_cast<Apply*>(context);
+            return message_history_catchup_apply_page(a.catchup, a.pump, page, messages, a.availability);
         },
-        body);
+        &apply, body);
 }
 
 MessageHistoryRestResult message_history_older_accept_rest(
@@ -1184,12 +1210,18 @@ MessageHistoryRestResult message_history_older_accept_rest(
         invalid.error = MessageHistoryRestError::invalid_input;
         return invalid;
     }
-    return accept_page_rest<MessageHistoryOlderState>(
-        older, response, scratch, now_ms, users, members, state, timeline,
-        [&](const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
-            return message_history_older_apply_page(older, timeline, page, messages, empty_content_availability);
+    struct Apply {
+        MessageHistoryOlder* older;
+        MessageTimeline* timeline;
+        MessageContentAvailability availability;
+    } apply{older, timeline, empty_content_availability};
+    return accept_page_rest(
+        page_load(older), response, scratch, now_ms, users, members, state, timeline,
+        [](void* context, const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
+            const auto& a = *static_cast<Apply*>(context);
+            return message_history_older_apply_page(a.older, a.timeline, page, messages, a.availability);
         },
-        body);
+        &apply, body);
 }
 
 } // namespace maicord

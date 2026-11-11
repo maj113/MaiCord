@@ -4,6 +4,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/detail_store.hpp"
@@ -329,14 +330,7 @@ u32 guild_settings_role_positions(ConstSlice<const RoleRecord*> order, u64 guild
     return used;
 }
 
-const Utf8View kGuildProfileBannerColors[kGuildProfileBannerColorCount]{
-    utf8_literal("#ff1c90"), utf8_literal("#e81d1e"), utf8_literal("#e86e1d"),
-    utf8_literal("#e8c02f"), utf8_literal("#71368a"), utf8_literal("#029FFC"),
-    utf8_literal("#4fe2ca"), utf8_literal("#406601"), utf8_literal("#272727")};
-const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount]{
-    utf8_literal("Soul"),    utf8_literal("Volcano"), utf8_literal("Marsh"),
-    utf8_literal("Thunder"), utf8_literal("Rising"),  utf8_literal("Zephyr"),
-    utf8_literal("Cascade"), utf8_literal("Earth"),   utf8_literal("Boulder")};
+static_assert(name_list_count(kGuildProfileBannerNames) == kGuildProfileBannerColorCount);
 
 namespace {
 constexpr u8 kVisibilityPublic = 1, kVisibilityRestricted = 2, kVisibilityPublicWithRecruitment = 3;
@@ -408,7 +402,8 @@ u32 guild_server_profile_banner_choice(const GuildServerProfileDraft& draft) noe
     if (!p.brand_color_bytes)
         return 0;
     for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
-        if (ascii_equal_ignore_case({p.brand_color, p.brand_color_bytes}, kGuildProfileBannerColors[i]))
+        if (ascii_equal_ignore_case({p.brand_color, p.brand_color_bytes},
+                                    {kGuildProfileBannerColors[i], kGuildProfileBannerColorBytes}))
             return i + 1;
     return ~0u;
 }
@@ -417,7 +412,8 @@ void guild_server_profile_set_banner_choice(GuildServerProfileDraft* draft, u32 
     if (!draft || choice > kGuildProfileBannerColorCount)
         return;
     auto& p = draft->profile;
-    const Utf8View color = choice ? kGuildProfileBannerColors[choice - 1] : Utf8View{};
+    const Utf8View color =
+        choice ? Utf8View{kGuildProfileBannerColors[choice - 1], kGuildProfileBannerColorBytes} : Utf8View{};
     copy_bytes(p.brand_color, color.data, color.bytes);
     p.brand_color_bytes = static_cast<u8>(color.bytes);
     p.custom_banner_bytes = 0;

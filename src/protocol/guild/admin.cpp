@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/guild/invite.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
@@ -396,22 +397,21 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
 
 // Body writers ------------------------------------------------------------
 
-// A body member that a patch's field bit selects: where its value sits in the patch and how it is written.
+// A body member that a patch's field bit selects: where its value sits in the patch and how it is written. Its key is
+// the line of the table's name list in row order.
 enum class Json : u8 { text, optional_text, optional_snowflake, snowflake, number8, number32, boolean };
 struct MemberRow {
     u32 field;
     u16 offset;
     Json kind;
-    const char* name;
 };
-#define MAICORD_ROW(patch, bit, member, kind, name) \
-    {bit, static_cast<u16>(__builtin_offsetof(patch, member)), Json::kind, name}
-void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* rows, u32 count) noexcept {
-    for (u32 i = 0; i < count; ++i) {
-        const MemberRow& r = rows[i];
+#define MAICORD_ROW(patch, bit, member, kind) {bit, static_cast<u16>(__builtin_offsetof(patch, member)), Json::kind}
+void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* rows, const char* names) noexcept {
+    for (NameList name{names}; name; name.next(), ++rows) {
+        const MemberRow& r = *rows;
         if (!(fields & r.field))
             continue;
-        b.key(r.name);
+        b.key(name.at);
         const u8* value = static_cast<const u8*>(patch) + r.offset;
         switch (r.kind) {
         case Json::text: b.put_json(*reinterpret_cast<const Utf8View*>(value)); break;
@@ -433,69 +433,71 @@ void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* row
     }
 }
 constexpr MemberRow kGuildRowsBeforeFeatures[]{
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_name, name, text, "name"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_icon, icon, optional_text, "icon"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_splash, splash, optional_text, "splash"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_banner, banner, optional_text, "banner"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_discovery_splash, discovery_splash, optional_text,
-                "discovery_splash"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_description, description, optional_text, "description"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_name, name, text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_icon, icon, optional_text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_splash, splash, optional_text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_banner, banner, optional_text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_discovery_splash, discovery_splash, optional_text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_description, description, optional_text),
 };
+constexpr char kGuildNamesBeforeFeatures[] = "name\0icon\0splash\0banner\0discovery_splash\0description\0";
 // The order Enable Community sends: features, then its two channels.
 constexpr MemberRow kGuildRowsAfterFeatures[]{
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_rules_channel, rules_channel_id, optional_snowflake,
-                "rules_channel_id"),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_rules_channel, rules_channel_id, optional_snowflake),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_public_updates_channel, public_updates_channel_id,
-                optional_snowflake, "public_updates_channel_id"),
+                optional_snowflake),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_safety_alerts_channel, safety_alerts_channel_id,
-                optional_snowflake, "safety_alerts_channel_id"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_preferred_locale, preferred_locale, text, "preferred_locale"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_content_level, owner_configured_content_level, number8,
-                "owner_configured_content_level"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_channel, afk_channel_id, optional_snowflake,
-                "afk_channel_id"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_timeout, afk_timeout_seconds, number32, "afk_timeout"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel, system_channel_id, optional_snowflake,
-                "system_channel_id"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_verification_level, verification_level, number8,
-                "verification_level"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_default_notifications, default_message_notifications,
-                number8, "default_message_notifications"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_explicit_content_filter, explicit_content_filter, number8,
-                "explicit_content_filter"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel_flags, system_channel_flags, number32,
-                "system_channel_flags"),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_progress_bar, premium_progress_bar_enabled, boolean,
-                "premium_progress_bar_enabled"),
+                optional_snowflake),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_preferred_locale, preferred_locale, text),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_content_level, owner_configured_content_level, number8),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_channel, afk_channel_id, optional_snowflake),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_afk_timeout, afk_timeout_seconds, number32),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel, system_channel_id, optional_snowflake),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_verification_level, verification_level, number8),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_default_notifications, default_message_notifications, number8),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_explicit_content_filter, explicit_content_filter, number8),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_system_channel_flags, system_channel_flags, number32),
+    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_progress_bar, premium_progress_bar_enabled, boolean),
 };
+constexpr char kGuildNamesAfterFeatures[] =
+    "rules_channel_id\0public_updates_channel_id\0safety_alerts_channel_id\0preferred_locale\0"
+    "owner_configured_content_level\0afk_channel_id\0afk_timeout\0system_channel_id\0verification_level\0"
+    "default_message_notifications\0explicit_content_filter\0system_channel_flags\0premium_progress_bar_enabled\0";
 constexpr MemberRow kRoleRows[]{
-    MAICORD_ROW(RolePatch, role_patch_name, name, text, "name"),
-    MAICORD_ROW(RolePatch, role_patch_permissions, permissions, snowflake, "permissions"),
-    MAICORD_ROW(RolePatch, role_patch_color, color, number32, "color"),
-    MAICORD_ROW(RolePatch, role_patch_hoist, hoist, boolean, "hoist"),
-    MAICORD_ROW(RolePatch, role_patch_mentionable, mentionable, boolean, "mentionable"),
-    MAICORD_ROW(RolePatch, role_patch_icon, icon, optional_text, "icon"),
-    MAICORD_ROW(RolePatch, role_patch_unicode_emoji, unicode_emoji, optional_text, "unicode_emoji"),
+    MAICORD_ROW(RolePatch, role_patch_name, name, text),
+    MAICORD_ROW(RolePatch, role_patch_permissions, permissions, snowflake),
+    MAICORD_ROW(RolePatch, role_patch_color, color, number32),
+    MAICORD_ROW(RolePatch, role_patch_hoist, hoist, boolean),
+    MAICORD_ROW(RolePatch, role_patch_mentionable, mentionable, boolean),
+    MAICORD_ROW(RolePatch, role_patch_icon, icon, optional_text),
+    MAICORD_ROW(RolePatch, role_patch_unicode_emoji, unicode_emoji, optional_text),
 };
+constexpr char kRoleNames[] = "name\0permissions\0color\0hoist\0mentionable\0icon\0unicode_emoji\0";
 constexpr MemberRow kChannelRows[]{
-    MAICORD_ROW(ChannelPatch, channel_patch_name, name, text, "name"),
-    MAICORD_ROW(ChannelPatch, channel_patch_type, type, number8, "type"),
-    MAICORD_ROW(ChannelPatch, channel_patch_topic, topic, optional_text, "topic"),
-    MAICORD_ROW(ChannelPatch, channel_patch_parent, parent_id, optional_snowflake, "parent_id"),
-    MAICORD_ROW(ChannelPatch, channel_patch_position, position, number32, "position"),
-    MAICORD_ROW(ChannelPatch, channel_patch_nsfw, nsfw, boolean, "nsfw"),
-    MAICORD_ROW(ChannelPatch, channel_patch_slowmode, slowmode_seconds, number32, "rate_limit_per_user"),
-    MAICORD_ROW(ChannelPatch, channel_patch_bitrate, bitrate, number32, "bitrate"),
-    MAICORD_ROW(ChannelPatch, channel_patch_user_limit, user_limit, number32, "user_limit"),
+    MAICORD_ROW(ChannelPatch, channel_patch_name, name, text),
+    MAICORD_ROW(ChannelPatch, channel_patch_type, type, number8),
+    MAICORD_ROW(ChannelPatch, channel_patch_topic, topic, optional_text),
+    MAICORD_ROW(ChannelPatch, channel_patch_parent, parent_id, optional_snowflake),
+    MAICORD_ROW(ChannelPatch, channel_patch_position, position, number32),
+    MAICORD_ROW(ChannelPatch, channel_patch_nsfw, nsfw, boolean),
+    MAICORD_ROW(ChannelPatch, channel_patch_slowmode, slowmode_seconds, number32),
+    MAICORD_ROW(ChannelPatch, channel_patch_bitrate, bitrate, number32),
+    MAICORD_ROW(ChannelPatch, channel_patch_user_limit, user_limit, number32),
 };
+constexpr char kChannelNames[] =
+    "name\0type\0topic\0parent_id\0position\0nsfw\0rate_limit_per_user\0bitrate\0user_limit\0";
 #undef MAICORD_ROW
+static_assert(name_list_count(kGuildNamesBeforeFeatures) == sizeof(kGuildRowsBeforeFeatures) / sizeof(MemberRow) &&
+              name_list_count(kGuildNamesAfterFeatures) == sizeof(kGuildRowsAfterFeatures) / sizeof(MemberRow) &&
+              name_list_count(kRoleNames) == sizeof(kRoleRows) / sizeof(MemberRow) &&
+              name_list_count(kChannelNames) == sizeof(kChannelRows) / sizeof(MemberRow));
 static_assert(sizeof(PermissionSet) == sizeof(u64));
 
 // Key order is fixed, whichever fields are set.
 void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
     const u32 f = p.fields;
     b.begin_object();
-    write_rows(b, &p, f, kGuildRowsBeforeFeatures, sizeof(kGuildRowsBeforeFeatures) / sizeof(kGuildRowsBeforeFeatures[0]));
+    write_rows(b, &p, f, kGuildRowsBeforeFeatures, kGuildNamesBeforeFeatures);
     if (f & guild_settings_patch_features) {
         b.begin_array("features");
         for (u32 cursor = 0; cursor < p.feature_names.count;) {
@@ -506,7 +508,7 @@ void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
         b.end_array();
     }
     // The order Enable Community sends: features, then its two channels.
-    write_rows(b, &p, f, kGuildRowsAfterFeatures, sizeof(kGuildRowsAfterFeatures) / sizeof(kGuildRowsAfterFeatures[0]));
+    write_rows(b, &p, f, kGuildRowsAfterFeatures, kGuildNamesAfterFeatures);
     b.end_object();
 }
 
@@ -542,7 +544,7 @@ void write_server_profile(JsonBody& b, const GuildServerProfileWrite& p) noexcep
 
 void write_role(JsonBody& b, const RolePatch& p) noexcept {
     b.begin_object();
-    write_rows(b, &p, p.fields, kRoleRows, sizeof(kRoleRows) / sizeof(kRoleRows[0]));
+    write_rows(b, &p, p.fields, kRoleRows, kRoleNames);
     b.end_object();
 }
 
@@ -610,7 +612,7 @@ void write_overwrite(JsonBody& b, const PermissionOverwriteWrite& o) noexcept {
 
 void write_channel(JsonBody& b, const ChannelPatch& p) noexcept {
     b.begin_object();
-    write_rows(b, &p, p.fields, kChannelRows, sizeof(kChannelRows) / sizeof(kChannelRows[0]));
+    write_rows(b, &p, p.fields, kChannelRows, kChannelNames);
     if (p.fields & channel_patch_overwrites) {
         b.begin_array("permission_overwrites");
         for (u32 i = 0; i < p.overwrites.count; ++i) {

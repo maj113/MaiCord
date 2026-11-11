@@ -392,7 +392,7 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     const bool collapse = clamp && s->roles_expanded && count <= room;
     const auto set_more = [&](u32 hidden_count) noexcept {
         more_text.bytes = 0;
-        append(&more_text, utf8_literal("+"));
+        append(&more_text, "+");
         append_number(&more_text, hidden_count);
         more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
     };
@@ -572,7 +572,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         for (u32 i = 4; i-- > 0; n /= 10)
             digits[i] = static_cast<char>('0' + n % 10);
         append(&tag, username);
-        append(&tag, utf8_literal("#"));
+        append(&tag, "#");
         append(&tag, Utf8View{digits, 4});
         username = tag.view();
     }
@@ -921,7 +921,7 @@ bool finish(ProfileScene* s, const UiRect& viewport) noexcept {
         s->edit_rectangle = node->rectangle;
         s->edit_content = ui_rect_inset(s->edit_rectangle, {10, 2, 10, 2});
         reset_value(&s->message_placeholder);
-        append(&s->message_placeholder, utf8_literal("Click to add a note"));
+        append(&s->message_placeholder, "Click to add a note");
         if (s->edit.focused)
             ui_widget_manager_focus(&s->widgets, s->note_field);
     }

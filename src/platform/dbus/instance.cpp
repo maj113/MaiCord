@@ -221,40 +221,6 @@ SocketAddress socket_address(const char* application_id, const char* profile_key
     return address;
 }
 
-bool poll_until(int fd, i16 events, u64 deadline) noexcept {
-    for (;;) {
-        const u64 now = clock_monotonic_milliseconds();
-        if (now >= deadline)
-            return false;
-        const u64 left = deadline - now;
-        const TimeSpec timeout{static_cast<i64>(left / 1000), static_cast<i64>(left % 1000) * 1000000};
-        PollFd poll{fd, events, 0};
-        const long ready = sys_ppoll(&poll, 1, &timeout);
-        if (ready > 0)
-            return true;
-        if (ready < 0 && -ready != kErrorInterrupted)
-            return false;
-    }
-}
-
-bool write_all(int fd, const u8* bytes, u32 count, u64 deadline) noexcept {
-    u32 done = 0;
-    while (done != count) {
-        const long sent = sys_write(fd, bytes + done, count - done);
-        if (sent == -kErrorInterrupted)
-            continue;
-        if (sent == -kErrorAgain) {
-            if (!poll_until(fd, kPollOut, deadline))
-                return false;
-            continue;
-        }
-        if (syscall_failed(sent) || sent == 0)
-            return false;
-        done += static_cast<u32>(sent);
-    }
-    return true;
-}
-
 bool read_all(int fd, u8* bytes, u32 count, u64 deadline) noexcept {
     u32 done = 0;
     while (done != count) {
@@ -294,7 +260,7 @@ InstanceResult forward_over_socket(int fd, const LaunchRequest& request, u32 tim
     u8 message[kSocketHeaderBytes + kLaunchUrlCapacity + kLaunchTokenCapacity];
     const u32 bytes = encode_request(request, message);
     u8 answer = 0;
-    const bool ok = write_all(fd, message, bytes, deadline) && read_all(fd, &answer, 1, deadline) && answer == 'K';
+    const bool ok = send_all_blocking(fd, message, bytes, deadline) && read_all(fd, &answer, 1, deadline) && answer == 'K';
     return ok ? InstanceResult::forwarded : InstanceResult::refused;
 }
 
@@ -333,7 +299,7 @@ void serve_connection(int fd) noexcept {
     }
     copy_bytes(request.activation_token, payload + url_bytes, token_bytes);
     const u8 ok = 'K';
-    write_all(fd, &ok, 1, deadline);
+    send_all_blocking(fd, &ok, 1, deadline);
     deliver(request);
 }
 

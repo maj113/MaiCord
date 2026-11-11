@@ -59,7 +59,7 @@ const ShellNavigationRowWidget* channel_row(const UnreadContextSource& source, u
 }
 } // namespace
 // `target` is zeroed by the caller.
-static bool resolve_target(UnreadContextSource source, UnreadContextKind kind, u64 id,
+static bool resolve_target(const UnreadContextSource& source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target) noexcept {
     if (!id || !valid_source(source)) return false;
     UnreadContextTarget value{}; value.source = source; value.id = id; value.kind = kind;
@@ -87,10 +87,10 @@ static bool resolve_target(UnreadContextSource source, UnreadContextKind kind, u
     value.channel_id = channel->id; value.channel_revision = channel->revision; value.channel_generation = channel->generation;
     *target = value; return true;
 }
-bool unread_context_available(UnreadContextSource source, UnreadContextKind kind, u64 id) noexcept {
+bool unread_context_available(const UnreadContextSource& source, UnreadContextKind kind, u64 id) noexcept {
     UnreadContextTarget target{}; return resolve_target(source, kind, id, &target);
 }
-bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind, u64 id,
+bool unread_context_capture(const UnreadContextSource& source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target, u32 action) noexcept {
     reset_value(target);
     if (!source.popup || !source.popup->active || source.popup->kind != PopupKind::context_menu ||
@@ -106,7 +106,7 @@ bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind, 
     target->popup_opens = source.popup->opens; target->popup_generation = source.popup->widgets.generation;
     return true;
 }
-bool unread_context_current(const UnreadContextTarget& target, UnreadContextSource source) noexcept {
+bool unread_context_current(const UnreadContextTarget& target, const UnreadContextSource& source) noexcept {
     if (!target.id || !valid_source(source) || !source.popup->active || source.popup->kind != PopupKind::context_menu ||
         !same_owner(target.source, source) || source.popup->owner_id != target.id ||
         source.popup->opens != target.popup_opens || source.popup->widgets.generation != target.popup_generation) return false;

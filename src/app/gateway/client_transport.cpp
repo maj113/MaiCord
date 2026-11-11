@@ -89,6 +89,27 @@ namespace {
 
 bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, SendPurpose purpose) noexcept;
 
+// Masks payload into one final frame, encrypts it into record_output and starts its send. The plaintext
+// frame is erased, and so is the record when its send does not start.
+bool send_frame(GatewayClientRuntime* runtime, WebSocketOpcode opcode, ConstSlice<u8> payload,
+                SendPurpose purpose) noexcept {
+    u32 masking_key = 0;
+    if (!secure_random_u32(&masking_key).ok())
+        return false;
+    const WebSocketWriteResult framed = websocket_write_client_frame(
+        opcode, true, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+    u32 encrypted_bytes = 0;
+    const bool encrypted =
+        framed.ok() && tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
+                                          Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
+                           .ok();
+    SecureZeroMemory(runtime->plain_output, framed.bytes);
+    if (encrypted && start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, purpose))
+        return true;
+    SecureZeroMemory(runtime->record_output, encrypted_bytes);
+    return false;
+}
+
 // Closes as the page's WebSocket does: an open session first writes a masked close frame
 // (kCloseWithoutCode: no status, as WebSocket.close() sends; else the code), and the
 // connection drops once it is written (finish_close) or after kCloseFrameTimeoutMs.
@@ -96,23 +117,14 @@ bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, Send
 void close_transport(GatewayClientRuntime* runtime, u32 close_code, u64 now_ms) noexcept {
     if (runtime->closing)
         return;
-    u32 masking_key = 0;
-    u32 encrypted_bytes = 0;
     const u8 code[2] = {static_cast<u8>(close_code >> 8), static_cast<u8>(close_code)};
     if (close_code != kCloseWithoutFrame && runtime->session.opened && runtime->tls_initialized &&
-        runtime->send_purpose == SendPurpose::none && secure_random_u32(&masking_key).ok()) {
-        const WebSocketWriteResult framed = websocket_write_client_frame(
-            WebSocketOpcode::close, true, ConstSlice<u8>{code, close_code == kCloseWithoutCode ? 0u : 2u},
-            masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
-        if (framed.ok() &&
-            tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
-                               Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
-                .ok() &&
-            start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, SendPurpose::closing)) {
-            runtime->closing = true;
-            runtime->closing_deadline_ms = deadline_after(now_ms, kCloseFrameTimeoutMs);
-            return;
-        }
+        runtime->send_purpose == SendPurpose::none &&
+        send_frame(runtime, WebSocketOpcode::close, ConstSlice<u8>{code, close_code == kCloseWithoutCode ? 0u : 2u},
+                   SendPurpose::closing)) {
+        runtime->closing = true;
+        runtime->closing_deadline_ms = deadline_after(now_ms, kCloseFrameTimeoutMs);
+        return;
     }
     finish_close(runtime);
 }
@@ -432,23 +444,8 @@ bool send_pending_pong(GatewayClientRuntime* runtime) noexcept {
     if (!runtime->has_pending_pong || runtime->send_purpose != SendPurpose::none) {
         return false;
     }
-    u32 masking_key = 0;
-    if (!secure_random_u32(&masking_key).ok()) {
-        return false;
-    }
-    const WebSocketWriteResult framed = websocket_write_client_frame(
-        WebSocketOpcode::pong, true, ConstSlice<u8>{runtime->pending_pong, runtime->pending_pong_bytes},
-        masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
-    if (!framed.ok()) {
-        return false;
-    }
-    u32 encrypted_bytes = 0;
-    if (!tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
-                            Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
-             .ok()) {
-        return false;
-    }
-    if (!start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, SendPurpose::pong)) {
+    if (!send_frame(runtime, WebSocketOpcode::pong, ConstSlice<u8>{runtime->pending_pong, runtime->pending_pong_bytes},
+                    SendPurpose::pong)) {
         return false;
     }
     SecureZeroMemory(runtime->pending_pong, runtime->pending_pong_bytes);
@@ -474,32 +471,10 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
         SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
         return OutboundDrive::failed;
     }
-    const ConstSlice<u8> payload{runtime->gateway_etf, packed.bytes};
-    const WebSocketOpcode opcode = WebSocketOpcode::binary;
-    u32 masking_key = 0;
-    if (!secure_random_u32(&masking_key).ok()) {
-        SecureZeroMemory(const_cast<u8*>(payload.data), payload.count);
-        return OutboundDrive::failed;
-    }
-    const WebSocketWriteResult framed = websocket_write_client_frame(
-        opcode, true, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+    const bool sent =
+        send_frame(runtime, WebSocketOpcode::binary, ConstSlice<u8>{runtime->gateway_etf, packed.bytes}, purpose);
     SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
-    if (!framed.ok()) {
-        return OutboundDrive::failed;
-    }
-    u32 encrypted_bytes = 0;
-    if (!tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
-                            Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
-             .ok()) {
-        SecureZeroMemory(runtime->plain_output, framed.bytes);
-        return OutboundDrive::failed;
-    }
-    SecureZeroMemory(runtime->plain_output, framed.bytes);
-    if (!start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, purpose)) {
-        SecureZeroMemory(runtime->record_output, encrypted_bytes);
-        return OutboundDrive::failed;
-    }
-    return OutboundDrive::sending;
+    return sent ? OutboundDrive::sending : OutboundDrive::failed;
 }
 
 } // namespace client_detail

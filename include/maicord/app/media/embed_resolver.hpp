@@ -28,15 +28,17 @@ struct EmbedResolver {
     char music_version[32]{};
     u8 music_version_bytes{};
 };
+// Eight bytes, so a result returns in a register.
 struct EmbedResolveResult {
     EmbedPlayerError error;
     UpdateTransportError transport_error;
-    u32 retry_after_seconds;
     u16 status;
+    u32 retry_after_seconds;
     bool ok() const noexcept {
         return error == EmbedPlayerError::none && transport_error == UpdateTransportError::none && status == 200;
     }
 };
+static_assert(sizeof(EmbedResolveResult) == 8);
 // Worker-only. Zero-initialize and keep at a fixed address until joined release.
 // Fetches at most one public bootstrap and one player response per call. No
 // unbounded retry, cookies persisted to disk, or provider network work at idle.

@@ -1,6 +1,6 @@
-#include "maicord/platform/net/socket.hpp"
 #include "maicord/core/memory.hpp"
-
+#include "maicord/core/win32_error.hpp"
+#include "maicord/os/wait.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/core/ascii.hpp"
@@ -12,77 +12,66 @@ constexpr u32 kHeadBytes = 32 * 1024, kFields = 128;
 using E = UpdateTransportError;
 
 bool cancelled(const UpdateHttpsTransport* t) noexcept { return read_acquire(&t->cancelled) != 0; }
-void close_socket(UpdateHttpsTransport* t) noexcept {
-    Socket s{static_cast<u64>(InterlockedExchange64(&t->socket, 0))};
-    if (!socket_valid(s)) return;
-    socket_interrupt(s);
-    socket_close(&s);
-}
-Socket current(const UpdateHttpsTransport* t) noexcept {
-    return Socket{static_cast<u64>(read_acquire(&t->socket))};
-}
 // Records the first native code behind a failure for the updater log.
 E fail(UpdateHttpsTransport* t, E error, u32 native) noexcept {
     if (!t->native) t->native = native;
     return cancelled(t) ? E::cancelled : error;
-}
-E socket_failure(UpdateHttpsTransport* t, E error) noexcept { return fail(t, error, static_cast<u32>(network_last_error())); }
-bool send_all(UpdateHttpsTransport* t, const u8* data, u32 bytes) noexcept {
-    while (bytes) {
-        const i32 sent = socket_send(current(t), data, bytes);
-        if (sent <= 0 || cancelled(t)) return false;
-        data += sent; bytes -= static_cast<u32>(sent);
-    }
-    return true;
-}
-// Appends to the encrypted queue; 0 = orderly close, -1 = failure.
-int receive_more(UpdateHttpsTransport* t) noexcept {
-    if (t->encrypted_bytes == sizeof(t->encrypted)) return -1;
-    const i32 got = socket_receive(current(t), t->encrypted + t->encrypted_bytes,
-        static_cast<u32>(sizeof(t->encrypted) - t->encrypted_bytes));
-    if (cancelled(t)) return -1;
-    if (got > 0) t->encrypted_bytes += static_cast<u32>(got);
-    return got > 0 ? 1 : got == 0 ? 0 : -1;
 }
 void drop(u8* buffer, u32* bytes, u32 consumed) noexcept {
     const u32 rest = *bytes - consumed;
     for (u32 i = 0; i < rest; ++i) buffer[i] = buffer[consumed + i];
     *bytes = rest;
 }
-E connect_host(UpdateHttpsTransport* t) noexcept {
-    NetworkAddress addresses[kNetworkResolverMaximumAddresses];
-    u32 count = 0;
-    i32 native = 0;
-    if (!network_resolve_blocking(t->host, L"443", addresses, &count, &native) || !count)
-        return fail(t, E::resolve, static_cast<u32>(native));
-    E error = E::connect;
-    for (u32 i = 0; i < count && !cancelled(t); ++i) {
-        Socket s{};
-        if (!socket_create_stream(&s, addresses[i], kUpdateHttpsTimeoutMs, &native)) { t->native = static_cast<u32>(native); continue; }
-        InterlockedExchange64(&t->socket, static_cast<LONG64>(s.token));
-        if (cancelled(t)) break;
-        if (socket_connect(s, addresses[i], &native)) { error = E::none; t->native = 0; break; }
-        t->native = static_cast<u32>(native);
-        close_socket(t);
+// One request's response reader, the stream's read callback context.
+struct Exchange {
+    UpdateHttpsTransport* t;
+    const UpdateHttpRequest* request;
+    UpdateHttpResponse* response;
+    UpdateHttpReader reader;
+    E error;
+    bool read_error_body;
+};
+TlsStreamReadAction read_plaintext(void* context, ConstSlice<u8> plaintext, bool closed) noexcept {
+    auto* x = static_cast<Exchange*>(context);
+    UpdateHttpsTransport* t = x->t;
+    E error = E::http;
+    if (plaintext.count <= sizeof(t->plain) - t->plain_bytes) {
+        copy_bytes(t->plain + t->plain_bytes, plaintext.data, plaintext.count);
+        t->plain_bytes += plaintext.count;
+        error = update_http_read(&x->reader, *x->request, x->response, t->plain, &t->plain_bytes, sizeof(t->plain),
+                                 closed, x->read_error_body);
+        // A TCP close or close_notify ends only a close-delimited body.
+        if (error == E::none && closed && !x->reader.complete) error = E::receive;
     }
-    if (cancelled(t)) return E::cancelled;
-    return error;
+    if (error == E::none) return x->reader.complete ? TlsStreamReadAction::complete : TlsStreamReadAction::continue_read;
+    x->error = fail(t, error, 0);
+    return TlsStreamReadAction::reject;
 }
-E handshake(UpdateHttpsTransport* t) noexcept {
-    const TlsResult initialized = tls_client_initialize(&t->tls, t->host);
-    if (!initialized.ok()) return fail(t, E::tls, static_cast<u32>(initialized.native_status));
-    if (t->tls.maximum_token_bytes > sizeof(t->token)) return fail(t, E::tls, 0);
-    auto step = tls_client_handshake(&t->tls, {}, {t->token, sizeof(t->token)});
+// Drives the stream until it reports `until` (reading: until the response is complete or the reader failed),
+// failing on a stream error, a cancel or kUpdateHttpsTimeoutMs without a completion.
+E drive(UpdateHttpsTransport* t, TlsStreamEvent event, TlsStreamEventKind until, const Exchange* x) noexcept {
     for (;;) {
-        if (!step.ok() || step.state == TlsHandshakeState::failed) return fail(t, E::tls, static_cast<u32>(step.native_status));
-        if (step.produced && !send_all(t, t->token, step.produced)) return socket_failure(t, E::send);
-        if (step.consumed) drop(t->encrypted, &t->encrypted_bytes, step.consumed);
-        if (step.state == TlsHandshakeState::complete || step.state == TlsHandshakeState::complete_and_send) return E::none;
-        if (step.native_status == kTlsStatusIncomplete || !t->encrypted_bytes) {
-            const int got = receive_more(t);
-            if (got <= 0) return got ? socket_failure(t, E::receive) : fail(t, E::receive, 0);
+        if (x && (x->reader.complete || x->error != E::none)) return x->error;
+        if (!event.ok()) {
+            const E error = event.error == TlsStreamError::resolve   ? E::resolve
+                            : event.error == TlsStreamError::connect ? E::connect
+                            : event.error == TlsStreamError::send    ? E::send
+                            : event.error == TlsStreamError::receive || event.error == TlsStreamError::unexpected_data
+                                ? E::receive
+                                : E::tls;
+            return fail(t, error, event.native_error ? event.native_error : static_cast<u32>(t->stream.tls_status));
         }
-        step = tls_client_handshake(&t->tls, {t->encrypted, t->encrypted_bytes}, {t->token, sizeof(t->token)});
+        if (event.kind == until) return E::none;
+        if (cancelled(t)) return E::cancelled;
+        const NetworkPollResult polled = network_loop_poll(&t->loop, kUpdateHttpsTimeoutMs);
+        if (polled.state == NetworkPollState::timeout) {
+            const TlsStreamState state = t->stream.state;
+            return fail(t, state == TlsStreamState::resolving ? E::resolve : state == TlsStreamState::connecting ? E::connect : E::receive,
+                        WAIT_TIMEOUT);
+        }
+        if (polled.state == NetworkPollState::error) return fail(t, E::receive, static_cast<u32>(polled.completion.native_error));
+        if (polled.completion.kind != NetworkOperationKind::signal)
+            event = tls_stream_handle_completion(&t->stream, &t->loop, polled.completion);
     }
 }
 bool observe(void* context, HttpField field) noexcept {
@@ -115,47 +104,18 @@ E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttp
     } head;
     const u32 n = https_exchange_head(request, options, {head.bytes, sizeof(head.bytes)});
     if (!n) return E::invalid_input;
-    E error = connect_host(t); if (error != E::none) return error;
-    error = handshake(t); if (error != E::none) return error;
-    u32 produced = 0;
-    const TlsResult encrypted = tls_client_encrypt(&t->tls, {head.bytes, n}, {t->token, sizeof(t->token)}, &produced);
+    if (!tls_stream_initialize(&t->stream, t->host,
+                               {{t->encrypted, sizeof(t->encrypted)}, {t->token, sizeof(t->token)}, {t->record, sizeof(t->record)}}))
+        return E::invalid_input;
+    E error = drive(t, tls_stream_begin_connect(&t->stream, &t->loop), TlsStreamEventKind::ready, nullptr);
+    if (error != E::none) return error;
+    const ConstSlice<u8> spans[]{{head.bytes, n}, options.body};
+    error = drive(t, tls_stream_start_write(&t->stream, {spans, options.body.count ? 2u : 1u}),
+                  TlsStreamEventKind::write_complete, nullptr);
+    if (error != E::none) return error;
     secure_clear_bytes(head.bytes, sizeof(head.bytes));
-    if (!encrypted.ok()) return fail(t, E::tls, static_cast<u32>(encrypted.native_status));
-    if (!send_all(t, t->token, produced)) return socket_failure(t, E::send);
-    if (options.body.count) {
-        const auto sent = tls_client_encrypt(&t->tls, options.body, {t->token, sizeof(t->token)}, &produced);
-        if (!sent.ok()) return fail(t, E::tls, static_cast<u32>(sent.native_status));
-        if (!send_all(t, t->token, produced)) return socket_failure(t, E::send);
-    }
-    UpdateHttpReader reader{};
-    while (!reader.complete) {
-        if (t->encrypted_bytes) {
-            const auto d = tls_client_decrypt(&t->tls, {t->encrypted, t->encrypted_bytes});
-            if (!d.ok() || d.state == TlsDecryptState::failed || d.state == TlsDecryptState::renegotiate)
-                return fail(t, E::tls, static_cast<u32>(d.native_status));
-            if (d.state != TlsDecryptState::need_receive) {
-                if (d.plaintext.count > sizeof(t->plain) - t->plain_bytes) return fail(t, E::http, 0);
-                copy_bytes(t->plain + t->plain_bytes, d.plaintext.data, d.plaintext.count);
-                t->plain_bytes += d.plaintext.count;
-                if (!d.consumed) return fail(t, E::tls, static_cast<u32>(d.native_status));
-                drop(t->encrypted, &t->encrypted_bytes, d.consumed);
-                const bool closed = d.state == TlsDecryptState::peer_closed;
-                error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), closed, options.read_error_body);
-                if (error != E::none) return fail(t, error, 0);
-                if (closed && !reader.complete) return fail(t, E::receive, 0);
-                continue;
-            }
-        }
-        const int got = receive_more(t);
-        if (got < 0) return socket_failure(t, E::receive);
-        if (!got) {
-            // TCP close without close_notify: only a close-delimited body may end here.
-            error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), true, options.read_error_body);
-            if (error != E::none) return fail(t, error, 0);
-            if (!reader.complete) return fail(t, E::receive, 0);
-        }
-    }
-    return E::none;
+    Exchange x{t, &request, response, {}, E::none, options.read_error_body};
+    return drive(t, tls_stream_start_read(&t->stream, read_plaintext, &x), TlsStreamEventKind::read_complete, &x);
 }
 UpdateTransportError get(void* context, const UpdateHttpRequest& request, UpdateHttpResponse* response) noexcept {
     return https_exchange(static_cast<UpdateHttpsTransport*>(context), request, {}, response);
@@ -214,11 +174,24 @@ UpdateTransportError https_exchange(UpdateHttpsTransport* t, const UpdateHttpReq
     if (!t || !t->winsock || !response) return E::invalid_input;
     if (cancelled(t)) return E::cancelled;
     reset_value(response);
-    t->encrypted_bytes = t->plain_bytes = 0; t->native = 0;
+    t->plain_bytes = 0; t->native = 0;
+    const NetworkResult loop = network_loop_initialize(&t->loop);
+    if (!loop.ok()) {
+        response->native_error = static_cast<u32>(loop.native_error);
+        return E::connect;
+    }
+    InterlockedExchange(&t->loop_state, 1);
     const E error = exchange(t, request, response, options);
     if (error != E::none) response->native_error = t->native;
-    close_socket(t);
-    tls_client_release(&t->tls);
+    // Retire the loop from cancel first (waiting out a post in flight), then drain the stream and a posted cancel.
+    while (InterlockedCompareExchange(&t->loop_state, 0, 1) != 1) {}
+    tls_stream_close(&t->stream);
+    while (!tls_stream_drained(&t->stream) || read_acquire(&t->cancel_signal.pending) != 0) {
+        const NetworkPollResult polled = network_loop_poll(&t->loop, INFINITE);
+        if (polled.state == NetworkPollState::completion && polled.completion.kind != NetworkOperationKind::signal)
+            tls_stream_handle_completion(&t->stream, &t->loop, polled.completion);
+    }
+    network_loop_release(&t->loop);
     SecureZeroMemory(t->plain, sizeof(t->plain));
     return error;
 }
@@ -287,21 +260,19 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
 
 bool update_https_initialize(UpdateHttpsTransport* t) noexcept {
     if (!t || t->winsock) return false;
-    InterlockedExchange64(&t->socket, 0);
-    t->winsock = socket_startup() == 0;
-    return t->winsock;
+    t->winsock = true;
+    return true;
 }
 void update_https_cancel(UpdateHttpsTransport* t) noexcept {
     if (!t) return;
     InterlockedExchange(&t->cancelled, 1);
-    close_socket(t);
+    if (InterlockedCompareExchange(&t->loop_state, 2, 1) == 1) {
+        network_signal_post(&t->loop, &t->cancel_signal, 1);
+        InterlockedExchange(&t->loop_state, 1);
+    }
 }
 void update_https_release(UpdateHttpsTransport* t) noexcept {
-    if (!t) return;
-    close_socket(t);
-    tls_client_release(&t->tls);
-    if (t->winsock) socket_cleanup();
-    t->winsock = false;
+    if (t) t->winsock = false;
 }
 UpdateTransport update_https_transport(UpdateHttpsTransport* t) noexcept { return {t, get}; }
 

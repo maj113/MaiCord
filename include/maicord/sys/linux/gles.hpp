@@ -140,7 +140,6 @@ inline constexpr Bitfield kAllBarrierBits = 0xFFFFFFFFu;
     X(void, glDeleteBuffers, (Sizei count, const Uint* names))                                                         \
     X(void, glBindBuffer, (Enum target, Uint name))                                                                    \
     X(void, glBindBufferBase, (Enum target, Uint index, Uint name))                                                    \
-    X(void, glBindBufferRange, (Enum target, Uint index, Uint name, Intptr offset, Sizeiptr bytes))                    \
     X(void, glBufferData, (Enum target, Sizeiptr bytes, const void* data, Enum usage))                                 \
     X(void, glBufferSubData, (Enum target, Intptr offset, Sizeiptr bytes, const void* data))                           \
     X(void*, glMapBufferRange, (Enum target, Intptr offset, Sizeiptr bytes, Bitfield access))                          \

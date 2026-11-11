@@ -1,4 +1,5 @@
 #include "maicord/ui/guild/member_context_policy.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
@@ -54,31 +55,33 @@ u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
 }
 
 namespace {
-// One enabled row per label, actions from first_action; `separator` gets the rule above it.
-u32 choices(ConstSlice<Utf8View> labels, u32 first_action, u32 separator, const Slice<PopupItem>& output) noexcept {
-    if (!output.data || output.count < labels.count)
+// One enabled row for each of the `count` names (each followed by "\0"), actions from first_action; `separator` gets
+// the rule above it.
+u32 choices(const char* names, u32 count, u32 first_action, u32 separator, const Slice<PopupItem>& output) noexcept {
+    if (!output.data || output.count < count)
         return 0;
-    for (u32 i = 0; i < labels.count; ++i)
-        popup_item_set(&output[i], labels[i], first_action + i,
+    u32 i = 0;
+    for (NameList name{names}; name; name.next(), ++i)
+        popup_item_set(&output[i], name.name(), first_action + i,
                        static_cast<u16>(popup_item_enabled | (i == separator ? popup_item_separator_before : 0u)));
-    return labels.count;
+    return count;
 }
 } // namespace
 
 u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, const Slice<PopupItem>& output) noexcept {
-    static constexpr Utf8View labels[] = {utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
-                                   utf8_literal("1 hour"),     utf8_literal("1 day"),     utf8_literal("1 week")};
-    static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationTimeoutChoices) / sizeof(u32));
-    return choices({labels, sizeof(labels) / sizeof(labels[0])}, actions.choice_first, ~0u, output);
+    static constexpr char kLabels[] = "60 seconds\0" "5 minutes\0" "10 minutes\0" "1 hour\0" "1 day\0" "1 week\0";
+    constexpr u32 kCount = sizeof(kModerationTimeoutChoices) / sizeof(u32);
+    static_assert(name_list_count(kLabels) == kCount);
+    return choices(kLabels, kCount, actions.choice_first, ~0u, output);
 }
 
 u32 member_context_ban_choices(const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
-    static constexpr Utf8View labels[] = {utf8_literal("Keep their messages"),   utf8_literal("Delete the last hour"),
-                                   utf8_literal("Delete the last 6 hours"), utf8_literal("Delete the last 12 hours"),
-                                   utf8_literal("Delete the last day"),   utf8_literal("Delete the last 3 days"),
-                                   utf8_literal("Delete the last week")};
-    static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationBanDeleteChoices) / sizeof(u32));
-    return choices({labels, sizeof(labels) / sizeof(labels[0])}, actions.choice_first, 1, output);
+    static constexpr char kLabels[] = "Keep their messages\0Delete the last hour\0Delete the last 6 hours\0"
+                                      "Delete the last 12 hours\0Delete the last day\0Delete the last 3 days\0"
+                                      "Delete the last week\0";
+    constexpr u32 kCount = sizeof(kModerationBanDeleteChoices) / sizeof(u32);
+    static_assert(name_list_count(kLabels) == kCount);
+    return choices(kLabels, kCount, actions.choice_first, 1, output);
 }
 
 } // namespace maicord

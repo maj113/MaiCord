@@ -451,6 +451,38 @@ bool queue_message_media(D3D11Renderer* renderer, u32 shown, const Theme& theme,
     return true;
 }
 
+// The content text's custom emoji and flag cells, the timeline's (in its viewport) or Search's (in its result
+// cards, one batch from the first queued).
+bool queue_text_emoji(D3D11Renderer* renderer, bool search) noexcept {
+    const RendererTextStorage& text = *renderer->content_text;
+    bool first = search;
+    for (u32 i = 0; i < text.content_hit_region_count; ++i) {
+        if (!search && renderer->media_quad_count >= kRendererMediaQuadCapacity)
+            break;
+        const TextHitRegion& region = text.content_hit_regions[i];
+        if (region.semantic_index >= text.content_semantic_count)
+            continue;
+        const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
+        const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
+        if ((!flag && semantic.kind != MessageMarkdownSemanticKind::custom_emoji) || !semantic.target ||
+            (semantic.reserved & 2u) || ((semantic.reserved & kRendererSearchSemanticFlag) != 0) != search)
+            continue;
+        const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene,
+                                                                  {region.left, region.top, region.right, region.bottom})
+                                   : renderer->message_scene->viewport;
+        if (search && !ui_rect_has_area(clip))
+            continue;
+        const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, emoji_key(semantic));
+        if (!allocation.ok() || renderer->media_quad_count >= kRendererMediaQuadCapacity)
+            continue;
+        const u32 before = renderer->media_quad_count;
+        if (!queue_media_quad(renderer, allocation, emoji_cell(region, flag), clip, false, first))
+            return false;
+        first = first && renderer->media_quad_count == before;
+    }
+    return true;
+}
+
 // Command storage belongs to this surface; producers initialize every consumed record.
 bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme, const MessageScene* message_scene,
                           bool messages_visible, bool content_hidden) noexcept {
@@ -526,27 +558,21 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
             }
             const MessageRecord* message =
                 message_store_resolve(*message_scene->timeline->store, row.message);
-            const UserRecord* user =
-                message ? user_store_find(*renderer->user_store, message->author_id) : nullptr;
             const UiLayoutNode* avatar = message_scene_layout_node(*message_scene, row.avatar);
-            MediaAtlasResult allocation{};
-            if (!user || !avatar || !find_user_avatar(*renderer, *user, &allocation)) {
-                continue;
-            }
-            if (!queue_avatar(renderer, allocation, avatar->rectangle, message_scene->viewport,
-                              theme.avatar_placeholder))
+            if (message && avatar &&
+                !queue_user_avatar(renderer, message->author_id, avatar->rectangle, message_scene->viewport,
+                                   theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
         // A DM's channel-beginning header shows the recipient's avatar.
         if (MessageSceneIntroGeometry intro{};
             message_scene->intro.kind == MessageSceneIntroKind::direct_message && message_scene->intro.user_id &&
-            renderer->user_store && renderer->media_quad_count < kRendererMediaQuadCapacity &&
+            renderer->media_quad_count < kRendererMediaQuadCapacity &&
             message_scene_intro_geometry(*message_scene, &intro) && ui_rect_has_area(intro.icon)) {
-            const UserRecord* user = user_store_find(*renderer->user_store, message_scene->intro.user_id);
-            MediaAtlasResult allocation{};
             const UiRect clip = ui_rect_intersection(message_scene->viewport, intro.area);
-            if (user && ui_rect_has_area(clip) && find_user_avatar(*renderer, *user, &allocation) &&
-                !queue_avatar(renderer, allocation, intro.icon, clip, theme.avatar_placeholder))
+            if (ui_rect_has_area(clip) &&
+                !queue_user_avatar(renderer, message_scene->intro.user_id, intro.icon, clip,
+                                   theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
         for (u32 index = 0; index < message_scene->count; ++index) {
@@ -559,24 +585,19 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
             const MessageRichStore* rich_store = message_scene->timeline->rich_store;
             const MessageRichRecord* rich =
                 message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
-            const UserRecord* user =
-                !message_scene->display.compact && rich && rich->message_revision == message->revision &&
-                        message_rich_has_header(*rich) &&
-                        (rich->reference.state != GatewayMessageReferenceState::available ||
-                         message_rich_reply_leading(rich->reference) == MessageReplyLeading::avatar)
-                    ? user_store_find(*renderer->user_store, message_rich_header_user(*rich))
-                    : nullptr;
             const UiLayoutNode* body = message_scene_layout_node(*message_scene, row.body);
             const UiLayoutNode* reply = message_scene_layout_node(*message_scene, row.reply);
-            MediaAtlasResult allocation{};
-            if (!user || !body || !reply || !find_user_avatar(*renderer, *user, &allocation)) {
+            if (message_scene->display.compact || !rich || rich->message_revision != message->revision ||
+                !message_rich_has_header(*rich) ||
+                (rich->reference.state == GatewayMessageReferenceState::available &&
+                 message_rich_reply_leading(rich->reference) != MessageReplyLeading::avatar) ||
+                !body || !reply)
                 continue;
-            }
             const UiRect reference_avatar{body->content_rectangle.left, reply->rectangle.top + 1.0f,
                                           body->content_rectangle.left + 16.0f,
                                           reply->rectangle.top + 17.0f};
-            if (!queue_avatar(renderer, allocation, reference_avatar, message_scene->viewport,
-                              theme.avatar_placeholder))
+            if (!queue_user_avatar(renderer, message_rich_header_user(*rich), reference_avatar,
+                                   message_scene->viewport, theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -611,32 +632,9 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                 return layout_step_failed(__LINE__);
         }
     }
-    if (!content_hidden && renderer->content_text && renderer->media_atlas &&
-        renderer->media_gpu.texture_view) {
-        const RendererTextStorage& text = *renderer->content_text;
-        for (u32 index = 0; index < text.content_hit_region_count; ++index) {
-            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
-                break;
-            }
-            const TextHitRegion& region = text.content_hit_regions[index];
-            if (region.semantic_index >= text.content_semantic_count) {
-                continue;
-            }
-            const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
-            const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
-            if ((semantic.kind != MessageMarkdownSemanticKind::custom_emoji && !flag) ||
-                semantic.target == 0 || (semantic.reserved & (2u | kRendererSearchSemanticFlag))) {
-                continue;
-            }
-            const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, emoji_key(semantic));
-            if (!allocation.ok()) {
-                continue;
-            }
-            if (!queue_media_quad(renderer, allocation, emoji_cell(region, flag), message_scene->viewport, false)) {
-                return layout_step_failed(__LINE__);
-            }
-        }
-    }
+    if (!content_hidden && renderer->content_text && renderer->media_atlas && renderer->media_gpu.texture_view &&
+        !queue_text_emoji(renderer, false))
+        return layout_step_failed(__LINE__);
 
     if (!queue_message_media(renderer, shown, theme, message_media_stream, false))
         return layout_step_failed(__LINE__);
@@ -822,34 +820,9 @@ bool build_search_media(D3D11Renderer* renderer, u32 shown, const Theme& theme) 
             !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
         // Rich inline emoji cells belong above Search card geometry.
-        if (renderer->content_text && renderer->media_atlas && renderer->media_gpu.texture_view) {
-            const auto& text = *renderer->content_text;
-            bool first = true;
-            for (u32 i = 0; i < text.content_hit_region_count; ++i) {
-                const auto& region = text.content_hit_regions[i];
-                if (region.semantic_index >= text.content_semantic_count)
-                    continue;
-                const auto& semantic = text.content_semantics[region.semantic_index];
-                const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
-                if (!(semantic.reserved & kRendererSearchSemanticFlag) || (semantic.reserved & 2u) ||
-                    !semantic.target ||
-                    (!flag && semantic.kind != MessageMarkdownSemanticKind::custom_emoji))
-                    continue;
-                const auto clip = ui_search_scene_content_clip(
-                    *renderer->search_scene, {region.left, region.top, region.right, region.bottom});
-                if (!ui_rect_has_area(clip))
-                    continue;
-                const auto allocation = media_atlas_peek(renderer->media_atlas, emoji_key(semantic));
-                if (!allocation.ok() || renderer->media_quad_count >= kRendererMediaQuadCapacity)
-                    continue;
-                const u32 before = renderer->media_quad_count;
-                if (!queue_media_quad(renderer, allocation, emoji_cell(region, flag), clip, false, first))
-                    return layout_step_failed(__LINE__);
-                if (renderer->media_quad_count != before)
-                    first = false;
-            }
-        }
-        if (!paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, theme, true))
+        if ((renderer->content_text && renderer->media_atlas && renderer->media_gpu.texture_view &&
+             !queue_text_emoji(renderer, true)) ||
+            !paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, theme, true))
             return layout_step_failed(__LINE__);
     }
     if ((shown & d3d11_surface_search) &&

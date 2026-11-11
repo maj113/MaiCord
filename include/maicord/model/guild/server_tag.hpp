@@ -12,12 +12,11 @@ namespace maicord {
 // One badge type that may still be set. `tints` is how many colours it
 // takes (1: primary; 2: primary and secondary); `primary` and `secondary` are
 // its own colours (0xRRGGBB), shown while the profile's colours are null.
-// A pack badge needs its pack feature (guild_feature_badge_pack_*).
+// A pack badge needs its pack feature: `pack` is the shift of its
+// guild_feature_badge_pack_* bit (0: a base badge).
 struct GuildTagBadge {
-    Utf8View name;
-    u64 pack;
     u32 primary, secondary;
-    u8 type, tints;
+    u8 type, tints, pack;
 };
 // The base set in the official picker's order, then the four packs (pets,
 // flex, plant, creepy crawlies) in type order.
@@ -30,17 +29,20 @@ inline constexpr u8 kGuildTagDefaultBadge = 6;
 const GuildTagBadge* guild_tag_badge(u8 type) noexcept;
 // A base badge, or one whose pack the server has (`features`: guild_feature_* bits).
 bool guild_tag_badge_unlocked(const GuildTagBadge& badge, u64 features) noexcept;
+// The badges' names as the official picker reads them, in kGuildTagBadges order, each followed by "\0".
+extern const char kGuildTagBadgeNames[];
 
 // "Choose Color": the preset pairs, then "Reset to default colors" (both
 // null) and the custom pair.
 struct GuildTagPalette {
     u32 primary, secondary;
-    Utf8View name;
 };
 inline constexpr u32 kGuildTagPaletteCount = 13;
 inline constexpr u32 kGuildTagPaletteDefault = kGuildTagPaletteCount;
 inline constexpr u32 kGuildTagPaletteCustom = kGuildTagPaletteCount + 1;
 extern const GuildTagPalette kGuildTagPalettes[kGuildTagPaletteCount];
+// The presets' names in kGuildTagPalettes order, each followed by "\0".
+extern const char kGuildTagPaletteNames[];
 
 // The page's draft. The tag text survives turning the tag off, so turning it
 // back on restores it; an unset colour is null (the badge's own).

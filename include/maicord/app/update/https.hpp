@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/app/update/fetch.hpp"
-#include "maicord/platform/net/tls_client.hpp"
+#include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/protocol/http/http1.hpp"
 
 #include "maicord/core/win32_types.hpp"
@@ -9,22 +9,26 @@
 namespace maicord {
 
 inline constexpr u32 kUpdateHttpsBufferBytes = 64 * 1024;
+inline constexpr u32 kUpdateHttpsRecordBytes = 20 * 1024;
 inline constexpr u32 kUpdateHttpsTimeoutMs = 30000;
 
-// Blocking HTTPS GET for the updater's background worker: Winsock, the native
-// Schannel client and the HTTP/1.1 head/chunk parsers, one connection per
-// request ("Connection: close"). Zero-initialize; large, so allocate it.
+// Blocking HTTPS GET for the updater's background worker: a TlsStream on a network loop of its own for each
+// request, the native TLS client and the HTTP/1.1 head/chunk parsers, one connection per request
+// ("Connection: close"); kUpdateHttpsTimeoutMs without progress fails it. Zero-initialize; large, so allocate it.
 // cancel() may be called from any thread and fails the request in progress.
 struct UpdateHttpsTransport {
-    TlsClient tls;
-    volatile LONG64 socket;
+    NetworkLoop loop;
+    NetworkSignal cancel_signal;
+    TlsStream stream;
+    volatile LONG loop_state; // 0 no loop, 1 the request's loop is up, 2 a cancel is posting to it
     volatile LONG cancelled;
-    bool winsock;
-    u32 encrypted_bytes, plain_bytes;
+    bool winsock; // initialized
+    u32 plain_bytes;
     u32 native; // first native failure code of the request in progress
     wchar_t host[kUpdateHostNameCapacity + 1];
     u8 encrypted[kUpdateHttpsBufferBytes];
     u8 token[kUpdateHttpsBufferBytes];
+    u8 record[kUpdateHttpsRecordBytes];
     u8 plain[kUpdateHttpsBufferBytes];
 };
 bool update_https_initialize(UpdateHttpsTransport*) noexcept;

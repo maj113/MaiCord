@@ -132,14 +132,10 @@ u32 client_host_locale(Utf8View locale, Slice<char> output) noexcept {
         if (const Utf8View resolved = host_locale_named(mapped); resolved.data)
             return emit(resolved, output);
     }
-    constexpr Utf8View aliases[][2] = {
-        {utf8_literal("en"), utf8_literal("en-US")}, {utf8_literal("iw"), utf8_literal("he")},
-        {utf8_literal("no"), utf8_literal("nb")},    {utf8_literal("pt"), utf8_literal("pt-BR")},
-        {utf8_literal("tl"), utf8_literal("fil")},   {utf8_literal("zh"), utf8_literal("zh-CN")},
-    };
-    for (const auto& alias : aliases)
-        if (ascii_equal_ignore_case(language, alias[0]))
-            return emit(alias[1], output);
+    // The languages that stand for another shipped locale, and that locale of each, in step.
+    for (NameList from{"en\0iw\0no\0pt\0tl\0zh\0"}, to{"en-US\0he\0nb\0pt-BR\0fil\0zh-CN\0"}; from; from.next(), to.next())
+        if (ascii_equal_ignore_case(language, from.name()))
+            return emit(to.name(), output);
     return emit(utf8_literal("en-US"), output);
 }
 

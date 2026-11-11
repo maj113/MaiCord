@@ -40,51 +40,40 @@ enum class PageGroup : u8 {
     community,
     templates,
 };
+// A page's label is its line of kPageLabels.
 struct PageDefinition {
     Page page;
     PageGroup group;
     UiIcon icon;
     u32 section;
-    Utf8View label;
     const PageOps* ops;
 };
 constexpr PageDefinition kPages[]{
-    {Page::profile, PageGroup::none, UiIcon::guild, guild_settings_profile, utf8_literal("Server Profile"),
-     &kProfilePage},
-    {Page::server_tag, PageGroup::none, UiIcon::tag, guild_settings_server_tag, utf8_literal("Server Tag"),
-     &kServerTagPage},
-    {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, utf8_literal("Engagement"),
-     &kEngagementPage},
-    {Page::boost_perks, PageGroup::none, UiIcon::boost, guild_settings_boost_perks, utf8_literal("Boost Perks"),
-     &kBoostPage},
-    {Page::emoji, PageGroup::expression, UiIcon::emoji, guild_settings_expressions, utf8_literal("Emoji"),
-     &kExpressionPage},
-    {Page::stickers, PageGroup::expression, UiIcon::sticker, guild_settings_expressions, utf8_literal("Stickers"),
-     &kExpressionPage},
-    {Page::soundboard, PageGroup::expression, UiIcon::audio_lines, guild_settings_expressions,
-     utf8_literal("Soundboard"), &kExpressionPage},
-    {Page::members, PageGroup::people, UiIcon::members, guild_settings_members, utf8_literal("Members"),
-     &kMembersPage},
-    {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, utf8_literal("Roles"), &kRolesPage},
-    {Page::invites, PageGroup::people, UiIcon::user_plus, guild_settings_invites, utf8_literal("Invites"),
-     &kInvitesPage},
-    {Page::access, PageGroup::people, UiIcon::lock, guild_settings_invites, utf8_literal("Access"), &kAccessPage},
-    {Page::integrations, PageGroup::apps, UiIcon::webhook, guild_settings_integrations, utf8_literal("Integrations"),
-     &kIntegrationsPage},
-    {Page::safety, PageGroup::moderation, UiIcon::shield_check, guild_settings_safety, utf8_literal("Safety Setup"),
-     &kSafetyPage},
-    {Page::audit_log, PageGroup::moderation, UiIcon::audit_log, guild_settings_audit_log, utf8_literal("Audit Log"),
-     &kAuditLogPage},
-    {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, utf8_literal("Bans"), &kBansPage},
-    {Page::automod, PageGroup::moderation, UiIcon::shield_alert, guild_settings_automod, utf8_literal("AutoMod"),
-     &kAutoModPage},
-    // The label follows the COMMUNITY feature (community_page_label).
-    {Page::community, PageGroup::community, UiIcon::compass, guild_settings_invites, utf8_literal("Enable Community"),
-     &kCommunityPage},
-    {Page::guild_template, PageGroup::templates, UiIcon::file_text, guild_settings_invites,
-     utf8_literal("Server Template"), &kTemplatePage},
+    {Page::profile, PageGroup::none, UiIcon::guild, guild_settings_profile, &kProfilePage},
+    {Page::server_tag, PageGroup::none, UiIcon::tag, guild_settings_server_tag, &kServerTagPage},
+    {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, &kEngagementPage},
+    {Page::boost_perks, PageGroup::none, UiIcon::boost, guild_settings_boost_perks, &kBoostPage},
+    {Page::emoji, PageGroup::expression, UiIcon::emoji, guild_settings_expressions, &kExpressionPage},
+    {Page::stickers, PageGroup::expression, UiIcon::sticker, guild_settings_expressions, &kExpressionPage},
+    {Page::soundboard, PageGroup::expression, UiIcon::audio_lines, guild_settings_expressions, &kExpressionPage},
+    {Page::members, PageGroup::people, UiIcon::members, guild_settings_members, &kMembersPage},
+    {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, &kRolesPage},
+    {Page::invites, PageGroup::people, UiIcon::user_plus, guild_settings_invites, &kInvitesPage},
+    {Page::access, PageGroup::people, UiIcon::lock, guild_settings_invites, &kAccessPage},
+    {Page::integrations, PageGroup::apps, UiIcon::webhook, guild_settings_integrations, &kIntegrationsPage},
+    {Page::safety, PageGroup::moderation, UiIcon::shield_check, guild_settings_safety, &kSafetyPage},
+    {Page::audit_log, PageGroup::moderation, UiIcon::audit_log, guild_settings_audit_log, &kAuditLogPage},
+    {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, &kBansPage},
+    {Page::automod, PageGroup::moderation, UiIcon::shield_alert, guild_settings_automod, &kAutoModPage},
+    {Page::community, PageGroup::community, UiIcon::compass, guild_settings_invites, &kCommunityPage},
+    {Page::guild_template, PageGroup::templates, UiIcon::file_text, guild_settings_invites, &kTemplatePage},
 };
 static_assert(sizeof(kPages) / sizeof(kPages[0]) == kPageCount);
+// In kPages order. Enable Community's label follows the COMMUNITY feature (community_page_label).
+constexpr char kPageLabels[] = "Server Profile\0Server Tag\0Engagement\0Boost Perks\0Emoji\0Stickers\0Soundboard\0"
+                               "Members\0Roles\0Invites\0Access\0Integrations\0Safety Setup\0Audit Log\0Bans\0AutoMod\0"
+                               "Enable Community\0Server Template\0";
+static_assert(name_list_count(kPageLabels) == kPageCount);
 constexpr bool pages_in_order() noexcept {
     for (u32 i = 0; i < kPageCount; ++i)
         if (static_cast<u32>(kPages[i].page) != i + 1)
@@ -92,21 +81,19 @@ constexpr bool pages_in_order() noexcept {
     return true;
 }
 static_assert(pages_in_order());
-constexpr Utf8View kGroupHeaders[]{{},
-                                   utf8_literal("EXPRESSION"),
-                                   utf8_literal("PEOPLE"),
-                                   utf8_literal("APPS"),
-                                   utf8_literal("MODERATION"),
-                                   {},
-                                   {}};
+// The headings of the groups from expression to moderation; the others have none.
+constexpr char kGroupHeaders[] = "EXPRESSION\0PEOPLE\0APPS\0MODERATION\0";
 
 const PageDefinition& page_definition(Page page) noexcept {
     const u32 index = static_cast<u32>(page);
     return kPages[index && index <= kPageCount ? index - 1 : 0];
 }
+Utf8View fixed_label(const PageDefinition& definition) noexcept {
+    return name_list_at(kPageLabels, static_cast<u32>(definition.page) - 1);
+}
 // The sidebar and submenu label of a page in one guild.
 Utf8View page_label(const PageDefinition& definition, u64 guild_id) noexcept {
-    return definition.page == Page::community ? community_page_label(guild_id) : definition.label;
+    return definition.page == Page::community ? community_page_label(guild_id) : fixed_label(definition);
 }
 const PageOps& ops() noexcept {
     return *page_definition(owner->page).ops;
@@ -429,14 +416,13 @@ Utf8View channel_label(Bank& bank, u64 channel_id, Text none) noexcept {
 
 // "512×512 PNG · 1.0 MB", plus the source size when it was resized.
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
-    static constexpr Utf8View kinds[]{{}, utf8_literal(" PNG"), utf8_literal(" APNG"), utf8_literal(" GIF"),
-                               utf8_literal(" JPEG"), utf8_literal(" WebP"), utf8_literal(" Lottie")};
     if (info.width) {
         bank.number(info.width);
         bank.add("×");
         bank.number(info.height);
     }
-    bank.add(kinds[static_cast<u32>(info.kind) < 7 ? static_cast<u32>(info.kind) : 0]);
+    // The kinds after none, in GuildImageKind order.
+    bank.add(name_list_at(" PNG\0 APNG\0 GIF\0 JPEG\0 WebP\0 Lottie\0", static_cast<u32>(info.kind) - 1));
     if (info.animated)
         bank.add(" (animated)");
     bank.add(" · ");
@@ -551,7 +537,7 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
         // The first tile stands for the icon's own colour.
         u32 color = 0;
         if (choice)
-            color_hex_parse_rgb24(kGuildProfileBannerColors[choice - 1], &color);
+            color_hex_parse_rgb24({kGuildProfileBannerColors[choice - 1], kGuildProfileBannerColorBytes}, &color);
         else
             color = profile_icon_color();
         rgba = guild_role_color_rgba(color);
@@ -648,8 +634,9 @@ void build_navigation() noexcept {
     const auto enter = [&](PageGroup next) noexcept {
         group = next;
         add({UiSettingsNavKind::separator, false, UiIcon::count, {}, {}, 0});
-        if (kGroupHeaders[static_cast<u32>(next)].bytes)
-            add({UiSettingsNavKind::header, false, UiIcon::count, kGroupHeaders[static_cast<u32>(next)], {}, 0});
+        if (next >= PageGroup::expression && next <= PageGroup::moderation)
+            add({UiSettingsNavKind::header, false, UiIcon::count,
+                 name_list_at(kGroupHeaders, static_cast<u32>(next) - static_cast<u32>(PageGroup::expression)), {}, 0});
     };
     // App Directory is a link (no page) that shows with the settings, under
     // Integrations when that shows.
@@ -878,21 +865,15 @@ void start_pick(Pick pick) noexcept {
     auto& p = *owner;
     if (p.picker.runtime || !connected() || !editable())
         return;
-    static constexpr Utf8View titles[]{{},
-                                utf8_literal("Choose a server icon"),
-                                utf8_literal("Choose a server banner"),
-                                utf8_literal("Choose a role icon"),
-                                utf8_literal("Choose an emoji image"),
-                                utf8_literal("Choose a sticker file"),
-                                utf8_literal("Choose a sound file"),
-                                utf8_literal("Choose an invite background"),
-                                utf8_literal("Choose a webhook avatar"),
-                                utf8_literal("Choose a Discovery banner"),
-                                utf8_literal("Choose a server banner")};
+    // In Pick order after none.
+    static constexpr char kTitles[] = "Choose a server icon\0Choose a server banner\0Choose a role icon\0"
+                                      "Choose an emoji image\0Choose a sticker file\0Choose a sound file\0"
+                                      "Choose an invite background\0Choose a webhook avatar\0"
+                                      "Choose a Discovery banner\0Choose a server banner\0";
     p.pick = pick;
     p.pick_role = pick == Pick::role_icon ? p.editing_role : 0;
     p.picker_consumed = false;
-    if (native_file_picker_start(&p.picker, g_app.window, 1, titles[static_cast<u32>(pick)]) !=
+    if (native_file_picker_start(&p.picker, g_app.window, 1, name_list_at(kTitles, static_cast<u32>(pick) - 1)) !=
         NativeFilePickerError::none) {
         p.pick = Pick::none;
         show_failure(utf8_literal("Couldn't open the file picker."));
@@ -1462,10 +1443,10 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     settings_layer_reset(&p.layer);
     if (!ui_page_registry_initialize(&p.registry, {p.pages, kPageCount}))
         return false;
-    for (u32 i = 0; i < kPageCount; ++i) {
-        const auto& definition = kPages[i];
-        p.content[i] = {definition.label, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-        if (!ui_page_registry_register(&p.registry, {page_key(definition.page), definition.label, &p.content[i]}).ok())
+    u32 i = 0;
+    for (NameList label{kPageLabels}; label; label.next(), ++i) {
+        p.content[i] = {label.name(), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+        if (!ui_page_registry_register(&p.registry, {page_key(kPages[i].page), label.name(), &p.content[i]}).ok())
             return false;
     }
     p.page = requested_page && requested_page <= kPageCount && page_allowed(static_cast<Page>(requested_page))
@@ -1515,7 +1496,7 @@ void application_guild_settings_test_open() noexcept {
     if (opened || !label || !g_app.account_ui || !connected() || !state().guild_count)
         return;
     for (const auto& definition : kPages)
-        if (utf8_equal(definition.label, {label, c_string_length(label)}))
+        if (utf8_equal(fixed_label(definition), {label, c_string_length(label)}))
             opened = application_guild_settings_open(state().guilds[0].id, static_cast<u8>(definition.page));
 #endif
 }

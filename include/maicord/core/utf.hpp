@@ -11,8 +11,12 @@ struct Utf8DecodeResult {
 };
 
 struct Utf8Validation {
-    u32 codepoints;
-    u32 error_offset;
+    // The scalars counted when valid, else the offset of the first malformed byte: 8 bytes, so a result returns in
+    // a register.
+    union {
+        u32 codepoints;
+        u32 error_offset;
+    };
     bool valid;
 };
 

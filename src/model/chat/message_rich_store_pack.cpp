@@ -108,6 +108,9 @@ bool message_rich_store_reset(MessageRichStore* store) noexcept {
                             store->record_capacity, sparse_text, true);
 }
 
+// A channel's snapshot is packed when it is left and unpacked when it is revisited, at about 200 ns a message
+// (one-executable A/B against /O2, min of 150-600 rounds at 50 and 500 messages: within the A/A noise): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 
 struct PackedRichHeader {
@@ -407,4 +410,5 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
         *slot_hint = slots[has_child ? 1 : 0] + 1u;
     return true;
 }
+#pragma clang attribute pop
 } // namespace maicord

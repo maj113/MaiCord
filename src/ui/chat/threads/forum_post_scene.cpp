@@ -5,7 +5,6 @@
 #include "maicord/ui/core/widget_builder.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/layout/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
@@ -254,17 +253,6 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         (!c.attachments.data && c.attachments.count))
         return false;
     const auto& style = c.style;
-    // Each style's lengths lead it, in declaration order.
-    static_assert(__builtin_offsetof(ForumPostStyle, corner_radius) == 6 * sizeof(float));
-    static_assert(sizeof(UiAttachmentDraftStyle) == 8 * sizeof(float));
-    const auto& attachment_style = c.attachment_style;
-    if (!ui_lengths_valid(&style.maximum_width, 7) || !ui_lengths_valid(&attachment_style.minimum_card_width, 8))
-        return false;
-    if (attachment_style.minimum_card_width < 96 || attachment_style.preview_extent < 24 ||
-        attachment_style.control_height < 24)
-        return false;
-    if (style.maximum_width < 96 || style.title_height < 24 || style.body_height < 24)
-        return false;
     u64 layout = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
     auto geometry_style = c.style;
     geometry_style.corner_radius = 0;

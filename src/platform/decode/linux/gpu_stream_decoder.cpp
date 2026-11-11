@@ -171,26 +171,10 @@ bool stream_slot_export(GpuDevice* device, vaapi::Session* session, u32 surface,
 
 bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u32 coded_height) noexcept {
     stream_surfaces_release(stream);
-    if (!count || count > kStreamSurfaceLimit || !coded_width || !coded_height || ((coded_width | coded_height) & 1u))
+    if (!coded_width || !coded_height || ((coded_width | coded_height) & 1u) ||
+        !stream_slots_create_cpu(stream->device, stream->surfaces.slot, &stream->surfaces.count, count, coded_width,
+                                 coded_height))
         return false;
-    for (u32 i = 0; i < count; ++i) {
-        StreamSurface& slot = stream->surfaces.slot[i];
-        const GpuStatus luma = gpu_video_plane_create(stream->device, GpuVideoPlaneFormat::r8, coded_width, coded_height,
-                                                      &slot.luma_texture, &slot.luma_view, &slot.luma_pixels,
-                                                      &slot.luma_pitch);
-        const GpuStatus chroma = gpu_ok(luma)
-                                     ? gpu_video_plane_create(stream->device, GpuVideoPlaneFormat::rg8, coded_width / 2,
-                                                              coded_height / 2, &slot.chroma_texture, &slot.chroma_view,
-                                                              &slot.chroma_pixels, &slot.chroma_pitch)
-                                     : luma;
-        stream->surfaces.count = i + (gpu_ok(luma) ? 1u : 0u);
-        if (!gpu_ok(chroma)) {
-            stream->surfaces.count = i + 1u; // the luma plane made above is released with the rest
-            stream_surfaces_release(stream);
-            return false;
-        }
-    }
-    stream->surfaces.count = count;
     stream->surfaces.width = coded_width;
     stream->surfaces.height = coded_height;
     stream->coded_width = coded_width;

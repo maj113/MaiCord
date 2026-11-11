@@ -956,7 +956,7 @@ GuildAutomationResult automod_rules_decode(Utf8View body, Slice<u32> scratch, Sl
     JsonReadResult read{};
     if (body.bytes && body.data[0] == '{') {
         const JsonValue root{body, 0, JsonValueKind::object, false};
-        read = decode_rule(p, root) ? JsonReadResult{} : JsonReadResult{0, 0, JsonReadError::visitor_rejected};
+        read = decode_rule(p, root) ? JsonReadResult{} : JsonReadResult{0, JsonReadError::visitor_rejected};
     } else
         read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, rule_item, &p);
     if (!read.ok()) {

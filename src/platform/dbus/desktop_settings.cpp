@@ -286,9 +286,7 @@ void on_setting_changed(void*, const Message& signal) noexcept {
 void on_read_all(void*, Status status, const Message* reply) noexcept {
     g.read_finished = true;
     if (status != Status::ok) {
-        log_write(LogLevel::info, "dbus",
-                  status == Status::error_reply && reply->error_name ? reply->error_name
-                                                                     : "the settings portal did not answer");
+        log_write(LogLevel::info, "dbus", reply_error_name(status, reply, "the settings portal did not answer"));
         return;
     }
     Reader r;

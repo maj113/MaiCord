@@ -33,7 +33,6 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,const NativeTex
     auto* plain=styled?nullptr:binding(owner,format);if(!styled&&!plain)return false;
     if(shape.source_units>output->cluster_capacity)return output_capacity_failure(owner);
     const auto span_for=[&](u32 source) noexcept {return styled?decoration_span(owner,source):0u;};
-    const auto font_for=[&](u32 run) noexcept {return styled?owner.styled_spans[span_for(owner.paragraph_runs[run].source_first)].binding()->font:plain->font;};
     for(u32 i=0;i<shape.source_units;++i)output->clusters[i]=0xffffu;
     u32 source_run=0,written_runs=0,written_glyphs=0,sign_count=0;
     RtlLineOutput rtl{owner,output};rtl.source_gaps=true;
@@ -89,7 +88,7 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,const NativeTex
             for(u32 i=run_first+placed.run_count;i<written_runs;++i)output->runs[i].baseline_x=output->runs[i].baseline_y=owner.paragraph_runs[i].x;
         }else for(u32 i=run_first;i<written_runs;++i){const auto& r=owner.paragraph_runs[i];
             if(r.glyph_count>output->glyph_capacity-written_glyphs||written_glyphs+r.glyph_count>65535)return output_capacity_failure(owner);
-            for(u32 g=0;g<r.glyph_count;++g){const auto& p=s.placements[r.glyph_first+g];output->glyphs[written_glyphs+g]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[r.glyph_first+g],0};}
+            publish_glyphs(output->glyphs+written_glyphs,s,r.glyph_first,r.glyph_count);
             for(u32 u=0;u<r.source_count;++u){const u32 glyph=s.source_glyphs[r.source_first+u];output->clusters[r.source_first+u]=glyph==0xffffffffu?0xffffu:static_cast<u16>(written_glyphs+glyph-r.glyph_first);}
             output->runs[i].first_glyph=written_glyphs;output->runs[i].glyph_count=r.glyph_count;output->runs[i].baseline_x=r.x;output->runs[i].bidi_level=0;written_glyphs+=r.glyph_count;
         }
@@ -111,19 +110,14 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,const NativeTex
         if(!native_styled_decorations(owner,rendered,width,format->tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,directional?output:nullptr,nullptr,hidden))return false;
         if(!native_collect_hit_regions(owner,rendered,format->tab_stop,hits,true,output,&hit_count,directional?output:nullptr,nullptr,hidden))return false;
     }
-    if(!native_font_session_retain(owner.fonts))return false;
-    auto* store=native_font_session_runs(owner.fonts);u32 retained=0,retained_signs=0;
-    while(retained<written_runs&&native_font_run_retain(store,font_for(retained)))++retained;
-    if(retained==written_runs)while(retained_signs<sign_count&&native_font_run_retain(store,sign->font))++retained_signs;
-    if(retained!=written_runs||retained_signs!=sign_count){while(retained){--retained;native_font_run_release(store,font_for(retained));}while(retained_signs){--retained_signs;native_font_run_release(store,sign->font);}auto* session=owner.fonts;native_font_session_release(&session);return false;}
-    output->set_native_fonts(owner.fonts);
     for(u32 i=0;i<written_runs;++i){const auto& r=owner.paragraph_runs[i];const auto* style=styled?owner.styled_spans.data+span_for(r.source_first):nullptr;const auto previous=output->runs[i];
-        output->runs[i]={font_for(i),previous.baseline_x,r.baseline,style?style->em:format->em,previous.first_glyph,previous.glyph_count,r.source_first,r.source_count,style?style->flags:0,previous.bidi_level,false,true};}
+        output->runs[i]={style?style->binding()->font:plain->font,previous.baseline_x,r.baseline,style?style->em:format->em,previous.first_glyph,previous.glyph_count,r.source_first,r.source_count,style?style->flags:0,previous.bidi_level,false,true};}
     for(u32 i=0;i<layout.line_count;++i){const auto& line=fit[i];if(!(line.flags&native_line_fit_sign))continue;
         copy_bytes(output->glyphs+written_glyphs,sign+1,sign->glyphs*sizeof(TextGlyph));const float baseline=decoration_add(line.top,line.baseline);
         output->runs[written_runs]={sign->font,line.width,decoration_add(decoration_add(baseline,-sign->baseline),sign->baseline),format->em,written_glyphs,sign->glyphs,0,1,0,0,false,true};
         output->clusters[0]=static_cast<u16>(written_glyphs);written_glyphs+=sign->glyphs;++written_runs;
     }
+    if(!retain_fonts(owner.fonts,output,written_runs))return false;
     output->decoration_count=decoration_count;output->hit_region_count=hit_count;output->glyph_count=written_glyphs;output->run_count=written_runs;output->cluster_count=shape.source_units;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;
     owner.prefer_multiline=true;++owner.shaped;++owner.paragraphs_shaped;return true;
 }

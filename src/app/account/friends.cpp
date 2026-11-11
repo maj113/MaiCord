@@ -194,12 +194,15 @@ bool request_current(const ApplicationFriends& friends, const FriendsRequest& re
     return current->type == RelationshipType::incoming && (request.allow_hidden || (!current->ignored && !current->spam)) &&
         current->stranger == request.expected_stranger && current->stranger_known == request.expected_stranger_known;
 }
-void recovery(ApplicationFriends& friends, Utf8View status) noexcept {
-    friends.incomplete = true;friends.status = status;
+void recovery(ApplicationFriends& friends, const char* text, u32 bytes) noexcept {
+    friends.incomplete = true;friends.status = {text, bytes};
     if (!request_busy(friends)) {
         reset_value(&friends.request);friends.request.operation = RelationshipOperation::list;
         friends.request.phase = FriendsRequestPhase::failed;
     }
+}
+template <u32 N> void recovery(ApplicationFriends& friends, const char (&text)[N]) noexcept {
+    recovery(friends, text, N - 1);
 }
 void sort_snapshot(ApplicationFriends& friends) noexcept {
     if (friends.snapshot_sorted) return;
@@ -379,7 +382,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
     if (!g_app.account_ui || (!force && friends.store_revision == friends.store.revision &&
         friends.user_revision == g_app.account_ui->user_store.revision && friends.query_revision == query_revision)) return;
     if (!friends_relationship_storage_indices(&friends.storage, friends.store.count)) {
-        recovery(friends, utf8_literal("Couldn't update your friends list. Try again."));
+        recovery(friends, "Couldn't update your friends list. Try again.");
         friends.source.count = 0;friends.total_count = 0;
         friends.section_rows[0] = {UiFriendsSectionKind::incoming, 0, 0, 0, friends.collapsed[0]};
         friends.section_rows[1] = {UiFriendsSectionKind::outgoing, 0, 0, 0, friends.collapsed[1]};
@@ -424,7 +427,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
             relationship_capacity, 0, sizeof(u32), alignof(u32))) ||
             (hidden_count && !stable_storage_reserve(&friends.requests_indices, hidden_count))) {
             close_requests(friends);invalidate_sources(friends);
-            recovery(friends, utf8_literal("Couldn't load other requests. Try again."));return;
+            recovery(friends, "Couldn't load other requests. Try again.");return;
         }
         auto* indices = stable_storage_data<u32>(friends.requests_indices);u32 count = 0;
         // Unique IDs remain a scene invariant, including records with both flags.
@@ -823,21 +826,18 @@ void add_result(ApplicationFriends& friends, UiFriendsTone tone, Utf8View first,
     friends.status = {friends.add_status, used};
     friends.add_tone = tone;
 }
-// Add Friend's failures by Discord error code; the last entry stands for any other.
-struct AddFailure {
-    u32 code;
-    const char* text;
-};
-constexpr AddFailure kAddFailures[]{
-    {80000, " is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends."},
-    {80007, "You're already friends with that user!"},
-    {30002, "You've maxed out your friend list. Welcome to the elite 1,000 friends club!"},
-    {30078, "You've maxed out your pending outgoing friend requests."},
-    {30059, "You've maxed out your block list."},
-    {40068, "Your account has limited access"},
-    {340007, "Your account has limited access"},
-    {0, "Hm, didn't work. Double check that the username is correct."},
-};
+// Add Friend's failures by Discord error code, then the text of each (the codes' text index follows kAddFailureText);
+// a code not listed gets the last text.
+constexpr u32 kAddFailureCodes[]{80000, 80007, 30002, 30078, 30059, 40068, 340007};
+constexpr u8 kAddFailureText[]{0, 1, 2, 3, 4, 5, 5, 6};
+constexpr char kAddFailureTexts[] =
+    " is not accepting friend requests. They\xE2\x80\x99ll have to add you to become friends.\0"
+    "You're already friends with that user!\0"
+    "You've maxed out your friend list. Welcome to the elite 1,000 friends club!\0"
+    "You've maxed out your pending outgoing friend requests.\0"
+    "You've maxed out your block list.\0"
+    "Your account has limited access\0"
+    "Hm, didn't work. Double check that the username is correct.";
 Utf8View trimmed(Utf8View text) noexcept {
     while (text.bytes && text.data[0] == ' ') { ++text.data;--text.bytes; }
     while (text.bytes && text.data[text.bytes - 1] == ' ') --text.bytes;
@@ -1052,7 +1052,7 @@ bool activate(const UiFriendsTarget& target) noexcept {
         const auto* current = relationship_store_find(friends->store, friends->request.user_id);
         if (!current || !request_current(*friends, friends->request)) {
             friends->request.phase = FriendsRequestPhase::idle;friends->stranger_confirmation = false;
-            recovery(*friends, utf8_literal("This request changed. Refreshing…"));
+            recovery(*friends, "This request changed. Refreshing…");
             return queue(RelationshipOperation::list);
         }
         return confirm(*friends, {UiFriendsAction::accept, friends->request.user_id, friends->tab}, friends->request.allow_hidden);
@@ -1163,11 +1163,7 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcep
     const u32 text_revision = model->text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (key == key::backspace) friends.held_key = key;
-    if (control && (key == 'C' || key == 'X')) {
-        const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
-        if (last > first && clipboard_write_utf8({model->text + first, last - first}) && key == 'X')
-            result = message_composer_replace_range(model, first, last, {});
-    } else if (control && key == 'V') {
+    if (control && key == 'V') {
         char text[kRelationshipNoteMaximumBytes];const auto read = clipboard_read_utf8({text, sizeof(text)});
         bool line = read.ok();
         for (u32 i = 0; line && i < read.bytes;) {
@@ -1512,7 +1508,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         const auto* current = relationship_store_find(friends->store, request.user_id);
         if (!current || !request_current(*friends, request)) {
             request.phase = FriendsRequestPhase::idle;friends->stranger_confirmation = false;
-            recovery(*friends, utf8_literal("This request changed. Try again."));
+            recovery(*friends, "This request changed. Try again.");
             project(*friends, true);return repaint();
         }
         auto learned = *current;learned.stranger = true;learned.stranger_known = true;
@@ -1543,7 +1539,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         if (friends->snapshot_active || request.membership_epoch != friends->membership_epoch) {
             request.phase = FriendsRequestPhase::idle;
             const Utf8View status{};
-            if (friends->incomplete) recovery(*friends, status);else friends->status = status;
+            if (friends->incomplete) recovery(*friends, nullptr, 0);else friends->status = status;
             return repaint();
         }
         const auto decoded = relationships_replace(&friends->store, body,
@@ -1604,10 +1600,10 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         } else {
             request.phase = FriendsRequestPhase::idle;
             u32 at = 0;
-            while (at + 1 < sizeof(kAddFailures) / sizeof(kAddFailures[0]) &&
-                   kAddFailures[at].code != response.rejection.code)
+            while (at < sizeof(kAddFailureCodes) / sizeof(kAddFailureCodes[0]) &&
+                   kAddFailureCodes[at] != response.rejection.code)
                 ++at;
-            const Utf8View text{kAddFailures[at].text, c_string_length(kAddFailures[at].text)};
+            const Utf8View text = name_list_at(kAddFailureTexts, kAddFailureText[at]);
             // Only a user not accepting requests is named, before the text.
             if (at)
                 name = {};
@@ -1616,7 +1612,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         add_result(*friends, ok ? UiFriendsTone::positive : UiFriendsTone::danger, first, name, last);
     }
     if (ok && friends->incomplete)
-        recovery(*friends, utf8_literal("Your friends list is out of date. Try again to refresh."));
+        recovery(*friends, "Your friends list is out of date. Try again to refresh.");
     project(*friends, true);return repaint();
 }
 void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
@@ -1633,7 +1629,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
     if (kind == GatewayClientDispatchKind::relationship_state_incomplete) {
         friends = ensure();if (!friends) return;
         if (friends->snapshot_active) friends->snapshot_failed = true;
-        recovery(*friends, utf8_literal("Couldn't update your friends list. Try again."));
+        recovery(*friends, "Couldn't update your friends list. Try again.");
         invalidate_sources(*friends);
         application_request_frame();return;
     }
@@ -1671,7 +1667,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
             publish_dm_names();
             if (!request_busy(*friends)) { reset_value(&friends->request);reset_value(&friends->status); }
         } else {
-            recovery(*friends, utf8_literal("Couldn't load your friends. Try again."));
+            recovery(*friends, "Couldn't load your friends. Try again.");
         }
         application_request_frame();return;
     }
@@ -1713,7 +1709,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
         if (!hydrated.ok()) log_u64(LogLevel::warning, "friends", "user_hydration_error", static_cast<u64>(hydrated.error));
     }
     if (!valid && !snapshot) {
-        recovery(*friends, utf8_literal("Couldn't update your friends list. Try again."));
+        recovery(*friends, "Couldn't update your friends list. Try again.");
         invalidate_sources(*friends);
         application_request_frame();
     }

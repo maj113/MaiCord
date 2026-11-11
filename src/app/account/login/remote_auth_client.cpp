@@ -12,11 +12,10 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/spsc_queue.hpp"
-#include "maicord/platform/net/network.hpp"
 #include "maicord/platform/crypto/random.hpp"
-#include "maicord/platform/net/tls_client.hpp"
-#include "maicord/protocol/http/websocket_frame.hpp"
+#include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/protocol/http/websocket_handshake.hpp"
+#include "maicord/protocol/http/websocket_message.hpp"
 
 namespace maicord {
 namespace {
@@ -33,49 +32,26 @@ inline constexpr u32 kEventCapacity = 8;
 inline constexpr u32 kPhaseTimeoutMs = 15'000;
 inline constexpr u32 kCancelSignalValue = 0x5241434Eu;
 
-enum class WaitState : u8 {
-    completion,
+enum class PumpState : u8 {
+    progress,
     timeout,
     stopped,
-    error,
-};
-
-enum class PlaintextState : u8 {
-    plaintext,
-    timeout,
-    peer_closed,
-    stopped,
-    error,
-};
-
-struct WaitResult {
-    NetworkCompletion completion;
-    u32 native_error;
-    WaitState state;
-};
-
-struct PlaintextResult {
-    ConstSlice<u8> plaintext;
-    u32 native_error;
-    PlaintextState state;
+    failed,
 };
 
 struct RemoteAuthClientRuntime {
     RemoteAuthHandshake handshake;
     RemoteAuthTicketExchange ticket_exchange;
     NetworkLoop loop;
-    NetworkResolver resolver;
-    NetworkConnection connection;
     NetworkSignal cancel_signal;
-    TlsClient tls;
-    ByteQueue encrypted_input;
+    TlsStream stream;
+    TlsStreamEvent stream_event;
     ByteQueue websocket_input;
     SpscQueue<RemoteAuthClientEvent, kEventCapacity> events;
     WebSocketMessageTracker tracker;
     u64 phase_deadline_ms;
     u32 message_bytes;
     volatile LONG loop_ready;
-    bool tls_initialized;
     u8 encrypted_storage[kEncryptedInputBytes];
     u8 handshake_output[kHandshakeOutputBytes];
     u8 record_output[kRecordOutputBytes];
@@ -172,266 +148,108 @@ bool stop_requested(const RemoteAuthClient* client) noexcept {
     return read_acquire(&client->stop_requested) != 0;
 }
 
-bool accept_receive(RemoteAuthClientRuntime* runtime, const NetworkCompletion& completion,
+// The stream's reader: plaintext queues for the frame reader; the peer's close ends the read.
+TlsStreamReadAction receive_plaintext(void* context, ConstSlice<u8> plaintext, bool peer_closed) noexcept {
+    auto* runtime = static_cast<RemoteAuthClientRuntime*>(context);
+    if (peer_closed)
+        return TlsStreamReadAction::complete;
+    return byte_queue_append(&runtime->websocket_input, plaintext) ? TlsStreamReadAction::continue_read
+                                                                    : TlsStreamReadAction::reject;
+}
+
+u32 stream_error(const RemoteAuthClientRuntime& runtime) noexcept {
+    return runtime.stream_event.native_error != 0 ? runtime.stream_event.native_error
+                                                  : static_cast<u32>(runtime.stream.tls_status);
+}
+
+// Waits for one completion of the stream before the deadline and hands it to the stream. Failed covers
+// a failed stream and the peer's close; native_error is set for timeout and failed.
+PumpState pump(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, u64 deadline,
+               u32* native_error) noexcept {
+    if (stop_requested(client))
+        return PumpState::stopped;
+    const u64 now_ms = clock_monotonic_milliseconds();
+    const NetworkPollResult polled =
+        now_ms < deadline ? network_loop_poll(&runtime->loop, wait_milliseconds_until(now_ms, deadline, INFINITE))
+                          : NetworkPollResult{{}, NetworkPollState::timeout};
+    if (polled.state == NetworkPollState::timeout) {
+        *native_error = WAIT_TIMEOUT;
+        return PumpState::timeout;
+    }
+    if (polled.state == NetworkPollState::error) {
+        *native_error = static_cast<u32>(polled.completion.native_error);
+        return PumpState::failed;
+    }
+    if (polled.completion.kind == NetworkOperationKind::signal &&
+        polled.completion.signal == &runtime->cancel_signal &&
+        polled.completion.signal_value == kCancelSignalValue) {
+        return PumpState::stopped;
+    }
+    runtime->stream_event = tls_stream_handle_completion(&runtime->stream, &runtime->loop, polled.completion);
+    if (!runtime->stream_event.ok() || runtime->stream_event.kind == TlsStreamEventKind::read_complete) {
+        *native_error = stream_error(*runtime);
+        return PumpState::failed;
+    }
+    return PumpState::progress;
+}
+
+// Writes plaintext (borrowed until written); what arrives meanwhile queues for the frame reader.
+bool send_plaintext(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, ConstSlice<u8> plaintext,
                     u32* native_error) noexcept {
-    if (completion.kind != NetworkOperationKind::receive || completion.connection != &runtime->connection ||
-        completion.stale || !completion.succeeded || completion.transferred == 0 ||
-        !byte_queue_produce(&runtime->encrypted_input, completion.transferred)) {
-        *native_error = completion.native_error != 0 ? static_cast<u32>(completion.native_error)
-                                                     : ERROR_CONNECTION_ABORTED;
-        return false;
-    }
-    return true;
-}
-
-WaitResult wait_for(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, NetworkOperationKind kind,
-                    u32 timeout_ms, bool retain_receive) noexcept {
-    const u64 deadline = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
-    for (;;) {
-        if (stop_requested(client)) {
-            return WaitResult{{}, 0, WaitState::stopped};
-        }
-        const u64 now_ms = clock_monotonic_milliseconds();
-        if (now_ms >= deadline) {
-            return WaitResult{{}, WAIT_TIMEOUT, WaitState::timeout};
-        }
-        const NetworkPollResult polled =
-            network_loop_poll(&runtime->loop, wait_milliseconds_until(now_ms, deadline, INFINITE));
-        if (polled.state == NetworkPollState::timeout) {
-            return WaitResult{{}, WAIT_TIMEOUT, WaitState::timeout};
-        }
-        if (polled.state == NetworkPollState::error) {
-            return WaitResult{{}, static_cast<u32>(polled.completion.native_error), WaitState::error};
-        }
-        if (polled.completion.kind == NetworkOperationKind::signal &&
-            polled.completion.signal == &runtime->cancel_signal &&
-            polled.completion.signal_value == kCancelSignalValue) {
-            return WaitResult{{}, 0, WaitState::stopped};
-        }
-        if (polled.completion.kind == kind) {
-            return WaitResult{polled.completion, 0, WaitState::completion};
-        }
-        if (retain_receive && polled.completion.kind == NetworkOperationKind::receive) {
-            u32 native_error = 0;
-            if (!accept_receive(runtime, polled.completion, &native_error)) {
-                return WaitResult{{}, native_error, WaitState::error};
-            }
-            continue;
-        }
-        return WaitResult{{}, ERROR_INVALID_STATE, WaitState::error};
-    }
-}
-
-bool send_all(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, ConstSlice<u8> value,
-              u32* native_error) noexcept {
-    u32 offset = 0;
-    while (offset < value.count) {
-        const NetworkResult started = network_connection_send(
-            &runtime->connection, ConstSlice<u8>{value.data + offset, value.count - offset});
-        if (!started.ok()) {
-            *native_error = static_cast<u32>(started.native_error);
+    runtime->stream_event = tls_stream_start_write(&runtime->stream, ConstSlice<ConstSlice<u8>>{&plaintext, 1});
+    while (runtime->stream_event.kind != TlsStreamEventKind::write_complete) {
+        if (!runtime->stream_event.ok()) {
+            *native_error = stream_error(*runtime);
             return false;
         }
-        const WaitResult waited =
-            wait_for(client, runtime, NetworkOperationKind::send, kPhaseTimeoutMs, true);
-        if (waited.state != WaitState::completion || waited.completion.connection != &runtime->connection ||
-            waited.completion.stale || !waited.completion.succeeded || waited.completion.transferred == 0) {
-            *native_error = waited.native_error != 0 ? waited.native_error
-                                                     : static_cast<u32>(waited.completion.native_error);
+        if (pump(client, runtime, deadline_after(clock_monotonic_milliseconds(), kPhaseTimeoutMs), native_error) !=
+            PumpState::progress)
             return false;
-        }
-        offset += waited.completion.transferred;
     }
     return true;
 }
 
-bool send_tls(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, ConstSlice<u8> plaintext,
-              u32* native_error) noexcept {
-    u32 offset = 0;
-    while (offset < plaintext.count) {
-        const u32 maximum = runtime->tls.stream_sizes.cbMaximumMessage;
-        const u32 count = minimum(maximum, plaintext.count - offset);
-        u32 encrypted_bytes = 0;
-        const TlsResult encrypted =
-            tls_client_encrypt(&runtime->tls, ConstSlice<u8>{plaintext.data + offset, count},
-                               Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes);
-        if (!encrypted.ok() ||
-            !send_all(client, runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes},
-                      native_error)) {
-            SecureZeroMemory(runtime->record_output, sizeof(runtime->record_output));
-            return false;
-        }
-        SecureZeroMemory(runtime->record_output, sizeof(runtime->record_output));
-        offset += count;
-    }
-    return true;
-}
-
-bool start_receive(RemoteAuthClientRuntime* runtime, u32* native_error) noexcept {
-    if (runtime->connection.receive_pending) {
-        return true;
-    }
-    const Slice<u8> writable = byte_queue_writable(&runtime->encrypted_input);
-    if (!writable.data || writable.count == 0) {
-        *native_error = ERROR_INSUFFICIENT_BUFFER;
-        return false;
-    }
-    const NetworkResult started = network_connection_receive(&runtime->connection, writable);
-    if (!started.ok()) {
-        *native_error = static_cast<u32>(started.native_error);
-        return false;
-    }
-    return true;
-}
-
-PlaintextResult receive_plaintext(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
-                                  u32 timeout_ms) noexcept {
-    const u64 deadline = deadline_after(clock_monotonic_milliseconds(), timeout_ms);
-    for (;;) {
-        if (byte_queue_size(runtime->encrypted_input) != 0) {
-            const ConstSlice<u8> readable = byte_queue_readable(runtime->encrypted_input);
-            const TlsDecryptResult decrypted = tls_client_decrypt(
-                &runtime->tls, Slice<u8>{const_cast<u8*>(readable.data), readable.count});
-            if (!decrypted.ok()) {
-                return PlaintextResult{
-                    {}, static_cast<u32>(decrypted.native_status), PlaintextState::error};
-            }
-            if (decrypted.state == TlsDecryptState::peer_closed) {
-                return PlaintextResult{{}, 0, PlaintextState::peer_closed};
-            }
-            if (decrypted.state == TlsDecryptState::plaintext) {
-                const ConstSlice<u8> plaintext{decrypted.plaintext.data, decrypted.plaintext.count};
-                if (!byte_queue_consume(&runtime->encrypted_input, decrypted.consumed)) {
-                    return PlaintextResult{{}, ERROR_INVALID_DATA, PlaintextState::error};
-                }
-                return PlaintextResult{plaintext, 0, PlaintextState::plaintext};
-            }
-        }
-        u32 native_error = 0;
-        if (!start_receive(runtime, &native_error)) {
-            return PlaintextResult{{}, native_error, PlaintextState::error};
-        }
-        const u64 now_ms = clock_monotonic_milliseconds();
-        if (now_ms >= deadline) {
-            return PlaintextResult{{}, WAIT_TIMEOUT, PlaintextState::timeout};
-        }
-        const WaitResult waited = wait_for(client, runtime, NetworkOperationKind::receive,
-                                           wait_milliseconds_until(now_ms, deadline, INFINITE), false);
-        if (waited.state == WaitState::timeout) {
-            return PlaintextResult{{}, WAIT_TIMEOUT, PlaintextState::timeout};
-        }
-        if (waited.state == WaitState::stopped) {
-            return PlaintextResult{{}, 0, PlaintextState::stopped};
-        }
-        if (waited.state != WaitState::completion ||
-            !accept_receive(runtime, waited.completion, &native_error)) {
-            return PlaintextResult{
-                {}, waited.native_error != 0 ? waited.native_error : native_error, PlaintextState::error};
-        }
-    }
-}
-
-bool connect_socket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, u32* native_error,
+// Resolves, connects and completes TLS, each step within kPhaseTimeoutMs, then starts the stream's reader.
+bool connect_stream(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, u32* native_error,
                     RemoteAuthClientError* error) noexcept {
-    publish_phase(client, RemoteAuthClientPhase::resolving);
-    const NetworkResult resolving =
-        network_resolver_start(&runtime->loop, &runtime->resolver, kRemoteAuthHostWide, L"443");
-    if (!resolving.ok()) {
-        *native_error = static_cast<u32>(resolving.native_error);
-        *error = RemoteAuthClientError::resolve;
-        return false;
+    TlsStream* stream = &runtime->stream;
+    TlsStreamEvent& event = runtime->stream_event;
+    event = tls_stream_initialize(stream, kRemoteAuthHostWide,
+                                  TlsStreamBuffers{Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes},
+                                                   Slice<u8>{runtime->handshake_output, kHandshakeOutputBytes},
+                                                   Slice<u8>{runtime->record_output, kRecordOutputBytes}})
+                ? tls_stream_begin_connect(stream, &runtime->loop)
+                : TlsStreamEvent{ERROR_INVALID_PARAMETER, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
+    TlsStreamState shown = TlsStreamState::empty;
+    for (;;) {
+        if (event.kind == TlsStreamEventKind::ready) {
+            event = tls_stream_start_duplex(stream, receive_plaintext, runtime);
+            if (event.ok())
+                return true;
+        }
+        if (!event.ok()) {
+            *native_error = stream_error(*runtime);
+            break;
+        }
+        if (stream->state != shown) {
+            shown = stream->state;
+            publish_phase(client, shown == TlsStreamState::resolving    ? RemoteAuthClientPhase::resolving
+                                  : shown == TlsStreamState::connecting ? RemoteAuthClientPhase::connecting
+                                                                        : RemoteAuthClientPhase::tls_handshake);
+        }
+        if (pump(client, runtime, deadline_after(clock_monotonic_milliseconds(), kPhaseTimeoutMs), native_error) !=
+            PumpState::progress)
+            break;
     }
-    const WaitResult resolved =
-        wait_for(client, runtime, NetworkOperationKind::resolve, kPhaseTimeoutMs, false);
-    if (resolved.state != WaitState::completion || resolved.completion.resolver != &runtime->resolver ||
-        resolved.completion.stale || !resolved.completion.succeeded || runtime->resolver.address_count == 0) {
-        *native_error = resolved.native_error != 0 ? resolved.native_error
-                                                   : static_cast<u32>(resolved.completion.native_error);
-        *error = resolved.state == WaitState::stopped ? RemoteAuthClientError::cancelled
-                                                      : RemoteAuthClientError::resolve;
-        network_resolver_release(&runtime->resolver);
-        return false;
-    }
-
-    publish_phase(client, RemoteAuthClientPhase::connecting);
-    bool connected = false;
-    for (u32 index = 0; index < runtime->resolver.address_count && !connected && !stop_requested(client); ++index) {
-        const NetworkResult started = network_connection_connect(
-            &runtime->loop, &runtime->connection, runtime->resolver.addresses[index]);
-        if (!started.ok()) {
-            *native_error = static_cast<u32>(started.native_error);
-            network_connection_close(&runtime->connection);
-            continue;
-        }
-        const WaitResult completion =
-            wait_for(client, runtime, NetworkOperationKind::connect, kPhaseTimeoutMs, false);
-        connected = completion.state == WaitState::completion &&
-                    completion.completion.connection == &runtime->connection &&
-                    completion.completion.succeeded && !completion.completion.stale &&
-                    runtime->connection.state == NetworkConnectionState::connected;
-        if (!connected) {
-            *native_error = completion.native_error != 0
-                                ? completion.native_error
-                                : static_cast<u32>(completion.completion.native_error);
-            network_connection_close(&runtime->connection);
-        }
-    }
-    network_resolver_release(&runtime->resolver);
-    if (!connected) {
-        *error = stop_requested(client) ? RemoteAuthClientError::cancelled : RemoteAuthClientError::connect;
-        return false;
-    }
-    return true;
-}
-
-bool complete_tls_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
-                            u32* native_error) noexcept {
-    publish_phase(client, RemoteAuthClientPhase::tls_handshake);
-    const TlsResult initialized = tls_client_initialize(&runtime->tls, kRemoteAuthHostWide);
-    if (!initialized.ok() || runtime->tls.maximum_token_bytes > kHandshakeOutputBytes) {
-        *native_error = static_cast<u32>(initialized.native_status);
-        return false;
-    }
-    runtime->tls_initialized = true;
-    TlsHandshakeStep step =
-        tls_client_handshake(&runtime->tls, ConstSlice<u8>{nullptr, 0},
-                             Slice<u8>{runtime->handshake_output, kHandshakeOutputBytes});
-    for (u32 round = 0; round < 64; ++round) {
-        if (!step.ok()) {
-            *native_error = static_cast<u32>(step.native_status);
-            return false;
-        }
-        if (step.produced != 0 &&
-            !send_all(client, runtime, ConstSlice<u8>{runtime->handshake_output, step.produced},
-                      native_error)) {
-            return false;
-        }
-        SecureZeroMemory(runtime->handshake_output, sizeof(runtime->handshake_output));
-        if (step.state == TlsHandshakeState::complete ||
-            step.state == TlsHandshakeState::complete_and_send) {
-            return true;
-        }
-        if (!start_receive(runtime, native_error)) {
-            return false;
-        }
-        const WaitResult waited =
-            wait_for(client, runtime, NetworkOperationKind::receive, kPhaseTimeoutMs, false);
-        if (waited.state != WaitState::completion ||
-            !accept_receive(runtime, waited.completion, native_error)) {
-            if (waited.native_error != 0) {
-                *native_error = waited.native_error;
-            }
-            return false;
-        }
-        const ConstSlice<u8> input = byte_queue_readable(runtime->encrypted_input);
-        step = tls_client_handshake(&runtime->tls, input,
-                                    Slice<u8>{runtime->handshake_output, kHandshakeOutputBytes});
-        if (!byte_queue_consume(&runtime->encrypted_input, step.consumed)) {
-            *native_error = ERROR_INVALID_DATA;
-            return false;
-        }
-    }
-    *native_error = WAIT_TIMEOUT;
+    // A failed stream names its step; a timeout or stop happened in the step the stream is still in.
+    const TlsStreamError cause = !event.ok()                                   ? event.error
+                                 : stream->state == TlsStreamState::resolving  ? TlsStreamError::resolve
+                                 : stream->state == TlsStreamState::connecting ? TlsStreamError::connect
+                                                                               : TlsStreamError::tls;
+    *error = stop_requested(client)             ? RemoteAuthClientError::cancelled
+             : cause == TlsStreamError::resolve ? RemoteAuthClientError::resolve
+             : cause == TlsStreamError::connect ? RemoteAuthClientError::connect
+                                                : RemoteAuthClientError::tls;
     return false;
 }
 
@@ -446,7 +264,7 @@ bool send_frame(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, WebS
         opcode, true, payload, masking_key, Slice<u8>{runtime->frame_output, kFrameOutputBytes});
     const bool sent =
         written.ok() &&
-        send_tls(client, runtime, ConstSlice<u8>{runtime->frame_output, written.bytes}, native_error);
+        send_plaintext(client, runtime, ConstSlice<u8>{runtime->frame_output, written.bytes}, native_error);
     SecureZeroMemory(runtime->frame_output, sizeof(runtime->frame_output));
     return sent;
 }
@@ -459,7 +277,7 @@ bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntim
         bytes("/?v=2"), bytes(kRemoteAuthHost), client_key,
         Slice<u8>{request, static_cast<u32>(sizeof(request))});
     const bool sent =
-        written.ok() && send_tls(client, runtime, ConstSlice<u8>{request, written.bytes}, native_error);
+        written.ok() && send_plaintext(client, runtime, ConstSlice<u8>{request, written.bytes}, native_error);
     SecureZeroMemory(request, sizeof(request));
     if (!sent)
         return false;
@@ -473,18 +291,8 @@ bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntim
             *native_error = ERROR_INVALID_DATA;
             return false;
         }
-        const u64 now_ms = clock_monotonic_milliseconds();
-        if (now_ms >= deadline) {
-            *native_error = WAIT_TIMEOUT;
+        if (pump(client, runtime, deadline, native_error) != PumpState::progress)
             return false;
-        }
-        const PlaintextResult received =
-            receive_plaintext(client, runtime, wait_milliseconds_until(now_ms, deadline, INFINITE));
-        if (received.state != PlaintextState::plaintext ||
-            !byte_queue_append(&runtime->websocket_input, received.plaintext)) {
-            *native_error = received.native_error;
-            return false;
-        }
     }
 }
 
@@ -607,20 +415,20 @@ bool submit_ticket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, U
     return exchanged.ok();
 }
 
-bool handle_message(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, bool* ticket_ready,
-                    u32* native_error, RemoteAuthClientError* client_error,
+// Handles one complete text message; its bytes (fragment storage or consumed input) are erased.
+bool handle_message(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, ConstSlice<u8> message,
+                    bool* ticket_ready, u32* native_error, RemoteAuthClientError* client_error,
                     RemoteAuthHandshakeResult* failure) noexcept {
     char command[kRemoteAuthMaximumCommandBytes]{};
     char data[kRemoteAuthMaximumTicketBytes]{};
     RemoteAuthHandshakeEvent event{};
     *failure = remote_auth_handshake_handle(
         &runtime->handshake,
-        Utf8View{reinterpret_cast<const char*>(runtime->message_storage), runtime->message_bytes},
+        Utf8View{reinterpret_cast<const char*>(message.data), message.count},
         Slice<u32>{runtime->structural_scratch, kStructuralCount}, 8, clock_monotonic_milliseconds(),
         Slice<char>{command, static_cast<u32>(sizeof(command))},
         Slice<char>{data, static_cast<u32>(sizeof(data))}, &event);
-    SecureZeroMemory(runtime->message_storage, sizeof(runtime->message_storage));
-    runtime->message_bytes = 0;
+    SecureZeroMemory(const_cast<u8*>(message.data), message.count);
     if (!failure->ok()) {
         SecureZeroMemory(command, sizeof(command));
         SecureZeroMemory(data, sizeof(data));
@@ -662,69 +470,41 @@ bool process_frames(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
                     u32* native_error, RemoteAuthClientError* client_error,
                     RemoteAuthHandshakeResult* failure) noexcept {
     for (;;) {
-        const WebSocketParseResult parsed =
-            websocket_parse_frame(byte_queue_readable(runtime->websocket_input),
-                                  kRemoteAuthMaximumPacketBytes, WebSocketDirection::server_to_client);
-        if (parsed.state == WebSocketParseState::need_more) {
+        const WebSocketMessageRead read = websocket_read_message(
+            &runtime->websocket_input, &runtime->tracker,
+            Slice<u8>{runtime->message_storage, kRemoteAuthMaximumPacketBytes}, &runtime->message_bytes,
+            kRemoteAuthMaximumPacketBytes, kRemoteAuthMaximumPacketBytes);
+        if (read.state == WebSocketReadState::need_input)
             return true;
-        }
-        if (!parsed.ok()) {
+        if (read.state == WebSocketReadState::error ||
+            (read.state == WebSocketReadState::message && read.opcode != WebSocketOpcode::text)) {
             *native_error = ERROR_INVALID_DATA;
             return false;
         }
-        const WebSocketFrame frame = parsed.frame;
-        const WebSocketMessageStep tracked =
-            websocket_track_frame(&runtime->tracker, frame, kRemoteAuthMaximumPacketBytes);
-        if (!tracked.ok()) {
-            *native_error = ERROR_INVALID_DATA;
-            return false;
-        }
-        if (tracked.state == WebSocketMessageState::control) {
-            if (frame.opcode == WebSocketOpcode::ping &&
-                !send_frame(client, runtime, WebSocketOpcode::pong, frame.payload, native_error)) {
+        if (read.state == WebSocketReadState::message) {
+            bool ticket_finished = false;
+            if (!handle_message(client, runtime, read.payload, &ticket_finished, native_error, client_error,
+                                failure))
                 return false;
+            if (ticket_finished) {
+                *authenticated = true;
+                return true;
             }
-            if (frame.opcode == WebSocketOpcode::close) {
-                const u16 close_code =
-                    frame.payload.count >= 2
-                        ? static_cast<u16>((static_cast<u16>(frame.payload[0]) << 8) | frame.payload[1])
-                        : 0;
-                *failure = RemoteAuthHandshakeResult{0,
-                                                     close_code == 4003
-                                                         ? RemoteAuthHandshakeError::session_timeout
-                                                         : RemoteAuthHandshakeError::unexpected_packet,
-                                                     RemoteAuthError::none,
-                                                     RemoteAuthCryptoError::none,
-                                                     Base64Error::none,
-                                                     RemoteAuthHandshakeStage::none};
+        } else if (read.opcode == WebSocketOpcode::ping) {
+            if (!send_frame(client, runtime, WebSocketOpcode::pong, read.payload, native_error))
                 return false;
-            }
-        } else {
-            if (runtime->message_bytes + frame.payload.count > sizeof(runtime->message_storage)) {
-                *native_error = ERROR_INSUFFICIENT_BUFFER;
-                return false;
-            }
-            copy_bytes(runtime->message_storage + runtime->message_bytes, frame.payload.data,
-                       frame.payload.count);
-            runtime->message_bytes += frame.payload.count;
-            if (tracked.state == WebSocketMessageState::message_complete) {
-                if (tracked.message_opcode != WebSocketOpcode::text) {
-                    *native_error = ERROR_INVALID_DATA;
-                    return false;
-                }
-                bool ticket_finished = false;
-                if (!handle_message(client, runtime, &ticket_finished, native_error, client_error,
-                                    failure)) {
-                    return false;
-                }
-                if (ticket_finished) {
-                    *authenticated = true;
-                    return true;
-                }
-            }
-        }
-        if (!byte_queue_consume(&runtime->websocket_input, frame.frame_bytes)) {
-            *native_error = ERROR_INVALID_DATA;
+        } else if (read.opcode == WebSocketOpcode::close) {
+            const u16 close_code =
+                read.payload.count >= 2
+                    ? static_cast<u16>((static_cast<u16>(read.payload[0]) << 8) | read.payload[1])
+                    : 0;
+            *failure = RemoteAuthHandshakeResult{0,
+                                                 close_code == 4003 ? RemoteAuthHandshakeError::session_timeout
+                                                                    : RemoteAuthHandshakeError::unexpected_packet,
+                                                 RemoteAuthError::none,
+                                                 RemoteAuthCryptoError::none,
+                                                 Base64Error::none,
+                                                 RemoteAuthHandshakeStage::none};
             return false;
         }
     }
@@ -753,37 +533,14 @@ bool tick_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
     return sent;
 }
 
-void drain_transport(RemoteAuthClientRuntime* runtime) noexcept {
-    u32 remaining_socket = (runtime->connection.connect_pending ? 1u : 0u) +
-                           (runtime->connection.receive_pending ? 1u : 0u) +
-                           (runtime->connection.send_pending ? 1u : 0u);
-    if (runtime->resolver.pending) {
-        network_resolver_cancel(&runtime->resolver);
-    }
-    if (remaining_socket != 0) {
-        network_connection_close(&runtime->connection);
-    }
-    while (remaining_socket != 0 || runtime->resolver.pending ||
-           read_acquire(&runtime->cancel_signal.pending) != 0) {
-        const NetworkPollResult polled = network_loop_poll(&runtime->loop, INFINITE);
-        if (polled.state != NetworkPollState::completion) {
-            continue;
-        }
-        if (polled.completion.connection == &runtime->connection && remaining_socket != 0) {
-            --remaining_socket;
-        }
-    }
-    network_resolver_release(&runtime->resolver);
-}
-
+// Closes the stream and waits until it and a posted cancel signal drain.
 void release_transport(RemoteAuthClientRuntime* runtime) noexcept {
-    if (runtime->tls_initialized) {
-        tls_client_release(&runtime->tls);
-        runtime->tls_initialized = false;
+    tls_stream_close(&runtime->stream);
+    while (!tls_stream_drained(&runtime->stream) || read_acquire(&runtime->cancel_signal.pending) != 0) {
+        const NetworkPollResult polled = network_loop_poll(&runtime->loop, INFINITE);
+        if (polled.state == NetworkPollState::completion)
+            tls_stream_handle_completion(&runtime->stream, &runtime->loop, polled.completion);
     }
-    drain_transport(runtime);
-    network_connection_close(&runtime->connection);
-    byte_queue_clear(&runtime->encrypted_input, true);
     byte_queue_clear(&runtime->websocket_input, true);
 }
 
@@ -867,11 +624,7 @@ u32 remote_auth_thread(void* parameter) noexcept {
         native_error = static_cast<u32>(keyed.crypto_error);
         error = RemoteAuthClientError::memory;
     }
-    bool connected = keyed.ok() && connect_socket(client, runtime, &native_error, &error);
-    if (connected && !complete_tls_handshake(client, runtime, &native_error)) {
-        connected = false;
-        error = stop_requested(client) ? RemoteAuthClientError::cancelled : RemoteAuthClientError::tls;
-    }
+    bool connected = keyed.ok() && connect_stream(client, runtime, &native_error, &error);
     if (connected && !open_websocket(client, runtime, &native_error)) {
         connected = false;
         error =
@@ -898,22 +651,17 @@ u32 remote_auth_thread(void* parameter) noexcept {
             error = RemoteAuthClientError::handshake;
             break;
         }
-        const u64 now_ms = clock_monotonic_milliseconds();
         const u64 handshake_wake = remote_auth_handshake_next_wake(runtime->handshake);
         const u64 wake = handshake_wake != 0 ? handshake_wake : runtime->phase_deadline_ms;
         InterlockedExchange64(&client->next_wake_at_ms, static_cast<LONG64>(wake));
-        const PlaintextResult received =
-            receive_plaintext(client, runtime, wait_milliseconds_until(now_ms, wake, INFINITE));
-        if (received.state == PlaintextState::timeout) {
-            continue;
-        }
-        if (received.state == PlaintextState::stopped) {
+        u32 pump_error = 0;
+        const PumpState pumped = pump(client, runtime, wake, &pump_error);
+        if (pumped == PumpState::stopped) {
             break;
         }
-        if (received.state != PlaintextState::plaintext ||
-            !byte_queue_append(&runtime->websocket_input, received.plaintext)) {
+        if (pumped == PumpState::failed) {
             connected = false;
-            native_error = received.native_error;
+            native_error = pump_error;
             error = RemoteAuthClientError::network;
             break;
         }
@@ -970,9 +718,7 @@ bool release_runtime(RemoteAuthClientRuntime* runtime) noexcept {
 }
 
 bool initialize_runtime(RemoteAuthClientRuntime* runtime, u32* native_error) noexcept {
-    if (!byte_queue_initialize(&runtime->encrypted_input,
-                               Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes}) ||
-        !byte_queue_initialize(&runtime->websocket_input,
+    if (!byte_queue_initialize(&runtime->websocket_input,
                                Slice<u8>{runtime->websocket_storage, kWebSocketInputBytes})) {
         *native_error = ERROR_INVALID_PARAMETER;
         return false;

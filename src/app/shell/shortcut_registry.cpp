@@ -7,6 +7,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 
@@ -18,73 +19,81 @@ using S = ShortcutScope;
 constexpr u8 C = shortcut_ctrl, L = shortcut_alt, H = shortcut_shift;
 
 static constexpr ShortcutDefinition kDefinitions[]{
-    {A::server_previous, G::navigation, S::global, {{key::up, C | L}, {}}, utf8_literal("Navigate between servers")},
-    {A::server_next, G::navigation, S::global, {{key::down, C | L}, {}}, utf8_literal("Navigate between servers")},
-    {A::channel_previous, G::navigation, S::global, {{key::up, L}, {}}, utf8_literal("Navigate between channels")},
-    {A::channel_next, G::navigation, S::global, {{key::down, L}, {}}, utf8_literal("Navigate between channels")},
-    {A::unread_previous, G::navigation, S::global, {{key::up, L | H}, {}},
-     utf8_literal("Navigate between unread channels")},
-    {A::unread_next, G::navigation, S::global, {{key::down, L | H}, {}},
-     utf8_literal("Navigate between unread channels")},
-    {A::mention_previous, G::navigation, S::global, {{key::up, C | L | H}, {}},
-     utf8_literal("Navigate between unread mentions")},
-    {A::mention_next, G::navigation, S::global, {{key::down, C | L | H}, {}},
-     utf8_literal("Navigate between unread mentions")},
-    {A::quick_switcher, G::navigation, S::global, {{'K', C}, {}}, utf8_literal("Toggle quick switcher")},
-    {A::tab_next, G::navigation, S::global, {{key::tab, C}, {key::page_down, C}}, utf8_literal("Next tab")},
-    {A::tab_previous, G::navigation, S::global, {{key::tab, C | H}, {key::page_up, C}}, utf8_literal("Previous tab")},
-    {A::tab_close, G::navigation, S::global, {{'W', C}, {}}, utf8_literal("Close tab")},
-    {A::tab_new, G::navigation, S::global, {{'T', C}, {}}, utf8_literal("Pin this channel as a tab")},
-    {A::tab_first, G::navigation, S::global, {{'1', C}, {}}, utf8_literal("Go to tab 1")},
-    {A::tab_second, G::navigation, S::global, {{'2', C}, {}}, utf8_literal("Go to tab 2")},
-    {A::tab_third, G::navigation, S::global, {{'3', C}, {}}, utf8_literal("Go to tab 3")},
-    {A::tab_fourth, G::navigation, S::global, {{'4', C}, {}}, utf8_literal("Go to tab 4")},
-    {A::tab_fifth, G::navigation, S::global, {{'5', C}, {}}, utf8_literal("Go to tab 5")},
-    {A::tab_sixth, G::navigation, S::global, {{'6', C}, {}}, utf8_literal("Go to tab 6")},
-    {A::tab_seventh, G::navigation, S::global, {{'7', C}, {}}, utf8_literal("Go to tab 7")},
-    {A::tab_eighth, G::navigation, S::global, {{'8', C}, {}}, utf8_literal("Go to tab 8")},
-    {A::tab_last, G::navigation, S::global, {{'9', C}, {}}, utf8_literal("Go to the last tab")},
-    {A::mark_server_read, G::chat, S::content, {{key::escape, H}, {}}, utf8_literal("Mark server read")},
-    {A::mark_channel_read, G::chat, S::content, {{key::escape, 0}, {}}, utf8_literal("Mark channel read")},
-    {A::toggle_pins, G::chat, S::global, {{'P', C}, {}}, utf8_literal("Toggle pinned messages")},
-    {A::toggle_inbox, G::chat, S::global, {{'I', C}, {}}, utf8_literal("Toggle inbox")},
-    {A::toggle_members, G::chat, S::global, {{'U', C}, {}}, utf8_literal("Toggle member list")},
-    {A::emoji_picker, G::chat, S::global, {{'E', C}, {}}, utf8_literal("Toggle emoji picker")},
-    {A::gif_picker, G::chat, S::global, {{'G', C}, {}}, utf8_literal("Toggle GIF picker")},
-    {A::sticker_picker, G::chat, S::global, {{'S', C}, {}}, utf8_literal("Toggle sticker picker")},
-    {A::upload_file, G::chat, S::global, {{'U', C | H}, {}}, utf8_literal("Upload a file")},
-    {A::edit_last_message, G::chat, S::empty_composer, {{key::up, 0}, {}}, utf8_literal("Edit your last message")},
-    {A::message_reply, G::messages, S::message, {{'R', 0}, {}}, utf8_literal("Reply")},
-    {A::message_edit, G::messages, S::message, {{'E', 0}, {}}, utf8_literal("Edit message")},
-    {A::message_forward, G::messages, S::message, {{'F', 0}, {}}, utf8_literal("Forward message")},
-    {A::message_react, G::messages, S::message, {{key::equals, 0}, {key::add, 0}}, utf8_literal("Add reaction")},
-    {A::save_attachment, G::messages, S::message, {{'S', C}, {}}, utf8_literal("Save attachment")},
-    {A::toggle_mute, G::voice, S::global, {{'M', C | H}, {}}, utf8_literal("Toggle mute")},
-    {A::toggle_deafen, G::voice, S::global, {{'D', C | H}, {}}, utf8_literal("Toggle deafen")},
-    {A::search, G::misc, S::global, {{'F', C}, {'F', C | H}}, utf8_literal("Search")},
-    {A::shortcuts_help, G::misc, S::global, {{key::slash, C}, {}}, utf8_literal("Show keyboard shortcuts")},
-    {A::open_settings, G::misc, S::global, {{key::comma, C}, {}}, utf8_literal("Open user settings")},
-    {A::downloads, G::misc, S::global, {{'J', C}, {}}, utf8_literal("Show downloads")},
-    {A::zoom_in, G::misc, S::global, {{key::equals, C}, {key::add, C}}, utf8_literal("Zoom in")},
-    {A::zoom_out, G::misc, S::global, {{key::minus, C}, {key::subtract, C}}, utf8_literal("Zoom out")},
-    {A::zoom_reset, G::misc, S::global, {{'0', C}, {}}, utf8_literal("Reset zoom")},
+    {A::server_previous, G::navigation, S::global, {{key::up, C | L}, {}}},
+    {A::server_next, G::navigation, S::global, {{key::down, C | L}, {}}},
+    {A::channel_previous, G::navigation, S::global, {{key::up, L}, {}}},
+    {A::channel_next, G::navigation, S::global, {{key::down, L}, {}}},
+    {A::unread_previous, G::navigation, S::global, {{key::up, L | H}, {}}},
+    {A::unread_next, G::navigation, S::global, {{key::down, L | H}, {}}},
+    {A::mention_previous, G::navigation, S::global, {{key::up, C | L | H}, {}}},
+    {A::mention_next, G::navigation, S::global, {{key::down, C | L | H}, {}}},
+    {A::quick_switcher, G::navigation, S::global, {{'K', C}, {}}},
+    {A::tab_next, G::navigation, S::global, {{key::tab, C}, {key::page_down, C}}},
+    {A::tab_previous, G::navigation, S::global, {{key::tab, C | H}, {key::page_up, C}}},
+    {A::tab_close, G::navigation, S::global, {{'W', C}, {}}},
+    {A::tab_new, G::navigation, S::global, {{'T', C}, {}}},
+    {A::tab_first, G::navigation, S::global, {{'1', C}, {}}},
+    {A::tab_second, G::navigation, S::global, {{'2', C}, {}}},
+    {A::tab_third, G::navigation, S::global, {{'3', C}, {}}},
+    {A::tab_fourth, G::navigation, S::global, {{'4', C}, {}}},
+    {A::tab_fifth, G::navigation, S::global, {{'5', C}, {}}},
+    {A::tab_sixth, G::navigation, S::global, {{'6', C}, {}}},
+    {A::tab_seventh, G::navigation, S::global, {{'7', C}, {}}},
+    {A::tab_eighth, G::navigation, S::global, {{'8', C}, {}}},
+    {A::tab_last, G::navigation, S::global, {{'9', C}, {}}},
+    {A::mark_server_read, G::chat, S::content, {{key::escape, H}, {}}},
+    {A::mark_channel_read, G::chat, S::content, {{key::escape, 0}, {}}},
+    {A::toggle_pins, G::chat, S::global, {{'P', C}, {}}},
+    {A::toggle_inbox, G::chat, S::global, {{'I', C}, {}}},
+    {A::toggle_members, G::chat, S::global, {{'U', C}, {}}},
+    {A::emoji_picker, G::chat, S::global, {{'E', C}, {}}},
+    {A::gif_picker, G::chat, S::global, {{'G', C}, {}}},
+    {A::sticker_picker, G::chat, S::global, {{'S', C}, {}}},
+    {A::upload_file, G::chat, S::global, {{'U', C | H}, {}}},
+    {A::edit_last_message, G::chat, S::empty_composer, {{key::up, 0}, {}}},
+    {A::message_reply, G::messages, S::message, {{'R', 0}, {}}},
+    {A::message_edit, G::messages, S::message, {{'E', 0}, {}}},
+    {A::message_forward, G::messages, S::message, {{'F', 0}, {}}},
+    {A::message_react, G::messages, S::message, {{key::equals, 0}, {key::add, 0}}},
+    {A::save_attachment, G::messages, S::message, {{'S', C}, {}}},
+    {A::toggle_mute, G::voice, S::global, {{'M', C | H}, {}}},
+    {A::toggle_deafen, G::voice, S::global, {{'D', C | H}, {}}},
+    {A::search, G::misc, S::global, {{'F', C}, {'F', C | H}}},
+    {A::shortcuts_help, G::misc, S::global, {{key::slash, C}, {}}},
+    {A::open_settings, G::misc, S::global, {{key::comma, C}, {}}},
+    {A::downloads, G::misc, S::global, {{'J', C}, {}}},
+    {A::zoom_in, G::misc, S::global, {{key::equals, C}, {key::add, C}}},
+    {A::zoom_out, G::misc, S::global, {{key::minus, C}, {key::subtract, C}}},
+    {A::zoom_reset, G::misc, S::global, {{'0', C}, {}}},
 };
 constexpr u32 kDefinitionCount = sizeof(kDefinitions) / sizeof(kDefinitions[0]);
 static_assert(kDefinitionCount == static_cast<u32>(ShortcutAction::count) - 1);
+// The definitions' labels, one name each in the same order (a previous/next pair repeats its label and lists as one row).
+constexpr char kLabels[] =
+    "Navigate between servers\0" "Navigate between servers\0" "Navigate between channels\0"
+    "Navigate between channels\0" "Navigate between unread channels\0" "Navigate between unread channels\0"
+    "Navigate between unread mentions\0" "Navigate between unread mentions\0" "Toggle quick switcher\0" "Next tab\0"
+    "Previous tab\0" "Close tab\0" "Pin this channel as a tab\0" "Go to tab 1\0" "Go to tab 2\0" "Go to tab 3\0"
+    "Go to tab 4\0" "Go to tab 5\0" "Go to tab 6\0" "Go to tab 7\0" "Go to tab 8\0" "Go to the last tab\0"
+    "Mark server read\0" "Mark channel read\0" "Toggle pinned messages\0" "Toggle inbox\0" "Toggle member list\0"
+    "Toggle emoji picker\0" "Toggle GIF picker\0" "Toggle sticker picker\0" "Upload a file\0"
+    "Edit your last message\0" "Reply\0" "Edit message\0" "Forward message\0" "Add reaction\0" "Save attachment\0"
+    "Toggle mute\0" "Toggle deafen\0" "Search\0" "Show keyboard shortcuts\0" "Open user settings\0" "Show downloads\0"
+    "Zoom in\0" "Zoom out\0" "Reset zoom\0";
+static_assert(name_list_count(kLabels) == kDefinitionCount);
 
-static constexpr Utf8View kGroupLabels[]{utf8_literal("Navigation"), utf8_literal("Chat"), utf8_literal("Messages"),
-                                  utf8_literal("Voice"), utf8_literal("Miscellaneous")};
-static_assert(sizeof(kGroupLabels) / sizeof(kGroupLabels[0]) == static_cast<u32>(ShortcutGroup::count));
+constexpr char kGroupLabels[] = "Navigation\0Chat\0Messages\0Voice\0Miscellaneous\0";
+static_assert(name_list_count(kGroupLabels) == static_cast<u32>(ShortcutGroup::count));
 
 constexpr bool binds(const ShortcutDefinition& definition, ShortcutChord chord) noexcept {
     return shortcut_chord_equal(definition.chords[0], chord) || shortcut_chord_equal(definition.chords[1], chord);
 }
-// Definitions follow action order with a label, every chord is bound once per
+// Definitions follow action order, every chord is bound once per
 // scope and groups stay contiguous so listings show each header once.
 constexpr bool definitions_valid() noexcept {
     for (u32 i = 0; i < kDefinitionCount; ++i) {
         const auto& a = kDefinitions[i];
-        if (a.action != static_cast<ShortcutAction>(i + 1) || !a.label.bytes || !a.chords[0].key ||
+        if (a.action != static_cast<ShortcutAction>(i + 1) || !a.chords[0].key ||
             a.group >= ShortcutGroup::count || a.scope > ShortcutScope::message ||
             ((a.chords[0].modifiers | a.chords[1].modifiers) & ~shortcut_modifier_mask) ||
             shortcut_chord_equal(a.chords[0], a.chords[1]))
@@ -270,7 +279,7 @@ const ShortcutDefinition* shortcut_definition(ShortcutAction action) noexcept {
     return nullptr;
 }
 Utf8View shortcut_group_label(ShortcutGroup group) noexcept {
-    return group < ShortcutGroup::count ? kGroupLabels[static_cast<u32>(group)] : Utf8View{};
+    return group < ShortcutGroup::count ? name_list_at(kGroupLabels, static_cast<u32>(group)) : Utf8View{};
 }
 
 bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcept {
@@ -366,10 +375,11 @@ u32 shortcut_listing(Utf8View query, Slice<ShortcutListingRow> output) noexcept 
     ShortcutGroup headed = ShortcutGroup::count;
     for (u32 i = 0; i < kDefinitionCount && count < output.count; ++i) {
         const auto& definition = kDefinitions[i];
-        ShortcutListingRow row{definition.group, false, {definition.chords[0], definition.chords[1]}, definition.label};
+        const Utf8View label = name_list_at(kLabels, i);
+        ShortcutListingRow row{definition.group, false, {definition.chords[0], definition.chords[1]}, label};
         // Previous/next pairs share their label and one row.
         if (i + 1 < kDefinitionCount && !definition.chords[1].key &&
-            utf8_equal(kDefinitions[i + 1].label, definition.label)) {
+            utf8_equal(name_list_at(kLabels, i + 1), label)) {
             row.chords[1] = kDefinitions[i + 1].chords[0];
             ++i;
         }

@@ -448,26 +448,9 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         message_composer_enable_history(&p->edit, 2048);
     const u32 revision = p->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && (key == 'C' || key == 'X')) {
-        const u32 first = minimum(p->edit.anchor, p->edit.caret),
-                  last = maximum(p->edit.anchor, p->edit.caret);
-        if (last > first && clipboard_write_utf8({p->edit.text + first, last - first}) &&
-            key == 'X')
-            result = message_composer_replace_range(&p->edit, first, last, {});
-    } else if (control && key == 'V') {
-        char text[kMediaCatalogMaximumQueryBytes];
-        const auto read = clipboard_read_utf8({text, sizeof(text)});
-        bool valid = read.ok();
-        for (u32 i = 0; valid && i < read.bytes;) {
-            const auto scalar = utf8_decode_one(text + i, read.bytes - i);
-            valid = scalar.valid && scalar.codepoint >= 32 &&
-                    !(scalar.codepoint >= 127 && scalar.codepoint <= 159) && scalar.codepoint != 0x2028 &&
-                    scalar.codepoint != 0x2029;
-            if (valid)
-                i += scalar.width;
-        }
-        if (valid)
-            result = message_composer_insert_utf8(&p->edit, {text, read.bytes});
+    if (control && key == 'V') {
+        result = message_composer_paste_line(&p->edit, kMediaCatalogMaximumQueryBytes,
+                                             text_input_single_line_forbidden, false);
     } else if (key == key::down) {
         focus_results(*p);
         repaint();

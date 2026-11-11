@@ -4,6 +4,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/packed_reader.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/theme/background_color_math.hpp"
 
@@ -182,36 +183,41 @@ void build_navigation(UiSettingsNavEntry* out, const u8* steps, u32 count) noexc
 #if !defined(_WIN32)
 // The Linux wording of what catalog_data.inc says in Windows terms. The data file and its shipped stream stay the
 // Windows text (the Windows image and tests/app/settings/catalog_pack.cpp read them as they are); the Linux build
-// replaces these fields once after inflating. An empty field keeps the data's.
+// replaces these fields once after inflating. An entry is four names (key, label, description, keywords); an empty
+// field keeps the data's.
 struct LinuxText {
     Utf8View key, label, description, keywords;
 };
-constexpr LinuxText kLinuxNodeText[]{
-    {utf8_literal("notifications.setup"), {}, {}, utf8_literal("permission enable notification service desktop")},
-    {utf8_literal("notifications.taskbar_flash"), utf8_literal("Enable App Icon Flashing"),
-     utf8_literal("Flashes the app's icon in your dock or panel when you have new notifications."),
-     utf8_literal("dock launcher panel icon flash attention blink urgent")},
-    {utf8_literal("notifications.unread_badge"), {}, {}, utf8_literal("dock launcher icon overlay badge count dot")},
-    {utf8_literal("language.time_format"), {}, utf8_literal("Auto follows your system locale."), {}},
-    {utf8_literal("voice.push_to_talk_key"), {},
-     utf8_literal("Hold this key to talk. Where your desktop allows global shortcuts it works in the background too."), {}},
-    {utf8_literal("keybinds.custom"), {},
-     utf8_literal("Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord without needing to "
-                  "click through menus. Voice keybinds also work in the background during a call if your desktop allows "
-                  "global shortcuts."),
-     {}},
+constexpr char kLinuxNodeText[] =
+    "notifications.setup\0" "\0" "\0" "permission enable notification service desktop\0"
+    "notifications.taskbar_flash\0" "Enable App Icon Flashing\0"
+    "Flashes the app's icon in your dock or panel when you have new notifications.\0"
+    "dock launcher panel icon flash attention blink urgent\0"
+    "notifications.unread_badge\0" "\0" "\0" "dock launcher icon overlay badge count dot\0"
+    "language.time_format\0" "\0" "Auto follows your system locale.\0" "\0"
+    "voice.push_to_talk_key\0" "\0"
+    "Hold this key to talk. Where your desktop allows global shortcuts it works in the background too.\0" "\0"
+    "keybinds.custom\0" "\0"
+    "Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord without needing to "
+    "click through menus. Voice keybinds also work in the background during a call if your desktop allows "
+    "global shortcuts.\0" "\0"
     // A footnote's text is its label.
-    {utf8_literal("updates.assets"),
-     utf8_literal("Updates replace MaiCord, its fonts and its licenses."), {},
-     {}},
-};
-constexpr LinuxText kLinuxPanelText[]{
-    {utf8_literal("system"), {}, utf8_literal("Startup, the tray and how links open on your desktop."),
-     utf8_literal("startup autostart tray links protocol")},
-    {utf8_literal("updates"), {}, utf8_literal("Updates are signed. Nothing installs until you restart."), {}},
-};
+    "updates.assets\0" "Updates replace MaiCord, its fonts and its licenses.\0" "\0" "\0";
+constexpr char kLinuxPanelText[] =
+    "system\0" "\0" "Startup, the tray and how links open on your desktop.\0" "startup autostart tray links protocol\0"
+    "updates\0" "\0" "Updates are signed. Nothing installs until you restart.\0" "\0";
+LinuxText next_text(NameList& list) noexcept {
+    LinuxText text{};
+    Utf8View* const fields[]{&text.key, &text.label, &text.description, &text.keywords};
+    for (Utf8View* field : fields) {
+        *field = list.name();
+        list.next();
+    }
+    return text;
+}
 void apply_linux_text() noexcept {
-    for (const LinuxText& text : kLinuxNodeText) {
+    for (NameList list{kLinuxNodeText}; list;) {
+        const LinuxText text = next_text(list);
         for (auto& node : g.nodes) {
             if (!utf8_equal(node.key(), text.key))
                 continue;
@@ -230,7 +236,8 @@ void apply_linux_text() noexcept {
             break;
         }
     }
-    for (const LinuxText& text : kLinuxPanelText) {
+    for (NameList list{kLinuxPanelText}; list;) {
+        const LinuxText text = next_text(list);
         for (auto& panel : g.panels) {
             if (!utf8_equal(panel.key, text.key))
                 continue;

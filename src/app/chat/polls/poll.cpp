@@ -413,7 +413,8 @@ bool project_state(const ApplicationPollSource& source, const MessagePollRecord&
         owner->label_publication = store.content_revision;
     }
     const auto s = snapshot(source, p);
-    UiPollState state{};
+    reset_value(out);
+    auto& state = *out;
     state.owner = source.source.message_id;
     // Read-only cards and selected poll controllers have disjoint response domains. A
     // closed controller never lends its semantic action to a later lifetime.
@@ -485,7 +486,6 @@ bool project_state(const ApplicationPollSource& source, const MessagePollRecord&
     }
     // Ended polls show counts without a vote or "Show results": voters stay open.
     state.can_view_voters = state.supported && ui_poll_counts_visible(state);
-    *out = state;
     return true;
 }
 bool project_voters() noexcept {

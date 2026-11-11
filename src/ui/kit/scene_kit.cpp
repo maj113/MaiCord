@@ -3,9 +3,9 @@
 #include "maicord/ui/theme/surface_elevation.hpp"
 
 namespace maicord {
-void UiTextPenBase::push_region(const UiRect& region, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-                                const Color& color, u32 style, u32 mode) noexcept {
-    if (!ok_ || !value.bytes)
+void UiTextPenBase::push_region(const UiRect& region, UiWidgetHandle owner, const char* text, u32 bytes,
+                                const UiRect& r, const Color& color, u32 style, u32 mode) noexcept {
+    if (!ok_ || !bytes)
         return;
     UiRect clip = region;
     if (policy_ == UiTextClip::intersect) {
@@ -19,7 +19,7 @@ void UiTextPenBase::push_region(const UiRect& region, UiWidgetHandle owner, cons
         return;
     }
     const bool wrap = mode & ui_text_wrap;
-    ok_ = ui_text_output_push(out_, {value, {widgets_, owner}, r, clip, color, style,
+    ok_ = ui_text_output_push(out_, {{text, bytes}, {widgets_, owner}, r, clip, color, style,
                                      static_cast<UiTextAlignment>((mode >> 2) & 3),
                                      wrap && !(mode & ui_text_middle) ? UiTextAlignment::start : UiTextAlignment::center,
                                      wrap ? TextWrapping::wrap : TextWrapping::no_wrap,

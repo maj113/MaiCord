@@ -159,11 +159,13 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept;
 bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept;
 float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept;
+// Appends what fits of the text (cut on a character boundary); true when all of it did. One body for every size.
+bool append_truncated(char* data, u16* used, u32 capacity, const char* text, u32 bytes) noexcept;
 template <u32 N> bool append(ProfileString<N>* s, const Utf8View& text) noexcept {
-    const u32 bytes = utf8_truncated_length(text, N - s->bytes);
-    copy_bytes(s->data + s->bytes, text.data, bytes);
-    s->bytes += static_cast<u16>(bytes);
-    return bytes == text.bytes;
+    return append_truncated(s->data, &s->bytes, N, text.data, text.bytes);
+}
+template <u32 N, u32 L> bool append(ProfileString<N>* s, const char (&text)[L]) noexcept {
+    return append_truncated(s->data, &s->bytes, N, text, L - 1);
 }
 
 } // namespace maicord::profile_scene_detail

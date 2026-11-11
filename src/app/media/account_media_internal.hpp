@@ -97,7 +97,7 @@ struct ConsumeContext {
 
 bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const ConstSlice<u8>& encoded_view, u64 request_id,
                     u32 frame_index = 0) noexcept;
-__declspec(noinline) bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept;
+bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept;
 bool consume_response(void* opaque, const CdnClientResponse& response,
                       ConstSlice<u8> body) noexcept;
 
@@ -113,23 +113,26 @@ struct CacheProbe {
     ConstSlice<u8> etag;
 };
 
+// The ready and failed ends of settle_probe, written once for every codec.
+bool settle_ready(AccountMediaRequestResult* settled) noexcept;
+bool settle_failure(AccountMedia* media, const CacheProbe& probe, AccountMediaRequestResult* settled,
+                    const AccountMediaRequestResult& failure) noexcept;
+
 // Settles the cache lookup `cached` of one codec: a decoded hit runs publish() and is ready; a failed
 // decode is remembered with the codec's error fields (describe(&failure)); a miss or stale entry leaves
 // its validator in probe->etag and answers false.
 template <typename Result, typename Publish, typename Describe>
-bool settle_probe(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled,
-                  const Result& cached, Publish publish, Describe describe) noexcept {
+__forceinline bool settle_probe(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled,
+                                const Result& cached, Publish publish, Describe describe) noexcept {
     using State = decltype(Result::state);
     if (cached.decoded()) {
         publish();
-        *settled = result(AccountMediaRequestState::ready);
-        return true;
+        return settle_ready(settled);
     }
     if (cached.state != State::cache_miss && cached.state != State::fetch_required) {
         auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
         describe(&failure);
-        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
-        return true;
+        return settle_failure(media, *probe, settled, failure);
     }
     probe->etag = cached.etag;
     return false;

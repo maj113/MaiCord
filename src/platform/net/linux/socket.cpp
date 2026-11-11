@@ -129,42 +129,6 @@ bool socket_accept(Socket* listener, Socket* accepted, bool* from_loopback, i32*
     return true;
 }
 
-bool socket_create_stream(Socket* result, const NetworkAddress& address, u32 timeout_ms, i32* native_error) noexcept {
-    *result = {};
-    if (address.family != 4 && address.family != 6) {
-        *native_error = WSAEINVAL;
-        return false;
-    }
-    const long opened = sys_socket(address.family == 4 ? kAfInet : kAfInet6, kSockStream | kSockCloseOnExec, 0);
-    if (syscall_failed(opened)) {
-        *native_error = map_result(opened);
-        return false;
-    }
-    const int fd = static_cast<int>(opened);
-    const TimeVal timeout{static_cast<i64>(timeout_ms / 1000), static_cast<i64>(timeout_ms % 1000) * 1000};
-    sys_setsockopt(fd, kSolSocket, kSocketReceiveTimeout, &timeout, sizeof(timeout));
-    sys_setsockopt(fd, kSolSocket, kSocketSendTimeout, &timeout, sizeof(timeout));
-    *result = wrap(fd);
-    return true;
-}
-
-bool socket_connect(const Socket& socket, const NetworkAddress& address, i32* native_error) noexcept {
-    SockAddrStorage target;
-    const u32 bytes = to_socket_address(address, &target);
-    if (bytes == 0) {
-        *native_error = WSAEINVAL;
-        return false;
-    }
-    const long result = sys_connect(descriptor_of(socket), &target, bytes);
-    if (!syscall_failed(result)) {
-        return true;
-    }
-    // A blocking connect that outlasts SO_SNDTIMEO fails with EINPROGRESS (or EAGAIN).
-    *native_error = result == -kErrorInProgress || result == -kErrorAgain ? kWsaTimedOut : map_result(result);
-    set_error(*native_error);
-    return false;
-}
-
 i32 socket_send(const Socket& socket, const void* data, u32 bytes) noexcept {
     long result;
     do {
@@ -195,12 +159,6 @@ i32 socket_receive(const Socket& socket, void* data, u32 bytes) noexcept {
 
 void socket_shutdown_send(const Socket& socket) noexcept {
     sys_shutdown(descriptor_of(socket), kShutdownWrite);
-}
-
-void socket_interrupt(const Socket& socket) noexcept {
-    if (socket_valid(socket)) {
-        sys_shutdown(descriptor_of(socket), kShutdownBoth);
-    }
 }
 
 void socket_close(Socket* socket) noexcept {
@@ -330,21 +288,6 @@ i32 socket_send_to(const Socket& socket, const void* data, u32 bytes, const Netw
         return -1;
     }
     return static_cast<i32>(result);
-}
-
-bool network_resolve_blocking(const wchar_t* host, const wchar_t* service, NetworkAddress* addresses, u32* count,
-                              i32* native_error) noexcept {
-    char host_text[256];
-    char service_text[32];
-    *count = 0;
-    if (!host || !host[0] || !narrow_text(host, host_text, sizeof(host_text)) ||
-        !narrow_text(service, service_text, sizeof(service_text))) {
-        *native_error = WSAEINVAL;
-        return false;
-    }
-    lookup(host_text, service_text, addresses, count, native_error);
-    set_error(*native_error);
-    return *native_error == 0;
 }
 
 } // namespace maicord

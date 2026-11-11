@@ -26,8 +26,6 @@ enum Element : u32 { kSingle = 0, kPair = 1, kCoupling = 2, kLowFrequency = 3, k
 constexpr u32 kSampleRates[13] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
                                   22050, 16000, 12000, 11025, 8000,  7350};
 
-// Run once per decoder (tables, windows, transforms): compiled for size.
-
 // ---- Mathematics without a library: the tables are built once per decoder, in double precision -----------------
 
 void cos_sin(double angle, double* cosine, double* sine) noexcept {
@@ -88,7 +86,6 @@ double bessel_i0(double x) noexcept {
     }
     return sum;
 }
-
 
 // 2^(exponent / 4) as a float, for exponents the bitstream can produce (about -160 .. 160 quarters of an octave).
 float power_quarters(i32 quarters) noexcept {
@@ -189,16 +186,15 @@ struct AacLc {
     float short_pre_re[kShortLines / 2], short_pre_im[kShortLines / 2];
     float short_post_re[kShortLines / 2], short_post_im[kShortLines / 2];
     u16 reverse_long[kLines / 2];
-    u8 reverse_short[kShortLines / 2];
+    u16 reverse_short[kShortLines / 2];
 };
 
 namespace {
 
 // ---- Tables ------------------------------------------------------------------------------------------------------
-// Run once per decoder: compiled for size.
 
 void build_transform(const u32 size, float* stage_re, float* stage_im, float* pre_re, float* pre_im, float* post_re,
-                     float* post_im, void* reverse, bool wide_reverse, double scale) noexcept {
+                     float* post_im, u16* reverse, double scale) noexcept {
     // `size` coefficients, a complex transform of size / 2 points.
     const u32 points = size / 2;
     for (u32 half = 1; half < points; half <<= 1)
@@ -224,10 +220,7 @@ void build_transform(const u32 size, float* stage_re, float* stage_im, float* pr
         u32 r = 0;
         for (u32 b = 0; b < bits; ++b)
             r |= ((n >> b) & 1u) << (bits - 1 - b);
-        if (wide_reverse)
-            static_cast<u16*>(reverse)[n] = static_cast<u16>(r);
-        else
-            static_cast<u8*>(reverse)[n] = static_cast<u8>(r);
+        reverse[n] = static_cast<u16>(r);
     }
 }
 
@@ -260,7 +253,6 @@ void build_windows(AacLc& d) noexcept {
         }
     }
 }
-
 
 // ---- Entropy-coded data ------------------------------------------------------------------------------------------
 
@@ -555,15 +547,12 @@ void dequantize(AacLc& d, Channel& c, u32& random) noexcept {
 
 void apply_mid_side(AacLc& d, Channel& left, Channel& right) noexcept {
     const Ics& ics = left.ics;
-    u32 index = 0;
-    for (u32 g = 0; g < ics.groups; ++g)
+    u32 index = 0, window = 0;
+    for (u32 g = 0; g < ics.groups; window += ics.group_length[g++])
         for (u32 sfb = 0; sfb < ics.max_sfb; ++sfb, ++index) {
             if (!d.mid_side[index] || left.band_type[index] >= kNoiseBook || right.band_type[index] >= kNoiseBook)
                 continue;
             for (u32 w = 0; w < ics.group_length[g]; ++w) {
-                u32 window = 0;
-                for (u32 i = 0; i < g; ++i)
-                    window += ics.group_length[i];
                 const u32 base = (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb];
                 float* a = left.coefficient + base;
                 float* b = right.coefficient + base;
@@ -579,8 +568,8 @@ void apply_mid_side(AacLc& d, Channel& left, Channel& right) noexcept {
 
 void apply_intensity(AacLc& d, Channel& left, Channel& right, bool mid_side_present) noexcept {
     const Ics& ics = right.ics;
-    u32 index = 0;
-    for (u32 g = 0; g < ics.groups; ++g)
+    u32 index = 0, window = 0;
+    for (u32 g = 0; g < ics.groups; window += ics.group_length[g++])
         for (u32 sfb = 0; sfb < ics.max_sfb; ++sfb, ++index) {
             const u32 book = right.band_type[index];
             if (book != kIntensityInPhase && book != kIntensityOutOfPhase)
@@ -589,9 +578,6 @@ void apply_intensity(AacLc& d, Channel& left, Channel& right, bool mid_side_pres
             if (mid_side_present && d.mid_side[index])
                 sign = -sign;
             const float scale = sign * power_quarters(-right.value[index]);
-            u32 window = 0;
-            for (u32 i = 0; i < g; ++i)
-                window += ics.group_length[i];
             for (u32 w = 0; w < ics.group_length[g]; ++w) {
                 const u32 base = (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb];
                 const u32 width = ics.bands[sfb + 1] - ics.bands[sfb];
@@ -655,10 +641,11 @@ void imdct(AacLc& d, const float* spectrum, float* out, bool is_long) noexcept {
     const float* pre_im = is_long ? d.pre_im : d.short_pre_im;
     const float* post_re = is_long ? d.post_re : d.short_post_re;
     const float* post_im = is_long ? d.post_im : d.short_post_im;
+    const u16* reverse = is_long ? d.reverse_long : d.reverse_short;
     float* re = d.fft_re;
     float* im = d.fft_im;
     for (u32 n = 0; n < points; ++n) {
-        const u32 to = is_long ? d.reverse_long[n] : d.reverse_short[n];
+        const u32 to = reverse[n];
         const float x = spectrum[2 * n], y = spectrum[lines - 1 - 2 * n];
         re[to] = x * pre_re[n] - y * pre_im[n];
         im[to] = x * pre_im[n] + y * pre_re[n];
@@ -853,9 +840,9 @@ AacLc* aac_lc_initialize(void* memory, u32 sample_rate, u32 channels) noexcept {
         d->power43[q] = static_cast<float>(q * cube_root(static_cast<double>(q)));
     build_windows(*d);
     build_transform(kLines, d->stage_re, d->stage_im, d->pre_re, d->pre_im, d->post_re, d->post_im, d->reverse_long,
-                    true, 1.0 / (static_cast<double>(kLines) * 32768.0));
+                    1.0 / (static_cast<double>(kLines) * 32768.0));
     build_transform(kShortLines, d->short_stage_re, d->short_stage_im, d->short_pre_re, d->short_pre_im,
-                    d->short_post_re, d->short_post_im, d->reverse_short, false,
+                    d->short_post_re, d->short_post_im, d->reverse_short,
                     1.0 / (static_cast<double>(kShortLines) * 32768.0));
     aac_lc_reset(d);
     return d;

@@ -61,7 +61,7 @@ Utf8DecodeResult utf8_decode_one(const char* input, u32 available) noexcept {
 
 Utf8Validation utf8_validate(const Utf8View& input) noexcept {
     if (!input.data && input.bytes != 0) {
-        return Utf8Validation{0, 0, false};
+        return Utf8Validation{0, false};
     }
 
     u32 offset = 0;
@@ -88,12 +88,12 @@ Utf8Validation utf8_validate(const Utf8View& input) noexcept {
         }
         const Utf8DecodeResult decoded = decode_utf8_scalar(input.data + offset, input.bytes - offset);
         if (!decoded.valid) {
-            return Utf8Validation{codepoints, offset, false};
+            return Utf8Validation{offset, false};
         }
         offset += decoded.width;
         ++codepoints;
     }
-    return Utf8Validation{codepoints, input.bytes, true};
+    return Utf8Validation{codepoints, true};
 }
 
 // Word, line and Ctrl+Arrow navigation run once per click or key press: compiled for size.

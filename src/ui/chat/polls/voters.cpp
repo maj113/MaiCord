@@ -3,7 +3,6 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/layout/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -43,23 +42,6 @@ bool valid(const UiPollVotersState& state) noexcept {
                 return false;
     }
     return selected;
-}
-bool style_valid(const UiPollVotersStyle& style) noexcept {
-    // The ten lengths lead the style, in this order.
-    static_assert(__builtin_offsetof(UiPollVotersStyle, radius) == 9 * sizeof(float));
-    if (!ui_lengths_valid(&style.preferred_width, 10))
-        return false;
-    if (style.preferred_width < 160 || style.preferred_height < 200 || style.header_height < 40 ||
-        style.target < 32 || style.row_height < style.target || style.avatar_extent < 16 ||
-        style.avatar_extent > style.row_height || !ui_coordinate_valid(style.backdrop_opacity) ||
-        style.backdrop_opacity < 0 || style.backdrop_opacity > 1)
-        return false;
-    const Utf8View labels[]{style.title, style.previous, style.next,   style.retry,
-                            style.close, style.loading,  style.failed, style.empty};
-    for (auto text : labels)
-        if (!text.bytes || !valid_text(text, 256))
-            return false;
-    return true;
 }
 bool measured(const UiPollVotersState& state, const Utf8View& text, u16 item, u32 flags, float width,
               UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value,
@@ -112,7 +94,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
                                   UiWidgetReference owner, const UiPollVotersStyle& style,
                                   const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                                   float requested_scroll) noexcept {
-    if (!scene || !valid(state) || !style_valid(style) || !cache || !ui_rect_has_area(viewport) ||
+    if (!scene || !valid(state) || !cache || !ui_rect_has_area(viewport) ||
         !ui_coordinate_valid(requested_scroll))
         return false;
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;

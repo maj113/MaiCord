@@ -2,9 +2,11 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/core/utf.hpp"
+#include "../../protocol/encoding/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
+// The members read, at the bit of their position in member()'s list.
 enum Field : u32 {
     field_id = 1u << 0,
     field_guild = 1u << 1,
@@ -26,23 +28,8 @@ bool voice_like(u8 type) noexcept {
 }
 bool member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
-    struct Key {
-        const char* name;
-        u32 bit;
-    };
-    static constexpr Key keys[]{{"id", field_id},
-                                {"guild_id", field_guild},
-                                {"type", field_type},
-                                {"name", field_name},
-                                {"parent_id", field_parent},
-                                {"bitrate", field_bitrate},
-                                {"user_limit", field_user_limit},
-                                {"rate_limit_per_user", field_slowmode},
-                                {"nsfw", field_nsfw}};
-    u32 bit = 0;
-    for (const auto& key : keys)
-        if (json_string_equals_ascii(name, {key.name, c_string_length(key.name)}))
-            bit = key.bit;
+    const u32 bit = protocol_detail::member_bit<"id", "guild_id", "type", "name", "parent_id", "bitrate", "user_limit",
+                                                "rate_limit_per_user", "nsfw">(name);
     if (!bit)
         return true;
     if (parse.seen & bit) {

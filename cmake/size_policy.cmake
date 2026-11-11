@@ -351,12 +351,15 @@ maicord_fold_helpers(
         "(^|/)src/app/voice/(account_voice_message|connection_setup)\\.cpp$" "(^|/)src/platform/uia/provider(_patterns)?\\.cpp$")
 # The syllabic (Khmer, Myanmar, Sinhala, Tibetan) and Latin shapers loop over a few scalars or glyphs per run: with
 # unrolling and vectorizing off, the client is 7.7 KB smaller and their runs take 0.4-3% fewer cycles (min of 600 rounds
-# over the fixture strings, and over Latin, Cyrillic and Greek text in Segoe UI). The Linux client compiles all of
-# src/text/(shaping|scripts|layout) this way (below). The pixel loops do not: without unrolling lossy WebP rows took
-# 15% longer, lossless WebP 11% and JPEG entropy decoding 5%; without vectorizing JPEG decoding took 10% longer.
+# over the fixture strings, and over Latin, Cyrillic and Greek text in Segoe UI). The Arabic mark order is 1.3 KB
+# smaller and as fast (Arabic chat lines and a vocalized paragraph in Segoe UI within the A/A noise of 0.3%, min of
+# 4000 rounds); the Indic shaper (Bengali paragraphs 0.8% slower) and the Arabic run (0.2-0.5% slower) keep both. The
+# Linux client compiles all of src/text/(shaping|scripts|layout) this way (below). The pixel loops do not: without
+# unrolling lossy WebP rows took 15% longer, lossless WebP 11% and JPEG entropy decoding 5%; without vectorizing JPEG
+# decoding took 10% longer.
 if(NOT MAICORD_LINUX)
     foreach(source IN ITEMS src/text/scripts/syllabic_shape.cpp src/text/scripts/latin_run.cpp src/text/scripts/ascii_run.cpp
-            src/text/shaping/shape_run.cpp)
+            src/text/shaping/shape_run.cpp src/text/scripts/arabic_marks.cpp)
         set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS ${maicord_clang}-fno-unroll-loops
             ${maicord_clang}-fno-vectorize ${maicord_clang}-fno-slp-vectorize)
     endforeach()

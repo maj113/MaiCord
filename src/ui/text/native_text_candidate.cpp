@@ -457,11 +457,22 @@ NativeAsciiLineStorage storage(Arena& arena,u32 source,u32 glyphs,bool arabic=fa
     if(!arabic){out.mapped={reinterpret_cast<SfntClusterGlyph*>(s.positions.data),source};out.glyphs={reinterpret_cast<u16*>(s.glyphs.data),glyphs};out.placements=s.placements;out.character_glyphs=s.character_glyphs;}
     return result;
 }
-bool retain_runs(NativeFontSession* fonts,NativeFontRunHandle font,u32 count,ShapedText* output) noexcept {
+// Retains the session and the font of each of the first count published runs, releasing what it took on failure.
+bool retain_fonts(NativeFontSession* fonts,ShapedText* output,u32 count) noexcept {
     if(output->native_fonts()||output->run_count||!native_font_session_retain(fonts))return false;
-    auto* store=native_font_session_runs(fonts);u32 retained=0;while(retained<count&&native_font_run_retain(store,font))++retained;
-    if(retained!=count){while(retained--)native_font_run_release(store,font);native_font_session_release(&fonts);return false;}
+    auto* store=native_font_session_runs(fonts);u32 retained=0;while(retained<count&&native_font_run_retain(store,output->runs[retained].native_face))++retained;
+    if(retained!=count){while(retained--)native_font_run_release(store,output->runs[retained].native_face);native_font_session_release(&fonts);return false;}
     output->set_native_fonts(fonts);return true;
+}
+// Releases what retain_fonts took for a published output.
+void release_fonts(ShapedText& output) noexcept {
+    auto* fonts=output.native_fonts();if(!fonts)return;
+    for(u32 i=0;i<output.run_count;++i)native_font_run_release(native_font_session_runs(fonts),output.runs[i].native_face);
+    native_font_session_release(&fonts);
+}
+// Publishes count paragraph glyphs from first on.
+void publish_glyphs(TextGlyph* out,const NativeAsciiParagraphStorage& s,u32 first,u32 count) noexcept {
+    for(u32 i=0;i<count;++i){const auto& p=s.placements[first+i];out[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[first+i],0};}
 }
 const NativeOmissionSign* omission_sign(const NativeTextContext& owner,const NativeFormat* format) noexcept {
     for(auto* sign=owner.omission_signs;sign;sign=sign->next)
@@ -474,11 +485,7 @@ bool prepare_omission_sign(NativeTextContext& owner,const TextSystem& system,con
     // One UTF-8 scalar fits the producer's 3*4+16 glyph retry bound.
     TextGlyph glyphs[32]{};TextRun runs[4]{};u16 clusters[1]{};ShapedText shaped{};
     shaped.glyphs=glyphs;shaped.glyph_capacity=32;shaped.runs=runs;shaped.run_capacity=4;shaped.clusters=clusters;shaped.cluster_capacity=1;
-    struct Release {ShapedText& text;~Release() noexcept {
-        auto* session=text.native_fonts();if(!session)return;
-        for(u32 i=0;i<text.run_count;++i)native_font_run_release(native_font_session_runs(session),text.runs[i].native_face);
-        native_font_session_release(&session);
-    }} release{shaped};
+    struct Release {ShapedText& text;~Release() noexcept {release_fonts(text);}} release{shaped};
     auto plain=system;plain.native_format=intern_format(owner,*format);
     plain.independent_letters=false;plain.tracking=0;
     if(!plain.native_format||!native_text_candidate_line(plain,{utf8_literal("\xe2\x80\xa6"),{},1000000,1000000},&shaped,nullptr)||
@@ -710,9 +717,11 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
     Slice<NativeParagraphLineFit> fit=mode.plan?mode.plan->fit:Slice<NativeParagraphLineFit>{};
     const float em=format->em;
     if(overflow==TextOverflow::ellipsis&&!(height>0))return false;
-    if(owner.last_valid&&!owner.last_styled&&owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){}
-    else if(owner.last_valid&&!owner.last_styled&&!owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){
+    // The text this context shaped last, as a paragraph or as a single printable line.
+    const bool same=owner.last_valid&&!owner.last_styled&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
+       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes);
+    if(same&&owner.last_paragraph){}
+    else if(same){
         // Reuse the shaped printable line; only cluster/run descriptors are appended.
         owner.last_valid=false;owner.prefer_multiline=false;const auto& line=owner.last_line;const auto& source=owner.last_storage;
         NativeAsciiParagraphStorage s{};s.glyphs=source.run.glyphs;s.placements=source.run.placements;s.source_glyphs=source.run.character_glyphs;
@@ -758,8 +767,7 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
         const u32 visible_glyphs=(layout.flags&native_paragraph_height_trimmed)?(final_run?final_run->glyph_first+final_run->glyph_count:0):shape.glyph_count;
         const u32 visible_source=(layout.flags&native_paragraph_height_trimmed)?(final_run?static_cast<u32>(final_run->source_first)+final_run->source_count:0):shape.source_units;
         if(layout.run_count>output->run_capacity||visible_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||visible_glyphs>65535)return output_capacity_failure(owner);
-        if(!retain_runs(owner.fonts,binding.font,layout.run_count,output))return false;
-        for(u32 i=0;i<visible_glyphs;++i){const auto& p=s.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[i],0};}
+        publish_glyphs(output->glyphs,s,0,visible_glyphs);
         // A cut word's sides reshape on their lines where the shaping crossed the cut; the shaping restarts only at
         // controls, which no run spans.
         if(layout.flags&native_paragraph_emergency_break){
@@ -773,6 +781,7 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
                         native_ascii_line(c.owner.store,c.binding.plan,piece,c.system.independent_letters,c.em,work,line,{},c.em*c.system.tracking);}});}
         for(u32 i=0;i<shape.source_units;++i)output->clusters[i]=i<visible_source?static_cast<u16>(s.source_glyphs[i]):0xffffu;
         for(u32 i=0;i<layout.run_count;++i){const auto& run=owner.paragraph_runs[i];output->runs[i]={binding.font,run.x,run.baseline,em,run.glyph_first,run.glyph_count,run.source_first,run.source_count,0,0,false,true};}
+        if(!retain_fonts(owner.fonts,output,layout.run_count))return false;
         output->glyph_count=visible_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;
         ++owner.shaped;++owner.paragraphs_shaped;
     }else if(measure){*measure={layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
@@ -921,13 +930,12 @@ bool trim_single_line(const TextSystem& system,const Binding* binding,const Nati
             if(owner.styled_spans[middle].end_unit<=owner.paragraph_runs[run].source_first)first=middle+1;else end=middle;}
         return owner.styled_spans.data+first;
     };
-    const auto font_for=[&](u32 run) noexcept {return binding?binding->font:style_for(run)->binding()->font;};
     if(output){
         const u32 published_glyphs=written?*written:prefix.glyph_count;
         const u32 sign_runs=cut.sign?1u:0u,sign_glyphs=cut.sign?sign->glyphs:0u;
         if(placed.run_count+sign_runs>output->run_capacity||published_glyphs>output->glyph_capacity||sign_glyphs>output->glyph_capacity-published_glyphs||shape.source_units>output->cluster_capacity||published_glyphs+sign_glyphs>65535)return output_capacity_failure(owner);
         if(!output->glyphs||!output->clusters||!output->runs||output->run_count||output->native_fonts())return false;
-        if(!written)for(u32 i=0;i<prefix.glyph_count;++i){const auto& p=s.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,s.glyphs[i],0};}
+        if(!written)publish_glyphs(output->glyphs,s,0,prefix.glyph_count);
         if(cut.sign)copy_bytes(output->glyphs+published_glyphs,sign+1,sign_glyphs*sizeof(TextGlyph));
         if(!written)for(u32 i=0;i<prefix.source_units;++i)output->clusters[i]=static_cast<u16>(s.source_glyphs[i]);
         for(u32 i=prefix.source_units;i<shape.source_units;++i)output->clusters[i]=0xffffu;
@@ -944,18 +952,13 @@ bool trim_single_line(const TextSystem& system,const Binding* binding,const Nati
             if(decorations&&!native_styled_decorations(owner,placed,width,format->tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,written?output:nullptr,cut.sign?&omission:nullptr))return false;
             if(!native_collect_hit_regions(owner,placed,format->tab_stop,hits,true,output,&hit_count,written?output:nullptr,cut.sign?&omission:nullptr))return false;
         }
-        if(!native_font_session_retain(owner.fonts))return false;
-        auto* store=native_font_session_runs(owner.fonts);u32 retained=0;
-        while(retained<placed.run_count&&native_font_run_retain(store,font_for(retained)))++retained;
-        if(retained!=placed.run_count||(cut.sign&&!native_font_run_retain(store,sign->font))){
-            while(retained){--retained;native_font_run_release(store,font_for(retained));}auto* session=owner.fonts;native_font_session_release(&session);return false;}
-        output->set_native_fonts(owner.fonts);
         for(u32 i=0;i<placed.run_count;++i){const auto& r=owner.paragraph_runs[i];const auto* style=style_for(i);
             const float origin=written?output->runs[i].baseline_x:r.x;const u32 first=written?output->runs[i].first_glyph:r.glyph_first,count=written?output->runs[i].glyph_count:r.glyph_count;const u8 level=written?output->runs[i].bidi_level:0;
-            output->runs[i]={font_for(i),origin,baseline,style?style->em:format->em,first,count,r.source_first,r.source_count,style?style->flags:0,level,false,true};}
+            output->runs[i]={binding?binding->font:style->binding()->font,origin,baseline,style?style->em:format->em,first,count,r.source_first,r.source_count,style?style->flags:0,level,false,true};}
         const float y=add(add(baseline,-sign->baseline),sign->baseline);
         if(cut.sign){output->runs[placed.run_count]={sign->font,x,y,format->em,published_glyphs,sign_glyphs,0,1,0,0,false,true};
             output->clusters[0]=static_cast<u16>(published_glyphs);}
+        if(!retain_fonts(owner.fonts,output,placed.run_count+sign_runs))return false;
         output->glyph_count=published_glyphs+sign_glyphs;output->run_count=placed.run_count+sign_runs;
         output->cluster_count=shape.source_units;output->decoration_count=decoration_count;output->hit_region_count=hit_count;output->width=cut.width;output->width_including_trailing_whitespace=cut.extent;output->height=complete.height;output->line_count=1;
         ++owner.shaped;++owner.paragraphs_shaped;
@@ -1066,12 +1069,15 @@ bool native_text_candidate_line_once(const TextSystem& system,const NativeTextRe
     // Records the route once last_text holds this text.
     const auto routed=[&]() noexcept {owner.route_epoch=owner.text_epoch;owner.route_format=format;
         owner.route_flags=static_cast<u8>((arabic?1:0)|(controls?2:0)|(latin?4:0));owner.route_script=script;return true;};
-    if(!arabic&&(controls||(owner.last_valid&&!owner.last_styled&&owner.last_paragraph&&owner.last_format==format&&owner.last_em==format->em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&owner.last_text.count==text.bytes&&(known||bytes_equal(owner.last_text.data,text.data,text.bytes)))))
-        return (paragraph(system,*selected,format,request,output,measure,{latin,profile})&&routed())||styled();
+    // Arabic text has no controls here (arabic_text admits none); preparing its profile can invalidate the cache.
     if(arabic&&!prepare_script_profile(owner,*selected,arabic_script,system.independent_letters))return styled();
     const float em=format->em;
-    if(owner.last_valid&&!owner.last_styled&&!owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&(known||bytes_equal(owner.last_text.data,text.data,text.bytes))){}
+    // The text this context shaped last, unless a control sends it to the paragraph path anyway.
+    const bool same=!controls&&owner.last_valid&&!owner.last_styled&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
+       owner.last_text.count==text.bytes&&(known||bytes_equal(owner.last_text.data,text.data,text.bytes));
+    if(!arabic&&(controls||(same&&owner.last_paragraph)))
+        return (paragraph(system,*selected,format,request,output,measure,{latin,profile})&&routed())||styled();
+    if(same&&!owner.last_paragraph){}
     else{
         owner.last_valid=false;owner.prefer_multiline=false;NativeAsciiLineStorage buffers{};Slice<char> saved_text{};
         NativeAsciiLineResult line{};SfntStatus status{};
@@ -1101,11 +1107,11 @@ bool native_text_candidate_line_once(const TextSystem& system,const NativeTextRe
         NativeLinePosition tail{};if(split&&native_ascii_line_position({buffers.clusters.data,line.cluster_count},line,trim,false,&tail)!=SfntStatus::ok)return false;
         const u32 split_glyph=split?buffers.run.character_glyphs[trim]:line.run.glyph_count;
         if(run_count>output->run_capacity||line.run.glyph_count>output->glyph_capacity||line.run.source_units>output->cluster_capacity||line.run.glyph_count>65535)return output_capacity_failure(owner);
-        if(!retain_runs(owner.fonts,selected->font,run_count,output))return false;
         for(u32 i=0;i<line.run.glyph_count;++i){const auto& p=buffers.run.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,arabic?buffers.run.shaping.glyphs[i].glyph.glyph:buffers.run.glyphs[i],0};}
         for(u32 i=0;i<line.run.source_units;++i)output->clusters[i]=static_cast<u16>(buffers.run.character_glyphs[i]);
         output->runs[0]={selected->font,arabic?line.caret_end:0,line.vertical.baseline,em,0,split_glyph,0,split?trim:line.run.source_units,0,static_cast<u8>(arabic?1:0),false,true};
         if(split){output->runs[1]={selected->font,tail.left,line.vertical.baseline,em,split_glyph,line.run.glyph_count-split_glyph,trim,line.trailing_source_units,0,0,false,true};}
+        if(!retain_fonts(owner.fonts,output,run_count))return false;
         output->glyph_count=line.run.glyph_count;output->run_count=run_count;output->cluster_count=line.run.source_units;output->width=line.width;output->width_including_trailing_whitespace=line.width_including_trailing;output->height=line.vertical.height;output->line_count=1;++owner.shaped;
         if(arabic)++owner.arabic_shaped;
         if(latin)++owner.latin_shaped;

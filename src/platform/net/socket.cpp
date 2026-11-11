@@ -89,39 +89,6 @@ bool socket_accept(Socket* listener, Socket* accepted, bool* from_loopback, i32*
     return true;
 }
 
-bool socket_create_stream(Socket* result, const NetworkAddress& address, u32 timeout_ms, i32* native_error) noexcept {
-    *result = {};
-    sockaddr_storage target;
-    if (socket_address(address, &target) == 0) {
-        *native_error = WSAEINVAL;
-        return false;
-    }
-    const SOCKET value = socket(target.ss_family, SOCK_STREAM, IPPROTO_TCP);
-    if (value == INVALID_SOCKET) {
-        *native_error = WSAGetLastError();
-        return false;
-    }
-    const DWORD timeout = timeout_ms;
-    setsockopt(value, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-    setsockopt(value, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-    *result = wrap(value);
-    return true;
-}
-
-bool socket_connect(const Socket& socket_value, const NetworkAddress& address, i32* native_error) noexcept {
-    sockaddr_storage target;
-    const i32 bytes = socket_address(address, &target);
-    if (bytes == 0) {
-        *native_error = WSAEINVAL;
-        return false;
-    }
-    if (connect(raw(socket_value), reinterpret_cast<const sockaddr*>(&target), bytes) == 0) {
-        return true;
-    }
-    *native_error = WSAGetLastError();
-    return false;
-}
-
 i32 socket_send(const Socket& socket_value, const void* data, u32 bytes) noexcept {
     return send(raw(socket_value), static_cast<const char*>(data), static_cast<int>(bytes), 0);
 }
@@ -132,10 +99,6 @@ i32 socket_receive(const Socket& socket_value, void* data, u32 bytes) noexcept {
 
 void socket_shutdown_send(const Socket& socket_value) noexcept {
     shutdown(raw(socket_value), SD_SEND);
-}
-
-void socket_interrupt(const Socket&) noexcept {
-    // closesocket wakes a blocked call on Windows.
 }
 
 void socket_close(Socket* socket_value) noexcept {
@@ -217,33 +180,6 @@ i32 socket_send_to(const Socket& socket_value, const void* data, u32 bytes, cons
     }
     return sendto(raw(socket_value), static_cast<const char*>(data), static_cast<int>(bytes), 0,
                   reinterpret_cast<const sockaddr*>(&target), target_bytes);
-}
-
-bool network_resolve_blocking(const wchar_t* host, const wchar_t* service, NetworkAddress* addresses, u32* count,
-                              i32* native_error) noexcept {
-    ADDRINFOEXW hints{};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    ADDRINFOEXW* list = nullptr;
-    // Synchronous: no overlapped, so the call returns with the answers, as GetAddrInfoW does.
-    const int resolved = GetAddrInfoExW(host, service, NS_ALL, nullptr, &hints, &list, nullptr, nullptr, nullptr, nullptr);
-    *count = 0;
-    if (resolved || !list) {
-        *native_error = resolved;
-        return false;
-    }
-    for (const ADDRINFOEXW* entry = list; entry && *count < kNetworkResolverMaximumAddresses; entry = entry->ai_next) {
-        if (network_address_from_socket(entry->ai_addr, entry->ai_addrlen, &addresses[*count])) {
-            ++*count;
-        }
-    }
-    FreeAddrInfoExW(list);
-    if (*count == 0) {
-        *native_error = WSAEHOSTUNREACH;
-        return false;
-    }
-    return true;
 }
 
 } // namespace maicord

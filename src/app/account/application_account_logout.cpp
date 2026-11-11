@@ -66,13 +66,17 @@ bool form_valid(TextFormOwnerKey key) noexcept {
     const auto* owner = g_app.account_logout;
     return owner && owner_key(*owner, key) && (owner->committed || source_current(*owner));
 }
-void publish(ApplicationAccountLogout& owner, LogoutPhase phase, Utf8View status) noexcept {
+void publish(ApplicationAccountLogout& owner, LogoutPhase phase, const char* text, u32 bytes) noexcept {
+    const Utf8View status{text, bytes};
     if (owner.phase == phase && utf8_equal(owner.status, status))
         return;
     owner.phase = phase;
     owner.status = status;
     ++owner.revision;
     application_request_frame();
+}
+template <u32 N> void publish(ApplicationAccountLogout& owner, LogoutPhase phase, const char (&text)[N]) noexcept {
+    publish(owner, phase, text, N - 1);
 }
 bool allocate_owner() noexcept {
     if (g_app.account_logout)
@@ -114,11 +118,10 @@ void start_stop(ApplicationAccountLogout& owner) noexcept {
     if (!started.ok()) {
         account_host_move(&g_app.account, &owner.stop_host);
         owner.host_transferred = false;
-        publish(owner, LogoutPhase::stop_start_failed,
-                utf8_literal("Couldn't finish logging out. Try again."));
+        publish(owner, LogoutPhase::stop_start_failed, "Couldn't finish logging out. Try again.");
         return;
     }
-    publish(owner, LogoutPhase::stopping, utf8_literal("Logging out…"));
+    publish(owner, LogoutPhase::stopping, "Logging out…");
 }
 void cleanup(ApplicationAccountLogout& owner, bool publish_login) noexcept {
     // Both account and login workers must have joined. No deletion is permitted
@@ -126,8 +129,7 @@ void cleanup(ApplicationAccountLogout& owner, bool publish_login) noexcept {
     if (account_logout_stop_owned(owner.stop) || !owner.cleanup_joined || g_app.account.instance ||
         g_app.account.login_instance || owner.stop_host.instance || owner.stop_host.login_instance ||
         owner.stop_host.module) {
-        publish(owner, LogoutPhase::stop_failed,
-                utf8_literal("Still logging out. Try again in a moment."));
+        publish(owner, LogoutPhase::stop_failed, "Still logging out. Try again in a moment.");
         return;
     }
     const auto forgotten =
@@ -135,14 +137,13 @@ void cleanup(ApplicationAccountLogout& owner, bool publish_login) noexcept {
             ? account_credential_forget_complete_after_join(owner.paths, true)
             : AccountCredentialForgetResult{0, AccountCredentialForgetError::probe, 0, true};
     if (!forgotten.ok()) {
-        publish(owner, LogoutPhase::forget_failed,
-                utf8_literal("Couldn't remove saved sign-in data. Try again."));
+        publish(owner, LogoutPhase::forget_failed, "Couldn't remove saved sign-in data. Try again.");
         return;
     }
     startup_blocked = false;
     // Release the form before its borrowed account UI storage. Its closed
     // callback observes only this terminal owner, never the stopped module.
-    publish(owner, LogoutPhase::complete, {});
+    publish(owner, LogoutPhase::complete, nullptr, 0);
     if (owner.form_bound)
         application_text_form_cancel_owner(form_valid);
     owner.committed = false;
@@ -155,8 +156,7 @@ void cleanup(ApplicationAccountLogout& owner, bool publish_login) noexcept {
             owner.startup = true;
             g_app.login.visible = true;
             owner.form_due = maximum(u64{1}, clock_monotonic_milliseconds());
-            publish(owner, LogoutPhase::forget_failed,
-                    utf8_literal("Couldn't open sign-in. Try again."));
+            publish(owner, LogoutPhase::forget_failed, "Couldn't open sign-in. Try again.");
         }
     }
 }
@@ -173,8 +173,7 @@ void stopped(ApplicationAccountLogout& owner, const AccountHostStopResult& resul
     application_account_stop_observed(result, owner.had_account);
     owner.request_id = 0;
     if (!result.ok()) {
-        publish(owner, LogoutPhase::stop_failed,
-                utf8_literal("Couldn't finish logging out. Try again."));
+        publish(owner, LogoutPhase::stop_failed, "Couldn't finish logging out. Try again.");
         return;
     }
     owner.cleanup_joined = true;
@@ -207,8 +206,7 @@ bool save(TextFormOwnerKey key, Utf8View) noexcept {
     // Commit local intent before quiescence or the first authenticated POST.
     // Failure is still cancellable and sends no server request.
     if (!resolve_paths(*owner) || !account_credential_forget_begin(owner->paths).ok()) {
-        publish(*owner, LogoutPhase::marker_failed,
-                utf8_literal("Couldn't log out. Try again."));
+        publish(*owner, LogoutPhase::marker_failed, "Couldn't log out. Try again.");
         return false;
     }
     owner->committed = true;
@@ -222,7 +220,7 @@ bool save(TextFormOwnerKey key, Utf8View) noexcept {
     const u64 now = clock_monotonic_milliseconds();
     owner->deadline = deadline_after(now, kLogoutDeadlineMilliseconds);
     owner->admission_due = maximum(u64{1}, now);
-    publish(*owner, LogoutPhase::admission, utf8_literal("Logging out…"));
+    publish(*owner, LogoutPhase::admission, "Logging out…");
     application_prepare_account_stop();
     // Quiescence invalidates the old account scope. From here
     // on, the accepted owner key is a pure value and no longer reads the source.
@@ -251,7 +249,7 @@ void closed(TextFormOwnerKey key) noexcept {
         return;
     owner->form_bound = false;
     if (!owner->committed)
-        publish(*owner, LogoutPhase::complete, {});
+        publish(*owner, LogoutPhase::complete, nullptr, 0);
 }
 bool open_form(ApplicationAccountLogout& owner) noexcept {
     if (owner.form_bound)
@@ -364,7 +362,7 @@ void application_account_logout_pump() noexcept {
             return;
         }
         owner->admission_due = maximum(u64{1}, now);
-        publish(*owner, LogoutPhase::server, utf8_literal("Logging out…"));
+        publish(*owner, LogoutPhase::server, "Logging out…");
     }
     if (owner->phase == LogoutPhase::server && deadline_due(now, owner->admission_due)) {
         AccountLogoutResponse response{};
@@ -410,8 +408,7 @@ bool application_account_logout_prepare_startup(const AccountPaths* paths) noexc
     }
     owner.committed = owner.startup = owner.unconfirmed = true;
     owner.cleanup_joined = !g_app.account.instance && !g_app.account.login_instance;
-    publish(owner, LogoutPhase::startup_recovery,
-            utf8_literal("Couldn't finish logging out. Try again."));
+    publish(owner, LogoutPhase::startup_recovery, "Couldn't finish logging out. Try again.");
     g_app.login.visible = true;
     open_form(owner);
     application_request_frame();

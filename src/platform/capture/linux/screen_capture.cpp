@@ -156,11 +156,7 @@ u32 request(Runtime& r, Step step, u32 types = 0, u32 cursor_mode = 0) noexcept 
         portal_request_end(&r.request);
         return kResponseFailed;
     }
-    Reader reader;
-    message_reader(reply, &reader);
-    const char* handle = nullptr;
-    if (reader_string(&reader, &handle, nullptr))
-        portal_request_adopt(&r.request, handle);
+    portal_request_adopt_reply(&r.request, reply);
     message_release(&reply);
     if (!serve_until(r, &r.responded)) {
         portal_request_close(&r.request);

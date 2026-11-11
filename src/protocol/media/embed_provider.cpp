@@ -119,14 +119,13 @@ bool percent_decode(const Utf8View& input, char* output, u32 capacity, u32* byte
     *bytes = count;
     return true;
 }
-bool id_valid(Utf8View id) noexcept {
-    if (id.bytes != 11) return false;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        const char c = id.data[i];
-        if (!ascii_is_alnum(c) && c != '-' && c != '_') return false;
-    }
+// Whether every byte is alphanumeric, '-' or '_'.
+bool slug_chars(const Utf8View& text) noexcept {
+    for (u32 i = 0; i < text.bytes; ++i)
+        if (!ascii_is_alnum(text.data[i]) && text.data[i] != '-' && text.data[i] != '_') return false;
     return true;
 }
+bool id_valid(Utf8View id) noexcept { return id.bytes == 11 && slug_chars(id); }
 // Duplicate playback parameters are rejected instead of choosing a different
 // video from the page/player. Unrelated parameters remain opaque.
 bool parameter_chars(const Utf8View& query_view, const char* key, u32 key_bytes, Utf8View* value) noexcept {
@@ -382,8 +381,7 @@ SteamVideoLocator steam_video_locator(Utf8View url) noexcept {
             result.movie = {u.path.data + start, end - start};
             if (!steam_id(result.movie)) return {};
         }
-        if (!video) for (u32 i = start; i < end; ++i)
-            if (!ascii_is_alnum(u.path.data[i]) && u.path.data[i] != '_' && u.path.data[i] != '-') return {};
+        if (!video && !slug_chars({u.path.data + start, end - start})) return {};
         if (end < u.path.bytes && end + 1 != u.path.bytes) return {};
     }
     return result;
@@ -449,8 +447,7 @@ Utf8View vimeo_video_id(Utf8View url, Utf8View* privacy_hash) noexcept {
             const bool group = count == 4 && equal(parts[0], utf8_literal("groups")) && equal(parts[2], utf8_literal("videos"));
             const bool album = count == 4 && equal(parts[0], utf8_literal("album")) && equal(parts[2], utf8_literal("video")) && steam_id(parts[1]);
             if (!channel && !group && !album) return {};
-            for (u32 i = 0; i < parts[1].bytes; ++i)
-                if (!ascii_is_alnum(parts[1].data[i]) && parts[1].data[i] != '-' && parts[1].data[i] != '_') return {};
+            if (!slug_chars(parts[1])) return {};
             id = parts[count - 1];
         }
         if (!steam_id(id) || (privacy.data && !vimeo_privacy_hash(privacy))) return {};
@@ -467,7 +464,7 @@ YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
     if (!equal(u.path, utf8_literal("/watch")) && !equal(u.path, utf8_literal("/playlist")) && !equal(u.path, utf8_literal("/embed/videoseries")) && !video.id.bytes) return {};
     YoutubeCollectionLocator result{};
     if (!parameter(u.query, utf8_literal("list"), &result.list) || result.list.bytes < 3 || result.list.bytes > 128) return {};
-    for (u32 i = 0; i < result.list.bytes; ++i) if (!ascii_is_alnum(result.list.data[i]) && result.list.data[i] != '-' && result.list.data[i] != '_') return {};
+    if (!slug_chars(result.list)) return {};
     if (!parameter(u.query, utf8_literal("v"), &result.video)) return {};
     if (result.video.bytes) {
         if (video.id.bytes != 11) return {};

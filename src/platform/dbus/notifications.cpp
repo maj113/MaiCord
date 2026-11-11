@@ -191,6 +191,14 @@ bool ensure_backend() noexcept {
 
 // Replies -------------------------------------------------------------------------------------------------------------
 
+// The call failed: the entry is dropped, the reason logged and the owner told.
+void fail_entry(Entry* entry, Status status, const Message* reply, const char* fallback) noexcept {
+    const u64 cookie = entry->cookie;
+    *entry = Entry{};
+    log_write(LogLevel::info, "notifications", reply_error_name(status, reply, fallback));
+    emit(NotificationEventKind::failed, cookie, 0, nullptr, nullptr, 0);
+}
+
 void on_notify_reply(void* context, Status status, const Message* reply) noexcept {
     Entry* entry = &g_entries[reinterpret_cast<usize>(context) - 1];
     if (!entry->used)
@@ -202,11 +210,7 @@ void on_notify_reply(void* context, Status status, const Message* reply) noexcep
         reader_u32(&r, &id);  // stays 0 when the reply holds no id
     }
     if (id == 0) {
-        const u64 cookie = entry->cookie;
-        *entry = Entry{};
-        log_write(LogLevel::info, "notifications",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name : "Notify failed");
-        emit(NotificationEventKind::failed, cookie, 0, nullptr, nullptr, 0);
+        fail_entry(entry, status, reply, "Notify failed");
         return;
     }
     // A replaced notification keeps one entry.
@@ -221,11 +225,7 @@ void on_portal_reply(void* context, Status status, const Message* reply) noexcep
     if (!entry->used)
         return;
     if (status != Status::ok) {
-        const u64 cookie = entry->cookie;
-        *entry = Entry{};
-        log_write(LogLevel::info, "notifications",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name : "AddNotification failed");
-        emit(NotificationEventKind::failed, cookie, 0, nullptr, nullptr, 0);
+        fail_entry(entry, status, reply, "AddNotification failed");
         return;
     }
     emit(NotificationEventKind::shown, entry->cookie, entry->id, nullptr, nullptr, 0);

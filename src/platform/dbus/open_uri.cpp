@@ -28,9 +28,7 @@ bool spawn_xdg_open(const char* uri) noexcept {
 void on_portal_reply(void* context, Status status, const Message* reply) noexcept {
     char* uri = static_cast<char*>(context);
     if (status != Status::ok) {
-        log_write(LogLevel::info, "open_uri",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name
-                                                                              : "the OpenURI portal did not answer");
+        log_write(LogLevel::info, "open_uri", reply_error_name(status, reply, "the OpenURI portal did not answer"));
         spawn_xdg_open(uri);
     }
     heap_free(uri);

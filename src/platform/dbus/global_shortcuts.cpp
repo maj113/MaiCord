@@ -73,14 +73,10 @@ void on_bound(void*, u32 code, Reader*) noexcept {
 void on_request_reply(void* context, Status status, const Message* reply) noexcept {
     if (status != Status::ok) {
         // No portal, or one without this interface (an older one): the quiet outcome.
-        fail(status == Status::error_reply && reply->error_name ? reply->error_name : static_cast<const char*>(context));
+        fail(reply_error_name(status, reply, static_cast<const char*>(context)));
         return;
     }
-    Reader r;
-    message_reader(*reply, &r);
-    const char* handle = nullptr;
-    if (reader_string(&r, &handle, nullptr))
-        portal_request_adopt(&g.request, handle);
+    portal_request_adopt_reply(&g.request, *reply);
 }
 
 void bind_shortcuts(Connection* c) noexcept {

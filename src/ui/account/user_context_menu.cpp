@@ -1,89 +1,86 @@
 #include "maicord/ui/account/user_context_menu.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 action(UserContextAction value) noexcept {
     return static_cast<u32>(value);
 }
-PopupItem row(Utf8View label, UserContextAction value, u16 flags = 0) noexcept {
-    PopupItem item{};
-    item.label = label;
-    item.action = action(value);
-    item.flags = static_cast<u16>(popup_item_enabled | flags);
-    return item;
+// The rows a user menu can hold, in menu order: each one's action (relative to the base), whether it is dangerous,
+// opens a submenu or starts a group (a separator before the first row shown from there on). "Profile" and "View Full
+// Profile", "Edit note" and "Add note", and the friend rows are alternatives of which the facts show one.
+constexpr u8 kDanger = 1, kSubmenu = 2, kGroup = 4;
+struct Row {
+    u8 action, flags;
+};
+constexpr Row row(UserContextAction value, u8 flags = 0) noexcept {
+    return {static_cast<u8>(action(value) - kUserContextActionBase), flags};
 }
-PopupItem submenu(Utf8View label, UserContextAction value) noexcept {
-    auto item = row(label, value);
-    item.presentation = ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
-    return item;
-}
+constexpr Row kRows[]{row(UserContextAction::profile),
+                      row(UserContextAction::profile),
+                      row(UserContextAction::mention),
+                      row(UserContextAction::message),
+                      row(UserContextAction::call),
+                      row(UserContextAction::add_note),
+                      row(UserContextAction::add_note),
+                      row(UserContextAction::apps_menu, kSubmenu | kGroup),
+                      row(UserContextAction::invite_menu, kSubmenu),
+                      row(UserContextAction::remove_friend, kDanger),
+                      row(UserContextAction::accept_friend),
+                      row(UserContextAction::cancel_request),
+                      row(UserContextAction::add_friend),
+                      row(UserContextAction::unblock),
+                      row(UserContextAction::block, kDanger),
+                      row(UserContextAction::report, kDanger),
+                      row(UserContextAction::roles_menu, kSubmenu | kGroup),
+                      row(UserContextAction::copy_id, kGroup)};
+constexpr char kLabels[] = "View Full Profile\0Profile\0Mention\0Message\0Call\0Edit note\0Add note\0Apps\0"
+                           "Invite to server\0Remove friend\0Accept friend request\0Cancel friend request\0"
+                           "Add friend\0Unblock\0Block\0Report user\0Roles\0Copy user ID\0";
+constexpr u32 kRowCount = sizeof(kRows) / sizeof(kRows[0]);
+static_assert(name_list_count(kLabels) == kRowCount);
 } // namespace
 
 u32 user_context_menu_build(const UserContextFacts& f, const Slice<PopupItem>& output) noexcept {
-    PopupItem items[kUserContextMaximumItems]{};
+    const bool other = !f.self, unblocked = f.relation != UserContextRelation::blocked;
+    const bool relation_rows = other && !f.bot && f.relations_known;
+    // Whether each row of kRows shows. Invite to Server is hidden for bots, blocked users and yourself.
+    const bool shown[kRowCount]{f.profile_row == UserContextProfileRow::view_full,
+                                f.profile_row == UserContextProfileRow::profile,
+                                f.can_mention,
+                                other && f.can_message && unblocked,
+                                other && f.can_call && !f.bot && unblocked,
+                                other && f.has_note,
+                                other && !f.has_note,
+                                other && f.has_apps,
+                                other && !f.bot && f.can_invite && unblocked,
+                                relation_rows && f.relation == UserContextRelation::friend_,
+                                relation_rows && f.relation == UserContextRelation::incoming,
+                                relation_rows && f.relation == UserContextRelation::outgoing,
+                                relation_rows && f.relation == UserContextRelation::none,
+                                relation_rows && !unblocked,
+                                relation_rows && unblocked,
+                                other && f.can_report,
+                                f.can_edit_roles,
+                                f.developer_mode};
+    PopupItem items[kUserContextMaximumItems];
     u32 count = 0;
     bool group_open = false;
-    const auto push = [&](PopupItem item) noexcept {
-        if (group_open) {
-            item.flags = static_cast<u16>(item.flags | popup_item_separator_before);
-            group_open = false;
-        }
-        items[count++] = item;
-    };
-    const auto next_group = [&]() noexcept { group_open = count != 0; };
-    const bool other = !f.self;
-    const bool relation_rows = other && !f.bot && f.relations_known;
-
-    if (f.profile_row != UserContextProfileRow::none)
-        push(row(f.profile_row == UserContextProfileRow::view_full ? utf8_literal("View Full Profile")
-                                                                    : utf8_literal("Profile"),
-                 UserContextAction::profile));
-    if (f.can_mention)
-        push(row(utf8_literal("Mention"), UserContextAction::mention));
-    if (other && f.can_message && f.relation != UserContextRelation::blocked)
-        push(row(utf8_literal("Message"), UserContextAction::message));
-    if (other && f.can_call && !f.bot && f.relation != UserContextRelation::blocked)
-        push(row(utf8_literal("Call"), UserContextAction::call));
-    if (other)
-        push(row(f.has_note ? utf8_literal("Edit note") : utf8_literal("Add note"), UserContextAction::add_note));
-
-    next_group();
-    if (other && f.has_apps)
-        push(submenu(utf8_literal("Apps"), UserContextAction::apps_menu));
-    // Invite to Server is hidden for bots, blocked users and yourself.
-    if (other && !f.bot && f.can_invite && f.relation != UserContextRelation::blocked)
-        push(submenu(utf8_literal("Invite to server"), UserContextAction::invite_menu));
-    if (relation_rows) {
-        switch (f.relation) {
-        case UserContextRelation::friend_:
-            push(row(utf8_literal("Remove friend"), UserContextAction::remove_friend, popup_item_danger));
-            break;
-        case UserContextRelation::incoming:
-            push(row(utf8_literal("Accept friend request"), UserContextAction::accept_friend));
-            break;
-        case UserContextRelation::outgoing:
-            push(row(utf8_literal("Cancel friend request"), UserContextAction::cancel_request));
-            break;
-        case UserContextRelation::none:
-            push(row(utf8_literal("Add friend"), UserContextAction::add_friend));
-            break;
-        default:
-            break;
-        }
-        push(f.relation == UserContextRelation::blocked
-                 ? row(utf8_literal("Unblock"), UserContextAction::unblock)
-                 : row(utf8_literal("Block"), UserContextAction::block, popup_item_danger));
+    NameList label{kLabels};
+    for (u32 i = 0; i < kRowCount; ++i, label.next()) {
+        const Row spec = kRows[i];
+        if (spec.flags & kGroup)
+            group_open = count != 0;
+        if (!shown[i])
+            continue;
+        PopupItem& item = items[count++];
+        popup_item_set(&item, label.name(), kUserContextActionBase + spec.action,
+                       static_cast<u16>(popup_item_enabled | (spec.flags & kDanger ? popup_item_danger : 0) |
+                                        (group_open ? popup_item_separator_before : 0)));
+        if (spec.flags & kSubmenu)
+            item.presentation = ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
+        group_open = false;
     }
-    if (other && f.can_report)
-        push(row(utf8_literal("Report user"), UserContextAction::report, popup_item_danger));
-
-    next_group();
-    if (f.can_edit_roles)
-        push(submenu(utf8_literal("Roles"), UserContextAction::roles_menu));
-
-    next_group();
-    if (f.developer_mode)
-        push(row(utf8_literal("Copy user ID"), UserContextAction::copy_id));
     if (!output.data || output.count < count)
         return 0;
     for (u32 i = 0; i < count; ++i)

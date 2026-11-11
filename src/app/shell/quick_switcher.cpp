@@ -416,20 +416,9 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
         application_request_frame(); return true;
     }
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && (key == 'C' || key == 'X')) {
-        const u32 a = minimum(q->edit.anchor, q->edit.caret), b = maximum(q->edit.anchor, q->edit.caret);
-        if (b > a && clipboard_write_utf8({q->edit.text + a, b - a}) && key == 'X')
-            result = message_composer_replace_range(&q->edit, a, b, {});
-    } else if (control && key == 'V') {
-        char text[kQuickSwitcherQueryMaximumBytes];
-        const auto read = clipboard_read_utf8({text, sizeof(text)});
-        bool valid = read.ok();
-        for (u32 i = 0; valid && i < read.bytes;) {
-            const auto scalar = utf8_decode_one(text + i, read.bytes - i);
-            valid = scalar.valid && scalar.codepoint >= 32 && !(scalar.codepoint >= 127 && scalar.codepoint <= 159) && scalar.codepoint != 0x2028 && scalar.codepoint != 0x2029;
-            if (valid) i += scalar.width;
-        }
-        if (valid) result = message_composer_insert_utf8(&q->edit, {text, read.bytes});
+    if (control && key == 'V') {
+        result = message_composer_paste_line(&q->edit, kQuickSwitcherQueryMaximumBytes,
+                                             text_input_single_line_forbidden, false);
     } else {
         if (key == key::backspace) g_app.quick_switcher_held_key = key;
         message_composer_edit_key(&q->edit, key, control, shift, &result);

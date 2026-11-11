@@ -1298,23 +1298,9 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
             if (!model.history)
                 message_composer_enable_history(&model, 2048);
             MessageComposerResult result = MessageComposerResult::unchanged;
-            if (control && (code == 'C' || code == 'X')) {
-                const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
-                if (last > first && clipboard_write_utf8({model.text + first, last - first}) && code == 'X')
-                    result = message_composer_replace_range(&model, first, last, {});
-            } else if (control && code == 'V') {
-                char text[kPackageUrlMaximumBytes];
-                const auto read = clipboard_read_utf8({text, sizeof(text)});
-                u32 kept = 0;
-                while (read.ok() && kept < read.bytes) {
-                    const auto scalar = utf8_decode_one(text + kept, read.bytes - kept);
-                    if (!scalar.valid || scalar.codepoint < 0x20 || scalar.codepoint == 0x7f)
-                        break;
-                    kept += scalar.width;
-                }
-                if (kept)
-                    result = message_composer_insert_utf8(&model, {text, kept});
-            } else if (!message_composer_edit_key(&model, code, control, shift, &result))
+            if (control && code == 'V')
+                result = message_composer_paste_line(&model, kPackageUrlMaximumBytes, paste_control_scalar, true);
+            else if (!message_composer_edit_key(&model, code, control, shift, &result))
                 return true;
             if (result == MessageComposerResult::changed)
                 query_changed();

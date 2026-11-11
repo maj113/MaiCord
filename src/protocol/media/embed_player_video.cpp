@@ -3,6 +3,20 @@
 
 namespace maicord {
 using namespace embed_player_detail;
+namespace {
+// Where a target's query starts, else its length.
+u32 query_at(const Utf8View& target) noexcept {
+    u32 at = 0;
+    while (at < target.bytes && target.data[at] != '?') ++at;
+    return at;
+}
+bool mp4_ends(const Utf8View& target, u32 end) noexcept {
+    return end >= 4 && is_text({target.data + end - 4, 4}, ".mp4");
+}
+bool host_ends(const Utf8View& host, const Utf8View& tail) noexcept {
+    return host.bytes > tail.bytes && ascii_equal_ignore_case({host.data + host.bytes - tail.bytes, tail.bytes}, tail);
+}
+} // namespace
 bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLocation* out) noexcept {
     const Utf8View url = url_view; // *out is written inside; keep the caller's view out of the aliasing set
     if (cdn == CdnHost::soundcloud_audio) return soundcloud_location(url, false, out);
@@ -24,26 +38,21 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
     const Utf8View target{url.data + end, url.bytes - end};
     if (cdn == CdnHost::pornhub_video) {
         constexpr auto tail = utf8_literal(".phncdn.com");
-        if (host.bytes <= tail.bytes || !ascii_equal_ignore_case({host.data + host.bytes - tail.bytes, tail.bytes}, tail) ||
-            !has_prefix(target, "/videos/")) return false;
+        if (!host_ends(host, tail) || !has_prefix(target, "/videos/")) return false;
         u32 path_end = 0;
         for (; path_end < target.bytes && target.data[path_end] != '?'; ++path_end) {
             const char c = target.data[path_end];
             if (!ascii_is_alnum(c) && c != '/' && c != '_' && c != '-' && c != '.') return false;
             if (c == '.' && path_end && target.data[path_end - 1] == '.') return false;
         }
-        if (path_end < 4 || !is_text({target.data + path_end - 4, 4}, ".mp4") ||
-            !stream_expiry(url, "validto=")) return false;
+        if (!mp4_ends(target, path_end) || !stream_expiry(url, "validto=")) return false;
     } else if (cdn == CdnHost::youtube_playlist) {
         if (!is_text_nocase(host, "manifest.googlevideo.com") ||
             (!has_prefix(target, "/api/manifest/hls_variant/") &&
              !has_prefix(target, "/api/manifest/hls_playlist/"))) return false;
-    } else if (cdn == CdnHost::youtube_live) {
-        if (host.bytes<=suffix.bytes || !ascii_equal_ignore_case({host.data+host.bytes-suffix.bytes,suffix.bytes},suffix) ||
-            !has_prefix(target, "/videoplayback/")) return false;
-    } else if (cdn == CdnHost::google_video) {
-        if (host.bytes <= suffix.bytes || !ascii_equal_ignore_case({host.data + host.bytes - suffix.bytes, suffix.bytes}, suffix) ||
-            !has_prefix(target, "/videoplayback?")) return false;
+    } else if (cdn == CdnHost::youtube_live || cdn == CdnHost::google_video) {
+        if (!host_ends(host, suffix) ||
+            !(cdn == CdnHost::youtube_live ? has_prefix(target, "/videoplayback/") : has_prefix(target, "/videoplayback?"))) return false;
     } else if (cdn == CdnHost::tiktok_video) {
         constexpr auto tail = utf8_literal("-webapp-prime.tiktok.com");
         if (host.bytes < tail.bytes + 2 || host.bytes > tail.bytes + 5 || ascii_lower(host.data[0]) != 'v' ||
@@ -56,9 +65,7 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
         // tenants would let metadata redirect media fetches to unrelated sites.
         if (!is_text_nocase(host, "d1ndex63qxojbr.cloudfront.net") ||
             !has_prefix(target, "/nauth/")) return false;
-        u32 path_end = 0;
-        while (path_end < target.bytes && target.data[path_end] != '?') ++path_end;
-        if (path_end < 4 || !is_text({target.data + path_end - 4, 4}, ".mp4")) return false;
+        if (!mp4_ends(target, query_at(target))) return false;
     } else if (cdn == CdnHost::imgur_video) {
         if(!is_text_nocase(host, "i.imgur.com") || target.bytes<6 || target.data[0]!='/' ||
             !is_text({target.data+target.bytes-4,4}, ".mp4") ||
@@ -70,10 +77,9 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
         for (auto name : hosts) allowed = allowed || ascii_equal_ignore_case(host, name);
         const u32 prefix_bytes = has_prefix(target, "/video/mp4/") ? 11
             : has_prefix(target, "/video/mp4-mobile/") ? 18 : 0;
-        u32 path_end = 0;
-        while (path_end < target.bytes && target.data[path_end] != '?') ++path_end;
+        const u32 path_end = query_at(target);
         if (!allowed || !prefix_bytes || path_end <= prefix_bytes + 4 ||
-            !is_text({target.data + path_end - 4, 4}, ".mp4") ||
+            !mp4_ends(target, path_end) ||
             !streamable_video_id({target.data + prefix_bytes, path_end - prefix_bytes - 4})) return false;
     } else if (cdn == CdnHost::apple_music_preview || cdn == CdnHost::apple_music_video_preview) {
         const bool video = cdn == CdnHost::apple_music_video_preview;

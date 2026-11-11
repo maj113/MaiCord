@@ -56,20 +56,30 @@ bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, u8* output)
 }
 
 // Inflates the shader into heap scratch (the deflate workspace, then the
-// exact-size bytecode) and runs `create` on it; the D3D11 Create* call copies
-// the bytecode. Not stack: workspace and shader reach 38 KB, and every stack
-// page a thread touches stays committed for its lifetime.
-template <typename Create>
-HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
+// exact-size bytecode) and runs `call(create, bytes, count)` on it; the D3D11
+// Create* call copies the bytecode. Not stack: workspace and shader reach 38 KB,
+// and every stack page a thread touches stays committed for its lifetime.
+HRESULT inflate_and_create(ShaderId id, HRESULT (*call)(void*, const u8*, u32) noexcept, void* create) noexcept {
     if (id >= ShaderId::count) return E_FAIL;
     const PackedShader& entry = kShaders[static_cast<u32>(id)];
     const u32 raw = raw_size(entry);
     auto* workspace = static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + raw));
     if (!workspace) return E_OUTOFMEMORY;
     u8* bytes = reinterpret_cast<u8*>(workspace + 1);
-    const HRESULT result = inflate(entry, workspace, bytes) ? create(bytes, raw) : E_FAIL;
+    const HRESULT result = inflate(entry, workspace, bytes) ? call(create, bytes, raw) : E_FAIL;
     HeapFree(process_heap(), 0, workspace);
     return result;
+}
+
+// One inflate body for every shader kind: `create(bytes, count)` runs through a pointer.
+template <typename Create>
+HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
+    return inflate_and_create(
+        id,
+        [](void* function, const u8* bytes, u32 count) noexcept {
+            return (*static_cast<Create*>(function))(bytes, count);
+        },
+        &create);
 }
 
 // The most attributes a built-in vertex shader reads.

@@ -53,11 +53,6 @@ bool native_text_context_rebuild(const TextSystem& system,NativeTextRebuild atte
     return true;
 }
 namespace {
-void discard_recovery_output(ShapedText& output) noexcept {
-    auto* fonts=output.native_fonts();if(!fonts)return;
-    for(u32 i=0;i<output.run_count;++i)native_font_run_release(native_font_session_runs(fonts),output.runs[i].native_face);
-    native_font_session_release(&fonts);
-}
 using RetryAttempt=bool (*)(const TextSystem&,ShapedText*,void*) noexcept;
 bool retry_stale_erased(const TextSystem& system,ShapedText* output,RetryAttempt attempt,void* context) noexcept {
     const auto* owner=system.native_text;
@@ -67,7 +62,7 @@ bool retry_stale_erased(const TextSystem& system,ShapedText* output,RetryAttempt
     const bool okay=native_text_context_rebuild(system,[](const TextSystem& staged,void* opaque) noexcept {
         auto& retry=*static_cast<Retry*>(opaque);return retry.attempt(staged,retry.output,retry.context);
     },&retry);
-    if(okay){if(output)*output=draft;}else discard_recovery_output(draft);
+    if(okay){if(output)*output=draft;}else release_fonts(draft);
     return okay;
 }
 template<class Attempt> bool retry_stale(const TextSystem& system,ShapedText* output,Attempt attempt) noexcept {

@@ -5,10 +5,9 @@
 namespace maicord {
 namespace {
 
-PopupItem action(const Utf8View& label, UiAccountSwitcherAction value, UiIcon icon, u16 flags = 0) noexcept {
-    PopupItem result{label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags), 0};
-    result.presentation = ui_menu_row_presentation(icon);
-    return result;
+void action(PopupItem* item, Utf8View label, UiAccountSwitcherAction value, UiIcon icon, u16 flags = 0) noexcept {
+    popup_item_set(item, label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags));
+    item->presentation = ui_menu_row_presentation(icon);
 }
 
 bool label_valid(const Utf8View& value) noexcept {
@@ -71,16 +70,18 @@ bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAc
         item.media_flags = account.avatar_animated ? 1 : 0;
     }
     auto& add = model->items[model->count++];
-    add = action(utf8_literal("Add an account"), UiAccountSwitcherAction::add_account, UiIcon::user,
-                 accounts.count ? popup_item_separator_before : 0);
+    action(&add, utf8_literal("Add an account"), UiAccountSwitcherAction::add_account, UiIcon::user,
+           accounts.count ? popup_item_separator_before : 0);
     if (!can_add) {
         add.flags = static_cast<u16>(add.flags & ~popup_item_enabled);
         add.detail = utf8_literal("You can switch between up to 5 accounts.");
         add.presentation.secondary_line = true;
     }
-    model->items[model->count++] =
-        manage ? action(utf8_literal("Back"), UiAccountSwitcherAction::back, UiIcon::chevron_left)
-               : action(utf8_literal("Manage accounts"), UiAccountSwitcherAction::manage_accounts, UiIcon::settings);
+    PopupItem* last = &model->items[model->count++];
+    if (manage)
+        action(last, utf8_literal("Back"), UiAccountSwitcherAction::back, UiIcon::chevron_left);
+    else
+        action(last, utf8_literal("Manage accounts"), UiAccountSwitcherAction::manage_accounts, UiIcon::settings);
     return true;
 }
 

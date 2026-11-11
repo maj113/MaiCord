@@ -76,6 +76,55 @@ bool read_hex_quad(const char* data, u32 offset, u32 end, u32* value) noexcept {
     return true;
 }
 
+// The character of each one-letter escape, indexed by the letter minus '"' (the first of them); 0 for none.
+struct ShortEscapes {
+    u8 character['t' - '"' + 1];
+};
+constexpr ShortEscapes make_short_escapes() noexcept {
+    ShortEscapes escapes{};
+    escapes.character['"' - '"'] = '"';
+    escapes.character['\\' - '"'] = '\\';
+    escapes.character['/' - '"'] = '/';
+    escapes.character['b' - '"'] = 0x08;
+    escapes.character['f' - '"'] = 0x0C;
+    escapes.character['n' - '"'] = 0x0A;
+    escapes.character['r' - '"'] = 0x0D;
+    escapes.character['t' - '"'] = 0x09;
+    return escapes;
+}
+constexpr ShortEscapes kShortEscapes = make_short_escapes();
+
+// The character the one-letter escape `letter` stands for, or 0 when it is not one.
+__forceinline u32 short_escape(char letter) noexcept {
+    const u32 slot = static_cast<u32>(static_cast<u8>(letter)) - '"';
+    return slot < sizeof(kShortEscapes.character) ? kShortEscapes.character[slot] : 0;
+}
+
+// The scalar of the \u escape whose hex digits start at data[at] (a high surrogate takes the next \u escape too)
+// and the offset after it; 0 for a malformed one, with *error_at the offset of the digits at fault.
+__forceinline u32 unicode_escape(const char* data, u32 at, u32 end, u32* codepoint, u32* error_at) noexcept {
+    u32 first = 0;
+    *error_at = at;
+    if (!read_hex_quad(data, at, end, &first) || (first >= 0xDC00 && first <= 0xDFFF)) {
+        return 0;
+    }
+    if (first < 0xD800 || first > 0xDBFF) {
+        *codepoint = first;
+        return at + 4;
+    }
+    *error_at = at + 4;
+    if (end - (at + 4) < 6 || data[at + 4] != '\\' || data[at + 5] != 'u') {
+        return 0;
+    }
+    u32 second = 0;
+    *error_at = at + 6;
+    if (!read_hex_quad(data, at + 6, end, &second) || second < 0xDC00 || second > 0xDFFF) {
+        return 0;
+    }
+    *codepoint = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+    return at + 10;
+}
+
 // Bytes that need the scalar path: controls, non-ASCII (negative as signed
 // bytes) and backslashes. Plain ASCII runs advance 16 bytes at a time.
 __forceinline u32 special_bytes(const char* data) noexcept {
@@ -128,32 +177,16 @@ bool validate_string_content(IndexedReader* reader, u32 begin, u32 end, bool* ha
             return fail(reader, JsonReadError::invalid_escape, offset - 1);
         }
         const char escape = reader->input.data[offset++];
-        if (escape == '"' || escape == '\\' || escape == '/' || escape == 'b' || escape == 'f' ||
-            escape == 'n' || escape == 'r' || escape == 't') {
+        if (short_escape(escape)) {
             continue;
         }
         if (escape != 'u') {
             return fail(reader, JsonReadError::invalid_escape, offset - 1);
         }
-
-        u32 first = 0;
-        if (!read_hex_quad(reader->input.data, offset, end, &first)) {
-            return fail(reader, JsonReadError::invalid_unicode_escape, offset);
-        }
-        offset += 4;
-        if (first >= 0xD800 && first <= 0xDBFF) {
-            if (end - offset < 6 || reader->input.data[offset] != '\\' ||
-                reader->input.data[offset + 1] != 'u') {
-                return fail(reader, JsonReadError::invalid_unicode_escape, offset);
-            }
-            u32 second = 0;
-            if (!read_hex_quad(reader->input.data, offset + 2, end, &second) || second < 0xDC00 ||
-                second > 0xDFFF) {
-                return fail(reader, JsonReadError::invalid_unicode_escape, offset + 2);
-            }
-            offset += 6;
-        } else if (first >= 0xDC00 && first <= 0xDFFF) {
-            return fail(reader, JsonReadError::invalid_unicode_escape, offset - 4);
+        u32 scalar = 0, error_at = 0;
+        offset = unicode_escape(reader->input.data, offset, end, &scalar, &error_at);
+        if (!offset) {
+            return fail(reader, JsonReadError::invalid_unicode_escape, error_at);
         }
     }
     *has_escapes = escaped;
@@ -427,56 +460,19 @@ bool decode_string_scalar(const JsonString& value, u32* offset, u32* codepoint) 
     }
     const char escape = value.encoded.data[*offset + 1];
     *offset += 2;
-    switch (escape) {
-    case '"':
-    case '\\':
-    case '/':
-        *codepoint = static_cast<u32>(escape);
+    if (const u32 character = short_escape(escape)) {
+        *codepoint = character;
         return true;
-    case 'b':
-        *codepoint = 0x08;
-        return true;
-    case 'f':
-        *codepoint = 0x0C;
-        return true;
-    case 'n':
-        *codepoint = 0x0A;
-        return true;
-    case 'r':
-        *codepoint = 0x0D;
-        return true;
-    case 't':
-        *codepoint = 0x09;
-        return true;
-    case 'u':
-        break;
-    default:
+    }
+    if (escape != 'u') {
         return false;
     }
-
-    u32 first = 0;
-    if (!read_hex_quad(value.encoded.data, *offset, value.encoded.bytes, &first)) {
+    u32 error_at = 0;
+    const u32 next = unicode_escape(value.encoded.data, *offset, value.encoded.bytes, codepoint, &error_at);
+    if (!next) {
         return false;
     }
-    *offset += 4;
-    if (first >= 0xD800 && first <= 0xDBFF) {
-        if (value.encoded.bytes - *offset < 6 || value.encoded.data[*offset] != '\\' ||
-            value.encoded.data[*offset + 1] != 'u') {
-            return false;
-        }
-        u32 second = 0;
-        if (!read_hex_quad(value.encoded.data, *offset + 2, value.encoded.bytes, &second) ||
-            second < 0xDC00 || second > 0xDFFF) {
-            return false;
-        }
-        *offset += 6;
-        *codepoint = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
-        return true;
-    }
-    if (first >= 0xDC00 && first <= 0xDFFF) {
-        return false;
-    }
-    *codepoint = first;
+    *offset = next;
     return true;
 }
 
@@ -637,18 +633,18 @@ static JsonReadResult visit_range(bool object, Utf8View input, ConstSlice<u32> s
     const char open = object ? '{' : '[';
     const char close = object ? '}' : ']';
     if ((!input.data && input.bytes != 0) || (!structurals.data && structurals.count != 0)) {
-        return JsonReadResult{0, 0, JsonReadError::invalid_input};
+        return JsonReadResult{0, JsonReadError::invalid_input};
     }
 
     IndexedReader reader{input, structurals, begin, 0, maximum_depth, 0, JsonReadError::none};
     if (begin == 0) skip_optional_utf8_bom(&reader);
     skip_whitespace(&reader);
     if (maximum_depth == 0) {
-        return JsonReadResult{0, reader.offset, JsonReadError::depth_limit};
+        return JsonReadResult{reader.offset, JsonReadError::depth_limit};
     }
     if (!consume_structural(&reader, open,
                             object ? JsonReadError::expected_root_object : JsonReadError::expected_root_array)) {
-        return JsonReadResult{0, reader.error_offset, reader.error};
+        return JsonReadResult{reader.error_offset, reader.error};
     }
 
     u32 count = 0;
@@ -672,7 +668,7 @@ static JsonReadResult visit_range(bool object, Utf8View input, ConstSlice<u32> s
             fail(&reader, JsonReadError::structural_index_mismatch, reader.offset);
         }
     }
-    return JsonReadResult{count, reader.error_offset, reader.error};
+    return JsonReadResult{reader.error == JsonReadError::none ? count : reader.error_offset, reader.error};
 }
 
 JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
@@ -754,7 +750,7 @@ static JsonReadResult visit_indexed(bool object, const JsonIndexedDocument& docu
     u32 begin = 0, first = 0;
     if (value.kind != (object ? JsonValueKind::object : JsonValueKind::array) ||
         !indexed_subview(document, value, &prefix, &offsets, &begin, &first))
-        return {0, 0, JsonReadError::invalid_input};
+        return {0, JsonReadError::invalid_input};
     return visit_range(object, prefix, offsets, maximum_depth, visitor, context, begin, value.validated,
                        &document.hint, first);
 }

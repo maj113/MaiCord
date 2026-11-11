@@ -11,13 +11,6 @@ namespace {
 bool enabled(const UiThreadHeaderView& v, UiThreadAction action) noexcept {
     return (v.enabled_actions & ui_thread_action_bit(action)) != 0;
 }
-bool style_valid(const UiThreadHeaderStyle& s) noexcept {
-    const float values[]{s.height, s.feedback_height, s.inset, s.gap, s.control_height,
-        s.primary_width, s.overflow_width, s.cancel_width};
-    for (float value : values) if (!ui_coordinate_valid(value) || value < 0 || value > 256) return false;
-    return s.height >= s.control_height && s.feedback_height >= s.control_height &&
-        s.control_height >= 24 && s.primary_width >= 64 && s.overflow_width >= 24 && s.cancel_width >= 48;
-}
 bool same_view(const UiThreadHeaderView& a, const UiThreadHeaderView& b) noexcept {
     return a.thread_id == b.thread_id && a.source_publication == b.source_publication &&
         a.enabled_actions == b.enabled_actions && a.membership == b.membership && a.operation == b.operation &&
@@ -120,7 +113,7 @@ bool accent_action(UiThreadAction action) noexcept {
 } // namespace
 
 float ui_thread_header_height(const UiThreadHeaderView& view, const UiThreadHeaderStyle& style) noexcept {
-    return view.visible && view.thread_id && style_valid(style)
+    return view.visible && view.thread_id
         ? style.height + (view.status.bytes ? style.feedback_height : 0) : 0;
 }
 Utf8View ui_thread_header_status(const UiThreadHeaderView& v) noexcept {
@@ -163,7 +156,7 @@ static Utf8View action_label(UiThreadAction action) noexcept {
 }
 static bool project_geometry(const UiThreadHeaderView& v, const UiThreadHeaderStyle& s, UiRect r, UiRect clip,
     UiThreadHeaderGeometry* out) noexcept {
-    if (!view_valid(v) || !style_valid(s) || !ui_rect_valid_or_empty(r) ||
+    if (!view_valid(v) || !ui_rect_valid_or_empty(r) ||
         !ui_rect_valid_or_empty(clip)) return false;
     UiThreadHeaderGeometry g{};
     if (!v.visible) { *out = g; return true; }

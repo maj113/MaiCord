@@ -114,18 +114,12 @@ void on_reply(void* context, dbus::Status status, const dbus::Message* reply) no
     if (!current(context))
         return;
     if (status != dbus::Status::ok) {
-        log_write(LogLevel::trace, "screen_color",
-                  status == dbus::Status::error_reply && reply && reply->error_name ? reply->error_name
-                                                                                     : "PickColor failed");
+        log_write(LogLevel::trace, "screen_color", dbus::reply_error_name(status, reply, "PickColor failed"));
         dbus::portal_request_end(&g_pick.request);
         settle(ScreenColorState::failed);
         return;
     }
-    dbus::Reader r;
-    dbus::message_reader(*reply, &r);
-    const char* handle = nullptr;
-    if (dbus::reader_string(&r, &handle, nullptr))
-        dbus::portal_request_adopt(&g_pick.request, handle);
+    dbus::portal_request_adopt_reply(&g_pick.request, *reply);
 }
 #endif
 

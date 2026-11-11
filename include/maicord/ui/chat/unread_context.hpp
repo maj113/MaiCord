@@ -28,13 +28,13 @@ struct UnreadContextTarget {
     UnreadContextKind kind;
 };
 // Preflight native action visibility before opening a popup.
-bool unread_context_available(UnreadContextSource source, UnreadContextKind kind, u64 id) noexcept;
+bool unread_context_available(const UnreadContextSource& source, UnreadContextKind kind, u64 id) noexcept;
 // The popup must already be published. Nonzero action binds an enabled row.
 // No strings or mutable model pointers are retained; identity and borrowed
 // owner addresses fence later activation.
-bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind,
+bool unread_context_capture(const UnreadContextSource& source, UnreadContextKind kind,
     u64 id, UnreadContextTarget* target, u32 action) noexcept;
 // Keyboard focus/hover may change without expiring this target. A reopened
 // popup, retired row, account scope or authoritative record does expire it.
-bool unread_context_current(const UnreadContextTarget& target, UnreadContextSource source) noexcept;
+bool unread_context_current(const UnreadContextTarget& target, const UnreadContextSource& source) noexcept;
 } // namespace maicord

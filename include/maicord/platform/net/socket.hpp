@@ -5,9 +5,9 @@
 #include "maicord/platform/net/network.hpp"
 
 // Plain sockets, for the code that does not run on a NetworkLoop: the loopback listeners of the browser sign-in and
-// the captcha bridge (which wait on events next to their own), and the updater's blocking HTTPS transport. Windows
-// calls Winsock (WSAEventSelect for the watches, closesocket to interrupt), Linux the system calls (an epoll
-// descriptor per watch, shutdown to interrupt). Errors are the Win32/Winsock numbers, as in network.hpp.
+// the captcha bridge, which wait on events next to their own. Windows calls Winsock (WSAEventSelect for the
+// watches), Linux the system calls (an epoll descriptor per watch). Errors are the Win32/Winsock numbers, as in
+// network.hpp.
 
 namespace maicord {
 
@@ -55,12 +55,6 @@ SocketListenResult socket_listen_loopback(Socket* listener, u16 first_port, u16 
 // on failure. `*from_loopback` tells whether the peer is IPv4 127.0.0.1. The accepted socket is non-blocking.
 bool socket_accept(Socket* listener, Socket* accepted, bool* from_loopback, i32* native_error) noexcept;
 
-// A blocking TCP socket of the family of `address`, with `timeout_ms` as its send and receive timeout; and its
-// connection to `address` (it blocks for at most the timeout). The two are separate so that a thread that may be
-// asked to interrupt can publish the socket between them.
-bool socket_create_stream(Socket* socket, const NetworkAddress& address, u32 timeout_ms, i32* native_error) noexcept;
-bool socket_connect(const Socket& socket, const NetworkAddress& address, i32* native_error) noexcept;
-
 // Bytes sent or received (0 from socket_receive is an orderly close), or -1 with network_last_error() set. The
 // calls of a non-blocking socket fail with WSAEWOULDBLOCK instead of waiting; a receive that fills its buffer, and
 // an accept, leave the socket's watch signaled again if more is pending, as Windows event selection does.
@@ -68,9 +62,6 @@ i32 socket_send(const Socket& socket, const void* data, u32 bytes) noexcept;
 i32 socket_receive(const Socket& socket, void* data, u32 bytes) noexcept;
 // Ends sending: the peer reads to the end of the response (SD_SEND / SHUT_WR).
 void socket_shutdown_send(const Socket& socket) noexcept;
-// Makes a thread blocked in this socket's calls return, from any thread; the owner still closes the socket. (On
-// Windows closing wakes the call, so this does nothing there; on Linux close does not.)
-void socket_interrupt(const Socket& socket) noexcept;
 // Closes the socket and leaves none.
 void socket_close(Socket* socket) noexcept;
 
@@ -102,12 +93,6 @@ bool socket_watch_poll(SocketWatch* watch, const Socket& socket, u32* events) no
 // Clears a signaled watch that has no socket.
 void socket_watch_reset(SocketWatch* watch) noexcept;
 void socket_watch_close(SocketWatch* watch) noexcept;
-
-// getaddrinfo on the calling thread, for a host name and a service (both UTF-16, ASCII): the first
-// kNetworkResolverMaximumAddresses IPv4 and IPv6 answers. False with *native_error when the lookup fails or has no
-// usable answer.
-bool network_resolve_blocking(const wchar_t* host, const wchar_t* service, NetworkAddress* addresses, u32* count,
-                              i32* native_error) noexcept;
 
 // A UDP socket bound to 127.0.0.1 and a port the system picks, for the peer a connected NetworkDatagram talks to.
 // Attach it to a watch before reading: its calls do not block.

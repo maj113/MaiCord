@@ -44,6 +44,30 @@ void stream_slots_release(StreamSurface (&slots)[kStreamSurfaceLimit], u32* coun
     *count = 0;
 }
 
+bool stream_slots_create_cpu(GpuDevice* device, StreamSurface (&slots)[kStreamSurfaceLimit], u32* count, u32 wanted,
+                             u32 width, u32 height) noexcept {
+    if (!wanted || wanted > kStreamSurfaceLimit)
+        return false;
+    for (u32 i = 0; i < wanted; ++i) {
+        StreamSurface& slot = slots[i];
+        const GpuStatus luma = gpu_video_plane_create(device, GpuVideoPlaneFormat::r8, width, height,
+                                                      &slot.luma_texture, &slot.luma_view, &slot.luma_pixels,
+                                                      &slot.luma_pitch);
+        const GpuStatus chroma = gpu_ok(luma) ? gpu_video_plane_create(device, GpuVideoPlaneFormat::rg8, width / 2,
+                                                                        height / 2, &slot.chroma_texture,
+                                                                        &slot.chroma_view, &slot.chroma_pixels,
+                                                                        &slot.chroma_pitch)
+                                              : luma;
+        if (!gpu_ok(chroma)) {
+            *count = i + 1u; // the luma plane made above is released with the rest
+            stream_slots_release(slots, count);
+            return false;
+        }
+    }
+    *count = wanted;
+    return true;
+}
+
 Mp4DecodedFrame stream_movie_frame(H264OutputQueue* output, GpuDevice* device, vaapi::Session* session,
                                    StreamSurface* slots, GpuVideoFrame* frame,
                                    const VideoDisplayExtent& display) noexcept {
@@ -106,31 +130,6 @@ struct State {
     u32 unit_ordinal;
     i32 order;
 };
-
-// `count` CPU-backed pictures of width x height (both even).
-bool slots_create_cpu(State* s, u32 count, u32 width, u32 height) noexcept {
-    if (!count || count > kSlotLimit)
-        return false;
-    for (u32 i = 0; i < count; ++i) {
-        StreamSurface& slot = s->slot[i];
-        const GpuStatus luma = gpu_video_plane_create(s->device, GpuVideoPlaneFormat::r8, width, height,
-                                                      &slot.luma_texture, &slot.luma_view, &slot.luma_pixels,
-                                                      &slot.luma_pitch);
-        s->slots = i + (gpu_ok(luma) ? 1u : 0u);
-        const GpuStatus chroma = gpu_ok(luma) ? gpu_video_plane_create(s->device, GpuVideoPlaneFormat::rg8, width / 2,
-                                                                        height / 2, &slot.chroma_texture,
-                                                                        &slot.chroma_view, &slot.chroma_pixels,
-                                                                        &slot.chroma_pitch)
-                                              : luma;
-        if (!gpu_ok(chroma)) {
-            s->slots = i + 1u; // the luma plane made above is released with the rest
-            stream_slots_release(s->slot, &s->slots);
-            return false;
-        }
-    }
-    s->slots = count;
-    return true;
-}
 
 // ---- Tiers -------------------------------------------------------------------------------------------------------
 
@@ -284,7 +283,8 @@ bool create_software(State* s) noexcept {
     s->software = software_decoder_create(GpuStreamCodec::h264, true);
     if (!s->software)
         return false;
-    if (!slots_create_cpu(s, surface_count(a), (a.width + 1u) & ~1u, (a.height + 1u) & ~1u)) {
+    if (!stream_slots_create_cpu(s->device, s->slot, &s->slots, surface_count(a), (a.width + 1u) & ~1u,
+                                 (a.height + 1u) & ~1u)) {
         release_tiers(s);
         return false;
     }

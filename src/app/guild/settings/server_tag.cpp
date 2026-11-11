@@ -16,17 +16,12 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-// Sample chat lines of the preview; the last one wears the tag.
-struct SampleLine {
-    Utf8View name, message;
-    u32 role_color;
-};
-constexpr SampleLine kSamples[]{
-    {utf8_literal("Mira"), utf8_literal("anyone down for a match?"), 6},
-    {utf8_literal("Juno"), utf8_literal("count me in"), 1},
-    {utf8_literal("Ari"), utf8_literal("check out my tag!"), 4},
-};
-constexpr u32 kSampleCount = sizeof(kSamples) / sizeof(kSamples[0]);
+// Sample chat lines of the preview, each a name and its message; the last one wears the tag. The names' role colours
+// (kGuildRoleColors indexes) in the same order.
+constexpr char kSampleLines[] = "Mira\0anyone down for a match?\0Juno\0count me in\0Ari\0check out my tag!\0";
+constexpr u8 kSampleColors[]{6, 1, 4};
+constexpr u32 kSampleCount = sizeof(kSampleColors);
+static_assert(name_list_count(kSampleLines) == 2 * kSampleCount);
 // What the preview shows for a tag not typed yet.
 constexpr Utf8View kPlaceholderTag = utf8_literal("WUMP");
 
@@ -229,23 +224,23 @@ void project_badges(bool edit) noexcept {
     const u64 features = guild_features();
     u32 unlocked = 0, locked = 0, selected = kUiSettingsNoChoice;
     u32 first = p.glyph_tile_count;
+    NameList name{kGuildTagBadgeNames};
     for (const auto& badge : kGuildTagBadges) {
-        if (!guild_tag_badge_unlocked(badge, features))
-            continue;
-        if (badge.type == d.badge)
-            selected = unlocked;
-        p.tag_unlocked[unlocked] = badge.type;
-        p.tag_unlocked_names[unlocked++] = badge.name;
-        // As the official picker: each badge in its own colours.
-        add_tile(badge_tile(badge.type, badge.primary, badge.tints > 1 ? badge.secondary : badge.primary));
+        if (!guild_tag_badge_unlocked(badge, features)) {
+            p.tag_locked[locked] = badge.type;
+            p.tag_locked_names[locked++] = name.name();
+        } else {
+            if (badge.type == d.badge)
+                selected = unlocked;
+            p.tag_unlocked[unlocked] = badge.type;
+            p.tag_unlocked_names[unlocked++] = name.name();
+            // As the official picker: each badge in its own colours.
+            add_tile(badge_tile(badge.type, badge.primary, badge.tints > 1 ? badge.secondary : badge.primary));
+        }
+        name.next();
     }
     push_glyphs(control_tag_badges, "Choose Badge", "Changing just the badge won't remove the Server Tag from members.",
                 edit, {p.tag_unlocked_names, unlocked}, selected, first);
-    for (const auto& badge : kGuildTagBadges)
-        if (!guild_tag_badge_unlocked(badge, features)) {
-            p.tag_locked[locked] = badge.type;
-            p.tag_locked_names[locked++] = badge.name;
-        }
     if (!locked)
         return;
     push_action(control_tag_show_locked, "Badge packs", {},
@@ -269,9 +264,10 @@ void project_colors(bool edit) noexcept {
     auto& p = *owner;
     auto& d = p.tag_draft;
     const u32 first = p.glyph_tile_count;
-    for (u32 i = 0; i < kGuildTagPaletteCount; ++i) {
+    NameList name{kGuildTagPaletteNames};
+    for (u32 i = 0; i < kGuildTagPaletteCount; ++i, name.next()) {
         add_tile(badge_tile(d.badge, kGuildTagPalettes[i].primary, kGuildTagPalettes[i].secondary));
-        p.tag_palette_names[i] = kGuildTagPalettes[i].name;
+        p.tag_palette_names[i] = name.name();
     }
     const auto* badge = guild_tag_badge(d.badge);
     const u32 own_primary = badge ? badge->primary : 0;
@@ -328,9 +324,12 @@ void project(Bank& bank) noexcept {
     push_category(control_tag_preview_category, "Preview");
     const Utf8View shown = d.tag_bytes ? bank.add({d.tag, d.tag_bytes}) : kPlaceholderTag;
     const u32 chip = add_tile(draft_tile(d));
-    for (u32 i = 0; i < kSampleCount; ++i)
-        push_name(control_tag_preview + i, kSamples[i].name, kSamples[i].message, shown,
-                  i + 1 == kSampleCount ? chip : ~0u);
+    const char* line = kSampleLines;
+    for (u32 i = 0; i < kSampleCount; ++i) {
+        const char* message = line + c_string_length(line) + 1;
+        push_name(control_tag_preview + i, line, message, shown, i + 1 == kSampleCount ? chip : ~0u);
+        line = message + c_string_length(message) + 1;
+    }
 
     push_category(control_tag_name_category, "Choose Name");
     push_editor(control_tag_text, {}, "You may use max 4 characters, alphabet and numbers.",
@@ -507,7 +506,7 @@ void tag_edited(const Utf8View& text) noexcept {
 bool tag_color(u64 id, u32 choice, u32* rgb) noexcept {
     // The sample names' colours and the custom colour swatches.
     if (id >= control_tag_preview && id < control_tag_preview + kSampleCount && choice == kUiSettingsAccentChoice) {
-        *rgb = kGuildRoleColors[kSamples[id - control_tag_preview].role_color];
+        *rgb = kGuildRoleColors[kSampleColors[id - control_tag_preview]];
         return true;
     }
     if (id == control_tag_custom && choice < 2) {

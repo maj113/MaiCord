@@ -388,8 +388,14 @@ ApplicationTextFormProgress confirm_progress(TextFormOwnerKey key) noexcept {
             true};
 }
 
+u32 append(char* output, u32 used, u32 capacity, const char* text, u32 bytes) noexcept {
+    return used + utf8_copy_truncated(output + used, capacity - used, {text, bytes});
+}
 u32 append(char* output, u32 used, u32 capacity, const Utf8View& text) noexcept {
-    return used + utf8_copy_truncated(output + used, capacity - used, text);
+    return append(output, used, capacity, text.data, text.bytes);
+}
+template <u32 N> u32 append(char* output, u32 used, u32 capacity, const char (&text)[N]) noexcept {
+    return append(output, used, capacity, text, N - 1);
 }
 
 bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
@@ -403,13 +409,12 @@ bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
     const Utf8View display = account_inventory_display_name(entry);
     const Utf8View username = account_inventory_username(entry);
     const Utf8View name = display.bytes ? display : username.bytes ? username : utf8_literal("this account");
-    u32 title = append(g_switch.confirm_title, 0, kConfirmTitleBytes - 1, utf8_literal("Log out of "));
+    u32 title = append(g_switch.confirm_title, 0, kConfirmTitleBytes - 1, "Log out of ");
     title = append(g_switch.confirm_title, title, kConfirmTitleBytes - 1, name);
-    title = append(g_switch.confirm_title, title, kConfirmTitleBytes, utf8_literal("?"));
-    u32 context =
-        append(g_switch.confirm_context, 0, kConfirmContextBytes, utf8_literal("You'll have to log in to "));
+    title = append(g_switch.confirm_title, title, kConfirmTitleBytes, "?");
+    u32 context = append(g_switch.confirm_context, 0, kConfirmContextBytes, "You'll have to log in to ");
     context = append(g_switch.confirm_context, context, kConfirmContextBytes - 12, username.bytes ? username : name);
-    context = append(g_switch.confirm_context, context, kConfirmContextBytes, utf8_literal(" again later."));
+    context = append(g_switch.confirm_context, context, kConfirmContextBytes, " again later.");
     ApplicationTextFormRequest request{};
     request.title = {g_switch.confirm_title, title};
     request.context = {g_switch.confirm_context, context};

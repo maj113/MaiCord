@@ -330,7 +330,8 @@ RemoteAuthUserPreviewResult remote_auth_parse_user_preview(Utf8View payload,
     if (!username_validation.valid || username_validation.codepoints == 0 ||
         username_validation.codepoints > 32) {
         return user_failure(RemoteAuthUserPreviewError::invalid_username,
-                            separators[2] + 1 + username_validation.error_offset);
+                            separators[2] + 1 +
+                                (username_validation.valid ? username.bytes : username_validation.error_offset));
     }
 
     *preview = RemoteAuthUserPreview{user_id, discriminator, avatar, username};

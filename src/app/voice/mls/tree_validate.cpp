@@ -257,86 +257,70 @@ MlsStatus parent_hash_matches(const Validation& v, u32 index, const u8* expected
         *matches = mls_equal(parent_hash, expected, kMlsHashBytes);
     return status;
 }
-MlsStatus relation_item(u32 child, u32 candidate, const ConstSlice<u8>& parent_unmerged, u32 item,
-                        u32* remaining) noexcept {
-    if (item == candidate)
-        return MlsStatus::ok;
-    if (!mls_tree_is_leaf(item) || !mls_tree_is_below(item, child) ||
-        !mls_u32_list_contains(parent_unmerged, item >> 1) || *remaining == ~u32{0})
-        return MlsStatus::malformed;
-    ++*remaining;
-    return MlsStatus::ok;
-}
-// Counts resolution members other than the candidate; each must be an
-// unmerged leaf of the parent (RFC 9420 7.9.2).
-MlsStatus relation_walk(const Validation& v, u32 child, u32 index, u32 candidate,
-                        ConstSlice<u8> parent_unmerged, u32* remaining) noexcept {
+// Calls `visit` on each member of the resolution of `index`: a present node and its unmerged leaves, else the
+// resolutions of its children (RFC 9420 4.1.1); stops at the first status that is not ok.
+using ResolutionVisit = MlsStatus (*)(void* context, u32 item) noexcept;
+MlsStatus resolution_each(const Validation& v, u32 index, ResolutionVisit visit, void* context) noexcept {
     RawNode raw{};
     if (auto status = raw_at(v, index, &raw); status != MlsStatus::ok)
         return status;
     if (raw.present) {
-        auto status = relation_item(child, candidate, parent_unmerged, index, remaining);
+        auto status = visit(context, index);
         if (status == MlsStatus::ok && raw.type == kMlsNodeParent) {
             MlsParentNode parent{};
             status = parent_at(v, index, &parent);
             for (u32 i = 0; status == MlsStatus::ok && i != parent.unmerged.count; i += 4)
-                status = relation_item(child, candidate, parent_unmerged,
-                                       byte_load_be32(parent.unmerged.data + i) * 2, remaining);
+                status = visit(context, byte_load_be32(parent.unmerged.data + i) * 2);
         }
         return status;
     }
     if (mls_tree_is_leaf(index))
         return MlsStatus::ok;
-    auto status = relation_walk(v, child, mls_tree_left(index), candidate, parent_unmerged, remaining);
+    auto status = resolution_each(v, mls_tree_left(index), visit, context);
     if (status == MlsStatus::ok)
-        status = relation_walk(v, child, mls_tree_right(index), candidate, parent_unmerged, remaining);
+        status = resolution_each(v, mls_tree_right(index), visit, context);
     return status;
 }
+// Counts resolution members other than the candidate; each must be an
+// unmerged leaf of the parent (RFC 9420 7.9.2).
 MlsStatus relation_valid(const Validation& v, u32 child, u32 candidate, ConstSlice<u8> parent_unmerged,
                          bool* valid) noexcept {
-    u32 intersection = 0, remaining = 0;
+    struct Relation { u32 child, candidate; ConstSlice<u8> parent_unmerged; u32 remaining; } relation{
+        child, candidate, parent_unmerged, 0};
+    u32 intersection = 0;
     *valid = false;
     for (u32 i = 0; i != parent_unmerged.count; i += 4)
         if (mls_tree_is_below(byte_load_be32(parent_unmerged.data + i) * 2, child))
             ++intersection;
-    const auto status = relation_walk(v, child, child, candidate, parent_unmerged, &remaining);
-    if (status == MlsStatus::ok)
-        *valid = intersection == remaining;
-    return status;
-}
-MlsStatus candidate_matches(const Validation& v, u32 child, u32 candidate,
-                            const ConstSlice<u8>& parent_unmerged, const u8* expected,
-                            u32* matches) noexcept {
-    bool hash_matches = false, relation = false;
-    auto status = parent_hash_matches(v, candidate, expected, &hash_matches);
-    if (status == MlsStatus::ok && hash_matches)
-        status = relation_valid(v, child, candidate, parent_unmerged, &relation);
-    if (status == MlsStatus::ok && hash_matches && relation)
-        ++*matches;
-    return status;
-}
-MlsStatus resolution_matches(const Validation& v, u32 child, u32 index, ConstSlice<u8> parent_unmerged,
-                             const u8* expected, u32* matches) noexcept {
-    RawNode raw{};
-    if (auto status = raw_at(v, index, &raw); status != MlsStatus::ok)
-        return status;
-    if (raw.present) {
-        auto status = candidate_matches(v, child, index, parent_unmerged, expected, matches);
-        if (status == MlsStatus::ok && raw.type == kMlsNodeParent) {
-            MlsParentNode parent{};
-            status = parent_at(v, index, &parent);
-            for (u32 i = 0; status == MlsStatus::ok && i != parent.unmerged.count; i += 4)
-                status = candidate_matches(v, child, byte_load_be32(parent.unmerged.data + i) * 2,
-                                           parent_unmerged, expected, matches);
-        }
-        return status;
-    }
-    if (mls_tree_is_leaf(index))
+    const auto status = resolution_each(v, child, [](void* context, u32 item) noexcept {
+        auto& r = *static_cast<Relation*>(context);
+        if (item == r.candidate)
+            return MlsStatus::ok;
+        if (!mls_tree_is_leaf(item) || !mls_tree_is_below(item, r.child) ||
+            !mls_u32_list_contains(r.parent_unmerged, item >> 1) || r.remaining == ~u32{0})
+            return MlsStatus::malformed;
+        ++r.remaining;
         return MlsStatus::ok;
-    auto status = resolution_matches(v, child, mls_tree_left(index), parent_unmerged, expected, matches);
+    }, &relation);
     if (status == MlsStatus::ok)
-        status = resolution_matches(v, child, mls_tree_right(index), parent_unmerged, expected, matches);
+        *valid = intersection == relation.remaining;
     return status;
+}
+// Counts the members of the resolution of `child` whose parent hash is `expected` and that are validly related.
+MlsStatus resolution_matches(const Validation& v, u32 child, ConstSlice<u8> parent_unmerged, const u8* expected,
+                             u32* matches) noexcept {
+    struct Match { const Validation& v; u32 child; ConstSlice<u8> parent_unmerged; const u8* expected; u32* matches; }
+        match{v, child, parent_unmerged, expected, matches};
+    return resolution_each(v, child, [](void* context, u32 candidate) noexcept {
+        const auto& m = *static_cast<const Match*>(context);
+        bool hash_matches = false, relation = false;
+        auto status = parent_hash_matches(m.v, candidate, m.expected, &hash_matches);
+        if (status == MlsStatus::ok && hash_matches)
+            status = relation_valid(m.v, m.child, candidate, m.parent_unmerged, &relation);
+        if (status == MlsStatus::ok && hash_matches && relation)
+            ++*m.matches;
+        return status;
+    }, &match);
 }
 // The original hash of `child` under a parent with these unmerged leaves.
 MlsStatus sibling_hash(const Validation& v, u32 child, const ConstSlice<u8>& excluded, const u8* plain,
@@ -387,9 +371,9 @@ MlsStatus validate_parent_hashes(const Validation& v, u8* tree_hash) noexcept {
                 status = mls_parent_hash(v.kdf, parent.public_key, parent.parent_hash,
                                          parent.parent_hash_bytes, sibling, right_expected);
             if (status == MlsStatus::ok)
-                status = resolution_matches(v, left, left, parent.unmerged, left_expected, &matches);
+                status = resolution_matches(v, left, parent.unmerged, left_expected, &matches);
             if (status == MlsStatus::ok)
-                status = resolution_matches(v, right, right, parent.unmerged, right_expected, &matches);
+                status = resolution_matches(v, right, parent.unmerged, right_expected, &matches);
             if (status != MlsStatus::ok)
                 return status;
             if (matches != 1)

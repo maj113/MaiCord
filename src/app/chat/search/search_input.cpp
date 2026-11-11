@@ -225,21 +225,10 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         if (!repeated && !s->edit.bytes && thread_scope(*s, nullptr))
             return activate(*s, {UiSearchAction::scope, 0, 0});
     }
-    if (control && (key == 'C' || key == 'X')) {
-        const auto first = minimum(s->edit.anchor, s->edit.caret),
-                   last = maximum(s->edit.anchor, s->edit.caret);
-        if (last > first && clipboard_write_utf8({s->edit.text + first, last - first}) &&
-            key == 'X')
-            result = message_composer_replace_range(&s->edit, first, last, {});
-    } else if (control && key == 'V') {
-        char text[kMessageSearchContentBytes];
-        const auto read = clipboard_read_utf8({text, sizeof(text)});
-        bool line = read.ok();
-        for (u32 i = 0; line && i < read.bytes; ++i)
-            line = static_cast<u8>(text[i]) >= 32;
-        if (line)
-            result = message_composer_insert_utf8(&s->edit, {text, read.bytes});
-    } else
+    if (control && key == 'V')
+        result = message_composer_paste_line(
+            &s->edit, kMessageSearchContentBytes, [](u32 scalar) noexcept { return scalar < 32; }, false);
+    else
         message_composer_edit_key(&s->edit, key, control, shift, &result);
     if (result == MessageComposerResult::changed)
         application_search_edit_changed(revision != s->edit.text_revision);

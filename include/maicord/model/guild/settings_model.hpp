@@ -118,10 +118,14 @@ struct GuildServerProfileDraft {
     GuildProfileImageEdit icon;
     GuildProfileImageEdit custom_banner;
 };
-// The Banner presets after "Server Icon Color": brand_color_primary values.
+// The Banner presets after "Server Icon Color": brand_color_primary values ("#rrggbb", kGuildProfileBannerColorBytes
+// each), and their names (each followed by "\0").
 inline constexpr u32 kGuildProfileBannerColorCount = 9;
-extern const Utf8View kGuildProfileBannerColors[kGuildProfileBannerColorCount];
-extern const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount];
+inline constexpr u32 kGuildProfileBannerColorBytes = 7;
+inline constexpr char kGuildProfileBannerColors[kGuildProfileBannerColorCount][kGuildProfileBannerColorBytes + 1]{
+    "#ff1c90", "#e81d1e", "#e86e1d", "#e8c02f", "#71368a", "#029FFC", "#4fe2ca", "#406601", "#272727"};
+inline constexpr char kGuildProfileBannerNames[] =
+    "Soul\0Volcano\0Marsh\0Thunder\0Rising\0Zephyr\0Cascade\0Earth\0Boulder\0";
 GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept;
 bool guild_server_profile_equal(const GuildServerProfileDraft&, const GuildServerProfileDraft&) noexcept;
 // Server names are 2–100 characters without line breaks.

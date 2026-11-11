@@ -39,10 +39,10 @@ constexpr u32 kExportNameBytes = sizeof(MC_DESCRIPTOR_EXPORT);
 #endif
 
 PluginLoadResult failure(PluginLoadError error, DWORD win32_error = 0) noexcept {
-    return {error, PluginDescriptorProblem::none, win32_error, 0};
+    return {error, PluginDescriptorProblem::none, 0, win32_error};
 }
-PluginLoadResult problem(PluginDescriptorProblem which, u32 index = 0) noexcept {
-    return {PluginLoadError::descriptor, which, 0, index};
+PluginLoadResult problem(PluginDescriptorProblem which, u16 index = 0) noexcept {
+    return {PluginLoadError::descriptor, which, index, 0};
 }
 PluginLoadResult success() noexcept {
     return {};

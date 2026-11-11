@@ -489,8 +489,7 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
 void on_register_reply(void*, Status status, const Message* reply) noexcept {
     g.registered = status == Status::ok;
     if (!g.registered)
-        log_write(LogLevel::trace, "tray",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name : "registration failed");
+        log_write(LogLevel::trace, "tray", reply_error_name(status, reply, "registration failed"));
 }
 
 void register_item(Connection* c) noexcept {

@@ -791,19 +791,13 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
             if(!native_collect_hit_regions(owner,layout,tab_stop,hits,directional,output,&hit_count,directional?output:nullptr))return false;
         }
         if(layout.run_count>output->run_capacity||published_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||published_glyphs>65535)return output_capacity_failure(owner);
-        if(output->native_fonts()||output->run_count||!native_font_session_retain(owner.fonts))return false;
-        auto* fonts=native_font_session_runs(owner.fonts);u32 retained=0,span=0;
-        while(retained<layout.run_count){const auto& run=owner.paragraph_runs[retained];while(span+1<owner.styled_spans.count&&owner.styled_spans[span].end_unit<=run.source_first)++span;
-            if(!native_font_run_retain(fonts,owner.styled_spans[span].binding()->font))break;++retained;}
-        if(retained!=layout.run_count){span=0;for(u32 i=0;i<retained;++i){while(span+1<owner.styled_spans.count&&owner.styled_spans[span].end_unit<=owner.paragraph_runs[i].source_first)++span;native_font_run_release(fonts,owner.styled_spans[span].binding()->font);}
-            auto* session=owner.fonts;native_font_session_release(&session);return false;}
-        output->set_native_fonts(owner.fonts);
         if(!reshaped)for(u32 i=0;i<visible_source;++i)output->clusters[i]=static_cast<u16>(s.source_glyphs[i]);
-        for(u32 i=visible_source;i<shape.source_units;++i)output->clusters[i]=0xffffu;span=0;
+        for(u32 i=visible_source;i<shape.source_units;++i)output->clusters[i]=0xffffu;u32 span=0;
         for(u32 i=0;i<layout.run_count;++i){const auto& run=owner.paragraph_runs[i];while(span+1<owner.styled_spans.count&&owner.styled_spans[span].end_unit<=run.source_first)++span;const auto& style=owner.styled_spans[span];
             const float x=directional?output->runs[i].baseline_x:run.x;const u8 level=directional?output->runs[i].bidi_level:0;
             const u32 first_glyph=reshaped?output->runs[i].first_glyph:run.glyph_first,glyphs=reshaped?output->runs[i].glyph_count:run.glyph_count;
             output->runs[i]={style.binding()->font,x,run.baseline,style.em,first_glyph,glyphs,run.source_first,run.source_count,style.flags,level,false,true};}
+        if(!retain_fonts(owner.fonts,output,layout.run_count))return false;
         output->glyph_count=published_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->decoration_count=decoration_count;output->hit_region_count=hit_count;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;++owner.shaped;++owner.paragraphs_shaped;
     }else{*measure={layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
     return true;

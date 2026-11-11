@@ -17,6 +17,15 @@ void forget_pointer(T* (&array)[N], const T* released) noexcept {
             array[index] = nullptr;
 }
 
+// The slots of the three stages (vertex, pixel, compute) are one run of pointers.
+template <typename T, u32 N>
+void forget_pointer(T* (&array)[3][N], const T* released) noexcept {
+    T** slots = &array[0][0];
+    for (u32 index = 0; index < 3 * N; ++index)
+        if (slots[index] == released)
+            slots[index] = nullptr;
+}
+
 template <typename T, u32 N>
 void forget_name(T (&array)[N], T released) noexcept {
     for (u32 index = 0; index < N; ++index)
@@ -289,19 +298,20 @@ GpuStatus gpu_sampler_create(GpuDevice* device, const GpuSamplerDesc& desc, GpuS
     if (!result)
         return kGpuOutOfMemory;
     gl::Api& gl = device->gl;
+    const bool twin = desc.filter == GpuFilter::linear && !device->caps.float_linear;
     gl.glGenSamplers(1, &result->name);
-    const gl::Int filter = static_cast<gl::Int>(desc.filter == GpuFilter::linear ? gl::kLinear : gl::kNearest);
-    const gl::Int address = static_cast<gl::Int>(desc.address == GpuAddress::wrap ? gl::kRepeat : gl::kClampToEdge);
-    gl.glSamplerParameteri(result->name, gl::kTextureMinFilter, filter);
-    gl.glSamplerParameteri(result->name, gl::kTextureMagFilter, filter);
-    gl.glSamplerParameteri(result->name, gl::kTextureWrapS, address);
-    gl.glSamplerParameteri(result->name, gl::kTextureWrapT, address);
-    if (desc.filter == GpuFilter::linear && !device->caps.float_linear) {
+    if (twin)
         gl.glGenSamplers(1, &result->nearest_name);
-        gl.glSamplerParameteri(result->nearest_name, gl::kTextureMinFilter, static_cast<gl::Int>(gl::kNearest));
-        gl.glSamplerParameteri(result->nearest_name, gl::kTextureMagFilter, static_cast<gl::Int>(gl::kNearest));
-        gl.glSamplerParameteri(result->nearest_name, gl::kTextureWrapS, address);
-        gl.glSamplerParameteri(result->nearest_name, gl::kTextureWrapT, address);
+    const gl::Int address = static_cast<gl::Int>(desc.address == GpuAddress::wrap ? gl::kRepeat : gl::kClampToEdge);
+    for (u32 pass = 0; pass < (twin ? 2u : 1u); ++pass) {
+        // Pass 1 is the point twin of a linear sampler.
+        const u32 name = pass ? result->nearest_name : result->name;
+        const gl::Int filter =
+            static_cast<gl::Int>(!pass && desc.filter == GpuFilter::linear ? gl::kLinear : gl::kNearest);
+        gl.glSamplerParameteri(name, gl::kTextureMinFilter, filter);
+        gl.glSamplerParameteri(name, gl::kTextureMagFilter, filter);
+        gl.glSamplerParameteri(name, gl::kTextureWrapS, address);
+        gl.glSamplerParameteri(name, gl::kTextureWrapT, address);
     }
     const GpuStatus status = check_error("sampler creation");
     if (!gpu_ok(status)) {
@@ -347,9 +357,7 @@ void drop_buffer(GpuBuffer* buffer) noexcept {
     GpuDevice& d = gles::device();
     GpuContext& c = gles::context();
     d.gl.glDeleteBuffers(1, &buffer->name);
-    forget_pointer(c.constants[0], buffer);
-    forget_pointer(c.constants[1], buffer);
-    forget_pointer(c.constants[2], buffer);
+    forget_pointer(c.constants, buffer);
     if (c.vertex_buffer == buffer)
         c.vertex_buffer = nullptr;
     forget_name(c.applied_uniform_buffer, buffer->name);
@@ -400,9 +408,7 @@ void gpu_release(GpuSrv*& handle) noexcept {
         return;
     }
     GpuContext& c = gles::context();
-    forget_pointer(c.srvs[0], view);
-    forget_pointer(c.srvs[1], view);
-    forget_pointer(c.srvs[2], view);
+    forget_pointer(c.srvs, view);
     GpuTexture* texture = view->kind == GpuViewKind::texture ? view->texture : nullptr;
     GpuBuffer* buffer = view->kind == GpuViewKind::texture ? nullptr : view->buffer;
     gles::device().srvs.release(view);
@@ -476,9 +482,7 @@ void gpu_paged_texture_release(GpuPagedTexture** texture) {
     if (!paged)
         return;
     GpuContext& c = gles::context();
-    forget_pointer(c.srvs[0], &paged->view);
-    forget_pointer(c.srvs[1], &paged->view);
-    forget_pointer(c.srvs[2], &paged->view);
+    forget_pointer(c.srvs, &paged->view);
     for (u32 page = 0; page < paged->pages; ++page)
         release_page(paged, page);
     heap_free(paged);
@@ -546,9 +550,7 @@ void gpu_release(GpuSampler*& handle) noexcept {
         d.gl.glDeleteSamplers(1, &sampler->nearest_name);
         forget_name(c.applied_unit_sampler, sampler->nearest_name);
     }
-    forget_pointer(c.samplers[0], sampler);
-    forget_pointer(c.samplers[1], sampler);
-    forget_pointer(c.samplers[2], sampler);
+    forget_pointer(c.samplers, sampler);
     forget_name(c.applied_unit_sampler, sampler->name);
     d.samplers.release(sampler);
 }

@@ -264,7 +264,7 @@ class UiTextPenBase {
           policy_(policy) {}
     // A label clipped to `region` instead of the pen's panel/body. Every label goes through here: kept free of
     // machine-outlined fragments (calls the size build would otherwise add to each label).
-    [[clang::no_outline]] void push_region(const UiRect& region, UiWidgetHandle owner, const Utf8View& value,
+    [[clang::no_outline]] void push_region(const UiRect& region, UiWidgetHandle owner, const char* text, u32 bytes,
                                            const UiRect& r, const Color& color, u32 style, u32 mode) noexcept;
 
     UiTextOutput* out_;
@@ -296,7 +296,7 @@ template <UiTextClip Policy = UiTextClip::intersect> class UiTextPen : public Ui
     }
     __forceinline UiTextPen& push(const UiRect& region, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
                                   const Color& color, u32 style, u32 mode) noexcept {
-        push_region(region, owner, value, r, color, style, mode);
+        push_region(region, owner, value.data, value.bytes, r, color, style, mode);
         return *this;
     }
     struct Clipped {

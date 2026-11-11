@@ -93,25 +93,11 @@ bool search_character(ApplicationSettings& settings, u32 code) noexcept {
 // Editing keys of the focused search field; false when the key is not one.
 bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift) noexcept {
     auto& model = search_model(settings);
-    const u32 first = minimum(model.anchor, model.caret), last = maximum(model.anchor, model.caret);
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && (key == 'C' || key == 'X')) {
-        if (last > first && clipboard_write_utf8({model.text + first, last - first}) && key == 'X')
-            result = message_composer_replace_range(&model, first, last, {});
-    } else if (control && key == 'V') {
-        char text[kSettingsSearchBytes];
-        const auto read = clipboard_read_utf8({text, sizeof(text)});
-        u32 kept = 0;
-        // One line: stop at the first control character, like a pasted query.
-        while (read.ok() && kept < read.bytes) {
-            const auto scalar = utf8_decode_one(text + kept, read.bytes - kept);
-            if (!scalar.valid || scalar.codepoint < 0x20 || scalar.codepoint == 0x7f)
-                break;
-            kept += scalar.width;
-        }
-        if (kept)
-            result = message_composer_insert_utf8(&model, {text, kept});
-    } else if (!message_composer_edit_key(&model, key, control, shift, &result))
+    // One line: stop at the first control character, like a pasted query.
+    if (control && key == 'V')
+        result = message_composer_paste_line(&model, kSettingsSearchBytes, paste_control_scalar, true);
+    else if (!message_composer_edit_key(&model, key, control, shift, &result))
         return false;
     if (result == MessageComposerResult::changed)
         search_changed(settings);

@@ -276,21 +276,19 @@ bool open_menu(ApplicationProfile& p, u32 count, UiRect anchor, float width) noe
     set_popup_owner(PopupOwnerKind::profile);
     return refresh_popup_text();
 }
-PopupItem menu_row(Utf8View label, u32 action, Utf8View detail = {}, u16 flags = popup_item_enabled) noexcept {
-    PopupItem item{};
-    item.label = label;
-    item.action = action;
-    item.flags = flags;
-    item.detail = detail;
-    item.presentation.secondary_line = detail.bytes != 0;
-    return item;
+// Fills one menu row (label, action, flags and an optional second line) in place.
+void menu_row(PopupItem* out, Utf8View label, u32 action, Utf8View detail = {},
+              u16 flags = popup_item_enabled) noexcept {
+    popup_item_set(out, label, action, flags);
+    out->detail = detail;
+    out->presentation.secondary_line = detail.bytes != 0;
 }
 // Self in a server: "Edit Per-server Profile" / "Edit Main Profile".
 bool open_edit_menu(ApplicationProfile& p, UiRect anchor) noexcept {
-    p.menu_items[0] = menu_row(utf8_literal("Edit Per-server Profile"), menu_edit_guild,
-                               utf8_literal("Visible only to those in this server"));
-    p.menu_items[1] = menu_row(utf8_literal("Edit Main Profile"), menu_edit_main,
-                               utf8_literal("Default profile and visible to everyone"));
+    menu_row(&p.menu_items[0], utf8_literal("Edit Per-server Profile"), menu_edit_guild,
+             utf8_literal("Visible only to those in this server"));
+    menu_row(&p.menu_items[1], utf8_literal("Edit Main Profile"), menu_edit_main,
+             utf8_literal("Default profile and visible to everyone"));
     return open_menu(p, 2, anchor, 260);
 }
 // Friend Actions for the friend / pending header button.
@@ -298,13 +296,13 @@ bool open_friend_menu(ApplicationProfile& p, UiRect anchor) noexcept {
     const u8 relation = application_friends_relation(p.data.user_id);
     u32 count = 0;
     if (relation == 1)
-        p.menu_items[count++] = menu_row(utf8_literal("Remove Friend"), menu_remove_friend, {},
-                                         popup_item_enabled | popup_item_danger);
+        menu_row(&p.menu_items[count++], utf8_literal("Remove Friend"), menu_remove_friend, {},
+                 popup_item_enabled | popup_item_danger);
     else if (relation == 2)
-        p.menu_items[count++] = menu_row(utf8_literal("Accept Friend Request"), menu_accept_request);
+        menu_row(&p.menu_items[count++], utf8_literal("Accept Friend Request"), menu_accept_request);
     else if (relation == 3)
-        p.menu_items[count++] = menu_row(utf8_literal("Cancel Friend Request"), menu_cancel_request, {},
-                                         popup_item_enabled | popup_item_danger);
+        menu_row(&p.menu_items[count++], utf8_literal("Cancel Friend Request"), menu_cancel_request, {},
+                 popup_item_enabled | popup_item_danger);
     return open_menu(p, count, anchor, 220);
 }
 // The role picker: assignable roles the member does not hold, in display order.
@@ -335,18 +333,18 @@ bool open_role_menu(ApplicationProfile& p, UiRect anchor) noexcept {
             held |= p.data.roles[k] == role->id;
         if (held || !role_editable(policy, *role))
             continue;
-        auto item = menu_row(chat_state_store_role_name(state, *role), menu_role_first + count);
+        PopupItem& item = p.menu_items[count];
+        menu_row(&item, chat_state_store_role_name(state, *role), menu_role_first + count);
         item.presentation = ui_menu_row_presentation(UiIcon::mention);
         if (role->color) {
             item.media_flags = kPopupItemMediaIconTint;
             item.media_variant = role->color & 0xFFFFFFu;
         }
-        p.menu_roles[count] = role->id;
-        p.menu_items[count++] = item;
+        p.menu_roles[count++] = role->id;
     }
     p.menu_role_count = count;
     if (!count) {
-        p.menu_items[0] = menu_row(utf8_literal("No assignable roles"), menu_last, {}, 0);
+        menu_row(&p.menu_items[0], utf8_literal("No assignable roles"), menu_last, {}, 0);
         count = 1;
     }
     return open_menu(p, count, anchor, 240);
@@ -1140,13 +1138,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
             }
             return true;
         }
-        if (control && (key == 'C' || key == 'X')) {
-            const auto first = minimum(edit->anchor, edit->caret),
-                       last = maximum(edit->anchor, edit->caret);
-            if (first != last && clipboard_write_utf8({edit->text + first, last - first}) &&
-                key == 'X')
-                result = message_composer_delete_forward(edit);
-        } else if (control && key == 'V') {
+        if (control && key == 'V') {
             result = paste_clipboard(edit);
         } else
             message_composer_edit_key(edit, key, control, shift, &result);

@@ -138,6 +138,10 @@ u64 stream_copy_picture(const StreamSurface& slot, const SoftwarePicture& pictur
 // The movie decoders' (h264_file_decoder.cpp, hevc_file_decoder.cpp) picture slots: frees the planes of the first
 // *count slots, then forgets them all.
 void stream_slots_release(StreamSurface (&slots)[kStreamSurfaceLimit], u32* count) noexcept;
+// Makes the first `wanted` slots CPU-backed pictures of width x height (both even), *count of them; false (every slot
+// freed) when one could not be made.
+bool stream_slots_create_cpu(GpuDevice* device, StreamSurface (&slots)[kStreamSurfaceLimit], u32* count, u32 wanted,
+                             u32 width, u32 height) noexcept;
 // The movie picture the output queue shows next, as *frame's planes: a hardware picture (session) is exported into
 // its slot now (drivers differ in when a surface's dma-buf is complete, and a fresh export is always right).
 struct H264OutputQueue;

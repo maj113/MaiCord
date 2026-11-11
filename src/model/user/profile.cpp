@@ -300,12 +300,15 @@ struct AppearanceWriter {
         put(&v, sizeof(v));
     }
     template <u32 N> void text(const ProfileString<N>& s) noexcept {
-        if (s.bytes > N) {
+        text(s.data, s.bytes, N);
+    }
+    __declspec(noinline) void text(const char* data, u16 bytes, u32 capacity) noexcept {
+        if (bytes > capacity) {
             valid = false;
             return;
         }
-        scalar(s.bytes);
-        put(s.data, s.bytes);
+        scalar(bytes);
+        put(data, bytes);
     }
 };
 struct AppearanceReader {
@@ -324,13 +327,16 @@ struct AppearanceReader {
         get(&v, sizeof(v));
     }
     template <u32 N> void text(ProfileString<N>& s) noexcept {
-        scalar(s.bytes);
-        if (s.bytes > N) {
+        text(s.data, &s.bytes, N);
+    }
+    __declspec(noinline) void text(char* data, u16* bytes, u32 capacity) noexcept {
+        scalar(*bytes);
+        if (*bytes > capacity) {
             valid = false;
             return;
         }
-        get(s.data, s.bytes);
-        valid = valid && utf8_validate(s.view()).valid;
+        get(data, *bytes);
+        valid = valid && utf8_validate(Utf8View{data, *bytes}).valid;
     }
 };
 } // namespace

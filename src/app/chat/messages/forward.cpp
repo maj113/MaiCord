@@ -345,18 +345,7 @@ bool application_message_forward_edit_changed(bool content) noexcept {
     ++q->content_revision; caret_reset(*q);
     return application_message_forward_synchronize() && application_request_frame();
 }
-// Its own frame: the clipboard buffer must not weigh on every input event.
-__declspec(noinline) static MessageComposerResult paste_single_line(MessageComposer* model) noexcept {
-    char text[kMessageForwardCaptionMaximumBytes];
-    const auto read = clipboard_read_utf8({text, sizeof(text)});
-    bool valid = read.ok();
-    for (u32 i = 0; valid && i < read.bytes;) {
-        const auto scalar = utf8_decode_one(text + i, read.bytes - i);
-        valid = scalar.valid && !text_input_single_line_forbidden(scalar.codepoint);
-        if (valid) i += scalar.width;
-    }
-    return valid ? message_composer_insert_utf8(model, {text, read.bytes}) : MessageComposerResult::unchanged;
-}
+static_assert(kMessageForwardCaptionMaximumBytes <= kPasteLineMaximumBytes);
 bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     if (ui_input_consume_key_tail(&g_app.message_forward_held_key, {kind, key, repeated})) return true;
     auto* q = g_app.message_forward;
@@ -398,12 +387,9 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) return true;
     const auto revision = model.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && (key == 'C' || key == 'X')) {
-        const u32 a = minimum(model.anchor, model.caret), b = maximum(model.anchor, model.caret);
-        if (b > a && clipboard_write_utf8({model.text + a, b - a}) && key == 'X')
-            result = message_composer_replace_range(&model, a, b, {});
-    } else if (control && key == 'V') {
-        result = paste_single_line(&model);
+    if (control && key == 'V') {
+        result = message_composer_paste_line(&model, kMessageForwardCaptionMaximumBytes,
+                                             text_input_single_line_forbidden, false);
     } else {
         if (key == key::backspace) g_app.message_forward_held_key = key;
         message_composer_edit_key(&model, key, control, shift, &result);

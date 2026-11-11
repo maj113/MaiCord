@@ -111,7 +111,6 @@ struct ShortcutDefinition {
     ShortcutGroup group;
     ShortcutScope scope;
     ShortcutChord chords[2]; // Second is an optional alternate.
-    Utf8View label;
 };
 
 const ShortcutDefinition* shortcut_definition(ShortcutAction) noexcept;

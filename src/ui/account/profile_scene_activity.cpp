@@ -274,9 +274,9 @@ float voice_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             auto& label = l.voice_more;
             label.bytes = 0;
             if (more > 99)
-                append(&label, utf8_literal(">99"));
+                append(&label, ">99");
             else {
-                append(&label, utf8_literal("+"));
+                append(&label, "+");
                 append(&label, {digits, decimal_write(digits, more)});
             }
             caption(s, owner, r, label.view(), kXs | text_style_bold, ProfileTone::strong)->centered = true;

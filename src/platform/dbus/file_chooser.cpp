@@ -106,8 +106,7 @@ void on_reply(void* context, Status status, const Message* reply) noexcept {
         return;
     }
     if (status != Status::ok) {
-        log_write(LogLevel::trace, "file_chooser",
-                  status == Status::error_reply && reply && reply->error_name ? reply->error_name : "the call failed");
+        log_write(LogLevel::trace, "file_chooser", reply_error_name(status, reply, "the call failed"));
         portal_request_end(&chooser->request);
         if (chooser->state == FileChooserState::pending) {
             chooser->state = FileChooserState::failed;
@@ -115,11 +114,7 @@ void on_reply(void* context, Status status, const Message* reply) noexcept {
         }
         return;
     }
-    Reader r;
-    message_reader(*reply, &r);
-    const char* handle = nullptr;
-    if (reader_string(&r, &handle, nullptr))
-        portal_request_adopt(&chooser->request, handle);
+    portal_request_adopt_reply(&chooser->request, *reply);
 }
 
 // a(sa(us)): each filter's name and its glob patterns (kind 0).

@@ -1610,25 +1610,16 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         bool storage_modified = false;
         bool prefix_reused = false;
         const bool composer_measured =
-            login_form ? (!renderer->text_form ||
-                          text_form_surface_update(renderer->text_form, renderer->glyph_text.system))
-                       : (!renderer->forum_form ||
-                          forum_post_surface_update(renderer->forum_form, renderer->glyph_text.system)) &&
-                             (settings_active
-                                  ? d3d11_renderer_measure_settings_edit(renderer) &&
-                                        (!renderer->text_form ||
-                                         text_form_surface_update(renderer->text_form,
-                                                                  renderer->glyph_text.system))
-                                  : (((friends_active || browser_active)
-                                          ? measure_content_search(renderer)
-                                          : d3d11_renderer_measure_composer_edit(renderer)) &&
-                                     measure_message_search(renderer, shown) &&
-                                     measure_media_picker(renderer, shown) &&
+            (login_form ||
+             ((!renderer->forum_form ||
+               forum_post_surface_update(renderer->forum_form, renderer->glyph_text.system)) &&
+              (settings_active ? d3d11_renderer_measure_settings_edit(renderer)
+                               : ((friends_active || browser_active) ? measure_content_search(renderer)
+                                                                     : d3d11_renderer_measure_composer_edit(renderer)) &&
+                                     measure_message_search(renderer, shown) && measure_media_picker(renderer, shown) &&
                                      d3d11_renderer_measure_popup_edit(renderer, shown) &&
-                                     d3d11_renderer_measure_profile_edit(renderer) &&
-                                     (!renderer->text_form ||
-                                      text_form_surface_update(renderer->text_form,
-                                                               renderer->glyph_text.system))));
+                                     d3d11_renderer_measure_profile_edit(renderer)))) &&
+            (!renderer->text_form || text_form_surface_update(renderer->text_form, renderer->glyph_text.system));
         const bool content_built =
             composer_measured &&
             build_content_text_once(renderer, shown, theme, &atlas_invalidated, &storage_modified, &prefix_reused,

@@ -142,7 +142,7 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
     MessageMembers& members=page.members;
     if (!read.ok() || page.failed) {
         result.error=members.error==PollDecodeError::none?PollDecodeError::json:members.error;
-        result.read_error=read.error; result.error_offset=read.error_offset; return result;
+        result.read_error=read.error; result.error_offset=read.ok()?0:read.error_offset; return result;
     }
     if (!members.channel_seen || !members.message_seen || members.channel!=expected_channel ||
         members.message!=expected_message) { result.error=PollDecodeError::identity; return result; }
@@ -172,7 +172,7 @@ PollVotersDecodeResult decode_poll_voters(Utf8View input,Slice<u32> page_scratch
     const auto read=json_visit_root_object(input,{page_scratch.data,scan.count},depth,voters_member,&members);
     if (!read.ok() || !members.seen) {
         result.error=PollDecodeError::json; result.read_error=read.error;
-        result.error_offset=read.error_offset; return result;
+        result.error_offset=read.ok()?0:read.error_offset; return result;
     }
     result.users=decode_reaction_users(members.users.source,page_scratch,object_scratch,depth,
         {users.data,minimum(users.count,kReactionUsersMaximumPage)},text);

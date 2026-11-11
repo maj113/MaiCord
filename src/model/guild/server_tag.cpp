@@ -1,61 +1,66 @@
 #include "maicord/model/guild/server_tag.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/guild/detail_store.hpp"
 
 namespace maicord {
 
-// Names as the official picker reads them; the colours are each badge's own
-// before a tint, from the official client's badge set.
+// Names as the official picker reads them; the colours are each badge's own before a tint, from the official client's
+// badge set.
+constexpr char kGuildTagBadgeNames[] =
+    "Leaf\0Sword\0Heart\0Fire\0Water Drop\0Skull\0Moon\0Lightning\0Compass\0Toadstool\0"
+    "Bunny\0Dog\0Frog\0Goat\0Cat\0Diamond\0Crown\0Trophy\0Money Bag\0Dollar Sign\0"
+    "Clover\0Blossom\0Potted Plant\0Maple Leaf\0Wilted Flower\0Butterfly\0Snail\0Caterpillar\0Spider\0Bee\0";
+static_assert(name_list_count(kGuildTagBadgeNames) == kGuildTagBadgeCount);
+constexpr u8 kPets = 33, kFlex = 34, kPlant = 35, kCrawlies = 36;
+static_assert(1ull << kPets == guild_feature_badge_pack_pets && 1ull << kFlex == guild_feature_badge_pack_flex &&
+              1ull << kPlant == guild_feature_badge_pack_plant &&
+              1ull << kCrawlies == guild_feature_badge_pack_creepy_crawlies);
 const GuildTagBadge kGuildTagBadges[kGuildTagBadgeCount]{
-    {utf8_literal("Leaf"), 0, 0x7fb134, 0, 6, 1},
-    {utf8_literal("Sword"), 0, 0xffe361, 0xd1cdd5, 0, 2},
-    {utf8_literal("Heart"), 0, 0xff7fc0, 0, 7, 1},
-    {utf8_literal("Fire"), 0, 0xfd6214, 0, 8, 1},
-    {utf8_literal("Water Drop"), 0, 0x0abbff, 0, 1, 1},
-    {utf8_literal("Skull"), 0, 0x847d8b, 0, 2, 1},
-    {utf8_literal("Moon"), 0, 0xb79cf8, 0, 4, 1},
-    {utf8_literal("Lightning"), 0, 0xffe361, 0, 5, 1},
-    {utf8_literal("Compass"), 0, 0xff2c52, 0x47baff, 9, 2},
-    {utf8_literal("Toadstool"), 0, 0xff2c52, 0xffe361, 3, 2},
-    {utf8_literal("Bunny"), guild_feature_badge_pack_pets, 0xd1cdd5, 0, 21, 1},
-    {utf8_literal("Dog"), guild_feature_badge_pack_pets, 0xf6a830, 0xffe880, 22, 2},
-    {utf8_literal("Frog"), guild_feature_badge_pack_pets, 0x6be473, 0xffe361, 23, 2},
-    {utf8_literal("Goat"), guild_feature_badge_pack_pets, 0xb88166, 0, 24, 1},
-    {utf8_literal("Cat"), guild_feature_badge_pack_pets, 0x74767f, 0, 25, 1},
-    {utf8_literal("Diamond"), guild_feature_badge_pack_flex, 0x00bbff, 0, 26, 1},
-    {utf8_literal("Crown"), guild_feature_badge_pack_flex, 0xffe361, 0xff7fc0, 27, 2},
-    {utf8_literal("Trophy"), guild_feature_badge_pack_flex, 0xffb84b, 0, 28, 1},
-    {utf8_literal("Money Bag"), guild_feature_badge_pack_flex, 0xffe361, 0, 29, 1},
-    {utf8_literal("Dollar Sign"), guild_feature_badge_pack_flex, 0x6be473, 0, 30, 1},
-    {utf8_literal("Clover"), guild_feature_badge_pack_plant, 0x29bb21, 0, 31, 1},
-    {utf8_literal("Blossom"), guild_feature_badge_pack_plant, 0xff4cd2, 0, 32, 1},
-    {utf8_literal("Potted Plant"), guild_feature_badge_pack_plant, 0x027d46, 0xffae49, 33, 2},
-    {utf8_literal("Maple Leaf"), guild_feature_badge_pack_plant, 0x730e17, 0, 34, 1},
-    {utf8_literal("Wilted Flower"), guild_feature_badge_pack_plant, 0x800e6f, 0x2dc92d, 35, 2},
-    {utf8_literal("Butterfly"), guild_feature_badge_pack_creepy_crawlies, 0x9af2ff, 0x5c0084, 36, 2},
-    {utf8_literal("Snail"), guild_feature_badge_pack_creepy_crawlies, 0xc7531a, 0xe6d23b, 37, 2},
-    {utf8_literal("Caterpillar"), guild_feature_badge_pack_creepy_crawlies, 0x1daa5a, 0xe6cf1e, 38, 2},
-    {utf8_literal("Spider"), guild_feature_badge_pack_creepy_crawlies, 0xda1846, 0x1f1f1f, 39, 2},
-    {utf8_literal("Bee"), guild_feature_badge_pack_creepy_crawlies, 0xfae330, 0, 40, 1},
+    {0x7fb134, 0, 6, 1, 0},
+    {0xffe361, 0xd1cdd5, 0, 2, 0},
+    {0xff7fc0, 0, 7, 1, 0},
+    {0xfd6214, 0, 8, 1, 0},
+    {0x0abbff, 0, 1, 1, 0},
+    {0x847d8b, 0, 2, 1, 0},
+    {0xb79cf8, 0, 4, 1, 0},
+    {0xffe361, 0, 5, 1, 0},
+    {0xff2c52, 0x47baff, 9, 2, 0},
+    {0xff2c52, 0xffe361, 3, 2, 0},
+    {0xd1cdd5, 0, 21, 1, kPets},
+    {0xf6a830, 0xffe880, 22, 2, kPets},
+    {0x6be473, 0xffe361, 23, 2, kPets},
+    {0xb88166, 0, 24, 1, kPets},
+    {0x74767f, 0, 25, 1, kPets},
+    {0x00bbff, 0, 26, 1, kFlex},
+    {0xffe361, 0xff7fc0, 27, 2, kFlex},
+    {0xffb84b, 0, 28, 1, kFlex},
+    {0xffe361, 0, 29, 1, kFlex},
+    {0x6be473, 0, 30, 1, kFlex},
+    {0x29bb21, 0, 31, 1, kPlant},
+    {0xff4cd2, 0, 32, 1, kPlant},
+    {0x027d46, 0xffae49, 33, 2, kPlant},
+    {0x730e17, 0, 34, 1, kPlant},
+    {0x800e6f, 0x2dc92d, 35, 2, kPlant},
+    {0x9af2ff, 0x5c0084, 36, 2, kCrawlies},
+    {0xc7531a, 0xe6d23b, 37, 2, kCrawlies},
+    {0x1daa5a, 0xe6cf1e, 38, 2, kCrawlies},
+    {0xda1846, 0x1f1f1f, 39, 2, kCrawlies},
+    {0xfae330, 0, 40, 1, kCrawlies},
 };
 
 const GuildTagPalette kGuildTagPalettes[kGuildTagPaletteCount]{
-    {0xff1c90, 0xff7fc0, utf8_literal("Hot pink and light pink")},
-    {0xff8f1c, 0xffae77, utf8_literal("Bright orange and peach")},
-    {0xeebe1a, 0xfffc7f, utf8_literal("Golden yellow and light yellow")},
-    {0x32a070, 0x57b59e, utf8_literal("Teal and mint green")},
-    {0x32839a, 0x71c2d9, utf8_literal("Blue teal and light blue")},
-    {0x8a43ff, 0xbd95ff, utf8_literal("Purple and lavender")},
-    {0x9b3fe5, 0xcc8dff, utf8_literal("Violet and mauve")},
-    {0x942e8f, 0xd46cb5, utf8_literal("Deep purple and orchid")},
-    {0xd14242, 0xff8989, utf8_literal("Red and salmon")},
-    {0x814300, 0xa88a6c, utf8_literal("Brown and tan")},
-    {0x717224, 0xc3c3c3, utf8_literal("Olive green and gray")},
-    {0x5d1d47, 0xc58fbb, utf8_literal("Burgundy and rose")},
-    {0x222222, 0xcccccc, utf8_literal("Dark gray and light gray")},
+    {0xff1c90, 0xff7fc0}, {0xff8f1c, 0xffae77}, {0xeebe1a, 0xfffc7f}, {0x32a070, 0x57b59e}, {0x32839a, 0x71c2d9},
+    {0x8a43ff, 0xbd95ff}, {0x9b3fe5, 0xcc8dff}, {0x942e8f, 0xd46cb5}, {0xd14242, 0xff8989}, {0x814300, 0xa88a6c},
+    {0x717224, 0xc3c3c3}, {0x5d1d47, 0xc58fbb}, {0x222222, 0xcccccc},
 };
+constexpr char kGuildTagPaletteNames[] =
+    "Hot pink and light pink\0Bright orange and peach\0Golden yellow and light yellow\0Teal and mint green\0"
+    "Blue teal and light blue\0Purple and lavender\0Violet and mauve\0Deep purple and orchid\0Red and salmon\0"
+    "Brown and tan\0Olive green and gray\0Burgundy and rose\0Dark gray and light gray\0";
+static_assert(name_list_count(kGuildTagPaletteNames) == kGuildTagPaletteCount);
 
 const GuildTagBadge* guild_tag_badge(u8 type) noexcept {
     for (const auto& badge : kGuildTagBadges)
@@ -65,7 +70,7 @@ const GuildTagBadge* guild_tag_badge(u8 type) noexcept {
 }
 
 bool guild_tag_badge_unlocked(const GuildTagBadge& badge, u64 features) noexcept {
-    return !badge.pack || (features & badge.pack);
+    return !badge.pack || (features >> badge.pack & 1);
 }
 
 namespace {

@@ -32,12 +32,19 @@ __forceinline u32 widget_bits(UiWidgetHandle handle) noexcept {
     CopyMemory(&bits, &handle, sizeof(bits));
     return bits;
 }
-bool append(ProfileString<384>* s, const Utf8View& text) noexcept {
-    if (text.bytes > 384u - s->bytes)
+bool append(ProfileString<384>* s, const char* text, u32 bytes) noexcept {
+    if (bytes > 384u - s->bytes)
         return false;
-    copy_bytes(s->data + s->bytes, text.data, text.bytes);
-    s->bytes += static_cast<u16>(text.bytes);
+    copy_bytes(s->data + s->bytes, text, bytes);
+    s->bytes += static_cast<u16>(bytes);
     return true;
+}
+bool append(ProfileString<384>* s, const Utf8View& text) noexcept {
+    return append(s, text.data, text.bytes);
+}
+// A literal goes in as pointer and length: no Utf8View temporary on the caller's stack.
+template <u32 N> bool append(ProfileString<384>* s, const char (&text)[N]) noexcept {
+    return append(s, text, N - 1);
 }
 bool id(ProfileString<384>* s, u64 value) noexcept {
     const u32 n = decimal_digits(value);
@@ -47,21 +54,48 @@ bool id(ProfileString<384>* s, u64 value) noexcept {
     return true;
 }
 // A path segment named by an id: "<prefix><id>/".
-void segment(ProfileString<384>* url, const Utf8View& prefix, u64 value) noexcept {
-    append(url, prefix);
+void segment(ProfileString<384>* url, const char* prefix, u32 prefix_bytes, u64 value) noexcept {
+    append(url, prefix, prefix_bytes);
     id(url, value);
-    append(url, utf8_literal("/"));
+    append(url, "/");
+}
+void segment(ProfileString<384>* url, const Utf8View& prefix, u64 value) noexcept {
+    segment(url, prefix.data, prefix.bytes, value);
+}
+template <u32 N> void segment(ProfileString<384>* url, const char (&prefix)[N], u64 value) noexcept {
+    segment(url, prefix, N - 1, value);
 }
 // The CDN's default (embed) avatar after the CDN's root: "embed/avatars/<index>.png".
 void default_avatar_path(ProfileString<384>* url, u32 index) noexcept {
-    append(url, utf8_literal("embed/avatars/"));
+    append(url, "embed/avatars/");
     id(url, index);
-    append(url, utf8_literal(".png"));
+    append(url, ".png");
 }
 // A member's per-server image directory after the CDN's root: "guilds/<guild>/users/<user>/".
 void member_path(ProfileString<384>* url, u64 guild, u64 user) noexcept {
-    segment(url, utf8_literal("guilds/"), guild);
-    segment(url, utf8_literal("users/"), user);
+    segment(url, "guilds/", guild);
+    segment(url, "users/", user);
+}
+// The CDN's root; every URL below continues from it.
+void cdn_root(ProfileString<384>* url) noexcept {
+    append(url, "https://cdn.discordapp.com/");
+}
+// "media/v1/collectibles-shop/<sku>/animated" (or "/static") after the CDN's root; false when it does not fit.
+bool nameplate_path(ProfileString<384>* url, u64 sku, bool animated) noexcept {
+    return append(url, "media/v1/collectibles-shop/") && id(url, sku) &&
+           (animated ? append(url, "/animated") : append(url, "/static"));
+}
+// "clan-badges/<guild>/<badge>.png?size=32" after the CDN's root.
+void badge_path(ProfileString<384>* url, u64 guild, const Utf8View& badge) noexcept {
+    segment(url, "clan-badges/", guild);
+    append(url, badge);
+    append(url, ".png?size=32");
+}
+void passthrough(ProfileString<384>* url, bool on) noexcept {
+    if (on)
+        append(url, "&passthrough=true");
+    else
+        append(url, "&passthrough=false");
 }
 bool asset(const Utf8View& value) noexcept {
     if (!value.bytes)
@@ -121,9 +155,8 @@ bool guild_badge_media(bool enabled, u64 guild_id, const Utf8View& badge, const 
     if (!out || !enabled || !guild_id || !asset(badge))
         return false;
     ProfileMedia result{};
-    segment(&result.url, utf8_literal("https://cdn.discordapp.com/clan-badges/"), guild_id);
-    append(&result.url, badge);
-    append(&result.url, utf8_literal(".png?size=32"));
+    cdn_root(&result.url);
+    badge_path(&result.url, guild_id, badge);
     result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
     copy_value(&result.rectangle, rectangle);
     result.clip = clip;
@@ -146,9 +179,8 @@ bool user_nameplate_media(const UserAppearanceRecord& appearance, bool animated,
     if (!out || !appearance.nameplate_sku)
         return false;
     ProfileMedia result{};
-    if (!append(&result.url, utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/")) ||
-        !id(&result.url, appearance.nameplate_sku) ||
-        !append(&result.url, animated ? utf8_literal("/animated") : utf8_literal("/static")))
+    cdn_root(&result.url);
+    if (!nameplate_path(&result.url, appearance.nameplate_sku, animated))
         return false;
     result.key = profile_key(result.url, MediaAttachmentFormat::png, animated);
     result.rectangle = rectangle;
@@ -185,9 +217,8 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         // draws it, under the same URL.
         const auto& server = p.guild_appearance;
         const auto& a = p.guild_id && (server.fields & appearance_nameplate) ? server : p.user_appearance;
-        if (!(a.fields & appearance_nameplate) || !a.nameplate_sku ||
-            !append(&result.url, utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/")) ||
-            !id(&result.url, a.nameplate_sku) || !append(&result.url, utf8_literal("/static")))
+        cdn_root(&result.url);
+        if (!(a.fields & appearance_nameplate) || !a.nameplate_sku || !nameplate_path(&result.url, a.nameplate_sku, false))
             return false;
         result.mask = result.rectangle;
         result.mask_radius = 4;
@@ -262,8 +293,8 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             file = profile_connection_chip_icon(static_cast<ProfileConnectionChipIcon>(part.source));
         else if (part.source < p.connection_count)
             file = profile_connection_icon(profile_connection_kind(p.connections[part.source].type.view()));
-        if (!file.bytes || !append(&result.url, utf8_literal("https://discord.com/assets/")) ||
-            !append(&result.url, file) || !append(&result.url, utf8_literal(".png")))
+        if (!file.bytes || !append(&result.url, "https://discord.com/assets/") ||
+            !append(&result.url, file) || !append(&result.url, ".png"))
             return false;
         if (logo)
             result.rectangle = ui_rect_inset(result.rectangle, {4, 4, 4, 4});
@@ -272,7 +303,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         return media_asset_key_valid(result.key);
     }
     auto& url = result.url;
-    append(&url, utf8_literal("https://cdn.discordapp.com/"));
+    cdn_root(&url);
     Utf8View hash{};
     bool animated = false;
     auto format = MediaAttachmentFormat::webp;
@@ -309,17 +340,17 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         hash = guild ? chat_state_store_guild_icon_hash(*guild) : Utf8View{};
         if (!asset(hash))
             return false;
-        segment(&url, utf8_literal("icons/"), p.guild_id);
+        segment(&url, "icons/", p.guild_id);
         animated = ui_guild_banner_animated_hash(hash);
     } else if (main_avatar) {
         hash = p.avatar.view();
         if (!asset(hash))
             return false;
-        segment(&url, utf8_literal("avatars/"), p.user_id);
+        segment(&url, "avatars/", p.user_id);
         result.circular = true;
         animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::voice_avatar) {
-        segment(&url, utf8_literal("avatars/"), part.target);
+        segment(&url, "avatars/", part.target);
         animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::peer_avatar || part.media == ProfileMediaKind::peer_guild) {
         const bool user = part.media == ProfileMediaKind::peer_avatar;
@@ -364,39 +395,40 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (!a.primary_enabled || !a.primary_guild_id || !asset(a.primary_badge.view()))
             return false;
         hash = a.primary_badge.view();
-        segment(&url, utf8_literal("clan-badges/"), a.primary_guild_id);
+        segment(&url, "clan-badges/", a.primary_guild_id);
         format = MediaAttachmentFormat::png;
     } else if (part.media == ProfileMediaKind::decoration) {
         hash = display.decoration;
         if (!asset(hash))
             return false;
-        append(&url, utf8_literal("avatar-decoration-presets/"));
+        append(&url, "avatar-decoration-presets/");
         format = MediaAttachmentFormat::png;
         animated = ui_guild_banner_animated_hash(hash);
     } else if (part.media == ProfileMediaKind::badge && part.source < p.badge_count) {
         hash = p.badges[part.source].icon.view();
         if (!asset(hash))
             return false;
-        append(&url, utf8_literal("badge-icons/"));
+        append(&url, "badge-icons/");
         format = MediaAttachmentFormat::png;
     } else
         return false;
     append(&url, hash);
-    append(&url, format == MediaAttachmentFormat::png   ? utf8_literal(".png")
-                 : format == MediaAttachmentFormat::gif ? utf8_literal(".gif")
-                                                        : utf8_literal(".webp"));
+    append(&url, format == MediaAttachmentFormat::png   ? ".png"
+                 : format == MediaAttachmentFormat::gif ? ".gif"
+                                                        : ".webp",
+           format == MediaAttachmentFormat::png || format == MediaAttachmentFormat::gif ? 4u : 5u);
     // Every part is fetched at the smallest CDN size covering the width it is drawn at on this display
     // (a DPI change is a new key), within what its decoder and atlas page take.
     const bool animated_webp = animated && format == MediaAttachmentFormat::webp;
     const u32 limit = animated_webp                              ? kCdnAnimatedWebpSizeLimit
                       : part.media == ProfileMediaKind::banner ? kCdnBannerSizeLimit
                                                                  : kCdnSquareSizeLimit;
-    append(&url, utf8_literal("?size="));
+    append(&url, "?size=");
     id(&url, cdn_display_size(ui_rect_width(result.rectangle), scene.media_dpi, limit));
     if (animated_webp)
-        append(&url, utf8_literal("&animated=true"));
+        append(&url, "&animated=true");
     if (part.media == ProfileMediaKind::decoration)
-        append(&url, animated ? utf8_literal("&passthrough=true") : utf8_literal("&passthrough=false"));
+        passthrough(&url, animated);
     result.key = profile_key(url, format, animated);
     // Clipped to the banner; the renderer rounds it with the card's mask
     // (profile_scene_card_mask), so its top corners follow the card's.
@@ -412,7 +444,7 @@ bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMe
     const auto display = profile_display(p);
     ProfileMedia result{};
     auto& url = result.url;
-    append(&url, utf8_literal("https://cdn.discordapp.com/"));
+    cdn_root(&url);
     if (!display.avatar.bytes) {
         // The CDN's default (embed) avatar, under the key every list shares.
         const u32 index = default_avatar_index(p.user_id);
@@ -423,13 +455,13 @@ bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMe
             return false;
         if (display.guild_avatar) {
             member_path(&url, p.guild_id, p.user_id);
-            append(&url, utf8_literal("avatars/"));
+            append(&url, "avatars/");
         } else
-            segment(&url, utf8_literal("avatars/"), p.user_id);
+            segment(&url, "avatars/", p.user_id);
         append(&url, display.avatar);
         // A static WebP: the first frame of an animated avatar. The same URL and key as a still avatar drawn
         // at this size, so a still one is not fetched twice.
-        append(&url, utf8_literal(".webp?size="));
+        append(&url, ".webp?size=");
         id(&url, cdn_display_size(dips, scene.media_dpi, kCdnSquareSizeLimit));
         result.key = profile_key(url, MediaAttachmentFormat::webp, false);
     }
@@ -470,7 +502,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         return true;
     }
     auto& url = result.url;
-    append(&url, utf8_literal("https://cdn.discordapp.com/"));
+    cdn_root(&url);
     auto format = MediaAttachmentFormat::webp;
     bool animated = false;
     Utf8View hash{};
@@ -484,8 +516,6 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         const auto* a = guild && (guild->fields & appearance_nameplate) ? guild : global;
         if (!a || !a->nameplate_sku)
             return false;
-        append(&url, utf8_literal("media/v1/collectibles-shop/"));
-        id(&url, a->nameplate_sku);
         animated = row_hovered;
         // The still behind a hovered row's animation: drawn while the animated variant is not
         // resident (so the nameplate never blinks out on hover) and kept pinned with it.
@@ -494,7 +524,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
                 return false;
             animated = false;
         }
-        append(&url, animated ? utf8_literal("/animated") : utf8_literal("/static"));
+        nameplate_path(&url, a->nameplate_sku, animated);
         format = MediaAttachmentFormat::png;
         result.rectangle = {r->rectangle.left + 4, r->rectangle.top + 2, r->rectangle.right - 4,
                             r->rectangle.bottom - 2};
@@ -502,9 +532,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         if (!global || !global->primary_enabled || !global->primary_guild_id ||
             !asset(global->primary_badge.view()))
             return false;
-        segment(&url, utf8_literal("clan-badges/"), global->primary_guild_id);
-        append(&url, global->primary_badge.view());
-        append(&url, utf8_literal(".png?size=32"));
+        badge_path(&url, global->primary_guild_id, global->primary_badge.view());
         format = MediaAttachmentFormat::png;
         const auto badge = member_list_badge_resolve(s, index);
         result.rectangle = ui_badge_geometry(badge, s.widgets).icon;
@@ -522,11 +550,11 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         }
         result.rectangle = {avatar->rectangle.left - 4, avatar->rectangle.top - 4,
                             avatar->rectangle.right + 4, avatar->rectangle.bottom + 4};
-        append(&url, utf8_literal("avatar-decoration-presets/"));
+        append(&url, "avatar-decoration-presets/");
         append(&url, a->decoration.view());
-        append(&url, utf8_literal(".png?size="));
+        append(&url, ".png?size=");
         id(&url, cdn_display_size(ui_rect_width(result.rectangle), s.media_dpi));
-        append(&url, animated ? utf8_literal("&passthrough=true") : utf8_literal("&passthrough=false"));
+        passthrough(&url, animated);
         format = MediaAttachmentFormat::png;
     } else {
         // Only a per-guild avatar needs its own URL identity. Plain avatars use
@@ -538,14 +566,14 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         if (!asset(hash))
             return false;
         member_path(&url, s.source->guild_id, row.user_id);
-        append(&url, utf8_literal("avatars/"));
+        append(&url, "avatars/");
         append(&url, hash);
-        append(&url, utf8_literal(".webp?size=64"));
+        append(&url, ".webp?size=64");
         animated = ui_guild_banner_animated_hash(hash);
         result.circular = true;
     }
     if (animated && format == MediaAttachmentFormat::webp)
-        append(&url, utf8_literal("&animated=true"));
+        append(&url, "&animated=true");
     result.key = profile_key(url, format, animated);
     copy_value(out, result);
     return media_asset_key_valid(result.key);
@@ -620,11 +648,12 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
         if (layer.id.bytes) {
             if (!asset(layer.id.view()))
                 return false;
-            append(&url, utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/"));
+            cdn_root(&url);
+            append(&url, "media/v1/collectibles-shop/");
             id(&url, s.effect->sku);
-            append(&url, utf8_literal("/"));
+            append(&url, "/");
             append(&url, layer.id.view());
-            append(&url, utf8_literal("/static"));
+            append(&url, "/static");
         } else
             append(&url, layer.source.view());
         result.rectangle.left += layer.x * scale;

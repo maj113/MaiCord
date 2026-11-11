@@ -93,7 +93,7 @@ Utf8View response_text(const EmbedResolver* r) noexcept {
 }
 EmbedResolveResult http_result(EmbedPlayerError error, UpdateTransportError transport_error,
     const UpdateHttpResponse& response) noexcept {
-    return {error, transport_error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+    return {error, transport_error, response.status, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400))};
 }
 // One bounded GET or POST into the response buffer; `headers` receives the full response when requested.
 EmbedResolveResult fetch(EmbedResolver* r, const EmbedResolveTransport& transport, const Utf8View& host, const Utf8View& target,
@@ -221,14 +221,14 @@ static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 heig
             *out = staged;
         }
         secure_clear_bytes(&staged, sizeof(staged));
-        return {error, UpdateTransportError::none, 0, fetched.status};
+        return {error, UpdateTransportError::none, fetched.status};
     }
     const auto error = tiktok ? tiktok_player_streams(json, id, height, now, scratch, out)
                               : twitch ? twitch_clip_streams(json, id, height, now, scratch, out)
                               : streamable ? streamable_video_streams(json, id, height, now, scratch, out)
                               : twitter ? twitter_video_streams(json, id, height, media_index, scratch, out)
                                        : youtube_player_streams(json, id, height, scratch, out);
-    return {error, UpdateTransportError::none, 0, fetched.status};
+    return {error, UpdateTransportError::none, fetched.status};
 }
 EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now, EmbedStreams* out,
     EmbedResolveTransport transport) noexcept {
@@ -250,7 +250,7 @@ EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u6
         const Utf8View body = response_text(r);
         const auto error = step ? pornhub_video_streams(body, height, now, scratch, out)
                                : pornhub_embed_metadata(body, id, scratch, &metadata.stream);
-        if (error != E::none || step) return {error, {}, 0, fetched.status};
+        if (error != E::none || step) return {error, {}, fetched.status};
         if (!pornhub_metadata_location({metadata.stream.url, metadata.stream.url_bytes}, &location)) return {E::malformed};
     }
     return {E::unavailable};
@@ -289,8 +289,7 @@ EmbedResolveResult amazon_music_preview_resolve(EmbedResolver* r,Utf8View page,u
             +[](void*,ConstSlice<u8> b) noexcept {return !b.count;},nullptr};
         UpdateHttpResponse response{};
         const auto fetched=transport.exchange(transport.context,request,{{headers,1}},&response);
-        EmbedResolveResult result{E::unavailable,fetched,
-            static_cast<u32>(minimum<u64>(response.retry_after_seconds,86400)),response.status};
+        EmbedResolveResult result = http_result(E::unavailable, fetched, response);
         bool next=false;
         if(fetched==UpdateTransportError::none && response.status==302 &&
             response.location_bytes<=sizeof(response.location)) {
@@ -360,7 +359,7 @@ static EmbedResolveResult hls_media_resolve(EmbedResolver* r,u16 height,u64 now,
     using E=EmbedPlayerError;
     const bool vimeo = base.bytes != 0;
     struct Urls { EmbedStream video{},audio{}; ~Urls() noexcept {wipe(this,sizeof(*this));} } urls;
-    EmbedResolveResult result{E::none,UpdateTransportError::none,0,200};
+    EmbedResolveResult result{E::none,UpdateTransportError::none,200};
     const auto locate=[&](const Utf8View& url,EmbedStreamLocation* out) noexcept {
         if (vimeo) return vimeo_location(url, true, out);
         return youtube ? embed_stream_location(CdnHost::youtube_playlist,url,out) :
@@ -530,15 +529,15 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
     // A full watch response includes menus and unrelated UI data and can
     // exceed the metadata budget. Request only the fields consumed below.
     constexpr auto queue_fields = utf8_literal(
-        "contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer."
-        "tabs.tabRenderer.content.musicQueueRenderer.content.playlistPanelRenderer"
-        "(playlistId,contents(playlistPanelVideoRenderer(videoId,selected,title),"
-        "playlistPanelVideoWrapperRenderer(primaryRenderer(playlistPanelVideoRenderer(videoId,selected,title)))),continuations),"
-        "continuationContents.playlistPanelContinuation"
         "(playlistId,contents(playlistPanelVideoRenderer(videoId,selected,title),"
         "playlistPanelVideoWrapperRenderer(primaryRenderer(playlistPanelVideoRenderer(videoId,selected,title)))),continuations)");
     ok = ok && protocol_writer_append_literal(&writer, ",\"params\":\"wAEB\"}") &&
         protocol_writer_append_literal(&path, "/youtubei/v1/next?prettyPrint=false&fields=") &&
+        protocol_writer_append_percent_encoded(&path, utf8_literal(
+            "contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer."
+            "tabs.tabRenderer.content.musicQueueRenderer.content.playlistPanelRenderer")) &&
+        protocol_writer_append_percent_encoded(&path, queue_fields) &&
+        protocol_writer_append_percent_encoded(&path, utf8_literal(",continuationContents.playlistPanelContinuation")) &&
         protocol_writer_append_percent_encoded(&path, queue_fields);
     if (continuation.bytes) ok = ok && protocol_writer_append_literal(&path, "&continuation=") && protocol_writer_append_percent_encoded(&path, continuation);
     if (!ok) return {E::capacity};

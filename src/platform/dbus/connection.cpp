@@ -115,8 +115,6 @@ struct Connection {
     Route routes[kMaxRoutes];
 };
 
-namespace {
-
 // Waits for the descriptor until `deadline` (monotonic ms); false on timeout or error.
 bool poll_until(int fd, i16 events, u64 deadline) noexcept {
     for (;;) {
@@ -133,6 +131,8 @@ bool poll_until(int fd, i16 events, u64 deadline) noexcept {
             return false;
     }
 }
+
+namespace {
 
 // One sendmsg of `bytes` carrying `fd_count` descriptors with the first byte; the bytes sent, or a negated errno.
 long send_some(int fd, const u8* bytes, u32 count, const int* fds, u32 fd_count) noexcept {
@@ -154,6 +154,8 @@ long send_some(int fd, const u8* bytes, u32 count, const int* fds, u32 fd_count)
     return syscall3(kCallSendmsg, fd, reinterpret_cast<long>(&header), kMsgNosignal | kMsgDontwait);
 }
 
+} // namespace
+
 bool send_all_blocking(int fd, const u8* bytes, u32 count, u64 deadline) noexcept {
     u32 done = 0;
     while (done != count) {
@@ -171,6 +173,8 @@ bool send_all_blocking(int fd, const u8* bytes, u32 count, u64 deadline) noexcep
     }
     return true;
 }
+
+namespace {
 
 // Reads one line ended by CRLF (without it) into `line`; false on timeout, error or an overlong line. A peek finds the
 // line end and a read takes the bytes through it, never past it: two system calls a line, not one a byte.
@@ -886,6 +890,10 @@ Status connection_call_sync(Connection* c, const CallTarget& target, const Build
     else
         clear_bytes(reply, static_cast<u32>(sizeof(*reply)));
     return call.status;
+}
+
+__declspec(noinline) const char* reply_error_name(Status status, const Message* reply, const char* fallback) noexcept {
+    return status == Status::error_reply && reply && reply->error_name ? reply->error_name : fallback;
 }
 
 u32 connection_subscribe(Connection* c, const SignalMatch& match, SignalHandler handler, void* context) noexcept {

@@ -44,7 +44,7 @@ bool unicode_mark(const UnicodeProperties& p) noexcept {
 struct Piece {u32 scalar,source;u16 glyph;u8 category,continuation;};
 static_assert(sizeof(Piece)==12);
 struct Shaper {
-    u8 (*category)(u32) noexcept;const u8* column;const u8* next;const u8* outcome;u8 columns;
+    u8 (*category)(u32) noexcept;const u8* column;const u8* next;const u8* outcome;u8 stride;
     u8 broken,dotted,repha,stages; // repha: the category that stays before an inserted dotted circle (none: 255)
     bool split_matras,keep_split,zero_marks,use;
 };
@@ -53,11 +53,11 @@ u8 myanmar_of(u32 u) noexcept {return myanmar_category(u);}
 u8 use_of(u32 u) noexcept {return use_category(u);}
 // Khmer: split matras decompose (decompose_khmer) and do not recompose, marks keep their width. Myanmar: the
 // default composition. USE: split matras do not recompose; marks are zeroed by GDEF before positioning.
-constexpr Shaper khmer{khmer_of,khmer_column,&khmer_next[0][0],khmer_outcome,static_cast<u8>(sizeof(khmer_next[0])),
+constexpr Shaper khmer{khmer_of,khmer_column,khmer_next,khmer_outcome,khmer_stride,
     khmer_broken,static_cast<u8>(K::dotted_circle),255,3,true,true,false,false};
-constexpr Shaper myanmar{myanmar_of,myanmar_column,&myanmar_next[0][0],myanmar_outcome,static_cast<u8>(sizeof(myanmar_next[0])),
+constexpr Shaper myanmar{myanmar_of,myanmar_column,myanmar_next,myanmar_outcome,myanmar_stride,
     myanmar_broken,static_cast<u8>(M::dotted_circle),255,7,false,false,true,false};
-constexpr Shaper universal{use_of,use_column,&use_next[0][0],use_outcome,static_cast<u8>(sizeof(use_next[0])),
+constexpr Shaper universal{use_of,use_column,use_next,use_outcome,use_stride,
     use_broken,static_cast<u8>(U::b),static_cast<u8>(U::r),7,false,true,true,true};
 const Shaper& shaper_of(SfntSyllabicScript script) noexcept {
     return script==SfntSyllabicScript::khmer?khmer:script==SfntSyllabicScript::myanmar?myanmar:universal;
@@ -178,7 +178,7 @@ struct Scanner {
         if(skipped(p)){u32 q=p;while(q<count&&skipped(q))++q;if(!p){*end=q;*outcome=use_virama;return;}}
         u32 state=0,last=p;u8 found=0;
         for(u32 i=p;i<count;++i){if(skipped(i))continue;
-            const u8 next=shaper.next[state*shaper.columns+shaper.column[pieces[i].category]];if(!next)break;state=next;
+            const u8 next=shaper.next[state*shaper.stride+shaper.column[pieces[i].category]];if(!next)break;state=next;
             if(const u8 result=shaper.outcome[state]){last=i+1;found=result;}}
         if(last==p){last=p+1;found=shaper.use?use_other:3;}
         while(last<count&&skipped(last))++last;

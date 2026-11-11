@@ -1,40 +1,21 @@
 #include "maicord/model/guild/detail_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 
-constexpr struct {
-    Utf8View name;
-    u64 bit;
-} kFeatures[] = {
-    {utf8_literal("MORE_EMOJI"), guild_feature_more_emoji},
-    {utf8_literal("MORE_STICKERS"), guild_feature_more_stickers},
-    {utf8_literal("ROLE_ICONS"), guild_feature_role_icons},
-    {utf8_literal("BANNER"), guild_feature_banner},
-    {utf8_literal("ANIMATED_BANNER"), guild_feature_animated_banner},
-    {utf8_literal("COMMUNITY"), guild_feature_community},
-    {utf8_literal("ACTIVITY_FEED_ENABLED_BY_USER"), guild_feature_activity_feed_enabled},
-    {utf8_literal("ACTIVITY_FEED_DISABLED_BY_USER"), guild_feature_activity_feed_disabled},
-    {utf8_literal("VANITY_URL"), guild_feature_vanity_url},
-    {utf8_literal("INVITE_SPLASH"), guild_feature_invite_splash},
-    {utf8_literal("CREATOR_MONETIZABLE"), guild_feature_creator_monetizable},
-    {utf8_literal("CREATOR_MONETIZABLE_PROVISIONAL"), guild_feature_creator_monetizable_provisional},
-    {utf8_literal("CREATOR_MONETIZABLE_DISABLED"), guild_feature_creator_monetizable_disabled},
-    {utf8_literal("SUMMARIES_ENABLED_GA"), guild_feature_summaries_ga},
-    {utf8_literal("SUMMARIES_ENABLED_BY_USER"), guild_feature_summaries_enabled},
-    {utf8_literal("GUILD_TAGS"), guild_feature_guild_tags},
-    {utf8_literal("GUILD_TAGS_BADGE_PACK_PETS"), guild_feature_badge_pack_pets},
-    {utf8_literal("GUILD_TAGS_BADGE_PACK_FLEX"), guild_feature_badge_pack_flex},
-    {utf8_literal("GUILD_TAGS_BADGE_PACK_PLANT"), guild_feature_badge_pack_plant},
-    {utf8_literal("GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES"), guild_feature_badge_pack_creepy_crawlies},
-    {utf8_literal("DISCOVERABLE"), guild_feature_discoverable},
-    {utf8_literal("MEMBER_VERIFICATION_GATE_ENABLED"), guild_feature_verification_gate},
-    {utf8_literal("MEMBER_VERIFICATION_MANUAL_APPROVAL"), guild_feature_manual_approval},
-    {utf8_literal("PREVIEW_ENABLED"), guild_feature_preview_enabled},
-    {utf8_literal("VERIFIED"), guild_feature_verified},
-    {utf8_literal("PARTNERED"), guild_feature_partnered},
-};
+// The feature names Server Settings reads, and the guild_feature_* bit (as a shift) of each, in the same order.
+constexpr char kFeatureNames[] = "MORE_EMOJI\0MORE_STICKERS\0ROLE_ICONS\0BANNER\0ANIMATED_BANNER\0COMMUNITY\0"
+                                 "ACTIVITY_FEED_ENABLED_BY_USER\0ACTIVITY_FEED_DISABLED_BY_USER\0VANITY_URL\0"
+                                 "INVITE_SPLASH\0CREATOR_MONETIZABLE\0CREATOR_MONETIZABLE_PROVISIONAL\0"
+                                 "CREATOR_MONETIZABLE_DISABLED\0SUMMARIES_ENABLED_GA\0SUMMARIES_ENABLED_BY_USER\0"
+                                 "GUILD_TAGS\0GUILD_TAGS_BADGE_PACK_PETS\0GUILD_TAGS_BADGE_PACK_FLEX\0"
+                                 "GUILD_TAGS_BADGE_PACK_PLANT\0GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES\0DISCOVERABLE\0"
+                                 "MEMBER_VERIFICATION_GATE_ENABLED\0MEMBER_VERIFICATION_MANUAL_APPROVAL\0"
+                                 "PREVIEW_ENABLED\0VERIFIED\0PARTNERED\0";
+constexpr u8 kFeatureShifts[]{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 18, 19, 20, 24, 25, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45};
+static_assert(name_list_count(kFeatureNames) == sizeof(kFeatureShifts));
 
 GuildDetailRecord* find(GuildDetailStore* store, u64 guild_id) noexcept {
     for (u32 i = 0; i < store->count; ++i)
@@ -76,16 +57,17 @@ void compact(GuildDetailStore* store) noexcept {
 } // namespace
 
 u64 guild_feature_bit(Utf8View name) noexcept {
-    for (const auto& feature : kFeatures)
-        if (utf8_equal(name, feature.name))
-            return feature.bit;
+    u32 i = 0;
+    for (NameList list{kFeatureNames}; list; list.next(), ++i)
+        if (utf8_equal(name, list.name()))
+            return 1ull << kFeatureShifts[i];
     return 0;
 }
 
 Utf8View guild_feature_name(u64 bit) noexcept {
-    for (const auto& feature : kFeatures)
-        if (feature.bit == bit)
-            return feature.name;
+    for (u32 i = 0; i < sizeof(kFeatureShifts); ++i)
+        if (1ull << kFeatureShifts[i] == bit)
+            return name_list_at(kFeatureNames, i);
     return {};
 }
 

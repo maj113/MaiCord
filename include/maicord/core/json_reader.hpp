@@ -54,8 +54,12 @@ enum class JsonReadError : u8 {
 };
 
 struct JsonReadResult {
-    u32 member_count;
-    u32 error_offset;
+    // The count of members visited when ok, else the offset of the error: 8 bytes, so a result returns in a
+    // register.
+    union {
+        u32 member_count;
+        u32 error_offset;
+    };
     JsonReadError error;
 
     constexpr bool ok() const noexcept {

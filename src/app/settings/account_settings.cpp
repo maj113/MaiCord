@@ -475,130 +475,162 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept;
 bool form_save_option(TextFormOwnerKey key, bool checked) noexcept;
 bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 select) noexcept;
 
-// Each dialog's shape and fixed texts, in Form order: its title, context, field label and accept button packed as a
-// NameList (an empty accept is "Done"; a password field without a label asks for the current password). A text field
-// holds up to `codepoints`; a confirmation has none. The texts a dialog composes are filled in by open_form.
+// Each dialog's fixed texts, in Form order: its title, context, field label and accept button, four names each in one
+// NameList (an empty name is absent; an empty accept is "Done"; a password field without a label asks for the current
+// password), and its shape. A text field holds up to `codepoints`; a confirmation has none. The texts a dialog
+// composes are filled in by open_form.
 enum FormShape : u8 { form_text, form_secret = 1, form_confirm = 2, form_danger = 4 };
 struct FormSpec {
-    const char* texts;
     u8 shape, codepoints;
 };
+constexpr char kFormTexts[] =
+    // none
+    "\0" "\0" "\0" "\0"
+    // display_name, pronouns, bio
+    "Change your display name\0" "\0" "Display name\0" "Save\0"
+    "Change your pronouns\0" "\0" "Pronouns\0" "Save\0"
+    "Edit about me\0" "\0" "About me\0" "Save\0"
+    // username, username_password
+    "Change your username\0" "Enter a new username and your existing password.\0" "Username\0" "Next\0"
+    "Change your username\0" "Enter a new username and your existing password.\0" "\0" "\0"
+    // password_current, password_new, password_confirm
+    "Change your password\0" "Enter your current password and a new password.\0" "\0" "Next\0"
+    "Change your password\0" "Enter your current password and a new password.\0" "New Password\0" "Next\0"
+    "Change your password\0" "Enter your current password and a new password.\0" "Confirm New Password\0" "\0"
+    // email_send, email_code, email_new, email_password
+    "Verify email address\0" "\0" "\0" "Send Verification Code\0"
+    "Enter code\0" "Check your email: we sent you a verification code.\0" "Verification code\0" "Next\0"
+    "Enter an email address\0" "Enter a new email address and your existing password.\0" "Email\0" "Next\0"
+    "Enter an email address\0" "Enter a new email address and your existing password.\0" "\0" "\0"
+    // phone_number, phone_code, phone_password, phone_remove
+    "Enter a phone number\0" "You will receive a text message with a verification code.\0" "Phone Number\0" "Send\0"
+    "Verify your phone number\0" "\0" "Verification code\0" "Next\0"
+    "Verify your phone number\0" "Enter your password to finish.\0" "\0" "\0"
+    "Remove phone number\0" "Enter your password to remove the phone number from your account.\0" "\0" "Remove\0"
+    // totp_setup: as the official client, the steps, the QR of the otpauth:// link (Discord:<email>, the key, issuer
+    // Discord), the key for manual entry under it, then the code field.
+    "Enable Authenticator App\0"
+    "Make your account safer in 3 easy steps:\n1. Download an authenticator app.\n2. Scan the QR code with it, or "
+    "enter the key under it.\n3. Enter the 6-digit code it shows.\0"
+    "6-digit authentication code\0"
+    "Activate\0"
+    // totp_remove, new_codes
+    "Remove Authenticator App\0" "Are you sure you want to remove your Authenticator App?\0" "\0" "Remove\0"
+    "Backup Codes\0"
+    "These codes will allow you to enter your account if you lose your authenticator app. Each code can only be used "
+    "once.\0"
+    "Your backup codes\0"
+    "\0"
+    // sms_enable, sms_disable
+    "Enable SMS Authentication\0"
+    "Your phone number becomes a backup way to sign in: Discord can text it a code.\0"
+    "\0"
+    "Enable\0"
+    "Remove SMS Authentication\0" "Enter your password to stop using your phone for authentication.\0" "\0" "Remove\0"
+    // backup_password, backup_key; backup_list shows new_codes' texts
+    "Show Backup Codes\0"
+    "Enter your password. Discord emails you a verification key to view your backup codes.\0"
+    "\0"
+    "Send Key\0"
+    "Show Backup Codes\0"
+    "Check your email: enter the verification key Discord sent you.\0"
+    "Verification key\0"
+    "Show Codes\0"
+    "\0" "\0" "\0" "\0"
+    // key_rename, key_delete
+    "Rename security key\0" "\0" "Name\0" "Save\0"
+    "Remove security key\0" "You won't be able to use this key to sign in anymore.\0" "\0" "Remove\0"
+    // account_disable, account_delete
+    "Disable Account\0"
+    "Are you sure that you want to disable your account? This will immediately log you out and make your account "
+    "inaccessible to anyone.\0"
+    "Password\0"
+    "Disable Account\0"
+    "Delete Account\0"
+    "Are you sure that you want to delete your account? This will immediately log you out of your account and you "
+    "will not be able to log in again.\0"
+    "Password\0"
+    "Delete Account\0"
+    // session_logout, logout_all, token_revoke, connection_remove
+    "Log out this device?\0" "It will need to sign in again to use your account.\0" "\0" "Log Out\0"
+    "Log out of all known devices?\0"
+    "You'll have to log back in on all logged out devices.\0"
+    "\0"
+    "Log Out All Known Devices\0"
+    "\0" "It loses access to your account until you authorize it again.\0" "\0" "Deauthorize\0"
+    "\0"
+    "Disconnecting removes this account from your profile and leaves any server you joined through it.\0"
+    "\0"
+    "Disconnect\0"
+    // consent_off, key_register, key_pin, key_name, mfa_password, mfa_code
+    "Turn off use data to improve Discord?\0"
+    "If you turn this off, we'll stop processing new data for analytics. You will lose access to new experimental "
+    "features and usage-based improvements to features like voice chat.\0"
+    "\0"
+    "Yes, I'm sure\0"
+    "Register a Security Key\0"
+    "When you are ready to authenticate, press the button below.\0"
+    "\0"
+    "Let\xE2\x80\x99s go\0"
+    "Security Key PIN\0" "Enter the PIN of your security key.\0" "PIN\0" "Confirm\0"
+    "Name your security key\0" "Choose a name for your new key.\0" "Name\0" "Save\0"
+    "Confirm Password\0"
+    "For your security, confirm your password to continue.\0"
+    "Password\0"
+    "Confirm\0"
+    "Multi-Factor Authentication\0"
+    "Confirm it's you: choose a method and enter its code.\0"
+    "\0"
+    "Confirm\0";
 constexpr FormSpec kForms[]{
-    {"\0" "\0" "\0", form_text, 0},
-    {"Change your display name\0" "\0" "Display name\0" "Save", form_text, 32},
-    {"Change your pronouns\0" "\0" "Pronouns\0" "Save", form_text, 40},
-    {"Edit about me\0" "\0" "About me\0" "Save", form_text, 190},
-    {"Change your username\0" "Enter a new username and your existing password.\0" "Username\0" "Next", form_text, 32},
-    {"Change your username\0" "Enter a new username and your existing password.\0" "\0", form_secret, kSecretCodepoints},
-    {"Change your password\0" "Enter your current password and a new password.\0" "\0" "Next", form_secret,
-     kSecretCodepoints},
-    {"Change your password\0" "Enter your current password and a new password.\0" "New Password\0" "Next", form_secret,
-     kSecretCodepoints},
-    {"Change your password\0" "Enter your current password and a new password.\0" "Confirm New Password\0", form_secret,
-     kSecretCodepoints},
-    {"Verify email address\0" "\0" "\0" "Send Verification Code", form_confirm, 0},
-    {"Enter code\0" "Check your email: we sent you a verification code.\0" "Verification code\0" "Next", form_text, 16},
-    {"Enter an email address\0" "Enter a new email address and your existing password.\0" "Email\0" "Next", form_text,
-     128},
-    {"Enter an email address\0" "Enter a new email address and your existing password.\0" "\0", form_secret,
-     kSecretCodepoints},
-    {"Enter a phone number\0" "You will receive a text message with a verification code.\0" "Phone Number\0" "Send",
-     form_text, 24},
-    {"Verify your phone number\0" "\0" "Verification code\0" "Next", form_text, 16},
-    {"Verify your phone number\0" "Enter your password to finish.\0" "\0", form_secret, kSecretCodepoints},
-    {"Remove phone number\0" "Enter your password to remove the phone number from your account.\0" "\0" "Remove",
-     form_secret | form_danger, kSecretCodepoints},
-    // As the official client: the steps, the QR of the otpauth:// link (Discord:<email>, the key, issuer Discord), the
-    // key for manual entry under it, then the code field.
-    {"Enable Authenticator App\0"
-     "Make your account safer in 3 easy steps:\n1. Download an authenticator app.\n2. Scan the QR code with it, or "
-     "enter the key under it.\n3. Enter the 6-digit code it shows.\0"
-     "6-digit authentication code\0"
-     "Activate",
-     form_text, 10},
-    {"Remove Authenticator App\0" "Are you sure you want to remove your Authenticator App?\0" "\0" "Remove",
-     form_confirm | form_danger, 0},
-    {"Backup Codes\0"
-     "These codes will allow you to enter your account if you lose your authenticator app. Each code can only be used "
-     "once.\0"
-     "Your backup codes\0",
-     form_confirm, 0},
-    {"Enable SMS Authentication\0"
-     "Your phone number becomes a backup way to sign in: Discord can text it a code.\0"
-     "\0"
-     "Enable",
-     form_confirm, 0},
-    {"Remove SMS Authentication\0" "Enter your password to stop using your phone for authentication.\0" "\0" "Remove",
-     form_secret | form_danger, kSecretCodepoints},
-    {"Show Backup Codes\0"
-     "Enter your password. Discord emails you a verification key to view your backup codes.\0"
-     "\0"
-     "Send Key",
-     form_secret, kSecretCodepoints},
-    {"Show Backup Codes\0"
-     "Check your email: enter the verification key Discord sent you.\0"
-     "Verification key\0"
-     "Show Codes",
-     form_text, 32},
-    {"Backup Codes\0"
-     "These codes will allow you to enter your account if you lose your authenticator app. Each code can only be used "
-     "once.\0"
-     "Your backup codes\0",
-     form_confirm, 0},
-    {"Rename security key\0" "\0" "Name\0" "Save", form_text, 32},
-    {"Remove security key\0" "You won't be able to use this key to sign in anymore.\0" "\0" "Remove",
-     form_confirm | form_danger, 0},
-    {"Disable Account\0"
-     "Are you sure that you want to disable your account? This will immediately log you out and make your account "
-     "inaccessible to anyone.\0"
-     "Password\0"
-     "Disable Account",
-     form_secret | form_danger, kSecretCodepoints},
-    {"Delete Account\0"
-     "Are you sure that you want to delete your account? This will immediately log you out of your account and you "
-     "will not be able to log in again.\0"
-     "Password\0"
-     "Delete Account",
-     form_secret | form_danger, kSecretCodepoints},
-    {"Log out this device?\0" "It will need to sign in again to use your account.\0" "\0" "Log Out",
-     form_confirm | form_danger, 0},
-    {"Log out of all known devices?\0"
-     "You'll have to log back in on all logged out devices.\0"
-     "\0"
-     "Log Out All Known Devices",
-     form_confirm | form_danger, 0},
-    {"\0" "It loses access to your account until you authorize it again.\0" "\0" "Deauthorize",
-     form_confirm | form_danger, 0},
-    {"\0"
-     "Disconnecting removes this account from your profile and leaves any server you joined through it.\0"
-     "\0"
-     "Disconnect",
-     form_confirm | form_danger, 0},
-    {"Turn off use data to improve Discord?\0"
-     "If you turn this off, we'll stop processing new data for analytics. You will lose access to new experimental "
-     "features and usage-based improvements to features like voice chat.\0"
-     "\0"
-     "Yes, I'm sure",
-     form_confirm | form_danger, 0},
-    {"Register a Security Key\0"
-     "When you are ready to authenticate, press the button below.\0"
-     "\0"
-     "Let\xE2\x80\x99s go",
-     form_confirm, 0},
-    {"Security Key PIN\0" "Enter the PIN of your security key.\0" "PIN\0" "Confirm", form_secret, kSecretCodepoints},
-    {"Name your security key\0" "Choose a name for your new key.\0" "Name\0" "Save", form_text, 32},
-    {"Confirm Password\0"
-     "For your security, confirm your password to continue.\0"
-     "Password\0"
-     "Confirm",
-     form_secret, kSecretCodepoints},
-    {"Multi-Factor Authentication\0"
-     "Confirm it's you: choose a method and enter its code.\0"
-     "\0"
-     "Confirm",
-     form_text, 16},
+    {form_text, 0},                                  // none
+    {form_text, 32},                                 // display_name
+    {form_text, 40},                                 // pronouns
+    {form_text, 190},                                // bio
+    {form_text, 32},                                 // username
+    {form_secret, kSecretCodepoints},                // username_password
+    {form_secret, kSecretCodepoints},                // password_current
+    {form_secret, kSecretCodepoints},                // password_new
+    {form_secret, kSecretCodepoints},                // password_confirm
+    {form_confirm, 0},                               // email_send
+    {form_text, 16},                                 // email_code
+    {form_text, 128},                                // email_new
+    {form_secret, kSecretCodepoints},                // email_password
+    {form_text, 24},                                 // phone_number
+    {form_text, 16},                                 // phone_code
+    {form_secret, kSecretCodepoints},                // phone_password
+    {form_secret | form_danger, kSecretCodepoints},  // phone_remove
+    {form_text, 10},                                 // totp_setup
+    {form_confirm | form_danger, 0},                 // totp_remove
+    {form_confirm, 0},                               // new_codes
+    {form_confirm, 0},                               // sms_enable
+    {form_secret | form_danger, kSecretCodepoints},  // sms_disable
+    {form_secret, kSecretCodepoints},                // backup_password
+    {form_text, 32},                                 // backup_key
+    {form_confirm, 0},                               // backup_list
+    {form_text, 32},                                 // key_rename
+    {form_confirm | form_danger, 0},                 // key_delete
+    {form_secret | form_danger, kSecretCodepoints},  // account_disable
+    {form_secret | form_danger, kSecretCodepoints},  // account_delete
+    {form_confirm | form_danger, 0},                 // session_logout
+    {form_confirm | form_danger, 0},                 // logout_all
+    {form_confirm | form_danger, 0},                 // token_revoke
+    {form_confirm | form_danger, 0},                 // connection_remove
+    {form_confirm | form_danger, 0},                 // consent_off
+    {form_confirm, 0},                               // key_register
+    {form_secret, kSecretCodepoints},                // key_pin
+    {form_text, 32},                                 // key_name
+    {form_secret, kSecretCodepoints},                // mfa_password
+    {form_text, 16},                                 // mfa_code
 };
 static_assert(sizeof(kForms) / sizeof(kForms[0]) == static_cast<u32>(Form::mfa_code) + 1);
+// Four names per dialog (empty ones included, so the list is walked rather than counted): their terminators and the end.
+static_assert([]() constexpr {
+    u32 terminators = 0;
+    for (const char c : kFormTexts)
+        terminators += c == '\0';
+    return terminators;
+}() == 4 * sizeof(kForms) / sizeof(kForms[0]) + 1);
 
 void open_form(Form form) noexcept {
     auto& b = *g_owner.bank;
@@ -619,7 +651,9 @@ void open_form(Form form) noexcept {
     r.progress = form_progress;
     r.closed = form_closed;
     r.single_line = true;
-    NameList texts{spec.texts};
+    NameList texts{kFormTexts};
+    for (u32 skip = 4 * static_cast<u32>(form == Form::backup_list ? Form::new_codes : form); skip; --skip)
+        texts.next();
     r.title = texts.name();
     texts.next();
     r.context = texts.name();
@@ -1313,39 +1347,44 @@ __forceinline void update_masks() noexcept {
                                                                      {b.phone_mask, sizeof(b.phone_mask)}));
 }
 
-// Connected accounts: the platform's name, and which display options it has (Userdoccers' connection types; the
-// official client offers the status option for platforms that report activity and the details option for platforms
-// with profile metadata).
+// Connected accounts: each platform's type and name (one NameList of pairs) and which display options it has
+// (Userdoccers' connection types; the official client offers the status option for platforms that report activity and
+// the details option for platforms with profile metadata).
+constexpr char kPlatforms[] =
+    "amazon-music\0" "Amazon Music\0" "battlenet\0" "Battle.net\0" "bluesky\0" "Bluesky\0" "bungie\0" "Bungie.net\0"
+    "crunchyroll\0" "Crunchyroll\0" "domain\0" "Domain\0" "ebay\0" "eBay\0" "epicgames\0" "Epic Games\0"
+    "facebook\0" "Facebook\0" "github\0" "GitHub\0" "instagram\0" "Instagram\0" "leagueoflegends\0" "League of Legends\0"
+    "mastodon\0" "Mastodon\0" "paypal\0" "PayPal\0" "playstation\0" "PlayStation Network\0" "reddit\0" "Reddit\0"
+    "riotgames\0" "Riot Games\0" "roblox\0" "Roblox\0" "soundcloud\0" "SoundCloud\0" "spotify\0" "Spotify\0"
+    "steam\0" "Steam\0" "tiktok\0" "TikTok\0" "twitch\0" "Twitch\0" "twitter\0" "X\0"
+    "xbox\0" "Xbox\0" "youtube\0" "YouTube\0";
+enum PlatformOption : u8 { platform_activity = 1, platform_metadata = 2 };
+constexpr u8 kPlatformOptions[]{platform_activity, platform_activity, 0, 0, platform_activity, 0, platform_metadata,
+                                platform_activity, 0, 0, 0, platform_activity, 0, platform_metadata,
+                                platform_activity, platform_metadata, platform_activity, platform_activity, 0,
+                                platform_activity, platform_activity | platform_metadata, platform_metadata,
+                                platform_activity, platform_metadata, platform_activity, platform_activity};
+static_assert(name_list_count(kPlatforms) == 2 * sizeof(kPlatformOptions));
 struct Platform {
-    const char* type;
-    const char* name;
-    bool activity, metadata;
-};
-constexpr Platform kPlatforms[]{
-    {"amazon-music", "Amazon Music", true, false}, {"battlenet", "Battle.net", true, false},
-    {"bluesky", "Bluesky", false, false},          {"bungie", "Bungie.net", false, false},
-    {"crunchyroll", "Crunchyroll", true, false},   {"domain", "Domain", false, false},
-    {"ebay", "eBay", false, true},                 {"epicgames", "Epic Games", true, false},
-    {"facebook", "Facebook", false, false},        {"github", "GitHub", false, false},
-    {"instagram", "Instagram", false, false},      {"leagueoflegends", "League of Legends", true, false},
-    {"mastodon", "Mastodon", false, false},        {"paypal", "PayPal", false, true},
-    {"playstation", "PlayStation Network", true, false}, {"reddit", "Reddit", false, true},
-    {"riotgames", "Riot Games", true, false},      {"roblox", "Roblox", true, false},
-    {"soundcloud", "SoundCloud", false, false},    {"spotify", "Spotify", true, false},
-    {"steam", "Steam", true, true},                {"tiktok", "TikTok", false, true},
-    {"twitch", "Twitch", true, false},             {"twitter", "X", false, true},
-    {"xbox", "Xbox", true, false},                 {"youtube", "YouTube", true, false},
+    Utf8View name;
+    u8 options;
 };
 bool& connection_option(AccountConnection& connection, AccountConnectionField field) noexcept {
     return field == AccountConnectionField::visibility            ? connection.visible
            : field == AccountConnectionField::metadata_visibility ? connection.metadata_visible
                                                                   : connection.show_activity;
 }
-const Platform* platform(const AccountConnection& connection) noexcept {
-    for (const auto& p : kPlatforms)
-        if (utf8_equal(view(connection.type, connection.type_bytes), view(p.type, c_string_length(p.type))))
-            return &p;
-    return nullptr;
+// The connection's platform; unknown ones have no name.
+Platform platform(const AccountConnection& connection) noexcept {
+    u32 index = 0;
+    for (NameList list{kPlatforms}; list; ++index) {
+        const bool match = utf8_equal(view(connection.type, connection.type_bytes), list.name());
+        list.next();
+        if (match)
+            return {list.name(), kPlatformOptions[index]};
+        list.next();
+    }
+    return {};
 }
 // A connection's rows: the account (Disconnect), then its display options.
 enum ConnectionPart : u32 { part_account, part_visible, part_metadata, part_activity, kConnectionParts };
@@ -1359,8 +1398,8 @@ u32 connection_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
     u32 count = 0;
     for (u32 i = 0; i < g_owner.connection_count && count + kConnectionParts <= controls.count; ++i) {
         const auto& connection = b.connections[i];
-        const auto* p = platform(connection);
-        const Utf8View name = p ? view(p->name, c_string_length(p->name)) : view(connection.type, connection.type_bytes);
+        const Platform p = platform(connection);
+        const Utf8View name = p.name.bytes ? p.name : view(connection.type, connection.type_bytes);
         const auto row = [&](u32 part, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool checked,
                              Utf8View action) noexcept {
             list_row(controls, presentation, count, settings_list_control_id(binding, i * kConnectionParts + part), label,
@@ -1377,10 +1416,10 @@ u32 connection_rows(SettingBinding binding, Slice<UiSettingsControl> controls,
         if (connection.revoked)
             continue;
         row(part_visible, utf8_literal("Display on profile"), {}, UiSettingsControlKind::toggle, connection.visible, {});
-        if (p && p->metadata)
+        if (p.options & platform_metadata)
             row(part_metadata, utf8_literal("Display details on profile"), {}, UiSettingsControlKind::toggle,
                 connection.metadata_visible, {});
-        if (p && p->activity) {
+        if (p.options & platform_activity) {
             u8 used = 0;
             append(g_activity_text[i], used, utf8_literal("Display "));
             append(g_activity_text[i], used, name);

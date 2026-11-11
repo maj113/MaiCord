@@ -3,7 +3,6 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/layout/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -49,34 +48,6 @@ bool state_valid(const UiPollState& state) noexcept {
         selected += answer.selected ? 1u : 0u;
     }
     return state.multiselect || selected <= 1;
-}
-bool style_valid(const UiPollStyle& style) noexcept {
-    // The thirteen lengths lead the style, in this order.
-    static_assert(__builtin_offsetof(UiPollStyle, radius) == 12 * sizeof(float));
-    if (!ui_lengths_valid(&style.padding, 13))
-        return false;
-    if (style.minimum_width < 128 || style.maximum_width < style.minimum_width || style.target < 32 ||
-        style.marker < 12 || style.emoji_extent < 16 || style.label_minimum_height < 12)
-        return false;
-    const Utf8View labels[]{style.question_fallback,
-                            style.answer_fallback,
-                            style.vote,
-                            style.remove_vote,
-                            style.view_results,
-                            style.back,
-                            style.view_voters,
-                            style.retry,
-                            style.single,
-                            style.multi,
-                            style.closed,
-                            style.unavailable,
-                            style.unknown_results,
-                            style.loading,
-                            style.failed};
-    for (auto label : labels)
-        if (!label.bytes || !text_valid(label, 256))
-            return false;
-    return true;
 }
 u32 selected_count(const UiPollState& state) noexcept {
     u32 count{};
@@ -263,6 +234,10 @@ bool eligible(const UiPollScene& scene, UiPollTarget target) noexcept {
            ui_rect_has_area(
                ui_rect_intersection(ui_poll_target_rectangle(scene.projection, target), scene.clip));
 }
+// A scene that is not active holds only zeros: its style is read while it is active, and every projection stores one.
+void clear_scene(UiPollScene* scene) noexcept {
+    clear_bytes(scene, static_cast<u32>(sizeof(UiPollScene)));
+}
 u32 targets(const UiPollProjection& projection, UiPollTarget* output) noexcept {
     u32 count{};
     for (u32 i = 0; i < projection.state.answers.count; ++i)
@@ -277,7 +252,7 @@ u32 targets(const UiPollProjection& projection, UiPollTarget* output) noexcept {
 
 bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollStyle& style,
                             UiTextMeasureCache* cache, u16 backend, UiPollLayout* out) noexcept {
-    if (!out || !cache || !state_valid(state) || !style_valid(style) || !positive(width))
+    if (!out || !cache || !state_valid(state) || !positive(width))
         return false;
     width = minimum(width, style.maximum_width);
     if (width < style.minimum_width)
@@ -439,7 +414,7 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
 bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
                                      const UiPollStyle& style, const Theme& theme,
                                      UiPollProjection* out) noexcept {
-    if (!out || !state_valid(state) || !style_valid(style) || !ui_coordinate_valid(origin.x) ||
+    if (!out || !state_valid(state) || !ui_coordinate_valid(origin.x) ||
         !ui_coordinate_valid(origin.y) || layout.content_revision != state.content_revision ||
         layout.content_signature != content_signature(state, style) || !positive(layout.height) ||
         !positive(layout.width) || layout.width < style.minimum_width ||
@@ -659,12 +634,12 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
     if (!owner_current(owner) || !ui_rect_valid_or_empty(clip) ||
         static_cast<u32>(surface) > static_cast<u32>(UiPollSourceSurface::forward) ||
         !ui_poll_controls_project(state, bounds, style, theme, cache, backend, &projection)) {
-        reset_value(scene);
+        clear_scene(scene);
         return false;
     }
     const auto effective = ui_rect_intersection(projection.geometry.bounds, clip);
     if (!ui_rect_has_area(effective)) {
-        reset_value(scene);
+        clear_scene(scene);
         return false;
     }
     const bool same = scene->active && scene->owner.manager == owner.manager &&
@@ -680,12 +655,15 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
                                                ui_poll_target_rectangle(projection, scene->capture));
     const auto focus = scene->focus, hover = scene->hover, capture = scene->capture;
     const bool keyboard = scene->keyboard_focus;
-    reset_value(scene);
     copy_value(&scene->projection, projection);
     copy_value(&scene->style, style);
     scene->owner = owner;
     scene->surface = surface;
     scene->clip = effective;
+    reset_value(&scene->focus);
+    reset_value(&scene->hover);
+    reset_value(&scene->capture);
+    scene->keyboard_focus = false;
     scene->active = true;
     if (same && eligible(*scene, focus)) {
         scene->focus = focus;

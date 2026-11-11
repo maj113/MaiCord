@@ -23,10 +23,9 @@ bool valid_identity_label(const Utf8View& value) noexcept {
             return false;
     return true;
 }
-PopupItem action(const Utf8View& label, UiAccountMenuAction value, UiIcon icon, u16 flags = 0) noexcept {
-    PopupItem result{label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags), 0};
-    result.presentation = ui_menu_row_presentation(icon);
-    return result;
+void action(PopupItem* item, Utf8View label, UiAccountMenuAction value, UiIcon icon, u16 flags = 0) noexcept {
+    popup_item_set(item, label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags));
+    item->presentation = ui_menu_row_presentation(icon);
 }
 } // namespace
 bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentity& identity) noexcept {
@@ -62,34 +61,33 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     header.media_variant = identity.avatar_variant;
     header.media_flags = identity.avatar_animated ? 1 : 0;
     header.status = static_cast<u8>(identity.presence);
-    model->items[1] = action(utf8_literal("View profile"), UiAccountMenuAction::view_profile,
-                             UiIcon::user_circle, popup_item_separator_before);
-    model->items[2] = action(utf8_literal("Edit profile"), UiAccountMenuAction::edit_profile, UiIcon::edit);
+    action(&model->items[1], utf8_literal("View profile"), UiAccountMenuAction::view_profile, UiIcon::user_circle,
+           popup_item_separator_before);
+    action(&model->items[2], utf8_literal("Edit profile"), UiAccountMenuAction::edit_profile, UiIcon::edit);
     model->count = 3;
     if (identity.custom_status_available) {
         auto& status = model->items[model->count++];
-        status = action(status_bytes ? utf8_literal("Edit custom status") : utf8_literal("Set custom status"),
-                        UiAccountMenuAction::custom_status, UiIcon::emoji);
+        action(&status, status_bytes ? utf8_literal("Edit custom status") : utf8_literal("Set custom status"),
+               UiAccountMenuAction::custom_status, UiIcon::emoji);
         if (status_bytes) {
             status.detail = {model->custom_status, status_bytes};
             status.presentation.secondary_line = true;
-            model->items[model->count++] = action(utf8_literal("Clear custom status"),
-                                                  UiAccountMenuAction::clear_custom_status, UiIcon::close);
+            action(&model->items[model->count++], utf8_literal("Clear custom status"),
+                   UiAccountMenuAction::clear_custom_status, UiIcon::close);
         }
     }
     if (identity.developer_mode)
-        model->items[model->count++] = action(utf8_literal("Copy user ID"), UiAccountMenuAction::copy_user_id,
-                                              UiIcon::identifier, popup_item_separator_before);
+        action(&model->items[model->count++], utf8_literal("Copy user ID"), UiAccountMenuAction::copy_user_id,
+               UiIcon::identifier, popup_item_separator_before);
     // An unknown status lists the rows with none checked: choosing one saves it.
     if (identity.status_available) {
         constexpr const char* labels[] = {"Online", "Idle", "Do Not Disturb", "Invisible"};
         static constexpr u32 bytes[] = {6, 4, 14, 9};
         for (u32 i = 0; i < 4; ++i) {
             auto& item = model->items[model->count + i];
-            item = action(
-                {labels[i], bytes[i]},
-                static_cast<UiAccountMenuAction>(static_cast<u32>(UiAccountMenuAction::status_online) + i),
-                UiIcon::user_circle, i == 0 ? popup_item_separator_before : 0);
+            action(&item, {labels[i], bytes[i]},
+                   static_cast<UiAccountMenuAction>(static_cast<u32>(UiAccountMenuAction::status_online) + i),
+                   UiIcon::user_circle, i == 0 ? popup_item_separator_before : 0);
             item.status = static_cast<u8>(i + 1);
             if (static_cast<u8>(identity.presence) == item.status) {
                 item.flags |= popup_item_checked;
@@ -101,16 +99,14 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
         }
         model->count += 4;
     }
-    model->items[model->count++] = action(utf8_literal("Downloads"), UiAccountMenuAction::downloads,
-                                          UiIcon::download, popup_item_separator_before);
+    action(&model->items[model->count++], utf8_literal("Downloads"), UiAccountMenuAction::downloads, UiIcon::download,
+           popup_item_separator_before);
     if (identity.switch_available)
-        model->items[model->count++] = action(utf8_literal("Switch accounts"), UiAccountMenuAction::switch_accounts,
-                                              UiIcon::members, popup_item_separator_before);
+        action(&model->items[model->count++], utf8_literal("Switch accounts"), UiAccountMenuAction::switch_accounts,
+               UiIcon::members, popup_item_separator_before);
     if (identity.logout_available)
-        model->items[model->count++] =
-            action(utf8_literal("Log out"), UiAccountMenuAction::log_out, UiIcon::log_out,
-                   static_cast<u16>((identity.switch_available ? 0u : u32{popup_item_separator_before}) |
-                                    popup_item_danger));
+        action(&model->items[model->count++], utf8_literal("Log out"), UiAccountMenuAction::log_out, UiIcon::log_out,
+               static_cast<u16>((identity.switch_available ? 0u : u32{popup_item_separator_before}) | popup_item_danger));
     return true;
 }
 ConstSlice<PopupItem> ui_account_menu_items(const UiAccountMenuModel& model) noexcept {

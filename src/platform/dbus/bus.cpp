@@ -293,6 +293,14 @@ void portal_request_adopt(PortalRequest* request, const char* path) noexcept {
         request->active = false;
 }
 
+void portal_request_adopt_reply(PortalRequest* request, const Message& reply) noexcept {
+    Reader r;
+    message_reader(reply, &r);
+    const char* handle = nullptr;
+    if (reader_string(&r, &handle, nullptr))
+        portal_request_adopt(request, handle);
+}
+
 void portal_request_append_token(Builder* options, const PortalRequest& request) noexcept {
     builder_dict_string(options, "handle_token", request.token);
 }

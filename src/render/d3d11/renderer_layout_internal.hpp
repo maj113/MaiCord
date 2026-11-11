@@ -72,6 +72,8 @@ void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, const UiRe
 UiSettingsMediaResidency settings_media_residency(const D3D11Renderer* renderer) noexcept;
 bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& r, const UiRect& clip,
                   const Color& placeholder, bool first = false) noexcept;
+bool queue_user_avatar(D3D11Renderer* renderer, u64 user_id, const UiRect& r, const UiRect& clip,
+                       const Color& placeholder) noexcept;
 bool queue_header_tag_icon(D3D11Renderer* renderer, const MessageScene& scene, const MessageTextCommand& command,
                            const UserAppearanceRecord& appearance, const UiBadgeWidget& tag) noexcept;
 bool queue_chip_guild_icons(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept;

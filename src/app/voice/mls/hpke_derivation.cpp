@@ -68,36 +68,37 @@ HpkeDerivationResult hpke_derive_key_pair(KdfSha256Workspace& workspace, ConstSl
     secure_clear_bytes(scalar, sizeof(scalar));
     return result;
 }
-HpkeDerivationResult hpke_encap(KdfSha256Workspace& workspace, const P256Key& ephemeral,
-                                ConstSlice<u8> recipient_point, Slice<u8> encapsulated,
-                                Slice<u8> shared_secret) noexcept {
-    P256Key recipient{};
+namespace {
+// DH-KEM with `own` and the peer's point: `own_point` receives own's public point, and the KEM context takes the
+// ephemeral's point first (RFC 9180 4.1), own's when `own_ephemeral` (Encap), the peer's otherwise (Decap).
+HpkeDerivationResult dh_kem(KdfSha256Workspace& workspace, const P256Key& own, ConstSlice<u8> peer_point,
+                            Slice<u8> own_point, bool own_ephemeral, Slice<u8> shared_secret) noexcept {
+    P256Key peer{};
     u8 dh[32];
-    auto result = from(p256_import_public(&recipient, P256Kind::ecdh, recipient_point));
+    auto result = from(p256_import_public(&peer, P256Kind::ecdh, peer_point));
     if (result.ok())
-        result = from(p256_export_public(ephemeral, encapsulated));
+        result = from(p256_export_public(own, own_point));
     if (result.ok())
-        result = from(p256_ecdh(ephemeral, recipient, {dh, 32}));
-    if (result.ok())
-        result = kem_secret(workspace, {dh, 32}, {encapsulated.data, 65}, recipient_point, shared_secret);
-    p256_release(&recipient);
+        result = from(p256_ecdh(own, peer, {dh, 32}));
+    if (result.ok()) {
+        const ConstSlice<u8> mine{own_point.data, 65};
+        result = kem_secret(workspace, {dh, 32}, own_ephemeral ? mine : peer_point, own_ephemeral ? peer_point : mine,
+                            shared_secret);
+    }
+    p256_release(&peer);
     secure_clear_bytes(dh, 32);
     return result;
 }
+} // namespace
+HpkeDerivationResult hpke_encap(KdfSha256Workspace& workspace, const P256Key& ephemeral,
+                                ConstSlice<u8> recipient_point, Slice<u8> encapsulated,
+                                Slice<u8> shared_secret) noexcept {
+    return dh_kem(workspace, ephemeral, recipient_point, encapsulated, true, shared_secret);
+}
 HpkeDerivationResult hpke_decap(KdfSha256Workspace& workspace, const P256Key& recipient,
                                 ConstSlice<u8> encapsulated, Slice<u8> shared_secret) noexcept {
-    P256Key ephemeral{};
-    u8 point[65], dh[32];
-    auto result = from(p256_import_public(&ephemeral, P256Kind::ecdh, encapsulated));
-    if (result.ok())
-        result = from(p256_export_public(recipient, {point, 65}));
-    if (result.ok())
-        result = from(p256_ecdh(recipient, ephemeral, {dh, 32}));
-    if (result.ok())
-        result = kem_secret(workspace, {dh, 32}, encapsulated, {point, 65}, shared_secret);
-    p256_release(&ephemeral);
-    secure_clear_bytes(dh, 32);
-    return result;
+    u8 point[65];
+    return dh_kem(workspace, recipient, encapsulated, {point, 65}, false, shared_secret);
 }
 void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept {
     secure_clear_bytes(secrets, sizeof(*secrets));

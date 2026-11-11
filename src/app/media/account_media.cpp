@@ -323,7 +323,7 @@ void publish_jpeg_frame(AccountMedia* media, const MediaAssetKey& key, const Cdn
 namespace {
 
 // The playback fields every animated codec result publishes.
-template <typename Result> void stage_animation(AccountMedia* media, const Result& decoded) noexcept {
+template <typename Result> __forceinline void stage_animation(AccountMedia* media, const Result& decoded) noexcept {
     media->frame_duration_us = decoded.decode.duration_us;
     media->frame_index = decoded.decode.frame_index;
     media->frame_count = decoded.frame_count;
@@ -500,7 +500,7 @@ namespace {
 
 // Reserves a zeroed codec workspace (or the owner `bytes` that begins with it) on first use and binds it.
 template <typename Workspace>
-bool ensure_workspace(Workspace*& slot, Workspace*& bound, usize bytes = sizeof(Workspace)) noexcept {
+__forceinline bool ensure_workspace(Workspace*& slot, Workspace*& bound, usize bytes = sizeof(Workspace)) noexcept {
     if (!slot)
         bound = slot = static_cast<Workspace*>(commit_pages(bytes));
     return slot != nullptr;
@@ -810,6 +810,17 @@ AccountMediaRequestResult account_media_initialize(AccountMedia* media, EncodedM
 }
 
 namespace account_media_detail {
+
+bool settle_ready(AccountMediaRequestResult* settled) noexcept {
+    *settled = result(AccountMediaRequestState::ready);
+    return true;
+}
+
+bool settle_failure(AccountMedia* media, const CacheProbe& probe, AccountMediaRequestResult* settled,
+                    const AccountMediaRequestResult& failure) noexcept {
+    *settled = remember_failure(media, probe.key, probe.now_ms, failure);
+    return true;
+}
 
 bool probe_static_jpeg(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
     CdnStaticJpegResult cached;

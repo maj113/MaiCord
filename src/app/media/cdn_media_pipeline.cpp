@@ -383,7 +383,7 @@ bool commit_jpeg_workspace(CdnMediaPipeline* pipeline, u64 bytes) noexcept {
 // Decodes a JPEG past the GPU coefficient path's extent into oriented
 // straight RGBA8 at the coarsest DCT scale reaching `target`, at most
 // `limit` px per side.
-void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 target, u32 limit,
+__forceinline void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 target, u32 limit,
                        CdnStaticJpegState success_state, CdnStaticJpegResult* out) noexcept {
     reset(out);
     out->state = CdnStaticJpegState::decode_rejected;
@@ -649,7 +649,7 @@ struct RetainedApngMetadata {
 };
 static_assert(sizeof(RetainedApngMetadata) == kApngRetainedMetadataBytes);
 
-bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+__forceinline bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
                            u64 content_identity, ApngImage* image, ApngParseResult* parse) noexcept {
     if (!pipeline->apng_metadata_valid || content_identity == 0 ||
         pipeline->apng_workspace->spans[kApngRetainedSpanCapacity].offset != kApngRetainedMarker) {
@@ -706,7 +706,7 @@ bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
     return true;
 }
 
-void retain_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+__forceinline void retain_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
                           const ApngImage& image, ApngParseResult parse, u64 content_identity) noexcept {
     if (content_identity == 0 || image.span_count > kApngRetainedSpanCapacity) {
         return;
@@ -1085,7 +1085,7 @@ void admit_response_in(void* out, const ResultShape& shape, CdnMediaPipeline* pi
 
 // Decodes a fresh cached entry; a stale one answers with its ETag instead.
 template <typename Result, typename Decode>
-void lookup_cached(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u64 now_seconds, bool ready,
+__forceinline void lookup_cached(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u64 now_seconds, bool ready,
                    Decode decode) noexcept {
     reset(out);
     lookup_cached_in(
@@ -1098,7 +1098,7 @@ void lookup_cached(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey&
 
 // Decodes one frame of the cache entry whose generation the caller holds.
 template <typename Result, typename Decode>
-void decode_cached_frame(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u16 cache_generation,
+__forceinline void decode_cached_frame(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u16 cache_generation,
                          u64 now_seconds, bool ready, Decode decode) noexcept {
     reset(out);
     decode_cached_frame_in(
@@ -1117,7 +1117,7 @@ template <typename State> inline constexpr State kEraseOnFailure = static_cast<S
 // correlate to a cached entry. decode(bytes, state, cached) fills *out (cached is null for a body);
 // forget_retained drops codec state tied to an entry a no-store 304 just retired.
 template <typename Result, typename Decode, typename ForgetRetained>
-void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+__forceinline void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                     const CdnResponseResult& response, ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
                     bool ready, decltype(Result::state) keep, Decode decode, ForgetRetained forget_retained) noexcept {
     using State = decltype(Result::state);

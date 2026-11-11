@@ -64,6 +64,8 @@ void portal_request_end(PortalRequest* request) noexcept;
 // The method's reply carried the handle `path`; when it differs from the predicted one (portals before version 0.9
 // ignore handle_token) the listener moves to it.
 void portal_request_adopt(PortalRequest* request, const char* path) noexcept;
+// The same from the method return itself (its first value is the handle).
+void portal_request_adopt_reply(PortalRequest* request, const Message& reply) noexcept;
 // Appends `handle_token` to an options array being built (inside an open "{sv}" array).
 void portal_request_append_token(Builder* options, const PortalRequest& request) noexcept;
 // Request.Close on the live handle.

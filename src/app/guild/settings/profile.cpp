@@ -224,8 +224,9 @@ void project(Bank& bank) noexcept {
     // (its custom banner, shown and selected while set; a preset removes it, as on the official page).
     auto& names = p.color_names;
     names[0] = utf8_literal("Server Icon Color");
-    for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
-        names[i + 1] = kGuildProfileBannerNames[i];
+    u32 named = 1;
+    for (NameList name{kGuildProfileBannerNames}; name; name.next())
+        names[named++] = name.name();
     // The official page reads DISCOVERABLE from the guild record.
     const bool upload = (guild_features() & guild_feature_discoverable) != 0;
     const u32 tiles = kGuildProfileBannerColorCount + 1 + (upload ? 1u : 0u);

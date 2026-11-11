@@ -56,14 +56,16 @@ enum class PluginDescriptorProblem : u8 {
     network,
 };
 
+// Eight bytes, so a result returns in a register.
 struct PluginLoadResult {
     PluginLoadError error;
     PluginDescriptorProblem problem;
-    DWORD win32_error; // the system's error number: Win32 on Windows, errno on Linux
     // descriptor errors: the 1-based setting, hook, command, menu, button or host index, else 0.
-    u32 index;
+    u16 index;
+    DWORD win32_error; // the system's error number: Win32 on Windows, errno on Linux
     constexpr bool ok() const noexcept { return error == PluginLoadError::none; }
 };
+static_assert(sizeof(PluginLoadResult) == 8);
 
 // The plugins directory, pinned once with every ancestor (Windows: no reparse points, no replacement while open;
 // Linux: each ancestor opened without following a link and held, owned by root or the user and not writable by

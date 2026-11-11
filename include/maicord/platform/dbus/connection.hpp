@@ -69,6 +69,8 @@ bool connection_call(Connection* connection, const CallTarget& target, const Bui
 // `*reply` holds the message (the caller releases it with message_release).
 Status connection_call_sync(Connection* connection, const CallTarget& target, const Builder* body, u32 timeout_ms,
                             Message* reply) noexcept;
+// What a failed call reports: the error name of an error reply, else `fallback` (the handler's `reply` may be null).
+const char* reply_error_name(Status status, const Message* reply, const char* fallback) noexcept;
 
 // Signals and exported methods ---------------------------------------------------------------------------------------
 
@@ -106,6 +108,13 @@ bool connection_emit(Connection* connection, const char* path, const char* inter
                      const Builder* body) noexcept;
 // RequestName: true when this connection became the primary owner.
 bool connection_request_name(Connection* connection, const char* name, u32 timeout_ms) noexcept;
+
+// Blocking socket helpers, for the sockets of this directory that are not bus connections too -------------------------
+
+// Waits for `fd` (poll `events`) until `deadline` (monotonic ms); false on timeout or error.
+bool poll_until(int fd, i16 events, u64 deadline) noexcept;
+// Sends all `count` bytes by `deadline`, waiting while the socket is full; false on error or timeout.
+bool send_all_blocking(int fd, const u8* bytes, u32 count, u64 deadline) noexcept;
 
 // Addresses ----------------------------------------------------------------------------------------------------------
 

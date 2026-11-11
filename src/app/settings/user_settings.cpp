@@ -9,6 +9,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/layout/density.hpp"
@@ -52,14 +53,10 @@ constexpr UserSettingsField kImageDescriptions{6, 7, 0, K::boolean}, kTtsCommand
 // UI Density's choices (Compact, Default, Spacious) as UIDensity values; unset reads as Default.
 constexpr u8 kUiDensityValues[]{1, 4, 2};
 // Discord's locales, in the order of catalog_data.inc's `languages`.
-constexpr Utf8View kLocales[]{
-    utf8_literal("id"),    utf8_literal("da"),    utf8_literal("de"),    utf8_literal("en-GB"), utf8_literal("en-US"),
-    utf8_literal("es-ES"), utf8_literal("es-419"), utf8_literal("fr"),   utf8_literal("hr"),    utf8_literal("it"),
-    utf8_literal("lt"),    utf8_literal("hu"),    utf8_literal("nl"),    utf8_literal("no"),    utf8_literal("pl"),
-    utf8_literal("pt-BR"), utf8_literal("ro"),    utf8_literal("fi"),    utf8_literal("sv-SE"), utf8_literal("vi"),
-    utf8_literal("tr"),    utf8_literal("cs"),    utf8_literal("el"),    utf8_literal("bg"),    utf8_literal("ru"),
-    utf8_literal("uk"),    utf8_literal("hi"),    utf8_literal("th"),    utf8_literal("zh-CN"), utf8_literal("zh-TW"),
-    utf8_literal("ja"),    utf8_literal("ko"),    utf8_literal("ar")};
+constexpr char kLocales[] =
+    "id\0da\0de\0en-GB\0en-US\0es-ES\0es-419\0fr\0hr\0it\0lt\0hu\0nl\0no\0pl\0pt-BR\0ro\0fi\0sv-SE\0vi\0tr\0cs\0el\0bg\0ru\0uk\0"
+    "hi\0th\0zh-CN\0zh-TW\0ja\0ko\0ar\0";
+constexpr u32 kLocaleCount = name_list_count(kLocales);
 constexpr u32 kLocaleUnitedStates = 4;
 constexpr Utf8View kExplicitChoices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 // privacy.restricted_guild_ids, message_request_restricted_guild_ids,
@@ -618,8 +615,9 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         control->selected_choice = kLocaleUnitedStates;
         if (store() && user_settings_store_read(*store(), kLocale, &locale) && locale.present) {
             control->selected_choice = kUiSettingsNoChoice;
-            for (u32 i = 0; i < sizeof(kLocales) / sizeof(kLocales[0]); ++i)
-                if (utf8_equal({locale.text, locale.text_bytes}, kLocales[i]))
+            u32 i = 0;
+            for (NameList list{kLocales}; list; list.next(), ++i)
+                if (utf8_equal({locale.text, locale.text_bytes}, list.name()))
                     control->selected_choice = i;
         }
         return true;
@@ -802,7 +800,7 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
     case SettingBinding::render_spoilers:
         return choice < 3 && write(kSpoilers, user_settings_text(kSpoilerValues[kSpoilerChoices[choice]]));
     case SettingBinding::language:
-        return choice < sizeof(kLocales) / sizeof(kLocales[0]) && write(kLocale, user_settings_text(kLocales[choice]));
+        return choice < kLocaleCount && write(kLocale, user_settings_text(name_list_at(kLocales, choice)));
     case SettingBinding::notify_reactions:
         return choice < 3 && write_number(kReactionNotifications, choice);
     case SettingBinding::mobile_push_delay:

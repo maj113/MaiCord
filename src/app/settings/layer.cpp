@@ -572,11 +572,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
             layer->hooks->editor_enter(layer, ui_settings_scene_focused(*scene).control_id);
         return true;
     }
-    if (control && (key == 'C' || key == 'X')) {
-        const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
-        if (last > first && clipboard_write_utf8({model->text + first, last - first}) && key == 'X')
-            result = message_composer_replace_range(model, first, last, {});
-    } else if (control && key == 'V') {
+    if (control && key == 'V') {
         if (paste_clipboard(layer))
             result = MessageComposerResult::changed;
     } else if (!message_composer_edit_key(model, key, control, shift, &result) &&
