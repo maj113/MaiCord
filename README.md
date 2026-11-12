@@ -18,7 +18,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 <br>
 
-<picture><source srcset=".github/assets/hero.avif" type="image/avif"><img src=".github/assets/hero.webp" alt="MaiCord showing a busy developer chat with code blocks, a coloured CI log, reactions and a member list, over a softly animated violet Silk Waves background" width="100%"></picture>
+<picture><source srcset=".github/assets/hero.avif" type="image/avif"><img src=".github/assets/hero.webp" alt="MaiCord in the Silk Waves theme on a September night, its violet ribbon drifting behind a busy #general channel. Channel tabs fill the title bar (#general open, three more channels and a media tab playing a trailer), with the server's name beside the window buttons. Juniper finishes typing and posts, reactions land and Ada replies with a code block; Mai sends a party GIF with /gif, then runs /release and a bot answers with a release card and link buttons. Around the chat: the server and channel lists and a member list with roles, activities and server tags." width="100%"></picture>
 
 <sub>Every name, message and image on screen is made-up demo content.</sub>
 

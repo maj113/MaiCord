@@ -840,11 +840,28 @@ ClientPreferences preferences(ClientTheme theme, BackgroundEffect effect) noexce
     return p;
 }
 
+// The window caption. With the channel tabs on (g_tabs) the strip takes the bar and the server's icon
+// and name its region beside the window buttons, as the app sets them for a server channel; else the
+// server's name alone.
+const UiTabStripView* g_tabs;
+bool set_caption(Fixture& f, D3D11Renderer& r) noexcept {
+    UiCaptionBarState state{
+        UiCaptionPart::none, UiCaptionPart::none, true, false, UiCaptionUpdate::hidden, false, 0};
+    if (!g_tabs)
+        return renderer_set_caption(&r, state, utf8_literal("MaiCord Lab"));
+    state.tabs = g_tabs;
+    const GuildRecord* guild = chat_state_store_find_guild(f.state, kGuild);
+    UiCaptionTitleInput title{};
+    title.signed_in = guild != nullptr;
+    title.guild_id = kGuild;
+    title.guild_icon_variant = guild ? guild->icon_variant : 0;
+    title.guild_name = guild ? chat_state_store_guild_name(f.state, *guild) : Utf8View{};
+    return renderer_set_caption(&r, state, ui_caption_title(title));
+}
+
 // Frame, then the caption over it, read back with the caption rows.
 bool shot(Fixture& f, D3D11Renderer& r, const wchar_t* name, float phase = 6.f) noexcept {
-    const UiCaptionBarState state{
-        UiCaptionPart::none, UiCaptionPart::none, true, false, UiCaptionUpdate::hidden, false, 0};
-    if (!renderer_set_caption(&r, state, utf8_literal("MaiCord Lab")) ||
+    if (!set_caption(f, r) ||
         !renderer_set_background_phase(&r, phase) || !renderer_rebuild_content_text(&r, f.theme) ||
         !probe_present(&r, f.theme))
         return check(false, "present_failed");
@@ -870,18 +887,18 @@ bool set_theme(Fixture& f, D3D11Renderer& r, ClientTheme theme,
     return project(f, r);
 }
 
-// Content size for a 1440x900 DIP window at `dpi`, the caption included.
+// The window in DIPs, the caption included: 1440x900 unless MAICORD_SHOWCASE_HERO names another.
+u32 g_width = kWidth, g_height = kHeight;
+// Content size for the window at `dpi`.
 bool size_window(Fixture& f, D3D11Renderer& r, u32 dpi) noexcept {
     const float scale = dpi / 96.f;
     renderer_set_dpi(&r, dpi);
     const u32 caption = static_cast<u32>(ui_caption_bar_height(f.theme) * scale + .5f);
     const u32 icon = static_cast<u32>(f.theme.scale.caption_icon * scale + .5f);
     renderer_set_caption_height(&r, caption);
-    const UiCaptionBarState state{
-        UiCaptionPart::none, UiCaptionPart::none, true, false, UiCaptionUpdate::hidden, false, 0};
-    return check(renderer_resize(&r, static_cast<u32>(kWidth * scale),
-                                 static_cast<u32>(kHeight * scale) - caption) &&
-                     renderer_set_caption(&r, state, utf8_literal("MaiCord Lab")) &&
+    return check(renderer_resize(&r, static_cast<u32>(g_width * scale),
+                                 static_cast<u32>(g_height * scale) - caption) &&
+                     set_caption(f, r) &&
                      icon <= kAppIconLargestExtent &&
                      app_icon_decode(icon, g_caption_icon) &&
                      renderer_set_caption_icon(&r, g_caption_icon, icon),
@@ -1300,13 +1317,15 @@ bool send_gif(Fixture& f) noexcept {
     return check(message_timeline_apply_created(&f.timeline, m).ok(), "gif_message_failed");
 }
 
-// The animated hero: 10.7 s at 12.5 fps under Aurora with its effect running.
+// The animated hero: 10.7 s at 12.5 fps over the look the caller set, its effect running from `phase`.
 // Juniper finishes typing and posts, reactions land and Ada replies. Mai then
 // types /gif: the picker narrows to it, its option bar and query chip appear,
 // the results open above them and the second one is sent. Last she types a
 // slash, picks /release and the bot thinks and answers. The clock, dots and
-// effect phase are fixed per frame, so every run draws the same frames.
-void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
+// effect phase are fixed per frame, so every run draws the same frames. `silk`:
+// under the Silk Waves theme, where Juniper talks about its colours and Ada
+// answers with the theme's code.
+void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
     constexpr u32 kFrames = 134;
     constexpr float kStep = .08f;
     // Snowflakes grow with every arrival, so each message lands at the bottom; the /release response comes
@@ -1316,10 +1335,19 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
     constexpr u32 kFrameMs = 80, kThinking = 113, kAnswer = 121;
     constexpr Utf8View fire = utf8_literal("\xF0\x9F\x94\xA5"), eyes = utf8_literal("\xF0\x9F\x98\x8D");
     constexpr Utf8View rocket = utf8_literal("\xF0\x9F\x9A\x80"), party = utf8_literal("\xF0\x9F\x8E\x89");
-    constexpr Utf8View juniper_text =
-        utf8_literal("<@14> the comets at 80% speed look amazing with Ocean \xF0\x9F\x8C\x8A");
-    if (!set_theme(f, r, ClientTheme::aurora, BackgroundEffect::stars_and_comets))
-        return;
+    const Utf8View juniper_text =
+        silk ? utf8_literal("<@14> the ribbon went purple for September and the whole theme followed it "
+                            "\xF0\x9F\x92\x9C")
+             : utf8_literal("<@14> the comets at 80% speed look amazing with Ocean \xF0\x9F\x8C\x8A");
+    const Utf8View ada_text =
+        silk ? utf8_literal("Love it. Let's ship it Friday \xF0\x9F\x9A\x80 This is all a theme needs:\n"
+                            "```json\n"
+                            "\"background\": {\n"
+                            "  \"effect\": \"silk-waves\",\n"
+                            "  \"follow\": {\"month\": \"month\", \"phase\": \"sky\"}\n"
+                            "}\n"
+                            "```")
+             : utf8_literal("Love it. Let's ship it Friday \xF0\x9F\x9A\x80");
     // What the popup lists now, the draft's first frame and its query length.
     enum class Popup : u8 { none, discover, release, gif, gif_option } popup = Popup::none;
     Utf8View title{};
@@ -1358,8 +1386,7 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
                   "typing_failed");
             break;
         case 30:
-            arrive(f, ada, 11, utf8_literal("Love it. Let's ship it Friday \xF0\x9F\x9A\x80"), juniper, 13,
-                   utf8_literal("Juniper"), juniper_text);
+            arrive(f, ada, 11, ada_text, juniper, 13, utf8_literal("Juniper"), juniper_text);
             break;
         case 35:
             react(f, ada, rocket, true);
@@ -1485,7 +1512,7 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
                 renderer_set_layer_opacity(&r, RendererLayerSurface::popup,
                                            frame == popup_from ? .5f : 1.f);
         }
-        shot(f, r, frame_name(L"hero", frame), 6.f + frame * kStep);
+        shot(f, r, frame_name(L"hero", frame), phase + frame * kStep);
     }
 }
 
@@ -1706,6 +1733,53 @@ bool day_moment(Fixture& f, D3D11Renderer& r, const BackgroundEffectSpec& spec, 
             return false;
     return true;
 }
+// MAICORD_SHOWCASE_HERO (the window in DIPs, "1440x900"), with the day theme: only the hero, in that
+// theme at 23:00 on 3 September (Silk Waves' violet month) with the channel tabs on: four channel tabs
+// (#general shows, #design-crit has unread messages) and a media tab whose trailer plays in the
+// background, the server's name in its region beside the window buttons. Stills at 2x and 1x
+// (showcase-hero-day@2x.bmp, @1x), then the animated loop at 1x from the 1x still
+// (showcase-anim-hero-NNN.bmp).
+UiTabStripView g_hero_tabs;
+bool hero_day(Fixture& f, D3D11Renderer& r, const BackgroundEffectSpec& spec, bool package,
+              const wchar_t* size) noexcept {
+    u32 extent[2]{}, which = 0;
+    for (const wchar_t* c = size; *c; ++c)
+        if (*c == L'x' && !which)
+            which = 1;
+        else if (*c >= L'0' && *c <= L'9' && extent[which] < 10'000)
+            extent[which] = extent[which] * 10 + static_cast<u32>(*c - L'0');
+        else
+            return check(false, "hero_size_invalid");
+    if (!check(extent[0] >= 800 && extent[0] <= 3840 && extent[1] >= 600 && extent[1] <= 2160,
+               "hero_size_invalid"))
+        return false;
+    g_width = extent[0];
+    g_height = extent[1];
+    struct Tab {
+        const char* label;
+        UiIcon icon;
+        u8 flags;
+    };
+    // Every label fits the caption's 16 glyph quads a tab.
+    constexpr Tab kTabs[]{{"general", UiIcon::channel, kUiTabActive},
+                          {"design-crit", UiIcon::channel, kUiTabUnread},
+                          {"show-and-tell", UiIcon::channel, 0},
+                          {"Pairing Room", UiIcon::speaker, 0},
+                          {"Launch trailer", UiIcon::audio_lines, kUiTabPlaying}};
+    for (const Tab& tab : kTabs)
+        g_hero_tabs.items[g_hero_tabs.count++] = {
+            text(tab.label), tab.icon, tab.flags, 0, 0, 0, tab.flags & kUiTabActive ? 1.f : 0.f, {}};
+    g_tabs = &g_hero_tabs;
+    constexpr u32 kMonth = 9, kHour = 23;
+    float phase = 6.f;
+    if (!size_window(f, r, 192) || !day_moment(f, r, spec, package, kMonth, kHour, project, &phase) ||
+        !shot(f, r, L"showcase-hero-day@2x.bmp", phase) || !size_window(f, r, 96) ||
+        !day_moment(f, r, spec, package, kMonth, kHour, project, &phase) ||
+        !shot(f, r, L"showcase-hero-day@1x.bmp", phase))
+        return false;
+    hero_loop(f, r, true, phase);
+    return true;
+}
 bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
     BackgroundEffectSpec spec{};
     u8* package = nullptr;
@@ -1713,6 +1787,14 @@ bool theme_day(Fixture& f, D3D11Renderer& r, bool* taken) noexcept {
         return false;
     if (!*taken)
         return true;
+    wchar_t hero[16]{};
+    const DWORD hero_length = GetEnvironmentVariableW(L"MAICORD_SHOWCASE_HERO", hero, 16);
+    if (hero_length && hero_length < 16) {
+        const bool ok = hero_day(f, r, spec, package != nullptr, hero);
+        if (package)
+            VirtualFree(package, 0, MEM_RELEASE);
+        return ok && g_failures == 0;
+    }
     constexpr u32 kMonths[]{4, 10}, kHours[]{3, 8, 12, 18, 21};
     for (const u32 month : kMonths)
         for (const u32 hour : kHours) {
@@ -1939,10 +2021,11 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
                           i >= 2 ? BackgroundEffect::stars_and_comets : BackgroundEffect::none))
                 shot(f, r, frame_name(L"themes", i));
     }
-    // Last, since it changes the conversation: the animated hero at 1x, then
-    // where it ends, with the bot's answer on screen.
-    if (size_window(f, r, 96))
-        hero_loop(f, r);
+    // Last, since it changes the conversation: the animated hero at 1x under
+    // Aurora with its stars and comets, then where it ends, with the bot's
+    // answer on screen.
+    if (size_window(f, r, 96) && set_theme(f, r, ClientTheme::aurora, BackgroundEffect::stars_and_comets))
+        hero_loop(f, r, false, 6.f);
     for (u32 dpi : kDpis)
         if (size_window(f, r, dpi) && set_theme(f, r, ClientTheme::sunset, BackgroundEffect::stars_and_comets))
             shot(f, r, dpi == 192 ? L"showcase-bot@2x.bmp" : L"showcase-bot@1x.bmp");
