@@ -168,10 +168,20 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     check(!g_detectables.image && !g_detectables.loaded, "activity: turning game detection off drops the list");
     check(application_activity_streamer_tool_running() && !g_published.game,
           "activity: streamer tools are seen while game detection is off, games are not");
+    check(g.scan_at == now + kScanIntervalMs &&
+              application_activity_next_wake() == earliest_deadline(g.idle_check_at, g.scan_at),
+          "activity: Streamer Mode auto-detect alone scans every 20 seconds");
     g_app.preferences.streamer_auto = false;
     tick();
     check(!application_activity_streamer_tool_running() && application_activity_next_wake() == g.idle_check_at,
           "activity: with both off nothing scans");
+    // Both are opt-in: a starting account on the defaults asks for no scan, not even the first one.
+    const auto defaults = client_preferences_defaults();
+    g_app.preferences.game_detection = defaults.game_detection;
+    g_app.preferences.streamer_auto = defaults.streamer_auto;
+    g = {};
+    g.account_scope = g_app.plugin_account_scope_serial;
+    check(application_activity_next_wake() == 0, "activity: on the defaults a starting account asks for no scan");
 
     g = {};
     reset_value(&g_games);

@@ -578,10 +578,10 @@ void poll(u64 now) noexcept {
     observe(next);
     application_repaint();
 }
+// A snapshot the account cannot give (no Gateway yet, or none any more) counts as idle: only a start from this dialog
+// changes it, and every account pump reads it again until it can.
 u64 poll_interval() noexcept {
-    if (!ui.snapshot_valid)
-        return kLivePollMs;
-    switch (ui.snapshot.state) {
+    switch (ui.snapshot_valid ? ui.snapshot.state : GoLiveState::idle) {
     case GoLiveState::starting:
     case GoLiveState::connecting:
     case GoLiveState::reconnecting:

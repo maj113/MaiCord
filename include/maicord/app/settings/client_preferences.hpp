@@ -90,9 +90,10 @@ struct ClientPreferences {
     bool desaturate_user_colors = false;
     bool underline_links = false;
     u8 role_style = 0;
-    // Streamer Mode: on, turned on while a streaming tool runs, and what it hides or silences.
+    // Streamer Mode: on, turned on while a streaming tool runs (opt-in: it scans running programs every 20 seconds,
+    // like game detection), and what it hides or silences.
     bool streamer_mode = false;
-    bool streamer_auto;
+    bool streamer_auto = false;
     bool streamer_hide_personal;
     bool streamer_hide_invites;
     bool streamer_disable_sounds;
@@ -175,7 +176,7 @@ constexpr ClientPreferences client_preferences_defaults() noexcept {
     preferences.zoom = 100;
     preferences.speech_rate = kClientPreferencesSpeechRateDefault;
     preferences.reduced_motion_sync = true;
-    preferences.streamer_auto = preferences.streamer_hide_personal = preferences.streamer_hide_invites = true;
+    preferences.streamer_hide_personal = preferences.streamer_hide_invites = true;
     preferences.streamer_disable_sounds = preferences.streamer_disable_notifications = true;
     return preferences;
 }

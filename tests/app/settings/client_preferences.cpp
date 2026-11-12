@@ -340,20 +340,20 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
     access.reduced_motion_sync = false;
     access.desaturate_user_colors = access.underline_links = true;
     access.role_style = client_role_style_dot;
-    access.streamer_mode = access.streamer_hide_window = true;
-    access.streamer_auto = access.streamer_disable_sounds = false;
+    access.streamer_mode = access.streamer_auto = access.streamer_hide_window = true;
+    access.streamer_disable_sounds = false;
     access.speak_messages = client_speak_messages_selected;
     access.test_mode_application = 0x1122334455667788ull;
     access.tabs_enabled = true;
     check(defaults.desaturation == 0 && defaults.zoom == 100 && defaults.speech_rate == 4 &&
-              defaults.reduced_motion_sync && defaults.streamer_auto && defaults.streamer_hide_personal &&
+              defaults.reduced_motion_sync && !defaults.streamer_auto && defaults.streamer_hide_personal &&
               defaults.streamer_hide_invites && defaults.streamer_disable_sounds &&
               defaults.streamer_disable_notifications && !defaults.streamer_mode && !defaults.streamer_hide_window &&
               defaults.speak_messages == client_speak_messages_never && !defaults.test_mode_application &&
               !defaults.tabs_enabled &&
               client_preferences_encode(access, {record, kBytes}).ok() && record[72] == 20 && record[73] == 65 &&
               record[74] == 125 && record[75] == 40 && record[76] == (2 | 4 | 8) &&
-              record[77] == (1 | 4 | 8 | 32 | 64) && record[78] == 1 && record[79] == 1 &&
+              record[77] == (1 | 2 | 4 | 8 | 32 | 64) && record[78] == 1 && record[79] == 1 &&
               byte_load_le64(record + 80) == 0x1122334455667788ull &&
               client_preferences_decode({record, kBytes}, &decoded).ok() &&
               client_preferences_equal(decoded, access) && !client_preferences_equal(decoded, defaults),

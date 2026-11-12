@@ -1159,6 +1159,14 @@ maicord_test(MaiCordChannelOverviewRuntimeTests ONLY WINDOWS ENTRY maicord_appli
     LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_channel_overview_runtime)
+# Go Live's snapshot polling over the account fake: a timer only while a stream starts or runs; no wake for an account
+# whose snapshot cannot be read or that is not streaming (src/app/voice/go_live.cpp).
+maicord_test(MaiCordGoLiveRuntimeTests ONLY WINDOWS ENTRY maicord_go_live_runtime_entry
+    SOURCES ${maicord_account_fake}
+    SOURCES tests/app/voice/go_live_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} maicord_capture kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_go_live_runtime)
 maicord_test(MaiCordChannelOverviewAccountTests ENTRY maicord_channel_overview_account_entry
     SOURCES tests/app/guild/account_channel_overview.cpp tests/protocol/http/rest_submit_hook.cpp src/app/guild/account_channel_overview.cpp
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_channel_overview_account)
