@@ -30,6 +30,7 @@
 #include "../../src/app/account/profile.hpp"
 #include "../../src/app/chat/read_state.hpp"
 #include "../../src/app/chat/scoped_read.hpp"
+#include "../../src/app/chat/search/search.hpp"
 #include "../../src/app/notifications/notifications.hpp"
 #include "../../src/app/chat/messages/pinned_messages.hpp"
 #include "../../src/app/media/picker.hpp"
