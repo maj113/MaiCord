@@ -19,10 +19,10 @@ set(maiopus_definitions
     OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT "PACKAGE_VERSION=\"1.6.1\"")
 # Upstream C keeps its own warning level. No CRT libraries, security cookie,
 # heap or float math path. clang-cl (the Windows build) takes MSVC-style options; the Linux build's clang the
-# GNU-style ones: the size levels are the same, spelled for each (clang-cl's /O1 is -Os; GNU -O1 is not a size level,
-# and under LTO it inlined like -O2: 34 KB more client code and a 3% slower encode, the decode unchanged). The Linux
-# speed levels keep clang's full inlining instead of /Ob1: hint-only inlining made the Linux decode 0.5-3.3% and the
-# encode 21% slower.
+# GNU-style ones. The Linux client, held to the same size cap with more platform code, compiles the size units -Oz
+# (clang-cl's /O1 is -Os; GNU -O1, the former spelling, is not a size level and under LTO inlined like -O2) and gives
+# most decoder-library units hint-only inlining (below): 31 KB less code, the encode within 1.1% and the decode within
+# 1.6% of -Os with full inlining (one executable, A/A 0.4%), inside the 2% the size cap accepts.
 if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
     set(maiopus_decoder_options /O2 /Ob1 /clang:-fstrict-aliasing)
@@ -32,7 +32,7 @@ if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
 else()
     set(maiopus_options -w -fno-builtin-strlen -fno-math-errno -ffunction-sections -fdata-sections)
     set(maiopus_decoder_options -O2 -fstrict-aliasing)
-    set(maiopus_size_options -Os)
+    set(maiopus_size_options -Oz)
     set(maiopus_smallest_options -Oz)
     set(maiopus_speed_options -O2)
 endif()
@@ -211,6 +211,12 @@ set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES
 if(NOT CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set_property(SOURCE celt/celt_encoder.c celt/celt_decoder.c celt/bands.c celt/pitch.c celt/celt_lpc.c APPEND PROPERTY
         COMPILE_OPTIONS -fno-unroll-loops)
+    # The decoder library's units inline only what is declared inline (the Windows build's /Ob1), except the range
+    # decoder (entdec.c: the SILK decode 3.6% slower), the band energy and allocation units (quant_bands.c, laplace.c,
+    # rate.c: no smaller) and the mode tables (modes.c, not measured alone).
+    get_target_property(maiopus_hint_sources ${MAIOPUS_DECODER_TARGET} SOURCES)
+    list(REMOVE_ITEM maiopus_hint_sources celt/entdec.c celt/quant_bands.c celt/laplace.c celt/rate.c celt/modes.c)
+    set_property(SOURCE ${maiopus_hint_sources} APPEND PROPERTY COMPILE_OPTIONS -finline-hint-functions)
 endif()
 
 if(MAIOPUS_LINK_CONTRACT)

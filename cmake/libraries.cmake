@@ -73,10 +73,11 @@ maicord_library(maicord_media_codec
     src/media/audio/mp3_decoder.c
     LIBS maicord_core maicord_compression maicord_opus_decoder windows:ntdll)
 # The MPEG audio decoder is C: the contract's C++ code generation and warnings,
-# for C (LTO comes from the contract).
+# for C (LTO comes from the contract), and its hint-only inlining (/Ob1): on Linux
+# 0.9 KB smaller and its decode 0.9-1.8% slower, which the size cap takes.
 if(MAICORD_LINUX)
     target_compile_options(maicord_media_codec PRIVATE
-        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-march=sandybridge;-mtune=generic;-Wno-missing-braces>")
+        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-march=sandybridge;-mtune=generic;-finline-hint-functions;-Wno-missing-braces>")
 else()
     target_compile_options(maicord_media_codec PRIVATE
         "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
@@ -360,7 +361,7 @@ maicord_library(maicord_atlas_gpu
     src/render/media/atlas_gpu_dispatch.cpp src/render/media/atlas_gpu_operations.cpp
     src/render/media/atlas_gpu_validation.cpp src/render/media/atlas_gpu_vp8.cpp "windows:${MAICORD_VP8_IDCT_HEADER}"
     "windows:${MAICORD_COLR_WIDE_HEADER}" "windows:${MAICORD_COLR_COMPUTE_HEADER}" "windows:${MAICORD_COLR_LAYERS_HEADER}"
-    "windows:${MAICORD_GLYPH_COMPUTE_HEADER}" "windows:${MAICORD_GLYPH_CULLED_COMPUTE_HEADER}"
+    "windows:${MAICORD_GLYPH_COMPUTE_HEADER}"
     "windows:${MAICORD_PNG_COMPUTE_HEADER}" "windows:${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "windows:${MAICORD_VP8_FILTER_HEADER}" "windows:${MAICORD_VP8_ATLAS_HEADER}" "windows:${MAICORD_JPEG_IDCT_HEADER}"
     "windows:${MAICORD_JPEG_IDCT_ROWS_HEADER}" "windows:${MAICORD_JPEG_ATLAS_HEADER}"

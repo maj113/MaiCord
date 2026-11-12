@@ -127,6 +127,11 @@ bool animation_timeline_restart(AnimationTimeline* timeline, const MediaAssetKey
     return true;
 }
 
+// Setup, growth (a capacity doubling), reset and suspension: once per session, account or window state change.
+// Windows compiles them for size (3% faster there); Linux keeps its -Os tier, under which minsize was 5-10% slower.
+#if defined(_WIN32)
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+#endif
 bool animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationTimelineEntry> entries,
                                    Slice<u32> buckets) noexcept {
     if (!timeline || !entries.data || entries.count == 0 || entries.count > (~0u / 2u) || !buckets.data ||
@@ -207,6 +212,9 @@ u64 animation_timeline_resume(AnimationTimeline* timeline, u64 now_us) noexcept 
     }
     return elapsed;
 }
+#if defined(_WIN32)
+#pragma clang attribute pop
+#endif
 
 AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
                                                    const AnimationTimelineDescriptor& descriptor,

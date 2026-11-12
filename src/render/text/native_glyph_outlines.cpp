@@ -171,7 +171,8 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     if(!colr_program_build(program,callbacks,root,clip,pixels_per_em))return failed(o,27,static_cast<u32>(source.status));
     ++c.builds;*uses_foreground=source.uses_foreground;return true;
 }
-void native_glyph_outlines_release(NativeGlyphOutlines** pointer) noexcept {
+// Once per font session or effect text build: compiled for size.
+__attribute__((minsize)) void native_glyph_outlines_release(NativeGlyphOutlines** pointer) noexcept {
     if(!pointer||!*pointer)return;auto* o=*pointer;
     LogEvent line("native_outlines_released");line.field("native_outline_decodes",o->decodes).field("native_outline_failures",o->failures);
     if(o->color)line.field("native_colr_builds",o->color->builds);

@@ -4,6 +4,8 @@
 #include "maicord/protocol/voice/mls_encoding.hpp"
 
 namespace maicord {
+// Key derivation runs once per sender key generation or epoch, never per frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
                            ConstSlice<u8> context, Slice<u8> output) noexcept {
     static constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
@@ -36,4 +38,5 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
     secure_clear_bytes(next, sizeof(next));
     return result;
 }
+#pragma clang attribute pop
 } // namespace maicord
