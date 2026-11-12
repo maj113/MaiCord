@@ -33,7 +33,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 
 - **Native.** Freestanding C++23 (no STL, CRT, exceptions or RTTI). MaiCord shapes and rasterizes its own text and
   draws its own interface with Direct3D 11 on Windows and OpenGL ES on Wayland.
-- **Small.** One executable of about 6.3 MB on each system, and a download of 5.2 MB on Windows.
+- **Small.** One executable of about 6.5 MB on each system, and a download of 5.2 MB on Windows.
 - **Quiet.** Nothing redraws while nothing changes: no CPU time measured over 20 s of idle.
 - **Yours.** Themes, GPU background effects and native plugins, from a reviewed catalog or your own files.
 
@@ -43,7 +43,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 | | Windows | Linux |
 | --- | --- | --- |
 | Download | 5.2 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
-| Executable | one 6.25 MB EXE | one 6.3 MB program |
+| Executable | one 6.49 MB EXE | one 6.48 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |
@@ -51,9 +51,9 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 | Memory at the login screen | 54 MB working set | ~165 MB resident, mostly the GPU driver's libraries; the program's own image and heap are ~13 MB |
 
 Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
-under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. Sizes and
-the Linux figures are 0.7.0's; the Windows startup, idle and memory figures are 0.6.6's. Other machines and drivers
-differ, Linux memory most of all.
+under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. The
+executable sizes are 0.8.0's, the downloads and the Linux figures 0.7.0's, and the Windows startup, idle and memory
+figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 
 </details>
 
@@ -176,8 +176,8 @@ differ, Linux memory most of all.
   (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>), saturation, role colour styles, always-underlined links,
   reduced motion that can follow the system, image descriptions (ALT) and the text-to-speech rate; `/tts` messages
   and "Speak all messages out loud" read through the system voice
-- Streamer Mode: hides invite links, silences sounds and notifications, turns itself on while OBS or XSplit runs, and
-  on Windows keeps the window out of screen captures
+- Streamer Mode: hides invite links, silences sounds and notifications, can turn itself on while OBS or XSplit runs
+  (opt-in), and on Windows keeps the window out of screen captures
 - Signed automatic updates from GitHub releases (see [Install](#install) for what updates itself on Linux)
 
 </details>
