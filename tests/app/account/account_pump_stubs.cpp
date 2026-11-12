@@ -6,6 +6,7 @@
 #include "../../support/test_output.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../src/app/chat/threads/actions.hpp"
+#include "../../../src/app/chat/search/search.hpp"
 #include "../../../src/app/chat/game_lookup.hpp"
 #include "maicord/model/notifications/message_notifications.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"

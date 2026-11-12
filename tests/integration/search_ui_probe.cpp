@@ -2,6 +2,7 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "../../src/app/shell/state.hpp"
+#include "../../src/app/chat/search/search.hpp"
 
 namespace maicord {
 namespace {

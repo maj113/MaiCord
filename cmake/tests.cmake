@@ -37,34 +37,21 @@ enable_testing()
 include(cmake/test_registry.cmake)
 maicord_finish_test_bundles()
 
-# The non-/GL library twins, shared objects and test PCH libraries are temporary
-# like the tests: the build scripts build the ones the selected tests need
-# (maicord-tests.txt) and remove their outputs afterwards.
+# The library twins without whole-program optimization, shared objects and test PCH libraries are temporary like the
+# tests: the build scripts build the ones the selected tests need (maicord-tests.txt) and remove their outputs
+# afterwards.
 get_property(maicord_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 list(REMOVE_ITEM maicord_test_targets ${maicord_production_targets})
-if(MAICORD_LINUX)
-    # The tests' own objects need no bitcode: only the shipping libraries' code goes through the LTO of each test's link.
-    # They are compiled without it, and a source several tests compile alike is compiled once (maicord_share_test_objects).
-    foreach(target IN LISTS maicord_test_targets)
-        get_target_property(type ${target} TYPE)
-        if(type MATCHES "^(EXECUTABLE|STATIC_LIBRARY|OBJECT_LIBRARY)$")
-            set_property(TARGET ${target} PROPERTY MAICORD_TEST_CODEGEN ON)
-        endif()
-    endforeach()
-    maicord_share_test_objects(maicord_test_targets)
-else()
+if(NOT MAICORD_LINUX)
     maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
         MaiCordScopedReadUiProbe MaiCordTextUnitTests)
-    maicord_add_test_codegen_twins(maicord_test_targets)
-    maicord_share_test_objects(maicord_test_targets)
+endif()
+maicord_add_test_codegen_twins(maicord_test_targets)
+maicord_share_test_objects(maicord_test_targets)
+if(NOT MAICORD_LINUX)
     # The tests compiling the most application sources use the application PCH too.
     maicord_precompile_test_application_sources(maicord_test_targets
         MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)
-    # The compiles of the tests follow the client's, so its LTO link starts early
-    # and overlaps them. A client built elsewhere has nothing to wait for.
-    if(NOT MAICORD_TEST_PREBUILT_CLIENT)
-        maicord_order_tests_after_client(${maicord_test_targets})
-    endif()
     # The tests/ sources only drive the code under test (src/, still /O2), so they
     # compile at /Od: several times faster, and nothing measures their own speed.
     # Sources using an application PCH keep its /O2 (clang rejects a mismatch),
@@ -94,6 +81,11 @@ else()
             endif()
         endforeach()
     endforeach()
+endif()
+# The compiles of the tests follow the client's, so its LTO link starts early
+# and overlaps them. A client built elsewhere has nothing to wait for.
+if(NOT MAICORD_TEST_PREBUILT_CLIENT)
+    maicord_order_tests_after_client(${maicord_test_targets})
 endif()
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
 

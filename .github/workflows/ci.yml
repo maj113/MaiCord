@@ -206,11 +206,11 @@ jobs:
   #   linux-tests   suite: the app shard but for the cases the portable part takes;
   #                 portable: the cases tools/linux_portable_tests.txt names (packed for the distros job) and the
   #                 programs the other integration runs drive, then the ABI checks and those integration runs.
-  # The parts are balanced by measured build and test time (each one also compiles the shipping libraries). The
-  # integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher) are reported but do not fail a job until
-  # the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. No Linux job gates the preview channel: the
-  # Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' a master build's tarball and AppImage go to the Linux
-  # preview feed (signed by the preview job); nothing else is published from here.
+  # The parts are balanced by measured build and test time (each one also compiles the non-LTO test copies of the
+  # libraries its tests link). The integration scripts (headless sway, D-Bus, PulseAudio, speech-dispatcher) are
+  # reported but do not fail a job until the repository variable MAICORD_LINUX_INTEGRATION_BLOCKING is 'true'. No Linux
+  # job gates the preview channel: the Windows client is what ships. With MAICORD_LINUX_RELEASES 'true' a master build's
+  # tarball and AppImage go to the Linux preview feed (signed by the preview job); nothing else is published from here.
   linux-client:
     name: Linux client (x86-64 build, ELF audit)
     runs-on: ubuntu-24.04

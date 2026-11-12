@@ -2,7 +2,7 @@
 #include "maicord/ui/media/image_viewer.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/media/core/asset_key.hpp"
-#include "../chat/search/search.hpp"
+#include "../chat/search/source_ticket.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "media_page.hpp"

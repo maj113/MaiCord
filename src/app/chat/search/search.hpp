@@ -6,15 +6,10 @@
 #include "maicord/app/chat/messages/timeline.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "source_ticket.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationSearch;
-// Publication IDs are process-wide, monotonic and never reused. Layout/source
-// revision changes do not retire this immutable accepted content identity.
-struct ApplicationSearchSourceTicket {
-    u64 message_id;
-    u32 publication_revision, index;
-};
 // The Search target of one rich item (attachment, embed or sticker) of an accepted message.
 inline UiSearchTarget application_search_rich_target(const UiSearchScene& search, u64 channel_id, u64 message_id,
                                                      u32 source_index, MessageSceneRichItemKind kind, u32 index,
@@ -27,7 +22,6 @@ inline UiSearchTarget application_search_rich_target(const UiSearchScene& search
     target.snapshot = snapshot;
     return target;
 }
-static_assert(sizeof(ApplicationSearchSourceTicket) == 16);
 // No default member initializers: `ApplicationSearchSourceView view{}` is one zero fill.
 struct ApplicationSearchSourceView {
     ApplicationSearchSourceTicket ticket;

@@ -1693,7 +1693,6 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordDbusWireTests ENTRY maicord_dbus_wire_entry
         SOURCES tests/platform/dbus/dbus_wire.cpp
         LIBS maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_wire)
     # The AT-SPI server's objects (src/platform/atspi) without a bus: the role, state, interface and action mapping, the paths,
     # the text offsets, and the answers to the calls a screen reader makes on a synthetic window. tools/test_atspi.sh drives the
@@ -1701,7 +1700,6 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordAtspiMapTests ENTRY maicord_atspi_map_entry
         SOURCES tests/platform/atspi/atspi_map.cpp
         LIBS maicord_atspi maicord_ui maicord_dbus maicord_core
-        DEPENDS maicord_atspi
         TIMEOUT 20 TEST maicord_atspi_map)
     # The server's life on a bare private bus (tools/test_dbus.sh), with this program as org.a11y.Bus, the registry and the
     # screen reader: nothing connects while accessibility is off, IsEnabled or ScreenReaderEnabled brings the connection and the
@@ -1709,17 +1707,14 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordAtspiBusTests ENTRY maicord_atspi_bus_entry
         SOURCES tests/platform/atspi/atspi_bus.cpp
         LIBS maicord_atspi maicord_ui maicord_dbus maicord_core
-        DEPENDS maicord_atspi
         TIMEOUT 30 TEST maicord_atspi_bus)
     maicord_test(MaiCordDbusBusTests ENTRY maicord_dbus_bus_entry
         SOURCES tests/platform/dbus/dbus_bus.cpp
         LIBS maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_bus)
     maicord_test(MaiCordDbusServicesTests ENTRY maicord_dbus_services_entry
         SOURCES tests/platform/dbus/dbus_services.cpp
         LIBS maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_services)
     maicord_add_tests(MaiCordDbusServicesTests TIMEOUT 20 TEST maicord_dbus_services_portal --portal)
     maicord_add_tests(MaiCordDbusServicesTests TIMEOUT 20 TEST maicord_dbus_services_plain --plain)
@@ -1727,7 +1722,6 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordDbusDesktopTests ENTRY maicord_dbus_desktop_entry
         SOURCES tests/platform/dbus/dbus_desktop.cpp src/platform/desktop/screen_color.cpp
         LIBS maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_desktop)
     maicord_add_tests(MaiCordDbusDesktopTests TIMEOUT 20 TEST maicord_dbus_desktop_bare --bare)
     maicord_add_tests(MaiCordDbusDesktopTests TIMEOUT 20 ENV MAICORD_INSTANCE_BACKEND=socket
@@ -1735,13 +1729,11 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordSecureBufferServiceTests ENTRY maicord_secure_buffer_service_entry
         SOURCES tests/platform/dbus/secure_buffer_service.cpp
         LIBS maicord_crypto maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_secure_buffer)
     maicord_add_tests(MaiCordSecureBufferServiceTests TIMEOUT 20 TEST maicord_dbus_secure_buffer_bare --bare)
     maicord_test(MaiCordDbusRealTests ENTRY maicord_dbus_real_entry
         SOURCES tests/platform/dbus/dbus_real.cpp
         LIBS maicord_crypto maicord_dbus maicord_core
-        DEPENDS maicord_dbus
         TIMEOUT 20 TEST maicord_dbus_real)
     foreach(maicord_dbus_case IN ITEMS maicord_dbus_bus maicord_dbus_services maicord_dbus_services_portal
             maicord_dbus_services_plain maicord_dbus_services_bare maicord_dbus_desktop maicord_dbus_desktop_bare maicord_dbus_secure_buffer
@@ -2432,13 +2424,11 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/window/wayland_input.cpp
         LIBS maicord_window_wayland maicord_core
         INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}"
-        DEPENDS maicord_window_wayland
         TIMEOUT 10 TEST maicord_wayland_input)
     maicord_test(MaiCordWaylandWindowTests ENTRY maicord_wayland_window_entry
         SOURCES tests/platform/window/wayland_window.cpp
         LIBS maicord_window_wayland maicord_core
         INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}"
-        DEPENDS maicord_window_wayland
         TIMEOUT 20 LABELS integration TEST maicord_wayland_window_lifecycle --lifecycle)
     maicord_add_tests(MaiCordWaylandWindowTests TIMEOUT 20 LABELS integration
         TEST maicord_wayland_window_input --input)
@@ -3214,6 +3204,8 @@ maicord_ui_probe_test(maicord_signout_glyph_atlas_warp_probe SIGNOUT_GLYPH_ATLAS
 # With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
 # MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day;
 # MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change;
+# MAICORD_SHOWCASE_HERO (the window in DIPs, e.g. 1440x900) takes instead only the
+# animated hero in that theme with the channel tabs on, for the README and the site;
 # MAICORD_SHOWCASE_FRIENDS takes only the Friends page in Dark, Light, AMOLED and
 # Aurora, then by day and night in MAICORD_SHOWCASE_THEME's theme when one is named.
 maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display

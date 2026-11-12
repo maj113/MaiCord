@@ -403,14 +403,15 @@ function(maicord_test_uses_client target)
     endif()
 endfunction()
 
-# Temporary tests do not ship, so they skip whole-program optimization. A /GL
-# object defers all code generation to the final link, so each of the ~200 test
-# executables re-generated code for every library function it pulled in; those
-# LTCG links were about two thirds of the CPU time of a -Test build. Tests link
-# non-/GL twins of the production static libraries instead (same sources,
-# definitions, include paths, per-source options and /O level; only /GL and
-# /LTCG differ) and compile their own sources without /GL. Called once, after
-# every test target exists; appends the twins to the temporary target list.
+# Temporary tests do not ship, so they skip whole-program optimization. A -flto
+# (/GL) object defers all code generation to the final link, so each of the ~200
+# test executables re-generated code for every library function it pulled in:
+# those links were about two thirds of the CPU time of a Windows -Test build, and
+# on Linux the two that pull in the application took 20-30 s each and ended the
+# test build. Tests link non-LTO twins of the production static libraries instead
+# (same sources, definitions, include paths, per-source options and -O level;
+# only -flto differs) and compile their own sources without it. Called once,
+# after every test target exists; appends the twins to the temporary target list.
 function(maicord_add_test_codegen_twins target_list_variable)
     set(libraries)
     foreach(library IN LISTS maicord_production_targets ITEMS maicord_opus_decoder maicord_opus_encoder)
@@ -445,6 +446,7 @@ function(maicord_add_test_codegen_twins target_list_variable)
             list(APPEND twin_sources tests/support/go_live_producers_inactive.cpp)
         endif()
         add_library(${twin} STATIC ${twin_sources})
+        set_property(TARGET ${twin} PROPERTY MAICORD_TEST_TWIN_OF ${library})
         foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES
                 LINK_LIBRARIES INTERFACE_LINK_LIBRARIES INTERFACE_INCLUDE_DIRECTORIES
                 INTERFACE_COMPILE_DEFINITIONS INTERFACE_COMPILE_OPTIONS INTERFACE_COMPILE_FEATURES
@@ -668,16 +670,19 @@ function(maicord_precompile_test_application_sources target_list_variable)
 endfunction()
 # maicord_order_tests_after_client(<target>...): the compiles of these test
 # targets wait for everything the client's link needs compiled and archived.
-# Ninja starts ready edges by the length of the chain behind them, which
-# counts the client's LTO link (about 40 s, one thread) as a single edge: with
-# the tests ready, the client would compile last and its link would begin
-# after every test compile, with all other cores idle. Held back, the tests
-# compile on the cores the link leaves free (and the stamp's own chain lifts
-# the client's compiles above them). Needs a client built in this tree.
+# Ninja 1.12 and later start ready edges by the length of the chain behind them,
+# which counts the client's LTO link (about 40-55 s, one thread) as a single
+# edge, and Ubuntu 24.04's 1.11 starts them in manifest order: with the tests
+# ready, the client would compile among or after them and its link would begin
+# late, with all other cores idle at the end. Held back, the tests compile on the
+# cores the link leaves free (and the stamp's own chain lifts the client's
+# compiles above them). Needs a client built in this tree.
 function(maicord_order_tests_after_client)
     set(pending MaiCord)
-    set(inputs "$<TARGET_OBJECTS:maicord_runtime>" "$<TARGET_OBJECTS:maicord_sys_conformance>"
-        "$<TARGET_OBJECTS:maicord_client_resources>")
+    set(inputs "$<TARGET_OBJECTS:maicord_runtime>")
+    if(NOT MAICORD_LINUX)
+        list(APPEND inputs "$<TARGET_OBJECTS:maicord_sys_conformance>" "$<TARGET_OBJECTS:maicord_client_resources>")
+    endif()
     set(visited)
     while(pending)
         list(POP_FRONT pending target)
@@ -745,7 +750,9 @@ function(maicord_write_test_manifest path)
     file(WRITE "${path}" "${manifest}")
 endfunction()
 # Whether a link item is, or transitively links, a shipping static library or
-# the application core's test twin. Memoized per target in global properties.
+# the application core's test twin. On Linux a library's test twin stands for
+# the library, so the Linux shards stay those of the tests linking the shipping
+# libraries themselves. Memoized per target in global properties.
 function(maicord_test_link_is_app link result)
     if(link MATCHES "^\\$<LINK_ONLY:([^>]+)>$")
         set(link "${CMAKE_MATCH_1}")
@@ -762,9 +769,13 @@ function(maicord_test_link_is_app link result)
     endif()
     set_property(GLOBAL PROPERTY MAICORD_TEST_APP_${link} FALSE)
     get_target_property(type ${link} TYPE)
+    get_target_property(shipping ${link} MAICORD_TEST_TWIN_OF)
+    if(NOT MAICORD_LINUX OR NOT shipping)
+        set(shipping ${link})
+    endif()
     set(value FALSE)
     if(link STREQUAL "maicord_app_core_test" OR (type STREQUAL "STATIC_LIBRARY" AND
-       (link IN_LIST maicord_production_targets OR link MATCHES "^maicord_opus_(de|en)coder$")))
+       (shipping IN_LIST maicord_production_targets OR shipping MATCHES "^maicord_opus_(de|en)coder$")))
         set(value TRUE)
     else()
         get_target_property(interface ${link} INTERFACE_LINK_LIBRARIES)

@@ -421,9 +421,11 @@ A test is one `maicord_test()` call; more cases on the same executable use
 `ONLY LINUX` names one system; after `WINDOWS` or `LINUX` the arguments belong to
 that system until the next `WINDOWS`, `LINUX` or `BOTH` (or the test properties),
 and the Windows import libraries (`kernel32`, `user32`, ...) in `LIBS` are dropped on
-Linux. Tests link non-LTO copies of the shipping libraries on Windows
-automatically and compile their own `tests/` sources at `/Od` (code from `src/`
-stays `/O2`); a test that needs the optimizer is listed in `cmake/tests.cmake`.
+Linux. Tests link non-LTO copies of the shipping libraries on both systems
+automatically (a test that needs a library lists it in `LIBS`, never in `DEPENDS`, which
+would build the shipping one too), and on Windows compile their own `tests/` sources at
+`/Od` (code from `src/` stays `/O2`); a test that needs the optimizer is listed in
+`cmake/tests.cmake`.
 Small tests share an executable with `BUNDLE <name>` on their
 `maicord_test()`, which needs no `LIBS`: the executable's libraries and include
 directories are declared once by `maicord_test_bundle()` at the top of

@@ -10,6 +10,7 @@
 #include "../settings/settings.hpp"
 #include "../account/friends.hpp"
 #include "../chat/threads/browser.hpp"
+#include "../chat/search/search.hpp"
 #include "../media/media_page.hpp"
 #include "../media/video.hpp"
 #include "../guild/folders.hpp"
