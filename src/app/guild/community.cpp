@@ -234,8 +234,8 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     case Menu::day: labels = p.day_views, count = kDayChoices, selected = p.day; break;
     case Menu::time: labels = p.time_views, count = kTimeChoices, selected = p.time_slot; break;
     case Menu::duration:
-        labels = p.where == 2 ? kDurationLabels + 1 : kDurationLabels;
-        count = p.where == 2 ? kDurationCount - 1 : kDurationCount;
+        labels = p.duration_views;
+        count = kDurationCount - (p.where == 2 ? 1 : 0);
         selected = p.where == 2 ? (p.duration ? p.duration - 1 : 0) : p.duration;
         break;
     default: return;

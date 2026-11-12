@@ -40,4 +40,14 @@ constexpr Utf8View name_list_at(const char* names, u32 index) noexcept {
     return list.name();
 }
 
+// views[i] = the i-th of the first `count` names. Settings rows keep their choices as views the scene reads on every
+// paint, so the names are walked once when the row is projected.
+__declspec(noinline) inline void name_list_views(Utf8View* views, const char* names, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        const u32 bytes = c_string_length(names);
+        views[i] = {names, bytes};
+        names += bytes + 1;
+    }
+}
+
 } // namespace maicord

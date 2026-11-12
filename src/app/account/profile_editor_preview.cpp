@@ -740,12 +740,10 @@ void project_controls(TextBank& bank) noexcept {
     effects.selected_choice = name_effect == ~0u ? kUiSettingsNoChoice : name_effect;
     if (styled) {
         // One colour, a gradient's start and end, or a palette's five (Gummy, Prism).
-        static constexpr Utf8View kPalette[]{utf8_literal("1"), utf8_literal("2"), utf8_literal("3"), utf8_literal("4"),
-                                             utf8_literal("5")};
         for (u32 i = 0; i < style.color_count && i < kProfileNameStyleColors; ++i)
             p.name_color_choices[i] = style.color_count == 1   ? utf8_literal("Color")
                                       : style.color_count == 2 ? (i ? utf8_literal("End") : utf8_literal("Start"))
-                                                               : kPalette[i];
+                                                               : Utf8View{&"12345"[i], 1};
         auto& name_colors = row(control_name_colors, UiSettingsControlKind::colors, edit && (style_allowed || guild));
         name_colors.label = utf8_literal("Display Name Color");
         name_colors.choices = {p.name_color_choices, style.color_count};

@@ -54,10 +54,6 @@ enum : u64 {
 
 constexpr u32 kDurationCount = 8;
 
-constexpr Utf8View kDurationLabels[kDurationCount]{
-    utf8_literal("No end time"), utf8_literal("30 minutes"), utf8_literal("1 hour"),   utf8_literal("2 hours"),
-    utf8_literal("3 hours"),     utf8_literal("6 hours"),    utf8_literal("12 hours"), utf8_literal("1 day")};
-
 struct Request {
     u64 guild_id, event_id;
     GuildCommunityOperation op;
@@ -103,7 +99,7 @@ struct Owner : SettingsDialog {
     u32 channel_count, channel_index;
     char day_labels[kDayChoices][32];
     char time_labels[kTimeChoices][24];
-    Utf8View day_views[kDayChoices], time_views[kTimeChoices];
+    Utf8View day_views[kDayChoices], time_views[kTimeChoices], duration_views[kDurationCount];
     u64 created_event_id;
     // Projection text.
     char banks[2][8192];

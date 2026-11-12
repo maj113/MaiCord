@@ -58,7 +58,6 @@ constexpr char kLocales[] =
     "hi\0th\0zh-CN\0zh-TW\0ja\0ko\0ar\0";
 constexpr u32 kLocaleCount = name_list_count(kLocales);
 constexpr u32 kLocaleUnitedStates = 4;
-constexpr Utf8View kExplicitChoices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 // privacy.restricted_guild_ids, message_request_restricted_guild_ids,
 // activity_restricted_guild_ids, activity_joining_restricted_guild_ids.
 // Membership is absolute, not an exception to a default: the defaults only
@@ -681,7 +680,13 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         const auto options = explicit_options(binding);
         const auto value = application_user_settings_explicit_filter(explicit_context(binding));
         const u32 selected = static_cast<u32>(value);
-        control->choices = {kExplicitChoices + options.first, options.count};
+        // One row of views each: the three rows are projected side by side. A restricted account starts at Blur.
+        static_assert(static_cast<u32>(SettingBinding::explicit_guilds) - static_cast<u32>(SettingBinding::explicit_friends) == 2);
+        static constexpr char kExplicitChoices[] = "Show\0Blur\0Block";
+        static Utf8View views[3][3];
+        Utf8View* const row = views[static_cast<u32>(binding) - static_cast<u32>(SettingBinding::explicit_friends)];
+        name_list_views(row, kExplicitChoices + options.first * sizeof("Show"), options.count);
+        control->choices = {row, options.count};
         control->enabled = ready && options.enabled;
         control->selected_choice = selected >= options.first && selected - options.first < options.count
                                        ? selected - options.first : kUiSettingsNoChoice;

@@ -434,14 +434,9 @@ ShortcutRecordStep shortcut_recorder_input(ShortcutRecorder* recorder, bool down
     return ShortcutRecordStep::recorded;
 }
 
+static_assert(name_list_count(kCustomKeybindActionLabels) == static_cast<u32>(CustomKeybindAction::count));
 Utf8View custom_keybind_action_label(CustomKeybindAction action) noexcept {
-    switch (action) {
-    case CustomKeybindAction::push_to_talk: return utf8_literal("Push to talk");
-    case CustomKeybindAction::toggle_mute: return utf8_literal("Toggle mute");
-    case CustomKeybindAction::toggle_deafen: return utf8_literal("Toggle deafen");
-    case CustomKeybindAction::toggle_streamer_mode: return utf8_literal("Toggle Streamer Mode");
-    default: return {};
-    }
+    return name_list_at(kCustomKeybindActionLabels, static_cast<u32>(action));
 }
 Utf8View custom_keybind_error_text(CustomKeybindError error) noexcept {
     switch (error) {

@@ -178,6 +178,9 @@ enum class CustomKeybindAction : u8 {
     toggle_streamer_mode,
     count
 };
+// Their labels, in CustomKeybindAction order.
+inline constexpr char kCustomKeybindActionLabels[] = "Push to talk\0" "Toggle mute\0" "Toggle deafen\0"
+                                                      "Toggle Streamer Mode\0";
 inline constexpr u32 kCustomKeybindMaximum = 8;
 inline constexpr u32 kCustomKeybindsVersion = 1;
 inline constexpr u32 kCustomKeybindsHeaderBytes = 32, kCustomKeybindBytes = 4;

@@ -18,6 +18,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild/settings_model.hpp"
@@ -74,12 +75,12 @@ constexpr u32 kGuildInviteDefaultExpiry = 5; // 7 days
 constexpr u32 kGuildInviteUsesCount = 7;
 constexpr u32 kGuildInviteUses[kGuildInviteUsesCount]{0, 1, 5, 10, 25, 50, 100};
 
-static constexpr Utf8View kExpiryLabels[kGuildInviteExpiryCount]{
-    utf8_literal("30 minutes"), utf8_literal("1 hour"), utf8_literal("6 hours"), utf8_literal("12 hours"),
-    utf8_literal("1 day"),      utf8_literal("7 days"), utf8_literal("Never")};
-constexpr Utf8View kUsesLabels[kGuildInviteUsesCount]{
-    utf8_literal("No limit"), utf8_literal("1 use"),   utf8_literal("5 uses"),  utf8_literal("10 uses"),
-    utf8_literal("25 uses"),  utf8_literal("50 uses"), utf8_literal("100 uses")};
+constexpr char kExpiryLabels[] = "30 minutes\0" "1 hour\0" "6 hours\0" "12 hours\0" "1 day\0" "7 days\0" "Never\0";
+static_assert(name_list_count(kExpiryLabels) == kGuildInviteExpiryCount);
+constexpr char kUsesLabels[] = "No limit\0" "1 use\0" "5 uses\0" "10 uses\0" "25 uses\0" "50 uses\0" "100 uses\0";
+static_assert(name_list_count(kUsesLabels) == kGuildInviteUsesCount);
+// The labels the projection hands the scene; the menus list the same ones.
+Utf8View expiry_views[kGuildInviteExpiryCount], uses_views[kGuildInviteUsesCount];
 
 // A picked server icon held until creation: the file bytes (prepared again by
 // the account module at submit) and what preparation reported.
@@ -238,7 +239,7 @@ Utf8View expiry_sentence(Bank& bank) noexcept {
         bank.add("Your invite link never expires.");
     else {
         bank.add("Your invite link expires in ");
-        bank.add(kExpiryLabels[owner->link_expiry]);
+        bank.add(name_list_at(kExpiryLabels, owner->link_expiry));
         bank.add(".");
     }
     const u32 uses = kGuildInviteUses[owner->link_uses];
@@ -381,11 +382,13 @@ void project_invite(Bank& bank) noexcept {
     add_control(control_link, link, sentence, UiSettingsControlKind::action, p.invite_valid, false,
                 {copied ? UiSettingsVariant::positive : UiSettingsVariant::primary, 0, kUiSettingsNoDefault})
         .action_label = copied ? utf8_literal("Copied") : utf8_literal("Copy");
+    name_list_views(expiry_views, kExpiryLabels, kGuildInviteExpiryCount);
+    name_list_views(uses_views, kUsesLabels, kGuildInviteUsesCount);
     auto& expiry = add_control(control_expiry, utf8_literal("Expire after"), {}, UiSettingsControlKind::choice, edit);
-    expiry.choices = {kExpiryLabels, kGuildInviteExpiryCount};
+    expiry.choices = {expiry_views, kGuildInviteExpiryCount};
     expiry.selected_choice = p.expiry;
     auto& uses = add_control(control_uses, utf8_literal("Max number of uses"), {}, UiSettingsControlKind::choice, edit);
-    uses.choices = {kUsesLabels, kGuildInviteUsesCount};
+    uses.choices = {uses_views, kGuildInviteUsesCount};
     uses.selected_choice = p.uses;
     add_control(control_temporary, utf8_literal("Grant temporary membership"),
                 utf8_literal("Temporary members leave when they go offline unless they get a role."),
@@ -534,7 +537,7 @@ void open_menu(Menu menu, const UiRect& anchor) noexcept {
     const u32 count = expiry ? kGuildInviteExpiryCount : kGuildInviteUsesCount;
     const u32 selected = expiry ? p.expiry : p.uses;
     for (u32 i = 0; i < count; ++i)
-        popup_item_set(&p.popup_items[i], expiry ? kExpiryLabels[i] : kUsesLabels[i], kMenuChoiceBase + i,
+        popup_item_set(&p.popup_items[i], (expiry ? expiry_views : uses_views)[i], kMenuChoiceBase + i,
                        static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0)));
     p.menu = menu;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 200);

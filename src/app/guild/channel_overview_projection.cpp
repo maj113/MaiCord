@@ -5,6 +5,7 @@
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/intrinsics.hpp"
+#include "maicord/core/name_list.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "../shell/state.hpp"
 #include "maicord/core/deadline.hpp"
@@ -18,13 +19,12 @@ static_assert(__is_trivial(ChannelSettingsDraft));
 
 constexpr u64 kDeleteAction = 1;
 constexpr u32 slowmode_values[]{0, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600};
-constexpr Utf8View slowmode_labels[]{
-    utf8_literal("Off"),        utf8_literal("5 seconds"),  utf8_literal("10 seconds"),
-    utf8_literal("15 seconds"), utf8_literal("30 seconds"), utf8_literal("1 minute"),
-    utf8_literal("2 minutes"),  utf8_literal("5 minutes"),  utf8_literal("10 minutes"),
-    utf8_literal("15 minutes"), utf8_literal("30 minutes"), utf8_literal("1 hour"),
-    utf8_literal("2 hours"),    utf8_literal("6 hours"),    utf8_literal("Current custom value")};
-constexpr Utf8View kTriState[]{utf8_literal("Deny"), utf8_literal("Neutral"), utf8_literal("Allow")};
+constexpr char kSlowmodeLabels[] =
+    "Off\0" "5 seconds\0" "10 seconds\0" "15 seconds\0" "30 seconds\0" "1 minute\0" "2 minutes\0" "5 minutes\0"
+    "10 minutes\0" "15 minutes\0" "30 minutes\0" "1 hour\0" "2 hours\0" "6 hours\0" "Current custom value\0";
+static_assert(name_list_count(kSlowmodeLabels) == 15);
+// The labels the projection hands the scene; the menu lists the same ones.
+Utf8View slowmode_views[15];
 
 constexpr u32 kTargetBase = 1'000;
 
@@ -222,6 +222,14 @@ u32 slowmode_index(u32 seconds) noexcept {
             return i;
     return 14;
 }
+void add_slowmode(bool edit, u32 seconds) noexcept {
+    name_list_views(slowmode_views, kSlowmodeLabels, 15);
+    auto& slowmode = add_control(3, utf8_literal("Slowmode"),
+                                 utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
+                                 UiSettingsControlKind::choice, edit);
+    slowmode.choices = {slowmode_views, 15};
+    slowmode.selected_choice = slowmode_index(seconds);
+}
 void project_text_overview() noexcept {
     auto& p = *owner;
     const bool edit = editable();
@@ -229,11 +237,7 @@ void project_text_overview() noexcept {
         Editors::view(0, 1, utf8_literal("Channel name"), edit);
     add_control(2, utf8_literal("Channel topic"), {}, UiSettingsControlKind::multiline, edit).editor =
         Editors::view(1, 2, utf8_literal("Tell members what this channel is for"), edit);
-    auto& slowmode = add_control(3, utf8_literal("Slowmode"),
-                                 utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
-                                 UiSettingsControlKind::choice, edit);
-    slowmode.choices = {slowmode_labels, 15};
-    slowmode.selected_choice = slowmode_index(p.controller.draft.slowmode_seconds);
+    add_slowmode(edit, p.controller.draft.slowmode_seconds);
     add_control(4, utf8_literal("Age-restricted channel"),
                 utf8_literal("Members must confirm they meet the age requirement to view this channel."),
                 UiSettingsControlKind::toggle, edit, p.controller.draft.nsfw);
@@ -299,11 +303,7 @@ void project_generic_overview() noexcept {
         limit.choices = {p.user_limit_labels, kChannelSettingsUserLimitMaximum + 1};
         limit.selected_choice = minimum(d.user_limit, kChannelSettingsUserLimitMaximum);
     }
-    auto& slowmode = add_control(3, utf8_literal("Slowmode"),
-                                 utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
-                                 UiSettingsControlKind::choice, edit);
-    slowmode.choices = {slowmode_labels, 15};
-    slowmode.selected_choice = slowmode_index(d.slowmode_seconds);
+    add_slowmode(edit, d.slowmode_seconds);
     add_control(4, utf8_literal("Age-restricted channel"),
                 utf8_literal("Members must confirm they meet the age requirement to view this channel."),
                 UiSettingsControlKind::toggle, edit, d.nsfw);
@@ -457,6 +457,8 @@ void project_permissions(Bank& bank) noexcept {
         (guild && guild->owner_id == state().self_user_id) || (mine & kPermissionAdministrator) ? kPermissionKnownMask
                                                                                                : mine;
     const auto entries = permission_grid_entries();
+    static Utf8View tri_state[3];
+    name_list_views(tri_state, "Deny\0Neutral\0Allow", 3);
     for (u32 group = 0; group < static_cast<u32>(PermissionGroup::count); ++group) {
         bool first = true;
         for (u32 i = 0; i < entries.count; ++i) {
@@ -474,7 +476,7 @@ void project_permissions(Bank& bank) noexcept {
                                     edit && ((grantable & e.bit) == e.bit || value != PermissionTriState::neutral),
                                     false,
                                     {UiSettingsVariant::standard, ui_settings_presentation_tristate, kUiSettingsNoDefault});
-            row.choices = {kTriState, 3};
+            row.choices = {tri_state, 3};
             row.selected_choice = static_cast<u32>(value);
         }
     }
@@ -657,7 +659,7 @@ void confirm_delete() noexcept {
 }
 void open_slowmode(const UiRect& anchor, u32 current) noexcept {
     for (u32 i = 0; i < 14; ++i)
-        popup_item_set(&owner->popup_items[i], slowmode_labels[i], 700 + i,
+        popup_item_set(&owner->popup_items[i], slowmode_views[i], 700 + i,
                        static_cast<u16>(popup_item_enabled | (slowmode_values[i] == current ? popup_item_checked : 0)));
     owner->menu = Menu::slowmode;
     settings_layer_open_choice(&owner->layer, owner->identity.channel_id, {owner->popup_items, 14}, anchor, 240);

@@ -10,6 +10,7 @@
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
 
@@ -35,9 +36,10 @@ enum : u64 {
     control_answer = 100,
     control_emoji = 200,
 };
-constexpr Utf8View kDurationLabels[]{utf8_literal("1 hour"),   utf8_literal("4 hours"), utf8_literal("8 hours"),
-                                     utf8_literal("24 hours"), utf8_literal("3 days"),  utf8_literal("1 week")};
-static_assert(sizeof(kDurationLabels) / sizeof(kDurationLabels[0]) == kPollDurationCount);
+constexpr char kDurationLabels[] = "1 hour\0" "4 hours\0" "8 hours\0" "24 hours\0" "3 days\0" "1 week\0";
+static_assert(name_list_count(kDurationLabels) == kPollDurationCount);
+// The labels the projection hands the scene; the menu lists the same ones.
+Utf8View duration_views[kPollDurationCount];
 
 struct Form : SettingsDialog {
     UiSettingsControl controls[kControlCapacity];
@@ -159,8 +161,9 @@ bool project() noexcept {
               0, utf8_literal("Remove"), nullptr});
     push({control_options, utf8_literal("Options"), {}, UiSettingsControlKind::category, true, false, {}, 0, {},
           nullptr});
+    name_list_views(duration_views, kDurationLabels, kPollDurationCount);
     push({control_duration, utf8_literal("Duration"), {}, UiSettingsControlKind::choice, edit, false,
-          {kDurationLabels, kPollDurationCount}, d.duration_index, {}, nullptr});
+          {duration_views, kPollDurationCount}, d.duration_index, {}, nullptr});
     push({control_multiselect, utf8_literal("Allow multiple answers"), {}, UiSettingsControlKind::toggle, edit,
           d.allow_multiselect, {}, 0, {}, nullptr});
     const auto issue = poll_draft_check(d);
@@ -194,7 +197,7 @@ void open_duration_menu(UiRect anchor) noexcept {
     auto& p = *owner;
     for (u32 i = 0; i < kPollDurationCount; ++i) {
         reset_value(&p.popup_items[i]);
-        p.popup_items[i].label = kDurationLabels[i];
+        p.popup_items[i].label = duration_views[i];
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags =
             static_cast<u16>(popup_item_enabled | (i == p.draft.duration_index ? popup_item_checked : 0));

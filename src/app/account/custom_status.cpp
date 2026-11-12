@@ -11,6 +11,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "account_ui_runtime.hpp"
@@ -91,12 +92,14 @@ constexpr UiPageKey kPage{kPageOwner, 1};
 constexpr u32 kMenuChoiceBase = 1'000;
 enum : u64 { control_emoji = 1, control_text, control_clear };
 // The official order; each label maps to a clear-after choice.
-constexpr Utf8View kClearLabels[]{utf8_literal("Today"), utf8_literal("4 hours"), utf8_literal("1 hour"),
-                                  utf8_literal("30 minutes"), utf8_literal("Don't clear")};
+constexpr char kClearLabels[] = "Today\0" "4 hours\0" "1 hour\0" "30 minutes\0" "Don't clear\0";
 constexpr SelfCustomStatusClear kClearChoices[]{SelfCustomStatusClear::today, SelfCustomStatusClear::hours_4,
                                                 SelfCustomStatusClear::hour_1, SelfCustomStatusClear::minutes_30,
                                                 SelfCustomStatusClear::never};
-constexpr u32 kClearCount = sizeof(kClearLabels) / sizeof(kClearLabels[0]);
+constexpr u32 kClearCount = sizeof(kClearChoices) / sizeof(kClearChoices[0]);
+static_assert(name_list_count(kClearLabels) == kClearCount);
+// The labels the projection hands the scene; the menu lists the same ones.
+Utf8View clear_views[kClearCount];
 constexpr u32 kEmojiInputBytes = 96;
 
 struct Form : SettingsDialog {
@@ -132,8 +135,9 @@ bool project() noexcept {
                      Editors::view(0, control_emoji, utf8_literal("😀 or <:name:id>"), true)};
     f.controls[1] = {control_text, utf8_literal("Status"), {}, UiSettingsControlKind::edit, true, false, {}, 0, {},
                      Editors::view(1, control_text, utf8_literal("What's on your mind?"), true)};
+    name_list_views(clear_views, kClearLabels, kClearCount);
     f.controls[2] = {control_clear, utf8_literal("Clear after"), {}, UiSettingsControlKind::choice, true, false,
-                     {kClearLabels, kClearCount}, f.clear_index, {}, nullptr};
+                     {clear_views, kClearCount}, f.clear_index, {}, nullptr};
     const bool connected = application_custom_status_available();
     f.footer = {f.invalid             ? utf8_literal("Use one emoji and up to 128 characters.")
                 : !connected          ? utf8_literal("Your status can be set when MaiCord is connected.")
@@ -206,7 +210,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     for (u32 i = 0; i < kClearCount; ++i) {
         reset_value(&f.popup_items[i]);
-        f.popup_items[i].label = kClearLabels[i];
+        f.popup_items[i].label = clear_views[i];
         f.popup_items[i].action = kMenuChoiceBase + i;
         f.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == f.clear_index ? popup_item_checked : 0));
     }

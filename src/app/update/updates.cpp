@@ -2,6 +2,7 @@
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/os_text.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/state.hpp"
@@ -23,8 +24,8 @@ namespace {
 constexpr u64 kFallbackCheckDelaySeconds = 60, kFallbackCheckJitterSeconds = 120;
 constexpr u64 kProgressIntervalMs = 250;
 constexpr Utf8View channel_names[]{utf8_literal("Stable"), utf8_literal("Preview")};
-constexpr Utf8View interval_names[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"),
-                                    utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
+constexpr char kIntervalNames[] = "Every hour\0" "Every 4 hours\0" "Every 12 hours\0" "Once a day\0";
+static_assert(name_list_count(kIntervalNames) == kUpdateCheckIntervalCount);
 using State = ApplicationUpdateState;
 
 struct Worker {
@@ -396,8 +397,10 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
 void project_setting(const ApplicationUpdatesView& v, SettingBinding binding, ApplicationUpdatesText* text,
     UiSettingsControl* control) noexcept {
     if (binding == SettingBinding::update_interval) {
+        static Utf8View intervals[kUpdateCheckIntervalCount];
+        name_list_views(intervals, kIntervalNames, kUpdateCheckIntervalCount);
         control->selected_choice = static_cast<u32>(v.interval);
-        control->choices = {interval_names, kUpdateCheckIntervalCount};
+        control->choices = {intervals, kUpdateCheckIntervalCount};
         control->enabled = true;
         return;
     }

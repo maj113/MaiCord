@@ -48,8 +48,11 @@ inline constexpr u32 kModerationBanDeleteChoices[] = {0, 3'600, 21'600, 43'200, 
 inline constexpr u32 kModerationBanReasonCount = 4;
 inline constexpr u32 kModerationBanReasonOther = 3;
 inline constexpr u32 kModerationBanDeleteDefault = 1;
-extern const Utf8View kModerationBanReasons[kModerationBanReasonCount];
-extern const Utf8View kModerationBanDeleteLabels[sizeof(kModerationBanDeleteChoices) / sizeof(u32)];
+inline constexpr char kModerationBanReasons[] = "Suspicious or spam account\0" "Compromised or hacked account\0"
+                                                "Breaking server rules\0" "Other\0";
+inline constexpr char kModerationBanDeleteLabels[] = "Don't Delete Any\0" "Previous Hour\0" "Previous 6 Hours\0"
+                                                     "Previous 12 Hours\0" "Previous 24 Hours\0" "Previous 3 Days\0"
+                                                     "Previous 7 Days\0";
 // The reason a ban sends: the typed text under Other once something was
 // typed, "other" under Other otherwise, an option's own text, and "" with
 // nothing chosen (~0u).

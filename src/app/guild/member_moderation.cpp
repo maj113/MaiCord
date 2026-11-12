@@ -8,6 +8,7 @@
 #include "../chat/composer/text_form.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/model/guild/settings_model.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 #include "maicord/protocol/guild/moderation.hpp"
@@ -282,11 +283,15 @@ bool open_ban_form() noexcept {
     request.progress = form_progress;
     request.closed = form_closed;
     request.danger = true;
+    // The form copies the labels in application_text_form_open.
+    Utf8View reasons[kModerationBanReasonCount], deletes[kChoiceCount];
+    name_list_views(reasons, kModerationBanReasons, kModerationBanReasonCount);
+    name_list_views(deletes, kModerationBanDeleteLabels, kChoiceCount);
     request.choices_label = utf8_literal("Reason for Ban");
-    request.choices = {kModerationBanReasons, kModerationBanReasonCount};
+    request.choices = {reasons, kModerationBanReasonCount};
     request.choice_editor = kModerationBanReasonOther + 1;
     request.select_label = utf8_literal("Delete Message History");
-    request.select_options = {kModerationBanDeleteLabels, kChoiceCount};
+    request.select_options = {deletes, kChoiceCount};
     request.select_selected = kModerationBanDeleteDefault;
     request.save_choices = ban_save;
     if (application_text_form_open(request))

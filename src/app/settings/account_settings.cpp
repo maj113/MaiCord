@@ -449,8 +449,8 @@ __forceinline Utf8View codes_detail() noexcept {
 }
 
 // The MFA methods a verification offers, as its radio group shows them.
-constexpr Utf8View kMfaChoiceLabels[]{utf8_literal("Authenticator app"), utf8_literal("SMS code"),
-                                      utf8_literal("Backup code"), utf8_literal("Security key")};
+constexpr char kMfaChoiceLabels[] = "Authenticator app\0" "SMS code\0" "Backup code\0" "Security key\0";
+static_assert(name_list_count(kMfaChoiceLabels) == 4);
 constexpr u8 kMfaChoiceMethods[]{kAccountAuthenticatorTotp, kAccountAuthenticatorSms, kAccountMfaMethodBackup,
                                  kAccountAuthenticatorWebauthn};
 constexpr const char* kMfaChoiceTypes[]{"totp", "sms", "backup", "webauthn"};
@@ -464,7 +464,7 @@ __forceinline u32 mfa_choices() noexcept {
         if (kMfaChoiceMethods[i] == kAccountAuthenticatorWebauthn && !webauthn_platform_available())
             continue;
         if (methods & kMfaChoiceMethods[i]) {
-            g_mfa_choices[count] = kMfaChoiceLabels[i];
+            g_mfa_choices[count] = name_list_at(kMfaChoiceLabels, i);
             g_mfa_choice_methods[count++] = static_cast<u8>(i);
         }
     }
@@ -1547,11 +1547,10 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     const bool self = self_loaded();
     const bool profile = b && (g_owner.loaded & load_profile);
     const bool idle = online() && !action_pending();
-    static constexpr Utf8View kEdit[]{utf8_literal("Edit"), utf8_literal("Reveal")};
-    static constexpr Utf8View kEditHide[]{utf8_literal("Edit"), utf8_literal("Hide")};
-    static constexpr Utf8View kPhone[]{utf8_literal("Edit"), utf8_literal("Remove"), utf8_literal("Reveal")};
-    static constexpr Utf8View kPhoneHide[]{utf8_literal("Edit"), utf8_literal("Remove"), utf8_literal("Hide")};
-    static constexpr Utf8View kAdd[]{utf8_literal("Add")};
+    // The buttons of the email and phone rows: Edit, the phone's Remove, then Reveal or Hide; Add while there is no address.
+    static constexpr char kEdit[] = "Edit\0Reveal", kEditHide[] = "Edit\0Hide", kPhone[] = "Edit\0Remove\0Reveal",
+                          kPhoneHide[] = "Edit\0Remove\0Hide", kAdd[] = "Add";
+    static Utf8View email_buttons[2], phone_buttons[3];
     switch (binding) {
     case SettingBinding::account_devices:
         return true;
@@ -1585,31 +1584,33 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     case SettingBinding::account_email:
     case SettingBinding::account_phone: {
         const bool email = binding == SettingBinding::account_email;
+        // A buttons row needs its buttons: the first one shows, disabled, until the account loads.
+        const char* names = email ? kEdit : kPhone;
+        u32 shown = 1;
         if (!self) {
-            // A buttons row needs its buttons: the first one shows, disabled, until the account loads.
             control->description = utf8_literal("Loading…");
-            control->choices = {email ? kEdit : kPhone, 1};
             control->enabled = false;
-            return true;
+        } else {
+            const Utf8View value = email ? view(b->self.email, b->self.email_bytes) : view(b->self.phone, b->self.phone_bytes);
+            // Streamer Mode keeps the address masked and offers no Reveal.
+            const bool hidden = application_streamer_hide_personal();
+            const bool revealed = !hidden && (email ? g_owner.reveal_email : g_owner.reveal_phone);
+            control->enabled = idle;
+            if (!value.bytes) {
+                control->description = email ? utf8_literal("You haven't added an email address yet.")
+                                             : utf8_literal("You haven't added a phone number yet.");
+                names = kAdd;
+            } else {
+                control->description = revealed ? value
+                                       : email  ? view(b->email_mask, b->email_mask_bytes)
+                                                : view(b->phone_mask, b->phone_mask_bytes);
+                names = email ? (revealed ? kEditHide : kEdit) : (revealed ? kPhoneHide : kPhone);
+                shown = email ? (hidden ? 1 : 2) : (hidden ? 2 : 3);
+            }
         }
-        const Utf8View value = email ? view(b->self.email, b->self.email_bytes) : view(b->self.phone, b->self.phone_bytes);
-        // Streamer Mode keeps the address masked and offers no Reveal.
-        const bool hidden = application_streamer_hide_personal();
-        const bool revealed = !hidden && (email ? g_owner.reveal_email : g_owner.reveal_phone);
-        control->enabled = idle;
-        if (!value.bytes) {
-            control->description = email ? utf8_literal("You haven't added an email address yet.")
-                                         : utf8_literal("You haven't added a phone number yet.");
-            control->choices = {kAdd, 1};
-            return true;
-        }
-        control->description = revealed ? value
-                               : email  ? view(b->email_mask, b->email_mask_bytes)
-                                        : view(b->phone_mask, b->phone_mask_bytes);
-        if (email)
-            control->choices = {revealed ? kEditHide : kEdit, hidden ? 1u : 2u};
-        else
-            control->choices = {revealed ? kPhoneHide : kPhone, hidden ? 2u : 3u};
+        Utf8View* buttons = email ? email_buttons : phone_buttons;
+        name_list_views(buttons, names, shown);
+        control->choices = {buttons, shown};
         return true;
     }
     case SettingBinding::account_password:
@@ -1756,12 +1757,13 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     const bool idle = online() && !action_pending();
     u32 count = 0;
     if (binding == SettingBinding::security_keys_list) {
-        static constexpr Utf8View kKeyActions[]{utf8_literal("Rename"), utf8_literal("Remove")};
+        static Utf8View key_actions[2];
+        name_list_views(key_actions, "Rename\0Remove", 2);
         for (u32 i = 0; i < g_owner.key_count && count < controls.count; ++i) {
             const auto& key = b->keys[i];
             list_row(controls, presentation, count, settings_list_control_id(binding, i), view(key.name, key.name_bytes),
                      utf8_literal("Security key"), UiSettingsControlKind::buttons, idle, {})
-                .choices = {kKeyActions, 2};
+                .choices = {key_actions, 2};
             ++count;
         }
         return count;

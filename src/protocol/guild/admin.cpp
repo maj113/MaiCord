@@ -853,40 +853,47 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
             w.put("channels/", r.channel_id);
         else
             w.put("guilds/", r.guild_id);
+        // What follows the guild or channel: an entry of kPathParts (16, past its end, for nothing).
+        constexpr char kPathParts[] = "/roles\0/roles/\0/roles/member-counts\0/members/\0/members/@me\0/profile/@me\0"
+                                      "/bans\0/bans/\0/audit-logs\0/channels\0/invites\0/permissions/\0/widget\0"
+                                      "/profile\0/vanity-url\0/top-games\0";
+        static_assert(name_list_count(kPathParts) == 16);
+        u32 part = 16;
         switch (op) {
         case Op::role_list:
         case Op::role_create:
-        case Op::role_reorder: w.put("/roles"); break;
+        case Op::role_reorder: part = 0; break;
         case Op::role_update:
-        case Op::role_delete: w.put("/roles/"); break;
-        case Op::role_member_counts: w.put("/roles/member-counts"); break;
+        case Op::role_delete: part = 1; break;
+        case Op::role_member_counts: part = 2; break;
         case Op::member_update:
         case Op::member_kick:
         case Op::member_role_add:
-        case Op::member_role_remove: w.put("/members/"); break;
-        case Op::member_update_self: w.put("/members/@me"); break;
-        case Op::member_profile_self: w.put("/profile/@me"); break;
-        case Op::ban_list: w.put("/bans"); break;
+        case Op::member_role_remove: part = 3; break;
+        case Op::member_update_self: part = 4; break;
+        case Op::member_profile_self: part = 5; break;
+        case Op::ban_list: part = 6; break;
         case Op::ban_add:
-        case Op::ban_remove: w.put("/bans/"); break;
-        case Op::audit_log: w.put("/audit-logs"); break;
+        case Op::ban_remove: part = 7; break;
+        case Op::audit_log: part = 8; break;
         case Op::channel_create:
-        case Op::channel_reorder: w.put("/channels"); break;
+        case Op::channel_reorder: part = 9; break;
         case Op::invite_list_guild:
         case Op::invite_list_channel:
-        case Op::invite_create: w.put("/invites"); break;
+        case Op::invite_create: part = 10; break;
         case Op::overwrite_put:
-        case Op::overwrite_delete: w.put("/permissions/"); break;
+        case Op::overwrite_delete: part = 11; break;
         case Op::widget_get:
-        case Op::widget_update: w.put("/widget"); break;
+        case Op::widget_update: part = 12; break;
         case Op::profile_get:
         case Op::profile_update:
-        case Op::tag_update: w.put("/profile"); break;
+        case Op::tag_update: part = 13; break;
         case Op::vanity_get:
-        case Op::vanity_update: w.put("/vanity-url"); break;
-        case Op::top_games: w.put("/top-games"); break;
+        case Op::vanity_update: part = 14; break;
+        case Op::top_games: part = 15; break;
         default: break;
         }
+        w.put(name_list_at(kPathParts, part));
         if (f & kTargetId)
             w.put(r.target_id);
         if (op == Op::member_role_add || op == Op::member_role_remove)

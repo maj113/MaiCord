@@ -7,13 +7,17 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/os/local_time.hpp"
 #include "maicord/os/date_format.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 namespace maicord::app_detail {
 namespace {
 
-static constexpr Utf8View kWhereLabels[3]{utf8_literal("Stage channel"), utf8_literal("Voice channel"),
-                                   utf8_literal("Somewhere else")};
+constexpr char kWhereLabels[] = "Stage channel\0Voice channel\0Somewhere else\0";
+static_assert(name_list_count(kWhereLabels) == 3);
+constexpr char kDurationLabels[] =
+    "No end time\0" "30 minutes\0" "1 hour\0" "2 hours\0" "3 hours\0" "6 hours\0" "12 hours\0" "1 day\0";
+static_assert(name_list_count(kDurationLabels) == kDurationCount);
 
 constexpr u32 kDurationMinutes[kDurationCount]{0, 30, 60, 120, 180, 360, 720, 1440};
 
@@ -681,7 +685,9 @@ void project_create() noexcept {
     auto& p = *owner;
     const bool edit = editable();
     auto& where_row = add_control(control_where, utf8_literal("Where is your event?"), {}, UiSettingsControlKind::radio, edit);
-    where_row.choices = {kWhereLabels, 3};
+    static Utf8View where_views[3];
+    name_list_views(where_views, kWhereLabels, 3);
+    where_row.choices = {where_views, 3};
     where_row.selected_choice = p.where;
     const bool external = p.where == 2;
     if (external) {
@@ -708,8 +714,10 @@ void project_create() noexcept {
     auto& duration = add_control(control_duration, utf8_literal("Duration"),
                                  external ? utf8_literal("Events somewhere else need an end time.") : Utf8View{},
                                  UiSettingsControlKind::choice, edit);
-    duration.choices = {external ? kDurationLabels + 1 : kDurationLabels,
-                        external ? kDurationCount - 1 : kDurationCount};
+    // An event somewhere else needs an end time, so it has no "No end time".
+    const u32 durations = kDurationCount - (external ? 1 : 0);
+    name_list_views(p.duration_views, kDurationLabels + (external ? sizeof("No end time") : 0), durations);
+    duration.choices = {p.duration_views, durations};
     duration.selected_choice = external ? (p.duration ? p.duration - 1 : 0) : p.duration;
     if (auto* view = editor_view(control_description, utf8_literal("Tell people a little more about your event."),
                                  edit))

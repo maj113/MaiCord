@@ -1,5 +1,6 @@
 #include "keybinds_settings.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "../voice/voice.hpp"
 #include "../shell/overlay_input.hpp"
 #include "maicord/core/log.hpp"
@@ -8,11 +9,7 @@
 namespace maicord::app_detail {
 namespace {
 constexpr u32 kDefaultRows = kKeybindsSettingsBankCapacity, kChipBytes = 40;
-constexpr Utf8View kActionChoices[]{utf8_literal("Push to talk"), utf8_literal("Toggle mute"),
-                                    utf8_literal("Toggle deafen"), utf8_literal("Toggle Streamer Mode")};
-static_assert(sizeof(kActionChoices) / sizeof(kActionChoices[0]) == static_cast<u32>(CustomKeybindAction::count));
-// A set keybind's buttons: change its action or keys, or remove it.
-constexpr Utf8View kKeybindButtons[]{utf8_literal("Edit"), utf8_literal("Delete")};
+constexpr u32 kActions = static_cast<u32>(CustomKeybindAction::count);
 constexpr u32 kKeybindEdit = 0, kKeybindDelete = 1, kNotEditing = ~0u;
 
 struct Chips {
@@ -81,6 +78,10 @@ void start_draft(CustomKeybindAction action, u32 editing) noexcept {
 __forceinline u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
     ensure_loaded();
     u32 count = 0;
+    static Utf8View actions[kActions], buttons[2];
+    name_list_views(actions, kCustomKeybindActionLabels, kActions);
+    // A set keybind's buttons: change its action or keys, or remove it.
+    name_list_views(buttons, "Edit\0Delete", 2);
     const auto emit = [&](const UiSettingsControl& control, UiSettingsVariant variant) noexcept {
         if (count >= controls.count)
             return;
@@ -100,14 +101,13 @@ __forceinline u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSetting
                     key.bytes + utf8_copy_truncated(ui.push_to_talk_text + key.bytes,
                                                     sizeof(ui.push_to_talk_text) - key.bytes, note)};
         }
-        emit(row(kKeybindsPushToTalkRow, kActionChoices[0], text, UiSettingsControlKind::buttons,
-                 {kKeybindButtons, 2}, 0, {}),
+        emit(row(kKeybindsPushToTalkRow, actions[0], text, UiSettingsControlKind::buttons, {buttons, 2}, 0, {}),
              UiSettingsVariant::standard);
     }
     for (u32 i = 0; i < ui.keybinds.count; ++i) {
         const auto& keybind = ui.keybinds.items[i];
         emit(row(i, custom_keybind_action_label(keybind.action), chord_chip(ui.custom[i], 0, keybind.chord),
-                 UiSettingsControlKind::buttons, {kKeybindButtons, 2}, 0, {}),
+                 UiSettingsControlKind::buttons, {buttons, 2}, 0, {}),
              UiSettingsVariant::standard);
     }
     if (!ui.drafting)
@@ -115,7 +115,7 @@ __forceinline u32 custom_rows(Slice<UiSettingsControl> controls, Slice<UiSetting
     const bool push_to_talk = ui.draft_action == CustomKeybindAction::push_to_talk;
     emit(row(kKeybindsDraftActionRow, utf8_literal("Action"),
              push_to_talk && audio.push_to_talk_key ? utf8_literal("Replaces your push to talk key.") : Utf8View{},
-             UiSettingsControlKind::radio, {kActionChoices, static_cast<u32>(CustomKeybindAction::count)},
+             UiSettingsControlKind::radio, {actions, kActions},
              static_cast<u32>(ui.draft_action), {}),
          UiSettingsVariant::standard);
     const Utf8View hint = ui.recorder.active  ? utf8_literal("Press the keys now. Esc cancels.")
