@@ -749,6 +749,59 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
             if (!probe_write_capture(drag_shot, kVariantFiles[v][1]))
                 return fail(166);
         }
+        // Labels with more glyphs than a tab's 16 quads (17, 26 and 60 glyphs, one with emoji, one right-to-left)
+        // end inside their tab without resetting the glyph atlas: the active tab's label and the content draw exactly
+        // as beside short labels, and every long label shows ink. Captured for review.
+        {
+            // "Lumen Drift launch trailer" in Hebrew: 26 glyphs, right to left.
+            static const char kHebrew[] =
+                "\xD7\x98\xD7\xA8\xD7\x99\xD7\x99\xD7\x9C\xD7\xA8 \xD7\x94\xD7\x94\xD7\xA9\xD7\xA7\xD7\x94 \xD7\xA9\xD7\x9C "
+                "\xD7\x9C\xD7\x95\xD7\x9E\xD7\x9F \xD7\x93\xD7\xA8\xD7\x99\xD7\xA4\xD7\x98";
+            static const char* const kLong[6]{"general", "Lumen-Drift-promo", "Lumen Drift launch trailer",
+                                              "Lumen Drift launch trailer, extended cut with commentary 4K!",
+                                              "Lumen Drift \xF0\x9F\x8E\xAC launch trailer \xF0\x9F\x8D\xBF", kHebrew};
+            static const char* const kShort[6]{"general", "a", "b", "c", "d", "e"};
+            if (!renderer_resize(&renderer, px(1920), renderer.height))
+                return fail(170);
+            UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+            state.tabs = &tabs;
+            ProbeTargetReadback shots[2]{};
+            for (u32 pass = 0; pass < 2; ++pass) {
+                reset_value(&tabs);
+                tabs.count = 6;
+                tabs.plus_enabled = true;
+                for (u32 i = 0; i < 6; ++i) {
+                    const char* name = pass ? kLong[i] : kShort[i];
+                    tabs.items[i].label = {name, c_string_length(name)};
+                    tabs.items[i].icon = UiIcon::channel;
+                }
+                tabs.items[0].flags = kUiTabActive;
+                tabs.items[0].select = 1;
+                const u32 resets = renderer.glyph_text.allocator.full_resets;
+                const u32 evicted = renderer.glyph_text.allocator.evicted_entries;
+                if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+                    !draw(renderer, theme) || probe_target_readback(renderer, &shots[pass]) ||
+                    (pass && !probe_write_capture(shots[1], L"titlebar_tabs_long_labels.bmp")))
+                    return fail(171);
+                if (renderer.glyph_text.allocator.full_resets != resets ||
+                    renderer.glyph_text.allocator.evicted_entries != evicted)
+                    return fail(172);
+            }
+            const UiCaptionBarLayout bar = ui_caption_bar_layout(theme, 1920, state, height, scale);
+            const UiRect active = ui_tab_strip_tab(bar.tabs, 0);
+            for (u32 y = 0; y < shots[1].height; ++y)
+                for (u32 x = 0; x < shots[1].width; ++x)
+                    if ((y >= caption || (x >= px(active.left) && x < px(active.right))) &&
+                        !equal(read(shots[0], x, y), read(shots[1], x, y)))
+                        return fail(173);
+            for (u32 i = 1; i < 6; ++i) {
+                const UiTabLabel label = ui_tab_strip_label(bar.tabs, i);
+                const UiRect close = ui_tab_strip_close(bar.tabs, i);
+                if (ink_pixels(shots[1], {label.left, bar.height * .25f, close.left, bar.height * .8f}, scale,
+                               background) < 20)
+                    return fail(174);
+            }
+        }
         UiCaptionBarState off{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
         if (!renderer_resize(&renderer, original_width, renderer.height) || !relayout(renderer.height) ||
             !renderer_set_caption(&renderer, off, utf8_literal("Native Lab")) || !draw(renderer, theme))

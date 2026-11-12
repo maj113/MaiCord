@@ -659,13 +659,16 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         return false;
     }
     GlyphRasterBatch raster(&owner->gpu, context);
+    // A failure with rasters queued submits them: their tiles are allocated and indexed, and a failure that is not the
+    // atlas's (a caller's full quad buffer, a glyph without an outline) must not empty the atlas every other text
+    // shares. A full atlas, or rasters that cannot be submitted, start the atlas over for the caller to lay out again.
     struct PendingRaster {
         GlyphRasterBatch& batch;
         D3D11GlyphTextOwner& owner;
         bool& invalidated;
+        bool full = false;
         ~PendingRaster() noexcept {
-            if (batch.pending()) {
-                batch.cancel();
+            if (full || (batch.pending() && !batch.finish())) {
                 glyph_atlas_reset(&owner.allocator);
                 invalidated = true;
             }
@@ -809,6 +812,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                     if (!allocation.ok()) {
                         log_u64(LogLevel::error, "render", "glyph_allocation_error",
                                 static_cast<u64>(allocation.error));
+                        pending.full = allocation.error == GlyphAtlasError::no_capacity;
                         return append_fail(10);
                     }
                     if (!allocation.cached) {

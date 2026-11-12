@@ -19,7 +19,7 @@ inline constexpr u32 kCaptionGlyphCapacity = 128;
 inline constexpr u32 kCaptionRunCapacity = 8;
 inline constexpr u32 kCaptionTitleCapacity = 256;
 // With the tab strip showing: more quads, the glyph quads each tab label may use, and the glyphs its scratch line
-// shapes (a label is at most kChannelMemoryTabLabelBytes bytes).
+// shapes (the label's first kCaptionTabLineGlyphs bytes; the app keeps at most kChannelMemoryTabLabelBytes).
 inline constexpr u32 kCaptionTabPaintCapacity = 128;
 inline constexpr u32 kCaptionTabGlyphs = 16;
 inline constexpr u32 kCaptionTabLineGlyphs = 48;
@@ -381,21 +381,27 @@ bool append_tabs(D3D11Renderer* renderer, RendererCaption* caption, const Theme&
                 renderer->dpi);
             if (tabs->keys[i] == key)
                 continue;
-            // A label with more glyphs than its quads (stacked marks) is shaped again, narrower, until its
-            // ellipsis fits; one that never does shows none.
+            // A label draws one quad per glyph at most (it has no decorations). One with more glyphs than its quads
+            // at its width is shaped once more, as wide as its first 15 glyphs (stored in logical order): its
+            // ellipsis (one glyph) takes room there, so at most 14 stay beside it. One that still has too many shows
+            // none.
+            const Utf8View shown{text.data, utf8_truncated_length(text, kCaptionTabLineGlyphs)};
             u32 count = 0;
-            float limit = place[i].limit;
-            for (u32 attempt = 0; attempt < 4; ++attempt, limit *= .75f) {
+            float width = place[i].limit;
+            for (u32 shape = 0; shape < 2; ++shape) {
                 tabs->line.shaped = false;
-                if (!shape_line(renderer, &tabs->line, text, text_style_none, text_size_sm, limit, layout.height))
+                if (!shape_line(renderer, &tabs->line, shown, text_style_none, text_size_sm, width, layout.height))
                     return false;
-                const float top = (strip.area.top + strip.area.bottom - tabs->line.shape.height) * .5f;
-                if (append_line(renderer, tabs->line.shape, tabs->quads + i * kCaptionTabGlyphs, {}, place[i].left, top,
-                                &count, kCaptionTabGlyphs))
+                if (tabs->line.shape.glyph_count <= kCaptionTabGlyphs) {
+                    const float top = (strip.area.top + strip.area.bottom - tabs->line.shape.height) * .5f;
+                    if (!append_line(renderer, tabs->line.shape, tabs->quads + i * kCaptionTabGlyphs, {},
+                                     place[i].left, top, &count, kCaptionTabGlyphs))
+                        return false;
                     break;
-                if (d3d11_glyph_text_append_failure() != 13)
-                    return false;
-                count = 0;
+                }
+                width = 0;
+                for (u32 g = 0; g < kCaptionTabGlyphs - 1; ++g)
+                    width += tabs->line.glyphs[g].advance;
             }
             tabs->counts[i] = static_cast<u8>(count);
             tabs->placed[i] = place[i].left;
