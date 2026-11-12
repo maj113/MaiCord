@@ -300,7 +300,8 @@ void cache_drop(SoundboardCache* cache, u32 index) noexcept {
 }
 } // namespace
 
-bool soundboard_cache_insert(SoundboardCache* cache, SoundboardClip* clip) noexcept {
+// Once per decoded sound: compiled for size.
+__attribute__((minsize)) bool soundboard_cache_insert(SoundboardCache* cache, SoundboardClip* clip) noexcept {
     if (!clip)
         return false;
     if (clip->allocation_bytes > cache->budget_bytes) {

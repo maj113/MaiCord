@@ -250,9 +250,10 @@ if(MAICORD_LINUX)
             "/app/voice/(call_video_presenter|dave/(frame_crypto|key_derivation|receive_sender|route)|jitter_buffer|message_flow|message_recorder|mixer|packet_crypto|playback|receive|send|soundboard_audio|transmit|udp_media|video_rtp_receive|video_sink|video_stream_decoders)\\.cpp$")
     # The platform layers the Windows build compacts under other names (win32 window, d3d11 device, IOCP, DXVA,
     # WASAPI, CNG, the Win32 file and shell services): once per window, device, connection, stream or user action, or
-    # glue around the kernel's own work. Left at -O2 as on Windows: the sample, byte and frame loops (os/linux/text,
-    # thread, wait and srwlock, the GLES draw, resource and video upload wrappers, the AEAD and hash wrappers, the
-    # in-house AAC decoder, the bitmap colour glyphs).
+    # glue around the kernel's own work. The hash stream is one EVP call per file read: SHA-256 over 1 MiB in 64 KiB
+    # reads took the same time compacted (within 0.01%, A/A 0.01%), and the inlined library lookup it drops was 1.8 KB.
+    # Left at -O2 as on Windows: the sample, byte and frame loops (os/linux/text, thread, wait and srwlock, the GLES
+    # draw, resource and video upload wrappers, the AEAD wrappers, the in-house AAC decoder, the bitmap colour glyphs).
     maicord_compact_sources(
         TARGETS maicord_window_wayland maicord_dbus maicord_atspi maicord_audio_pulse maicord_net maicord_desktop_system
             maicord_font_system maicord_video_vaapi maicord_video_software maicord_video_decode
@@ -266,7 +267,8 @@ if(MAICORD_LINUX)
             src/gpu/gles/sync.cpp
             src/platform/crypto/linux/random.cpp src/platform/crypto/linux/secure_buffer.cpp
             src/platform/crypto/openssl/openssl.cpp src/platform/crypto/openssl/kdf_sha256.cpp
-            src/platform/crypto/openssl/p256.cpp src/platform/crypto/openssl/remote_auth_crypto.cpp
+            src/platform/crypto/openssl/hash_stream.cpp src/platform/crypto/openssl/p256.cpp
+            src/platform/crypto/openssl/remote_auth_crypto.cpp
             src/platform/net/linux/tls_client.cpp
             src/platform/decode/linux/aac_decoder.cpp
             src/text/fonts/linux/handle_stat.cpp

@@ -104,7 +104,9 @@ i64 deadline_after(u32 milliseconds) noexcept {
 
 } // namespace
 
-Thread* thread_start(ThreadProc procedure, void* argument, u32 stack_reserve_bytes, u32* native_error) noexcept {
+// Creation and the processor count run once per thread or worker pool: compiled for size.
+__attribute__((minsize)) Thread* thread_start(ThreadProc procedure, void* argument, u32 stack_reserve_bytes,
+                                              u32* native_error) noexcept {
     Thread* record = acquire_record();
     if (record == nullptr) {
         if (native_error) {
@@ -212,7 +214,7 @@ void thread_sleep(u32 milliseconds) noexcept {
     }
 }
 
-u32 processor_count() noexcept {
+__attribute__((minsize)) u32 processor_count() noexcept {
     u64 mask[16]{};
     if (syscall_failed(sys_sched_getaffinity(0, sizeof(mask), mask))) {
         return 1;

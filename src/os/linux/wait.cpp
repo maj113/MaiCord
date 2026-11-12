@@ -80,7 +80,8 @@ long poll_ready(PollFd* descriptors, u32 count, u32 timeout_ms) noexcept {
 
 } // namespace
 
-Waitable event_create(bool manual, bool signaled) noexcept {
+// Creation runs once per waitable: compiled for size.
+__attribute__((minsize)) Waitable event_create(bool manual, bool signaled) noexcept {
     const long fd = sys_eventfd(signaled ? 1u : 0u, kEventfdNonBlock | kEventfdCloseOnExec);
     if (syscall_failed(fd)) {
         set_thread_last_error(win32_error_from_result(fd));
@@ -107,7 +108,7 @@ bool event_reset(Waitable event) noexcept {
     return true;
 }
 
-Waitable timer_create_waitable(bool manual, bool high_resolution) noexcept {
+__attribute__((minsize)) Waitable timer_create_waitable(bool manual, bool high_resolution) noexcept {
     (void)high_resolution; // timerfds have nanosecond resolution
     const long fd = sys_timerfd_create(kClockBoottime, kTimerfdNonBlock | kTimerfdCloseOnExec);
     if (syscall_failed(fd)) {

@@ -3220,16 +3220,6 @@ void test_glyph_atlas_allocator() noexcept {
                epoch_atlas.visibility_rebases == 1 && epoch_rows[pinned_row].pinned_entries == 1,
            "glyph_atlas_visibility_epoch_wrap_is_bounded_and_alias_safe");
 
-    glyph_atlas_clear_pins(&lru);
-    const bool clock_wrap_pin = glyph_atlas_pin(&lru, reset_allocation.handle);
-    lru.clock = ~0ull;
-    lru.rows[0].last_used = 1;
-    const GlyphAtlasAllocation wrapped = glyph_atlas_find(&lru, 4);
-    expect(clock_wrap_pin && wrapped.ok() && lru.clock == 1 && lru.rows[0].last_used == 1 &&
-               glyph_atlas_is_pinned(lru, reset_allocation.handle) &&
-               lru.rows[lru.entries[reset_allocation.handle.slot].row].pinned_entries == 1,
-           "glyph_atlas_clock_restart_preserves_current_visibility");
-
     const GlyphAtlasHandle before_reset = reset_allocation.handle;
     glyph_atlas_reset(&lru);
     expect(!glyph_atlas_validate(lru, before_reset) && lru.entry_count == 0 && lru.row_count == 0 &&

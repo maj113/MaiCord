@@ -30,7 +30,8 @@ AeadResult crypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
 
 } // namespace
 
-AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
+// Key setup and release, once per key: compiled for size (the per-packet crypt above stays at full speed).
+__attribute__((minsize)) AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
     if (!key || key->handle || key->object.data || key->object.locked || (secret.count != 16 && secret.count != 32) ||
         !byte_range_valid(secret) || byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
@@ -67,7 +68,7 @@ AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
     return aead_result(AeadError::none);
 }
 
-void aes_gcm_release(AesGcmKey* key) noexcept {
+__attribute__((minsize)) void aes_gcm_release(AesGcmKey* key) noexcept {
     if (!key)
         return;
     if (key->handle) {

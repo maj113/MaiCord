@@ -6,23 +6,11 @@ namespace {
 
 constexpr u32 kNone = 0xFFFFFFFFu;
 
-// Clock wrap is astronomically rare: recency restarts (LRU order is lost once).
-__declspec(noinline) void restart_clock(GlyphAtlasAllocator* atlas) noexcept {
-    for (u32 index = 0; index < atlas->row_count; ++index) {
-        atlas->rows[index].last_used = 0;
-    }
-    for (u32 index = 0; index < atlas->entry_capacity; ++index) {
-        atlas->entries[index].last_used = 0;
-    }
-    atlas->clock = 0;
-    atlas->protect_after = atlas->protect_ms ? 1 : 0;
-}
-
-// Lookups inline only the increment.
+// The clock never wraps: it is at most the owner's monotonic milliseconds (time since boot) shifted left by
+// kGlyphAtlasClockTimeShift plus one tick per lookup, pin or upload. Reaching 2^64 takes 2^44 ms (557 years) of
+// uptime or 2^64 lookups (584 years at one per nanosecond).
+static_assert(kGlyphAtlasClockTimeShift <= 20);
 __forceinline u64 atlas_tick(GlyphAtlasAllocator* atlas) noexcept {
-    if (atlas->clock == ~0ull) {
-        restart_clock(atlas);
-    }
     return ++atlas->clock;
 }
 

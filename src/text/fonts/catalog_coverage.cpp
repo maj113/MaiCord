@@ -30,7 +30,8 @@ bool native_font_coverage_reset(NativeFontCoverageCache* c) noexcept {
     for(u32 i=0;i<c->slots.count;++i){auto& slot=c->slots[i];if(slot.catalog&&!native_font_release(fonts,slot.handle)){okay=false;continue;}slot={};}
     if(okay)c->clock=0;return okay;
 }
-bool native_font_coverage_release(NativeFontCoverageCache* c) noexcept {
+// Once per cache: compiled for size.
+__attribute__((minsize)) bool native_font_coverage_release(NativeFontCoverageCache* c) noexcept {
     if(!c->session){reset_value(c);return true;}
     if(!native_font_coverage_reset(c)||!native_font_session_release(&c->session))return false;reset_value(c);return true;
 }

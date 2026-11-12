@@ -49,7 +49,8 @@ AeadResult openssl_aead_run(const openssl::Crypto& library, void* context, Const
                      : aead_result(AeadError::authentication_failed);
 }
 
-bool aead_openssl_available() noexcept {
+// Once per probe: compiled for size.
+__attribute__((minsize)) bool aead_openssl_available() noexcept {
     return openssl::crypto() != nullptr;
 }
 

@@ -33,7 +33,9 @@ u32 opus_encoder_storage_bytes(u32 channels) noexcept {
     const int bytes = ::opus_encoder_get_size(static_cast<int>(channels));
     return bytes > 0 ? static_cast<u32>(bytes) : 0;
 }
-OpusEncodeResult opus_encoder_initialize(OpusEncoder* encoder, Slice<u8> storage, u32 channels) noexcept {
+// Once per call or stream: compiled for size (the encode below stays at full speed).
+__attribute__((minsize)) OpusEncodeResult opus_encoder_initialize(OpusEncoder* encoder, Slice<u8> storage,
+                                                                  u32 channels) noexcept {
     if (!encoder)
         return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
     if (encoder->initialized || encoder->state)
