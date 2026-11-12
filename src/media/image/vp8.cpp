@@ -928,45 +928,8 @@ u32 vp8_bool_read_literal(Vp8BoolReader* reader, u32 bit_count) noexcept {
     return value;
 }
 
-namespace {
-// One row of macroblock headers (all in the first partition, in raster order). above holds the bottom subblock
-// modes of the row above (columns * 4), read unless this is the first row; this row's replace them.
-bool parse_row_modes(WindowReader* reader, const Vp8ControlHeader& header, Vp8SubblockMode* above, bool first_row,
-                     Vp8MacroblockMode* modes, u32 columns) noexcept {
-    for (u32 x = 0; x < columns; ++x) {
-        parse_macroblock_mode(reader, header, first_row ? nullptr : above + x * 4u, x ? &modes[x - 1] : nullptr,
-                              &modes[x]);
-        if (!reader->ok())
-            return false;
-        for (u32 block = 0; block < 4; ++block)
-            above[x * 4u + block] = modes[x].luma_subblock[12u + block];
-    }
-    return true;
-}
-
-// One row of tokens, from its partition (row % count).
-Vp8CoefficientParseResult decode_row_tokens(Vp8BoolReader* partition, const Vp8ControlHeader& header,
-                                            const Vp8ProbabilityWorkspace& probabilities,
-                                            const Vp8MacroblockMode* modes, Vp8TokenContext* top,
-                                            Vp8TokenContext* left, Vp8MacroblockCoefficients* coefficients,
-                                            u32 columns) noexcept {
-    WindowReader reader = to_window(*partition);
-    reset_value<Vp8TokenContext>(left);
-    for (u32 x = 0; x < columns; ++x) {
-        const auto decoded =
-            decode_macroblock_tokens(&reader, header, probabilities, modes[x], &top[x], left, &coefficients[x]);
-        if (decoded.error != Vp8CoefficientError::none) {
-            from_window(reader, partition);
-            return decoded;
-        }
-    }
-    from_window(reader, partition);
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
-}
-} // namespace
-
-// The GPU path's whole frame with the row parser's state and steps: every row's modes, then every row's tokens.
-// Once per frame, around the macroblock rows: compiled for size.
+// The GPU path's whole frame: the row parser over every row, into the frame workspaces. Once per frame, around
+// the macroblock rows: compiled for size.
 __attribute__((minsize))
 Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& frame, const Vp8ControlHeader& header,
                                                           const Vp8ProbabilityWorkspace& probabilities,
@@ -986,18 +949,12 @@ Vp8CoefficientParseResult vp8_decode_keyframe_macroblocks(const Vp8Keyframe& fra
     modes->columns = coefficients->columns = static_cast<u16>(columns);
     modes->rows = coefficients->rows = static_cast<u16>(rows);
     modes->macroblock_count = coefficients->macroblock_count = 0;
-    WindowReader mode_reader = to_window(parser.modes);
     for (u32 row = 0; row < rows; ++row)
-        if (!parse_row_modes(&mode_reader, header, above_modes, row == 0, modes->macroblocks + row * columns,
-                             columns))
-            return {Vp8CoefficientError::boolean_stream};
-    for (u32 row = 0; row < rows; ++row)
-        if (const auto decoded = decode_row_tokens(&parser.tokens[row & (parser.partitions - 1u)], header,
-                                                   probabilities, modes->macroblocks + row * columns, top_context,
-                                                   &parser.left_context, coefficients->macroblocks + row * columns,
-                                                   columns);
-            !decoded.ok())
-            return decoded;
+        if (const auto parsed = vp8_row_parser_next(&parser, header, probabilities,
+                                                    {modes->macroblocks + row * columns, columns},
+                                                    {coefficients->macroblocks + row * columns, columns});
+            !parsed.ok())
+            return parsed;
     modes->macroblock_count = coefficients->macroblock_count = columns * rows;
     return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
@@ -1106,19 +1063,33 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
     if (!parser || !parser->columns || parser->row >= parser->rows || !modes.data ||
         modes.count < parser->columns || !coefficients.data || coefficients.count < parser->columns)
         return {Vp8CoefficientError::invalid_input};
-    // All macroblock headers live in the first partition, in raster order.
+    // All macroblock headers live in the first partition, in raster order; this row's tokens come from
+    // partition row % count. above_modes becomes this row's bottom subblock modes.
     WindowReader mode_reader = to_window(parser->modes);
-    const bool parsed =
-        parse_row_modes(&mode_reader, header, parser->above_modes, parser->row == 0, modes.data, parser->columns);
+    for (u32 x = 0; x < parser->columns; ++x) {
+        parse_macroblock_mode(&mode_reader, header, parser->row ? parser->above_modes + x * 4u : nullptr,
+                              x ? &modes[x - 1] : nullptr, &modes[x]);
+        if (!mode_reader.ok()) {
+            from_window(mode_reader, &parser->modes);
+            return {Vp8CoefficientError::boolean_stream};
+        }
+        for (u32 block = 0; block < 4; ++block)
+            parser->above_modes[x * 4u + block] = modes[x].luma_subblock[12u + block];
+    }
     from_window(mode_reader, &parser->modes);
-    if (!parsed)
-        return {Vp8CoefficientError::boolean_stream};
-    if (const auto decoded =
-            decode_row_tokens(&parser->tokens[parser->row & (parser->partitions - 1u)], header, probabilities,
-                              modes.data, parser->top_context, &parser->left_context, coefficients.data,
-                              parser->columns);
-        !decoded.ok())
-        return decoded;
+    Vp8BoolReader& partition = parser->tokens[parser->row & (parser->partitions - 1u)];
+    WindowReader reader = to_window(partition);
+    reset_value<Vp8TokenContext>(&parser->left_context);
+    for (u32 x = 0; x < parser->columns; ++x) {
+        const auto decoded = decode_macroblock_tokens(&reader, header, probabilities, modes[x],
+                                                      &parser->top_context[x], &parser->left_context,
+                                                      &coefficients[x]);
+        if (decoded.error != Vp8CoefficientError::none) {
+            from_window(reader, &partition);
+            return decoded;
+        }
+    }
+    from_window(reader, &partition);
     ++parser->row;
     return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
