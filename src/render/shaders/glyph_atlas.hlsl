@@ -16,11 +16,11 @@ RWTexture2D<unorm float> coverage_atlas : register(u0);
 #define GLYPH_JOBS 16
 #endif
 
-// GLYPH_TILE_CULLING builds the variant for unstroked rasters that are large or
-// have a long command chain, which skips every command that cannot reach any
-// sample of a thread group's tile. Other rasters run the plain loop of the
-// default variant, whose per-command cost is lower.
-#if defined(GLYPH_TILE_CULLING)
+// Unstroked rasters that are large or have a long command chain take the tile-culling
+// loop, which skips every command that cannot reach any sample of a thread group's
+// tile; it pays for rasters at least 64 pixels wide or tall and for any of at least
+// 32 commands. Other rasters run the plain loop, whose per-command cost is lower.
+// The choice is per raster, so uniform across each thread group.
 // A crossing right of the sample without a division: the side test's sign
 // against the edge direction replaces the crossing abscissa (as colr_paint does).
 // Across the sample row the end and start comparisons differ, and their
@@ -42,27 +42,6 @@ void accumulate_distance(float2 sample_position, float2 line_start, float2 line_
     const float2 distance_vector = sample_position - (line_start + delta * projection);
     minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
 }
-#else
-void accumulate_line(float2 sample_position, float2 line_start, float2 line_end,
-                     inout int winding, inout float minimum_distance_squared) {
-    const float2 delta = line_end - line_start;
-    const float length_squared = dot(delta, delta);
-    const float projection = length_squared > 1.0e-12f
-                                 ? saturate(dot(sample_position - line_start, delta) /
-                                            length_squared)
-                                 : 0.0f;
-    const float2 distance_vector = sample_position - (line_start + delta * projection);
-    minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
-
-    // A crossing right of the sample without a division: the side test's sign
-    // against the edge direction replaces the crossing abscissa (as colr_paint
-    // does). Across the sample row the end and start comparisons differ, and
-    // their difference is the edge's direction; elsewhere it is zero.
-    const float2 offset = sample_position - line_start;
-    const float side = delta.x * offset.y - offset.x * delta.y;
-    winding += side * delta.y > 0.0f ? int(line_end.y > sample_position.y) - int(line_start.y > sample_position.y) : 0;
-}
-#endif
 
 // Stroked (icon) contours contribute only their centreline distance.
 void accumulate_stroke(float2 sample_position, float2 line_start, float2 line_end,
@@ -93,8 +72,7 @@ static const float4 cubic_weights[12] = {
     asfloat(uint4(0x00000000u, 0x00000000u, 0x00000000u, 0x3f800000u))
 };
 
-#if defined(GLYPH_TILE_CULLING)
-// Per-thread state shared by the helpers below.
+// Per-thread state shared by the helpers below and both loops.
 static float2 sample_position, tile_low, tile_high;
 static float reach, minimum_distance_squared, stroke_distance_squared;
 static int winding;
@@ -180,14 +158,9 @@ void trace_commands(uint first_command, uint command_count) {
         }
     }
 }
-#endif
 
 [numthreads(8, 8, 1)]
-#if defined(GLYPH_TILE_CULLING)
 void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV_GroupID) {
-#else
-void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
-#endif
     const uint offset=dispatch_id.z*28;
     const uint4 raster=raster_data.Load4(offset);
     const float3 values=asfloat(raster_data.Load3(offset+16));
@@ -195,11 +168,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
     const uint command_count=raster.z&65535,fill_rule=(raster.z>>16)&1,allocation_padding=raster.w>>16;
     // Stroke half-width in 1/256 pixels; zero (all text) leaves coverage unchanged.
     const float stroke_half_width=(raster.z>>17)/256.0f;
-#if defined(GLYPH_TILE_CULLING)
-    const bool stroking=false; // Stroked rasters take the default variant.
-#else
     const bool stroking=stroke_half_width>0.0f;
-#endif
     const float pixels_per_em=values.x;
     const float2 outline_origin=values.yz;
     if (dispatch_id.x >= destination_size.x || dispatch_id.y >= destination_size.y) {
@@ -214,88 +183,66 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
         return;
     }
 
-#if defined(GLYPH_TILE_CULLING)
-    // Sample positions grow monotonically with the pixel, so these bound every
-    // sample of the group; the reach absorbs rounding.
-    const int2 first_pixel = int2(group_id.xy * 8) - int(allocation_padding);
-    tile_low = outline_origin + (float2(first_pixel) + 0.5f) / pixels_per_em;
-    tile_high = outline_origin + (float2(first_pixel + 7) + 0.5f) / pixels_per_em;
-    reach = 1.0f / pixels_per_em;
     sample_position =
         outline_origin + (float2(dispatch_id.xy - allocation_padding) + 0.5f) / pixels_per_em;
     winding = 0;
     // Infinity keeps the reduction valid even when sample coordinates are large.
     minimum_distance_squared = asfloat(0x7f800000u);
     stroke_distance_squared = asfloat(0x7f800000u);
-    trace_commands(GLYPH_JOBS + (raster.w & 65535), command_count);
-#else
-    const float2 sample_position =
-        outline_origin + (float2(dispatch_id.xy - allocation_padding) + 0.5f) / pixels_per_em;
-    float2 current = 0.0f;
-    int winding = 0;
-    // Infinity keeps the reduction valid even when sample coordinates are large.
-    float minimum_distance_squared = asfloat(0x7f800000u);
-    float stroke_distance_squared = asfloat(0x7f800000u);
-    bool contour_filled = false;
+    [branch] if (!stroking && (any(destination_size >= 64u) || command_count >= 32u)) {
+        // Sample positions grow monotonically with the pixel, so these bound every
+        // sample of the group; the reach absorbs rounding.
+        const int2 first_pixel = int2(group_id.xy * 8) - int(allocation_padding);
+        tile_low = outline_origin + (float2(first_pixel) + 0.5f) / pixels_per_em;
+        tile_high = outline_origin + (float2(first_pixel + 7) + 0.5f) / pixels_per_em;
+        reach = 1.0f / pixels_per_em;
+        trace_commands(GLYPH_JOBS + (raster.w & 65535), command_count);
+    } else {
+        float2 current = 0.0f;
+        bool contour_filled = false;
 
-    // Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a
-    // line back to its contour's first point, and end markers draw nothing.
-    [loop]
-    for (uint index = 0; index < command_count; ++index) {
-        const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
-        const uint4 first=raster_data.Load4(at);
-        const uint3 last=raster_data.Load3(at+16);
-        GlyphPathCommand command;
-        command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
-        command.point3=asfloat(last.xy);command.kind=last.z;
-        // Most frequent kind first: AMD runs this chain about 2% faster than
-        // one that tests the contour start first.
-        if (command.kind == 3) {
-            if (contour_filled) {
-                float2 segment_start = current;
-                // Three copies keep loop overhead bounded without twelve copies
-                // of projection, distance and winding arithmetic in the shader.
-                [loop]
-                for (uint first_segment = 0; first_segment < 12; first_segment += 3) {
-                    [unroll]
-                    for (uint local_segment = 0; local_segment < 3; ++local_segment) {
-                        const uint segment = first_segment + local_segment;
+        // Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a
+        // line back to its contour's first point, and end markers draw nothing.
+        [loop]
+        for (uint index = 0; index < command_count; ++index) {
+            const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
+            const uint4 first=raster_data.Load4(at);
+            const uint3 last=raster_data.Load3(at+16);
+            GlyphPathCommand command;
+            command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
+            command.point3=asfloat(last.xy);command.kind=last.z;
+            // Most frequent kind first: AMD runs this chain about 2% faster than
+            // one that tests the contour start first.
+            if (command.kind == 3) {
+                if (contour_filled) {
+                    accumulate_cubic(current, command, true);
+                } else if (stroking) {
+                    float2 segment_start = current;
+                    [loop]
+                    for (uint segment = 0; segment < 12; ++segment) {
                         const float4 weights = cubic_weights[segment];
                         const float2 segment_end = weights.x * current + weights.y * command.point1 +
                                                    weights.z * command.point2 + weights.w * command.point3;
-                        accumulate_line(sample_position, segment_start, segment_end, winding,
-                                        minimum_distance_squared);
+                        accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
                         segment_start = segment_end;
                     }
                 }
-            } else if (stroking) {
-                float2 segment_start = current;
-                [loop]
-                for (uint segment = 0; segment < 12; ++segment) {
-                    const float4 weights = cubic_weights[segment];
-                    const float2 segment_end = weights.x * current + weights.y * command.point1 +
-                                               weights.z * command.point2 + weights.w * command.point3;
-                    accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
-                    segment_start = segment_end;
+                current = command.point3;
+            } else if (command.kind == 2) {
+                // Uniform per command: a filled contour skips the stroke distance
+                // instead of computing it and selecting it away.
+                [branch] if (contour_filled) {
+                    accumulate_segment(current, command.point1, 2u);
+                } else if (stroking) {
+                    accumulate_stroke(sample_position, current, command.point1, stroke_distance_squared);
                 }
+                current = command.point1;
+            } else if (command.kind <= 1) {
+                current = command.point1;
+                contour_filled = command.kind == 0;
             }
-            current = command.point3;
-        } else if (command.kind == 2) {
-            // Uniform per command: a filled contour skips the stroke distance
-            // instead of computing it and selecting it away.
-            [branch] if (contour_filled) {
-                accumulate_line(sample_position, current, command.point1, winding,
-                                minimum_distance_squared);
-            } else if (stroking) {
-                accumulate_stroke(sample_position, current, command.point1, stroke_distance_squared);
-            }
-            current = command.point1;
-        } else if (command.kind <= 1) {
-            current = command.point1;
-            contour_filled = command.kind == 0;
         }
     }
-#endif
 
     const bool inside = fill_rule == 0 ? ((abs(winding) & 1) != 0) : winding != 0;
     // Square root and the positive pixel scale are monotonic, so they apply

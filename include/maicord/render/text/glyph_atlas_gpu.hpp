@@ -17,8 +17,8 @@ struct GlyphAtlasGpu {
     GpuPagedTexture* surface;
     GpuBuffer* command_buffer;
     GpuSrv* command_view;
+    // Picks the tile-culling loop per raster (glyph_atlas.hlsl).
     GpuComputeShader* raster_shader;
-    GpuComputeShader* culled_shader; // Unstroked text; null if its creation failed.
     u64 dispatched_pixels;
     u64 dispatched_commands;
     u32 raster_count;
@@ -28,7 +28,7 @@ struct GlyphAtlasGpu {
     u16 width;
     u16 height;
 };
-static_assert(sizeof(GlyphAtlasGpu)==96);
+static_assert(sizeof(GlyphAtlasGpu)==88);
 
 enum class GlyphAtlasGpuError : u8 {
     none,
@@ -55,11 +55,6 @@ struct GlyphAtlasGpuResult {
 constexpr u32 glyph_raster_batch_limit=16;
 constexpr u32 glyph_raster_header_bytes=glyph_raster_batch_limit*sizeof(GlyphPathCommand);
 static_assert(glyph_raster_header_bytes+128*sizeof(GlyphPathCommand)<=4096);
-// The tile-culling shader skips every command that cannot reach a thread group's
-// tile, which shortens each thread's serial command chain. It pays for rasters at
-// least this wide or tall, and for any raster of at least glyph_raster_culling_commands
-// commands; below both, its per-command test costs more than it skips.
-constexpr u32 glyph_raster_culling_extent=64,glyph_raster_culling_commands=32;
 // Finish before atlas reads; canceled jobs require caller cache invalidation. One dispatch writes one page, so a
 // job on another page dispatches the queued ones first.
 struct GlyphRasterBatch {
@@ -67,10 +62,8 @@ struct GlyphRasterBatch {
     u8* mapped=nullptr;
     GpuUav* target=nullptr; // the queued jobs' page
     u32 jobs[glyph_raster_batch_limit][7];
-    u32 count=0,cursor=0,groups_x=0,groups_y=0,peak_commands=0;
-    // `large`: some job reaches glyph_raster_culling_extent. `stroked`: some job strokes; the
-    // culling shader serves only unstroked text, whose output the reference probe pins exactly.
-    bool failed=false,large=false,stroked=false;
+    u32 count=0,cursor=0,groups_x=0,groups_y=0;
+    bool failed=false;
     GlyphRasterBatch(GlyphAtlasGpu* gpu,GpuContext* value) noexcept:owner(gpu),context(value){}
     GlyphRasterBatch(const GlyphRasterBatch&)=delete;
     GlyphRasterBatch& operator=(const GlyphRasterBatch&)=delete;

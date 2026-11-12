@@ -1,5 +1,5 @@
-// The Direct3D 11 side of the glyph scene (glyph_scene.hpp): the glyph compute shaders (the plain and the
-// tile-culling variant, as GlyphAtlasGpu builds them) rasterize the scene's paths into an R8 atlas, the draw
+// The Direct3D 11 side of the glyph scene (glyph_scene.hpp): the glyph compute shader (its plain and tile-culling
+// loops, as GlyphAtlasGpu builds it) rasterizes the scene's paths into an R8 atlas, the draw
 // pipeline's glyph shaders and states draw the quads sampling it, and both results must match
 // tests/gpu/golden/glyph_atlas.png and glyph_draw.png, which the OpenGL ES test (glyphs.cpp) reproduces on Linux. To
 // renew the goldens after a shader or scene change, run with MAICORD_GPU_GLYPH_CAPTURE=<prefix> set: the atlas is
@@ -64,8 +64,7 @@ bool run() noexcept {
         return fail("no Direct3D 11 device");
 
     GlyphAtlasGpu atlas{};
-    if (!glyph_atlas_gpu_initialize(&atlas, device, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight, 128).ok() ||
-        !atlas.culled_shader)
+    if (!glyph_atlas_gpu_initialize(&atlas, device, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight, 128).ok())
         return fail("glyph atlas creation");
     D3D11DrawPipelineOwner pipeline{};
     const D3D11DrawPipelineConfig config{64, 16, 48, 16, 48, 16};
@@ -74,7 +73,7 @@ bool run() noexcept {
 
     if (!dispatch_batch(device, context, atlas, atlas.raster_shader,
                         {glyph_scene::kPlainJobs, MAICORD_GLYPH_COUNT(glyph_scene::kPlainJobs)}) ||
-        !dispatch_batch(device, context, atlas, atlas.culled_shader,
+        !dispatch_batch(device, context, atlas, atlas.raster_shader,
                         {glyph_scene::kCulledJobs, MAICORD_GLYPH_COUNT(glyph_scene::kCulledJobs)}))
         return fail("the glyph raster dispatches");
     if (!d3d_harness::read_back(device, context, atlas.texture, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight, 1,

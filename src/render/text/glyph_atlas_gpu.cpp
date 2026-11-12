@@ -48,15 +48,11 @@ GpuStatus reserve_commands(GlyphAtlasGpu* gpu,GpuDevice* device,u32 required) no
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 
-// The command buffer and raster shaders, shared by both kinds of atlas.
+// The command buffer and raster shader, shared by both kinds of atlas.
 GlyphAtlasGpuResult create_raster_resources(GlyphAtlasGpu* gpu, GpuDevice* device) noexcept {
     GpuStatus result = reserve_commands(gpu, device, minimum<u32>(128, gpu->command_capacity));
     if (SUCCEEDED(result)) {
         result = gpu_compute_shader_create(device, ShaderId::glyph_compute, &gpu->raster_shader);
-    }
-    if (SUCCEEDED(result)) {
-        // Unstroked text runs this variant; a creation failure keeps the plain shader.
-        gpu_compute_shader_create(device, ShaderId::glyph_culled_compute, &gpu->culled_shader);
     }
     if (FAILED(result)) {
         glyph_atlas_gpu_release(gpu);
@@ -192,23 +188,18 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         bounds.top/pixels_per_em};
     copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=outline.count;
     groups_x=maximum(groups_x,(width+7)/8);groups_y=maximum(groups_y,(height+7)/8);
-    large=large||width>=glyph_raster_culling_extent||height>=glyph_raster_culling_extent;
-    peak_commands=maximum(peak_commands,outline.count);
-    stroked=stroked||stroke_half_width>0.0f;
     return gpu_error(GlyphAtlasGpuError::none);
 }
 void GlyphRasterBatch::cancel() noexcept {
     if(mapped)gpu_unmap(context,owner->command_buffer);
-    mapped=nullptr;count=cursor=groups_x=groups_y=peak_commands=0;large=stroked=false;
+    mapped=nullptr;count=cursor=groups_x=groups_y=0;
 }
 bool GlyphRasterBatch::finish() noexcept {
     if(failed){cancel();return false;}
     if(!count)return true;
     auto* gpu=owner;copy_bytes(mapped,jobs,count*sizeof(GlyphRasterJob));
     gpu_unmap(context,gpu->command_buffer);mapped=nullptr;
-    GpuComputeShader* shader=gpu->raster_shader;
-    if(!stroked&&gpu->culled_shader&&(large||peak_commands>=glyph_raster_culling_commands))shader=gpu->culled_shader;
-    gpu_set_shader(context,shader);
+    gpu_set_shader(context,gpu->raster_shader);
     gpu_set_srvs(context,GpuStage::compute,0,1,&gpu->command_view);
     gpu_set_uavs(context,0,1,&target);
     gpu_dispatch(context,groups_x,groups_y,count);
@@ -218,7 +209,7 @@ bool GlyphRasterBatch::finish() noexcept {
     gpu_set_shader(context,static_cast<GpuComputeShader*>(nullptr));
     ++gpu->dispatch_count;gpu->raster_count+=count;gpu->dispatched_commands+=cursor;
     for(u32 i=0;i<count;++i)gpu->dispatched_pixels+=static_cast<u64>(jobs[i][1]&65535)*(jobs[i][1]>>16);
-    count=cursor=groups_x=groups_y=peak_commands=0;large=stroked=false;return true;
+    count=cursor=groups_x=groups_y=0;return true;
 }
 
 // Release at exit: compiled for size.
@@ -229,7 +220,6 @@ void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
         return;
     }
     gpu_release(gpu->raster_shader);
-    gpu_release(gpu->culled_shader);
     gpu_release(gpu->command_view);
     gpu_release(gpu->command_buffer);
     gpu_release(gpu->texture_uav);

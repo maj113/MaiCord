@@ -26,7 +26,7 @@ the twin. To change a shader:
 ## What a file is
 
 One file serves every pack entry its HLSL file has. The builder defines `STAGE_VS`, `STAGE_PS` or `STAGE_CS`,
-`ENTRY_<hlsl entry>`, the defines of the `maicord_shader(...)` call (`GLYPH_TILE_CULLING`, `COLR_LAYERS`, `FX_VERTEX`, ...)
+`ENTRY_<hlsl entry>`, the defines of the `maicord_shader(...)` call (`COLR_LAYERS`, `FX_VERTEX`, ...)
 and the backend variants (`GLES_VARIANTS` in the builder: `COLR_SLICES=2`), evaluates `#if`, `#ifdef`, `#elif`, `#else`,
 `#define NAME [value]` and `#undef` itself, and expands the macros: the text the driver gets has no conditionals. Nothing else
 may be a directive except `#extension` (hoisted below `#version 310 es`). Fragment shaders get

@@ -66,7 +66,7 @@ void run() noexcept {
           "fx target vertex");
     gpu_release(target_vertex);
 
-    const ShaderId compute[] = {ShaderId::glyph_compute, ShaderId::glyph_culled_compute, ShaderId::colr_compute,
+    const ShaderId compute[] = {ShaderId::glyph_compute, ShaderId::colr_compute,
                                 ShaderId::colr_wide_compute, ShaderId::colr_layers_compute, ShaderId::png_compute,
                                 ShaderId::vp8_reconstruct, ShaderId::vp8_idct, ShaderId::vp8_filter,
                                 ShaderId::vp8_atlas, ShaderId::jpeg_idct, ShaderId::jpeg_idct_rows, ShaderId::jpeg_atlas,

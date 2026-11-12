@@ -1,5 +1,5 @@
-// Runs the glyph scene (glyph_scene.hpp) through the GPU API: the glyph compute shaders (plain and tile-culling
-// variants) rasterize the scene's paths into an R8 atlas (an RGBA8 storage image on OpenGL ES, whose red channel is the
+// Runs the glyph scene (glyph_scene.hpp) through the GPU API: the glyph compute shader (its plain and tile-culling
+// loops) rasterizes the scene's paths into an R8 atlas (an RGBA8 storage image on OpenGL ES, whose red channel is the
 // coverage), and the glyph vertex and pixel shaders draw quads sampling it, with the text-effect materials. Both
 // results are compared with tests/gpu/golden/glyph_atlas.png and glyph_draw.png, which the Direct3D 11 side
 // (glyphs_windows.cpp) captured on Windows. MAICORD_GPU_GLYPH_DUMP=<prefix> also writes <prefix>.atlas and
@@ -107,10 +107,8 @@ void run() noexcept {
     GpuUav* atlas_uav = scene_page.uav;
     GpuSrv* atlas_view = paged ? gpu_paged_texture_view(paged) : nullptr;
     check(atlas && atlas_uav && atlas_view && copy_page.texture, "the atlas pages");
-    GpuComputeShader* plain = nullptr;
-    GpuComputeShader* culled = nullptr;
-    check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &plain)), "glyph_compute");
-    check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_culled_compute, &culled)), "glyph_culled_compute");
+    GpuComputeShader* coverage = nullptr;
+    check(gpu_ok(gpu_compute_shader_create(device, ShaderId::glyph_compute, &coverage)), "glyph_compute");
 
     GpuTexture* target = nullptr;
     GpuRtv* view = nullptr;
@@ -167,10 +165,10 @@ void run() noexcept {
     check(gpu_ok(gpu_raster_create(device, &raster)), "rasterizer");
 
     if (g_failures == 0) {
-        check(dispatch_batch(device, context, atlas_uav, plain,
+        check(dispatch_batch(device, context, atlas_uav, coverage,
                              {glyph_scene::kPlainJobs, MAICORD_GLYPH_COUNT(glyph_scene::kPlainJobs)}),
               "the plain glyph dispatch");
-        check(dispatch_batch(device, context, atlas_uav, culled,
+        check(dispatch_batch(device, context, atlas_uav, coverage,
                              {glyph_scene::kCulledJobs, MAICORD_GLYPH_COUNT(glyph_scene::kCulledJobs)}),
               "the tile-culling glyph dispatch");
         check(gpu_ok(gpu_readback(device, context, atlas, {0, 0, glyph_scene::kAtlasWidth, glyph_scene::kAtlasHeight},
@@ -265,8 +263,7 @@ void run() noexcept {
     gpu_release(blank);
     gpu_release(view);
     gpu_release(target);
-    gpu_release(culled);
-    gpu_release(plain);
+    gpu_release(coverage);
     gpu_paged_texture_release(&paged);
     gpu_device_destroy(&device, &context);
 }

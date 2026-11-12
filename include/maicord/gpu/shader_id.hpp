@@ -9,7 +9,6 @@ namespace maicord {
 // GLSL pack of tools/build_gles_shader_pack.py, checked in src/gpu/gles/shader_pack.cpp).
 enum class ShaderId : u8 {
     ui_vertex, ui_pixel, glyph_vertex, glyph_pixel, media_vertex, media_pixel, glyph_compute,
-    glyph_culled_compute,
     colr_compute, colr_wide_compute, colr_layers_compute, png_compute,
     vp8_reconstruct, vp8_idct, vp8_filter, vp8_atlas, jpeg_idct, jpeg_idct_rows, jpeg_atlas,
     video_frame,

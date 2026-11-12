@@ -705,7 +705,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126120);
+static_assert(sizeof(D3D11Renderer) == 126104);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
