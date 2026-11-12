@@ -116,8 +116,7 @@ void test_json_scan() noexcept {
     expect(bad_output.error == JsonScanError::invalid_input, "json_scan_invalid_output");
 
     const JsonScanResult overflow = json_scan_structurals_avx1(utf8_literal("{}"), Slice<u32>{offsets, 1});
-    expect(overflow.error == JsonScanError::output_overflow && overflow.count == 1 &&
-               overflow.error_offset == 1,
+    expect(overflow.error == JsonScanError::output_overflow && overflow.error_offset == 1 && offsets[0] == 0,
            "json_scan_output_bound");
 
     const char control_text[] = {'[', '"', 'a', 0x1F, '"', ']'};
@@ -132,24 +131,27 @@ void test_json_scan() noexcept {
            "json_scan_unterminated_string");
 
     // Random quote/backslash/punctuation/control mixes across chunk boundaries
-    // against the byte-serial reference: offsets, counts, errors, error offsets
-    // and short outputs must all match.
-    const auto reference = [](const char* text, u32 bytes, u32* output, u32 capacity) noexcept {
-        u32 count = 0, backslashes = 0;
+    // against the byte-serial reference: counts, errors and error offsets match,
+    // and so do the offsets stored before an error.
+    u32 stored = 0;
+    const auto reference = [&stored](const char* text, u32 bytes, u32* output, u32 capacity) noexcept {
+        u32& count = stored;
+        count = 0;
+        u32 backslashes = 0;
         bool inside = false;
         for (u32 offset = 0; offset < bytes; ++offset) {
             const u8 value = static_cast<u8>(text[offset]);
             const bool quote = value == '"' && (backslashes & 1u) == 0;
             if (quote || (!inside && json_is_structural(static_cast<char>(value)))) {
-                if (count == capacity) return JsonScanResult{count, offset, JsonScanError::output_overflow};
+                if (count == capacity) return JsonScanResult{offset, JsonScanError::output_overflow};
                 output[count++] = offset;
                 inside = quote ? !inside : inside;
             } else if (inside && value < 0x20) {
-                return JsonScanResult{count, offset, JsonScanError::control_in_string};
+                return JsonScanResult{offset, JsonScanError::control_in_string};
             }
             backslashes = value == '\\' ? backslashes + 1 : 0;
         }
-        return JsonScanResult{count, bytes, inside ? JsonScanError::unterminated_string : JsonScanError::none};
+        return inside ? JsonScanResult{bytes, JsonScanError::unterminated_string} : JsonScanResult{count, JsonScanError::none};
     };
     constexpr char alphabet[] = {'"', '\\', '\\', '{', '}', '[', ']', ':', ',', 'a', ' ', '\x01', '\xC3', '"'};
     char text[320];
@@ -168,8 +170,8 @@ void test_json_scan() noexcept {
         const u32 capacity = round % 3 == 0 ? static_cast<u32>(seed >> 20) % 48 : 200u;
         const JsonScanResult want = reference(text, bytes, expected, capacity);
         const JsonScanResult got = json_scan_structurals_avx1(Utf8View{text, bytes}, Slice<u32>{actual, capacity});
-        differential = want.count == got.count && want.error == got.error && want.error_offset == got.error_offset;
-        for (u32 index = 0; index < want.count && differential; ++index) differential = expected[index] == actual[index];
+        differential = want.count == got.count && want.error == got.error;
+        for (u32 index = 0; index < stored && differential; ++index) differential = expected[index] == actual[index];
     }
     expect(differential, "json_scan_differential");
 }

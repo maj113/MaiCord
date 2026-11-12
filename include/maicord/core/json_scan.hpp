@@ -13,9 +13,18 @@ enum class JsonScanError : u8 {
 };
 
 struct JsonScanResult {
-    u32 count;
-    u32 error_offset;
+    // The structurals emitted once ok(), else the byte offset of the error.
+    union {
+        u32 count;
+        u32 error_offset;
+    };
+    // Windows returns this 8-byte result in RAX; System V returns the 16-byte one in RAX and RDX, so reading the error
+    // needs no shift there.
+#if defined(_WIN32)
     JsonScanError error;
+#else
+    alignas(8) JsonScanError error;
+#endif
 
     constexpr bool ok() const noexcept {
         return error == JsonScanError::none;

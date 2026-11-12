@@ -73,24 +73,24 @@ JsonScanResult scan_scalar(Utf8View input, Slice<u32> output) noexcept {
         const bool quote = value == '"' && (preceding_backslashes & 1u) == 0;
         if (quote) {
             if (output_count >= output.count) {
-                return JsonScanResult{output_count, offset, JsonScanError::output_overflow};
+                return JsonScanResult{offset, JsonScanError::output_overflow};
             }
             output[output_count++] = offset;
             inside_string = !inside_string;
         } else if (inside_string && value < 0x20) {
-            return JsonScanResult{output_count, offset, JsonScanError::control_in_string};
+            return JsonScanResult{offset, JsonScanError::control_in_string};
         } else if (!inside_string &&
                    (value == '{' || value == '}' || value == '[' || value == ']' || value == ':' ||
                     value == ',')) {
             if (output_count >= output.count) {
-                return JsonScanResult{output_count, offset, JsonScanError::output_overflow};
+                return JsonScanResult{offset, JsonScanError::output_overflow};
             }
             output[output_count++] = offset;
         }
         preceding_backslashes = value == '\\' ? preceding_backslashes + 1 : 0;
     }
-    return inside_string ? JsonScanResult{output_count, input.bytes, JsonScanError::unterminated_string}
-                         : JsonScanResult{output_count, input.bytes, JsonScanError::none};
+    return inside_string ? JsonScanResult{input.bytes, JsonScanError::unterminated_string}
+                         : JsonScanResult{output_count, JsonScanError::none};
 }
 
 struct ScanState {
@@ -199,8 +199,8 @@ bool serve_from_source(const Utf8View& input, const Slice<u32>& output, JsonScan
     const u32 stored = count < output.count ? count : output.count;
     for (u32 i = 0; i < stored; ++i)
         output.data[i] = g_source.index[first + i] - begin;
-    *result = stored < count ? JsonScanResult{stored, g_source.index[first + stored] - begin, JsonScanError::output_overflow}
-                             : JsonScanResult{count, input.bytes, JsonScanError::none};
+    *result = stored < count ? JsonScanResult{g_source.index[first + stored] - begin, JsonScanError::output_overflow}
+                             : JsonScanResult{count, JsonScanError::none};
     return true;
 }
 
@@ -232,7 +232,7 @@ JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slic
     const Utf8View input = input_view;
     const Slice<u32> output = output_view;
     if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
-        return JsonScanResult{0, 0, JsonScanError::invalid_input};
+        return JsonScanResult{0, JsonScanError::invalid_input};
     }
     JsonScanResult served;
     if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread_id() &&
@@ -257,13 +257,13 @@ JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slic
         const ChunkResult result = scan_chunk(chunk, valid, offset, &state, output, &error_offset);
         if (result == ChunkResult::control) return scan_scalar(input, output);
         if (result == ChunkResult::overflow)
-            return JsonScanResult{state.count, error_offset, JsonScanError::output_overflow};
+            return JsonScanResult{error_offset, JsonScanError::output_overflow};
     }
 
     if (state.inside) {
         return scan_scalar(input, output);
     }
-    return JsonScanResult{state.count, input.bytes, JsonScanError::none};
+    return JsonScanResult{state.count, JsonScanError::none};
 }
 
 } // namespace maicord

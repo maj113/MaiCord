@@ -567,9 +567,11 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
     const auto& s=owner.paragraph_storage;const auto& paragraph=owner.paragraph_shape;auto runs=owner.paragraph_runs;
     const Utf8View text{owner.last_text.data,owner.last_text.count};
     const auto mark=arena_mark(&owner.scratch);struct Rewind {Arena& arena;ArenaMark mark;~Rewind() noexcept {arena_rewind(&arena,mark);}} rewind{owner.scratch,mark};
+    // The lookups below (cluster_at, byte_at, plain, font_of, segment_of) stay calls: inlined at each of their sites they
+    // cost 4 KB, and the scan reaches them only past its own fast paths.
     // The cluster holding a source unit: the unit's own index where every earlier cluster is one unit (ASCII and other
     // simple text), else a binary search over the source-ordered clusters.
-    const auto cluster_at=[&](u32 unit) noexcept {
+    const auto cluster_at=[&](u32 unit) __attribute__((noinline)) noexcept {
         if(unit<paragraph.cluster_count&&s.clusters[unit].source_first==unit)return unit;
         u32 lo=0,hi=paragraph.cluster_count;
         while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(s.clusters[mid].source_end<=unit)lo=mid+1;else hi=mid;}return lo;};
@@ -577,7 +579,7 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
     // The byte of a source unit: itself in ASCII text, else walking from the previous answer (windows lie within a few
     // clusters of their cut).
     const bool ascii=text.bytes==paragraph.source_units;
-    const auto byte_at=[&](u32 target) noexcept {if(ascii)return target;
+    const auto byte_at=[&](u32 target) __attribute__((noinline)) noexcept {if(ascii)return target;
         while(unit>target&&byte){u32 lead=byte-1;while(lead&&(static_cast<u8>(text.data[lead])&0xc0u)==0x80u)--lead;unit-=byte-lead==4?2u:1u;byte=lead;}
         while(unit<target&&byte<text.bytes){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);unit+=cp.codepoint>65535?2u:1u;byte+=cp.valid?cp.width:1u;}return byte;};
     // A plain cluster is one glyph for one UTF-16 unit at its nominal advance without offsets; a strict one is also the
@@ -587,7 +589,7 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
     // font's advance reads HVAR. Offsets and advances compare as bits (an offset is zero when its magnitude bits are).
     u32 memo_glyph[32],memo_bits[32];
     const auto bits=[](float value) noexcept {u32 out;__builtin_memcpy(&out,&value,4);return out;};
-    const auto plain=[&](u32 c,const CutFont& f,bool strict) noexcept {
+    const auto plain=[&](u32 c,const CutFont& f,bool strict) __attribute__((noinline)) noexcept {
         const auto& cluster=s.clusters[c];if(cluster.glyph_count!=1||cluster.source_end!=cluster.source_first+1)return false;
         const auto& p=output.glyphs[cluster.glyph_first];if((bits(p.advance_offset)|bits(p.ascender_offset))&0x7fffffffu)return false;
         const u32 glyph=p.index,prefix=glyph-f.nominal.ascii_first;
@@ -608,9 +610,9 @@ void reshape_emergency_cuts(NativeTextContext& owner,u32 run_count,ShapedText& o
     // The segment and font of the last cut: consecutive cuts usually share them. A segment whose font cannot be read
     // does not reshape.
     u32 cached_key=absent,segment_key=absent,segment_first=0,segment_end=0;CutFont cached{};
-    const auto font_of=[&](u32 key) noexcept -> const CutFont& {
+    const auto font_of=[&](u32 key) __attribute__((noinline)) noexcept -> const CutFont& {
         if(key!=cached_key){cached=source.font(source.context,key);cached_key=key;for(auto& glyph:memo_glyph)glyph=absent;}return cached;};
-    const auto segment_of=[&](u32 at,u32* first,u32* end) noexcept {
+    const auto segment_of=[&](u32 at,u32* first,u32* end) __attribute__((noinline)) noexcept {
         if(segment_key==absent||at<segment_first||at>=segment_end){segment_key=source.segment(source.context,at,&segment_first,&segment_end);
             if(segment_key!=absent){const auto& f=font_of(segment_key);if(!f.plan||!f.cmap)segment_key=absent;}}
         *first=segment_first;*end=segment_end;return segment_key;};

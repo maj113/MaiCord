@@ -12,12 +12,22 @@ struct TextBank {
     char* data;
     u32 capacity, used;
 
+#if defined(_WIN32)
+    // Windows passes a view by address, so a call site that builds one stores it first: inlined, add hands append the
+    // pointer and length in registers instead.
+    __forceinline Utf8View add(const Utf8View& text) noexcept {
+        const u32 start = used;
+        append(text.data, text.bytes);
+        return {data + start, used - start};
+    }
+#else
     __declspec(noinline) Utf8View add(const Utf8View& text) noexcept {
         const u32 take = minimum(text.bytes, capacity - used);
         copy_bytes(data + used, text.data, take);
         used += take;
         return {data + used - take, take};
     }
+#endif
     __declspec(noinline) void append(const char* source, u32 bytes) noexcept {
         const u32 take = minimum(bytes, capacity - used);
         copy_bytes(data + used, source, take);
