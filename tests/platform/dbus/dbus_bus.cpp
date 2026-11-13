@@ -31,7 +31,6 @@ bool text_equal(const char* a, const char* b) noexcept {
     return *a == *b;
 }
 
-constexpr long kCallPipe2 = 293;
 constexpr long kCallSocket = 41;
 constexpr long kCallBind = 49;
 constexpr long kCallListen = 50;
@@ -100,8 +99,6 @@ void test_connect(Connection* c) noexcept {
     check(c && connection_alive(c), "the bus connection opens");
     check(text_equal(connection_unique_name(c), connection_unique_name(c)) && connection_unique_name(c)[0] == ':',
           "Hello gave a unique name");
-    check(connection_unix_fds(c), "the bus agreed to pass descriptors");
-    check(connection_fd(c) > 2, "the socket descriptor");
 
     Connection* second = connection_open_address(g_address);
     check(second && !text_equal(connection_unique_name(second), connection_unique_name(c)), "a second connection has its own name");
@@ -283,18 +280,15 @@ void test_typed_bodies(Connection* c) noexcept {
         builder_byte(&b, 200);
         builder_bool(&b, true);
         builder_i16(&b, -5);
-        builder_u16(&b, 5);
         builder_i32(&b, -7);
         builder_u32(&b, 9);
         builder_i64(&b, -9);
-        builder_u64(&b, 10);
         builder_double(&b, 1.5);
         builder_string(&b, "h\xC3\xA9llo");
         builder_object_path(&b, "/a/b");
         builder_signature(&b, "a{sv}");
-        described_as(c, b,
-                     "ybnqiuxtdsog y:200 b:1 n:-5 q:5 i:-7 u:9 x:-9 t:10 d:1.5 s:h\xC3\xA9llo o:/a/b g:a{sv}",
-                     "every basic type is decoded by libdbus");
+        described_as(c, b, "ybniuxdsog y:200 b:1 n:-5 i:-7 u:9 x:-9 d:1.5 s:h\xC3\xA9llo o:/a/b g:a{sv}",
+                     "every basic type the client writes is decoded by libdbus");
         builder_release(&b);
     }
     {
@@ -345,12 +339,12 @@ void test_typed_bodies(Connection* c) noexcept {
         builder_string(&b, "text/plain");
         builder_close_struct(&b);
         builder_close_array(&b);
-        builder_open_array(&b, "t");
-        builder_u64(&b, 1ull << 40);
+        builder_open_array(&b, "x");
+        builder_i64(&b, 1ll << 40);
         builder_close_array(&b);
         builder_open_array(&b, "ai");
         builder_close_array(&b);
-        described_as(c, b, "a(oayays)ataai [(o:/s/1,ay:0102ff,ay:,s:text/plain)] [t:1099511627776] []",
+        described_as(c, b, "a(oayays)axaai [(o:/s/1,ay:0102ff,ay:,s:text/plain)] [x:1099511627776] []",
                      "arrays of structs, byte arrays, 8-aligned and empty arrays");
         builder_release(&b);
     }
@@ -416,47 +410,16 @@ void test_typed_bodies(Connection* c) noexcept {
 
 // Descriptors ----------------------------------------------------------------------------------------------------------
 
-bool make_pipe(int* read_end, int* write_end, const char* text) noexcept {
-    int fds[2];
-    if (syscall_failed(syscall2(kCallPipe2, reinterpret_cast<long>(fds), 0x80000)))
-        return false;
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    sys_write(fds[1], text, length);
-    *read_end = fds[0];
-    *write_end = fds[1];
-    return true;
-}
-
+// A descriptor received (the portal's PipeWire remote is the client's one use): libdbus's service makes a pipe and
+// sends its read end.
 void test_descriptors(Connection* c) noexcept {
-    int read_end = -1;
-    int write_end = -1;
-    check(make_pipe(&read_end, &write_end, "fd-payload"), "a pipe");
-    sys_close(write_end);
     Builder b;
-    builder_init(&b);
-    builder_unix_fd(&b, read_end);
     Message reply;
-    Status status = connection_call_sync(c, test_target("ReadFd"), &b, 3000, &reply);
-    bool ok = false;
-    if (status == Status::ok) {
-        Reader r;
-        message_reader(reply, &r);
-        const char* text = nullptr;
-        ok = reader_string(&r, &text, nullptr) && text_equal(text, "fd-payload");
-        message_release(&reply);
-    }
-    check(ok, "a descriptor sent to libdbus's service arrives and reads");
-    builder_release(&b);
-    sys_close(read_end);
-
-    // A descriptor received.
     builder_init(&b);
     builder_string(&b, "from-the-mock");
-    status = connection_call_sync(c, test_target("MakeFd"), &b, 3000, &reply);
+    const Status status = connection_call_sync(c, test_target("MakeFd"), &b, 3000, &reply);
     builder_release(&b);
-    ok = false;
+    bool ok = false;
     if (status == Status::ok) {
         Reader r;
         message_reader(reply, &r);
@@ -468,30 +431,6 @@ void test_descriptors(Connection* c) noexcept {
         message_release(&reply);
     }
     check(ok, "a descriptor received from libdbus's service reads");
-
-    // Several descriptors in one message, decoded by libdbus.
-    int a_read, a_write, b_read, b_write;
-    make_pipe(&a_read, &a_write, "a");
-    make_pipe(&b_read, &b_write, "b");
-    builder_init(&b);
-    builder_unix_fd(&b, a_read);
-    builder_open_array(&b, "h");
-    builder_unix_fd(&b, b_read);
-    builder_unix_fd(&b, a_read);
-    builder_close_array(&b);
-    described_as(c, b, "hah h [h,h]", "several descriptors in one message, one array of them");
-    builder_release(&b);
-    sys_close(a_read);
-    sys_close(a_write);
-    sys_close(b_read);
-    sys_close(b_write);
-
-    // A builder holding a descriptor refuses when the bus did not agree: simulated by an exceeded count.
-    builder_init(&b);
-    for (u32 i = 0; i < kMaxFds + 1; ++i)
-        builder_unix_fd(&b, 0);
-    check(b.failed, "more descriptors than a message may carry fail the builder");
-    builder_release(&b);
 }
 
 // Signals --------------------------------------------------------------------------------------------------------------
@@ -602,26 +541,6 @@ bool server_method(void* context, Connection* c, const Message& call) noexcept {
         copy_bytes(text + sizeof(hello) - 1, name, length + 1);
         builder_string(&reply, text);
         connection_reply(c, call, &reply);
-    } else if (text_equal(call.member, "EchoFd")) {
-        int fd = -1;
-        char text[64] = {};
-        if (reader_unix_fd(&r, &fd)) {
-            const long got = sys_read(fd, text, sizeof(text) - 1);
-            if (got < 0)
-                text[0] = 0;
-        }
-        builder_string(&reply, text);
-        connection_reply(c, call, &reply);
-    } else if (text_equal(call.member, "GiveFd")) {
-        int read_end, write_end;
-        if (make_pipe(&read_end, &write_end, "from-server")) {
-            builder_unix_fd(&reply, read_end);
-            connection_reply(c, call, &reply);
-            sys_close(read_end);
-            sys_close(write_end);
-        } else {
-            connection_reply_error(c, call, "org.maicord.Server.Error", "no pipe");
-        }
     } else if (text_equal(call.member, "Signal")) {
         builder_string(&reply, "from-the-server");
         connection_emit(c, "/org/maicord/Server", "org.maicord.Server", "Note", &reply);
@@ -638,9 +557,8 @@ bool server_method(void* context, Connection* c, const Message& call) noexcept {
 u32 server_thread(void* argument) noexcept {
     Server* server = static_cast<Server*>(argument);
     while (!__atomic_load_n(&server->stop, __ATOMIC_ACQUIRE)) {
-        PollFd poll{connection_fd(server->connection), kPollIn, 0};
-        TimeSpec timeout{0, 20 * 1000000};
-        sys_ppoll(&poll, 1, &timeout);
+        Waitable waitable = connection_waitable(server->connection);
+        wait_many(&waitable, 1, 20, 0);
         connection_process(server->connection, clock_monotonic_milliseconds());
     }
     return 0;
@@ -700,38 +618,6 @@ void test_exported_object(Connection* c) noexcept {
     check(connection_call_sync(c, ping, nullptr, 3000, &reply) == Status::ok, "Peer.Ping is answered");
     message_release(&reply);
 
-    // Descriptors both ways between two of our own connections.
-    int read_end, write_end;
-    make_pipe(&read_end, &write_end, "to-the-server");
-    sys_close(write_end);
-    const CallTarget echo_fd{"org.maicord.Server", "/org/maicord/Server", "org.maicord.Server", "EchoFd"};
-    builder_init(&b);
-    builder_unix_fd(&b, read_end);
-    status = connection_call_sync(c, echo_fd, &b, 3000, &reply);
-    builder_release(&b);
-    sys_close(read_end);
-    ok = false;
-    if (status == Status::ok) {
-        Reader r;
-        message_reader(reply, &r);
-        const char* text = nullptr;
-        ok = reader_string(&r, &text, nullptr) && text_equal(text, "to-the-server");
-        message_release(&reply);
-    }
-    check(ok, "a descriptor sent to our own server");
-    const CallTarget give_fd{"org.maicord.Server", "/org/maicord/Server", "org.maicord.Server", "GiveFd"};
-    status = connection_call_sync(c, give_fd, nullptr, 3000, &reply);
-    ok = false;
-    if (status == Status::ok) {
-        Reader r;
-        message_reader(reply, &r);
-        int fd = -1;
-        char text[32] = {};
-        ok = reader_unix_fd(&r, &fd) && sys_read(fd, text, sizeof(text) - 1) == 11 && text_equal(text, "from-server");
-        message_release(&reply);
-    }
-    check(ok, "a descriptor received from our own server");
-
     // Signals emitted by the server (a broadcast without destination).
     static NoteCounter notes;
     notes.notes = 0;
@@ -748,7 +634,7 @@ void test_exported_object(Connection* c) noexcept {
     __atomic_store_n(&server.stop, 1u, __ATOMIC_RELEASE);
     check(thread && thread_wait(thread, 3000), "the server thread ends");
     thread_close(thread);
-    check(server.calls >= 6, "the server saw the calls");
+    check(server.calls >= 4, "the server saw the calls");
     connection_close(server.connection);
 }
 

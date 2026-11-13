@@ -275,8 +275,8 @@ void test_clipboard_image(void (*check)(bool, const char*) noexcept) noexcept {
     check(!clipboard_image_encode_png(rgba, width, height, width * 4, {png, 16}) && !clipboard_image_png_bytes(0, 1),
           "clipboard image: capacity limits are handled explicitly");
 }
-// Captures clipboard transactions in memory. Tests install it so the user's
-// real clipboard is never opened, emptied or replaced.
+// Captures clipboard transactions in memory: the suite links clipboard_system_* below in place of
+// src/platform/window/win32/clipboard_system.cpp, so the user's real clipboard is never opened, emptied or replaced.
 struct CapturedClipboard {
     u32 opens, closes, publishes, refuse_at;
     UINT formats[4];
@@ -284,34 +284,6 @@ struct CapturedClipboard {
     u32 sizes[4];
 };
 CapturedClipboard g_captured{};
-bool capture_open(void* context) noexcept {
-    auto& captured = *static_cast<CapturedClipboard*>(context);
-    ++captured.opens;
-    captured.publishes = 0;
-    return true;
-}
-bool capture_publish(void* context, UINT format, HGLOBAL data) noexcept {
-    auto& captured = *static_cast<CapturedClipboard*>(context);
-    if (captured.publishes >= 4 || captured.publishes + 1 == captured.refuse_at)
-        return false;
-    const SIZE_T bytes = GlobalSize(data);
-    const void* source = GlobalLock(data);
-    if (!source || bytes > sizeof(captured.bytes[0])) {
-        if (source)
-            GlobalUnlock(data);
-        return false;
-    }
-    const u32 slot = captured.publishes++;
-    captured.formats[slot] = format;
-    captured.sizes[slot] = static_cast<u32>(bytes);
-    copy_bytes(captured.bytes[slot], source, static_cast<u32>(bytes));
-    GlobalUnlock(data);
-    GlobalFree(data); // the sink owns accepted handles
-    return true;
-}
-void capture_close(void* context) noexcept {
-    ++static_cast<CapturedClipboard*>(context)->closes;
-}
 u32 decimal_at(const char* text, u32 at) noexcept {
     u32 value = 0;
     for (u32 index = 0; index < 10; ++index)
@@ -320,8 +292,6 @@ u32 decimal_at(const char* text, u32 at) noexcept {
 }
 void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept {
     g_captured = {};
-    const ClipboardSink previous =
-        clipboard_sink_install({&g_captured, capture_open, capture_publish, capture_close});
     constexpr u32 width = 3, height = 2;
     const u8 rgba[width * height * 4]{255, 0,  0,  255, 0,   255, 0,   128, 0, 0, 255, 0,
                                       10,  20, 30, 40,  200, 150, 100, 255, 1, 2, 3,   4};
@@ -369,7 +339,6 @@ void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept 
     g_captured.refuse_at = 0;
     check(!clipboard_write_image(rgba, 0, height, 0, url) && g_captured.opens == 3,
           "clipboard publish: invalid images never open the clipboard");
-    clipboard_sink_install(previous);
 }
 void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {
     UiZoomLens lens{};
@@ -623,6 +592,33 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     paint_stream_release(&paint);
 }
 } // namespace
+bool clipboard_system_open() noexcept {
+    ++g_captured.opens;
+    g_captured.publishes = 0;
+    return true;
+}
+bool clipboard_system_publish(UINT format, HGLOBAL data) noexcept {
+    auto& captured = g_captured;
+    if (captured.publishes >= 4 || captured.publishes + 1 == captured.refuse_at)
+        return false;
+    const SIZE_T bytes = GlobalSize(data);
+    const void* source = GlobalLock(data);
+    if (!source || bytes > sizeof(captured.bytes[0])) {
+        if (source)
+            GlobalUnlock(data);
+        return false;
+    }
+    const u32 slot = captured.publishes++;
+    captured.formats[slot] = format;
+    captured.sizes[slot] = static_cast<u32>(bytes);
+    copy_bytes(captured.bytes[slot], source, static_cast<u32>(bytes));
+    GlobalUnlock(data);
+    GlobalFree(data); // the clipboard owns accepted handles
+    return true;
+}
+void clipboard_system_close() noexcept {
+    ++g_captured.closes;
+}
 void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
     test_zoom_lens(check);
     test_image_viewer_page(check);

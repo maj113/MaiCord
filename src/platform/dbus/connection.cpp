@@ -85,7 +85,6 @@ struct Route {
 struct Connection {
     int fd;
     bool alive;
-    bool fds_ok;
     char unique_name[64];
     u32 next_serial;
     Waitable waitable;
@@ -125,23 +124,12 @@ bool poll_until(int fd, i16 events, u64 deadline) noexcept {
 
 namespace {
 
-// One sendmsg of `bytes` carrying `fd_count` descriptors with the first byte; the bytes sent, or a negated errno.
-long send_some(int fd, const u8* bytes, u32 count, const int* fds, u32 fd_count) noexcept {
+// One sendmsg of `count` bytes; the bytes sent, or a negated errno.
+long send_some(int fd, const u8* bytes, u32 count) noexcept {
     IoVec vector{const_cast<u8*>(bytes), count};
-    alignas(8) u8 control[kControlBytes];
     MsgHdr header{};
     header.iov = &vector;
     header.iov_length = 1;
-    if (fd_count) {
-        clear_bytes(control, sizeof(control));
-        CmsgHdr* cmsg = reinterpret_cast<CmsgHdr*>(control);
-        cmsg->length = sizeof(CmsgHdr) + fd_count * 4;
-        cmsg->level = kSolSocket;
-        cmsg->type = kScmRights;
-        copy_bytes(control + sizeof(CmsgHdr), fds, fd_count * 4);
-        header.control = control;
-        header.control_length = sizeof(CmsgHdr) + ((fd_count * 4 + 7) & ~7u);
-    }
     return syscall3(kCallSendmsg, fd, reinterpret_cast<long>(&header), kMessageNoSignal | kMsgDontwait);
 }
 
@@ -150,7 +138,7 @@ long send_some(int fd, const u8* bytes, u32 count, const int* fds, u32 fd_count)
 bool send_all_blocking(int fd, const u8* bytes, u32 count, u64 deadline) noexcept {
     u32 done = 0;
     while (done != count) {
-        const long sent = send_some(fd, bytes + done, count - done, nullptr, 0);
+        const long sent = send_some(fd, bytes + done, count - done);
         if (sent == -kErrorInterrupted)
             continue;
         if (sent == -kErrorAgain) {
@@ -211,7 +199,7 @@ bool starts_with(const char* text, const char* prefix) noexcept {
 }
 
 // The authentication exchange of the specification, with EXTERNAL (the uid as hex of its decimal digits).
-bool authenticate(int fd, bool* fds_ok) noexcept {
+bool authenticate(int fd) noexcept {
     const u64 deadline = clock_monotonic_milliseconds() + kHandshakeTimeoutMs;
     char decimal[10];
     const u32 digits = decimal_write(decimal, static_cast<u32>(sys_geteuid()));
@@ -234,12 +222,11 @@ bool authenticate(int fd, bool* fds_ok) noexcept {
         log_write(LogLevel::warning, "dbus", "the bus refused EXTERNAL authentication");
         return false;
     }
-    *fds_ok = false;
+    // Descriptors only ever come in (a portal's PipeWire remote): whether the bus agrees, the handshake goes on.
     const char negotiate[] = "NEGOTIATE_UNIX_FD\r\n";
     if (!send_all_blocking(fd, reinterpret_cast<const u8*>(negotiate), sizeof(negotiate) - 1, deadline) ||
         !read_line(fd, line, sizeof(line), deadline))
         return false;
-    *fds_ok = c_string_equal(line, "AGREE_UNIX_FD");
     const char begin[] = "BEGIN\r\n";
     return send_all_blocking(fd, reinterpret_cast<const u8*>(begin), sizeof(begin) - 1, deadline);
 }
@@ -278,7 +265,7 @@ bool queue_output(Connection* c, const u8* bytes, u32 count) noexcept {
 u32 send_until_full(Connection* c, const u8* bytes, u32 count) noexcept {
     u32 done = 0;
     while (done != count) {
-        const long sent = send_some(c->fd, bytes + done, count - done, nullptr, 0);
+        const long sent = send_some(c->fd, bytes + done, count - done);
         if (sent == -kErrorInterrupted)
             continue;
         if (sent == -kErrorAgain)
@@ -302,36 +289,10 @@ void flush_output(Connection* c) noexcept {
         copy_bytes(c->output, c->output + sent, c->output_used);
 }
 
-// Sends one serialised message, with its descriptors when it has any.
-bool transmit(Connection* c, const u8* block, u32 bytes, const Builder& body) noexcept {
+// Sends one serialised message.
+bool transmit(Connection* c, const u8* block, u32 bytes) noexcept {
     if (!c->alive)
         return false;
-    if (body.fd_count) {
-        if (!c->fds_ok)
-            return false;
-        // The descriptors travel with the message's first byte, so nothing may be queued in front of it.
-        flush_output(c);
-        const u64 deadline = clock_monotonic_milliseconds() + 2000;
-        while (c->alive && c->output_used) {
-            if (!poll_until(c->fd, kPollOut, deadline))
-                return false;
-            flush_output(c);
-        }
-        if (!c->alive)
-            return false;
-        long sent = send_some(c->fd, block, bytes, body.fds, body.fd_count);
-        while (sent == -kErrorInterrupted)
-            sent = send_some(c->fd, block, bytes, body.fds, body.fd_count);
-        if (sent == -kErrorAgain)
-            sent = 0;
-        if (syscall_failed(sent)) {
-            disconnect(c);
-            return false;
-        }
-        if (sent == 0)
-            return false;  // nothing went out (not even the descriptors); the caller may retry
-        return static_cast<u32>(sent) == bytes || queue_output(c, block + sent, bytes - static_cast<u32>(sent));
-    }
     if (c->output_used) {
         if (!queue_output(c, block, bytes))
             return false;
@@ -362,7 +323,7 @@ bool send_message(Connection* c, MessageHeader header, const Builder* body, u32*
     u32 bytes = 0;
     if (!message_serialize(header, *body, &block, &bytes))
         return false;
-    const bool sent = transmit(c, block, bytes, *body);
+    const bool sent = transmit(c, block, bytes);
     secure_clear_bytes(block, bytes);
     heap_free(block);
     if (sent && serial)
@@ -692,8 +653,7 @@ Connection* connection_open_address(const char* address) noexcept {
         int fd = -1;
         if (!open_socket(entries[i], &fd))
             continue;
-        bool fds_ok = false;
-        if (!authenticate(fd, &fds_ok)) {
+        if (!authenticate(fd)) {
             sys_close(fd);
             continue;
         }
@@ -704,7 +664,6 @@ Connection* connection_open_address(const char* address) noexcept {
         }
         c->fd = fd;
         c->alive = true;
-        c->fds_ok = fds_ok;
         c->next_serial = 1;
         // Hello gives the connection its unique name; nothing else may precede it.
         Message reply;
@@ -784,14 +743,6 @@ bool connection_alive(const Connection* c) noexcept {
 
 const char* connection_unique_name(const Connection* c) noexcept {
     return c->unique_name;
-}
-
-bool connection_unix_fds(const Connection* c) noexcept {
-    return c->fds_ok;
-}
-
-int connection_fd(const Connection* c) noexcept {
-    return c->fd;
 }
 
 Waitable connection_waitable(Connection* c) noexcept {

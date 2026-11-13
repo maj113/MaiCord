@@ -31,6 +31,7 @@
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../support/composer_height_model.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/widgets/presence.hpp"

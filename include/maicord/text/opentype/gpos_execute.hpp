@@ -13,16 +13,6 @@ struct SfntPositionExecution {u64 operations,matches;};
 // other inputs still obey the lookup filter and input_end.
 enum class SfntPositionApplication : u8 {scan,selected};
 static_assert(sizeof(SfntPosition)==24 && sizeof(SfntPlacement)==12 && sizeof(SfntPositionExecution)==16);
-// Projects current source-cluster transitions and caller-resolved final classes into
-// natural-horizontal position flags. Interleaved membership can start the same
-// source cluster more than once in glyph order. Records begin with SfntClusterGlyph;
-// extra metadata is ignored. Zero advance follows mark classification unless an
-// optional per-glyph 0/1 array supplies an explicit script policy (e.g. controls,
-// spacing marks). Arrays are disjoint, except zero_advance may be output's prefix
-// for in-place conversion from 0/1 policy bytes to flags; partial overlap is
-// invalid. Outputs are valid only on success.
-SfntStatus sfnt_position_flags_from_clusters(const SfntClusterMap& clusters,SfntGlyphView glyphs,Slice<u8> output,
-                                             ConstSlice<u8> zero_advance={},u64 work_limit=1000000) noexcept;
 // Nominal position: a zero-advance glyph keeps no advance and no offset in
 // either direction (HarfBuzz zeroes mark and default-ignorable advances alone).
 inline SfntPosition sfnt_position_nominal(double advance,bool zero) noexcept {

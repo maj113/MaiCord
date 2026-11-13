@@ -301,7 +301,7 @@ maicord_test(MaiCordPluginBindingTests ENTRY maicord_plugin_binding_tests_entry
         INCLUDES tests
     TIMEOUT 15 TEST maicord_plugin_binding)
 # The HTTP broker, completions and gestures, DPAPI-sealed secrets and the typed settings against the
-# network fixture and a scripted transport.
+# network fixture and a scripted exchange in place of the network.
 maicord_test(MaiCordPluginNetworkTests ENTRY maicord_plugin_network_tests_entry
     SOURCES tests/app/plugins/plugin_network.cpp ${maicord_plugin_fakes}
     INCLUDES src/app
@@ -1147,10 +1147,9 @@ if(NOT MAICORD_LINUX)
     maicord_add_tests(MaiCordAccountPumpTests TEST maicord_account_pump)
 endif()
 maicord_test(MaiCordSurfaceMotionTests ONLY WINDOWS ENTRY maicord_surface_motion_entry
-    SOURCES tests/app/shell/surface_motion.cpp src/app/shell/surface_motion.cpp
+    SOURCES tests/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp
     LIBS maicord_core maicord_ui kernel32
-    INCLUDES src/app
-    DEFINES MAICORD_SURFACE_MOTION_CONTROLLER_TEST=1)
+    INCLUDES src/app)
 maicord_test(MaiCordChannelOverviewRuntimeTests ONLY WINDOWS ENTRY maicord_application_channel_overview_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/guild/channel_overview_runtime.cpp src/app/settings/layer.cpp
@@ -1289,7 +1288,7 @@ maicord_test(MaiCordGuildAdminGatewayTests ONLY WINDOWS ENTRY maicord_guild_admi
     BUNDLE MaiCordAppUnitTests TIMEOUT 15 TEST maicord_guild_admin_gateway)
 maicord_add_tests(MaiCordSurfaceMotionTests TIMEOUT 10 TEST maicord_surface_motion)
 maicord_test(MaiCordSurfaceMotionHostTests ONLY WINDOWS ENTRY maicord_surface_motion_host_entry
-    SOURCES tests/app/shell/surface_motion_host.cpp src/app/shell/surface_motion.cpp
+    SOURCES tests/app/shell/surface_motion_host.cpp src/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp
         src/app/shell/state.cpp src/render/d3d11/layer_presentation.cpp
     LIBS maicord_core maicord_ui maicord_render_core kernel32 user32
     INCLUDES src/app
@@ -1540,7 +1539,7 @@ maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry SOURCES tests/ui/
 maicord_test(MaiCordSettingsEditSelectionTests ENTRY maicord_settings_edit_selection_entry
     SOURCES tests/ui/settings/edit_selection.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_settings_edit_selection)
-# Server Settings invite rows: Copy Link through the clipboard sink, its toast and Revoke.
+# Server Settings invite rows: Copy Link to a captured clipboard, its toast and Revoke.
 maicord_test(MaiCordInviteCopyRuntimeTests ONLY WINDOWS ENTRY maicord_invite_copy_runtime_entry
     SOURCES tests/app/guild/settings/invite_copy_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
     LIBS ${maicord_app_ui_test_libs} maicord_render_core kernel32 user32
@@ -2130,6 +2129,7 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordGpuSurfaceWaylandTests ENTRY maicord_gpu_surface_wayland_entry
         SOURCES tests/gpu/surface_wayland.cpp
         LIBS maicord_gpu_gles_shaders maicord_gpu_gles maicord_window_wayland maicord_compression maicord_core
+        INCLUDES "${MAICORD_WAYLAND_GENERATED_DIRECTORY}"
         TIMEOUT 20 LABELS integration TEST maicord_gpu_surface_wayland)
     set_tests_properties(maicord_gpu_surface_wayland PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK wayland_compositor)
     if(NOT "$ENV{MAICORD_WAYLAND_INTEGRATION}")
@@ -3024,13 +3024,12 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         "${maicord_vp8_reference_reconstruct_header}" "${maicord_vp8_reference_idct_header}"
         "${maicord_vp8_reference_filter_header}" tests/integration/video_frame_reference_probe.cpp
         "${maicord_video_frame_reference_header}" tests/support/media_fixture.cpp
-        tests/support/media_fixture_encoders.cpp src/core/log.cpp
+        tests/support/media_fixture_encoders.cpp tests/support/log_stdout.cpp
     LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_packages maicord_client_preferences
         maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media
         kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp dwmapi
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src/app
-    DEFINES MAICORD_LOG_STDOUT=1
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 if(NOT MAICORD_LINUX)
     # The constinit probe state (renderer plus every scene owner) exceeds the

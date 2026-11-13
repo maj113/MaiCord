@@ -117,25 +117,6 @@ void on_reply(void* context, Status status, const Message* reply) noexcept {
     portal_request_adopt_reply(&chooser->request, *reply);
 }
 
-// a(sa(us)): each filter's name and its glob patterns (kind 0).
-void write_filters(Builder* b, const FileFilter* filters, u32 count) noexcept {
-    builder_open_array(b, "(sa(us))");
-    for (u32 i = 0; i < count; ++i) {
-        builder_open_struct(b, "(sa(us))");
-        builder_string(b, filters[i].name);
-        builder_open_array(b, "(us)");
-        for (u32 j = 0; j < filters[i].pattern_count; ++j) {
-            builder_open_struct(b, "(us)");
-            builder_u32(b, 0);
-            builder_string(b, filters[i].patterns[j]);
-            builder_close_struct(b);
-        }
-        builder_close_array(b);
-        builder_close_struct(b);
-    }
-    builder_close_array(b);
-}
-
 FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
     if (!session_bus_open())
         return nullptr;
@@ -154,31 +135,17 @@ FileChooser* start(const FileChooserOptions& options, bool save) noexcept {
     }
     Builder body;
     builder_init(&body);
-    builder_string(&body, options.parent ? options.parent : portal_parent_window());
+    builder_string(&body, portal_parent_window());
     builder_string(&body, options.title ? options.title : (save ? "Save File" : "Open File"));
     builder_open_array(&body, "{sv}");
     portal_request_append_token(&body, chooser->request);
     builder_dict_bool(&body, "modal", true);
     if (!save) {
         builder_dict_bool(&body, "multiple", options.multiple);
-        builder_dict_bool(&body, "directory", options.directory);
+        builder_dict_bool(&body, "directory", false);
     }
-    if (options.accept_label)
-        builder_dict_string(&body, "accept_label", options.accept_label);
     if (save && options.current_name)
         builder_dict_string(&body, "current_name", options.current_name);
-    if (options.filter_count && options.filters) {
-        builder_open_dict_entry(&body, "filters", "a(sa(us))");
-        write_filters(&body, options.filters, options.filter_count);
-        builder_close_dict_entry(&body);
-    }
-    if (options.current_folder) {
-        // current_folder is a byte string with its NUL.
-        builder_open_dict_entry(&body, "current_folder", "ay");
-        builder_byte_array(&body, reinterpret_cast<const u8*>(options.current_folder),
-                           c_string_length(options.current_folder) + 1);
-        builder_close_dict_entry(&body);
-    }
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kInterface, save ? "SaveFile" : "OpenFile"};
     chooser->reply_pending = true;

@@ -43,8 +43,8 @@ struct D3D11EffectOwner {
     GpuBuffer *frame_buffer, *composite_buffer;
     GpuRaster* rasterizer;
     // The composite's blends (EffectBlend), then a graph pass's (EffectPassBlend alpha, add, premultiplied), then the
-    // composite's adapted screen and add (effect_light_composite): while they cross-fade, source plus the background
-    // times the shader's second output; settled, the background times the source.
+    // composite's adapted screen and add (tests/support/effect_light_composite.hpp): while they cross-fade, source
+    // plus the background times the shader's second output; settled, the background times the source.
     GpuBlend* blends[8];
     GpuSampler* samplers[3];
     GpuSrv* inputs[kD3D11EffectInputs];

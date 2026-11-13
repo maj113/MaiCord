@@ -10,6 +10,7 @@
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
+#include "../../support/secret_service_test.hpp"
 #include "../../support/test_output.hpp"
 
 // The clients against the real desktop services (tools/test_dbus_real.sh starts xdg-desktop-portal with its GTK backend and
@@ -75,7 +76,7 @@ void test_secrets() noexcept {
     u8 secret[64];
     u32 length = 0;
     const SecretStatus first = secret_lookup(attributes, 2, secret, sizeof(secret), &length);
-    report_text("keyring: first lookup ", secret_status_name(first));
+    report_text("keyring: first lookup ", secret_status_text(first));
     if (first == SecretStatus::unavailable || first == SecretStatus::locked) {
         test_write_line("SKIP keyring checks: no unlocked Secret Service on the bus");
         return;
@@ -85,7 +86,7 @@ void test_secrets() noexcept {
     for (u32 i = 0; i < 32; ++i)
         key[i] = static_cast<u8>(i * 5 + 3);
     const SecretStatus stored = secret_store("MaiCord test secret", attributes, 2, key, 32);
-    report_text("keyring: store ", secret_status_name(stored));
+    report_text("keyring: store ", secret_status_text(stored));
     check(stored == SecretStatus::ok, "the keyring stores a secret");
     check(secret_lookup(attributes, 2, secret, sizeof(secret), &length) == SecretStatus::ok && length == 32 &&
               bytes_equal(secret, key, 32),
@@ -97,14 +98,14 @@ void test_secrets() noexcept {
               secret_lookup(attributes, 2, secret, sizeof(secret), &length) == SecretStatus::ok && length == 32 &&
               bytes_equal(secret, key2, 32),
           "storing again replaces it");
-    check(secret_erase(attributes, 2) == SecretStatus::ok, "erase");
+    check(secret_test_erase(attributes, 2) == 1, "the test's item is deleted");
     check(secret_lookup(attributes, 2, secret, sizeof(secret), &length) == SecretStatus::not_found, "and it is gone");
 }
 
 // The user-bound secure buffer over the real keyring: the master key lands in the Secret Service, not in a file.
 void test_master_key() noexcept {
     const SecretAttribute attributes[2] = {{"application", "maicord"}, {"purpose", "master-key"}};
-    secret_erase(attributes, 2);
+    secret_test_erase(attributes, 2);
     SecureBuffer plain{};
     check(secure_buffer_initialize(&plain, 32).ok(), "a secure buffer");
     const u8 text[12] = {'r', 'e', 'a', 'l', ' ', 'k', 'e', 'y', 'r', 'i', 'n', 'g'};
@@ -122,20 +123,15 @@ void test_master_key() noexcept {
           "the keyring holds a 32-byte master key (application=maicord, purpose=master-key)");
     secure_buffer_release(&plain);
     secure_buffer_release(&opened);
-    secret_erase(attributes, 2);
+    secret_test_erase(attributes, 2);
 }
 
 // The file chooser portal: the real one (the GTK backend, on the user's display) accepts our options, keeps the request
 // open for the user, and closes it on cancel. The dialog itself needs a person, so it is not answered.
 void test_file_chooser() noexcept {
-    const char* const images[2] = {"*.png", "*.jpg"};
-    const FileFilter filters[1] = {{"Images", images, 2}};
     FileChooserOptions options{};
     options.title = "MaiCord test (closes itself)";
-    options.filters = filters;
-    options.filter_count = 1;
     options.multiple = true;
-    options.current_folder = "/tmp";
     FileChooser* chooser = file_chooser_open(options);
     check(chooser != nullptr, "the open dialog request is made");
     if (!chooser)
@@ -227,7 +223,7 @@ void run_tray(const char* directory) noexcept {
                                    {"Deafen", 3, true, true, false},
                                    {"Quit MaiCord", 4, false, false, true}};
     check(tray_start([](void*, const TrayEvent&) noexcept {}, nullptr), "the tray starts");
-    tray_update(TrayState{"MaiCord", "tray check", icons, 2, false, menu, 4});
+    tray_update(TrayState{"MaiCord", "tray check", icons, 2, menu, 4});
     const u64 until = clock_monotonic_milliseconds() + 15000;
     while (clock_monotonic_milliseconds() < until && !tray_available())
         pump_bus(50);

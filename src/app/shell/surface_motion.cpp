@@ -1,103 +1,14 @@
 #include "../chat/inbox.hpp"
-#include "maicord/core/memory.hpp"
 #include "../media/downloads.hpp"
 #include "surface_motion.hpp"
-
-
-#if !defined(MAICORD_SURFACE_MOTION_CONTROLLER_TEST)
 #include "state.hpp"
 #include "window_state.hpp"
 #include "../chat/unread_banner.hpp"
 #include "../guild/folders.hpp"
 #include "maicord/core/deadline.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
-#endif
 
 namespace maicord::app_detail {
-namespace {
-bool valid_surface(RendererLayerSurface surface) noexcept {
-    return static_cast<u32>(surface) < kApplicationSurfaceMotionCount;
-}
-bool valid_key(RendererLayerSurface surface, const ApplicationSurfaceMotionKey& key) noexcept {
-    return key.scene && (surface == RendererLayerSurface::gallery ? key.owner != 0 : key.lifetime != 0);
-}
-bool same_key(const ApplicationSurfaceMotionKey& a, const ApplicationSurfaceMotionKey& b) noexcept {
-    return a.scene == b.scene && a.owner == b.owner && a.lifetime == b.lifetime && a.kind == b.kind;
-}
-bool stale_key(RendererLayerSurface surface, const ApplicationSurfaceMotionKey& previous,
-               const ApplicationSurfaceMotionKey& key) noexcept {
-    if (!previous.scene)
-        return false;
-    if (surface == RendererLayerSurface::gallery)
-        return key.owner < previous.owner;
-    return key.scene == previous.scene && key.lifetime < previous.lifetime;
-}
-} // namespace
-
-void application_surface_motion_owner_initialize(ApplicationSurfaceMotionOwner* owner) noexcept {
-    if (!owner || owner->styles_initialized)
-        return;
-    for (auto& slot : owner->slots)
-        slot.style = kUiDefaultMotionStyle;
-    owner->styles_initialized = true;
-}
-
-void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner* owner,
-                                             RendererLayerSurface surface) noexcept {
-    if (!owner || !valid_surface(surface))
-        return;
-    auto& slot = owner->slots[static_cast<u32>(surface)];
-    ui_motion_transition_cancel(&slot.motion);
-    reset_value(&slot.key);
-    slot.close = nullptr;
-}
-
-float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, RendererLayerSurface surface,
-                                        ApplicationSurfaceMotionKey key, u64 now_ms,
-                                        bool animate) noexcept {
-    if (!owner || !valid_surface(surface))
-        return 1;
-    application_surface_motion_owner_initialize(owner);
-    auto& slot = owner->slots[static_cast<u32>(surface)];
-    if (!valid_key(surface, key)) {
-        application_surface_motion_owner_retire(owner, surface);
-        return 1;
-    }
-    if (stale_key(surface, slot.key, key))
-        return slot.motion.value;
-    if (!ui_motion_style_valid(slot.style))
-        slot.style = kUiDefaultMotionStyle;
-    if (!same_key(slot.key, key)) {
-        const bool successor = slot.key.scene != 0;
-        slot.key = key;
-        slot.close = nullptr;
-        // Account/source replacement is not an opening animation. Popup opens
-        // supply their own lifetime, so their entrance can start.
-        const bool entrance = animate && (!successor || surface != RendererLayerSurface::gallery);
-        if (owner->scope_serial == ~u64{0}) {
-            ui_motion_transition_cancel(&slot.motion);
-            slot.motion.value = 1;
-            return 1;
-        }
-        const UiMotionScope scope{static_cast<u64>(surface) + 1, ++owner->scope_serial};
-        ui_motion_transition_reset(&slot.motion, scope, entrance ? 0.0f : 1.0f);
-    }
-    ui_motion_transition_tick(&slot.motion, slot.motion.scope, slot.close ? 0 : 1, now_ms, slot.style, !animate);
-    return slot.motion.value;
-}
-
-u64 application_surface_motion_owner_next_wake(const ApplicationSurfaceMotionOwner& owner,
-                                               RendererLayerSurface surface,
-                                               ApplicationSurfaceMotionKey key) noexcept {
-    if (!valid_surface(surface) || !valid_key(surface, key))
-        return 0;
-    const auto& slot = owner.slots[static_cast<u32>(surface)];
-    return same_key(slot.key, key)
-               ? ui_motion_transition_next_wake(slot.motion, slot.motion.scope, false)
-               : 0;
-}
-
-#if !defined(MAICORD_SURFACE_MOTION_CONTROLLER_TEST)
 namespace {
 struct ObservedSurface {
     ApplicationSurfaceMotionKey key{};
@@ -340,7 +251,8 @@ bool application_surface_motion_exit(RendererLayerSurface surface, void (*close)
     if (slot.close)
         return true;
     const auto current = observe(surface, host_motion_allowed());
-    if (!current.animate || !current.key.scene || !same_key(slot.key, current.key) || slot.motion.value <= 0)
+    if (!current.animate || !current.key.scene || !application_surface_motion_same_key(slot.key, current.key) ||
+        slot.motion.value <= 0)
         return false;
     slot.close = close;
     application_request_frame();
@@ -379,6 +291,5 @@ bool application_motion_hover_tick(UiMotionHover* hover, u64 hovered_id, u64 now
         application_motion_schedule(ui_motion_hover_next_wake(*hover));
     return changed;
 }
-#endif
 
 } // namespace maicord::app_detail

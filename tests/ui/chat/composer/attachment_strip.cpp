@@ -10,6 +10,7 @@
 #include "maicord/ui/chat/composer/attachment_menu.hpp"
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../../../support/composer_height_model.hpp"
 #include "maicord/ui/text/presentation.hpp"
 
 // Composer upload strip: the file classifier, tile geometry, hit testing,

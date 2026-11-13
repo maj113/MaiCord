@@ -1,6 +1,6 @@
 // Server Settings > Invites rows: Copy Link for everyone, Revoke for managers.
-// Copy Link writes the full invite URL through the clipboard sink (never the
-// user's clipboard) and confirms it with a toast. Synthetic invite codes only.
+// Copy Link writes the full invite URL to the captured clipboard (clipboard_system_* below, never the user's
+// clipboard) and confirms it with a toast. Synthetic invite codes only.
 #include "../../../../src/app/guild/settings/invites.cpp"
 #include "maicord/platform/window/win32.hpp"
 #include "maicord/platform/window/win32_clipboard.hpp"
@@ -26,27 +26,6 @@ struct Captured {
     char text[256];
     bool refuse;
 } clip{};
-bool clip_open(void*) noexcept {
-    ++clip.opens;
-    clip.publishes = 0;
-    return !clip.refuse;
-}
-bool clip_publish(void*, UINT format, HGLOBAL data) noexcept {
-    ++clip.publishes;
-    clip.format = format;
-    const auto* wide = static_cast<const wchar_t*>(GlobalLock(data));
-    const int bytes =
-        wide ? WideCharToMultiByte(CP_UTF8, 0, wide, -1, clip.text, sizeof(clip.text), nullptr, nullptr)
-             : 0;
-    if (wide)
-        GlobalUnlock(data);
-    if (bytes <= 0)
-        clip.text[0] = 0;
-    GlobalFree(data);
-    return true;
-}
-void clip_close(void*) noexcept {
-}
 bool newest_toast(UiToastKind kind, Utf8View text) noexcept {
     const auto& t = g_app.toasts;
     return t.count && t.entries[t.count - 1].kind == kind &&
@@ -87,8 +66,6 @@ void run() noexcept {
         owner->invites[i].code_bytes = static_cast<u8>(lstrlenA(codes[i]));
         copy_bytes(owner->invites[i].code, codes[i], owner->invites[i].code_bytes);
     }
-    const ClipboardSink previous = clipboard_sink_install({nullptr, clip_open, clip_publish, clip_close});
-
     project();
     const auto* row = invite_row(0);
     check(row && row->kind == UiSettingsControlKind::buttons && row->enabled && row->choices.count == 2 &&
@@ -107,7 +84,7 @@ void run() noexcept {
     check(clip.opens == 1 && clip.publishes == 1 && clip.format == CF_UNICODETEXT &&
               utf8_equal({clip.text, static_cast<u32>(lstrlenA(clip.text))},
                          utf8_literal("https://discord.gg/Zx9")),
-          "invite copy: Copy Link writes the invite URL through the clipboard sink");
+          "invite copy: Copy Link writes the invite URL to the clipboard");
     check(newest_toast(UiToastKind::success, utf8_literal("Invite link copied")),
           "invite copy: Copy Link confirms with an Invite link copied toast");
 
@@ -135,12 +112,36 @@ void run() noexcept {
     kInvitesPage.activate(press(7, 0));
     check(clip.opens == 3, "invite copy: rows past the list do nothing");
 
-    clipboard_sink_install(previous);
     g_app.window = nullptr;
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
 } // namespace maicord::invite_copy_test
+
+namespace maicord {
+bool clipboard_system_open() noexcept {
+    ++invite_copy_test::clip.opens;
+    invite_copy_test::clip.publishes = 0;
+    return !invite_copy_test::clip.refuse;
+}
+bool clipboard_system_publish(UINT format, HGLOBAL data) noexcept {
+    auto& clip = invite_copy_test::clip;
+    ++clip.publishes;
+    clip.format = format;
+    const auto* wide = static_cast<const wchar_t*>(GlobalLock(data));
+    const int bytes =
+        wide ? WideCharToMultiByte(CP_UTF8, 0, wide, -1, clip.text, sizeof(clip.text), nullptr, nullptr)
+             : 0;
+    if (wide)
+        GlobalUnlock(data);
+    if (bytes <= 0)
+        clip.text[0] = 0;
+    GlobalFree(data);
+    return true;
+}
+void clipboard_system_close() noexcept {
+}
+} // namespace maicord
 
 namespace maicord::app_detail {
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {

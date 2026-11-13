@@ -89,11 +89,9 @@ MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u
         return {0, 0, {}, MlsPackageCryptoError::unsupported_suite};
     if (view.leaf.source != MlsLeafSource::key_package)
         return {0, 0, {}, MlsPackageCryptoError::invalid_leaf_source};
-    if (expected_user_id) {
-        const auto profile = dave_profile(view, expected_user_id);
-        if (profile != MlsPackageCryptoError::none)
-            return {0, 0, {}, profile};
-    }
+    const auto profile = dave_profile(view, expected_user_id);
+    if (profile != MlsPackageCryptoError::none)
+        return {0, 0, {}, profile};
     if (view.init_key.count == view.leaf.encryption_key.count &&
         bytes_equal(view.init_key.data, view.leaf.encryption_key.data, view.init_key.count))
         return {0, 0, {}, MlsPackageCryptoError::key_reuse};
@@ -142,10 +140,6 @@ MlsPackageCryptoError mls_leaf_check_dave(const MlsLeafView& leaf, u64* user_id)
     if (user_id)
         *user_id = identity;
     return MlsPackageCryptoError::none;
-}
-MlsPackageCryptoResult mls_key_package_check_crypto(KdfSha256Workspace& workspace, ConstSlice<u8> input,
-                                                    MlsSignedKeyPackage* output) noexcept {
-    return check_package(workspace, input, output, 0);
 }
 MlsPackageCryptoResult mls_key_package_check_dave(KdfSha256Workspace& workspace, ConstSlice<u8> input,
                                                   u64 expected_user_id,

@@ -4,7 +4,7 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 
 | File | Role |
 | --- | --- |
-| `wire.hpp` | The wire format: little endian, the whole type system, `UNIX_FD` over SCM_RIGHTS. |
+| `wire.hpp` | The wire format: little endian; the Reader walks the whole type system, the Builder writes what the client sends; received `UNIX_FD`s over SCM_RIGHTS. |
 | `connection.hpp` | One bus connection: EXTERNAL authentication, calls with timeouts, `AddMatch` signals, exported methods. One thread per connection; a `Waitable` for the loop. |
 | `session.hpp` | The session bus the window loop waits on, plus `SessionBusExtra` (further connections the Wayland pump waits on; their due times bound the sleep). |
 | `desktop_settings.hpp` | The settings portal: colour scheme, motion, interface fonts, cursor. The window backend maps it to `PlatformSettings` and `settings_changed`. |

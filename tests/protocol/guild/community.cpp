@@ -7,7 +7,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/media/image/jpeg.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/guild/scheduled_event_store.hpp"
 #include "maicord/protocol/guild/assets.hpp"

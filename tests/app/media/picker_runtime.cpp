@@ -9,9 +9,7 @@
 #include "../../../src/app/shell/button_input.cpp"
 // The pure surface motion controller only (its host stays stubbed below), to
 // count gallery open animations the way application_surface_motion observes them.
-#define MAICORD_SURFACE_MOTION_CONTROLLER_TEST
-#include "../../../src/app/shell/surface_motion.cpp"
-#undef MAICORD_SURFACE_MOTION_CONTROLLER_TEST
+#include "../../../src/app/shell/surface_motion_owner.cpp"
 #include "maicord/ui/media/picker_presentation.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../support/test_output.hpp"

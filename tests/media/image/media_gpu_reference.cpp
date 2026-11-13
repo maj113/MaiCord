@@ -17,7 +17,7 @@
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/jpeg_reference_fixture.hpp"
 #include "maicord/media/core/asset.hpp"
-#include "maicord/media/image/jpeg.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "maicord/media/image/lossy_webp.hpp"
 #include "maicord/media/image/webp_thumbnail.hpp"
 #include "maicord/render/media/atlas.hpp"

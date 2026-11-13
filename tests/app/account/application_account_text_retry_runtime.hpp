@@ -1,5 +1,6 @@
 #pragma once
 #include "../../../src/app/account/account_presentation.hpp"
+#include "../../../src/app/account/account_pump.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/render/d3d11/renderer_settings_visibility.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
@@ -77,13 +78,11 @@ bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
 
 // Compile the exact production freshness/backoff body against this target's
 // surrounding host adapters. No alternative retry algorithm lives in the test.
-#define MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST 1
 #define refresh_account_text refresh_account_text_runtime_impl
 #define refresh_account_frame refresh_account_frame_runtime_impl
-#include "../../../src/app/account/account_presentation.cpp"
+#include "../../../src/app/account/account_text_refresh.cpp"
 #undef refresh_account_frame
 #undef refresh_account_text
-#undef MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST
 
 namespace maicord::account_text_retry_runtime_test {
 inline void run(void (*check)(bool, const char*) noexcept) noexcept {

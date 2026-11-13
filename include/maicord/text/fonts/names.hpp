@@ -12,7 +12,6 @@ struct SfntName {
 };
 struct SfntFontAttributes {u16 weight,width,selection,version;};
 SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept;
-SfntStatus sfnt_name_record(const SfntNames&,u32 index,SfntName* output) noexcept;
 // English metadata policy: en-US, other English, Unicode-neutral, then first
 // supported language. Windows wins a platform tie; record order wins remaining
 // ties. Unknown version-1 language-tag references are ignored. This chooses a

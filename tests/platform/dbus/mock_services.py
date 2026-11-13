@@ -3,7 +3,7 @@
 
 Run with DBUS_SESSION_BUS_ADDRESS pointing at a private bus (tools/test_dbus.sh). It owns:
 
-  org.maicord.Test                    /org/maicord/Test    generic calls: Describe(any) -> s, Add, Slow, ReadFd, MakeFd, Fire
+  org.maicord.Test                    /org/maicord/Test    generic calls: Describe(any) -> s, Add, Slow, MakeFd, Fire
   org.freedesktop.portal.Desktop      Settings, Notification, OpenURI, Inhibit (version only), ScreenCast
   org.freedesktop.Notifications       the notification daemon
   org.freedesktop.secrets             the Secret Service (plain sessions)
@@ -125,13 +125,6 @@ class Test(dbus.service.Object):
                          async_callbacks=('reply', 'error'))
     def Slow(self, milliseconds, reply, error):
         GLib.timeout_add(milliseconds, lambda: (reply('late'), False)[1])
-
-    @dbus.service.method('org.maicord.Test', in_signature='h', out_signature='s')
-    def ReadFd(self, fd):
-        descriptor = fd.take() if hasattr(fd, 'take') else int(fd)
-        data = os.read(descriptor, 4096)
-        os.close(descriptor)
-        return data.decode('utf-8', 'replace')
 
     @dbus.service.method('org.maicord.Test', in_signature='s', out_signature='h')
     def MakeFd(self, text):

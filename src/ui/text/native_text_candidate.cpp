@@ -851,10 +851,6 @@ NativeTextCandidateCounts native_text_candidate_counts(const TextSystem& system)
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem& system) noexcept {
     const auto* o=system.native_text;return o?NativeTextStorageCounts{o->scratch.reserved,o->scratch.committed,o->scratch.peak,o->storage_retries}:NativeTextStorageCounts{};
 }
-ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const TextSystem& system) noexcept {
-    const auto* owner=system.native_text;
-    return owner&&owner->last_valid&&owner->last_paragraph?ConstSlice<NativeParagraphCluster>{owner->paragraph_storage.clusters.data,owner->paragraph_shape.cluster_count}:ConstSlice<NativeParagraphCluster>{};
-}
 namespace {
 void release_context_contents(NativeTextContext* o) noexcept {
     const u64 counts[]={o->shaped,o->measured,o->prepare_failed,o->execute_failed,o->storage_retries,o->arabic_shaped,o->arabic_measured,
@@ -1013,10 +1009,6 @@ bool prepare_trim_plan(const TextSystem& system,const NativeTextRequest& source,
 }
 
 }
-bool native_text_prepare_trim_plan_once(const TextSystem& system,const NativeTextRequest& request,Slice<NativeParagraphLineFit> fit,
-    NativeParagraphLayout* output) noexcept {
-    return prepare_trim_plan(system,request,fit,output,nullptr);
-}
 #include "native_text_multiline_draw.inc"
 
 // Every single-line shape and measure enters here first, including cached
@@ -1150,10 +1142,6 @@ bool native_text_candidate_hits(const TextSystem& system,const NativeTextRequest
     if(request.styles.count)return styled_hits(system,request,hits,measure);
     if(native_text_candidate_hits_once(system,request,hits,measure))return true;
     return retry_stale(system,nullptr,[&](const TextSystem& s,ShapedText*) noexcept {return native_text_candidate_hits_once(s,request,hits,measure);});
-}
-bool native_text_prepare_trim_plan(const TextSystem& system,const NativeTextRequest& request,Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* output) noexcept {
-    if(native_text_prepare_trim_plan_once(system,request,fit,output))return true;
-    return retry_stale(system,nullptr,[&](const TextSystem& s,ShapedText*) noexcept {return native_text_prepare_trim_plan_once(s,request,fit,output);});
 }
 
 }

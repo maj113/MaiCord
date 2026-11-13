@@ -11,8 +11,8 @@ u32 tag_rank(ConstSlice<u8> tag) noexcept {
     if(tag.count<4||(word(tag,0)|32)!='e'||(word(tag,2)|32)!='n'||(tag.count!=4&&(tag.count<6||word(tag,4)!='-')))return 3;
     return tag.count==10&&(word(tag,6)|32)=='u'&&(word(tag,8)|32)=='s'?0:1;
 }
-// The index must be below names.records.
-SfntName record_at(const SfntNames& names,u32 index) noexcept {
+// The index must be below names.records. Out of line: inlined into sfnt_name_english it costs 200 bytes.
+__declspec(noinline) SfntName record_at(const SfntNames& names,u32 index) noexcept {
     const u32 at=6+index*12;const u16 language=word(names.table,at+4);
     SfntName name{{names.table.data+names.storage+word(names.table,at+10),word(names.table,at+8)}, {},
         word(names.table,at),word(names.table,at+2),language,word(names.table,at+6)};
@@ -38,11 +38,6 @@ SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
         if(!span(table,storage,word(table,at+2),word(table,at)))return SfntStatus::truncated;
         if(word(table,at)&1)return SfntStatus::malformed;}
     *output={table,count,storage,tags,version};return SfntStatus::ok;
-}
-SfntStatus sfnt_name_record(const SfntNames& names,u32 index,SfntName* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
-    if(!names.table.data||index>=names.records)return SfntStatus::invalid_input;
-    *output=record_at(names,index);return SfntStatus::ok;
 }
 SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
     if(output)reset_value(output);if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;

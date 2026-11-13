@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/text/content_text_retention.hpp"
 #include "maicord/render/effects/background_effect.hpp"
+#include "../../support/effect_light_composite.hpp"
 #include "maicord/render/effects/background_fx.hpp"
 #include "maicord/ui/theme/background_animation.hpp"
 #include "maicord/ui/theme/background_surface.hpp"

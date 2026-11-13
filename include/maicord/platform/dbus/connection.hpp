@@ -6,8 +6,8 @@
 
 // An in-house D-Bus client over the bus's Unix socket (Linux): the session bus from DBUS_SESSION_BUS_ADDRESS (unix:path
 // and unix:abstract forms; $XDG_RUNTIME_DIR/bus when unset), SASL EXTERNAL with the uid, Hello, NEGOTIATE_UNIX_FD,
-// method calls with replies and timeouts, signals through AddMatch, exported method handling, and UNIX_FD passing
-// (SCM_RIGHTS).
+// method calls with replies and timeouts, signals through AddMatch, exported method handling, and received UNIX_FD
+// descriptors (SCM_RIGHTS; nothing here sends one).
 //
 // A connection is single-threaded: every call on one connection comes from one thread at a time, and the handlers run
 // inside connection_process (or a synchronous call) on the calling thread. To wake a loop on bus traffic wait on
@@ -36,8 +36,6 @@ void connection_close(Connection* connection) noexcept;  // pending calls comple
 
 bool connection_alive(const Connection* connection) noexcept;
 const char* connection_unique_name(const Connection* connection) noexcept;  // ":1.42"
-bool connection_unix_fds(const Connection* connection) noexcept;           // whether the bus agreed to pass descriptors
-int connection_fd(const Connection* connection) noexcept;
 // A level-triggered waitable over the socket (owned by the connection).
 Waitable connection_waitable(Connection* connection) noexcept;
 // Milliseconds until the connection needs processing without incoming bytes (the earliest call timeout, or a short

@@ -44,7 +44,7 @@ maicord_compact_sources(
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/clipboard_source.cpp src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp
-        src/platform/crypto/secure_buffer.cpp
+        src/platform/crypto/secure_buffer.cpp src/platform/window/win32/clipboard_system.cpp
     TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_catalog
         maicord_plugin_runtime maicord_packages
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
@@ -349,7 +349,7 @@ maicord_fold_helpers(
         "(^|/)src/app/account/login/(account_credential_forget(_io)?|browser_sign_in_receiver|captcha_bridge|captcha_challenge|remote_auth_client|remote_auth_handshake)\\.cpp$"
         "(^|/)src/app/gateway/client(_outputs|_storage)?\\.cpp$" "(^|/)src/app/chat/messages/send_tracker\\.cpp$"
         "(^|/)src/app/media/(account_media_requests|regional_flag_assets)\\.cpp$" "(^|/)src/app/packages/(link|mcfx)\\.cpp$"
-        "(^|/)src/app/plugins/(api|binding|catalog_index|catalog_service|catalog_state|http|keep|pipeline_api|settings_page)\\.cpp$"
+        "(^|/)src/app/plugins/(api|binding|catalog_index|catalog_service|catalog_state|http|http_network|keep|pipeline_api|settings_page)\\.cpp$"
         "(^|/)src/app/settings/(catalog|client_theme_document)\\.cpp$" "(^|/)src/app/shell/startup_shell_state\\.cpp$"
         "(^|/)src/app/store/store_(act|page)\\.cpp$" "(^|/)src/app/update/(acceptance|artifact|https|package|service)\\.cpp$"
         "(^|/)src/app/voice/(account_voice_message|connection_setup)\\.cpp$" "(^|/)src/platform/uia/provider(_patterns)?\\.cpp$")

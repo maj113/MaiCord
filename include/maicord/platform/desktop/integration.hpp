@@ -113,12 +113,10 @@ constexpr DesktopCloseAction desktop_close_action(bool minimize_to_tray, bool tr
                                                   bool quit_requested) noexcept {
     return minimize_to_tray && tray_visible && !quit_requested ? DesktopCloseAction::hide : DesktopCloseAction::quit;
 }
-// ShowWindow commands and the WM_ACTIVATE state named below, as <Windows.h>
-// defines them (checked in integration.cpp).
+// ShowWindow commands as <Windows.h> defines them (checked in integration.cpp).
 inline constexpr int kDesktopShowHide = 0;              // SW_HIDE
 inline constexpr int kDesktopShowMinimizedNoActive = 7; // SW_SHOWMINNOACTIVE
 inline constexpr int kDesktopShowDefault = 10;          // SW_SHOWDEFAULT
-inline constexpr int kDesktopActivateInactive = 0;      // WA_INACTIVE
 // How the first window appears: a startup-entry launch with Start minimized
 // goes to the tray (or the taskbar when the tray is off).
 constexpr int desktop_initial_show(bool startup_launch, bool start_minimized, bool minimize_to_tray) noexcept {
@@ -126,18 +124,5 @@ constexpr int desktop_initial_show(bool startup_launch, bool start_minimized, bo
            : minimize_to_tray                  ? kDesktopShowHide
                                                : kDesktopShowMinimizedNoActive;
 }
-#if defined(_WIN32)
-// Whether a WM_ACTIVATE may run activation work that makes a cross-apartment
-// COM call (the Windows notification setting). The taskbar restores a
-// minimized window by activating it while still minimized, then posting
-// SC_RESTORE; an outgoing COM call from the STA in that WM_ACTIVATE lets the
-// COM modal loop discard the queued WM_SYSCOMMAND with a beep. The restore's
-// own (non-minimized) activation follows, so the work waits for that one.
-constexpr bool desktop_activation_refresh_allowed(WPARAM activation) noexcept {
-    // LOWORD(activation) is the state; a nonzero HIWORD means minimized.
-    return static_cast<WORD>(activation & 0xffff) != kDesktopActivateInactive &&
-           static_cast<WORD>((activation >> 16) & 0xffff) == 0;
-}
-#endif
 
 } // namespace maicord

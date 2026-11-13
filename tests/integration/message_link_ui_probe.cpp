@@ -1,5 +1,6 @@
 #include "maicord/platform/window/win32.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/composer_height_model.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"

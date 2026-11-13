@@ -75,7 +75,7 @@ else()
         src/app/shell/caption.cpp src/app/shell/tabs.cpp src/app/shell/app_icon.cpp
         src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
         src/app/account/application_account_logout.cpp
-        src/app/account/account_pump.cpp src/app/account/account_presentation.cpp
+        src/app/account/account_pump.cpp src/app/account/account_presentation.cpp src/app/account/account_text_refresh.cpp
         src/app/account/application_account_reconnect.cpp
         src/app/chat/threads/starter.cpp src/app/chat/channel_session.cpp
         src/app/chat/channel_snapshots.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/commands_frecency.cpp
@@ -97,7 +97,7 @@ else()
         src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp
         src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp src/app/guild/hidden_channel.cpp
         src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
-        src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp
+        src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp
         src/app/chat/composer/text_form.cpp src/app/chat/composer/text_input.cpp
         src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp src/app/account/login/input.cpp src/app/account/login/ui.cpp
         src/app/shell/ui_runtime.cpp src/app/guild/account_permission_storage.cpp src/app/media/media.cpp

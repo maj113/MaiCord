@@ -878,36 +878,4 @@ bool window_inject(Window window, const WindowEvent& event, WindowEventResult* r
     return true;
 }
 
-bool window_wayland_global(u32 index, const char** name, u32* version) noexcept {
-    if (index >= g.global_count)
-        return false;
-    if (name)
-        *name = g.globals[index].name;
-    if (version)
-        *version = g.globals[index].version;
-    return true;
-}
-
-bool window_wayland_info(Window window, WaylandSurfaceInfo* info) noexcept {
-    if (!is_window(window) || !info)
-        return false;
-    info->display = g.display;
-    info->surface = g.window.surface;
-    window_pixel_size(&info->width_px, &info->height_px);
-    info->scale_120 = g.window.dpi * 120 / 96;
-    info->logical_width = g.window.logical_width;
-    info->logical_height = g.window.logical_height;
-    return true;
-}
-
-bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexcept {
-    if (!is_window(window) || !g.window.opaque_sent || g.window.opaque_width == 0 || g.window.opaque_height == 0)
-        return false;
-    if (width)
-        *width = static_cast<u32>(g.window.opaque_width);
-    if (height)
-        *height = static_cast<u32>(g.window.opaque_height);
-    return true;
-}
-
 } // namespace maicord

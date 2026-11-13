@@ -282,7 +282,7 @@ void tick_tray(u64 now_ms) noexcept {
                    items[i].command == tray_command_mute || items[i].command == tray_command_deafen, items[i].checked,
                    items[i].separator_before};
     }
-    dbus::tray_update({"MaiCord", tooltip_text, icons, icon_count, false, menu, count});
+    dbus::tray_update({"MaiCord", tooltip_text, icons, icon_count, menu, count});
     g_desktop.tray_input = input;
     g_desktop.tray_palette = colors;
     g_desktop.tray_sent = true;

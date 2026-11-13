@@ -230,6 +230,8 @@ void lengths(Check check) noexcept {
               filled(&output, sizeof(output)),
           "MLS nested extension errors preserve absolute wire offset");
 }
+// The signed vectors' Basic credential (tools/mls_objects_oracle.py), which the DAVE profile requires.
+constexpr u64 kSignedUser = 0x0102030405060708;
 void crypto(Check check, u8* buffer) noexcept {
     KdfSha256Workspace workspace{};
     check(kdf_sha256_initialize(&workspace).ok(), "MLS package crypto workspace");
@@ -240,7 +242,7 @@ void crypto(Check check, u8* buffer) noexcept {
         u8 ref[32];
         test_unhex(v.reference, ref);
         MlsSignedKeyPackage output{};
-        check(mls_key_package_check_crypto(workspace, {buffer, n}, &output).ok() &&
+        check(mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &output).ok() &&
                   bytes_equal(output.reference, ref, 32),
               "Independent signed KeyPackage verifies both signatures and reference, including unknown "
               "extensions");
@@ -251,19 +253,19 @@ void crypto(Check check, u8* buffer) noexcept {
         memset(&unchanged, 0xa5, sizeof(unchanged));
         for (u32 i = 0; i != n; ++i) {
             buffer[i] ^= 1;
-            const auto result = mls_key_package_check_crypto(workspace, {buffer, n}, &unchanged);
+            const auto result = mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &unchanged);
             check(!result.ok() && !result.bytes && filled(&unchanged, sizeof(unchanged)),
                   "MLS rejects every single-byte signed package tamper atomically");
             buffer[i] ^= 1;
         }
         const u32 capacity = workspace.storage.capacity;
         workspace.storage.capacity = 1;
-        check(mls_key_package_check_crypto(workspace, {buffer, n}, &unchanged).error ==
+        check(mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &unchanged).error ==
                       MlsPackageCryptoError::hash_failure &&
                   filled(&unchanged, sizeof(unchanged)),
               "MLS package hash provider failure preserves candidate");
         workspace.storage.capacity = capacity;
-        check(mls_key_package_check_crypto(workspace, {buffer, n}, &output).ok(),
+        check(mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &output).ok(),
               "MLS package retry after provider failure");
         const ConstSlice<u8> points[]{output.view.init_key, output.view.leaf.encryption_key,
                                       output.view.leaf.signature_key};
@@ -272,7 +274,7 @@ void crypto(Check check, u8* buffer) noexcept {
             copy_bytes(saved_point, point.data, 65);
             auto* target = buffer + (point.data - buffer);
             memset(target + 1, 0, 64);
-            check(mls_key_package_check_crypto(workspace, {buffer, n}, &unchanged).error ==
+            check(mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &unchanged).error ==
                           MlsPackageCryptoError::key_failure &&
                       filled(&unchanged, sizeof(unchanged)),
                   "MLS validates each curve point before signature work");
@@ -284,7 +286,7 @@ void crypto(Check check, u8* buffer) noexcept {
         u8 saved[65];
         copy_bytes(saved, buffer + offset, 65);
         copy_bytes(buffer + offset, output.view.leaf.encryption_key.data, 65);
-        check(mls_key_package_check_crypto(workspace, {buffer, n}, &unchanged).error ==
+        check(mls_key_package_check_dave(workspace, {buffer, n}, kSignedUser, &unchanged).error ==
                   MlsPackageCryptoError::key_reuse,
               "MLS rejects init/leaf key reuse");
         copy_bytes(buffer + offset, saved, 65);
@@ -316,7 +318,7 @@ void guards(Check check, u8* buffer) noexcept {
     KdfSha256Workspace workspace{};
     check(kdf_sha256_initialize(&workspace).ok(), "MLS crypto guard workspace");
     auto* signed_view = reinterpret_cast<MlsSignedKeyPackage*>(end - sizeof(MlsSignedKeyPackage));
-    check(mls_key_package_check_crypto(workspace, {input, n}, signed_view).ok(),
+    check(mls_key_package_check_dave(workspace, {input, n}, kSignedUser, signed_view).ok(),
           "MLS exact signed candidate guard");
     const auto encode_view = signed_view->view;
     const u32 tbs_bytes = encode_view.tbs.count;

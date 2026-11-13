@@ -207,10 +207,6 @@ bool window_wayland_activate(const char* token) noexcept {
     return true;
 }
 
-u32 window_wayland_activation_count() noexcept {
-    return g.extras.tokens_done;
-}
-
 bool window_wayland_set_idle_inhibit(Window window, bool inhibit) noexcept {
     ExtrasState& extras = g.extras;
     if (!is_window(window))

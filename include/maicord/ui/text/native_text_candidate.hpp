@@ -70,8 +70,6 @@ struct NativeTextCandidateCounts {u64 shaped,measured,arabic_shaped,arabic_measu
 NativeTextCandidateCounts native_text_candidate_counts(const TextSystem&) noexcept;
 struct NativeTextStorageCounts {u64 reserved,committed,peak,retries;};
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem&) noexcept;
-// Read-only diagnostic view, invalidated by the next native text operation.
-ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const TextSystem&) noexcept;
 // Input and capacities must already be validated by the shared text entry point.
 // Handles an ASCII/resolved Latin paragraph, eligible mixed Latin/Common text with
 // overridden emoji (the platform's emoji family: Segoe UI Emoji, Noto Color Emoji; normal weight/style, no added tracking), or a

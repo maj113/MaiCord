@@ -32,6 +32,7 @@
 #include "wayland_helper.hpp"
 #include "wayland_inject.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/wayland_backend_state.hpp"
 
 namespace maicord {
 namespace {

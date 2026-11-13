@@ -294,32 +294,6 @@ struct CapturedClipboard {
     char text[512];
 };
 CapturedClipboard clipboard{};
-bool clipboard_open(void*) noexcept {
-    ++clipboard.opens;
-    clipboard.publishes = 0;
-    return true;
-}
-bool clipboard_publish(void*, UINT format, HGLOBAL data) noexcept {
-    if (clipboard.publishes >= 4)
-        return false;
-    const u32 slot = clipboard.publishes++;
-    clipboard.formats[slot] = format;
-    clipboard.sizes[slot] = static_cast<u32>(GlobalSize(data));
-    if (format == CF_UNICODETEXT) {
-        const auto* wide = static_cast<const wchar_t*>(GlobalLock(data));
-        const int bytes = wide ? WideCharToMultiByte(CP_UTF8, 0, wide, -1, clipboard.text,
-                                                     sizeof(clipboard.text), nullptr, nullptr)
-                               : 0;
-        if (wide)
-            GlobalUnlock(data);
-        if (bytes <= 0)
-            clipboard.text[0] = 0;
-    }
-    GlobalFree(data);
-    return true;
-}
-void clipboard_close(void*) noexcept {
-}
 bool newest_toast(UiToastKind kind, Utf8View label) noexcept {
     const auto& t = g_app.toasts;
     return t.count && t.entries[t.count - 1].kind == kind &&
@@ -395,9 +369,6 @@ void attachment_menu_tests() noexcept {
     if (auto* rich = const_cast<MessageRichRecord*>(
             message_rich_store_find(g_app.account_ui->message_rich_store, 524)))
         rich->voice_message = true;
-    const ClipboardSink previous =
-        clipboard_sink_install({nullptr, clipboard_open, clipboard_publish, clipboard_close});
-
     const char* image[]{"Copy Image", "Save Image", "Copy Image Link", "Open Image Link"};
     const char* gif[]{"Save Image", "Copy Media Link", "Open Media Link"};
     const char* video[]{"Save Video", "Copy Media Link", "Open Media Link"};
@@ -426,7 +397,7 @@ void attachment_menu_tests() noexcept {
             clipboard.formats[0] == CF_UNICODETEXT &&
             utf8_equal({clipboard.text, static_cast<u32>(lstrlenA(clipboard.text))},
                        {source.url, source.url_bytes}),
-        "Attachment menu: Copy Image Link publishes the signed CDN URL as text through the clipboard sink");
+        "Attachment menu: Copy Image Link publishes the signed CDN URL as clipboard text");
     check(newest_toast(UiToastKind::success, utf8_literal("Link Copied!")),
           "Attachment menu: Copy Image Link confirms with a Link Copied! toast");
     check(!application_downloads_context_action(kReceivedAttachmentActionCopyLink) &&
@@ -469,7 +440,6 @@ void attachment_menu_tests() noexcept {
           "Attachment menu: Save File starts the download owner's flow");
     application_downloads_pump();
     check(picker_starts == pickers + 1, "Attachment menu: Save File reaches the native chooser");
-    clipboard_sink_install(previous);
     DownloadJob named{};
     const auto name = [&](Utf8View chosen, Utf8View original) noexcept {
         named.chosen_name_bytes = static_cast<u16>(chosen.bytes);
@@ -1251,6 +1221,35 @@ void run() noexcept {
 }
 } // namespace maicord::downloads_runtime_test
 namespace maicord {
+// The clipboard transaction (src/platform/window/win32/clipboard_system.cpp), captured in memory.
+bool clipboard_system_open() noexcept {
+    using namespace downloads_runtime_test;
+    ++clipboard.opens;
+    clipboard.publishes = 0;
+    return true;
+}
+bool clipboard_system_publish(UINT format, HGLOBAL data) noexcept {
+    using namespace downloads_runtime_test;
+    if (clipboard.publishes >= 4)
+        return false;
+    const u32 slot = clipboard.publishes++;
+    clipboard.formats[slot] = format;
+    clipboard.sizes[slot] = static_cast<u32>(GlobalSize(data));
+    if (format == CF_UNICODETEXT) {
+        const auto* wide = static_cast<const wchar_t*>(GlobalLock(data));
+        const int bytes = wide ? WideCharToMultiByte(CP_UTF8, 0, wide, -1, clipboard.text,
+                                                     sizeof(clipboard.text), nullptr, nullptr)
+                               : 0;
+        if (wide)
+            GlobalUnlock(data);
+        if (bytes <= 0)
+            clipboard.text[0] = 0;
+    }
+    GlobalFree(data);
+    return true;
+}
+void clipboard_system_close() noexcept {
+}
 NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, Window, Utf8View,
                                                     Utf8View) noexcept {
     using namespace downloads_runtime_test;

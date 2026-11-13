@@ -141,9 +141,6 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
     writer.put("\n");
     const char* line = g_log.buffer + g_log.buffered;
     const u32 length = static_cast<u32>(writer.at - line);
-#if defined(MAICORD_LOG_STDOUT)
-    sys_write(1, line, length);
-#endif
     if (log_file() >= 0) {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {

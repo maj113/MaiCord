@@ -199,21 +199,6 @@ SecretStatus search(Client* client, const SecretAttribute* attributes, u32 count
 
 } // namespace
 
-const char* secret_status_name(SecretStatus status) noexcept {
-    switch (status) {
-    case SecretStatus::ok:
-        return "ok";
-    case SecretStatus::not_found:
-        return "not found";
-    case SecretStatus::unavailable:
-        return "unavailable";
-    case SecretStatus::locked:
-        return "locked";
-    default:
-        return "failed";
-    }
-}
-
 SecretStatus secret_lookup(const SecretAttribute* attributes, u32 count, u8* secret, u32 capacity, u32* length) noexcept {
     *length = 0;
     Client client{};
@@ -332,29 +317,6 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
             break;
     }
     builder_release(&body);
-    close_client(&client);
-    return status;
-}
-
-SecretStatus secret_erase(const SecretAttribute* attributes, u32 count) noexcept {
-    Client client{};
-    SecretStatus status = SecretStatus::failed;
-    if (!open_client(&client, &status))
-        return status;
-    Found found;
-    status = search(&client, attributes, count, &found);
-    if (status == SecretStatus::ok) {
-        if (found.unlocked_count == 0) {
-            status = found.locked_count ? SecretStatus::locked : SecretStatus::not_found;
-        } else {
-            for (u32 i = 0; i < found.unlocked_count && status == SecretStatus::ok; ++i) {
-                Message reply;
-                const CallTarget target{kService, found.unlocked[i], kItemInterface, "Delete"};
-                if (call(&client, target, nullptr, &reply, &status))
-                    message_release(&reply);
-            }
-        }
-    }
     close_client(&client);
     return status;
 }

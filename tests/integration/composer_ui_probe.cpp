@@ -2,6 +2,7 @@
 #include "settings/emoji_preferences.hpp"
 #include "../support/window_fixture.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/composer_height_model.hpp"
 #include "../support/account_module_fake.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
@@ -346,8 +347,8 @@ bool geometry() noexcept {
             // and inline widths; folded buttons take no space or focus.
             if (!require((controls[i] == MessageComposerControl::gif ||
                           controls[i] == MessageComposerControl::sticker) &&
-                             fixture->expected_width >= message_composer_scene_minimum_compact_width() &&
-                             fixture->expected_width < message_composer_scene_minimum_inline_width() &&
+                             fixture->expected_width >= kComposerCompactWidth &&
+                             fixture->expected_width < kComposerInlineWidth &&
                              !message_composer_scene_focus_control(&scene, controls[i]),
                          246))
                 return false;
@@ -1483,8 +1484,7 @@ bool scenarios() noexcept {
                  8))
         return false;
     fixture->theme = kLightTheme;
-    if (!require(message_composer_scene_minimum_inline_width() == 380.f &&
-                     resize(460, 600, 96, message_composer_scene_minimum_inline_width()) &&
+    if (!require(resize(460, 600, 96, kComposerInlineWidth) &&
                      capture(L"composer-boundary380-light96.bmp"),
                  9))
         return false;

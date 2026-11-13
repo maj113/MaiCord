@@ -1,4 +1,5 @@
 #include "maicord/app/plugins/http.hpp"
+#include "http_network.hpp"
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/interlocked.hpp"
@@ -112,7 +113,6 @@ struct PluginHttp {
     SrwLock lock;
     Thread* thread;
     Waitable notify;
-    PluginHttpTransport transport;
     // The HTTPS transport a request is using, so that close can cancel it.
     UpdateHttpsTransport* volatile active;
     volatile Atomic32 stopping;
@@ -254,7 +254,7 @@ void finish(Slot& slot, u32 error, u32 status) noexcept {
     if (error) slot.response_used = 0;
 }
 
-void run(Slot& slot, const PluginHttpTransport& transport) noexcept {
+void run(Slot& slot, UpdateHttpsTransport* https) noexcept {
     // Reserve the whole allowed response up front; pages are committed as bytes arrive.
     slot.response_reserved = align_page(slot.max_response ? slot.max_response : 4096);
     slot.response = static_cast<u8*>(pages_reserve(slot.response_reserved));
@@ -277,7 +277,7 @@ void run(Slot& slot, const PluginHttpTransport& transport) noexcept {
         const Utf8View host{at.origin, at.origin_bytes};
         const UpdateHttpRequest request{at.host, host, {at.target, at.target_bytes}, slot.max_response, sink, &slot};
         UpdateHttpResponse response{};
-        const UpdateTransportError sent = transport.exchange(transport.context, request, options, &response);
+        const UpdateTransportError sent = plugin_http_network_exchange(https, request, options, &response);
         UpdateLog line("plugins", "plugin_http");
         line.hex("owner", slot.owner_id).host("host", host).field("status", response.status)
             .field("bytes", response.body_bytes);
@@ -307,11 +307,6 @@ void run(Slot& slot, const PluginHttpTransport& transport) noexcept {
     }
 }
 
-UpdateTransportError exchange_https(void* context, const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
-                                    UpdateHttpResponse* response) noexcept {
-    return https_exchange(static_cast<UpdateHttpsTransport*>(context), request, options, response);
-}
-
 // The next queued request, marked running; null when none is queued (or the broker is stopping), in which
 // case `leave` also records that this worker is going away.
 Slot* take(PluginHttp* http, bool leave) noexcept {
@@ -329,7 +324,6 @@ Slot* take(PluginHttp* http, bool leave) noexcept {
 
 u32 worker_main(void* parameter) noexcept {
     auto* http = static_cast<PluginHttp*>(parameter);
-    const PluginHttpTransport injected = http->transport;
     UpdateHttpsTransport* https = nullptr;
     const auto release_https = [&]() noexcept {
         if (!https) return;
@@ -337,8 +331,7 @@ u32 worker_main(void* parameter) noexcept {
         AcquireSRWLockExclusive(http->lock.native());
         http->active = nullptr;
         ReleaseSRWLockExclusive(http->lock.native());
-        update_https_release(https);
-        pages_release(https);
+        plugin_http_network_close(https);
         https = nullptr;
     };
     for (;;) {
@@ -349,23 +342,15 @@ u32 worker_main(void* parameter) noexcept {
             slot = take(http, true);
             if (!slot) break;
         }
-        PluginHttpTransport transport = injected;
-        if (!transport.exchange) {
-            if (!https) {
-                https = commit_pages<UpdateHttpsTransport>();
-                if (https && !update_https_initialize(https)) {
-                    pages_release(https);
-                    https = nullptr;
-                }
-                if (https) {
-                    AcquireSRWLockExclusive(http->lock.native());
-                    http->active = https;
-                    ReleaseSRWLockExclusive(http->lock.native());
-                }
+        if (!https) {
+            https = plugin_http_network_open();
+            if (https) {
+                AcquireSRWLockExclusive(http->lock.native());
+                http->active = https;
+                ReleaseSRWLockExclusive(http->lock.native());
             }
-            if (https) transport = {https, exchange_https};
         }
-        if (transport.exchange) run(*slot, transport);
+        if (https) run(*slot, https);
         else finish(*slot, MC_HTTP_E_NETWORK, 0);
         AcquireSRWLockExclusive(http->lock.native());
         slot->state = State::done;
@@ -394,13 +379,6 @@ bool ensure_worker(PluginHttp* http) noexcept {
 }
 
 }  // namespace
-
-bool plugin_http_use_transport(PluginRuntime* runtime, const PluginHttpTransport& transport) noexcept {
-    PluginHttp* http = runtime && transport.exchange ? http_of(runtime, true) : nullptr;
-    if (!http) return false;
-    http->transport = transport;
-    return true;
-}
 
 mc_status plugin_http_submit(PluginBinding* binding, const mc_http_request& request, u64 tag) noexcept {
     if (!(binding->permissions & MC_PERM_NETWORK)) return MC_E_DENIED;
@@ -556,7 +534,7 @@ void plugin_http_close(PluginRuntime* runtime) noexcept {
     if (!http) return;
     InterlockedExchange(&http->stopping, 1);
     AcquireSRWLockExclusive(http->lock.native());
-    if (UpdateHttpsTransport* https = http->active) update_https_cancel(https);
+    if (UpdateHttpsTransport* https = http->active) plugin_http_network_cancel(https);
     ReleaseSRWLockExclusive(http->lock.native());
     if (http->thread && !thread_wait(http->thread, kStopWaitMilliseconds)) return;
     // A worker that does not stop keeps its memory; nothing else touches it.

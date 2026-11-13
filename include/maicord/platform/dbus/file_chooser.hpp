@@ -17,22 +17,11 @@ namespace maicord::dbus {
 inline constexpr u32 kFileChooserMaximumFiles = 64;
 inline constexpr u32 kFileChooserPathBytes = 1024;
 
-struct FileFilter {
-    const char* name;                  // "Images"
-    const char* const* patterns;       // globs: "*.png", "*.PNG"
-    u32 pattern_count;
-};
-
+// The dialog belongs to the window (portal_parent_window) and is modal; an open dialog picks files, not folders.
 struct FileChooserOptions {
-    const char* title;           // null for the portal's default wording
-    const char* parent;          // the portal's window identifier ("wayland:<handle>", "x11:<xid>"); null for none
-    const FileFilter* filters;   // the first is selected
-    u32 filter_count;
-    bool multiple;               // open: several files
-    bool directory;              // open: choose folders
-    const char* accept_label;    // the confirm button's text; null for the default
-    const char* current_name;    // save: the suggested file name
-    const char* current_folder;  // the folder to start in (an absolute path); null for the portal's choice
+    const char* title;         // null for the portal's default wording
+    bool multiple;             // open: several files
+    const char* current_name;  // save: the suggested file name
     // Called once, on the UI thread inside the session bus processing, when the state leaves `pending` through the
     // portal's answer or a failed call; not for file_chooser_cancel or file_chooser_release, which the caller makes
     // itself. May be null.

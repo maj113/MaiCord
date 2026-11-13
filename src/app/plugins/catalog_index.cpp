@@ -923,7 +923,4 @@ CatalogRevocationSeverity catalog_index_revocation(const CatalogIndex& index, co
     return found ? found->severity : CatalogRevocationSeverity::none;
 }
 
-Utf8View catalog_permission_name(u32 bit) noexcept { return name_list_at(kPermissions, bit); }
-Utf8View catalog_kind_name(CatalogKind kind) noexcept { return name_list_at(kKinds, static_cast<u32>(kind)); }
-
 } // namespace maicord

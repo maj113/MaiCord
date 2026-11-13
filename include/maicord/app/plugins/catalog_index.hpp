@@ -203,8 +203,5 @@ u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, const Utf8Vi
 // What the index says about a file: none, or the strongest severity listed for sha256 (the blocklist is malicious).
 CatalogRevocationSeverity catalog_index_revocation(const CatalogIndex& index, const u8* sha256,
                                                    const CatalogRevocation** entry = nullptr) noexcept;
-// The lower-case MC_PERM_* name of bit (0..10), empty past them.
-Utf8View catalog_permission_name(u32 bit) noexcept;
-Utf8View catalog_kind_name(CatalogKind) noexcept;
 
 } // namespace maicord

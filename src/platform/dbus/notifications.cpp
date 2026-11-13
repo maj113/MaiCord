@@ -209,7 +209,7 @@ void on_notify_reply(void* context, Status status, const Message* reply) noexcep
         fail_entry(entry, status, reply, "Notify failed");
         return;
     }
-    // A replaced notification keeps one entry.
+    // An id the daemon hands out again keeps one entry.
     if (Entry* previous = find_by_id(id); previous && previous != entry)
         *previous = Entry{};
     entry->id = id;
@@ -294,7 +294,7 @@ bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry
     Builder body;
     builder_init(&body);
     builder_string(&body, "MaiCord");
-    builder_u32(&body, request.replaces_id);
+    builder_u32(&body, 0);  // replaces_id: a new notification
     builder_string(&body, request.icon ? request.icon : "");
     builder_string(&body, request.summary);
     builder_string(&body, body_text);
@@ -303,10 +303,6 @@ bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry
         builder_string(&body, "default");
         builder_string(&body, "Open");
     }
-    for (u32 i = 0; i < request.action_count; ++i) {
-        builder_string(&body, request.actions[i].key);
-        builder_string(&body, request.actions[i].label);
-    }
     builder_close_array(&body);
     builder_open_array(&body, "{sv}");
     if (request.desktop_entry)
@@ -314,12 +310,12 @@ bool show_direct(Connection* c, const NotificationRequest& request, Entry* entry
     if (request.category)
         builder_dict_string(&body, "category", request.category);
     builder_open_dict_entry(&body, "urgency", "y");
-    builder_byte(&body, request.urgency == NotificationUrgency::low ? 0 : request.urgency == NotificationUrgency::critical ? 2 : 1);
+    builder_byte(&body, 1);  // normal
     builder_close_dict_entry(&body);
     if (request.silent)
         builder_dict_bool(&body, "suppress-sound", true);
     builder_close_array(&body);
-    builder_i32(&body, request.timeout_ms);
+    builder_i32(&body, -1);  // the server's default timeout
     const CallTarget target{kDaemonName, kDaemonPath, kDaemonName, "Notify"};
     const bool sent = connection_call(c, target, &body, kCallTimeoutMs, on_notify_reply,
                                       reinterpret_cast<void*>(static_cast<usize>(entry - g_entries) + 1));
@@ -390,24 +386,9 @@ bool show_portal(Connection* c, const NotificationRequest& request, Entry* entry
         builder_close_struct(&body);
         builder_close_dict_entry(&body);
     }
-    builder_dict_string(&body, "priority",
-                        request.urgency == NotificationUrgency::critical ? "urgent"
-                        : request.urgency == NotificationUrgency::low    ? "low"
-                                                                         : "normal");
+    builder_dict_string(&body, "priority", "normal");
     if (request.default_action)
         builder_dict_string(&body, "default-action", "default");
-    if (request.action_count) {
-        builder_open_dict_entry(&body, "buttons", "aa{sv}");
-        builder_open_array(&body, "a{sv}");
-        for (u32 i = 0; i < request.action_count; ++i) {
-            builder_open_array(&body, "{sv}");
-            builder_dict_string(&body, "label", request.actions[i].label);
-            builder_dict_string(&body, "action", request.actions[i].key);
-            builder_close_array(&body);
-        }
-        builder_close_array(&body);
-        builder_close_dict_entry(&body);
-    }
     builder_close_array(&body);
     const CallTarget target{kPortalName, kPortalPath, kPortalInterface, "AddNotification"};
     const bool sent = connection_call(c, target, &body, kCallTimeoutMs, on_portal_reply,
@@ -432,22 +413,10 @@ NotificationBackend notification_backend() noexcept {
 }
 
 bool notification_show(const NotificationRequest& request) noexcept {
-    if (!request.summary || (request.action_count && !request.actions))
-        return false;
-    for (u32 i = 0; i < request.action_count; ++i)
-        if (!request.actions[i].key || !request.actions[i].label || c_string_equal(request.actions[i].key, "default"))
-            return false;
-    if (!ensure_backend())
+    if (!request.summary || !ensure_backend())
         return false;
     Connection* c = session_bus();
-    Entry* entry = nullptr;
-    if (g_backend == NotificationBackend::direct && request.replaces_id)
-        entry = find_by_id(request.replaces_id);
-    if (entry) {
-        entry->cookie = request.cookie;
-    } else {
-        entry = take_entry(request.cookie);
-    }
+    Entry* entry = take_entry(request.cookie);
     const bool sent =
         g_backend == NotificationBackend::portal ? show_portal(c, request, entry) : show_direct(c, request, entry);
     if (!sent)

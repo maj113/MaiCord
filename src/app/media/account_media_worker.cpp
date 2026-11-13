@@ -135,14 +135,6 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
     return request_result(AccountMediaRequestState::ready);
 }
 
-AccountMediaRequestResult account_media_worker_start_lane(AccountMediaWorker* worker, u32 index) noexcept {
-    if (!worker || !worker->initialized || index >= kAccountMediaDecodeLaneCount ||
-        load_phase(&worker->lanes[index]) != AccountMediaWorkerPhase::idle ||
-        account_media_worker_stop_requested(worker))
-        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    return start_lane(worker, worker->lanes[index]);
-}
-
 AccountMediaRequestResult account_media_worker_request_static_asset(AccountMediaWorker* worker,
                                                                     MediaAssetKey key, u64 monotonic_now_ms,
                                                                     u64 unix_now_seconds) noexcept {

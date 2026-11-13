@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop/integration.hpp"
+#include "../../support/desktop_activation.hpp"
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "maicord/platform/desktop/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"

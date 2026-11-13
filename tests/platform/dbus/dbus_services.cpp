@@ -9,6 +9,7 @@
 #include "maicord/platform/dbus/session.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
+#include "../../support/secret_service_test.hpp"
 #include "../../support/test_output.hpp"
 
 // The desktop services over the session bus (tools/test_dbus.sh): the settings portal, notifications (the daemon and the
@@ -258,14 +259,6 @@ void test_settings() noexcept {
     settle(200);
     desktop_settings_get(&s);
     check(s.color_scheme == ColorScheme::light, "the interface schema's scheme does not override the portal's");
-
-    // A reconnect reads everything again.
-    take_log();
-    session_bus_close();
-    check(session_bus_open(), "the session bus reopens");
-    settle(300);
-    take_log();
-    check(find_line("ReadAll") != nullptr, "the open hook asks the portal for the settings again");
 }
 
 // Notifications ------------------------------------------------------------------------------------------------------------
@@ -326,25 +319,14 @@ void test_notification_direct() noexcept {
 
     NotificationRequest bad{};
     check(!notification_show(bad), "a notification needs a summary");
-    const NotificationAction reserved[1] = {{"default", "Nope"}};
-    NotificationRequest bad_actions{};
-    bad_actions.summary = "x";
-    bad_actions.actions = reserved;
-    bad_actions.action_count = 1;
-    check(!notification_show(bad_actions), "the key \"default\" is the notification itself, not a button");
 
-    const NotificationAction actions[1] = {{"reply", "Reply"}};
     NotificationRequest request{};
     request.summary = "Hello";
     request.body = "Body text";
     request.icon = "dialog-information";
     request.category = "im.received";
     request.desktop_entry = "maicord";
-    request.actions = actions;
-    request.action_count = 1;
     request.default_action = true;
-    request.timeout_ms = 5000;
-    request.urgency = NotificationUrgency::critical;
     request.silent = true;
     request.cookie = 77;
     take_log();
@@ -354,8 +336,8 @@ void test_notification_direct() noexcept {
     const u32 id = shown ? shown->id : 0;
     take_log();
     expect_line("Notify",
-                "Notify s:MaiCord u:0 s:dialog-information s:Hello s:Body text [s:default,s:Open,s:reply,s:Reply] "
-                "{s:category=v(s:im.received),s:desktop-entry=v(s:maicord),s:suppress-sound=v(b:1),s:urgency=v(y:2)} i:5000",
+                "Notify s:MaiCord u:0 s:dialog-information s:Hello s:Body text [s:default,s:Open] "
+                "{s:category=v(s:im.received),s:desktop-entry=v(s:maicord),s:suppress-sound=v(b:1),s:urgency=v(y:1)} i:-1",
                 "Notify's arguments as libdbus decoded them");
 
     // Signals: the token first, then the action.
@@ -408,43 +390,18 @@ void test_notification_direct() noexcept {
     settle(150);
     check(g_event_count == g_events_seen, "a closed notification takes no more actions");
 
-    // Replace: the same id comes back and one entry serves both.
+    // Closing.
     NotificationRequest first{};
     first.summary = "One";
-    first.timeout_ms = -1;
     first.cookie = 1;
     check(notification_show(first), "a plain notification");
     const Recorded* one = next_event();
     check(one && one->kind == NotificationEventKind::shown && one->cookie == 1, "shown");
     const u32 first_id = one ? one->id : 0;
-    NotificationRequest replacement{};
-    replacement.summary = "Two";
-    replacement.timeout_ms = 0;
-    replacement.replaces_id = first_id;
-    replacement.cookie = 2;
-    take_log();
-    check(notification_show(replacement), "a replacing notification");
-    const Recorded* two = next_event();
-    check(two && two->kind == NotificationEventKind::shown && two->cookie == 2 && two->id == first_id, "the replacement keeps the id");
-    take_log();
-    char want[256];
-    const char head[] = "Notify s:MaiCord u:";
-    copy_bytes(want, head, sizeof(head) - 1);
-    u32 length = sizeof(head) - 1;
-    char digits[12];
-    u32 count = 0;
-    for (u32 n = first_id; n || count == 0; n /= 10)
-        digits[count++] = static_cast<char>('0' + n % 10);
-    while (count)
-        want[length++] = digits[--count];
-    const char tail[] = " s: s:Two s: [] {s:urgency=v(y:1)} i:0";
-    copy_bytes(want + length, tail, sizeof(tail));
-    expect_line("Notify", want, "the replacement names the notification it replaces");
 
-    // Closing.
     check(notification_close(first_id), "closing a notification");
     const Recorded* closed_by_call = next_event();
-    check(closed_by_call && closed_by_call->kind == NotificationEventKind::closed && closed_by_call->cookie == 2 &&
+    check(closed_by_call && closed_by_call->kind == NotificationEventKind::closed && closed_by_call->cookie == 1 &&
               closed_by_call->reason == 3,
           "the daemon reports the close");
     take_log();
@@ -475,7 +432,6 @@ void test_notification_direct() noexcept {
     markup.summary = "R&D <team>";
     markup.body = "<a href=\"https://x\">a & b</a> > c \xC3\xA9";
     markup.icon = "/tmp/maicord avatar.png";
-    markup.timeout_ms = -1;
     markup.cookie = 6;
     take_log();
     check(notification_show(markup), "a notification whose text holds markup characters");
@@ -498,7 +454,6 @@ void test_notification_direct() noexcept {
     NotificationRequest long_text{};
     long_text.summary = "Long";
     long_text.body = big;
-    long_text.timeout_ms = -1;
     long_text.cookie = 7;
     take_log();
     check(notification_show(long_text), "a notification with a very long body");
@@ -524,7 +479,6 @@ void test_notification_plain() noexcept {
     NotificationRequest request{};
     request.summary = "R&D";
     request.body = "<b>a & b</b>";
-    request.timeout_ms = -1;
     request.cookie = 31;
     take_log();
     check(notification_show(request), "a notification for a daemon without body-markup");
@@ -543,15 +497,11 @@ void test_notification_plain() noexcept {
 void test_notification_portal() noexcept {
     notifications_set_handler(on_notification, nullptr);
     check(notification_backend() == NotificationBackend::portal, "MAICORD_NOTIFICATION_BACKEND=portal selects the portal");
-    const NotificationAction actions[1] = {{"reply", "Reply"}};
     NotificationRequest request{};
     request.summary = "Portal hello";
     request.body = "Body";
     request.icon = "mail-unread";
-    request.actions = actions;
-    request.action_count = 1;
     request.default_action = true;
-    request.urgency = NotificationUrgency::critical;
     request.cookie = 9;
     take_log();
     check(notification_show(request), "a portal notification is sent");
@@ -559,8 +509,8 @@ void test_notification_portal() noexcept {
     check(shown && shown->kind == NotificationEventKind::shown && shown->cookie == 9 && shown->id == 1, "shown, with the local id");
     take_log();
     expect_line("AddNotification",
-                "AddNotification s:1 {s:body=v(s:Body),s:buttons=v([{s:action=v(s:reply),s:label=v(s:Reply)}]),"
-                "s:default-action=v(s:default),s:icon=v((s:themed,v([s:mail-unread]))),s:priority=v(s:urgent),"
+                "AddNotification s:1 {s:body=v(s:Body),"
+                "s:default-action=v(s:default),s:icon=v((s:themed,v([s:mail-unread]))),s:priority=v(s:normal),"
                 "s:title=v(s:Portal hello)}",
                 "AddNotification's arguments as libdbus decoded them");
 
@@ -725,7 +675,7 @@ void test_secrets() noexcept {
     {
         const SecretStatus first = secret_lookup(attributes, 2, secret, sizeof(secret), &length);
         if (first != SecretStatus::not_found)
-            test_write_line(secret_status_name(first));
+            test_write_line(secret_status_text(first));
         check(first == SecretStatus::not_found && length == 0, "an empty keyring has no such secret");
     }
     take_log();
@@ -806,12 +756,6 @@ void test_secrets() noexcept {
     builder_bool(&mode, false);
     control("SetMode", &mode);
     builder_release(&mode);
-
-    check(secret_erase(attributes, 2) == SecretStatus::ok, "erase");
-    check(secret_lookup(attributes, 2, secret, sizeof(secret), &length) == SecretStatus::not_found &&
-              secret_erase(attributes, 2) == SecretStatus::not_found,
-          "the item is gone, and a second erase finds nothing");
-    secret_erase(big, 1);
 }
 
 // Portal probes -----------------------------------------------------------------------------------------------------------
@@ -854,8 +798,7 @@ void test_bare() noexcept {
     u32 length = 0;
     const SecretAttribute attributes[1] = {{"application", "maicord"}};
     check(secret_lookup(attributes, 1, secret, sizeof(secret), &length) == SecretStatus::unavailable &&
-              secret_store("x", attributes, 1, secret, 32) == SecretStatus::unavailable &&
-              secret_erase(attributes, 1) == SecretStatus::unavailable,
+              secret_store("x", attributes, 1, secret, 32) == SecretStatus::unavailable,
           "no Secret Service: unavailable");
     check(portal_interface_version("org.freedesktop.portal.Inhibit", 1000) == 0, "no portal: version 0");
 
@@ -908,6 +851,5 @@ MAICORD_TEST_ENTRY(maicord_dbus_services_entry) {
     test_secrets();
     test_probes();
     connection_close(g_control);
-    session_bus_close();
     test_exit(g_failures, "dbus_services");
 }

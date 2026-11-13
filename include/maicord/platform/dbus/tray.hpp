@@ -29,12 +29,12 @@ struct TrayMenuEntry {
     bool separator_before;
 };
 
+// The item's status is always Active.
 struct TrayState {
     const char* title;    // "MaiCord"
     const char* tooltip;  // the voice or unread state
     const TrayPixmap* icons;
     u32 icon_count;
-    bool attention;  // NeedsAttention: hosts may blink or move the icon
     const TrayMenuEntry* menu;
     u32 menu_count;
 };

@@ -236,7 +236,7 @@ inline bool compact_controls(float composer_width, const UiResolvedThemeStyles* 
            composer_width < full_controls_minimum_width(styles);
 }
 
-inline float editor_padding_height(const UiResolvedThemeStyles* styles = nullptr) noexcept {
+inline float editor_padding_height(const UiResolvedThemeStyles* styles) noexcept {
     const auto& metrics = ui_theme_metrics(styles);
     return metrics.composer_padding + metrics.composer_padding + metrics.menu_padding + metrics.menu_padding;
 }
@@ -966,12 +966,6 @@ bool message_composer_scene_bind_theme_styles(MessageComposerScene* scene,
     return true;
 }
 
-float message_composer_scene_minimum_inline_width(const UiResolvedThemeStyles* styles) noexcept {
-    return full_controls_minimum_width(styles);
-}
-float message_composer_scene_minimum_compact_width(const UiResolvedThemeStyles* styles) noexcept {
-    return compact_controls_minimum_width(styles);
-}
 bool message_composer_scene_control_visible(const MessageComposerScene& scene,
                                             MessageComposerControl control) noexcept {
     const auto* node = message_composer_scene_layout_node(scene, control);
@@ -1019,17 +1013,6 @@ float message_composer_scene_measured_height(const MessageComposerScene& scene,
         styles, scene.command_bar_name_bytes != 0);
     return composer_row_height(text_height + editor_padding_height(styles), styles) +
            message_composer_scene_toolbar_height(ui_rect_width(scene.viewport), styles) + extras;
-}
-
-float message_composer_scene_preferred_height(const MessageComposer& model, float composer_width,
-                                              bool reply_visible,
-                                              u8 attachments_visible,
-                                              const UiResolvedThemeStyles* styles) noexcept {
-    const float natural =
-        message_composer_preferred_height(model, message_composer_scene_text_width(composer_width, styles));
-    return composer_row_height(natural + editor_padding_height(styles) - editor_padding_height(), styles) +
-           message_composer_scene_toolbar_height(composer_width, styles) +
-           message_composer_scene_chrome_height(reply_visible, attachments_visible, styles);
 }
 
 float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, u8 attachments,

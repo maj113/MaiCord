@@ -6,6 +6,7 @@
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../../support/composer_height_model.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 

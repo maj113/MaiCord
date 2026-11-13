@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "plugins/binding_internal.hpp"
+#include "plugins/http_network.hpp"
 #include "fake_transport.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
@@ -16,7 +17,7 @@
 
 // The HTTP broker, completions, gestures, typed and secret settings and the setting and keybind hooks,
 // against the network fixture DLL (tests/fixtures/plugin_runtime_fixture.c, FIXTURE_NET) and a scripted
-// transport in place of the network.
+// exchange linked in place of the broker's network (src/app/plugins/http_network.cpp).
 namespace maicord::plugin_network_tests {
 using namespace plugin_runtime_detail;
 using namespace plugin_fixture;
@@ -828,7 +829,6 @@ void run() noexcept {
         plugin_runtime_open(&runtime, {root.plugins, length(root.plugins)}, {root.data, length(root.data)}, nullptr);
     check(opened.ok() && install(root, L"MaiCordPluginRuntimeNetFixture.dll", L"net.dll"), "the runtime and fixture open");
     if (opened.ok()) {
-        check(plugin_http_use_transport(&runtime, {&g_network, exchange}), "the scripted transport is installed");
         PluginBinding* binding = enable(&runtime);
         if (binding) {
             test_requests(&runtime, binding);
@@ -853,6 +853,19 @@ void run() noexcept {
 }
 
 } // namespace maicord::plugin_network_tests
+
+namespace maicord {
+UpdateHttpsTransport* plugin_http_network_open() noexcept {
+    return reinterpret_cast<UpdateHttpsTransport*>(&plugin_network_tests::g_network);
+}
+UpdateTransportError plugin_http_network_exchange(UpdateHttpsTransport* https, const UpdateHttpRequest& request,
+                                                  const HttpsExchangeOptions& options,
+                                                  UpdateHttpResponse* response) noexcept {
+    return plugin_network_tests::exchange(https, request, options, response);
+}
+void plugin_http_network_cancel(UpdateHttpsTransport*) noexcept {}
+void plugin_http_network_close(UpdateHttpsTransport*) noexcept {}
+} // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_plugin_network_tests_entry() noexcept {
     maicord::plugin_network_tests::run();

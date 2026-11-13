@@ -14,6 +14,7 @@
 #include "maicord/platform/window/window.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "../support/test_output.hpp"
+#include "../support/wayland_backend_state.hpp"
 #include "ui_quads_scene.hpp"
 
 namespace maicord {

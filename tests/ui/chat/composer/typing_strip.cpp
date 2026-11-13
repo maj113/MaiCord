@@ -1,6 +1,7 @@
 // The typing indicator draws inside a strip that is always reserved above the composer surface: showing or
 // hiding it moves no message, scrolls nothing and lays nothing out again, it only repaints the strip.
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../../../support/composer_height_model.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/shell/presentation.hpp"

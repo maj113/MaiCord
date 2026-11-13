@@ -2,9 +2,10 @@
 
 #include "maicord/core/base.hpp"
 
-// The D-Bus wire format (Linux): marshalling of the full type system (y b n q i u x t d s o g a v h ( ) { }, little
-// endian, the only byte order this client sends or accepts), message headers, and the Builder and Reader that write and
-// walk a message body. No allocation except the Builder's growing buffer and a received Message's one block.
+// The D-Bus wire format (Linux): little endian, the only byte order this client sends or accepts; message headers; and
+// the Builder and Reader that write and walk a message body. The Reader walks the full type system
+// (y b n q i u x t d s o g a v h ( ) { }); the Builder writes what the client sends (no q, t or h). No allocation except
+// the Builder's growing buffer and a received Message's one block.
 //
 // Alignment is relative to the start of the message; a body starts on an 8-byte boundary, so the Builder and Reader count
 // offsets from the start of the body. Every Reader function that fails leaves the reader failed (sticky) and returns
@@ -37,8 +38,6 @@ struct Builder {
     bool failed;
     char signature[kMaxSignature + 1];  // of the top-level values appended so far
     u32 signature_length;
-    int fds[kMaxFds];  // duplicates, owned until the message is sent or the builder released
-    u32 fd_count;
     struct Frame {
         u8 kind;  // 'a' array, '(' struct, '{' dict entry, 'v' variant
         u32 length_position;  // of an array's length word
@@ -48,7 +47,7 @@ struct Builder {
 };
 
 void builder_init(Builder* builder) noexcept;
-// Frees the buffer and closes any descriptors the message did not take.
+// Frees the buffer.
 void builder_release(Builder* builder) noexcept;
 inline bool builder_ok(const Builder& builder) noexcept {
     return !builder.failed && builder.depth == 0;
@@ -57,18 +56,14 @@ inline bool builder_ok(const Builder& builder) noexcept {
 void builder_byte(Builder* builder, u8 value) noexcept;
 void builder_bool(Builder* builder, bool value) noexcept;
 void builder_i16(Builder* builder, i16 value) noexcept;
-void builder_u16(Builder* builder, u16 value) noexcept;
 void builder_i32(Builder* builder, i32 value) noexcept;
 void builder_u32(Builder* builder, u32 value) noexcept;
 void builder_i64(Builder* builder, i64 value) noexcept;
-void builder_u64(Builder* builder, u64 value) noexcept;
 void builder_double(Builder* builder, double value) noexcept;
 void builder_string(Builder* builder, const char* text, u32 length) noexcept;
 void builder_string(Builder* builder, const char* text) noexcept;  // NUL terminated
 void builder_object_path(Builder* builder, const char* path) noexcept;
 void builder_signature(Builder* builder, const char* signature) noexcept;
-// Duplicates `fd`; the message carries the duplicate (SCM_RIGHTS) and the caller keeps its own.
-void builder_unix_fd(Builder* builder, int fd) noexcept;
 
 // An array of `element_signature` ("s", "{sv}", "(ii)", "ay", ...); append the elements, then close.
 void builder_open_array(Builder* builder, const char* element_signature) noexcept;
@@ -178,7 +173,7 @@ struct MessageHeader {
 };
 
 // Serialises header and body into one heap block (little endian). False when a required field is missing, the body
-// failed, or the message would be too large. The descriptors of the body are not part of the block.
+// failed, or the message would be too large.
 bool message_serialize(const MessageHeader& header, const Builder& body, u8** block, u32* bytes) noexcept;
 // Parses a complete message; takes ownership of `buffer` (released by message_release, also on failure) and checks the
 // header: byte order, version, lengths, the fields each type requires.

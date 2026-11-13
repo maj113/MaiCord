@@ -13,6 +13,10 @@ struct ApplicationSurfaceMotionKey {
     u64 scene{}, owner{}, lifetime{};
     u32 kind{};
 };
+inline bool application_surface_motion_same_key(const ApplicationSurfaceMotionKey& a,
+                                                const ApplicationSurfaceMotionKey& b) noexcept {
+    return a.scene == b.scene && a.owner == b.owner && a.lifetime == b.lifetime && a.kind == b.kind;
+}
 struct ApplicationSurfaceMotionSlot {
     // Keep Application's static storage zero-filled; install actual theme
     // defaults lazily, rather than serializing the full host object in .data.

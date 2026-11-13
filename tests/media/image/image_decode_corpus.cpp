@@ -3,7 +3,7 @@
 #include "../../fixtures/image_decode_corpus.hpp"
 #include "maicord/media/image/apng.hpp"
 #include "maicord/media/image/animated_webp.hpp"
-#include "maicord/media/image/jpeg.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "maicord/media/image/lossy_webp.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/media/image/webp.hpp"

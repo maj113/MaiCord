@@ -9,6 +9,7 @@
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "maicord/ui/media/avatar_media.hpp"
 #include "../../support/media_fixture.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
 #include "maicord/core/byte_order.hpp"

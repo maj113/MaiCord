@@ -14,33 +14,21 @@ namespace maicord::dbus {
 
 enum class NotificationBackend : u8 { none, direct, portal };
 
-struct NotificationAction {
-    const char* key;    // reported in the action event
-    const char* label;  // the button's text
-};
-
-// normal is the default of a zeroed request; the wire values (0 low, 1 normal, 2 critical) are mapped on sending.
-enum class NotificationUrgency : u8 { normal = 0, low = 1, critical = 2 };
-
+// Sent with normal urgency and the server's default timeout.
 struct NotificationRequest {
     const char* summary;        // required
     const char* body;           // plain text, may be null (sent as markup, escaped, to a daemon that reads markup)
     const char* icon;           // an icon theme name or an absolute path (the portal gets the file's bytes); may be null
     const char* category;       // "im.received" ...; may be null
     const char* desktop_entry;  // the .desktop file's name without the extension; null for none
-    const NotificationAction* actions;  // buttons
-    u32 action_count;
     bool default_action;  // clicking the notification itself reports the action "default"
-    u32 replaces_id;      // direct backend: replace this notification (0 = a new one)
-    i32 timeout_ms;       // -1 the server's default, 0 never expires
-    NotificationUrgency urgency;
-    bool silent;  // ask the server not to play a sound
-    u64 cookie;   // returned in every event of this notification
+    bool silent;          // ask the server not to play a sound
+    u64 cookie;           // returned in every event of this notification
 };
 
 enum class NotificationEventKind : u8 {
     shown,   // the server accepted it: `id` is set
-    action,  // a button or the notification was activated: `action_key` (and `activation_token` when given)
+    action,  // it was activated: `action_key` (and `activation_token` when given)
     closed,  // `reason`: 1 expired, 2 dismissed by the user, 3 closed by notification_close, 4 other
     failed,  // the server refused it or there is none
 };

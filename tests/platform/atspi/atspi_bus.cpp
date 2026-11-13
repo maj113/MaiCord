@@ -425,7 +425,6 @@ void run() noexcept {
     check(!connected() && atspi::server_waitable() == nullptr, "stopping disconnects");
     connection_close(g_client);
     connection_close(g_services);
-    session_bus_close();
 }
 
 } // namespace

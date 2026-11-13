@@ -284,7 +284,6 @@ void test_mock() noexcept {
     check(closed != nullptr && same_text(closed, want_close), "the daemon was told to close that toast");
     desktop_notifications_release(&notifications);
     dbus::connection_close(g_control);
-    dbus::session_bus_close();
 }
 
 } // namespace

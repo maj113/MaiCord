@@ -328,10 +328,6 @@ InstanceResult forward_to_socket_owner(const SocketAddress& address, const Launc
 
 } // namespace
 
-void instance_socket_address(const char* application_id, const char* profile_key, SocketAddress* address) noexcept {
-    *address = socket_address(application_id, profile_key ? profile_key : "");
-}
-
 bool instance_bus_name(const char* application_id, const char* profile_key, char* name, u32 name_capacity, char* path,
                        u32 path_capacity) noexcept {
     if (!application_id)

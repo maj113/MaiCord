@@ -711,20 +711,6 @@ JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImag
 } // namespace jpeg_detail
 using namespace jpeg_detail;
 
-JpegCoefficientBlock jpeg_coefficient_block(const JpegCoefficientWorkspace& coefficients, u32 blocks,
-                                            u32 block) noexcept {
-    JpegCoefficientBlock result{};
-    const u8* const stored = coefficients.bytes + jpeg_coefficient_row_offset(blocks);
-    if (coefficients.whole_blocks) {
-        memcpy(&result, stored + block * sizeof(JpegCoefficientBlock), sizeof(result));
-        return result;
-    }
-    const u32 word = byte_load_le32(coefficients.bytes + block * 4u);
-    const u32 rows = word & 15u;
-    memcpy(&result, stored + (word >> 8) * 16u, (rows < 8u ? rows : 8u) * 16u);
-    return result;
-}
-
 JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace) noexcept {
     return parse_jpeg(encoded, image, workspace, false);
 }
@@ -850,20 +836,6 @@ JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encode
     }
     result.error = JpegError::none;
     result.decoded_scans = 1;
-    return result;
-}
-
-JpegDecodeResult jpeg_decode_coefficients(ConstSlice<u8> encoded, JpegImage* image,
-                                          JpegWorkspace* workspace) noexcept {
-    JpegDecodeResult result{};
-    result.parse = jpeg_parse(encoded, image, workspace);
-    if (!result.parse.ok()) {
-        result.error = result.parse.error;
-        return result;
-    }
-    const JpegParseResult parse = result.parse;
-    result = jpeg_decode_parsed_coefficients(encoded, *image, &workspace->coefficients);
-    result.parse = parse;
     return result;
 }
 

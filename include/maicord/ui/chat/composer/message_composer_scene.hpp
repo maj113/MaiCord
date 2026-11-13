@@ -305,8 +305,6 @@ bool message_composer_scene_bind_theme_styles(MessageComposerScene* scene,
 // wrap into additional toolbar rows.
 float message_composer_scene_text_width(float composer_width,
                                         const UiResolvedThemeStyles* styles = nullptr) noexcept;
-float message_composer_scene_minimum_inline_width(const UiResolvedThemeStyles* styles = nullptr) noexcept;
-float message_composer_scene_minimum_compact_width(const UiResolvedThemeStyles* styles = nullptr) noexcept;
 // False for accessories folded away at the current width.
 bool message_composer_scene_control_visible(const MessageComposerScene&, MessageComposerControl) noexcept;
 // Keyboard-focused plugin toolbar button, or kMessageComposerPluginSlots.
@@ -316,9 +314,6 @@ float message_composer_scene_toolbar_height(float composer_width,
 // attachments is a MessageComposerAttachmentRow; true selects the label row. The
 // typing strip above the surface is always part of the height, so showing or
 // hiding the indicator never moves the message list.
-float message_composer_scene_preferred_height(const MessageComposer& model, float composer_width,
-                                              bool reply_visible, u8 attachments_visible = 0,
-                                              const UiResolvedThemeStyles* styles = nullptr) noexcept;
 float message_composer_scene_measured_height(const MessageComposerScene& scene, float text_height) noexcept;
 // command_bar: the selected slash command's option bar (stacked first).
 float message_composer_scene_chrome_height(

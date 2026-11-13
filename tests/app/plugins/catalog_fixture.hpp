@@ -2,7 +2,9 @@
 // Shared by the Windows catalog tests: files, and (catalog_signing.hpp) hex, the scalar-one signing key the format-2
 // vectors use and a small text builder for index documents.
 #include "catalog_signing.hpp"
+#include "maicord/app/plugins/catalog_index.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
@@ -47,3 +49,16 @@ using plugin_fixture::remove_tree;
 using plugin_fixture::test_directory;
 
 } // namespace maicord::catalog_fixture
+
+namespace maicord {
+// The index document's spellings (tools/release/plugin_index.py): item kinds, and the lower-case MC_PERM_* names in
+// bit order, empty past them.
+inline Utf8View catalog_kind_name(CatalogKind kind) noexcept {
+    return name_list_at("plugin\0theme\0effect\0", static_cast<u32>(kind));
+}
+inline Utf8View catalog_permission_name(u32 bit) noexcept {
+    return name_list_at("message_send\0read_messages\0message_history\0read_activity\0network\0composer\0"
+                        "act_messages\0act_presence\0clipboard\0automated_actions\0persistent_log\0",
+                        bit);
+}
+} // namespace maicord

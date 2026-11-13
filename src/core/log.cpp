@@ -107,13 +107,6 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
     writer.put("\r\n");
     const char* line = g_log.buffer + g_log.buffered;
     const u32 length = static_cast<u32>(writer.at - line);
-#if defined(MAICORD_LOG_STDOUT)
-    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (output && output != INVALID_HANDLE_VALUE) {
-        DWORD written = 0;
-        WriteFile(output, line, length, &written, nullptr);
-    }
-#endif
     if (g_log.file && g_log.file != INVALID_HANDLE_VALUE) {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {

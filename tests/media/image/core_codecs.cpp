@@ -5,6 +5,7 @@
 #include "maicord/media/image/jpeg.hpp"
 #include "maicord/media/image/dominant_color.hpp"
 #include "../../support/media_fixture.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "../../fixtures/jpeg_reference_fixture.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/jpeg_cmyk_fixture.hpp"

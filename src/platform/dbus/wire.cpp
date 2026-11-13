@@ -215,8 +215,6 @@ void builder_init(Builder* builder) noexcept {
 }
 
 void builder_release(Builder* builder) noexcept {
-    for (u32 i = 0; i < builder->fd_count; ++i)
-        sys_close(builder->fds[i]);
     if (builder->data) {
         secure_clear_bytes(builder->data, builder->capacity);
         heap_free(builder->data);
@@ -240,11 +238,6 @@ void builder_i16(Builder* builder, i16 value) noexcept {
     put(builder, &value, 2, 2);
 }
 
-void builder_u16(Builder* builder, u16 value) noexcept {
-    note(builder, "q", 1);
-    put(builder, &value, 2, 2);
-}
-
 void builder_i32(Builder* builder, i32 value) noexcept {
     note(builder, "i", 1);
     put(builder, &value, 4, 4);
@@ -257,11 +250,6 @@ void builder_u32(Builder* builder, u32 value) noexcept {
 
 void builder_i64(Builder* builder, i64 value) noexcept {
     note(builder, "x", 1);
-    put(builder, &value, 8, 8);
-}
-
-void builder_u64(Builder* builder, u64 value) noexcept {
-    note(builder, "t", 1);
     put(builder, &value, 8, 8);
 }
 
@@ -314,24 +302,6 @@ void builder_signature(Builder* builder, const char* signature) noexcept {
         return;
     copy_bytes(builder->data + builder->size, signature, length + 1);
     builder->size += length + 1;
-}
-
-void builder_unix_fd(Builder* builder, int fd) noexcept {
-    note(builder, "h", 1);
-    if (builder->failed)
-        return;
-    if (builder->fd_count >= kMaxFds) {
-        builder->failed = true;
-        return;
-    }
-    const long duplicate = sys_fcntl(fd, kFcntlDuplicateCloseOnExec, 0);
-    if (syscall_failed(duplicate)) {
-        builder->failed = true;
-        return;
-    }
-    const u32 index = builder->fd_count;
-    builder->fds[builder->fd_count++] = static_cast<int>(duplicate);
-    put(builder, &index, 4, 4);
 }
 
 void builder_open_array(Builder* builder, const char* element_signature) noexcept {
@@ -770,8 +740,6 @@ bool message_serialize(const MessageHeader& header, const Builder& body, u8** bl
         field_string(&h, 6, 's', header.destination);
     if (body.signature_length)
         field_string(&h, 8, 'g', body.signature);
-    if (body.fd_count)
-        field_u32(&h, 9, body.fd_count);
     builder_close_array(&h);
     pad_to(&h, 8);
     const u32 header_bytes = h.size;

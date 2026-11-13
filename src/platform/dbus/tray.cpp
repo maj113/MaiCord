@@ -38,7 +38,6 @@ struct Tray {
     char service[96];
     char title[64];
     char tooltip[192];
-    bool attention;
     u32 icon_count;
     u32 icon_width[kMaxPixmaps];
     u32 icon_height[kMaxPixmaps];
@@ -189,7 +188,7 @@ void write_item_property(u32 index, Builder* b) noexcept {
         variant_text(b, "s", g.title);
         break;
     case Status:
-        variant_text(b, "s", g.attention ? "NeedsAttention" : "Active");
+        variant_text(b, "s", "Active");
         break;
     case WindowId:
         builder_open_variant(b, "u");
@@ -582,12 +581,10 @@ void tray_update(const TrayState& state) noexcept {
     const bool tooltip_changed = !c_string_equal(g.tooltip, state.tooltip ? state.tooltip : "");
     const bool icons_changed = !same_icons(state);
     const bool menu_changed = !same_menu(state);
-    const bool attention_changed = g.attention != state.attention;
-    if (!title_changed && !tooltip_changed && !icons_changed && !menu_changed && !attention_changed)
+    if (!title_changed && !tooltip_changed && !icons_changed && !menu_changed)
         return;
     c_string_copy(g.title, sizeof(g.title), state.title);
     c_string_copy(g.tooltip, sizeof(g.tooltip), state.tooltip);
-    g.attention = state.attention;
     if (icons_changed) {
         g.icon_count = 0;
         for (u32 i = 0; i < state.icon_count && g.icon_count < kMaxPixmaps; ++i) {
@@ -628,13 +625,6 @@ void tray_update(const TrayState& state) noexcept {
     }
     if (tooltip_changed || title_changed)
         connection_emit(c, kItemPath, kItemInterface, "NewToolTip", nullptr);
-    if (attention_changed) {
-        Builder body;
-        builder_init(&body);
-        builder_string(&body, g.attention ? "NeedsAttention" : "Active");
-        connection_emit(c, kItemPath, kItemInterface, "NewStatus", &body);
-        builder_release(&body);
-    }
     if (menu_changed) {
         Builder body;
         builder_init(&body);

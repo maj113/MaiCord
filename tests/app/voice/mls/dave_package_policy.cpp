@@ -46,19 +46,17 @@ void test_dave_package_policy(Check check) noexcept {
         kdf_sha256_release(&workspace);
         return;
     }
+    // Every fixture is validly signed (tools/dave_package_policy_vectors.py verifies each signature), so a rejection is
+    // the profile's; tests/protocol/voice/mls_objects.cpp checks the reference against an independent hash.
     for (const auto& fixture : dave_policy_vectors) {
         const u32 count = test_unhex(fixture.wire, buffer);
-        MlsSignedKeyPackage crypto{};
-        check(mls_key_package_check_crypto(workspace, {buffer, count}, &crypto).ok(),
-              "Every independent DAVE policy fixture has valid crypto, including rejected profiles");
         MlsSignedKeyPackage checked;
         memset(&checked, 0xa5, sizeof(checked));
         const auto result = mls_key_package_check_dave(workspace, {buffer, count}, 42, &checked);
         check(result.error == fixture.error, fixture.name);
         if (fixture.error == MlsPackageCryptoError::none) {
-            check(result.ok() && result.bytes == count && checked.view.serialized.data == buffer &&
-                      bytes_equal(checked.reference, crypto.reference, 32),
-                  "DAVE accepted profile retains exact signed wire and reference");
+            check(result.ok() && result.bytes == count && checked.view.serialized.data == buffer,
+                  "DAVE accepted profile retains exact signed wire");
             buffer[count - 1] ^= 1;
             memset(&checked, 0xa5, sizeof(checked));
             check(mls_key_package_check_dave(workspace, {buffer, count}, 42, &checked).error ==
@@ -83,7 +81,7 @@ void test_dave_package_policy(Check check) noexcept {
     check(mls_key_package_check_dave(workspace, {buffer, count}, 0, &unchanged).error ==
                   MlsPackageCryptoError::invalid_input &&
               filled(&unchanged, sizeof(unchanged)),
-          "DAVE missing expected identity cannot select crypto-only behavior");
+          "DAVE refuses a package without an expected identity");
     check(mls_key_package_check_dave(workspace, {buffer, count}, 43, &unchanged).error ==
                   MlsPackageCryptoError::identity_mismatch &&
               filled(&unchanged, sizeof(unchanged)),

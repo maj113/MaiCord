@@ -240,7 +240,7 @@ maicord_library(maicord_plugin_runtime
     src/app/plugins/call_ledger.cpp src/app/plugins/loader.cpp src/app/plugins/binding.cpp src/app/plugins/api.cpp
     src/app/plugins/store.cpp
     src/app/plugins/dispatch.cpp src/app/plugins/call_watchdog.cpp src/app/plugins/http.cpp src/app/plugins/secrets.cpp
-    src/app/plugins/consent.cpp src/app/plugins/settings_page.cpp
+    src/app/plugins/consent.cpp src/app/plugins/settings_page.cpp src/app/plugins/http_network.cpp
     src/app/plugins/ui_registry.cpp src/app/plugins/ui_menu.cpp src/app/plugins/ui_command.cpp
     src/app/plugins/ui_feedback.cpp src/app/plugins/keep.cpp src/app/plugins/pipeline.cpp
     src/app/plugins/pipeline_api.cpp
@@ -253,7 +253,7 @@ maicord_library(maicord_plugin_catalog
 
 maicord_library(maicord_ui_input
     src/platform/window/win32/clipboard.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_target.cpp src/ui/text/secure_edit_history.cpp
-    src/ui/text/secure_text_store.cpp
+    src/ui/text/secure_text_store.cpp src/platform/window/win32/clipboard_system.cpp
     LIBS maicord_core maicord_platform maicord_edit_history user32)
 
 maicord_library(maicord_message_runtime

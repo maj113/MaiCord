@@ -16,6 +16,7 @@
 #include "maicord/render/text/glyph_raster.hpp"
 #include "../../support/message_background_surfaces.inc"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../../support/composer_height_model.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/chat/messages/mention_badge.hpp"
 #include "maicord/ui/plugins/slot_surfaces.hpp"

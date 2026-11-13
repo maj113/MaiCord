@@ -1513,7 +1513,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     if (friends_active && !ui_friends_scene_paint(*renderer->friends_scene, theme, &renderer->paint_stream,
-                                                  &renderer->friends_search_geometry, renderer->dpi, false))
+                                                  &renderer->friends_search_geometry, renderer->dpi))
         return layout_step_failed(__LINE__);
     if (friends_active && renderer->user_store && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
@@ -1690,7 +1690,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (friends_requests_active) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_friends_scene_paint(*renderer->friends_requests_scene, theme, &renderer->paint_stream, nullptr,
-                                    renderer->dpi, false))
+                                    renderer->dpi))
             return layout_step_failed(__LINE__);
     }
     if (!(shown & d3d11_surface_search))

@@ -127,8 +127,6 @@ MessageComposerResult message_composer_select_range(
 MessageComposerResult message_composer_select_all(
     MessageComposer* composer) noexcept;
 MessageComposerResult message_composer_clear(MessageComposer* composer) noexcept;
-float message_composer_preferred_height(const MessageComposer& composer,
-                                        float available_text_width) noexcept;
 
 static_assert(sizeof(MessageComposer) <= 176);
 

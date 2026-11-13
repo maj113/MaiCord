@@ -20,8 +20,8 @@ u32 portal_property(Connection* connection, const char* interface, const char* n
 u32 portal_interface_version(const char* interface, u32 timeout_ms) noexcept;
 
 // The window the portals' dialogs belong to, as the portals name it ("wayland:<handle>"; the window backend sets it once
-// the compositor has given the handle and clears it with the window). The FileChooser, OpenURI and GlobalShortcuts
-// requests send it as parent_window, the first unless its options name another one. "" when there is none.
+// the compositor has given the handle and clears it with the window). The FileChooser, OpenURI, GlobalShortcuts,
+// Screenshot and ScreenCast requests send it as parent_window. "" when there is none.
 void portal_set_parent_window(const char* identifier) noexcept;
 const char* portal_parent_window() noexcept;
 

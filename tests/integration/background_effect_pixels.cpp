@@ -23,6 +23,7 @@
 #include "probe_capture.hpp"
 #include "theme_views_probe.hpp"
 #include "maicord/render/effects/background_effect.hpp"
+#include "../support/effect_light_composite.hpp"
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/win32_kernel.hpp"

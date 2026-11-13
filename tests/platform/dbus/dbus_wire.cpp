@@ -78,13 +78,22 @@ void test_vectors() noexcept {
         builder_init(&b);
         builder_bool(&b, true);
         builder_i16(&b, -2);
-        builder_u16(&b, 0x1234);
         builder_i64(&b, -1);
         builder_double(&b, 1.0);
-        const u8 expected[] = {1, 0, 0, 0, 0xFE, 0xFF, 0x34, 0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        const u8 expected[] = {1, 0, 0, 0, 0xFE, 0xFF, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                                0, 0, 0, 0, 0, 0, 0xF0, 0x3F};
         check(bytes_are(b, expected, sizeof(expected)), "fixed-size types, little endian");
         builder_release(&b);
+    }
+    {
+        // What the client reads but never writes (settings values, shortcut timestamps): q and t from wire bytes.
+        const u8 bytes[] = {0x34, 0x12, 0, 0, 0, 0, 0, 0, 8, 7, 6, 5, 4, 3, 2, 1};
+        Reader r;
+        reader_init(&r, bytes, sizeof(bytes), "qt", nullptr, 0);
+        u16 q = 0;
+        u64 t = 0;
+        check(reader_u16(&r, &q) && q == 0x1234 && reader_u64(&r, &t) && t == 0x0102030405060708ull && !reader_more(r),
+              "q and t read little endian, t aligned to 8");
     }
     {
         // A struct is 8-aligned: (yy) after one byte.
@@ -139,11 +148,9 @@ void write_everything(Builder* b) noexcept {
     builder_byte(b, 200);
     builder_bool(b, true);
     builder_i16(b, -1234);
-    builder_u16(b, 65000);
     builder_i32(b, -123456789);
     builder_u32(b, 4000000000u);
     builder_i64(b, -1234567890123ll);
-    builder_u64(b, 18000000000000000000ull);
     builder_double(b, -2.5);
     builder_string(b, "héllo");
     builder_object_path(b, "/org/test/Path");
@@ -187,24 +194,21 @@ void write_everything(Builder* b) noexcept {
     builder_close_array(b);
 }
 
-constexpr const char* kEverything = "ybnqiuxtdsoga(sa{sv}ai)ayayaay";
+constexpr const char* kEverything = "ybniuxdsoga(sa{sv}ai)ayayaay";
 
 bool read_everything(Reader* r) noexcept {
     u8 y;
     bool bo;
     i16 n;
-    u16 q;
     i32 i;
     u32 u;
     i64 x;
-    u64 t;
     double d;
     const char* s;
     u32 length;
     bool ok = reader_byte(r, &y) && y == 200 && reader_bool(r, &bo) && bo && reader_i16(r, &n) && n == -1234 &&
-              reader_u16(r, &q) && q == 65000 && reader_i32(r, &i) && i == -123456789 && reader_u32(r, &u) &&
-              u == 4000000000u && reader_i64(r, &x) && x == -1234567890123ll && reader_u64(r, &t) &&
-              t == 18000000000000000000ull && reader_double(r, &d) && d == -2.5;
+              reader_i32(r, &i) && i == -123456789 && reader_u32(r, &u) && u == 4000000000u && reader_i64(r, &x) &&
+              x == -1234567890123ll && reader_double(r, &d) && d == -2.5;
     ok = ok && reader_string(r, &s, &length) && length == 6 && text_equal(s, "h\xC3\xA9llo");
     ok = ok && reader_string(r, &s, &length) && text_equal(s, "/org/test/Path");
     ok = ok && reader_string(r, &s, &length) && text_equal(s, "a{sv}");
@@ -256,9 +260,9 @@ void test_round_trip() noexcept {
     u32 values = 0;
     while (reader_more(r) && reader_skip(&r))
         ++values;
-    check(!r.failed && values == 16 && r.position == b.size, "skip walks the whole body");
+    check(!r.failed && values == 14 && r.position == b.size, "skip walks the whole body");
     reader_init(&r, b.data, b.size, b.signature, nullptr, 0);
-    for (u32 i = 0; i < 12; ++i)
+    for (u32 i = 0; i < 10; ++i)
         reader_skip(&r);
     const u32 ignored = 0;
     const bool partial = reader_enter_array(&r) && reader_enter_struct(&r) && reader_leave(&r) && reader_more(r) &&
@@ -466,22 +470,6 @@ void test_messages() noexcept {
     fill_header(&header, MessageType::method_call);
     check(!message_serialize(header, none, &block, &bytes), "a call needs a path and a member");
     builder_release(&none);
-
-    // A body with a descriptor declares it in the header.
-    Builder with_fd;
-    builder_init(&with_fd);
-    builder_unix_fd(&with_fd, 1);
-    check(builder_ok(with_fd) && with_fd.fd_count == 1 && with_fd.fds[0] > 2 && text_equal(with_fd.signature, "h"),
-          "a descriptor is duplicated into the builder");
-    fill_header(&header, MessageType::method_call);
-    header.path = "/p";
-    header.member = "M";
-    check(message_serialize(header, with_fd, &block, &bytes) && message_parse(&message, block, bytes) &&
-              message.fd_count == 1 && message.fds[0] == -1,
-          "the header's unix_fds count reaches the message (the connection supplies the descriptors)");
-    message_release(&message);
-    builder_release(&with_fd);
-    check(with_fd.fd_count == 0, "releasing the builder closes its descriptors");
 }
 
 // A deterministic generator for the mutation test.

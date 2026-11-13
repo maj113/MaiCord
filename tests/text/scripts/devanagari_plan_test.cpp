@@ -3,7 +3,7 @@
 // --<script>-input replays that script's HarfBuzz boundary corpus.
 #include "../../../src/text/scripts/indic_syllables.hpp"
 #include "maicord/text/scripts/indic_plan.hpp"
-#include "maicord/text/scripts/indic_clusters.hpp"
+#include "../../support/indic_cluster_boundaries.hpp"
 #include "maicord/text/scripts/indic_run_plan.hpp"
 #include "maicord/text/scripts/detail/indic_form.hpp"
 #include "maicord/text/scripts/devanagari_forms.hpp"
@@ -162,13 +162,6 @@ bool syllable_units() noexcept {
     };
     u8 output[16];
     for(const auto& c:cases)CHECK(sfnt_indic_cluster_boundaries(c.profile,{c.scalars,c.count},{output,16})==SfntStatus::ok&&bytes_equal(output,c.starts,c.count));
-    const u32 scalars[]{0x915,0x94d,0x915};
-    for(auto& b:output)b=255;
-    CHECK(sfnt_indic_cluster_boundaries(deva,{scalars,3},{output,16},47)==SfntStatus::resource_limit);for(auto b:output)CHECK(b==255);
-    CHECK(sfnt_indic_cluster_boundaries(deva,{scalars,3},{output,2})==SfntStatus::output_too_small);
-    const u32 invalid[]{0x915,0xd800};CHECK(sfnt_indic_cluster_boundaries(deva,{invalid,2},{output,16})==SfntStatus::invalid_input);
-    CHECK(sfnt_indic_cluster_boundaries(static_cast<SfntIndicProfile>(9),{scalars,3},{output,16})==SfntStatus::invalid_input);
-    CHECK(sfnt_indic_cluster_boundaries(deva,{},{})==SfntStatus::ok);
     // HarfBuzz recomposes Tamil o + au length mark (a zero-class mark) into au and never decomposes au.
     {const char text[]{"\xe0\xae\x94 \xe0\xae\x92\xe0\xaf\x97"};IndicReader reader{SfntIndicProfile::tamil,{text,sizeof(text)-1},nullptr};
         IndicPiece pieces[8];u32 seen[3]{},count=0;

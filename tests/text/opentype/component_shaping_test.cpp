@@ -1,6 +1,9 @@
 // The corpus expectations are HarfBuzz 15.0.0's (tools/font_reference/harfbuzz_fixture.py component).
 #include "../../support/gsub_program_fixture.hpp"
 #include "../../support/text_seams.hpp"
+#include "../../support/cluster_map_export.hpp"
+#include "../../support/component_queries.hpp"
+#include "../../support/position_flags.hpp"
 #include "maicord/text/opentype/gpos_ligature_execute.hpp"
 #include "maicord/text/opentype/gpos_cursive_execute.hpp"
 #include "maicord/text/opentype/gpos_program.hpp"
@@ -193,7 +196,6 @@ bool file_corpus(const wchar_t* path) noexcept {
 }
 #include "component_sequence_units.inc"
 #include "component_bounds_units.inc"
-#include "position_flags_units.inc"
 #include "shaping_bounds_units.inc"
 #include "substitution_selection_units.inc"
 int run() noexcept {
@@ -204,7 +206,6 @@ int run() noexcept {
     if(!shaping_bounds_units()){print(utf8_literal("FAIL shaping bounds units\n"));return 6;}
     if(!gpos_cycle_units()){print(utf8_literal("FAIL GPOS cycle units\n"));return 5;}
     if(!sequence_units() || !affinity_units()){print(utf8_literal("FAIL component sequence units\n"));return 3;}
-    if(!position_flag_units()){print(utf8_literal("FAIL positioning flag units\n"));return 4;}
     const wchar_t* command=test_arguments();wchar_t flag[4];recording=GetEnvironmentVariableW(L"MAICORD_FIXTURE_RECORD",flag,4)!=0;
     bool ok=false;if(!*command)ok=corpus({component_fixture,sizeof(component_fixture)});
     else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}

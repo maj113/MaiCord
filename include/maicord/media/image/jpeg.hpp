@@ -280,10 +280,6 @@ constexpr ConstSlice<u8> jpeg_coefficient_upload(const JpegCoefficientWorkspace&
                                 jpeg_coefficient_row_offset(blocks) + coefficients.stored_rows * 16u};
 }
 
-// Block `block` of a decode of `blocks` blocks in raster order, its unstored rows zero.
-JpegCoefficientBlock jpeg_coefficient_block(const JpegCoefficientWorkspace& coefficients, u32 blocks,
-                                            u32 block) noexcept;
-
 // The coefficients come last: an owner may commit the tables and ICC profile alone and the coefficient blocks
 // a parsed image holds as it decodes.
 struct JpegWorkspace {
@@ -317,8 +313,6 @@ struct JpegDecodeResult {
 JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace) noexcept;
 JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
                                                  JpegCoefficientWorkspace* coefficients) noexcept;
-JpegDecodeResult jpeg_decode_coefficients(ConstSlice<u8> encoded, JpegImage* image,
-                                          JpegWorkspace* workspace) noexcept;
 
 // Local-file thumbnails (composer upload previews). The parse accepts photos
 // up to 16384 px per side; decoding reconstructs each 8x8 block at 1, 2, 4

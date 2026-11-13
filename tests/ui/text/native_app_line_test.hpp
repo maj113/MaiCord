@@ -5,7 +5,6 @@
 #pragma once
 #include "maicord/text/unicode/detail/thai_lexical.hpp"
 #include "maicord/text/unicode/detail/thai_syllable.hpp"
-#include "../../../src/ui/text/native_text_trim_plan.hpp"
 #include "../../../src/ui/text/native_text_span.hpp"
 #include "../../../src/ui/text/native_text_script.hpp"
 #include "maicord/text/unicode/detail/thai_word_break.hpp"
@@ -51,7 +50,7 @@ inline bool ellipsis_cut_profiles=false;
 inline bool ellipsis_line_profiles=false;
 inline bool ellipsis_style_profiles=false;
 inline bool ellipsis_hit_profiles=false;
-inline bool multiline_trim_profiles=false,multiline_plan_profiles=false,multiline_hit_profiles=false,multiline_quick=false;
+inline bool multiline_trim_profiles=false,multiline_hit_profiles=false,multiline_quick=false;
 bool native_multiline_trim_corpus(AppSystem) noexcept;
 bool native_ellipsis_style_corpus(AppSystem) noexcept;
 inline bool common_punctuation_profiles=false;

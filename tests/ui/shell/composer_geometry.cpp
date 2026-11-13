@@ -1,4 +1,5 @@
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "../../support/composer_height_model.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "../../support/layout_validation.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
@@ -71,7 +72,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             narrow_composer && ui_scene_composer_width(metrics, 320.f) ==
                                    ui_rect_width(ui_scene_content_rectangle(shell, UiSemantic::composer));
         const float shell_inset = 320.f - ui_scene_composer_width(metrics, 320.f);
-        const float inline_boundary = message_composer_scene_minimum_inline_width();
+        const float inline_boundary = kComposerInlineWidth;
         const float toolbar_boundary_widths[]{160.f, 163.5f, 164.f, inline_boundary - .5f, inline_boundary};
         for (const float composer_width : toolbar_boundary_widths) {
             const float shell_width = shell_inset + composer_width;
@@ -241,8 +242,8 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         const MessageComposerControl buttons[]{MessageComposerControl::add_attachment,
                                                MessageComposerControl::gif, MessageComposerControl::sticker,
                                                MessageComposerControl::emoji, MessageComposerControl::send};
-        const float inline_boundary = message_composer_scene_minimum_inline_width();
-        const float compact_boundary = message_composer_scene_minimum_compact_width();
+        const float inline_boundary = kComposerInlineWidth;
+        const float compact_boundary = kComposerCompactWidth;
         usable &= compact_boundary < 304.f && compact_boundary > 232.f;
         const float responsive_widths[]{304.f,           279.5f, 232.f, 160.f,
                                         163.5f,          164.f,  280.f, inline_boundary - .5f,
@@ -664,8 +665,10 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         UiResolvedThemeStyles styles{};
         styles.ready = true;
         styles.revision = styles.geometry_revision = styles.paint_revision = 1;
-        check(message_composer_scene_minimum_inline_width(&styles) == 380.f &&
-                  message_composer_scene_minimum_compact_width(&styles) == 264.f &&
+        check(message_composer_scene_text_width(kComposerInlineWidth - .5f, &styles) >
+                      message_composer_scene_text_width(kComposerInlineWidth, &styles) &&
+                  message_composer_scene_toolbar_height(kComposerCompactWidth - .5f, &styles) > 0.f &&
+                  message_composer_scene_toolbar_height(kComposerCompactWidth, &styles) == 0.f &&
                   message_composer_scene_text_width(304.f, &styles) == 160.f &&
                   message_composer_scene_toolbar_height(304.f, &styles) == 0.f &&
                   message_composer_scene_toolbar_height(160.f, &styles) == 72.f,
@@ -685,8 +688,10 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             message_composer_scene_preferred_height(model, 304.f, true, true, &styles);
         bool projected = message_composer_scene_bind_theme_styles(&scene, &styles) &&
                          scene.measured_row_height == 0.f && scene.geometry_dirty &&
-                         message_composer_scene_minimum_inline_width(&styles) == 496.f &&
-                         message_composer_scene_minimum_compact_width(&styles) == 312.f &&
+                         message_composer_scene_text_width(495.5f, &styles) >
+                             message_composer_scene_text_width(496.f, &styles) &&
+                         message_composer_scene_toolbar_height(311.5f, &styles) > 0.f &&
+                         message_composer_scene_toolbar_height(312.f, &styles) == 0.f &&
                          message_composer_scene_text_width(304.f, &styles) == 216.f &&
                          message_composer_scene_toolbar_height(160.f, &styles) == 96.f &&
                          message_composer_scene_toolbar_height(216.f, &styles) == 48.f && height == 212.f;

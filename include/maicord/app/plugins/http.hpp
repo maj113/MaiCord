@@ -21,16 +21,6 @@ bool plugin_network_host_denied(Utf8View host) noexcept;
 // MC_NETWORK_HOSTS_MAX valid, distinct patterns, and a completion hook to receive the answers.
 bool plugin_network_hosts_valid(const mc_str* hosts, u32 count, bool has_completion_hook) noexcept;
 
-// One exchange, as https_exchange: streams a 2xx (or, with read_error_body, a 4xx/5xx) body into the
-// request's sink and records the status and observed fields. Tests replace the network with a fake.
-struct PluginHttpTransport {
-    void* context;
-    UpdateTransportError (*exchange)(void* context, const UpdateHttpRequest&, const HttpsExchangeOptions&,
-                                     UpdateHttpResponse*) noexcept;
-};
-// Uses transport for every request instead of the HTTPS stack. Call before the first request.
-bool plugin_http_use_transport(PluginRuntime*, const PluginHttpTransport&) noexcept;
-
 // Validates and queues a request for binding (the body of mc_api.http). Returns an MC_* status.
 mc_status plugin_http_submit(PluginBinding*, const mc_http_request&, u64 tag) noexcept;
 

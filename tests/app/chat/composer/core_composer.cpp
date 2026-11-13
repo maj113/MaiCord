@@ -46,9 +46,8 @@ void test_message_composer() noexcept {
                composer.revision == selection_revision + 2 &&
                message_composer_insert_utf8(&composer, utf8_literal("one\ntwo\nthree")) ==
                    MessageComposerResult::changed &&
-               message_composer_preferred_height(composer, 300.0f) > kMessageComposerMinimumHeight &&
                message_composer_can_send(composer, true) && !message_composer_can_send(composer, false),
-           "message_composer_selection_height_and_send_policy");
+           "message_composer_selection_and_send_policy");
     const u32 word_revision = composer.revision;
     expect(message_composer_select_word(&composer, 5) == MessageComposerResult::changed &&
                composer.revision == word_revision + 1 && composer.anchor == 4 && composer.caret == 7 &&

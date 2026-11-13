@@ -195,7 +195,7 @@ maicord_library(maicord_font
     src/text/opentype/tt_bold_points.cpp src/text/fonts/session.cpp src/text/fonts/prepare.cpp
     src/text/opentype/gpos_cursive_execute.cpp src/text/opentype/position_anchor.cpp src/text/opentype/gpos_mark_execute.cpp
     src/text/opentype/gpos_ligature_execute.cpp src/text/opentype/gpos_execute.cpp src/text/opentype/gpos_program.cpp
-    src/text/opentype/lookup_selection.cpp src/text/opentype/position_flags.cpp
+    src/text/opentype/lookup_selection.cpp
     src/text/opentype/gpos_attachment.cpp src/text/opentype/gpos.cpp src/text/shaping/clusters.cpp src/text/opentype/components.cpp
     src/text/shaping/shape_run.cpp src/text/shaping/run_plan.cpp src/text/fonts/names.cpp src/text/fonts/match.cpp
     src/text/fonts/candidates.cpp src/text/fonts/family.cpp windows:src/text/fonts/catalog.cpp

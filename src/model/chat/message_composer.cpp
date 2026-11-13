@@ -583,26 +583,4 @@ MessageComposerResult message_composer_clear(MessageComposer* composer) noexcept
     return MessageComposerResult::changed;
 }
 
-float message_composer_preferred_height(const MessageComposer& composer,
-                                        float available_text_width) noexcept {
-    const float usable_width = maximum(available_text_width, 120.0f);
-    const u32 columns = maximum(1u, static_cast<u32>(usable_width / 8.0f));
-    u32 lines = 1;
-    u32 column = 0;
-    u32 offset = 0;
-    while (offset < composer.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(composer.text + offset, composer.bytes - offset);
-        if (!decoded.valid) {
-            break;
-        }
-        if (decoded.codepoint == '\n' || ++column >= columns) {
-            ++lines;
-            column = 0;
-        }
-        offset += decoded.width;
-    }
-    const float height = 20.0f + static_cast<float>(minimum(lines, 8u)) * 20.0f;
-    return minimum(maximum(height, kMessageComposerMinimumHeight), kMessageComposerMaximumHeight);
-}
-
 } // namespace maicord

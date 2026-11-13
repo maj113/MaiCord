@@ -63,8 +63,8 @@ const TrayMenuEntry kMenu[4] = {
     {"Quit MaiCord", 4, false, false, true},
 };
 
-TrayState tray_state(const TrayMenuEntry* menu, u32 menu_count, bool attention, const char* tooltip) noexcept {
-    return TrayState{"MaiCord", tooltip, kIcons, 2, attention, menu, menu_count};
+TrayState tray_state(const TrayMenuEntry* menu, u32 menu_count, const char* tooltip) noexcept {
+    return TrayState{"MaiCord", tooltip, kIcons, 2, menu, menu_count};
 }
 
 // Calls a method on the tray item (or its menu) through the mock and returns the result line, null on timeout.
@@ -177,7 +177,7 @@ const char* layout_of(const char* line, u32* revision) noexcept {
 void test_tray() noexcept {
     clear_log();
     check(tray_start(on_tray, nullptr), "the tray item starts on the bus");
-    tray_update(tray_state(kMenu, 4, false, "3 unread"));
+    tray_update(tray_state(kMenu, 4, "3 unread"));
     settle(300);
     check(!tray_available(), "without a watcher nothing is registered, and nothing fails");
 
@@ -266,21 +266,18 @@ void test_tray() noexcept {
     // A change: signals, a new revision, the new text.
     clear_log();
     const TrayMenuEntry changed_menu[2] = {{"Open", 1, false, false, false}, {"Quit", 4, false, false, false}};
-    tray_update(tray_state(changed_menu, 2, true, "no news"));
+    tray_update(tray_state(changed_menu, 2, "no news"));
     settle(150);
     take_log();
     check(find_line("ItemSignal NewToolTip /StatusNotifierItem") != nullptr &&
-              find_line("ItemSignal NewStatus /StatusNotifierItem s:NeedsAttention") != nullptr &&
               find_line("ItemSignal LayoutUpdated /MenuBar") != nullptr && find_line("ItemSignal NewIcon") == nullptr,
-          "a changed tooltip, attention and menu raise their signals, an unchanged icon none");
-    const char* status_now = call_item("status2", "/StatusNotifierItem", "org.freedesktop.DBus.Properties", "Get", "ss", args_get_status);
-    check(status_now && contains(status_now, " ok v(s:NeedsAttention)"), "the status follows attention");
+          "a changed tooltip and menu raise their signals, an unchanged icon none");
     u32 next_revision = 0;
     const char* layout_now = layout_of(call_item("layout2", "/MenuBar", "com.canonical.dbusmenu", "GetLayout", "iias", args_layout_full), &next_revision);
     check(layout_now && next_revision == revision + 1 && contains(layout_now, "s:label=v(s:Quit)") && !contains(layout_now, "Mute"),
           "the layout has the new entries under the next revision");
     clear_log();
-    tray_update(tray_state(changed_menu, 2, true, "no news"));
+    tray_update(tray_state(changed_menu, 2, "no news"));
     settle(100);
     take_log();
     check(find_line("ItemSignal") == nullptr, "an update that changes nothing sends nothing");
@@ -312,7 +309,7 @@ void test_tray() noexcept {
 
 void test_tray_bare() noexcept {
     check(tray_start(on_tray, nullptr), "the tray starts on a bus with no watcher");
-    tray_update(tray_state(kMenu, 4, false, "x"));
+    tray_update(tray_state(kMenu, 4, "x"));
     settle(300);
     check(!tray_available(), "no watcher: unavailable, silently");
     tray_stop();
@@ -490,19 +487,12 @@ void test_screen_color(bool bare) noexcept {
 
 void test_file_chooser() noexcept {
     test_file_uris();
-    const char* const images[2] = {"*.png", "*.jpg"};
-    const char* const all[1] = {"*"};
-    const FileFilter filters[2] = {{"Images", images, 2}, {"All files", all, 1}};
-
     const char* const chosen[2] = {"file:///tmp/a%20b.txt", "file:///home/x/%C3%A9.png"};
     set_file_result(0, chosen, 2);
     clear_log();
     FileChooserOptions options{};
     options.title = "Pick files";
-    options.filters = filters;
-    options.filter_count = 2;
     options.multiple = true;
-    options.accept_label = "Attach";
     g_chooser = file_chooser_open(options);
     check(g_chooser != nullptr, "an open dialog starts");
     check(g_chooser && file_chooser_state(g_chooser) == FileChooserState::pending, "it is pending until the portal answers");
@@ -513,10 +503,8 @@ void test_file_chooser() noexcept {
     take_log();
     const char* open = find_line("OpenFile");
     check(open && contains(open, "OpenFile s: s:Pick files {") && contains(open, "s:multiple=v(b:1)") && contains(open, "s:directory=v(b:0)") &&
-              contains(open, "s:modal=v(b:1)") && contains(open, "s:accept_label=v(s:Attach)") &&
-              contains(open, "s:filters=v([(s:Images,[(u:0,s:*.png),(u:0,s:*.jpg)]),(s:All files,[(u:0,s:*)])])") &&
-              contains(open, "s:handle_token=v(s:maicord_"),
-          "OpenFile's title and options as libdbus decoded them: multiple, modal, label, filters, token");
+              contains(open, "s:modal=v(b:1)") && contains(open, "s:handle_token=v(s:maicord_"),
+          "OpenFile's title and options as libdbus decoded them: multiple, directory, modal, token");
     file_chooser_release(g_chooser);
 
     // Save.
@@ -525,9 +513,6 @@ void test_file_chooser() noexcept {
     clear_log();
     FileChooserOptions save{};
     save.current_name = "out.png";
-    save.current_folder = "/tmp";
-    save.filters = filters;
-    save.filter_count = 1;
     g_chooser = file_chooser_save(save);
     check(g_chooser && pump(chooser_settled, 4000) && file_chooser_state(g_chooser) == FileChooserState::done &&
               file_chooser_count(g_chooser) == 1 && text_equal(file_chooser_path(g_chooser, 0), "/tmp/out.png"),
@@ -535,8 +520,8 @@ void test_file_chooser() noexcept {
     take_log();
     const char* save_line = find_line("SaveFile");
     check(save_line && contains(save_line, "SaveFile s: s:Save File {") && contains(save_line, "s:current_name=v(s:out.png)") &&
-              contains(save_line, "s:current_folder=v(ay:2f746d7000)") && !contains(save_line, "s:multiple"),
-          "SaveFile: the name, the folder as bytes with their NUL, no open-only options");
+              !contains(save_line, "s:multiple"),
+          "SaveFile: the name, no open-only options");
     file_chooser_release(g_chooser);
 
     // The user cancels in the dialog.
@@ -819,8 +804,25 @@ void test_instance_socket() noexcept {
     check(g_child_status == 0, "the second launch exits as forwarded");
 
     // Raw clients: a request in the protocol, then garbage.
-    SocketAddress address;
-    instance_socket_address(kApplicationId, key, &address);
+    // The socket backend's abstract name: maicord.instance.<uid>.<the 16 hex digits that end the profile's bus name>.
+    char bus_name[160], bus_path[200];
+    check(instance_bus_name(kApplicationId, key, bus_name, sizeof(bus_name), bus_path, sizeof(bus_path)),
+          "the profile's bus name");
+    SocketAddress address{};
+    address.data[0] = 1;  // AF_UNIX; the name's leading NUL (data[2]) makes it abstract
+    u32 at = 3;
+    for (const char* p = "maicord.instance."; *p; ++p)
+        address.data[at++] = static_cast<u8>(*p);
+    char digits[10];
+    u32 digit_count = 0;
+    for (u32 uid = static_cast<u32>(sys_geteuid()); uid || !digit_count; uid /= 10)
+        digits[digit_count++] = static_cast<char>('0' + uid % 10);
+    while (digit_count)
+        address.data[at++] = static_cast<u8>(digits[--digit_count]);
+    address.data[at++] = '.';
+    for (u32 i = text_length(bus_name) - 16; bus_name[i]; ++i)
+        address.data[at++] = static_cast<u8>(bus_name[i]);
+    address.length = at;
     const auto connect_raw = [&]() -> int {
         const long created = syscall3(41, 1, 1 | 0x80000, 0);
         if (syscall_failed(created))
@@ -943,6 +945,5 @@ MAICORD_TEST_ENTRY(maicord_dbus_desktop_entry) {
     test_launcher_entry();
     test_instance_bus();
     connection_close(g_control);
-    session_bus_close();
     test_exit(g_failures, "dbus_desktop");
 }

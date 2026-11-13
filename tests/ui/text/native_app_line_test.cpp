@@ -2,8 +2,8 @@
 // app_line_reference.hpp. The modes registered in cmake/test_registry.cmake are the suite. Manual modes, not run by it:
 //   exhaustive variants  --matrix-batch (the union of the registered --matrix-profile 0-4, which
 //     run --ellipsis-hit-profile, the quick --multiline-hit-profile, --style-profile and
-//     --decoration-profile) and the unsampled --multiline-hit-profile, --multiline-trim-profile
-//     and --multiline-plan-profile (3-12 s each)
+//     --decoration-profile) and the unsampled --multiline-hit-profile and --multiline-trim-profile
+//     (3-12 s each)
 //   slower checks, left out of the suite's 20 s budget  --alphabetic-paragraph (2 s),
 //     --arabic-paragraph-profile, --arabic-editor-profile and --cjk-editor-paint-profile (1-2 s each,
 //     with --family "Segoe UI" 400)
@@ -237,8 +237,7 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
     for (u32 profile = first_profile; profile < profile_limit; ++profile) {
         shaped_text_reset(&native_output.text);
         ellipsis_style_profiles = ellipsis_hit_profiles = false;
-        multiline_trim_profiles = multiline_plan_profiles = multiline_hit_profiles = multiline_quick =
-            false;
+        multiline_trim_profiles = multiline_hit_profiles = multiline_quick = false;
         style_profiles = decoration_profiles = false;
         matrix_seen = 0;
         const u32 first_case = cases, first_native = native_cases, first_checks = checks;
@@ -471,7 +470,6 @@ bool run() noexcept {
     profile(p,L"--directional-large-profile",directional_large_profiles);
     profile(p,L"--directional-editor-cuts-profile",directional_editor_cuts_profiles);
     profile(p,L"--multiline-hit-profile",multiline_trim_profiles,multiline_hit_profiles);
-    profile(p,L"--multiline-plan-profile",multiline_trim_profiles,multiline_plan_profiles);
     profile(p,L"--multiline-trim-profile",multiline_trim_profiles);
     profile(p,L"--ellipsis-line-profile",ellipsis_line_profiles);
     profile(p,L"--ellipsis-style-profile",ellipsis_style_profiles);

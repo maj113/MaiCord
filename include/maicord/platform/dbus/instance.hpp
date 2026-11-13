@@ -61,8 +61,4 @@ void instance_release() noexcept;
 bool instance_bus_name(const char* application_id, const char* profile_key, char* name, u32 name_capacity, char* path,
                        u32 path_capacity) noexcept;
 
-// The abstract Unix socket the socket backend binds for this id and profile (a sockaddr_un, see SocketAddress): for
-// tests that talk to it directly.
-void instance_socket_address(const char* application_id, const char* profile_key, SocketAddress* address) noexcept;
-
 } // namespace maicord::dbus

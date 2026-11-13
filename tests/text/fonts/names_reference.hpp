@@ -12,10 +12,22 @@ bool tag_is(ConstSlice<u8> tag,const char* text,u32 length) noexcept {
 bool english_tag(ConstSlice<u8> tag) noexcept {
     return tag.count>=4&&(word(tag,0)|32)=='e'&&(word(tag,2)|32)=='n'&&(tag.count==4||(tag.count>=6&&word(tag,4)=='-'));
 }
+// Record `index` (below names.records) read from the table as the format lays it out; a version-1 tag reference past
+// the tag list leaves the record without a language tag.
+inline SfntName record(const SfntNames& names,u32 index) noexcept {
+    const u32 at=6+index*12;const u16 language=word(names.table,at+4);
+    SfntName name{{names.table.data+names.storage+word(names.table,at+10),word(names.table,at+8)},{},
+        word(names.table,at),word(names.table,at+2),language,word(names.table,at+6)};
+    if(names.version&&language>=0x8000&&static_cast<u32>(language-0x8000)<names.language_tags){
+        const u32 tag=6+static_cast<u32>(names.records)*12+2+static_cast<u32>(language-0x8000)*4;
+        name.language_tag={names.table.data+names.storage+word(names.table,tag+2),word(names.table,tag)};
+    }
+    return name;
+}
 SfntStatus english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
     if(output)*output={};if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
     u32 best=0xffffffff;SfntName selected{};
-    for(u32 i=0;i<names.records;++i){SfntName name{};const auto status=sfnt_name_record(names,i,&name);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<names.records;++i){const SfntName name=record(names,i);
         if(name.id!=id||!unicode(name.platform,name.encoding))continue;
         u32 language=3;
         if(name.language>=0x8000){if(!names.version||!name.language_tag.data)continue;

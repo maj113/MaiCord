@@ -16,7 +16,7 @@
 namespace maicord {
 #if defined(_WIN32)
 static_assert(kDesktopShowHide == SW_HIDE && kDesktopShowMinimizedNoActive == SW_SHOWMINNOACTIVE &&
-              kDesktopShowDefault == SW_SHOWDEFAULT && kDesktopActivateInactive == WA_INACTIVE);
+              kDesktopShowDefault == SW_SHOWDEFAULT);
 #endif
 namespace {
 #if defined(_WIN32)

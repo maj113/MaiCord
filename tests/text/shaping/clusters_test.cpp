@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/text_test_support.hpp"
+#include "../../support/cluster_map_export.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"
 namespace maicord {namespace {
@@ -9,7 +10,8 @@ namespace maicord {namespace {
 u64 bitmap[9000],snapshot[9000];u32 expected_first[262145],expected_end[262145],boundaries[9000];
 u64 model_queries=0,merge_plans=0,execution_queries=0,glyph_checks=0,character_checks=0,start_checks=0,budget_checks=0;u32 failures=0;
 bool model() noexcept {
-    if(sfnt_cluster_map_words(0)!=0 || sfnt_cluster_map_words(64)!=1 || sfnt_cluster_map_words(65)!=3 || sfnt_cluster_map_words(0xffffffffu)!=68174085)return false;
+    const auto words=[](u32 count) noexcept {return sfnt_cluster_map_frame(nullptr,count).storage.count;};
+    if(words(0)!=0 || words(64)!=1 || words(65)!=3 || words(0xffffffffu)!=68174085)return false;
     const u32 lengths[]{1,2,63,64,65,4095,4096,4097,262145};u32 random=0x869421f1;
     for(u32 count:lengths)for(u32 mode=0;mode<2;++mode){u32 starts=0;const u32 stride=mode?31u:1u;
         if(mode)for(u32 i=0;i<count;i+=stride)boundaries[starts++]=i;
@@ -69,7 +71,7 @@ bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(pages_allocate(page*17));if(!memory)return false;
     if(!pages_protect(memory+page*16, page, PageAccess::none)){pages_release(memory);return false;}bool ok=true;
     const u32 lengths[]{1,63,64,65,4096,4097,262145};
-    for(u32 count:lengths){const u32 words=sfnt_cluster_map_words(count);if(static_cast<u64>(words)*8>page*16){ok=false;break;}
+    for(u32 count:lengths){const u32 words=sfnt_cluster_map_frame(nullptr,count).storage.count;if(static_cast<u64>(words)*8>page*16){ok=false;break;}
         auto* storage=reinterpret_cast<u64*>(memory+page*16-words*8);SfntClusterMap map{};if(sfnt_cluster_map_open(count,{}, {storage,words},&map)!=SfntStatus::ok){ok=false;break;}
         for(u32 pass=0;pass<12;++pass){SfntClusterMerge plan{};u64 used=0;if(sfnt_cluster_map_plan(map,0,count-1,&plan,1000000,&used)!=SfntStatus::ok){ok=false;break;}
             if(pass && count>1 && (used!=map.levels*2+2 || plan.commit_work!=used)){ok=false;break;}sfnt_cluster_map_commit(&map,plan);

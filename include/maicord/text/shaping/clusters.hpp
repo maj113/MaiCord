@@ -8,7 +8,6 @@ struct SfntClusterGlyph {SfntGsubGlyph glyph;u32 source;};
 struct SfntClusterMap {Slice<u64> storage;u32 text_count,levels;};
 struct SfntClusterMerge {u32 first,last;u64 commit_work;};
 static_assert(sizeof(SfntClusterGlyph)==8 && sizeof(SfntClusterMap)==24 && sizeof(SfntClusterMerge)==16);
-u32 sfnt_cluster_map_words(u32 text_count) noexcept;
 // The word count and level count a map over text_count units needs, framed on
 // storage without touching its bits: for callers whose pass already wrote them.
 SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept;
@@ -29,13 +28,4 @@ inline bool sfnt_cluster_map_starts(const SfntClusterMap& map,u32 source) noexce
 SfntStatus sfnt_cluster_map_plan(const SfntClusterMap& map,u32 first,u32 last,SfntClusterMerge* output,
                                  u64 work_limit=1000000,u64* work_used=nullptr) noexcept;
 void sfnt_cluster_map_commit(SfntClusterMap* map,const SfntClusterMerge& plan) noexcept;
-// Export first physical glyph index per source cluster, and optionally one byte
-// per glyph marking that first occurrence (not DirectWrite isClusterStart, which
-// is separate shaping policy). Glyph records begin with SfntClusterGlyph; extra
-// metadata is ignored. Cluster membership may interleave in glyph order (e.g. a
-// decomposed ligature followed by its component marks); every source cluster
-// must have a glyph. Inputs, outputs and storage are disjoint; outputs are
-// valid only on success.
-SfntStatus sfnt_cluster_map_export(const SfntClusterMap& map,SfntGlyphView glyphs,Slice<u32> character_glyphs,
-                                   Slice<u8> glyph_starts={},u64 work_limit=1000000) noexcept;
 }

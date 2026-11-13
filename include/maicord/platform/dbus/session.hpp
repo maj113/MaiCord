@@ -49,7 +49,4 @@ u32 session_bus_extra_waitables(Waitable* out, u32 capacity) noexcept;
 // before the first frame. True when `*done` became true.
 bool session_bus_wait_for(const volatile bool* done, u32 timeout_ms) noexcept;
 
-// Closes the connection and forgets that a bus is wanted (tests, shutdown).
-void session_bus_close() noexcept;
-
 } // namespace maicord::dbus

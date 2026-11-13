@@ -2,6 +2,7 @@
 // objects control only the fence result and notification; the sparse source is
 // a real allocation. Wall-clock limits below only bound hangs.
 #include "maicord/app/media/account_media_worker.hpp"
+#include "../../../src/app/media/account_media_worker_internal.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -120,8 +121,8 @@ ConstSlice<u8> no_read(void*, u64, Slice<u8>) noexcept { return {}; }
 const UploadSourceOps source_ops{retain_source, release_source, no_read};
 bool seed(Harness& h, u32 index, u64 serial, AccountMediaLocalPreviewRequest* token, const u8** sparse) noexcept {
     auto& lane = h.worker->lanes[index]; CHECK(phase(lane) == AccountMediaWorkerPhase::idle);
-    // A lane that completed a lease has started (lanes start on first command).
-    CHECK(account_media_worker_start_lane(h.worker, index).ok() && lane.thread);
+    // A lane that completed a lease has started: admission starts a lane on its first command.
+    CHECK(start_lane(h.worker, lane).ok() && lane.thread);
     // Seed only a quiescent completed lease. All transitions and final resource
     // release below run in production APIs and production worker threads.
     lane.command = {}; lane.completed = {}; lane.completed_result = {};

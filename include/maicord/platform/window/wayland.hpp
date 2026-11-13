@@ -10,37 +10,16 @@
 
 namespace maicord {
 
-struct WaylandSurfaceInfo {
-    void* display;  // wl_display*: eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, display)
-    void* surface;  // wl_surface*, the same as window_surface_native
-    u32 width_px, height_px;  // the buffer size the window wants now: logical size at the scale
-    u32 scale_120;            // 120 * dpi / 96, as WindowMetrics
-    u32 logical_width, logical_height;  // the surface size in compositor units; the viewport destination
-};
-bool window_wayland_info(Window window, WaylandSurfaceInfo* info) noexcept;
-
 // Connects to the compositor ahead of the window (window_create then finds the connection made) and returns the
 // wl_display*, or null when there is no compositor. The GPU device is made on this display, and its start-up overlaps
 // the creation of the window.
 void* window_wayland_connect() noexcept;
-
-// The globals the compositor advertised, in registry order: false past the last. The name stays valid until the
-// window is destroyed. What the protocol support matrix and diagnostics are built from.
-bool window_wayland_global(u32 index, const char** name, u32* version) noexcept;
-
-// The window tells the compositor its whole surface is opaque (wl_surface.set_opaque_region, kept in step with the size and
-// the scale): it has no rounded or transparent corners, and the GPU backend draws into an EGL config without alpha, so the
-// compositor can skip blending and what lies behind the window. This reads the region last sent, in surface units (the
-// size of WaylandSurfaceInfo::logical_*), for tests and diagnostics; false before the first one.
-bool window_wayland_opaque_region(Window window, u32* width, u32* height) noexcept;
 
 // Activation (xdg-activation-v1). window_request_attention(Attention::flash) asks the compositor to focus the window,
 // or mark it urgent when focus stealing is refused; it needs a recent input event for the token.
 // Focuses the window with a token someone else made: the XDG_ACTIVATION_TOKEN of a second launch or the activation-token
 // of a notification click (platform/dbus/instance.hpp, notifications.hpp). False without a window, xdg-activation or a token.
 bool window_wayland_activate(const char* token) noexcept;
-// The activation tokens the compositor has answered, for diagnostics and tests.
-u32 window_wayland_activation_count() noexcept;
 
 // Idle inhibit (a call, a video): the screen saver and the idle timeout stay off while true. False when the compositor
 // has no zwp_idle_inhibit_manager_v1.

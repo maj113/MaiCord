@@ -5,7 +5,7 @@
 #include "../../fixtures/image_decode_corpus.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/gif.hpp"
-#include "maicord/media/image/jpeg.hpp"
+#include "../../support/jpeg_decode.hpp"
 #include "../../../src/media/image/jpeg_internal.hpp"
 #include "../../../src/media/image/png_common.hpp"
 #include "../../support/test_output.hpp"

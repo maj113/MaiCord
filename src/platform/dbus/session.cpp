@@ -133,12 +133,4 @@ bool session_bus_wait_for(const volatile bool* done, u32 timeout_ms) noexcept {
     return *done;
 }
 
-void session_bus_close() noexcept {
-    connection_close(g_session);
-    g_session = nullptr;
-    g_wanted = false;
-    g_retry_at = 0;
-    g_failure_logged = false;
-}
-
 } // namespace maicord::dbus

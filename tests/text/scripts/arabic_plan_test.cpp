@@ -3,6 +3,7 @@
 // The corpora's expectations are HarfBuzz 15.0.0's (tools/font_reference/harfbuzz_fixture.py).
 #include "../../support/gsub_program_fixture.hpp"
 #include "../../support/text_seams.hpp"
+#include "../../support/component_queries.hpp"
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/text/scripts/arabic_shape_run.hpp"
 #include "maicord/text/scripts/arabic_joining.hpp"

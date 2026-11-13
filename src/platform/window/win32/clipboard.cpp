@@ -1,5 +1,5 @@
-// The system clipboard on Windows (include/maicord/platform/window/clipboard.hpp): text, images and the test sink of
-// win32_clipboard.hpp. The clipboard belongs to the main window, whatever the caller.
+// The system clipboard on Windows (include/maicord/platform/window/clipboard.hpp): text and images. Writes publish
+// through clipboard_system.cpp; the clipboard belongs to the main window, whatever the caller.
 #include "maicord/platform/window/win32_clipboard.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/platform/window/win32.hpp"
@@ -13,22 +13,6 @@ namespace maicord {
 namespace {
 
 inline constexpr u32 kWin32ConversionMaximum = 0x7FFFFFFFu;
-
-bool system_open(void*) noexcept {
-    if (!OpenClipboard(win32_main_window()))
-        return false;
-    if (EmptyClipboard())
-        return true;
-    CloseClipboard();
-    return false;
-}
-bool system_publish(void*, UINT format, HGLOBAL data) noexcept {
-    return SetClipboardData(format, data) != nullptr;
-}
-void system_close(void*) noexcept {
-    CloseClipboard();
-}
-ClipboardSink g_sink{};
 
 constexpr u32 kAppendFailed = ~0u;
 u32 append(const Slice<char>& output, u32 used, const char* text, u32 bytes) noexcept {
@@ -52,18 +36,16 @@ struct ClipboardPayload {
     HGLOBAL data;  // GMEM_MOVEABLE; ownership passes to clipboard_commit
 };
 
-// Publishes every payload (each with a format and a handle) or none. Frees each handle the sink did not take.
+// Publishes every payload (each with a format and a handle) or none. Frees each handle the clipboard did not take.
 bool clipboard_commit(const Slice<ClipboardPayload>& payloads) noexcept {
-    const ClipboardSink sink =
-        g_sink.open ? g_sink : ClipboardSink{nullptr, system_open, system_publish, system_close};
-    bool ok = sink.open(sink.context);
+    bool ok = clipboard_system_open();
     if (ok) {
         for (u32 index = 0; ok && index < payloads.count; ++index) {
-            ok = sink.publish(sink.context, payloads[index].format, payloads[index].data);
+            ok = clipboard_system_publish(payloads[index].format, payloads[index].data);
             if (ok)
                 payloads[index].data = nullptr;
         }
-        sink.close(sink.context);
+        clipboard_system_close();
     }
     for (u32 index = 0; index < payloads.count; ++index)
         if (payloads[index].data)
@@ -72,12 +54,6 @@ bool clipboard_commit(const Slice<ClipboardPayload>& payloads) noexcept {
 }
 
 } // namespace
-
-ClipboardSink clipboard_sink_install(ClipboardSink sink) noexcept {
-    const ClipboardSink previous = g_sink;
-    g_sink = sink.open && sink.publish && sink.close ? sink : ClipboardSink{};
-    return previous;
-}
 
 ClipboardTextResult clipboard_read_utf8(const Slice<char>& output) noexcept {
     if ((!output.data && output.count != 0) || output.count > kWin32ConversionMaximum) {

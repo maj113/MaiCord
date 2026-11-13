@@ -70,31 +70,12 @@ SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntCompo
         storage.data[i]={mark?g.attachment:nil,nil,nil,1,g.source,1,static_cast<u8>(mark?alias:0),static_cast<u16>(preserve_forms?g.glyph.reserved:0)};}
     *out={{storage.data,glyphs.count},false,preserve_forms};return SfntStatus::ok;
 }
-SfntStatus sfnt_component_first_metadata(const SfntComponentForest& f,u32 node,u8* output,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!output)return SfntStatus::invalid_input;*output=0;if(f.nodes.count&&!f.nodes.data)return SfntStatus::invalid_input;
-    WorkReport report{work,work,used};
-    while(node!=nil){if(!spend(work))return SfntStatus::resource_limit;if(node>=f.nodes.count)return SfntStatus::invalid_input;
-        const auto& n=f.nodes[node];if((n.flags&alias)||n.left==nil){*output=static_cast<u8>(n.reserved>>8);return SfntStatus::ok;}node=n.left;}
-    return SfntStatus::ok;
-}
 SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* root,u32* ordinal,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
     WorkReport report{work,work,used};const auto* nodes=f.nodes.data;
     u32 at=node,rank=(nodes[at].flags&alias) || nodes[at].left==nil?0:nodes[nodes[at].left].count;
     for(;;){if(!spend(work))return SfntStatus::resource_limit;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*ordinal=rank;return SfntStatus::ok;}
         const auto& up=nodes[p];if(up.right==at)rank+=1+(up.left==nil?0:nodes[up.left].count);at=p;}
-}
-SfntStatus sfnt_component_source_bounds(const SfntComponentForest& forest,u32 node,u32* first,u32* last,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!first||!last)return SfntStatus::invalid_input;*first=nil;*last=0;
-    if(node==nil)return SfntStatus::ok;if(node>=forest.nodes.count||!forest.nodes.data)return SfntStatus::invalid_input;
-    WorkReport report{work,work,used};
-    u32 pending[64],depth=0,lo=nil,hi=0;pending[depth++]=node;
-    while(depth){if(!spend(work))return SfntStatus::resource_limit;
-        const u32 at=pending[--depth];if(at>=forest.nodes.count)return SfntStatus::invalid_input;const auto& n=forest.nodes[at];
-        lo=minimum(lo,n.source);hi=maximum(hi,n.source);if(n.flags&alias)continue;
-        if(n.left!=nil){if(depth==64)return SfntStatus::resource_limit;pending[depth++]=n.left;}
-        if(n.right!=nil){if(depth==64)return SfntStatus::resource_limit;pending[depth++]=n.right;}}
-    *first=lo;*last=hi;return SfntStatus::ok;
 }
 void sfnt_components_rollback(SfntComponentForest* forest,ConstSlice<SfntComponentUndo> journal) noexcept {
     for(u32 i=journal.count;i;){const auto& item=journal.data[--i];forest->nodes.data[item.index]=item.before;}

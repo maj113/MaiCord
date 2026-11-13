@@ -197,8 +197,6 @@ DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotificatio
     request.category = "im.received";
     request.desktop_entry = "io.github.maj113.MaiCord";
     request.default_action = true;
-    request.timeout_ms = -1;
-    request.urgency = dbus::NotificationUrgency::normal;
     request.silent = payload.silent;
     request.cookie = toast->cookie;
     shown.native_show_attempted = true;

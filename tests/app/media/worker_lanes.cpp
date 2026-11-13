@@ -154,10 +154,7 @@ void run() noexcept {
     for (const auto& lane : worker->lanes)
         none_started = none_started && !lane.thread && lane.initialized == (lane.index == 0) &&
                        lane.media.started == (lane.index == 0);
-    check(none_started &&
-              account_media_worker_start_lane(worker, kAccountMediaDecodeLaneCount).state ==
-                  AccountMediaRequestState::invalid,
-          "media lanes: initialization starts no decode thread and only the cache owner's storage");
+    check(none_started, "media lanes: initialization starts no decode thread and only the cache owner's storage");
 
     // No live source or network: admission must keep a collection switch off
     // spare lanes while an earlier track still owns this embed's lane.

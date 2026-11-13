@@ -26,7 +26,6 @@ bool basic() noexcept {
     u32 units=99;CHECK(sfnt_name_decode(name,{decoded,32768},&units)==SfntStatus::ok&&units==3&&bytes_equal(decoded,data+2,6));
     decoded[0]=0xbeef;CHECK(sfnt_name_decode(name,{decoded,2},&units)==SfntStatus::output_too_small&&!units&&decoded[0]==0xbeef);
     CHECK(sfnt_name_english(names,21,&name,&found)==SfntStatus::ok&&!found&&!name.bytes.data);
-    CHECK(sfnt_name_record(names,3,&name)==SfntStatus::invalid_input&&!name.bytes.data);
     byte_store_be16(table+34,0x809);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.language==0x809);
     byte_store_be16(table+34,0x411);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.platform==0);
     byte_store_be16(table+24,2);CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.language==0x411&&name.encoding==1);
@@ -47,7 +46,6 @@ bool tags() noexcept {
     SfntNames names{};SfntName name{};bool found=false;
     CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok&&names.language_tags==2);
     CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&found&&name.language==0x8001);
-    CHECK(sfnt_name_record(names,2,&name)==SfntStatus::ok&&!name.language_tag.data);
     byte_store_be16(table+22,0x8002);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&found&&name.language==0x8000);
     byte_store_be16(table+10,0x8003);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::ok);CHECK(sfnt_name_english(names,16,&name,&found)==SfntStatus::ok&&!found);
     byte_store_be16(table+44,3);CHECK(sfnt_names_open({table,72},&names)==SfntStatus::malformed&&!names.table.data);
@@ -120,7 +118,7 @@ bool audit(const wchar_t* path,u32 index) noexcept {
     print("{\"face_index\":");number(index);print(",\"face_count\":");number(face.face_count);print(",\"attributes\":[");
     const u16 attrs[]{attributes.weight,attributes.width,attributes.selection,attributes.version};for(u32 i=0;i<4;++i){if(i)ch(',');number(attrs[i]);}print("],\"records\":[");
     u32 count=0;
-    for(u32 i=0;i<names.records;++i){SfntName name{};CHECK(sfnt_name_record(names,i,&name)==SfntStatus::ok);u32 units=0;const auto status=sfnt_name_decode(name,{decoded,32768},&units);if(status==SfntStatus::unsupported)continue;CHECK(status==SfntStatus::ok);
+    for(u32 i=0;i<names.records;++i){const SfntName name=font_names_reference::record(names,i);u32 units=0;const auto status=sfnt_name_decode(name,{decoded,32768},&units);if(status==SfntStatus::unsupported)continue;CHECK(status==SfntStatus::ok);
         if(count++)ch(',');ch('[');number(name.platform);ch(',');number(name.encoding);ch(',');number(name.language);ch(',');number(name.id);ch(',');string({decoded,units});ch(']');}
     print("],\"english\":[");const u16 ids[]{1,2,4,6,16,17,21,22};
     for(u32 i=0;i<8;++i){SfntName name{};bool found=false;CHECK(sfnt_name_english(names,ids[i],&name,&found)==SfntStatus::ok);if(i)ch(',');ch('[');number(ids[i]);ch(',');

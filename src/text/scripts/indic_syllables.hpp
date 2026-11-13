@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/scripts/indic_plan.hpp"
 // Indic character classes, HarfBuzz-model text preparation and the syllable scanner, shared by the
-// Indic run (indic_run.cpp) and the boundary API (sfnt_indic_cluster_boundaries).
+// Indic run (indic_run.cpp) and the tests' boundary oracle (tests/support/indic_cluster_boundaries.hpp).
 namespace maicord {
 // Syllabic categories of the Indic syllable grammar (HarfBuzz hb-ot-shaper-indic-machine.rl numbering,
 // with SMPst after CS), derived from Unicode IndicSyllabicCategory.

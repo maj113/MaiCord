@@ -33,7 +33,6 @@ SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept {
     for(u32 count=text_count;count;){count=word_count(count);map.storage.count+=count;++map.levels;if(count==1)break;}
     return map;
 }
-u32 sfnt_cluster_map_words(u32 count) noexcept {return sfnt_cluster_map_frame(nullptr,count).storage.count;}
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64> storage,SfntClusterMap* output,u64 work) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);SfntClusterMap result=sfnt_cluster_map_frame(storage.data,text_count);const u32 words=result.storage.count;
     if((starts.count && !starts.data) || (storage.count && (!storage.data || (reinterpret_cast<usize>(storage.data)&7))))return SfntStatus::invalid_input;
@@ -68,17 +67,5 @@ void sfnt_cluster_map_commit(SfntClusterMap* map,const SfntClusterMerge& plan) n
     if(plan.first==plan.last)return;u32 at=plan.first+1;
     for(;;){const u32 found=find(*map,at,true);if(found==absent || found>plan.last)return;const u32 word=found>>6;
         clear_word(*map,word,erase_mask(word,plan.first+1,plan.last));if(word==(plan.last>>6))return;at=(word+1)*64;}
-}
-SfntStatus sfnt_cluster_map_export(const SfntClusterMap& map,SfntGlyphView glyphs,Slice<u32> characters,Slice<u8> starts,u64 work) noexcept {
-    if(!sfnt_glyph_view_valid(glyphs) || glyphs.record_size<sizeof(SfntClusterGlyph) || (characters.count && !characters.data) || (starts.count && !starts.data))return SfntStatus::invalid_input;
-    const u32 n=sfnt_glyph_count(glyphs);if(characters.count<map.text_count || (starts.count && starts.count<n))return SfntStatus::output_too_small;
-    const u64 required=static_cast<u64>(map.text_count)*2+static_cast<u64>(n)*(map.levels*2+3);if(required>work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<map.text_count;++i)characters.data[i]=absent;
-    for(u32 i=0;i<n;++i){const auto* record=reinterpret_cast<const u8*>(&sfnt_glyph_at(glyphs,i));const u32 source=byte_load_le32(record+4);if(source>=map.text_count)return SfntStatus::invalid_input;
-        const u32 root=find(map,source,false);if(root==absent)return SfntStatus::invalid_input;const bool first=characters.data[root]==absent;
-        if(first)characters.data[root]=i;if(starts.count)starts.data[i]=first?1u:0u;}
-    u32 glyph=absent;
-    for(u32 i=0;i<map.text_count;++i){if(map.storage.data[i>>6]&(u64{1}<<(i&63)))glyph=characters.data[i];if(glyph==absent)return SfntStatus::invalid_input;characters.data[i]=glyph;}
-    return SfntStatus::ok;
 }
 }
