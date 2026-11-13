@@ -402,7 +402,7 @@ void application_expression_card_pointer_up(UiPoint point) noexcept {
         !application_message_expression_same(pressed, released))
         return;
     // A drag from the emoji selected text instead.
-    if (g_app.message_text_selection.valid && g_app.message_text_selection_anchor != g_app.message_text_selection_caret)
+    if (message_text_selection_nonempty(g_app.message_text_selection))
         return;
     application_expression_card_open(released);
 }

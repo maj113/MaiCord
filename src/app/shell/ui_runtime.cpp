@@ -310,9 +310,8 @@ void application_release_account_ui(Application& application) noexcept {
     application.message_composer_pointer_selection = false;
     ui_widget_manager_capture(&application.message_composer_scene.widgets, ui_widget_invalid_handle());
     application.message_text_pointer_selection = false;
-    reset_value<MessagePositionHit>(&application.message_text_selection);
-    application.message_text_selection_anchor = 0;
-    application.message_text_selection_caret = 0;
+    reset_value(&application.message_text_selection);
+    message_text_selection_text_release(&application.message_text_selection_text);
     renderer_clear_message_text_selection(&application.renderer);
     if (composer_had_capture) {
         window_release_capture(application.window);

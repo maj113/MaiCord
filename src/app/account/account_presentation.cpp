@@ -12,6 +12,7 @@
 #include "dm_profile.hpp"
 #include "../chat/composer/input.hpp"
 #include "../chat/messages/feedback.hpp"
+#include "../chat/messages/interaction.hpp"
 #include "../chat/composer/composer.hpp"
 #include "../chat/composer/commands.hpp"
 #include "../chat/composer/attachments.hpp"
@@ -627,6 +628,7 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
                 // commands enter the retained text stream. The selected poll
                 // card follows its converged row.
                 application_poll_synchronize();
+                application_message_text_selection_presented();
                 return message_action_bar_synchronize(&g_app.message_action_bar, g_app.message_scene) &&
                        renderer_rebuild_content_text(static_cast<D3D11Renderer*>(opaque), theme);
             },

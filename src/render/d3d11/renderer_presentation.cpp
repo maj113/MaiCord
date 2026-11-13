@@ -526,7 +526,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (!content_hidden) {
         s.push(renderer.composer_layout.active, renderer.composer_layout.selection_count);
         const TimelineInputs timeline(&stamp);
-        s.span(renderer.message_text_selection_message_id, renderer.message_text_selection_caret);
+        s.push(renderer.message_text_selection.signature);
     }
     return stamp;
 }

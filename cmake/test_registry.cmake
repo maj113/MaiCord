@@ -1439,6 +1439,11 @@ maicord_test(MaiCordEditedLabelTests ENTRY maicord_edited_label_entry
     WINDOWS BUNDLE MaiCordModelTests
     LINUX BUNDLE MaiCordUiUnitTests
     TIMEOUT 15 TEST maicord_edited_label)
+maicord_test(MaiCordMessageTextSelectionTests ENTRY maicord_message_text_selection_entry
+    SOURCES tests/ui/chat/messages/text_selection.cpp
+    WINDOWS BUNDLE MaiCordModelTests
+    LINUX BUNDLE MaiCordUiUnitTests
+    TIMEOUT 15 TEST maicord_message_text_selection)
 maicord_test(MaiCordReceivedAttachmentOpenTests ONLY WINDOWS ENTRY maicord_received_attachment_open_test_entry
     SOURCES tests/app/media/received_attachment_open.cpp src/app/media/received_attachment_open.cpp src/app/media/url_resolver.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 10 TEST maicord_received_attachment_open)

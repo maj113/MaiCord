@@ -13,6 +13,7 @@
 #include "maicord/render/media/icon_atlas.hpp"
 #include "maicord/render/text/edit_layout.hpp"
 #include "maicord/render/text/message_hit_test.hpp"
+#include "maicord/ui/chat/messages/text_selection.hpp"
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "maicord/render/media/renderer_media_draw_storage.hpp"
@@ -639,12 +640,8 @@ struct D3D11Renderer {
     u32 interaction_text_forum_form_revision;
     u32 stale_interaction_text_suppressions;
     u32 login_composition_metric_count;
-    u64 message_text_selection_message_id;
-    u64 message_text_selection_command_identity;
-    u32 message_text_selection_revision;
-    u32 message_text_selection_command_index;
-    u32 message_text_selection_anchor;
-    u32 message_text_selection_caret;
+    // The timeline's text selection; resolved against the presentation when message text is built.
+    MessageTextSelectionRange message_text_selection;
     u32 uploaded_text_rebuild;
     u32 uploaded_text_quad_count;
     const RendererTextStorage* uploaded_text_storage;
@@ -961,6 +958,10 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
 MessagePositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
                                                            i32 client_x_pixels,
                                                            i32 client_y_pixels) noexcept;
+// Where a held selection drag at a point lands: the text under it or else the nearest visible message text, the
+// point first brought into the message view (a drag past its edge reaches the first or last visible line).
+MessagePositionHit renderer_message_text_drag_hit_test(D3D11Renderer& renderer, i32 client_x_pixels,
+                                                       i32 client_y_pixels) noexcept;
 // The emoji under a DIP point in the visible message timeline's body text.
 MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept;
 // The "(edited)" label under a DIP point: its message and revision, the edit time and the visible part of its
@@ -974,9 +975,8 @@ struct RendererEditedLabelHit {
     bool valid;
 };
 RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& renderer, float x, float y) noexcept;
-void renderer_set_message_text_selection(D3D11Renderer* renderer,
-                                         const MessagePositionHit& command, u32 anchor,
-                                         u32 caret) noexcept;
+// Shows a text selection over the timeline (an empty range shows none).
+void renderer_set_message_text_selection(D3D11Renderer* renderer, const MessageTextSelectionRange& range) noexcept;
 void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept;
 void renderer_set_dpi(D3D11Renderer* renderer, u32 dpi) noexcept;
 void renderer_shutdown(D3D11Renderer* renderer) noexcept;

@@ -412,6 +412,17 @@ MessagePositionHit renderer_message_text_position_hit_test(D3D11Renderer& render
                                      renderer.dpi, client_x_pixels, client_y_pixels);
 }
 
+MessagePositionHit renderer_message_text_drag_hit_test(D3D11Renderer& renderer, i32 client_x_pixels,
+                                                       i32 client_y_pixels) noexcept {
+    const MessageTextPresentation* presentation = renderer.message_text;
+    if (!presentation || !renderer.message_scene || !renderer.message_scene->active)
+        return MessagePositionHit{};
+    return message_position_nearest_hit_test(
+        &renderer.message_hit_test, *presentation, renderer.glyph_text.system,
+        renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal)), renderer.dpi, client_x_pixels,
+        client_y_pixels, renderer.message_scene->viewport);
+}
+
 MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept {
     const MessageTextPresentation* presentation = renderer.message_text;
     if (!presentation || !renderer.message_scene || !renderer.message_scene->active ||
@@ -450,27 +461,14 @@ RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& rende
 }
 
 void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept {
-    renderer->message_text_selection_message_id = 0;
-    renderer->message_text_selection_command_identity = 0;
-    renderer->message_text_selection_revision = 0;
-    renderer->message_text_selection_command_index = 0;
-    renderer->message_text_selection_anchor = 0;
-    renderer->message_text_selection_caret = 0;
+    reset_value(&renderer->message_text_selection);
 }
 
-void renderer_set_message_text_selection(D3D11Renderer* renderer,
-                                         const MessagePositionHit& command, u32 anchor,
-                                         u32 caret) noexcept {
-    if (!command.valid || command.message_id == 0 || anchor > command.text_bytes || caret > command.text_bytes) {
+void renderer_set_message_text_selection(D3D11Renderer* renderer, const MessageTextSelectionRange& range) noexcept {
+    if (message_text_selection_nonempty(range))
+        renderer->message_text_selection = range;
+    else
         renderer_clear_message_text_selection(renderer);
-        return;
-    }
-    renderer->message_text_selection_message_id = command.message_id;
-    renderer->message_text_selection_command_identity = command.command_identity;
-    renderer->message_text_selection_revision = command.message_revision;
-    renderer->message_text_selection_command_index = command.command_index;
-    renderer->message_text_selection_anchor = anchor;
-    renderer->message_text_selection_caret = caret;
 }
 
 } // namespace maicord

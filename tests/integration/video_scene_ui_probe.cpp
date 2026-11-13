@@ -655,10 +655,10 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
         valid = valid && full_rebuild();
         if (valid)
             stage = __LINE__;
-        const u32 selected = renderer.message_text_selection_revision;
-        ++renderer.message_text_selection_revision;
+        const u64 selected = renderer.message_text_selection.signature;
+        ++renderer.message_text_selection.signature;
         valid = valid && full_rebuild();
-        renderer.message_text_selection_revision = selected;
+        renderer.message_text_selection.signature = selected;
         valid = valid && full_rebuild();
         if (renderer.message_text) {
             auto& messages = *const_cast<MessageTextPresentation*>(renderer.message_text);

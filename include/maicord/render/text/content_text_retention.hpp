@@ -10,12 +10,7 @@ struct ContentTextRetentionKey {
     u64 message_signature;
     u64 popup_signature;
     u64 theme_signature;
-    u64 selection_message_id;
-    u64 selection_command_identity;
-    u32 selection_revision;
-    u32 selection_command_index;
-    u32 selection_anchor;
-    u32 selection_caret;
+    u64 selection_signature;
     u32 dpi;
     u32 atlas_evicted_entries;
     u32 atlas_full_resets;
@@ -41,10 +36,7 @@ inline bool content_text_retention_base_current(const ContentTextRetentionOwner&
     const auto& left=owner.key;
     return owner.valid && left.shell_signature==key.shell_signature &&
         left.message_signature==key.message_signature && left.theme_signature==key.theme_signature &&
-        left.selection_message_id==key.selection_message_id &&
-        left.selection_command_identity==key.selection_command_identity &&
-        left.selection_revision==key.selection_revision && left.selection_command_index==key.selection_command_index &&
-        left.selection_anchor==key.selection_anchor && left.selection_caret==key.selection_caret &&
+        left.selection_signature==key.selection_signature &&
         left.dpi==key.dpi && left.atlas_evicted_entries==key.atlas_evicted_entries &&
         left.atlas_full_resets==key.atlas_full_resets && left.include_messages==key.include_messages;
 }
@@ -57,7 +49,7 @@ void content_text_retention_commit(ContentTextRetentionOwner* owner,
 void content_text_retention_invalidate(ContentTextRetentionOwner* owner) noexcept;
 void content_text_retention_reset(ContentTextRetentionOwner* owner) noexcept;
 
-static_assert(sizeof(ContentTextRetentionKey) == 80);
-static_assert(sizeof(ContentTextRetentionOwner) == 104);
+static_assert(sizeof(ContentTextRetentionKey) == 56);
+static_assert(sizeof(ContentTextRetentionOwner) == 80);
 
 } // namespace maicord

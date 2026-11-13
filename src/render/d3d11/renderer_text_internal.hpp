@@ -114,13 +114,17 @@ bool flag_projection_wanted(const D3D11Renderer& renderer, const ContentTextRequ
                             RendererInlineMediaLayer* layer) noexcept;
 bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
                          bool* atlas_invalidated) noexcept;
+// selection_first..selection_last (bytes of the text) shows selected.
 bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& command, const Theme& theme,
                                  bool* atlas_invalidated, bool force_new_batch = false,
-                                 const UiRect* batch_clip = nullptr) noexcept;
+                                 const UiRect* batch_clip = nullptr, u32 selection_first = 0,
+                                 u32 selection_last = 0) noexcept;
+// `selection`: the timeline's text selection resolved against `presentation` (null: none).
 bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPresentation* presentation,
                                  const MessageTextCommand& command, u32 command_index, const Theme& theme, u32 shown,
                                  bool* atlas_invalidated, bool search_result = false,
-                                 bool force_new_batch = false) noexcept;
+                                 bool force_new_batch = false,
+                                 const MessageTextSelectionSpan* selection = nullptr) noexcept;
 ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, u32 shown, const Theme& theme,
                                                    u64 shell_signature, u64 popup_signature,
                                                    bool include_messages) noexcept;

@@ -1,6 +1,7 @@
 #include "../guild/community.hpp"
 #include "../guild/menu.hpp"
 #include "../chat/messages/components.hpp"
+#include "../chat/messages/interaction.hpp"
 #include "../guild/invite_cards.hpp"
 #include "../guild/lifecycle.hpp"
 #include "navigation_drag.hpp"
@@ -371,6 +372,7 @@ bool application_present_frame() noexcept {
     renderer_bind_focus_owner(&g_app.renderer, focus);
     now_ms = clock_monotonic_milliseconds();
     application_navigation_drag_tick(now_ms);
+    application_message_text_selection_tick(now_ms);
     application_navigation_chevron_synchronize(now_ms);
     if (!application_guild_folders_synchronize(now_ms))
         return present_rejected("guild_folders");

@@ -285,13 +285,12 @@ void test_emoji_tooltip_owner(void (*check)(bool, const char*) noexcept) noexcep
     // A drag that selected text from the emoji opens nothing.
     hit = joy;
     application_expression_card_pointer_down(centre(joy.rectangle));
-    g_app.message_text_selection.valid = true;
-    g_app.message_text_selection_anchor = 1;
-    g_app.message_text_selection_caret = 5;
+    g_app.message_text_selection.anchor.byte_offset = 1;
+    g_app.message_text_selection.focus.byte_offset = 5;
+    g_app.message_text_selection.signature = 1;
     application_expression_card_pointer_up(centre(joy.rectangle));
     const bool dragged = !popout.active;
-    g_app.message_text_selection.valid = false;
-    g_app.message_text_selection_anchor = g_app.message_text_selection_caret = 0;
+    reset_value(&g_app.message_text_selection);
     application_expression_card_pointer_down(centre(joy.rectangle));
     hit = unicode(5, 8, 450);
     application_expression_card_pointer_up(centre(hit.rectangle));

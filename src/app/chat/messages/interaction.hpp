@@ -20,6 +20,11 @@ bool begin_message_text_selection(const WindowEvent& event, bool double_click = 
 void end_message_text_selection() noexcept;
 bool handle_message_text_selection_drag(const WindowEvent& event) noexcept;
 bool copy_message_text_selection() noexcept;
+// A selection drag held past the timeline's top or bottom scrolls it and extends the selection (each frame).
+void application_message_text_selection_tick(u64 now_ms) noexcept;
+// After each timeline text build: keeps the selected messages' text for the copy (a selection made in another
+// channel is dropped).
+void application_message_text_selection_presented() noexcept;
 
 bool dismiss_popup() noexcept;
 bool refresh_popup_text() noexcept;

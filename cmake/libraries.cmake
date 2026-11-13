@@ -256,6 +256,7 @@ maicord_library(maicord_ui
     src/ui/widgets/icon.cpp src/ui/widgets/button.cpp src/ui/chat/messages/text_coordinator.cpp src/ui/chat/messages/text_presentation.cpp
     src/ui/chat/messages/text_presentation_reply.cpp src/ui/chat/messages/text_presentation_content.cpp
     src/ui/chat/messages/text_presentation_cards.cpp src/ui/chat/messages/text_presentation_row.cpp
+    src/ui/chat/messages/text_selection.cpp
     src/ui/shell/popup_scene.cpp src/ui/guild/channel_context_policy.cpp src/ui/guild/context_policy.cpp
     src/ui/guild/member_context_policy.cpp src/ui/chat/composer/attachment_menu.cpp src/ui/chat/messages/received_attachment_menu.cpp
     src/ui/shell/popup_presentation.cpp src/ui/text/edit_menu.cpp src/ui/text/spell_tokenize.cpp

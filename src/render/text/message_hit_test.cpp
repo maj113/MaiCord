@@ -324,6 +324,59 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
     return MessagePositionHit{};
 }
 
+MessagePositionHit message_position_nearest_hit_test(MessageHitTestCacheOwner* owner,
+                                                     const MessageTextPresentation& presentation,
+                                                     const TextSystem& text_system, const TextSystem& chat_system,
+                                                     u32 dpi, i32 client_x_pixels, i32 client_y_pixels,
+                                                     const UiRect& bounds) noexcept {
+    if (!owner || !presentation.active || dpi == 0 || !ui_rect_has_area(bounds) ||
+        presentation.command_count > presentation.commands.count)
+        return MessagePositionHit{};
+    constexpr float kInside = 0.01f;
+    const float x = clamp_value(static_cast<float>(client_x_pixels) * 96.0f / static_cast<float>(dpi), bounds.left,
+                                bounds.right - kInside);
+    const float y = clamp_value(static_cast<float>(client_y_pixels) * 96.0f / static_cast<float>(dpi), bounds.top,
+                                bounds.bottom - kInside);
+    // The command nearest the point, lines first: the last drawn of those under it, as the exact hit test picks.
+    u32 nearest = presentation.command_count;
+    UiRect nearest_box{};
+    float nearest_dy = 0.0f, nearest_dx = 0.0f;
+    for (u32 cursor = presentation.command_count; cursor != 0; --cursor) {
+        const MessageTextCommand& command = presentation.commands[cursor - 1];
+        if (command.measurement_kind == MessageTextMeasurementKind::reaction || command.message_id == 0 ||
+            command.text.bytes == 0 || !command.text.data || command.text.bytes > static_cast<u32>(INT_MAX))
+            continue;
+        const UiRect box = ui_rect_intersection(ui_rect_intersection(command.rectangle, command.clip), bounds);
+        if (!ui_rect_has_area(box))
+            continue;
+        const float dy = y < box.top ? box.top - y : y >= box.bottom ? y - box.bottom + kInside : 0.0f;
+        const float dx = x < box.left ? box.left - x : x >= box.right ? x - box.right + kInside : 0.0f;
+        if (nearest != presentation.command_count && (dy > nearest_dy || (dy == nearest_dy && dx >= nearest_dx)))
+            continue;
+        nearest = cursor - 1;
+        nearest_box = box;
+        nearest_dy = dy;
+        nearest_dx = dx;
+        if (dy == 0.0f && dx == 0.0f)
+            break;
+    }
+    if (nearest == presentation.command_count)
+        return MessagePositionHit{};
+    const MessageTextCommand& command = presentation.commands[nearest];
+    if (!acquire_layout(owner, command,
+                        ui_text_face_is_chat(message_text_command_face(command)) ? chat_system : text_system, nearest))
+        return MessagePositionHit{};
+    const float px = clamp_value(x, nearest_box.left, nearest_box.right - kInside);
+    const float py = clamp_value(y, nearest_box.top, nearest_box.bottom - kInside);
+    u32 byte_offset = 0;
+    if (!native_position(*owner, px - command.rectangle.left, py - command.rectangle.top, &byte_offset)) {
+        saturating_increment(owner->rejected);
+        return MessagePositionHit{};
+    }
+    return MessagePositionHit{command.message_id, command.measurement_identity, command.message_revision, nearest,
+                              byte_offset, command.text.bytes, true};
+}
+
 MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
                                        const TextSystem& text_system, const TextSystem& chat_system, float x,
                                        float y) noexcept {

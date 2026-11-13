@@ -451,8 +451,8 @@ Color profile_tone(const Color& c, float light_scale, float floor = 0, float sat
 }
 
 bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& command, const Theme& theme,
-                                 bool* atlas_invalidated, bool force_new_batch,
-                                 const UiRect* batch_clip) noexcept {
+                                 bool* atlas_invalidated, bool force_new_batch, const UiRect* batch_clip,
+                                 u32 selection_first, u32 selection_last) noexcept {
     // A partially visible virtual row can have a label wholly outside the
     // scroll clip; skip it rather than shape it or pass an empty intersection
     // to glyph clipping.
@@ -508,10 +508,12 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         command.rectangle.left, command.rectangle.top, &command.clip,
         command.effect.kind ? nullptr : batch_clip, &command.color, styles,
         composer_edit || bio || command.effect.themed_styles ? &theme : nullptr, nullptr, bio_semantics, command.owner, 0, 0,
-        composer_edit ? composer->display_anchor : 0, composer_edit ? composer->display_caret : 0,
+        composer_edit ? composer->display_anchor : selection_first,
+        composer_edit ? composer->display_caret : selection_last,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
         face, force_new_batch,
-        composer_edit && composer->model->focused && composer->display_anchor != composer->display_caret,
+        composer_edit ? composer->model->focused && composer->display_anchor != composer->display_caret
+                      : selection_last > selection_first,
         command.effect.kind == 8,
         !composer_edit && !bio &&
             !(renderer->text_form && renderer->text_form->scene &&
@@ -667,8 +669,8 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
 
 bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPresentation* presentation,
                                  const MessageTextCommand& command, u32 command_index, const Theme& theme, u32 shown,
-                                 bool* atlas_invalidated, bool search_result,
-                                 bool force_new_batch) noexcept {
+                                 bool* atlas_invalidated, bool search_result, bool force_new_batch,
+                                 const MessageTextSelectionSpan* selection) noexcept {
     if (command.measurement_kind > MessageTextMeasurementKind::notice ||
         (command.measurement_kind != MessageTextMeasurementKind::none &&
          command.measurement_index >= presentation->measurement_count)) {
@@ -683,11 +685,28 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     const auto* users = search_result ? renderer->search_message_users : renderer->user_store;
     auto* cache = search_result ? renderer->search_message_measure_cache : renderer->message_measure_cache;
     const UiRect* batch_clip = scene ? &scene->viewport : nullptr;
-    // Everything a message row shows is chat text: sized by Text size in chat.
+    // The bytes of this command the timeline's selection covers: the first and last selected commands their part,
+    // those between all of their text.
+    u32 selection_first = 0, selection_last = 0;
+    if (selection && selection->valid && command_index >= selection->first && command_index <= selection->last &&
+        message_text_command_selectable(command)) {
+        selection_first = command_index == selection->first ? selection->first_offset : 0;
+        selection_last = minimum(command_index == selection->last ? selection->last_offset : command.text.bytes,
+                                 command.text.bytes);
+    }
+    // Everything a message row shows is chat text: sized by Text size in chat. A piece laid out from the command's
+    // own text (the author header's name and time) shows the selection over its bytes.
     const auto append_chat = [&](const UiTextCommand& part, bool first) noexcept {
         UiTextCommand chat = part;
         chat.face = ui_text_face_chat(chat.face);
-        return append_content_text_command(renderer, chat, theme, atlas_invalidated, first, batch_clip);
+        u32 from = 0, to = 0;
+        if (selection_last > selection_first && !chat.effect.kind && part.text.data >= command.text.data &&
+            part.text.data + part.text.bytes <= command.text.data + command.text.bytes) {
+            const u32 offset = static_cast<u32>(part.text.data - command.text.data);
+            from = maximum(selection_first, offset) - offset;
+            to = selection_last > offset ? minimum(selection_last - offset, part.text.bytes) : 0;
+        }
+        return append_content_text_command(renderer, chat, theme, atlas_invalidated, first, batch_clip, from, to);
     };
     MessageInteractionLayout interaction;
     if (scene && users && message_interaction_layout(*scene, command, *users, cache, theme, &interaction)) {
@@ -739,11 +758,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
                append_chat(header.timestamp, false);
     }
     float shaped_height = 0.0f;
-    const bool selected =
-        !search_result && renderer->message_text_selection_message_id == command.message_id &&
-        renderer->message_text_selection_command_identity == command.measurement_identity &&
-        renderer->message_text_selection_revision == command.message_revision &&
-        renderer->message_text_selection_command_index == command_index;
+    const bool selected = selection_last > selection_first;
     const u32 first_semantic = renderer->content_text->content_semantic_count;
     const u32 first_region = renderer->content_text->content_hit_region_count;
     const ContentTextRequest request{
@@ -751,7 +766,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         command.rectangle.left, command.rectangle.top, &command.clip, batch_clip, &command.color,
         command.styles, command.themed_styles ? &theme : nullptr, &command.inline_role_color,
         command.semantics, command.owner, command.message_id, command.message_revision,
-        renderer->message_text_selection_anchor, renderer->message_text_selection_caret,
+        selection_first, selection_last,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
         message_text_command_face(command), force_new_batch, selected, false, false, true};
     if (!append_content_text(renderer, request, &shaped_height, atlas_invalidated)) {

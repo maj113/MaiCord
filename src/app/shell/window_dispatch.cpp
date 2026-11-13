@@ -540,7 +540,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                 application_focus_window();
                 return true;
             }
-            if (g_app.message_text_selection.valid && !clear_message_text_selection(true)) {
+            if (message_text_selection_active(g_app.message_text_selection) && !clear_message_text_selection(true)) {
                 log_write(LogLevel::warning, "ui", "message_text_selection_clear_failed");
             }
             if (!g_app.renderer_ready)

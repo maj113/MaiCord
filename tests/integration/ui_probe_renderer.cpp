@@ -411,9 +411,7 @@ bool content_text_retention_empty(const ContentTextRetentionOwner& owner) noexce
     const ContentTextRetentionKey& key = owner.key;
     return !owner.valid && owner.builds == 0 && owner.hits == 0 && owner.misses == 0 &&
            owner.invalidations == 0 && key.shell_signature == 0 && key.message_signature == 0 &&
-           key.popup_signature == 0 && key.theme_signature == 0 && key.selection_message_id == 0 &&
-           key.selection_command_identity == 0 && key.selection_revision == 0 &&
-           key.selection_command_index == 0 && key.selection_anchor == 0 && key.selection_caret == 0 &&
+           key.popup_signature == 0 && key.theme_signature == 0 && key.selection_signature == 0 &&
            key.dpi == 0 && key.atlas_evicted_entries == 0 && key.atlas_full_resets == 0 &&
            !key.include_messages;
 }

@@ -975,12 +975,15 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
             const UiRect band{viewport.left, viewport.top - margin, viewport.right, viewport.bottom + margin};
             const u32 first_batch = storage->batch_count;
             const u32 effects = renderer->text_effect_count;
+            // The selection is held by message ids and offsets; this build's commands place it.
+            const MessageTextSelectionSpan selection =
+                message_text_selection_span(renderer->message_text_selection, *presentation);
             for (u32 index = 0; index < presentation->command_count; ++index) {
                 const MessageTextCommand& command = presentation->commands[index];
                 if (renderer->message_scene && !ui_rect_intersects(command.clip, band))
                     continue;
                 if (!append_message_text_command(renderer, presentation, command, index, theme, shown,
-                                                 atlas_invalidated) ||
+                                                 atlas_invalidated, false, false, &selection) ||
                     *atlas_invalidated) {
                     storage->quad_capacity = full_quad_capacity;
                     storage->batch_capacity = full_batch_capacity;

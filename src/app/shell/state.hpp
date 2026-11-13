@@ -455,9 +455,14 @@ struct Application {
     MessageReactionRequest message_reaction;
     u64 pending_message_jump_channel_id;
     u64 pending_message_jump_message_id;
-    MessagePositionHit message_text_selection;
-    u32 message_text_selection_anchor;
-    u32 message_text_selection_caret;
+    // The timeline's text selection, the text it keeps for the copy, its channel and where the held drag last was
+    // (client pixels) for the edge autoscroll.
+    MessageTextSelectionRange message_text_selection;
+    MessageTextSelectionText message_text_selection_text;
+    u64 message_text_selection_channel;
+    u64 message_text_selection_tick_ms;
+    i32 message_text_selection_x;
+    i32 message_text_selection_y;
     bool renderer_ready;
     bool frame_loop_active;
     bool frame_pending;

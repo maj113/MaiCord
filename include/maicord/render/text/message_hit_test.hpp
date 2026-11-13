@@ -20,9 +20,9 @@ struct MessagePositionHit {
     bool valid;
 };
 
-// Selection dragging normally stays within one message draw command, so one
-// native geometry snapshot is kept. Storage is allocated on first use and
-// survives invalidation; it does not grow with message history or selection length.
+// Pointer moves mostly stay over one message draw command, so one native geometry snapshot is kept; a selection drag
+// lays out another command only when it moves onto it. Storage is allocated on first use and survives invalidation;
+// it does not grow with message history or selection length.
 struct MessageHitTestCacheOwner {
     u64 native_format;
     u64 message_id;
@@ -49,6 +49,13 @@ MessagePositionHit message_position_hit_test(
     MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
     const TextSystem& text_system, const TextSystem& chat_system, u32 dpi, i32 client_x_pixels,
     i32 client_y_pixels) noexcept;
+// The position a selection drag reaches at a point: the text under it, else the nearest message text in `bounds`
+// (DIPs; lines first, then across), the point brought onto it. The point is first held inside `bounds`.
+MessagePositionHit message_position_nearest_hit_test(MessageHitTestCacheOwner* owner,
+                                                     const MessageTextPresentation& presentation,
+                                                     const TextSystem& text_system, const TextSystem& chat_system,
+                                                     u32 dpi, i32 client_x_pixels, i32 client_y_pixels,
+                                                     const UiRect& bounds) noexcept;
 void message_hit_test_cache_invalidate(MessageHitTestCacheOwner* owner) noexcept;
 void message_hit_test_cache_release(MessageHitTestCacheOwner* owner) noexcept;
 

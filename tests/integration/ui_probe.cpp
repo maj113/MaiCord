@@ -9,6 +9,8 @@
 //   MAICORD_REGIONAL_FLAG_SURFACES_PROBE  the bundled flags on message, composer and reaction surfaces.
 #include "ui_probe_internal.hpp"
 #include "maicord/ui/shell/notice_band.hpp"
+#include "maicord/ui/chat/messages/text_selection.hpp"
+#include "maicord/ui/text/pointer_selection.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "../support/composer_height_model.hpp"
 #include "../support/application_downloads_inactive.hpp"
@@ -1725,7 +1727,14 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     const u32 selection_content_builds = g_probe.renderer.content_text_retention.builds;
     const u32 selection_content_hits = g_probe.renderer.content_text_retention.hits;
     const u32 selection_text_rebuilds = g_probe.text.rebuilds;
-    renderer_set_message_text_selection(&g_probe.renderer, selection_hit, 0, selection_hit.text_bytes);
+    MessageTextSelectionRange selection{};
+    UiTextPointerSelection selection_unit{};
+    if (!message_text_selection_begin(&selection, &selection_unit, g_probe.message_text, selection_hit.command_index, 0,
+                                      1) ||
+        !message_text_selection_extend(&selection, selection_unit, g_probe.message_text, g_probe.message_view.store,
+                                       selection_hit.command_index, selection_hit.text_bytes))
+        return false;
+    renderer_set_message_text_selection(&g_probe.renderer, selection);
     if (!rebuild_probe_content_text() || g_probe.text.quad_count <= unselected_quad_count ||
         g_probe.renderer.content_text_retention.builds != selection_content_builds + 1u ||
         g_probe.renderer.content_text_retention.hits != selection_content_hits ||
@@ -1735,17 +1744,8 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         log_u64(LogLevel::error, "probe", "selection_hit_text_bytes", selection_hit.text_bytes);
         log_u64(LogLevel::error, "probe", "selection_hit_command_index", selection_hit.command_index);
         log_u64(LogLevel::error, "probe", "selection_hit_identity", selection_hit.command_identity);
-        log_u64(LogLevel::error, "probe", "selection_renderer_identity",
-                g_probe.renderer.message_text_selection_command_identity);
-        if (selection_hit.command_index < g_probe.message_text.command_count) {
-            const MessageTextCommand& selected_command =
-                g_probe.message_text.commands[selection_hit.command_index];
-            log_u64(LogLevel::error, "probe", "selection_command_identity",
-                    selected_command.measurement_identity);
-            log_u64(LogLevel::error, "probe", "selection_command_message", selected_command.message_id);
-            log_u64(LogLevel::error, "probe", "selection_renderer_message",
-                    g_probe.renderer.message_text_selection_message_id);
-        }
+        log_u64(LogLevel::error, "probe", "selection_renderer_message",
+                g_probe.renderer.message_text_selection.anchor.message_id);
         log_u64(LogLevel::error, "probe", "selection_content_builds_before", selection_content_builds);
         log_u64(LogLevel::error, "probe", "selection_content_builds_after",
                 g_probe.renderer.content_text_retention.builds);
@@ -1764,6 +1764,43 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     if (!post_rebuild_hit.valid || post_rebuild_hit.command_identity != selection_hit.command_identity ||
         g_probe.renderer.message_hit_test.builds != retained_builds ||
         g_probe.renderer.message_hit_test.hits != retained_hits + 1u) {
+        return false;
+    }
+    // A drag over every message the timeline presents (the rows past the viewport included): the span covers them
+    // all, and the visible text keeps at least the highlight the one command had.
+    const u32 single_quads = g_probe.text.quad_count;
+    u32 across_first = kMessageTextSelectionNoCommand, across_last = kMessageTextSelectionNoCommand;
+    u32 across_messages = 0;
+    u64 previous_message = 0;
+    for (u32 index = 0; index < g_probe.message_text.command_count; ++index) {
+        const MessageTextCommand& command = g_probe.message_text.commands[index];
+        if (!message_text_command_selectable(command))
+            continue;
+        if (across_first == kMessageTextSelectionNoCommand)
+            across_first = index;
+        across_last = index;
+        if (command.message_id != previous_message) {
+            previous_message = command.message_id;
+            ++across_messages;
+        }
+    }
+    MessageTextSelectionRange across{};
+    if (across_messages < 2 ||
+        !message_text_selection_begin(&across, &selection_unit, g_probe.message_text, across_first, 0, 1) ||
+        !message_text_selection_extend(&across, selection_unit, g_probe.message_text, g_probe.message_view.store,
+                                       across_last, g_probe.message_text.commands[across_last].text.bytes)) {
+        log_u64(LogLevel::error, "probe", "selection_across_messages", across_messages);
+        return false;
+    }
+    const MessageTextSelectionSpan across_span = message_text_selection_span(across, g_probe.message_text);
+    renderer_set_message_text_selection(&g_probe.renderer, across);
+    if (!across_span.valid || across_span.first != across_first || across_span.first_offset != 0 ||
+        across_span.last != across_last ||
+        across_span.last_offset != g_probe.message_text.commands[across_last].text.bytes ||
+        !rebuild_probe_content_text() || g_probe.text.quad_count < single_quads) {
+        log_u64(LogLevel::error, "probe", "selection_across_messages", across_messages);
+        log_u64(LogLevel::error, "probe", "selection_across_single_quads", single_quads);
+        log_u64(LogLevel::error, "probe", "selection_across_quads", g_probe.text.quad_count);
         return false;
     }
     g_probe.failure_stage = 49;

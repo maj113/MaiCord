@@ -12,6 +12,10 @@
 #include "../composer/commands.hpp"
 #include "../../shell/content_input.hpp"
 #include "../../shell/tabs.hpp"
+#include "../../shell/scrolling.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/ui/chat/messages/text_selection.hpp"
+#include "maicord/ui/layout/virtual_list.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {
@@ -106,35 +110,54 @@ bool unread_popup_capture(UnreadContextKind kind, u64 id, bool enabled, u32 acti
 
 } // namespace
 
-static const MessageTextCommand* selected_message_text_command() noexcept {
-    if (!g_app.account_ui || !g_app.message_text_selection.valid) {
-        return nullptr;
+namespace {
+
+// Shows the selection and rebuilds the timeline's text with it.
+bool show_message_text_selection() noexcept {
+    renderer_set_message_text_selection(&g_app.renderer, g_app.message_text_selection);
+    if (!refresh_account_text(true)) {
+        log_write(LogLevel::error, "ui", "message_text_selection_rebuild_failed");
+        return false;
     }
-    const MessageTextPresentation& presentation = g_app.account_ui->message_text;
-    if (!presentation.active || g_app.message_text_selection.command_index >= presentation.command_count ||
-        presentation.command_count > presentation.commands.count) {
-        return nullptr;
-    }
-    const MessageTextCommand& command = presentation.commands[g_app.message_text_selection.command_index];
-    return command.message_id == g_app.message_text_selection.message_id &&
-                   command.measurement_identity == g_app.message_text_selection.command_identity &&
-                   command.message_revision == g_app.message_text_selection.message_revision &&
-                   command.text.bytes == g_app.message_text_selection.text_bytes
-               ? &command
-               : nullptr;
+    application_request_frame();
+    return true;
 }
 
+// Moves the focus to where a held drag is (client pixels): the text under it, or the nearest visible text. A focus
+// past the selection's bounds (too many messages, or text that does not fit) is refused: the selection stays where
+// it last fit, so what is highlighted is always what Ctrl+C copies.
+void extend_message_text_selection(i32 x, i32 y) noexcept {
+    const MessageStore* store = g_app.message_view.timeline.store;
+    if (!g_app.account_ui || !store)
+        return;
+    const MessagePositionHit hit = renderer_message_text_drag_hit_test(g_app.renderer, x, y);
+    const MessageTextSelectionRange previous = g_app.message_text_selection;
+    if (!hit.valid ||
+        !message_text_selection_extend(&g_app.message_text_selection, g_app.message_text_pointer_unit,
+                                       g_app.account_ui->message_text, *store, hit.command_index, hit.byte_offset))
+        return;
+    if (!message_text_selection_note(&g_app.message_text_selection_text, g_app.message_text_selection,
+                                     g_app.account_ui->message_text)) {
+        g_app.message_text_selection = previous;
+        message_text_selection_note(&g_app.message_text_selection_text, previous, g_app.account_ui->message_text);
+        return;
+    }
+    if (!show_message_text_selection())
+        end_message_text_selection();
+}
+
+} // namespace
+
 bool clear_message_text_selection(bool rebuild) noexcept {
-    const bool had_selection = g_app.message_text_selection.valid;
+    const bool shown = message_text_selection_nonempty(g_app.message_text_selection);
     const bool held = g_app.message_text_pointer_selection;
     g_app.message_text_pointer_selection = false;
-    reset_value<MessagePositionHit>(&g_app.message_text_selection);
-    g_app.message_text_selection_anchor = 0;
-    g_app.message_text_selection_caret = 0;
+    reset_value(&g_app.message_text_selection);
+    message_text_selection_text_release(&g_app.message_text_selection_text);
     renderer_clear_message_text_selection(&g_app.renderer);
     if (held)
         application_release_capture();
-    if (!rebuild || !had_selection || !g_app.account_ui) {
+    if (!rebuild || !shown || !g_app.account_ui) {
         return true;
     }
     const bool refreshed = refresh_account_text(true);
@@ -146,36 +169,33 @@ bool begin_message_text_selection(const WindowEvent& event, bool double_click) n
     if (!g_app.account_ui || g_app.login.visible) {
         return false;
     }
-    const MessagePositionHit hit = renderer_message_text_position_hit_test(
-        g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
+    const i32 x = static_cast<short>(event.pointer.x), y = static_cast<short>(event.pointer.y);
+    const MessagePositionHit hit = renderer_message_text_position_hit_test(g_app.renderer, x, y);
     if (!hit.valid) {
         return false;
     }
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const u8 clicks =
-        application_click_count(event, &g_app.message_scene, static_cast<float>(static_cast<short>(event.pointer.x)) * scale,
-                                static_cast<float>(static_cast<short>(event.pointer.y)) * scale, double_click);
-    g_app.message_text_selection = hit;
-    u32 anchor = hit.byte_offset, caret = hit.byte_offset;
-    g_app.message_text_pointer_unit = {anchor, anchor, UiTextSelectionUnit::character};
-    // Double click selects the word, triple click the paragraph (line).
-    if (clicks > 1) {
-        const MessageTextCommand* command = selected_message_text_command();
-        if (!command || !ui_text_pointer_press(command->text, hit.byte_offset, clicks, false, anchor, false,
-                                               &g_app.message_text_pointer_unit, &anchor, &caret)) {
-            anchor = caret = hit.byte_offset;
-            g_app.message_text_pointer_unit = {anchor, anchor, UiTextSelectionUnit::character};
-        }
-    }
-    g_app.message_text_selection_anchor = anchor;
-    g_app.message_text_selection_caret = caret;
+    const u8 clicks = application_click_count(event, &g_app.message_scene, static_cast<float>(x) * scale,
+                                              static_cast<float>(y) * scale, double_click);
+    MessageTextSelectionRange range{};
+    if (!message_text_selection_begin(&range, &g_app.message_text_pointer_unit, g_app.account_ui->message_text,
+                                      hit.command_index, hit.byte_offset, clicks))
+        return false;
+    // A new selection forgets the text the previous one kept.
+    message_text_selection_text_release(&g_app.message_text_selection_text);
+    g_app.message_text_selection = range;
+    g_app.message_text_selection_channel = g_app.account_ui->active_channel_id;
+    g_app.message_text_selection_x = x;
+    g_app.message_text_selection_y = y;
+    g_app.message_text_selection_tick_ms = clock_monotonic_milliseconds();
     g_app.message_text_pointer_selection = true;
-    renderer_set_message_text_selection(&g_app.renderer, hit, anchor, caret);
     window_capture_pointer(g_app.window);
-    if (anchor != caret) {
-        if (!refresh_account_text(true))
-            log_write(LogLevel::error, "ui", "message_text_selection_rebuild_failed");
-        application_request_frame();
+    if (message_text_selection_nonempty(range)) {
+        show_message_text_selection();
+    } else {
+        renderer_clear_message_text_selection(&g_app.renderer);
+        // Nothing is rebuilt for an empty selection: keep the pressed message's text now.
+        application_message_text_selection_presented();
     }
     return true;
 }
@@ -195,63 +215,60 @@ bool handle_message_text_selection_drag(const WindowEvent& event) noexcept {
         end_message_text_selection();
         return true;
     }
-
-    const MessagePositionHit hit = renderer_message_text_position_hit_test(
-        g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
-    if (!hit.valid || hit.message_id != g_app.message_text_selection.message_id ||
-        hit.command_identity != g_app.message_text_selection.command_identity ||
-        hit.message_revision != g_app.message_text_selection.message_revision ||
-        hit.command_index != g_app.message_text_selection.command_index) {
-        return true;
-    }
-    // Word/paragraph selections grow by whole units from the clicked one.
-    u32 anchor = g_app.message_text_selection_anchor, caret = hit.byte_offset;
-    if (g_app.message_text_pointer_unit.unit != UiTextSelectionUnit::character) {
-        const MessageTextCommand* command = selected_message_text_command();
-        if (!command || !ui_text_pointer_drag(command->text, g_app.message_text_pointer_unit, hit.byte_offset, false,
-                                              &anchor, &caret))
-            return true;
-    }
-    if (anchor == g_app.message_text_selection_anchor && caret == g_app.message_text_selection_caret)
-        return true;
-    g_app.message_text_selection_anchor = anchor;
-    g_app.message_text_selection_caret = caret;
-    renderer_set_message_text_selection(&g_app.renderer, g_app.message_text_selection,
-                                        g_app.message_text_selection_anchor,
-                                        g_app.message_text_selection_caret);
-    if (!refresh_account_text(true)) {
-        log_write(LogLevel::error, "ui", "message_text_selection_rebuild_failed");
-        end_message_text_selection();
-        return true;
-    }
-    application_request_frame();
+    g_app.message_text_selection_x = static_cast<short>(event.pointer.x);
+    g_app.message_text_selection_y = static_cast<short>(event.pointer.y);
+    extend_message_text_selection(g_app.message_text_selection_x, g_app.message_text_selection_y);
     return true;
 }
 
+void application_message_text_selection_tick(u64 now_ms) noexcept {
+    if (!g_app.message_text_pointer_selection || !g_app.account_ui || !g_app.message_scene.active)
+        return;
+    const u64 elapsed = now_ms > g_app.message_text_selection_tick_ms ? now_ms - g_app.message_text_selection_tick_ms : 0;
+    g_app.message_text_selection_tick_ms = now_ms;
+    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
+    // A drag held past the top or bottom of the timeline scrolls it and keeps selecting.
+    const float delta = message_text_selection_autoscroll(
+        g_app.message_scene.viewport, static_cast<float>(g_app.message_text_selection_y) * scale, elapsed);
+    if (delta == 0.0f)
+        return;
+    const i64 units = static_cast<i64>(ui_extent_units(delta < 0.0f ? -delta : delta));
+    if (units != 0 && scroll_message_view_by(delta < 0.0f ? -units : units))
+        extend_message_text_selection(g_app.message_text_selection_x, g_app.message_text_selection_y);
+    // Keep sampling while the pointer rests past the edge.
+    application_request_frame();
+}
+
+void application_message_text_selection_presented() noexcept {
+    if (!message_text_selection_active(g_app.message_text_selection))
+        return;
+    // A selection belongs to its channel's timeline.
+    if (!g_app.account_ui || g_app.account_ui->active_channel_id != g_app.message_text_selection_channel) {
+        clear_message_text_selection(false);
+        return;
+    }
+    // A message whose text no longer fits (an edit grew it) marks the kept text incomplete; the copy says so.
+    message_text_selection_note(&g_app.message_text_selection_text, g_app.message_text_selection,
+                                g_app.account_ui->message_text);
+}
+
 bool copy_message_text_selection() noexcept {
-    const MessageTextCommand* command = selected_message_text_command();
-    const u32 first = minimum(g_app.message_text_selection_anchor, g_app.message_text_selection_caret);
-    const u32 last = command ? minimum(maximum(g_app.message_text_selection_anchor, g_app.message_text_selection_caret),
-                                       message_text_command_copy_end(*command))
-                             : 0u;
-    if (!command || first >= last || last > command->text.bytes) {
-        return false;
-    }
-    Utf8View copied{command->text.data + first, last - first};
-    char projected[kMaximumMessageTextUtf8Bytes];
     const MessageStore* store = g_app.message_view.timeline.store;
-    const Utf8View source = store ? message_text_presentation_command_source(
-                                        *store, g_app.message_view.timeline.rich_store, *command)
-                                  : Utf8View{};
-    if (command->source_id != 0 && source.bytes == 0)
+    if (!g_app.account_ui || !store || !message_text_selection_nonempty(g_app.message_text_selection))
         return false;
-    if (source.bytes != 0) {
-        const MessageTextCopyProjectionResult projection = message_text_project_selection_for_copy(
-            *command, source, first, last, Slice<char>{projected, sizeof(projected)});
-        if (projection.ok) {
-            copied = Utf8View{projected, projection.bytes};
-        }
+    application_message_text_selection_presented();
+    bool overflow = false;
+    const Utf8View copied =
+        message_text_selection_copy(&g_app.message_text_selection_text, g_app.message_text_selection, *store,
+                                    g_app.message_view.timeline.rich_store, &g_app.message_scene, &overflow);
+    if (overflow) {
+        // Never a part of the selection: nothing is copied and the toast says so.
+        log_write(LogLevel::warning, "ui", "message_text_selection_copy_overflow");
+        application_toast_show(UiToastKind::failure, kToastCopyFailed);
+        return true;
     }
+    if (copied.bytes == 0)
+        return false;
     if (!clipboard_write_utf8(copied)) {
         log_write(LogLevel::warning, "ui", "message_text_selection_copy_failed");
     }

@@ -490,34 +490,29 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_video_polish(check);
     ContentTextRetentionOwner retained{};
     retained.valid = true;
-    retained.key = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 96, 12, 13, true};
+    retained.key = {1, 2, 3, 4, 5, 96, 12, 13, true};
     auto changed = retained.key;
     changed.popup_signature = 99;
     check(content_text_retention_base_current(retained, changed),
           "video text retention: an overlay-only signature change can reuse the shell/message prefix");
-    ContentTextRetentionKey changes[14]{};
+    ContentTextRetentionKey changes[9]{};
     for (auto& key : changes)
         key = changed;
     ++changes[0].shell_signature;
     ++changes[1].message_signature;
     ++changes[2].theme_signature;
-    ++changes[3].selection_message_id;
-    ++changes[4].selection_command_identity;
-    ++changes[5].selection_revision;
-    ++changes[6].selection_command_index;
-    ++changes[7].selection_anchor;
-    ++changes[8].selection_caret;
-    ++changes[9].dpi;
-    ++changes[10].atlas_evicted_entries;
-    ++changes[11].atlas_full_resets;
-    changes[12].include_messages = false;
+    ++changes[3].selection_signature;
+    ++changes[4].dpi;
+    ++changes[5].atlas_evicted_entries;
+    ++changes[6].atlas_full_resets;
+    changes[7].include_messages = false;
     retained.valid = false;
     bool refused = !content_text_retention_base_current(retained, changed);
     retained.valid = true;
     // The final unchanged copy verifies that the comparisons are selective.
-    for (u32 i = 0; i < 13; ++i)
+    for (u32 i = 0; i < 8; ++i)
         refused = refused && !content_text_retention_base_current(retained, changes[i]);
-    check(refused && content_text_retention_base_current(retained, changes[13]),
+    check(refused && content_text_retention_base_current(retained, changes[8]),
           "video text retention: selection, message/shell, font, theme, DPI, atlas changes and invalid "
           "owners require full rebuild");
     const auto text_owner = poster_metadata(check);
