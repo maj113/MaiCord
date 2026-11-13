@@ -130,10 +130,10 @@ void sink(void*, const WindowEvent& event, WindowEventResult* result) noexcept {
         record->event = event;
         record->captured = window_pointer_captured(g_window);
         if (event.type == EventType::key_down || event.type == EventType::key_up) {
-            record->key_held = window_key_down(g_window, static_cast<Key>(event.key.key));
+            record->key_held = window_key_down(static_cast<Key>(event.key.key));
             record->global_held = global_key_down(static_cast<Key>(event.key.key));
         } else if (event.type == EventType::pointer_down || event.type == EventType::pointer_up) {
-            record->key_held = window_key_down(g_window, key_of_button(event.button));
+            record->key_held = window_key_down(key_of_button(event.button));
         }
     }
 }
@@ -1033,14 +1033,14 @@ void test_keyboard() noexcept {
     mark();
     inject::keyboard_key(&g_injector, 30, true);
     const u32 first = expect("a first key arrives with the new keymap", EventType::key_down, [](const Record& r) { return r.event.key.key == 'A'; });
-    check(first != kNone && g_log[first].key_held && g_log[first].global_held && window_key_down(g_window, 'A') &&
+    check(first != kNone && g_log[first].key_held && g_log[first].global_held && window_key_down('A') &&
               global_key_down('A'),
           "a pressed key reads as down in the window and in the global keys");
     check(first != kNone && g_log[first].event.key.scancode == 30, "the scancode is the evdev code");
     inject::keyboard_key(&g_injector, 30, false);
     expect("its release", EventType::key_up, [](const Record& r) { return r.event.key.key == 'A'; });
     settle(50);
-    check(!window_key_down(g_window, 'A') && !global_key_down('A'), "released keys read as up");
+    check(!window_key_down('A') && !global_key_down('A'), "released keys read as up");
 
     expect_key("us: a types a", 30, 'A', 'a');
     expect_key("us: 1 types 1", 2, '1', '1');
@@ -1059,7 +1059,7 @@ void test_keyboard() noexcept {
     mark();
     inject::keyboard_key(&g_injector, 42, true);
     expect("Shift is key::shift", EventType::key_down, [](const Record& r) { return r.event.key.key == key::shift; });
-    check(window_key_down(g_window, key::shift) && window_key_down(g_window, key::left_shift) && !window_key_down(g_window, key::right_shift),
+    check(window_key_down(key::shift) && window_key_down(key::left_shift) && !window_key_down(key::right_shift),
           "left shift reads as shift and left shift");
     mark();
     inject::keyboard_key(&g_injector, 30, true);
@@ -1071,7 +1071,7 @@ void test_keyboard() noexcept {
     inject::keyboard_key(&g_injector, 30, false);
     inject::keyboard_key(&g_injector, 42, false);
     settle(50);
-    check(!window_key_down(g_window, key::shift) && (window_modifiers(g_window) & mod_shift) == 0, "Shift released");
+    check(!window_key_down(key::shift) && (window_modifiers() & mod_shift) == 0, "Shift released");
 
     mark();
     inject::keyboard_key(&g_injector, 29, true);
@@ -1105,28 +1105,28 @@ void test_keyboard() noexcept {
     inject::keyboard_key(&g_injector, 56, false);
 
     // Caps Lock: the toggle state, and its effect on text.
-    check(!window_toggle_state(g_window, key::caps_lock), "caps lock starts off");
+    check(!window_toggle_state(key::caps_lock), "caps lock starts off");
     mark();
     inject::keyboard_key(&g_injector, 58, true);
     inject::keyboard_key(&g_injector, 58, false);
     expect("Caps Lock is key::caps_lock", EventType::key_down, [](const Record& r) { return r.event.key.key == key::caps_lock; });
     settle(100);
-    check(window_toggle_state(g_window, key::caps_lock) && (window_modifiers(g_window) & mod_caps) != 0, "caps lock is on");
+    check(window_toggle_state(key::caps_lock) && (window_modifiers() & mod_caps) != 0, "caps lock is on");
     expect_key("us: a types A under Caps Lock", 30, 'A', 'A');
     inject::keyboard_key(&g_injector, 58, true);
     inject::keyboard_key(&g_injector, 58, false);
     settle(100);
-    check(!window_toggle_state(g_window, key::caps_lock), "caps lock is off again");
+    check(!window_toggle_state(key::caps_lock), "caps lock is off again");
 
     // Several keys held at once.
     inject::keyboard_key(&g_injector, 30, true);
     inject::keyboard_key(&g_injector, 31, true);
     settle(100);
-    check(window_key_down(g_window, 'A') && window_key_down(g_window, 'S') && !window_key_down(g_window, 'D'),
+    check(window_key_down('A') && window_key_down('S') && !window_key_down('D'),
           "two held keys read as down");
     inject::keyboard_key(&g_injector, 30, false);
     settle(100);
-    check(!window_key_down(g_window, 'A') && window_key_down(g_window, 'S'), "one released, one held");
+    check(!window_key_down('A') && window_key_down('S'), "one released, one held");
     inject::keyboard_key(&g_injector, 31, false);
     settle(50);
 
@@ -1164,8 +1164,8 @@ void test_keyboard() noexcept {
     inject::keyboard_key(&g_injector, 100, true);
     expect("AltGr is the right alt", EventType::key_down, [](const Record& r) { return r.event.key.key == key::right_alt; });
     settle(80);
-    check(window_key_down(g_window, key::right_alt) && (window_modifiers(g_window) & mod_altgr) != 0 &&
-              (window_modifiers(g_window) & (mod_ctrl | mod_alt)) == 0,
+    check(window_key_down(key::right_alt) && (window_modifiers() & mod_altgr) != 0 &&
+              (window_modifiers() & (mod_ctrl | mod_alt)) == 0,
           "AltGr is mod_altgr, neither ctrl nor alt");
     mark();
     inject::keyboard_key(&g_injector, 16, true);
@@ -1177,8 +1177,8 @@ void test_keyboard() noexcept {
     inject::keyboard_key(&g_injector, 16, false);
     inject::keyboard_key(&g_injector, 100, false);
     settle(50);
-    check(window_layout_types_text(g_window, 'Q', 0) && window_layout_types_text(g_window, 'Q', mod_altgr) &&
-              !window_layout_types_text(g_window, 'Q', mod_ctrl) && !window_layout_types_text(g_window, key::f1, 0),
+    check(window_layout_types_text('Q', 0) && window_layout_types_text('Q', mod_altgr) &&
+              !window_layout_types_text('Q', mod_ctrl) && !window_layout_types_text(key::f1, 0),
           "the layout types text for q, with AltGr, not with Ctrl, not for F1");
 
     // French AZERTY: the digit row types symbols; the key is still the digit.
@@ -1662,7 +1662,7 @@ void run_input() noexcept {
     g_helper = nullptr;
     test_extras();
     check(!window_pointer_captured(g_window), "no capture at the end");
-    check(!window_key_down(g_window, 'A') && !global_key_down('A') && !global_key_down(key::shift), "no key reads as down at the end");
+    check(!window_key_down('A') && !global_key_down('A') && !global_key_down(key::shift), "no key reads as down at the end");
     inject::close(&g_injector);
 }
 

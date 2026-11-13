@@ -13,7 +13,6 @@ constexpr u32 kMaxWatches = 8;
 
 struct Watch {
     bool used;
-    Connection* connection;
     u32 subscription;
     u32 serial;  // tells a reply for a dropped watch from one for the slot's next user
     NameWatchHandler handler;
@@ -122,7 +121,6 @@ u32 connection_watch_name(Connection* c, const char* name, NameWatchHandler hand
             continue;
         watch = Watch{};
         watch.used = true;
-        watch.connection = c;
         watch.serial = ++g_watch_serial & 0xFFFFFF;
         watch.handler = handler;
         watch.context = context;
@@ -272,8 +270,7 @@ bool portal_request_begin(PortalRequest* request, Connection* c, PortalResponseH
 }
 
 void portal_request_end(PortalRequest* request) noexcept {
-    if (request->active || request->subscription)
-        connection_unsubscribe(request->connection, request->subscription);
+    connection_unsubscribe(request->connection, request->subscription);  // a no-op for subscription 0
     request->subscription = 0;
     request->active = false;
 }

@@ -157,7 +157,7 @@ void finished(Reader* r, u32 type_chars) noexcept {
 }
 
 bool take(Reader* r, char type, void* value, u32 bytes) noexcept {
-    if (r->failed || reader_type(*r) != type)
+    if (reader_type(*r) != type)  // 0 once the reader failed
         return reader_fail(r);
     if (!align_reader(r, alignment_of(type)))
         return false;
@@ -324,8 +324,7 @@ void builder_unix_fd(Builder* builder, int fd) noexcept {
         builder->failed = true;
         return;
     }
-    // F_DUPFD_CLOEXEC = 1030
-    const long duplicate = syscall3(72 /* fcntl */, fd, 1030, 0);
+    const long duplicate = sys_fcntl(fd, kFcntlDuplicateCloseOnExec, 0);
     if (syscall_failed(duplicate)) {
         builder->failed = true;
         return;
@@ -504,18 +503,14 @@ bool reader_double(Reader* reader, double* value) noexcept {
 }
 
 bool reader_string(Reader* reader, const char** text, u32* length) noexcept {
-    if (reader->failed)
-        return false;
-    const char type = reader_type(*reader);
+    const char type = reader_type(*reader);  // 0 once the reader failed
     if (type != 's' && type != 'o' && type != 'g')
         return reader_fail(reader);
     u32 bytes = 0;
     if (type == 'g') {
-        u8 small = 0;
-        if (!align_reader(reader, 1) || 1 > limit_of(*reader) - reader->position)
+        if (reader->position >= limit_of(*reader))
             return reader_fail(reader);
-        small = reader->data[reader->position++];
-        bytes = small;
+        bytes = reader->data[reader->position++];
     } else {
         if (!align_reader(reader, 4) || 4 > limit_of(*reader) - reader->position)
             return reader_fail(reader);
@@ -547,7 +542,7 @@ bool reader_unix_fd(Reader* reader, int* fd) noexcept {
 }
 
 bool reader_enter_array(Reader* reader) noexcept {
-    if (reader->failed || reader_type(*reader) != 'a')
+    if (reader_type(*reader) != 'a')
         return reader_fail(reader);
     const u32 position_in_signature = reader->signature_position;
     u32 length = 0;
@@ -573,7 +568,7 @@ bool reader_enter_array(Reader* reader) noexcept {
 
 bool reader_enter_struct(Reader* reader) noexcept {
     const char type = reader_type(*reader);
-    if (reader->failed || (type != '(' && type != '{'))
+    if (type != '(' && type != '{')
         return reader_fail(reader);
     if (!align_reader(reader, 8))
         return false;
@@ -588,18 +583,16 @@ bool reader_enter_struct(Reader* reader) noexcept {
 }
 
 bool reader_enter_variant(Reader* reader, const char** value_signature) noexcept {
-    if (reader->failed || reader_type(*reader) != 'v')
+    if (reader_type(*reader) != 'v')
         return reader_fail(reader);
-    const char* signature = nullptr;
-    u32 length = 0;
     // The variant's own signature is a 'g' at this position: read it without moving the outer signature.
     if (reader->position >= limit_of(*reader))
         return reader_fail(reader);
-    length = reader->data[reader->position];
+    const u32 length = reader->data[reader->position];
     const u32 room = limit_of(*reader) - reader->position - 1;
     if (length >= room || reader->data[reader->position + 1 + length] != 0)
         return reader_fail(reader);
-    signature = reinterpret_cast<const char*>(reader->data + reader->position + 1);
+    const char* signature = reinterpret_cast<const char*>(reader->data + reader->position + 1);
     if (type_length(signature, 0) != length)
         return reader_fail(reader);
     reader->position += length + 2;
@@ -691,7 +684,7 @@ bool reader_skip(Reader* reader) noexcept {
 }
 
 bool reader_byte_array(Reader* reader, const u8** bytes, u32* count) noexcept {
-    if (reader->failed || reader_type(*reader) != 'a' || reader->signature[reader->signature_position + 1] != 'y')
+    if (reader_type(*reader) != 'a' || reader->signature[reader->signature_position + 1] != 'y')
         return reader_fail(reader);
     if (!reader_enter_array(reader))
         return false;
@@ -924,7 +917,7 @@ bool message_clone(Message* clone, const Message& source) noexcept {
     const u32 fd_count = source.fd_count;
     int fds[kMaxFds];
     for (u32 i = 0; i < fd_count; ++i) {
-        const long duplicate = syscall3(72, source.fds[i], 1030, 0);
+        const long duplicate = sys_fcntl(source.fds[i], kFcntlDuplicateCloseOnExec, 0);
         if (syscall_failed(duplicate)) {
             for (u32 j = 0; j < i; ++j)
                 sys_close(fds[j]);

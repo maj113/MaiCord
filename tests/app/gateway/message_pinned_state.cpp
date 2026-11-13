@@ -8,6 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "../../support/gateway_message_decode.hpp"
 
 namespace maicord::message_pinned_state_test {
 u32 failures{};

@@ -100,7 +100,7 @@ void webauthn_ceremony_release() noexcept {
 
 // The renderer's two sign-in entry points the application calls: there is no renderer here, and the screen is read from
 // the runtime state the application builds its view from.
-bool renderer_set_login_view(D3D11Renderer*, const LoginScene*, const RendererLoginView&, const Theme&) noexcept {
+bool renderer_set_login_view(D3D11Renderer*, const LoginScene*, const LoginView&, const Theme&) noexcept {
     return true;
 }
 
@@ -168,7 +168,7 @@ void seed() noexcept {
     login().visible = login().initialized = true;
     login().mfa_capabilities = login_mfa_capability_all;
     login().mfa_type = UserAuthMfaType::totp;
-    login().status = RendererLoginStatus::mfa_required;
+    login().status = LoginStatus::mfa_required;
     login().focus = LoginControl::password;
     login().webauthn_attempted = false;
     login().webauthn_post_epoch = 0;
@@ -182,11 +182,11 @@ void seed() noexcept {
 // The key is chosen and its ceremony begun: the screen that waits for it.
 bool begin(u64* epoch) noexcept {
     login().mfa_type = UserAuthMfaType::totp;
-    login().status = RendererLoginStatus::mfa_required;
+    login().status = LoginStatus::mfa_required;
     if (!application_login_select_mfa(UserAuthMfaType::webauthn, false))
         return false;
     *epoch = login().webauthn_post_epoch;
-    return *epoch != 0 && login().status == RendererLoginStatus::webauthn_required && login().webauthn_attempted &&
+    return *epoch != 0 && login().status == LoginStatus::webauthn_required && login().webauthn_attempted &&
            application_login_run_webauthn(*epoch);
 }
 
@@ -206,7 +206,7 @@ void test_touch_and_success() noexcept {
               g_fake.request.challenge[0] == 1 && g_fake.request.challenge[3] == 4 &&
               g_fake.request.user_verification == WebAuthnUserVerification::required,
           "the request the key is asked is the server's challenge decoded: relying party, challenge, verification");
-    check(login().status == RendererLoginStatus::submitting && login().security_key == LoginSecurityKey::touch &&
+    check(login().status == LoginStatus::submitting && login().security_key == LoginSecurityKey::touch &&
               login().webauthn_attempted && !login().security_key_pin,
           "the screen waits for a touch (Back stays available)");
 
@@ -215,7 +215,7 @@ void test_touch_and_success() noexcept {
     check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && audit.mfa_submits == 1 &&
               same_text(audit.credential, "FAKE-CREDENTIAL-JSON") && audit.type == UserAuthMfaType::webauthn,
           "an answer sends the credential to the server as the key's MFA");
-    check(login().status == RendererLoginStatus::submitting && login().security_key == LoginSecurityKey::none &&
+    check(login().status == LoginStatus::submitting && login().security_key == LoginSecurityKey::none &&
               g_fake.finishes == 1,
           "and the screen is the server's wait, no longer the key's");
 }
@@ -228,7 +228,7 @@ void test_pin() noexcept {
     g_fake.state = WebAuthnCeremonyState::need_pin;
     g_fake.prompt = {false, -1};
     check(application_login_webauthn_progress(epoch, kWebAuthnWakePin), "the key's PIN prompt reaches the screen");
-    check(login().status == RendererLoginStatus::mfa_required && login().security_key == LoginSecurityKey::pin &&
+    check(login().status == LoginStatus::mfa_required && login().security_key == LoginSecurityKey::pin &&
               login().security_key_pin && login().mfa.password && login().focus == LoginControl::password &&
               application_active_login_edit() == &login().mfa,
           "the code field becomes a masked PIN field, focused");
@@ -239,7 +239,7 @@ void test_pin() noexcept {
     type_pin("34");
     check(application_login_submit_mfa() && g_fake.pins_sent == 1 && same_text(g_fake.pin, "1234"),
           "four are sent to the key");
-    check(login().status == RendererLoginStatus::submitting && login().security_key == LoginSecurityKey::touch &&
+    check(login().status == LoginStatus::submitting && login().security_key == LoginSecurityKey::touch &&
               !login().security_key_pin && !login().mfa.password && login().mfa.storage.bytes == 0,
           "the PIN is wiped from the field and the screen waits for the touch");
 
@@ -247,14 +247,14 @@ void test_pin() noexcept {
     g_fake.state = WebAuthnCeremonyState::need_pin;
     g_fake.prompt = {true, 2};
     check(application_login_webauthn_progress(epoch, kWebAuthnWakePin) && login().security_key == LoginSecurityKey::pin_wrong &&
-              login().security_key_pin && login().status == RendererLoginStatus::mfa_required,
+              login().security_key_pin && login().status == LoginStatus::mfa_required,
           "a refused PIN is asked for again, and says so");
 
     // The ceremony ends while the PIN is asked (the request's time ran out): the failure, with the field back to a code field.
     type_pin("99");
     g_fake.state = WebAuthnCeremonyState::done;
     g_fake.error = WebAuthnCeremonyError::timed_out;
-    check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && login().status == RendererLoginStatus::webauthn_failed &&
+    check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && login().status == LoginStatus::webauthn_failed &&
               login().security_key == LoginSecurityKey::timed_out && !login().security_key_pin && !login().mfa.password &&
               login().mfa.storage.bytes == 0 && !login().webauthn_attempted && audit.mfa_submits == 0,
           "the time running out on the PIN screen shows that, and leaves the code field clean");
@@ -289,7 +289,7 @@ void test_failures() noexcept {
         for (u32 i = 0; i < sizeof(suffix); ++i)
             label[length++] = suffix[i];
         check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) &&
-                  login().status == RendererLoginStatus::webauthn_failed && login().security_key == c.shown &&
+                  login().status == LoginStatus::webauthn_failed && login().security_key == c.shown &&
                   !login().webauthn_attempted && audit.mfa_submits == 0,
               label);
     }
@@ -304,7 +304,7 @@ void test_failures() noexcept {
         return result;
     };
     g_fake.state = WebAuthnCeremonyState::done;
-    check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && login().status == RendererLoginStatus::webauthn_failed &&
+    check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && login().status == LoginStatus::webauthn_failed &&
               login().security_key == LoginSecurityKey::failed,
           "a credential the server refuses is a general failure");
 }
@@ -317,7 +317,7 @@ void test_cancel() noexcept {
     check(application_login_select_mfa(UserAuthMfaType::totp, false) && g_fake.cancels == 1 &&
               login().security_key == LoginSecurityKey::none && login().mfa_type == UserAuthMfaType::totp,
           "choosing another method cancels the ceremony");
-    const RendererLoginStatus shown = login().status;
+    const LoginStatus shown = login().status;
     check(application_login_webauthn_progress(epoch, kWebAuthnWakeDone) && login().status == shown && g_fake.finishes == 1 &&
               audit.mfa_submits == 0 && login().security_key == LoginSecurityKey::none,
           "its late answer is joined and dropped: the screen is the other method's");
@@ -354,7 +354,7 @@ void test_unavailable() noexcept {
     g_fake.available = false;
     login().mfa_type = UserAuthMfaType::totp;
     check(application_login_select_mfa(UserAuthMfaType::webauthn, false) &&
-              login().status == RendererLoginStatus::webauthn_failed && login().security_key == LoginSecurityKey::unavailable &&
+              login().status == LoginStatus::webauthn_failed && login().security_key == LoginSecurityKey::unavailable &&
               g_fake.starts == 0,
           "without libfido2 the key says so at once and no ceremony starts");
 
@@ -363,7 +363,7 @@ void test_unavailable() noexcept {
     g_fake.start_ok = false;
     u64 epoch = 0;
     begin(&epoch);
-    check(login().status == RendererLoginStatus::webauthn_failed && login().security_key == LoginSecurityKey::failed &&
+    check(login().status == LoginStatus::webauthn_failed && login().security_key == LoginSecurityKey::failed &&
               !login().webauthn_attempted,
           "a ceremony that cannot start is a failure on screen");
 }

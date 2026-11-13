@@ -45,7 +45,7 @@ struct ProbeState {
     MessageViewRuntime message_view;
     D3D11Renderer renderer;
     LoginScene login_scene;
-    RendererLoginView login_view;
+    LoginView login_view;
     UiScene shell_scene;
     GuildRailScene guild_rail_scene;
     GuildRailRowWidget guild_rail_rows[kProbeGuildCapacity];
@@ -155,7 +155,7 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
                                     bool members_visible = true) noexcept;
 bool rebuild_probe_content_text() noexcept;
 bool probe_sync_shell_and_text() noexcept;
-bool set_probe_login_view(RendererLoginView view) noexcept;
+bool set_probe_login_view(LoginView view) noexcept;
 bool add_message(u64 id, Utf8View content,
                  MessageContentAvailability availability = MessageContentAvailability::available) noexcept;
 bool shaped_text_cache_equivalence() noexcept;

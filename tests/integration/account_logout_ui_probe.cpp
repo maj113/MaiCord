@@ -557,15 +557,15 @@ bool visual(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
         } else {
             if (!require(!r.login_form_text && !r.content_text && r.glyph_text.title_quad_count, 223))
                 return false;
-            if (g_app.login.status == RendererLoginStatus::signed_out ||
-                g_app.login.status == RendererLoginStatus::signed_out_unconfirmed) {
+            if (g_app.login.status == LoginStatus::signed_out ||
+                g_app.login.status == LoginStatus::signed_out_unconfirmed) {
                 if (!require(
                         probe_ink(mapped,
                             login_scene_content_rectangle(g_app.login_scene, LoginElement::status_message),
                             fixture->theme.text_secondary),
                         224))
                     return false;
-                if (g_app.login.status == RendererLoginStatus::signed_out_unconfirmed &&
+                if (g_app.login.status == LoginStatus::signed_out_unconfirmed &&
                     !require(
                         probe_ink(mapped,
                             login_scene_content_rectangle(g_app.login_scene, LoginElement::status_account),
@@ -695,7 +695,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     fixture->unconfirmed = unconfirmed;
     g_app.login.visible = true;
     g_app.login.status =
-        unconfirmed ? RendererLoginStatus::signed_out_unconfirmed : RendererLoginStatus::signed_out;
+        unconfirmed ? LoginStatus::signed_out_unconfirmed : LoginStatus::signed_out;
     secure_edit_clear(&g_app.login.password);
     secure_edit_clear(&g_app.login.mfa);
     g_app.login.remote_restart_at_ms = 0;
@@ -950,7 +950,7 @@ bool scenarios() noexcept {
     g_app.account = {};
     release_account_storage();
     g_app.login.visible = true;
-    g_app.login.status = RendererLoginStatus::idle;
+    g_app.login.status = LoginStatus::idle;
     if (!require(application_refresh_login_view() && account_credential_forget_begin(f.paths).ok() &&
                      !application_account_logout_prepare_startup(&f.paths) &&
                      application_account_logout_blocked() && g_app.text_form &&

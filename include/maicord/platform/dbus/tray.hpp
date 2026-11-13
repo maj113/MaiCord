@@ -54,9 +54,9 @@ struct TrayEvent {
 
 using TrayHandler = void (*)(void* context, const TrayEvent& event) noexcept;
 
-// Starts the item: owns its bus name, exports /StatusNotifierItem and /MenuBar, watches for the watcher. `id` is the
-// application's id for the host ("maicord"). False without a session bus (the item then starts when one appears).
-bool tray_start(const char* id, TrayHandler handler, void* context) noexcept;
+// Starts the item: owns its bus name, exports /StatusNotifierItem and /MenuBar, watches for the watcher. False without
+// a session bus (the item then starts when one appears).
+bool tray_start(TrayHandler handler, void* context) noexcept;
 // The item is registered with a watcher.
 bool tray_available() noexcept;
 // Replaces what the item shows; cheap when nothing changed. May be called before tray_start's registration finishes.

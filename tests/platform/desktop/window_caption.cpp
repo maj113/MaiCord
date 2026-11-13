@@ -31,6 +31,14 @@ bool same_color(const Color& a, const Color& b) noexcept {
     return near(a.red, b.red) && near(a.green, b.green) && near(a.blue, b.blue) && near(a.alpha, b.alpha);
 }
 
+// The tabs that draw: those with a settled slot.
+u32 drawn_tabs(const UiTabStripLayout& l) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < kUiTabCapacity; ++i)
+        count += l.slot_width[i] > 0 ? 1 : 0;
+    return count;
+}
+
 void frame_insets() noexcept {
     const i32 border96 = window_frame_border(96), border192 = window_frame_border(192);
     check(border96 > 0 && border192 > border96, "resize border grows with DPI");
@@ -598,13 +606,13 @@ void tabs_layout() noexcept {
         check(near(one.title.left, all.title.left) && near(one.title.right, all.title.right),
               "the server region does not depend on the tabs");
         if (width < 100) {
-            check(one.tabs.shown == 0 && !ui_rect_has_area(one.tabs.plus), "no strip in a 50 DIP bar");
+            check(drawn_tabs(one.tabs) == 0 && !ui_rect_has_area(one.tabs.plus), "no strip in a 50 DIP bar");
             continue;
         }
         const float region = minimum(maximum(width * .2f, kUiCaptionServerMinimum), kUiCaptionServerMaximum);
         check(near(one.title.left, off.buttons[0].left - region) && near(one.tabs.area.right, one.title.left - kUiCaptionDragGap),
               "the strip ends a drag gap before the server region");
-        check(one.tabs.area.right - one.tabs.area.left >= 250 && all.tabs.shown >= 4 &&
+        check(one.tabs.area.right - one.tabs.area.left >= 250 && drawn_tabs(all.tabs) >= 4 &&
                   (width >= 1000 ? !all.tabs.overflowed : all.tabs.overflowed),
               "the strip's room and the overflow it implies");
         // A press in the gap, on the server region and on the strip's empty part drags the window.

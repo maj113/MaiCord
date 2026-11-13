@@ -1330,7 +1330,7 @@ void test_message_text_presentation() noexcept {
             continue;
         const UiLayoutNode* item = rich_sticker_items[sticker_squares < 2 ? sticker_squares : 1];
         sticker_squares_placed = sticker_squares_placed && item &&
-                                 ui_widget_handle_equal(preview.owner.handle, rich_row->rich_items[kMessageSceneStickerItemOffset + sticker_squares]) &&
+                                 ui_widget_handle_equal(preview.owner.handle, rich_row->rich_items[kMessageRichStickerItemOffset + sticker_squares]) &&
                                  ui_rect_equal(preview.rectangle, {item->rectangle.left, item->rectangle.top,
                                                                    item->rectangle.left + kDefaultMessageStickerLayoutMetrics.extent,
                                                                    item->rectangle.top + kDefaultMessageStickerLayoutMetrics.extent});
@@ -1341,7 +1341,7 @@ void test_message_text_presentation() noexcept {
             sticker_squares_placed =
                 sticker_squares_placed &&
                 !ui_widget_handle_equal(presentation.commands[index].owner.handle,
-                                        rich_row->rich_items[kMessageSceneStickerItemOffset + sticker]);
+                                        rich_row->rich_items[kMessageRichStickerItemOffset + sticker]);
     expect(sticker_squares_placed && sticker_squares == 2 && rich_sticker_items[0] && rich_sticker_items[1] &&
                ui_rect_height(rich_sticker_items[0]->rectangle) == kDefaultMessageStickerLayoutMetrics.extent &&
                ui_rect_height(rich_sticker_items[1]->rectangle) == kDefaultMessageStickerLayoutMetrics.extent,
@@ -1362,7 +1362,7 @@ void test_message_text_presentation() noexcept {
                rich_sticker_items[0]->rectangle.bottom <= rich_sticker_items[1]->rectangle.top &&
                rich_component_items[0]->rectangle.bottom <= rich_component_items[1]->rectangle.top &&
                ui_rect_height(rich_embed_items[0]->rectangle) ==
-                   rich_row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] &&
+                   rich_row->rich_item_layout.heights[kMessageRichEmbedItemOffset] &&
                embed_layout->rectangle.bottom <= component_layout->rectangle.top && rich_settled.ok() &&
                presentation.rich.flow_overflow_regions == 0 && rich_validation.clean(),
            "message_text_rich_item_flow_reflows_every_retained_sibling_without_overlap");
@@ -2003,14 +2003,14 @@ void test_message_rich_widget_materializer() noexcept {
     row.rich_layout = MessageSceneRichLayout{42.0f, 130.0f, kDefaultMessageStickerLayoutMetrics.group_height(1), 92.0f, 24.0f, 22.0f};
     row.reaction_widths[0] = 44.0f;
     row.reaction_widths[1] = 76.0f;
-    row.rich_item_layout.heights[kMessageSceneAttachmentItemOffset] = 42.0f;
-    row.rich_item_layout.heights[kMessageSceneEmbedItemOffset] = 60.0f;
-    row.rich_item_layout.heights[kMessageSceneEmbedItemOffset + 1] = 70.0f;
-    row.rich_item_layout.heights[kMessageSceneStickerItemOffset] = kDefaultMessageStickerLayoutMetrics.extent;
-    row.rich_item_layout.heights[kMessageSceneComponentItemOffset] = 52.0f;
-    row.rich_item_layout.heights[kMessageSceneComponentItemOffset + 1] = 32.0f;
+    row.rich_item_layout.heights[kMessageRichAttachmentItemOffset] = 42.0f;
+    row.rich_item_layout.heights[kMessageRichEmbedItemOffset] = 60.0f;
+    row.rich_item_layout.heights[kMessageRichEmbedItemOffset + 1] = 70.0f;
+    row.rich_item_layout.heights[kMessageRichStickerItemOffset] = kDefaultMessageStickerLayoutMetrics.extent;
+    row.rich_item_layout.heights[kMessageRichComponentItemOffset] = 52.0f;
+    row.rich_item_layout.heights[kMessageRichComponentItemOffset + 1] = 32.0f;
     row.rich_item_layout.component_widths[0] = 220.0f;
-    row.rich_item_layout.heights[kMessageSceneNoticeItemOffset] = 22.0f;
+    row.rich_item_layout.heights[kMessageRichNoticeItemOffset] = 22.0f;
     const bool built =
         root.ok() && message_rich_widgets_build(&manager, root.handle, 200, &rich, &row) &&
         message_rich_widgets_apply(&manager, &rich, &row) &&
@@ -2095,7 +2095,7 @@ void test_message_rich_widget_materializer() noexcept {
                tiny_row.attachments.slot == 19 && tiny_row.attachments.generation == 88,
            "message_rich_widget_materializer_capacity_preflight_is_atomic");
 
-    row.rich_item_layout.heights[kMessageSceneEmbedItemOffset] = 90.0f;
+    row.rich_item_layout.heights[kMessageRichEmbedItemOffset] = 90.0f;
     row.rich_layout.embeds = 160.0f;
     rich.components[0].custom_id.bytes = 0;
     const bool updated =
@@ -2119,7 +2119,7 @@ void test_message_rich_widget_materializer() noexcept {
            "message_rich_widget_materializer_classifies_count_change_as_structural");
     message_rich_widgets_reset_handles(&row);
     expect(row.attachments.slot == kInvalidUiWidgetSlot &&
-               row.rich_items[kMessageSceneEmbedItemOffset].slot == kInvalidUiWidgetSlot &&
+               row.rich_items[kMessageRichEmbedItemOffset].slot == kInvalidUiWidgetSlot &&
                row.reaction_button_count == 0 && row.component_item_count == 0,
            "message_rich_widget_materializer_resets_all_handles_and_counts");
 }

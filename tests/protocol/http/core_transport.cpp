@@ -4,6 +4,7 @@
 #include "../../support/transport_test_shared.hpp"
 #endif
 #include "../../support/tls_hello.hpp"
+#include "../../support/rest_client_public.hpp"
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"

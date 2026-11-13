@@ -80,12 +80,9 @@ void state_event(const UiAccessNode& node, const char* state, bool value) noexce
     emit(path, kObject, "StateChanged", state, value ? 1 : 0, 0, kZero);
 }
 
-bool password(const UiAccessNode& node) noexcept {
-    return (node.state & ui_access_password) != 0;
-}
-
+// A text a screen reader may read out: never a password's.
 bool text_node(const UiAccessNode& node) noexcept {
-    return !password(node) && (interfaces_for(node) & interface_text);
+    return !(node.state & ui_access_password) && (interfaces_for(node) & interface_text);
 }
 
 u32 character_boundary_down(const char* text, u32 bytes) noexcept {

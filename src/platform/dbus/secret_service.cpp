@@ -328,8 +328,7 @@ SecretStatus secret_store(const char* label, const SecretAttribute* attributes, 
         }
         if (status != SecretStatus::locked || attempt == 1)
             break;
-        const char(*locked_path)[kPathCapacity] = &collection;
-        if (!unlock_paths(&client, locked_path, 1, nullptr, nullptr))
+        if (!unlock_paths(&client, &collection, 1, nullptr, nullptr))
             break;
     }
     builder_release(&body);

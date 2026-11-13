@@ -306,7 +306,7 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                     else{auto& owner=*system->native_text;NativeTextFontRange choice{};
                         if(!native_text_catalog_range(&owner.catalogs,font_query(owner,format,requested),owner.fonts,&owner.scratch,{text.data+at,mapping_limit-at},&choice))return 0;
                         if(!choice.bytes)return 0;
-                        const bool missing=choice.match.candidate==native_fallback_missing;
+                        const bool missing=choice.match.index==native_fallback_missing;
                         mapped=missing?base:binding_face(owner,format,requested,choice);if(missing)mapped_script=script==egyptian_script?egyptian_missing_script:128;mapped_end=at+choice.bytes;
                         if(!missing&&directions&&(!(directions[at]&1)||script==arabic_script)&&script!=64){bool neutral=true,symbol=false;
                             for(u32 byte=at;neutral&&byte<mapped_end;){const auto cp=utf8_decode_one(text.data+byte,mapped_end-byte);if(!cp.valid)return 0;

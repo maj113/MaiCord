@@ -39,11 +39,19 @@ float centre(const UiRect& r) noexcept {
     return (r.left + r.right) * .5f;
 }
 
+// The items that draw: those with a settled slot.
+u32 drawn(const UiTabStripLayout& l) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < kUiTabCapacity; ++i)
+        count += l.slot_width[i] > 0 ? 1 : 0;
+    return count;
+}
+
 void widths_and_overflow() noexcept {
     {
         const UiTabStripView v = view(1, 0);
         const UiTabStripLayout l = ui_tab_strip_layout(area(600), v);
-        check(near(l.width[0], kUiTabWidth) && near(l.left[0], kLeft) && !l.overflowed && l.shown == 1,
+        check(near(l.width[0], kUiTabWidth) && near(l.left[0], kLeft) && !l.overflowed && drawn(l) == 1,
               "one tab keeps its preferred width at the strip's start");
         check(near(l.plus.left, kLeft + kUiTabWidth) && near(l.plus.right - l.plus.left, kUiTabButton) &&
                   !ui_rect_has_area(l.overflow),
@@ -60,7 +68,7 @@ void widths_and_overflow() noexcept {
         // Eight tabs at 46 DIP would put the active one below its minimum: it keeps 108, the rest shrink further.
         const UiTabStripView v = view(8, 3);
         const UiTabStripLayout l = ui_tab_strip_layout(area(400), v);
-        check(!l.overflowed && l.shown == 8 && near(l.width[3], kUiTabActiveMinimum) &&
+        check(!l.overflowed && drawn(l) == 8 && near(l.width[3], kUiTabActiveMinimum) &&
                   near(l.width[0], (400.f - kUiTabButton - kUiTabActiveMinimum) / 7.f) && l.width[0] >= kUiTabMinimum,
               "the active tab keeps its minimum while the others shrink");
         check(near(l.plus.right, kLeft + 400.f), "the strip is filled exactly");
@@ -69,7 +77,7 @@ void widths_and_overflow() noexcept {
         // 16 tabs in 300 DIP: the first four and the active one (item 12, taking the last slot), then "..." at the end.
         const UiTabStripView v = view(16, 12);
         const UiTabStripLayout l = ui_tab_strip_layout(area(300), v);
-        check(l.overflowed && l.shown == 5, "sixteen tabs overflow in 300 DIP");
+        check(l.overflowed && drawn(l) == 5, "sixteen tabs overflow in 300 DIP");
         check(near(l.slot_width[12], kUiTabActiveMinimum) && near(l.slot_left[12], l.slot_left[3] + l.slot_width[3]) &&
                   l.slot_width[3] > 0 && l.slot_width[4] == 0 && l.slot_width[13] == 0,
               "the active tab takes the last visible slot, the others beyond stay hidden");
@@ -80,24 +88,24 @@ void widths_and_overflow() noexcept {
               "a hidden tab takes no input");
         const UiTabStripView first = view(16, 0);
         const UiTabStripLayout f = ui_tab_strip_layout(area(300), first);
-        check(f.shown == 5 && f.slot_width[4] > 0 && f.slot_width[5] == 0 && near(f.slot_width[0], kUiTabActiveMinimum),
+        check(drawn(f) == 5 && f.slot_width[4] > 0 && f.slot_width[5] == 0 && near(f.slot_width[0], kUiTabActiveMinimum),
               "an active first tab is among the first ones");
     }
     {
         // The window's smallest strips (624 DIP wide).
         const UiTabStripView v = view(16, 15);
         const UiTabStripLayout narrow = ui_tab_strip_layout(area(257), v);
-        check(narrow.overflowed && narrow.shown >= 3 && ui_rect_has_area(narrow.overflow) &&
+        check(narrow.overflowed && drawn(narrow) >= 3 && ui_rect_has_area(narrow.overflow) &&
                   near(narrow.overflow.right, kLeft + 257.f),
               "a 624 DIP window's strip keeps the active tab, the plus and the list button");
         const UiTabStripLayout wide = ui_tab_strip_layout(area(1538), v);
-        check(!wide.overflowed && wide.shown == 16 && wide.width[0] >= kUiTabLabelMinimum,
+        check(!wide.overflowed && drawn(wide) == 16 && wide.width[0] >= kUiTabLabelMinimum,
               "all sixteen tabs fit a 1920 DIP window with labels");
     }
     {
         const UiTabStripView v = view(3, 0);
         const UiTabStripLayout l = ui_tab_strip_layout(area(50), v);
-        check(l.shown == 0 && !ui_rect_has_area(l.plus) && ui_tab_strip_hit(l, kLeft + 10, 20).kind == UiTabHitKind::none,
+        check(drawn(l) == 0 && !ui_rect_has_area(l.plus) && ui_tab_strip_hit(l, kLeft + 10, 20).kind == UiTabHitKind::none,
               "a strip too narrow for the plus and one tab draws and takes nothing");
     }
 }

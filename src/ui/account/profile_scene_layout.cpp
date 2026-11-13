@@ -402,12 +402,6 @@ u32 tab_list(const ProfileScene& s, ProfileTab* tabs) noexcept {
     }
     return count;
 }
-// Entry index of a list of NUL-terminated strings.
-Utf8View entry(const char* list, u32 index) noexcept {
-    while (index--)
-        list += c_string_length(list) + 1;
-    return {list, c_string_length(list)};
-}
 // The empty tabs' lines (the official client picks one at random; here the user picks it).
 constexpr char kNoFriendsLines[] =
     "No mutual friends yet – perfect time to make a new connection\0"
@@ -438,7 +432,7 @@ constexpr char kNoActivityLines[] =
     "They’re in stealth mode 🥷 ask them about their ninja training techniques\0"
     "Guess they’re cosplaying as a ghost 👻 leave some cookies to lure them out";
 Utf8View quip(const ProfileScene& s, const char* lines, u32 count) noexcept {
-    return entry(lines, static_cast<u32>((s.profile->user_id >> 22) % count));
+    return c_string_list_entry(lines, static_cast<u32>((s.profile->user_id >> 22) % count));
 }
 struct EmptyButton {
     Utf8View label;
@@ -541,7 +535,7 @@ void tag_row(ProfileScene* s, UiWidgetHandle owner, float left, float top, float
     float x = left;
     u32 hidden = 0;
     for (u32 t = 0; t < profile_widget_tag_count; ++t) {
-        const auto text = entry(kTagNames, t);
+        const auto text = c_string_list_entry(kTagNames, t);
         if (!(tags & (1u << t)) || !text.bytes)
             continue;
         const float w = text_width(s, text, width, kXs) + 16;
@@ -569,7 +563,7 @@ float game_card(ProfileScene* s, UiWidgetHandle owner, float top, float width, f
         game.comment.bytes ? maximum(18.f, measure(s, game.comment.view(), w, true, kSm).height) + 4 : 0.f;
     bool tagged = false;
     for (u32 t = 0; t < profile_widget_tag_count; ++t)
-        tagged |= ((game.tags >> t) & 1) && entry(kTagNames, t).bytes;
+        tagged |= ((game.tags >> t) & 1) && c_string_list_entry(kTagNames, t).bytes;
     const float details = (name.bytes ? 24.f : 0.f) + comment_h + (tagged ? 28.f : 0.f) - 4;
     float y = top + maximum(0.f, (cover_h - details) * .5f);
     if (name.bytes) {

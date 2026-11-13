@@ -79,7 +79,6 @@ UiTabStripLayout ui_tab_strip_layout(const UiRect& area, const UiTabStripView& v
     u32 fit = live;
     if (layout.overflowed)
         fit = minimum(live, maximum(1u, static_cast<u32>(maximum(0.0f, (space - wide) / kUiTabMinimum))));
-    layout.shown = static_cast<u8>(fit);
     float width = fit ? minimum(kUiTabWidth, space / static_cast<float>(fit)) : 0.0f;
     float active_width = width;
     if (active != ~0u && fit > 1 && width < kUiTabActiveMinimum) {

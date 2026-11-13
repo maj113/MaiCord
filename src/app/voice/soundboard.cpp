@@ -647,13 +647,13 @@ bool application_soundboard_menu_activate(u32 action, bool preview) noexcept {
 }
 
 bool application_soundboard_menu_key(u32 key) noexcept {
-    if (!picker_open() || window_key_down(nullptr, key::ctrl) || window_key_down(nullptr, key::alt))
+    if (!picker_open() || window_key_down(key::ctrl) || window_key_down(key::alt))
         return false;
     auto& p = *g_picker;
     char typed = 0;
     if (key >= 'A' && key <= 'Z')
-        typed = static_cast<char>(window_key_down(nullptr, key::shift) ? key : key + 32);
-    else if (key >= '0' && key <= '9' && !window_key_down(nullptr, key::shift))
+        typed = static_cast<char>(window_key_down(key::shift) ? key : key + 32);
+    else if (key >= '0' && key <= '9' && !window_key_down(key::shift))
         typed = static_cast<char>(key);
     else if (key == key::space && p.query_bytes)
         typed = ' ';

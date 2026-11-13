@@ -414,11 +414,11 @@ namespace maicord {
 
 using namespace wayland;
 
-u8 window_modifiers(Window) noexcept {
+u8 window_modifiers() noexcept {
     return g.keyboard.modifiers;
 }
 
-bool window_key_down(Window, Key key_code) noexcept {
+bool window_key_down(Key key_code) noexcept {
     const u8 buttons = g.pointer.app_buttons;
     switch (key_code) {
     case key::lbutton:
@@ -436,7 +436,7 @@ bool window_key_down(Window, Key key_code) noexcept {
     }
 }
 
-bool window_toggle_state(Window, Key key_code) noexcept {
+bool window_toggle_state(Key key_code) noexcept {
     const XkbApi* api = xkb_api();
     if (!api || !g.keyboard.state)
         return false;
@@ -444,7 +444,7 @@ bool window_toggle_state(Window, Key key_code) noexcept {
     return name && api->state_mod_name_is_active(g.keyboard.state, name, kXkbStateModsLocked) > 0;
 }
 
-bool window_layout_types_text(Window, Key wanted, u8 modifiers) noexcept {
+bool window_layout_types_text(Key wanted, u8 modifiers) noexcept {
     KeyboardState& keyboard = g.keyboard;
     const XkbApi* api = xkb_api();
     if (!api || !keyboard.keymap || !keyboard.state)

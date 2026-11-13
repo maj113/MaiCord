@@ -694,9 +694,9 @@ u32 undrawn_quads(const char* stage) noexcept {
     return quads ? stale + undrawn : ~0u;
 }
 
-RendererLoginView probe_login_view(RendererLoginStatus status, bool visible) noexcept {
-    return RendererLoginView{{}, {}, {}, 0, 0, false, LoginControl::none, status, login_mfa_capability_none,
-                             login_mfa_capability_none, 0, false, nullptr, false, false, false, visible};
+LoginView probe_login_view(LoginStatus status, bool visible) noexcept {
+    return LoginView{{}, {}, {}, 0, 0, false, LoginControl::none, status, login_mfa_capability_none,
+                     login_mfa_capability_none, 0, false, nullptr, false, false, false, visible};
 }
 
 // A presented frame whose resident glyphs all have coverage and whose quads are all resident and drawn.
@@ -738,12 +738,12 @@ bool probe_startup_glyph_atlas() noexcept {
                                    true, 1};
     if (r.glyph_text.cache_builds || !renderer_resize(&r, r.width, r.height - caption) ||
         !renderer_set_caption(&r, signin, utf8_literal("MaiCord")) ||
-        !set_probe_login_view(probe_login_view(RendererLoginStatus::idle, true)) || !r.glyph_text.cache_builds ||
+        !set_probe_login_view(probe_login_view(LoginStatus::idle, true)) || !r.glyph_text.cache_builds ||
         !frame("startup_glyph_atlas_first", "startup_glyph_quads_first"))
         return false;
     UiCaptionBarState shown = signin;
     shown.active = true;
-    RendererLoginView focused = probe_login_view(RendererLoginStatus::idle, true);
+    LoginView focused = probe_login_view(LoginStatus::idle, true);
     focused.focus = LoginControl::login;
     if (!renderer_set_caption(&r, shown, utf8_literal("MaiCord")) || !set_probe_login_view(focused) ||
         !set_probe_login_view(focused) || !frame("startup_glyph_atlas_shown", "startup_glyph_quads_shown"))
@@ -794,7 +794,7 @@ bool probe_signout_glyph_atlas() noexcept {
     renderer_unbind_message_text_presentation(&r);
     renderer_unbind_text_storage(&r);
     renderer_unbind_navigation_view(&r);
-    if (!set_probe_login_view(probe_login_view(RendererLoginStatus::signed_out, true)) ||
+    if (!set_probe_login_view(probe_login_view(LoginStatus::signed_out, true)) ||
         !glyph_frame("signout_glyph_atlas_signin", "signout_glyph_quads_signin"))
         return false;
     return glyph_maintenance("signout_glyph_atlas_loop", "signout_glyph_quads_loop", "signout_glyph_atlas_idle",

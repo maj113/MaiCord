@@ -178,8 +178,8 @@ __forceinline bool file_replace(const wchar_t* from, const wchar_t* to, bool dur
     return MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0)) != 0;
 }
 
-__forceinline bool file_rename_noreplace(const wchar_t* from, const wchar_t* to, bool durable) noexcept {
-    return MoveFileExW(from, to, durable ? MOVEFILE_WRITE_THROUGH : 0) != 0;
+__forceinline bool file_rename_noreplace(const wchar_t* from, const wchar_t* to) noexcept {
+    return MoveFileExW(from, to, MOVEFILE_WRITE_THROUGH) != 0;
 }
 
 __forceinline bool file_remove(const wchar_t* path) noexcept {

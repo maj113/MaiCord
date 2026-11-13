@@ -106,7 +106,7 @@ bool range_covers(Fixture& f, const NativeTextFontQuery& base, const char* text,
         ++bytes;
     NativeTextFontRange range{};
     if (!native_text_catalog_range(&f.catalogs, base, f.session, &f.scratch, {text, bytes}, &range) ||
-        range.match.candidate == native_fallback_missing) {
+        range.match.index == native_fallback_missing) {
         check(!strict(), name);
         test_write_text("  no face for ");
         test_write_text(name);
@@ -125,14 +125,14 @@ bool range_covers(Fixture& f, const NativeTextFontQuery& base, const char* text,
     check(range.bytes == bytes, name);
     NativeFontInstanceHandle instance{};
     NativeFontSelection source{};
-    const bool selected = native_text_catalog_select_face(&f.catalogs, range.scope, range.match.candidate,
+    const bool selected = native_text_catalog_select_face(&f.catalogs, range.scope, range.match.index,
                                                           range.match.simulations, f.session, &f.scratch, &instance, &source);
     check(selected, name);
     if (!selected)
         return false;
     check(covers(f, instance, scalar), name);
     if (family_prefix && strict()) {
-        const NativeSystemFontFile* file = file_of(f.catalogs, range.match.candidate);
+        const NativeSystemFontFile* file = file_of(f.catalogs, range.match.index);
         check(file && name_starts(file->catalog, family_prefix), name);
     }
     native_font_instance_release(native_font_session_instances(f.session), instance);
@@ -210,10 +210,10 @@ bool run(bool scan) noexcept {
     const NativeTextFontQuery base = query(ui);
     NativeTextFontRange range{};
     check(native_text_catalog_range(&f.catalogs, base, f.session, &f.scratch, utf8_literal("ABC"), &range) &&
-              range.bytes == 3 && range.match.candidate != native_fallback_missing,
+              range.bytes == 3 && range.match.index != native_fallback_missing,
           "base_family_range");
     check(f.catalogs.files && f.catalogs.files->catalog.count, "base_family_catalog");
-    const u32 selected = range.match.candidate;
+    const u32 selected = range.match.index;
     NativeFontInstanceHandle instance{};
     NativeFontSelection source{};
     check(native_text_catalog_select_face(&f.catalogs, 0, selected, 0, f.session, &f.scratch, &instance, &source),
@@ -257,12 +257,12 @@ bool run(bool scan) noexcept {
             }
             NativeTextFontRange routed{};
             const bool ok = native_text_catalog_range(&f.catalogs, base, f.session, &f.scratch, {samples[i].text, bytes}, &routed);
-            if (!ok || routed.match.candidate == native_fallback_missing)
+            if (!ok || routed.match.index == native_fallback_missing)
                 continue;
             if (!pass)
-                candidates[i] = routed.match.candidate;
+                candidates[i] = routed.match.index;
             else
-                check(routed.match.candidate == candidates[i], "route_is_stable");
+                check(routed.match.index == candidates[i], "route_is_stable");
         }
         if (!pass) {
             // Warmed queries borrow immutable state: nothing is built and no storage is taken.

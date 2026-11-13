@@ -309,6 +309,10 @@ bool texture_format(const GpuDevice& device, GpuFormat format, u8 bind, FormatIn
 // The framebuffer object of a texture, created on first use; 0 when it cannot be complete.
 u32 texture_framebuffer(GpuTexture* texture) noexcept;
 
+// The GL enums of a blend description, for the draw path.
+void blend_factors(const GpuBlendDesc& desc, gl::Enum* source, gl::Enum* destination, gl::Enum* source_alpha,
+                   gl::Enum* destination_alpha) noexcept;
+
 // Shader pack (shader_pack.cpp).
 GpuStatus create_shader(GpuDevice* device, ShaderId id, gl::Enum stage, GlesShader* shader) noexcept;
 GpuStatus create_compute_program(GpuDevice* device, ShaderId id, GlesShader* shader) noexcept;

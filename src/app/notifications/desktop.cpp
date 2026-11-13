@@ -234,7 +234,7 @@ void tick_tray(u64 now_ms) noexcept {
     if (!g_desktop.tray_started) {
         if (now_ms < g_desktop.tray_retry_ms)
             return;
-        g_desktop.tray_started = dbus::tray_start("maicord", on_tray, nullptr);
+        g_desktop.tray_started = dbus::tray_start(on_tray, nullptr);
         if (!g_desktop.tray_started) {
             g_desktop.tray_retry_ms = now_ms + 5'000;
             return;

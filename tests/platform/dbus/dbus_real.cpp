@@ -226,7 +226,7 @@ void run_tray(const char* directory) noexcept {
                                    {"Mute", 2, true, false, false},
                                    {"Deafen", 3, true, true, false},
                                    {"Quit MaiCord", 4, false, false, true}};
-    check(tray_start("maicord", [](void*, const TrayEvent&) noexcept {}, nullptr), "the tray starts");
+    check(tray_start([](void*, const TrayEvent&) noexcept {}, nullptr), "the tray starts");
     tray_update(TrayState{"MaiCord", "tray check", icons, 2, false, menu, 4});
     const u64 until = clock_monotonic_milliseconds() + 15000;
     while (clock_monotonic_milliseconds() < until && !tray_available())

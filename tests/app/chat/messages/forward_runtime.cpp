@@ -51,8 +51,8 @@ void modifiers(bool control = false, bool alt = false, bool shift = false) noexc
     if (control) window_test::hold(key::ctrl);
     if (shift) window_test::hold(key::shift);
     if (alt) window_test::hold(key::alt);
-    check(window_key_down(nullptr, key::ctrl) == control && window_key_down(nullptr, key::shift) == shift &&
-              window_key_down(nullptr, key::alt) == alt,
+    check(window_key_down(key::ctrl) == control && window_key_down(key::shift) == shift &&
+              window_key_down(key::alt) == alt,
           "Forward runtime keyboard state");
 }
 bool channel(u64 id, Utf8View name) noexcept {

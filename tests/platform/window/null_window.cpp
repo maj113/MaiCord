@@ -65,23 +65,23 @@ void capture() noexcept {
 
 void keys() noexcept {
     null_window_release_keys();
-    check(window_modifiers(nullptr) == 0 && !window_key_down(nullptr, key::ctrl) &&
-              !window_toggle_state(nullptr, key::caps_lock),
+    check(window_modifiers() == 0 && !window_key_down(key::ctrl) &&
+              !window_toggle_state(key::caps_lock),
           "null window: a fresh state reads as nothing held");
     null_window_set_key(key::ctrl, true);
     null_window_set_key(key::shift, true);
-    check(window_key_down(g_window, key::ctrl) && window_modifiers(nullptr) == (mod_ctrl | mod_shift) &&
-              !window_key_down(nullptr, key::alt),
+    check(window_key_down(key::ctrl) && window_modifiers() == (mod_ctrl | mod_shift) &&
+              !window_key_down(key::alt),
           "null window: held keys read through the service, with or without the window");
     null_window_set_toggle(key::caps_lock, true);
-    check(window_toggle_state(nullptr, key::caps_lock) && (window_modifiers(nullptr) & mod_caps) != 0,
+    check(window_toggle_state(key::caps_lock) && (window_modifiers() & mod_caps) != 0,
           "null window: a lock key reads as toggled and as a modifier bit");
     null_window_release_keys();
-    check(window_key_down(nullptr, key::ctrl) == false && (window_modifiers(nullptr) & (mod_ctrl | mod_shift)) == 0 &&
-              window_toggle_state(nullptr, key::caps_lock),
+    check(window_key_down(key::ctrl) == false && (window_modifiers() & (mod_ctrl | mod_shift)) == 0 &&
+              window_toggle_state(key::caps_lock),
           "null window: releasing the keys lets go of the held keys but not of a toggled lock");
     null_window_set_toggle(key::caps_lock, false);
-    check(window_modifiers(nullptr) == 0, "null window: the lock toggles back off");
+    check(window_modifiers() == 0, "null window: the lock toggles back off");
 }
 
 void state() noexcept {

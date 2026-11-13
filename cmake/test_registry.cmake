@@ -1455,9 +1455,8 @@ maicord_test(MaiCordMessageMutationNoticeTests ENTRY maicord_message_mutation_no
             maicord_ui maicord_ui_secure_text maicord_text_system ${maicord_linux_app_test_libs}
     TIMEOUT 15 TEST maicord_message_mutation_notice)
 maicord_test(MaiCordGatewaySelfStatusRuntimeTests ENTRY maicord_gateway_self_status_runtime_entry
-    SOURCES tests/app/gateway/self_status_runtime.cpp src/app/gateway/client.cpp
+    SOURCES tests/app/gateway/self_status_runtime.cpp
     INCLUDES src/app
-    DEFINES MAICORD_GATEWAY_SELF_STATUS_TEST=1
     WINDOWS SOURCES src/core/log.cpp
         LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32 user32
             ${maicord_tls_libs}
@@ -2982,7 +2981,7 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/reply_draft_ui_adapter.cpp tests/integration/thread_browser_ui_adapter.cpp
         src/app/chat/threads/browser.cpp tests/integration/thread_creation_ui_adapter.cpp
         src/app/chat/threads/creation.cpp tests/integration/forum_post_ui_adapter.cpp
-        src/platform/desktop/clipboard_attachment.cpp src/app/chat/threads/forum_post.cpp src/app/chat/threads/forum_form.cpp
+        src/app/chat/threads/forum_post.cpp src/app/chat/threads/forum_form.cpp
         src/app/chat/threads/forum_attachments.cpp src/app/media/upload_lane.cpp
         src/app/chat/threads/forum_preview.cpp src/app/chat/composer/preview.cpp
         src/app/media/local_preview.cpp src/app/media/attachment_allowance.cpp
@@ -3031,7 +3030,7 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media
         kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp dwmapi
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src/app
-    DEFINES MAICORD_CLIPBOARD_UI_FIXTURE=1 MAICORD_LOG_STDOUT=1
+    DEFINES MAICORD_LOG_STDOUT=1
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 if(NOT MAICORD_LINUX)
     # The constinit probe state (renderer plus every scene owner) exceeds the

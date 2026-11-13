@@ -19,21 +19,21 @@ namespace maicord::app_detail {
 // carry Shift in their wParam (MK_SHIFT): read that where the message is at
 // hand instead of calling these.
 __declspec(noinline) inline bool application_key_down(int key) noexcept {
-    return window_key_down(nullptr, static_cast<Key>(key));
+    return window_key_down(static_cast<Key>(key));
 }
 __declspec(noinline) inline bool application_shift_down() noexcept {
-    return window_key_down(nullptr, key::shift);
+    return window_key_down(key::shift);
 }
 __declspec(noinline) inline bool application_alt_down() noexcept {
-    return window_key_down(nullptr, key::alt);
+    return window_key_down(key::alt);
 }
 // Raw Ctrl, including the Ctrl that AltGr synthesises.
 __declspec(noinline) inline bool application_control_down() noexcept {
-    return window_key_down(nullptr, key::ctrl);
+    return window_key_down(key::ctrl);
 }
 // Ctrl as a command modifier: AltGr (Ctrl+Alt) types text instead.
 __declspec(noinline) inline bool application_command_down() noexcept {
-    return window_key_down(nullptr, key::ctrl) && !window_key_down(nullptr, key::alt);
+    return window_key_down(key::ctrl) && !window_key_down(key::alt);
 }
 // Alt+F4 still closes the window while an overlay owns the keyboard.
 inline bool application_alt_f4(UiInputKind kind, u32 key) noexcept {

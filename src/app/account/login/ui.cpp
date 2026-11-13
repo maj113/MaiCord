@@ -29,9 +29,9 @@ SecureTextInputScope active_input_scope(const Application& application, const Se
     return SecureTextInputScope::text;
 }
 
-bool mfa_edit_status(RendererLoginStatus status) noexcept {
-    return status == RendererLoginStatus::mfa_required || status == RendererLoginStatus::mfa_input_invalid ||
-           status == RendererLoginStatus::mfa_code_rejected;
+bool mfa_edit_status(LoginStatus status) noexcept {
+    return status == LoginStatus::mfa_required || status == LoginStatus::mfa_input_invalid ||
+           status == LoginStatus::mfa_code_rejected;
 }
 
 bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
@@ -150,7 +150,7 @@ bool application_login_view_suspend(bool suspended) noexcept {
         return application_synchronize_login_view();
     secure_text_store_set_window_focus(&g_app.login.text_store, false);
     return !g_app.renderer_ready ||
-           renderer_set_login_view(&g_app.renderer, nullptr, RendererLoginView{}, application_theme());
+           renderer_set_login_view(&g_app.renderer, nullptr, LoginView{}, application_theme());
 }
 
 void application_login_view_state(LoginView* view) noexcept {
@@ -177,7 +177,7 @@ void application_login_view_state(LoginView* view) noexcept {
     view->auth_rate_limited = application_login_auth_cooldown_active();
     view->auth_retry_time_unknown = login.auth_retry_time_unknown;
     view->account_suspended = login.account_suspended;
-    view->caps_lock = application_active_login_edit() == &login.password && window_toggle_state(nullptr, key::caps_lock);
+    view->caps_lock = application_active_login_edit() == &login.password && window_toggle_state(key::caps_lock);
 #if !defined(_WIN32)
     view->security_key = login.security_key;
     // The key's PIN is typed in the code field: the key is the method on offer.
@@ -212,7 +212,7 @@ bool application_synchronize_login_view() noexcept {
     SecureEditRenderWindow login_window{};
     SecureEditRenderWindow secret_window{};
     const bool mfa_edit = mfa_edit_status(application.login.status);
-    RendererLoginView view{};
+    LoginView view{};
     application_login_view_state(&view);
     // Reveal is an explicit per-field choice; any other state re-masks it.
     const bool password_revealed = application.login.password_revealed && !phone && !mfa_edit &&
@@ -343,11 +343,11 @@ SecureEdit* application_active_login_edit() noexcept {
         login_phone_editable(login.status) && login.focus == LoginControl::phone_code ? &login.mfa : nullptr;
     if (login_recovery_mode(login.status) && !login_recovery_editable(login.status)) return nullptr;
     if (login.reset_mode && login_credential_fields_hidden(login.status, login.remote_status, true)) return nullptr;
-    if (!login.initialized || !login.visible || login.status == RendererLoginStatus::restoring_session || login.status == RendererLoginStatus::submitting ||
+    if (!login.initialized || !login.visible || login.status == LoginStatus::restoring_session || login.status == LoginStatus::submitting ||
         login_requires_back(login.status, login.remote_status) ||
-        login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
-        login.status == RendererLoginStatus::webauthn_required ||
-        login.status == RendererLoginStatus::webauthn_failed) {
+        login.status == LoginStatus::mfa_backup_acknowledgement ||
+        login.status == LoginStatus::webauthn_required ||
+        login.status == LoginStatus::webauthn_failed) {
         return nullptr;
     }
     if (login.focus == LoginControl::login && !login.reset_mode) {
@@ -377,7 +377,7 @@ bool application_initialize_login_ui() noexcept {
         return false;
     }
     login.focus = LoginControl::login;
-    login.status = RendererLoginStatus::idle;
+    login.status = LoginStatus::idle;
     const UINT caret_blink_ms = application_caret_blink_ms();
     login.caret_blink_ms = caret_blink_ms == 0 ? kDefaultCaretBlinkMilliseconds : caret_blink_ms;
     login.initialized = true;

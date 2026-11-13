@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop/clipboard_attachment.hpp"
+#include "clipboard_source.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/heap.hpp"
@@ -7,9 +8,6 @@
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/win32_threadpool.hpp"
 namespace maicord {
-#if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
-IDataObject* clipboard_attachment_ui_fixture_provider() noexcept;
-#endif
 namespace {
 bool ole_initialized;
 struct Content {
@@ -352,35 +350,15 @@ bool capture_clipboard(ClipboardCapture* output) noexcept {
             return false;
         ole_initialized = true;
     }
-    IDataObject* object = nullptr;
-#if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
-    object = clipboard_attachment_ui_fixture_provider();
-    if (object)
-        object->AddRef();
-#endif
-    if (!object) {
-        if (FAILED(OleGetClipboard(&object)))
-            return false;
-        output->sequence = GetClipboardSequenceNumber();
-    }
+    IDataObject* object = clipboard_source_open(&output->sequence);
+    if (!object)
+        return false;
     const HRESULT result =
         CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), object, &output->object);
     object->Release();
     return SUCCEEDED(result);
 }
 } // namespace
-bool clipboard_has_attachment() noexcept {
-#if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
-    if (clipboard_attachment_ui_fixture_provider())
-        return true;
-#endif
-    const UINT descriptors = RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW),
-               png = RegisterClipboardFormatW(L"PNG");
-    return IsClipboardFormatAvailable(CF_HDROP) ||
-           (descriptors && IsClipboardFormatAvailable(descriptors)) ||
-           (png && IsClipboardFormatAvailable(png)) || IsClipboardFormatAvailable(CF_DIBV5) ||
-           IsClipboardFormatAvailable(CF_DIB);
-}
 void clipboard_attachment_release(ClipboardCapture* input) noexcept {
     if (input && input->object) {
         LARGE_INTEGER zero{};

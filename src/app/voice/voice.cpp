@@ -225,7 +225,7 @@ void application_voice_pump() noexcept {
     voice_push_to_talk_binding_update(call, voice.preferences.audio.mode, voice.preferences.audio.push_to_talk_key);
     application_voice_channels_pump();
     application_voice_settings_tick();
-    if (voice.save_pending && !window_key_down(nullptr, key::lbutton)) {
+    if (voice.save_pending && !window_key_down(key::lbutton)) {
         voice.save_pending = false;
         save();
     }

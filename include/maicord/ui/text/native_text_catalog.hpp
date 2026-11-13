@@ -54,7 +54,7 @@ struct NativeTextFontQuery {u32 scope;ConstSlice<u16> family;NativeFontPropertie
 // family matching. It is false on a direct family match or failure.
 bool native_text_catalog_select_query(NativeTextCatalogs*,const NativeTextFontQuery&,NativeFontSession*,Arena*,
     NativeFontInstanceHandle*,NativeFontSelection*,u32* candidate=nullptr,u32* simulations=nullptr,u32* selected_scope=nullptr,bool* missing_family=nullptr) noexcept;
-struct NativeTextFontRange {NativeFontCatalogMatch match;u32 bytes,units,scope;};
+struct NativeTextFontRange {NativeFontMatch match;u32 bytes,units,scope;};
 // en-US policy: preserves the base-family and fixed system-route preference,
 // including a missing base family. Returns the actual selected scope. First use
 // can prepare cached family orders and reset scratch; warmed queries borrow

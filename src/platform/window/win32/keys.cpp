@@ -6,15 +6,15 @@
 
 namespace maicord {
 
-bool window_key_down(Window, Key key_code) noexcept {
+bool window_key_down(Key key_code) noexcept {
     return (GetKeyState(key_code) & 0x8000) != 0;
 }
 
-bool window_toggle_state(Window, Key key_code) noexcept {
+bool window_toggle_state(Key key_code) noexcept {
     return (GetKeyState(key_code) & 1) != 0;
 }
 
-u8 window_modifiers(Window) noexcept {
+u8 window_modifiers() noexcept {
     u32 modifiers = 0;
     if (GetKeyState(key::ctrl) & 0x8000)
         modifiers |= mod_ctrl;
@@ -35,7 +35,7 @@ u8 window_modifiers(Window) noexcept {
     return static_cast<u8>(modifiers);
 }
 
-bool window_layout_types_text(Window, Key key_code, u8 modifiers) noexcept {
+bool window_layout_types_text(Key key_code, u8 modifiers) noexcept {
     BYTE state[256]{};
     if (modifiers & mod_ctrl)
         state[key::ctrl] = state[key::left_ctrl] = 0x80;

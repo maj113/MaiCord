@@ -76,13 +76,12 @@ void window_capture_pointer(Window window) noexcept;
 void window_release_capture(Window window) noexcept;
 bool window_pointer_captured(Window window) noexcept;
 bool window_focus(Window window) noexcept;
-// Key state belongs to the input device, not to a window: these four take a null Window (the main window) so code
-// without a window handle can read it. The state is as of the event being handled.
-u8 window_modifiers(Window window) noexcept;
-bool window_key_down(Window window, Key key) noexcept;
-bool window_toggle_state(Window window, Key key) noexcept;
+// Key state belongs to the input device, not to a window. It is as of the event being handled.
+u8 window_modifiers() noexcept;
+bool window_key_down(Key key) noexcept;
+bool window_toggle_state(Key key) noexcept;
 // Whether the active layout turns this key with these modifiers into text.
-bool window_layout_types_text(Window window, Key key, u8 modifiers) noexcept;
+bool window_layout_types_text(Key key, u8 modifiers) noexcept;
 
 // Geometry the app reads between events.
 struct WindowMetrics {

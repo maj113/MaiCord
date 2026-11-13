@@ -12,7 +12,6 @@ namespace maicord {
 namespace gles {
 namespace {
 
-constexpr i32 kEglNone = 0x3038;
 constexpr i32 kEglWidth = 0x3057;
 constexpr i32 kEglHeight = 0x3056;
 constexpr u32 kEglLinuxDmaBuf = 0x3270;     // EGL_LINUX_DMA_BUF_EXT
@@ -305,7 +304,7 @@ u32 gpu_dmabuf_attributes(const GpuDmabufPlane& plane, bool modifiers, i32* attr
     put_plane(0, plane.fd, plane.offset, plane.pitch);
     if (plane.aux_pitch)
         put_plane(1, plane.aux_fd, plane.aux_offset, plane.aux_pitch);
-    attributes[n++] = gles::kEglNone;
+    attributes[n++] = egl::kNone;
     return n;
 }
 

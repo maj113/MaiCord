@@ -2,11 +2,6 @@
 #include "gpu/gles/internal.hpp"
 
 namespace maicord {
-namespace gles {
-void blend_factors(const GpuBlendDesc& desc, gl::Enum* source, gl::Enum* destination, gl::Enum* source_alpha,
-                   gl::Enum* destination_alpha) noexcept;
-}
-
 namespace {
 
 using namespace gles;

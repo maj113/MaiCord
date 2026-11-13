@@ -3,6 +3,7 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "../../support/gateway_message_decode.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/guild/member_list_channel_binding.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"

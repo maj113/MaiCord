@@ -73,7 +73,6 @@ gl::Enum blend_color_factor(GpuBlendFactor factor) noexcept {
 
 namespace gles {
 
-// The GL enums of a blend description, for the draw path.
 void blend_factors(const GpuBlendDesc& desc, gl::Enum* out_source, gl::Enum* out_destination,
                    gl::Enum* out_source_alpha, gl::Enum* out_destination_alpha) noexcept {
     *out_source = blend_color_factor(desc.source);
@@ -626,8 +625,7 @@ void gpu_clear_uav_rect(GpuContext* context, GpuUav* target, const float rgba[4]
     clear_rect(context, target->texture, rgba, rectangle);
 }
 
-void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, const void* data, u32 bytes) {
-    (void)context;
+void gpu_update_buffer(GpuContext*, GpuBuffer* buffer, const void* data, u32 bytes) {
     if (bytes > buffer->bytes)
         return;
     gl::Api& gl = api();
@@ -635,8 +633,7 @@ void gpu_update_buffer(GpuContext* context, GpuBuffer* buffer, const void* data,
     gl.glBufferSubData(gl::kCopyWriteBuffer, 0, bytes, data);
 }
 
-void* gpu_map(GpuContext* context, GpuBuffer* buffer, GpuMap mode, GpuStatus* status) {
-    (void)context;
+void* gpu_map(GpuContext*, GpuBuffer* buffer, GpuMap mode, GpuStatus* status) {
     if (buffer->usage != GpuUsage::dynamic || buffer->mapped) {
         if (status)
             *status = kGpuInvalidArgument;
@@ -654,8 +651,7 @@ void* gpu_map(GpuContext* context, GpuBuffer* buffer, GpuMap mode, GpuStatus* st
     return mapped;
 }
 
-void gpu_unmap(GpuContext* context, GpuBuffer* buffer) {
-    (void)context;
+void gpu_unmap(GpuContext*, GpuBuffer* buffer) {
     if (!buffer->mapped)
         return;
     gl::Api& gl = api();
@@ -756,8 +752,7 @@ void gpu_readback_unmap(GpuContext*, GpuReadback* readback) {
     readback->data = nullptr;
 }
 
-void gpu_flush(GpuContext* context) {
-    (void)context;
+void gpu_flush(GpuContext*) {
     api().glFlush();
     poll_fences();
 }

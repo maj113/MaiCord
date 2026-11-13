@@ -1,4 +1,6 @@
-#include "gateway/self_status_test.hpp"
+#include "gateway/client_internal.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/user/self_status_settings.hpp"
 #include "maicord/core/memory.hpp"
@@ -65,11 +67,59 @@ Utf8View observation(GatewayUserStatus status, char* output, bool partial = fals
     at += suffix.bytes;
     return {output, at};
 }
+// A user runtime as a READY session leaves it, without a worker or a connection; requests reach
+// rest_client_submit below.
+bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 self) noexcept {
+    auto* runtime = commit_pages<GatewayClientRuntime>(kGatewayUserClientRuntimeBytes);
+    if (!runtime)
+        return false;
+    client->runtime = runtime;
+    runtime->user =
+        reinterpret_cast<GatewayUserRuntime*>(reinterpret_cast<u8*>(runtime) + kGatewayUserRuntimeOffset);
+    runtime->user->metadata.profile_id = profile;
+    runtime->session.lifecycle.phase = GatewayLifecyclePhase::ready;
+    runtime->self_user_id = self;
+    gateway_self_status_initialize(&runtime->self_status, profile, {0, GatewayUserStatus::online, false, false});
+    gateway_self_status_bind(&runtime->self_status, self);
+    client->phase = static_cast<LONG>(GatewayClientPhase::ready);
+    return true;
+}
+// The live session's typed settings dispatch classifier.
+bool gateway_self_status_test_observe(GatewayClient* client, Utf8View dispatch) noexcept {
+    return self_settings_dispatch(client, static_cast<GatewayClientRuntime*>(client->runtime), dispatch);
+}
+void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept {
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    gateway_self_status_reset_connection(&runtime->self_status);
+    runtime->session.lifecycle.phase = ready ? GatewayLifecyclePhase::ready : GatewayLifecyclePhase::awaiting_hello;
+    client->phase = static_cast<LONG>(ready ? GatewayClientPhase::ready : GatewayClientPhase::reconnect_wait);
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+}
+u32 gateway_self_status_test_group_bytes(const GatewayClient* client) noexcept {
+    return static_cast<const GatewayClientRuntime*>(client->runtime)->self_status_group_bytes;
+}
+// Wipes and releases the runtime; the count of zero bytes left in the settings bank.
+u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    u32 wiped = 0;
+    if (runtime->self_status_group) {
+        SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
+        for (u32 i = 0; i < kSelfStatusSettingsMaximumGroupBytes; ++i)
+            if (!runtime->self_status_group[i])
+                ++wiped;
+        pages_release(runtime->self_status_group);
+    }
+    SecureZeroMemory(runtime, kGatewayUserClientRuntimeBytes);
+    pages_release(runtime);
+    reset_value(client);
+    return wiped;
+}
 void run() noexcept {
     GatewayClient client{};
     RestClient rest{};
     char json[512]{};
-    check(gateway_self_status_test_create(&client, 7, 9, capture),
+    check(gateway_self_status_test_create(&client, 7, 9),
           "self status runtime: isolated real backend owner creates");
     if (!client.runtime)
         return;
@@ -346,6 +396,9 @@ void run() noexcept {
           "self status runtime: retired account cannot accept late completion");
 }
 } // namespace
+RestClientSubmitResult rest_client_submit(RestClient*, const RestClientRequest& request) noexcept {
+    return capture(request);
+}
 } // namespace maicord
 MAICORD_TEST_ENTRY(maicord_gateway_self_status_runtime_entry) {
     maicord::run();

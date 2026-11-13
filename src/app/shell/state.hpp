@@ -266,7 +266,7 @@ struct LoginRuntime {
     char remote_user[kRemoteAuthMaximumUserPayloadBytes];
     LoginControl focus;
     LoginControl pointer_selection;
-    RendererLoginStatus status;
+    LoginStatus status;
     LoginRemoteStatus remote_status;
     UserAuthMfaType mfa_type;
     u8 mfa_capabilities;
@@ -455,7 +455,7 @@ struct Application {
     MessageReactionRequest message_reaction;
     u64 pending_message_jump_channel_id;
     u64 pending_message_jump_message_id;
-    RendererMessageTextPositionHit message_text_selection;
+    MessagePositionHit message_text_selection;
     u32 message_text_selection_anchor;
     u32 message_text_selection_caret;
     bool renderer_ready;

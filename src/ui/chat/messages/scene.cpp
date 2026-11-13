@@ -5,7 +5,6 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/theme/styles.hpp"
-#include "maicord/ui/chat/messages/unread_divider.hpp"
 
 #include "scene_internal.hpp"
 
@@ -307,37 +306,21 @@ bool message_scene_set_highlight(MessageScene* scene, u64 message_id, float leve
 }
 
 bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 last_read_message_id,
-                                     bool known, bool* changed,
-                                     const UiUnreadDividerStyle* style) noexcept {
-    if (changed)
-        *changed = false;
-    if (!scene || !scene->timeline || !scene->timeline->store || (known && !channel_id) ||
-        (style && !ui_unread_divider_style_valid(*style)))
+                                     bool known) noexcept {
+    if (!scene || !scene->timeline || !scene->timeline->store || (known && !channel_id))
         return false;
-    const auto next_style = style ? *style : scene->unread_divider_style;
-    const bool style_changed =
-        next_style.height != scene->unread_divider_style.height ||
-        next_style.horizontal_inset != scene->unread_divider_style.horizontal_inset ||
-        next_style.label_width != scene->unread_divider_style.label_width ||
-        next_style.label_gap != scene->unread_divider_style.label_gap ||
-        next_style.line_thickness != scene->unread_divider_style.line_thickness;
     if (!known) {
         channel_id = 0;
         last_read_message_id = 0;
     }
-    const bool updated = style_changed || scene->unread_cursor_known != known ||
-                         scene->unread_channel_id != channel_id ||
-                         scene->unread_last_read_message_id != last_read_message_id;
-    if (!updated)
+    if (scene->unread_cursor_known == known && scene->unread_channel_id == channel_id &&
+        scene->unread_last_read_message_id == last_read_message_id)
         return true;
     scene->unread_cursor_known = known;
     scene->unread_channel_id = channel_id;
     scene->unread_last_read_message_id = last_read_message_id;
-    scene->unread_divider_style = next_style;
     saturating_increment(scene->unread_revision);
     scene->dirty = true;
-    if (changed)
-        *changed = true;
     return true;
 }
 

@@ -1,7 +1,7 @@
 // Manual live-network probe: built only with -DMAICORD_BUILD_INTEGRATION_TESTS=ON
 // (cmake/integration.cmake) and run by hand or through tools/probe_*.ps1; it is
 // never part of the CTest suite because it talks to the real service.
-#include "maicord/app/net/rest_client.hpp"
+#include "../support/rest_client_public.hpp"
 #include "../support/rest_wait_response.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/win32_kernel.hpp"

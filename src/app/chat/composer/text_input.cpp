@@ -461,7 +461,7 @@ bool application_composer_text_input_filter(const WindowEvent& event) noexcept {
         code == key::enter || code == key::escape || code == key::tab ||
         ((code == 'Z' || code == 'Y' || code == key::backspace ||
           code == key::del || code == key::left || code == key::right) &&
-         window_key_down(nullptr, key::ctrl) && !window_key_down(nullptr, key::alt));
+         window_key_down(key::ctrl) && !window_key_down(key::alt));
     if (down && command && (composing || eaten) && input == g_app.composer_text_input)
         input->held_key = code;
     return eaten || held || (composing && command);

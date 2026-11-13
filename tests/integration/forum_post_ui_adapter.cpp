@@ -8,6 +8,7 @@
 #include "maicord/app/media/account_media_worker.hpp"
 #include "../support/media_fixture.hpp"
 #include "maicord/sys/shell.hpp"
+#include "../../src/platform/desktop/clipboard_source.hpp"
 #include "maicord/sys/tsf.hpp"
 #include "../support/forum_form_access.hpp"
 #include "shell/state.hpp"
@@ -931,10 +932,25 @@ bool forum_media_ui_adapter_pump() noexcept {
                application_forum_form_synchronize();
     });
 }
-// UiProbe owns this borrowed provider. Capture still marshals it for the native
-// worker; no fixture operation reads or replaces the live OS clipboard.
-IDataObject* clipboard_attachment_ui_fixture_provider() noexcept {
-    return clipboard_fixture_provider;
+// The clipboard this probe pastes from, in place of src/platform/desktop/clipboard_source.cpp: the fixture's borrowed
+// data object while one is set, else the system clipboard. Capture still marshals it for the native worker; no
+// fixture operation reads or replaces the live OS clipboard.
+IDataObject* clipboard_source_open(DWORD* sequence) noexcept {
+    if (clipboard_fixture_provider) {
+        clipboard_fixture_provider->AddRef();
+        return clipboard_fixture_provider;
+    }
+    IDataObject* object = nullptr;
+    if (FAILED(OleGetClipboard(&object)))
+        return nullptr;
+    *sequence = GetClipboardSequenceNumber();
+    return object;
+}
+bool clipboard_has_attachment() noexcept {
+    const UINT descriptors = RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW), png = RegisterClipboardFormatW(L"PNG");
+    return clipboard_fixture_provider || IsClipboardFormatAvailable(CF_HDROP) ||
+           (descriptors && IsClipboardFormatAvailable(descriptors)) || (png && IsClipboardFormatAvailable(png)) ||
+           IsClipboardFormatAvailable(CF_DIBV5) || IsClipboardFormatAvailable(CF_DIB);
 }
 bool forum_media_ui_adapter_paste_file() noexcept {
     const DWORD sequence = GetClipboardSequenceNumber();

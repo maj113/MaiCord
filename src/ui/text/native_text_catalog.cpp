@@ -140,9 +140,9 @@ bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeText
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;
     if(!family->order.count){
         if(!selected_scope)return false;
-        NativeTextFontRange range{};if(!native_text_catalog_range(owner,query,session,scratch,{" ",1},&range)||range.match.candidate==native_fallback_missing||(range.match.simulations&&!simulations)||
-            !native_text_catalog_select_face(owner,range.scope,range.match.candidate,range.match.simulations,session,scratch,output,source))return false;
-        if(candidate)*candidate=range.match.candidate;if(simulations)*simulations=range.match.simulations;*selected_scope=range.scope;if(missing_family)*missing_family=true;return true;
+        NativeTextFontRange range{};if(!native_text_catalog_range(owner,query,session,scratch,{" ",1},&range)||range.match.index==native_fallback_missing||(range.match.simulations&&!simulations)||
+            !native_text_catalog_select_face(owner,range.scope,range.match.index,range.match.simulations,session,scratch,output,source))return false;
+        if(candidate)*candidate=range.match.index;if(simulations)*simulations=range.match.simulations;*selected_scope=range.scope;if(missing_family)*missing_family=true;return true;
     }
     const auto& catalog=*family->catalog;const u32 index=family->order[0];const auto match=native_font_match({catalog.properties+index,1},query.properties);
     if(match.simulations&&!simulations)return false;

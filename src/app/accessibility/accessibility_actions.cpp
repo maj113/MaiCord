@@ -393,8 +393,8 @@ bool set_login_text(const UiAccessNode& node, Utf8View text) noexcept {
             edit->password = false;
         application_login_prepare_identifier();
     } else if (edit == &login.mfa && result == SecureEditResult::changed &&
-               login.status == RendererLoginStatus::mfa_input_invalid) {
-        login.status = RendererLoginStatus::mfa_required;
+               login.status == LoginStatus::mfa_input_invalid) {
+        login.status = LoginStatus::mfa_required;
     }
     return result != SecureEditResult::changed || application_refresh_login_view();
 }

@@ -172,7 +172,7 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     // The old version goes out: fonts/ and licenses/ where the new one brings its own, then the program.
     for (u32 i = 0; i < kItems; ++i) {
         if (!staged[i] || (i != kExecutable && !exists(items[i].live.text))) continue;
-        if (!(i == kExecutable ? file_rename_noreplace(items[i].live.text, items[i].kept.text, true)
+        if (!(i == kExecutable ? file_rename_noreplace(items[i].live.text, items[i].kept.text)
                                : file_replace(items[i].live.text, items[i].kept.text, true)))
             return fail(UpdateSwapError::replace);
         items[i].away = true;
@@ -181,7 +181,7 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     const u32 order[kItems]{kExecutable, 0, 1};
     for (const u32 i : order) {
         if (!staged[i]) continue;
-        if (!(i == kExecutable ? file_rename_noreplace(items[i].staged.text, items[i].live.text, true)
+        if (!(i == kExecutable ? file_rename_noreplace(items[i].staged.text, items[i].live.text)
                                : file_replace(items[i].staged.text, items[i].live.text, true)))
             return fail(UpdateSwapError::install);
         items[i].in = true;

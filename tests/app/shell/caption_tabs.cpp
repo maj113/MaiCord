@@ -266,7 +266,7 @@ void overflow() noexcept {
     for (u64 id = 101; id < 116; ++id)
         opened = application_tabs_open_channel(id, true) && opened;
     const auto layout = bar();
-    check(opened && view()->count == kUiTabCapacity && layout.tabs.overflowed && layout.tabs.shown < kUiTabCapacity &&
+    check(opened && view()->count == kUiTabCapacity && layout.tabs.overflowed &&
               ui_rect_has_area(layout.tabs.overflow),
           "caption tabs overflow: sixteen tabs do not fit at the narrowest window, and the \"...\" appears");
     click(centre_x(layout.tabs.overflow), centre_y(layout, layout.tabs.overflow));

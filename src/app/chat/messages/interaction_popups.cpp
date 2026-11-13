@@ -128,7 +128,7 @@ bool clear_message_text_selection(bool rebuild) noexcept {
     const bool had_selection = g_app.message_text_selection.valid;
     const bool held = g_app.message_text_pointer_selection;
     g_app.message_text_pointer_selection = false;
-    reset_value<RendererMessageTextPositionHit>(&g_app.message_text_selection);
+    reset_value<MessagePositionHit>(&g_app.message_text_selection);
     g_app.message_text_selection_anchor = 0;
     g_app.message_text_selection_caret = 0;
     renderer_clear_message_text_selection(&g_app.renderer);
@@ -146,7 +146,7 @@ bool begin_message_text_selection(const WindowEvent& event, bool double_click) n
     if (!g_app.account_ui || g_app.login.visible) {
         return false;
     }
-    const RendererMessageTextPositionHit hit = renderer_message_text_position_hit_test(
+    const MessagePositionHit hit = renderer_message_text_position_hit_test(
         g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
     if (!hit.valid) {
         return false;
@@ -196,7 +196,7 @@ bool handle_message_text_selection_drag(const WindowEvent& event) noexcept {
         return true;
     }
 
-    const RendererMessageTextPositionHit hit = renderer_message_text_position_hit_test(
+    const MessagePositionHit hit = renderer_message_text_position_hit_test(
         g_app.renderer, static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y));
     if (!hit.valid || hit.message_id != g_app.message_text_selection.message_id ||
         hit.command_identity != g_app.message_text_selection.command_identity ||

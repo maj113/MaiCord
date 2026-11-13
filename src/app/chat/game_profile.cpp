@@ -84,14 +84,8 @@ constexpr u32 kGenreCount = 69;
 constexpr char kMonthNames[] =
     "January\0February\0March\0April\0May\0June\0July\0August\0September\0October\0November\0December";
 
-// Entry `index` of a '\0'-separated list.
-Utf8View entry(const char* list, u32 index) noexcept {
-    while (index--)
-        list += c_string_length(list) + 1;
-    return {list, c_string_length(list)};
-}
 Utf8View genre_name(u32 genre) noexcept {
-    return genre && genre <= kGenreCount ? entry(kGenreNames, genre - 1) : Utf8View{};
+    return genre && genre <= kGenreCount ? c_string_list_entry(kGenreNames, genre - 1) : Utf8View{};
 }
 
 // Game platform types (Userdoccers): desktop 0, xbox 1, playstation 2, ios 3, android 4, nintendo 5, linux 6,
@@ -153,7 +147,7 @@ void order_links() noexcept {
         for (u32 i = 0; i < g.link_count; ++i) {
             const Utf8View url = view(g.links[i].url, g.links[i].url_bytes);
             if (g.links[i].category != kind.category || !web_url(url) ||
-                (store && !on_host(url, entry(kStoreHosts, kind.host - 1))))
+                (store && !on_host(url, c_string_list_entry(kStoreHosts, kind.host - 1))))
                 continue;
             p.links[p.link_count++] = static_cast<u8>(i);
             app_store |= kind.category != 12 && store;
@@ -165,7 +159,7 @@ void order_links() noexcept {
 Utf8View link_title(const GameProfileLink& link) noexcept {
     for (const auto& kind : kLinkKinds)
         if (kind.category == link.category)
-            return entry(kLinkTitles, kind.title);
+            return c_string_list_entry(kLinkTitles, kind.title);
     return {};
 }
 
@@ -174,7 +168,7 @@ Utf8View release_text(u64 ms) noexcept {
     auto& bank = owner->bank;
     const CivilDate date = civil_date_from_days(static_cast<i64>(ms / 86'400'000));
     const u32 start = bank.used;
-    bank.add(entry(kMonthNames, date.month - 1));
+    bank.add(c_string_list_entry(kMonthNames, date.month - 1));
     bank.add(" ");
     bank.number(date.day);
     bank.add(", ");

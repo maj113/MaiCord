@@ -270,11 +270,11 @@ void test_replace() noexcept {
     check(file_replace(temporary, target, true) && content_is(L"replace.bin", "durable") && !exists(L"replace.tmp"),
           "a durable replace overwrites");
     write_text(L"replace.tmp", "fresh");
-    check(!file_rename_noreplace(temporary, target, false) && thread_last_error() == ERROR_ALREADY_EXISTS &&
+    check(!file_rename_noreplace(temporary, target) && thread_last_error() == ERROR_ALREADY_EXISTS &&
               content_is(L"replace.bin", "durable") && exists(L"replace.tmp"),
           "rename_noreplace refuses an existing target");
     remove_file(L"replace.bin");
-    check(file_rename_noreplace(temporary, target, true) && content_is(L"replace.bin", "fresh") &&
+    check(file_rename_noreplace(temporary, target) && content_is(L"replace.bin", "fresh") &&
               !exists(L"replace.tmp"),
           "rename_noreplace moves to a free name");
     check(!file_replace(temporary, target, false), "replace of a missing source fails");

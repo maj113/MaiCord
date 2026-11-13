@@ -80,8 +80,8 @@ DroppedFiles* uri_list_files(const u8* text, u32 bytes) noexcept {
             ++end;
         const char* entry = reinterpret_cast<const char*>(text + line);
         const u32 length = end - line;
-        const bool gnome_verb = first_line && (starts_with(entry, length, "copy") || starts_with(entry, length, "cut")) &&
-                                !starts_with(entry, length, "file:");
+        // x-special/gnome-copied-files starts with its verb line.
+        const bool gnome_verb = first_line && (starts_with(entry, length, "copy") || starts_with(entry, length, "cut"));
         first_line = false;
         if (length != 0 && entry[0] != '#' && !gnome_verb) {
             char path[kPathCapacity];

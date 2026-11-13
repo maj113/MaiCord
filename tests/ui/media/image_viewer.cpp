@@ -218,9 +218,9 @@ void test_image_viewer_chrome(void (*check)(bool, const char*) noexcept) noexcep
               stream.storage[1].rectangle.top == v.body.bottom,
           "viewer chrome: counter centres on the toolbar row, caption spans the media column");
     PaintStream paint{};
+    ui_image_viewer_set_chrome(&v, 0);
     bool faded = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 800) &&
-                 ui_image_viewer_set_chrome(&v, 0) && ui_image_viewer_paint(v, kDefaultTheme, &paint) &&
-                 paint.quads[0].fill.alpha > .9f;
+                 ui_image_viewer_paint(v, kDefaultTheme, &paint) && paint.quads[0].fill.alpha > .9f;
     for (u32 i = 1; faded && i < paint.count; ++i)
         faded = paint.quads[i].fill.alpha == 0;
     check(faded, "viewer chrome: hidden chrome keeps the scrim and fades every toolbar quad");
@@ -233,9 +233,10 @@ void test_image_viewer_chrome(void (*check)(bool, const char*) noexcept) noexcep
     check(ui_image_viewer_set_media(&v, UiImageViewerMedia::failed) && !ui_image_viewer_spinner_visible(v) &&
               ui_image_viewer_text_output(v, kDefaultTheme, &output) && stream.count == 3,
           "viewer chrome: a failed image says so under its icon");
-    check(utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_close), utf8_literal("Close (Esc)")) &&
-              utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_fullscreen), utf8_literal("Full screen (F)")) &&
-              ui_image_viewer_set_fullscreen(&v, true) &&
+    const bool named = utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_close), utf8_literal("Close (Esc)")) &&
+                       utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_fullscreen), utf8_literal("Full screen (F)"));
+    ui_image_viewer_set_fullscreen(&v, true);
+    check(named &&
               utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_fullscreen), utf8_literal("Exit full screen (F)")),
           "viewer chrome: tooltips name the action and its shortcut");
     paint_stream_release(&paint);
@@ -588,14 +589,15 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     check(same_text, "page: a track change changes no queue text");
     paint_stream_release(&before);
     paint_stream_release(&after);
-    check(ui_image_viewer_key_command(player, UiImageViewerKey::f, {}) == UiImageViewerCommand::video &&
-              ui_image_viewer_set_fullscreen(&player, true) &&
-              ui_rect_equal(ui_image_viewer_page_layout(player).player, player.viewport) &&
-              !ui_rect_has_area(ui_image_viewer_page_layout(player).queue) &&
-              !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)) &&
-              ui_image_viewer_key_command(player, UiImageViewerKey::escape, {}) == UiImageViewerCommand::exit_fullscreen &&
-              ui_image_viewer_set_fullscreen(&player, false) &&
-              ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)),
+    const bool to_player = ui_image_viewer_key_command(player, UiImageViewerKey::f, {}) == UiImageViewerCommand::video;
+    ui_image_viewer_set_fullscreen(&player, true);
+    const bool all_player =
+        to_player && ui_rect_equal(ui_image_viewer_page_layout(player).player, player.viewport) &&
+        !ui_rect_has_area(ui_image_viewer_page_layout(player).queue) &&
+        !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)) &&
+        ui_image_viewer_key_command(player, UiImageViewerKey::escape, {}) == UiImageViewerCommand::exit_fullscreen;
+    ui_image_viewer_set_fullscreen(&player, false);
+    check(all_player && ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_close)),
           "page: F goes to the player; full screen is all player (no header, toolbar or queue) until Esc");
     check(ui_image_viewer_layout(&player, {0, 0, 640, 700}) &&
               ui_image_viewer_page_layout(player).queue.top > ui_image_viewer_page_layout(player).player.bottom &&

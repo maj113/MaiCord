@@ -54,8 +54,8 @@ bool type(u32 key, u8 modifiers) noexcept {
     null_window_set_key(key::ctrl, (modifiers & C) != 0);
     null_window_set_key(key::alt, (modifiers & L) != 0);
     null_window_set_key(key::shift, (modifiers & H) != 0);
-    const bool held = window_key_down(nullptr, key::ctrl) == ((modifiers & C) != 0) &&
-                      window_key_down(nullptr, key::alt) == ((modifiers & L) != 0);
+    const bool held = window_key_down(key::ctrl) == ((modifiers & C) != 0) &&
+                      window_key_down(key::alt) == ((modifiers & L) != 0);
     const bool consumed = held && application_settings_input(UiInputKind::key_down, key, false) &&
                           application_settings_input(UiInputKind::key_up, key, false);
     null_window_release_keys();

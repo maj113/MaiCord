@@ -117,8 +117,8 @@ bool ui_image_viewer_set_item(UiImageViewer* viewer, UiSize pixels, u32 item, u3
 // Footer caption (alt text or file name); truncated, never owned by the caller.
 bool ui_image_viewer_set_caption(UiImageViewer* viewer, Utf8View caption) noexcept;
 bool ui_image_viewer_set_media(UiImageViewer* viewer, UiImageViewerMedia media) noexcept;
-bool ui_image_viewer_set_chrome(UiImageViewer* viewer, float opacity) noexcept;
-bool ui_image_viewer_set_fullscreen(UiImageViewer* viewer, bool fullscreen) noexcept;
+void ui_image_viewer_set_chrome(UiImageViewer* viewer, float opacity) noexcept;
+void ui_image_viewer_set_fullscreen(UiImageViewer* viewer, bool fullscreen) noexcept;
 // Open/close progress in [0, 1]; scales the scrim and interpolates `display`.
 void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, const UiRect& origin) noexcept;
 // Turns an open viewer into a page (single item, no gallery); its header shows `page`. Full screen makes the page all

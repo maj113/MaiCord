@@ -376,7 +376,7 @@ bool application_voice_message_input(UiInputKind kind, u32 code, bool repeated) 
         return true;
     if (kind != UiInputKind::key_down || repeated)
         return kind == UiInputKind::key_down && (code == key::escape || code == key::enter);
-    const bool modifiers = window_key_down(nullptr, key::ctrl) || window_key_down(nullptr, key::alt);
+    const bool modifiers = window_key_down(key::ctrl) || window_key_down(key::alt);
     if (code == key::escape) {
         apply(VoiceMessageEvent::cancel);
         return refresh_message_composer_ui();

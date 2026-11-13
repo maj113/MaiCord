@@ -47,14 +47,8 @@ inline constexpr u32 kMessageSceneBaseWidgetsPerRow = 15;
 // Widgets of a plain text row: row, avatar, body, reply, author, content and
 // the notice group. Rich groups, reactions, polls and the group of an "(edited)" line add widgets only when present.
 inline constexpr u32 kMessageScenePlainRowWidgets = 7;
-inline constexpr u32 kMessageSceneAttachmentItemOffset = kMessageRichAttachmentItemOffset;
-inline constexpr u32 kMessageSceneEmbedItemOffset = kMessageRichEmbedItemOffset;
-inline constexpr u32 kMessageSceneStickerItemOffset = kMessageRichStickerItemOffset;
-inline constexpr u32 kMessageSceneComponentItemOffset = kMessageRichComponentItemOffset;
-inline constexpr u32 kMessageSceneNoticeItemOffset = kMessageRichNoticeItemOffset;
-inline constexpr u32 kMessageSceneRichItemMaximum = kMessageRichItemMaximum;
 inline constexpr u32 kMessageSceneWidgetsPerContent =
-    kMessageSceneBaseWidgetsPerRow + kGatewayMessageReactionMaximum + kMessageSceneRichItemMaximum + 1u;
+    kMessageSceneBaseWidgetsPerRow + kGatewayMessageReactionMaximum + kMessageRichItemMaximum + 1u;
 inline constexpr u32 kMessageSceneWidgetsPerRow = 2u * kMessageSceneWidgetsPerContent;
 
 enum class MessageSceneError : u8 {
@@ -138,7 +132,7 @@ struct MessageSceneRowWidget {
     MessageSceneRichLayout rich_layout;
     UiWidgetHandle reaction_buttons[kGatewayMessageReactionMaximum];
     float reaction_widths[kGatewayMessageReactionMaximum];
-    UiWidgetHandle rich_items[kMessageSceneRichItemMaximum];
+    UiWidgetHandle rich_items[kMessageRichItemMaximum];
     MessageSceneRichItemLayout rich_item_layout;
 };
 
@@ -469,8 +463,7 @@ constexpr bool message_scene_pending(const MessageScene& scene) noexcept {
 // Returns true when the tint changed; a zero id or level clears it.
 bool message_scene_set_highlight(MessageScene* scene, u64 message_id, float level) noexcept;
 bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 last_read_message_id,
-                                     bool known, bool* changed = nullptr,
-                                     const UiUnreadDividerStyle* style = nullptr) noexcept;
+                                     bool known) noexcept;
 UiRect message_scene_unread_divider_rectangle(const MessageScene& scene,
                                               const MessageSceneRowWidget& row) noexcept;
 UiRect message_scene_message_rectangle(const MessageScene& scene,

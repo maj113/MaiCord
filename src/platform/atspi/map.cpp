@@ -1,3 +1,4 @@
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/atspi/map.hpp"
 
 namespace maicord::atspi {
@@ -266,12 +267,7 @@ bool key_from_path(const char* path, u64* key) noexcept {
 }
 
 bool is_root_path(const char* path) noexcept {
-    if (!path)
-        return false;
-    const char* root = kRootPath;
-    while (*root && *root == *path)
-        ++root, ++path;
-    return *root == 0 && *path == 0;
+    return path && c_string_equal(path, kRootPath);
 }
 
 u32 text_character_count(Utf8View text) noexcept {

@@ -348,14 +348,15 @@ jobs:
       - name: ABI checks
         if: matrix.part == 'portable'
         run: |
-          for abi in libc openssl pulse speechd fido2 video pipewire; do
+          abis="libc openssl pulse speechd fido2 video pipewire"
+          for abi in $abis; do
             python3 -B "tools/check_${abi}_abi.py" --compiler "$MAICORD_LLVM_BIN/clang" > "$RUNNER_TEMP/abi-$abi.log" 2>&1 &
           done
           status=0
-          for abi in libc openssl pulse speechd fido2 video pipewire; do
+          for abi in $abis; do
             wait -n || status=1
           done
-          for abi in libc openssl pulse speechd fido2 video pipewire; do echo "::group::$abi"; cat "$RUNNER_TEMP/abi-$abi.log"; echo "::endgroup::"; done
+          for abi in $abis; do echo "::group::$abi"; cat "$RUNNER_TEMP/abi-$abi.log"; echo "::endgroup::"; done
           exit "$status"
 
       # Headless sway, the GPU surface, the D-Bus mocks, PulseAudio and speech-dispatcher (tools/test_linux_integration.sh
@@ -523,8 +524,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
-          # The Linux manifests (a stable release's tarball) are verified and re-signed with the rest; a master build has no
-          # Linux package of its own.
+          # The Linux manifests (the tarball and AppImage signed above, or the last ones) are verified and re-signed with
+          # the rest.
           MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
         run: |
           ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish "$env:RUNNER_TEMP\preview" `

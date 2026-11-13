@@ -62,11 +62,6 @@ bool rest_transaction_fail(RestTransaction* transaction) noexcept {
     return end_transaction(transaction, RestTransactionPhase::failed);
 }
 
-RestClientResult rest_client_start_public(RestClient* client,
-                                          u32 response_capacity, RestSharedState* shared) noexcept {
-    return start_client(client, nullptr, RestAuthorization::none, nullptr, response_capacity, false, shared);
-}
-
 RestClientResult rest_client_start_user(RestClient* client, SecureBuffer* credential,
                                         const RestUserConfiguration* configuration,
                                         u32 response_capacity, RestSharedState* shared) noexcept {

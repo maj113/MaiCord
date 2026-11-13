@@ -610,7 +610,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         // Stickers draw no caption: the name is their tooltip's, popout's and
         // accessible name.
         for (u32 index = 0; index < rich->sticker_count; ++index) {
-            row_measurement.rich_item_layout.heights[kMessageSceneStickerItemOffset + index] =
+            row_measurement.rich_item_layout.heights[kMessageRichStickerItemOffset + index] =
                 kDefaultMessageStickerLayoutMetrics.extent;
             saturating_accumulate(presentation->rich.stickers);
         }
@@ -623,7 +623,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
             const MessageRichComponent& component = rich->components[index];
             const MessageComponentKind kind = message_component_kind(component);
-            const u32 slot = kMessageSceneComponentItemOffset + index;
+            const u32 slot = kMessageRichComponentItemOffset + index;
             auto& measured_items = row_measurement.rich_item_layout;
             const UiWidgetHandle item_widget =
                 message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index);
@@ -937,14 +937,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                               ui_background_muted_text_color(theme),
                               UiWidgetReference{&scene.widgets, item_widget}, *record,
                               measurement_index, MessageTextMeasurementKind::notice) ||
-            !finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset])) {
+            !finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[kMessageRichNoticeItemOffset])) {
             return false;
         }
-        row_measurement.rich_layout.notice = row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset];
+        row_measurement.rich_layout.notice = row_measurement.rich_item_layout.heights[kMessageRichNoticeItemOffset];
     }
     return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,
                               rich->truncations != 0
-                                  ? row_measurement.rich_item_layout.heights[kMessageSceneNoticeItemOffset]
+                                  ? row_measurement.rich_item_layout.heights[kMessageRichNoticeItemOffset]
                                   : 0.0f,
                               collapsed ? nullptr : decoration);
 }

@@ -2,6 +2,7 @@
 
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord::atspi {
 namespace {
@@ -18,14 +19,6 @@ constexpr const char kApplicationName[] = "MaiCord";
 constexpr u32 kLayerWidget = 3;
 constexpr u32 kLayerWindow = 7;
 
-bool equal(const char* a, const char* b) noexcept {
-    if (!a || !b)
-        return false;
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 // The methods and properties of each interface, as an enumeration and a pool of their names in one list: the
 // enumerators are the positions in the pool, and a call is found by name once, then switched on.
 #define ATSPI_ENUMERATOR(name) name,
@@ -34,7 +27,7 @@ bool equal(const char* a, const char* b) noexcept {
 // The position of `name` among NUL-terminated names end to end (an empty one ends them), or ~0u.
 u32 name_index(const char* names, const char* name) noexcept {
     for (u32 index = 0; *names; ++index, names += c_string_length(names) + 1)
-        if (equal(names, name))
+        if (c_string_equal(names, name))
             return index;
     return ~0u;
 }
@@ -48,7 +41,6 @@ const char* name_at(const char* names, u32 index) noexcept {
 // One call being answered: who it is for, the arguments left to read and where the answer goes.
 struct Request {
     Endpoint* endpoint;
-    const Message* call;
     Reader args;
     Builder* out;
     Failure* failure;
@@ -176,13 +168,9 @@ u32 child_at(Request& r, i32 position) noexcept {
     return child;
 }
 
-bool password_node(const UiAccessNode& node) noexcept {
-    return (node.state & ui_access_password) != 0;
-}
-
 // The text a Text interface exposes: never a password's.
 Utf8View text_of(Request& r) noexcept {
-    if (!r.node || password_node(*r.node))
+    if (!r.node || (r.node->state & ui_access_password))
         return {};
     return ui_access_value(*r.tree, r.index);
 }
@@ -229,7 +217,7 @@ u32 interfaces_of(Request& r) noexcept {
 const PropertyGroup* group_named(Request& r, const char* interface) noexcept {
     const u32 present = interfaces_of(r);
     for (const PropertyGroup& group : kGroups) {
-        if (!equal(group.bit ? interface_name(group.bit) : kApplicationInterface, interface))
+        if (!c_string_equal(group.bit ? interface_name(group.bit) : kApplicationInterface, interface))
             continue;
         if (group.bit ? (present & group.bit) == 0 : r.node != nullptr)
             return nullptr;
@@ -331,7 +319,7 @@ void write_property(Request& r, Property property) noexcept {
 Outcome properties_call(Request& r, const char* member) noexcept {
     const char* interface = nullptr;
     const char* name = nullptr;
-    if (equal(member, "Get")) {
+    if (c_string_equal(member, "Get")) {
         if (!reader_string(&r.args, &interface, nullptr) || !reader_string(&r.args, &name, nullptr))
             return invalid(r);
         const PropertyGroup* group = group_named(r, interface);
@@ -342,7 +330,7 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         write_property(r, static_cast<Property>(property));
         return done(r);
     }
-    if (equal(member, "GetAll")) {
+    if (c_string_equal(member, "GetAll")) {
         if (!reader_string(&r.args, &interface, nullptr))
             return invalid(r);
         const PropertyGroup* group = group_named(r, interface);
@@ -356,7 +344,7 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         builder_close_array(r.out);
         return done(r);
     }
-    if (equal(member, "Set")) {
+    if (c_string_equal(member, "Set")) {
         if (!reader_string(&r.args, &interface, nullptr) || !reader_string(&r.args, &name, nullptr))
             return invalid(r);
         const PropertyGroup* group = group_named(r, interface);
@@ -366,15 +354,15 @@ Outcome properties_call(Request& r, const char* member) noexcept {
         if (!reader_enter_variant(&r.args, &signature))
             return invalid(r);
         const u32 property = name_index(kPropertyNames, name);
-        if (group->bit == 0 && property == static_cast<u32>(Property::Id) && signature && equal(signature, "i")) {
+        if (group->bit == 0 && property == static_cast<u32>(Property::Id) && c_string_equal(signature, "i")) {
             i32 id = 0;
             if (!reader_i32(&r.args, &id))
                 return invalid(r);
             r.endpoint->id = id;
             return done(r);
         }
-        if (group->bit == interface_value && property == static_cast<u32>(Property::CurrentValue) && signature &&
-            equal(signature, "d")) {
+        if (group->bit == interface_value && property == static_cast<u32>(Property::CurrentValue) &&
+            c_string_equal(signature, "d")) {
             double value = 0;
             if (!reader_double(&r.args, &value))
                 return invalid(r);
@@ -500,12 +488,12 @@ Outcome accessible_call(Request& r, const char* member) noexcept {
 }
 
 Outcome application_call(Request& r, const char* member) noexcept {
-    if (equal(member, "GetLocale")) {
+    if (c_string_equal(member, "GetLocale")) {
         u32 category = 0;
         if (!reader_u32(&r.args, &category))
             return invalid(r);
         builder_string(r.out, "en_US");
-    } else if (equal(member, "GetApplicationBusAddress")) {
+    } else if (c_string_equal(member, "GetApplicationBusAddress")) {
         builder_string(r.out, "");
     } else {
         return Outcome::unhandled;
@@ -520,6 +508,14 @@ Outcome application_call(Request& r, const char* member) noexcept {
     M(GetAlpha) M(GrabFocus) M(ScrollTo) M(ScrollToPoint) M(SetExtents) M(SetPosition) M(SetSize)
 enum class ComponentMethod : u32 { ATSPI_COMPONENT_METHODS(ATSPI_ENUMERATOR) };
 constexpr char kComponentMethods[] = ATSPI_COMPONENT_METHODS(ATSPI_NAME);
+
+// Extents as four i32: Text's out arguments, or the members of Component's (iiii).
+void put_extents(Builder* b, const Extent& e) noexcept {
+    builder_i32(b, e.x);
+    builder_i32(b, e.y);
+    builder_i32(b, e.width);
+    builder_i32(b, e.height);
+}
 
 Outcome component_call(Request& r, const char* member) noexcept {
     Builder* b = r.out;
@@ -551,12 +547,8 @@ Outcome component_call(Request& r, const char* member) noexcept {
     case GetExtents: {
         if (!take(r, "u", a))
             return invalid(r);
-        const Extent e = extent_of(r, node, a[0] == 2);
         builder_open_struct(b, "(iiii)");
-        builder_i32(b, e.x);
-        builder_i32(b, e.y);
-        builder_i32(b, e.width);
-        builder_i32(b, e.height);
+        put_extents(b, extent_of(r, node, a[0] == 2));
         builder_close_struct(b);
         break;
     }
@@ -663,14 +655,6 @@ Outcome action_call(Request& r, const char* member) noexcept {
 }
 
 // Text --------------------------------------------------------------------------------------------------------------
-
-// Text's extents are four out arguments (Component's are one struct).
-void put_extents(Builder* b, const Extent& e) noexcept {
-    builder_i32(b, e.x);
-    builder_i32(b, e.y);
-    builder_i32(b, e.width);
-    builder_i32(b, e.height);
-}
 
 // The bounds of bytes [start, end) of the node's text, in window coordinates; the node's own bounds when the host
 // cannot tell.
@@ -880,7 +864,7 @@ Outcome set_contents(Request& r, Utf8View text) noexcept {
 
 Outcome editable_text_call(Request& r, const char* member) noexcept {
     const Utf8View current = text_of(r);
-    if (equal(member, "SetTextContents")) {
+    if (c_string_equal(member, "SetTextContents")) {
         const char* text = nullptr;
         u32 length = 0;
         if (!reader_string(&r.args, &text, &length))
@@ -888,7 +872,7 @@ Outcome editable_text_call(Request& r, const char* member) noexcept {
         return set_contents(r, {text, length});
     }
     char combined[kUiAccessValueMaximumBytes];
-    if (equal(member, "InsertText")) {
+    if (c_string_equal(member, "InsertText")) {
         i32 position = 0, length = 0;
         const char* text = nullptr;
         u32 bytes = 0;
@@ -910,7 +894,7 @@ Outcome editable_text_call(Request& r, const char* member) noexcept {
         copy_bytes(combined + at + bytes, current.data + at, current.bytes - at);
         return set_contents(r, {combined, current.bytes + bytes});
     }
-    if (equal(member, "DeleteText")) {
+    if (c_string_equal(member, "DeleteText")) {
         i32 first = 0, last = 0;
         if (!reader_i32(&r.args, &first) || !reader_i32(&r.args, &last))
             return invalid(r);
@@ -920,7 +904,8 @@ Outcome editable_text_call(Request& r, const char* member) noexcept {
         copy_bytes(combined + start, current.data + end, current.bytes - end);
         return set_contents(r, {combined, current.bytes - (end - start)});
     }
-    if (equal(member, "CopyText") || equal(member, "CutText") || equal(member, "PasteText")) {
+    if (c_string_equal(member, "CopyText") || c_string_equal(member, "CutText") ||
+        c_string_equal(member, "PasteText")) {
         // The clipboard belongs to the window, not to a screen reader's request.
         builder_bool(r.out, false);
         return done(r);
@@ -1007,13 +992,13 @@ Outcome answer_call(Endpoint* endpoint, const Message& call, Builder* reply, Fai
     if (!call.path || !call.interface || !call.member)
         return Outcome::unhandled;
     // Clients still ask for the object cache once: an empty one makes them query objects as they meet them.
-    if (equal(call.path, "/org/a11y/atspi/cache") && equal(call.interface, "org.a11y.atspi.Cache") &&
-        equal(call.member, "GetItems")) {
+    if (c_string_equal(call.path, "/org/a11y/atspi/cache") &&
+        c_string_equal(call.interface, "org.a11y.atspi.Cache") && c_string_equal(call.member, "GetItems")) {
         builder_open_array(reply, "((so)(so)(so)iiassusau)");
         builder_close_array(reply);
         return builder_ok(*reply) ? Outcome::replied : Outcome::unhandled;
     }
-    Request r{endpoint, &call, {}, reply, failure, nullptr, kUiAccessNone, nullptr};
+    Request r{endpoint, {}, reply, failure, nullptr, kUiAccessNone, nullptr};
     const bool root = is_root_path(call.path);
     u64 key = 0;
     if (!root && !key_from_path(call.path, &key))
@@ -1028,17 +1013,17 @@ Outcome answer_call(Endpoint* endpoint, const Message& call, Builder* reply, Fai
         r.node = &r.tree->nodes[r.index];
     }
     // The registry asks about the application as it embeds it; a real client is what makes events worth sending.
-    if (!call.sender || !equal(call.sender, endpoint->registry_sender))
+    if (!call.sender || !c_string_equal(call.sender, endpoint->registry_sender))
         endpoint->queried = true;
     message_reader(call, &r.args);
     const char* interface = call.interface;
     const char* member = call.member;
-    if (equal(interface, kProperties))
+    if (c_string_equal(interface, kProperties))
         return properties_call(r, member);
-    if (equal(interface, kApplicationInterface))
+    if (c_string_equal(interface, kApplicationInterface))
         return !r.node ? application_call(r, member) : Outcome::unhandled;
     u32 bit = interface_accessible;
-    while (bit <= interface_selection && !equal(interface, interface_name(bit)))
+    while (bit <= interface_selection && !c_string_equal(interface, interface_name(bit)))
         bit <<= 1;
     if (bit == interface_accessible)
         return accessible_call(r, member);

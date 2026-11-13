@@ -128,6 +128,7 @@ inline constexpr int kAtSymlinkNoFollow = 0x100;
 inline constexpr int kAtEmptyPath = 0x1000;
 inline constexpr int kOpenNonBlock = 0x800;
 inline constexpr int kOpenNoControllingTerminal = 0x100;
+inline constexpr int kFcntlDuplicateCloseOnExec = 1030;
 
 // <linux/memfd.h>, <linux/fcntl.h>: anonymous memory files and their seals.
 inline constexpr u32 kMemfdCloseOnExec = 0x1;

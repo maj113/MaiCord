@@ -41,7 +41,7 @@ struct SwitchOwner {
     u32 observed_revision;
     u32 inventory_revision;
     u32 return_revision;
-    RendererLoginStatus return_status;
+    LoginStatus return_status;
     u64 confirm_serial;
     u64 confirm_user;
     u64 confirm_revision;
@@ -383,9 +383,9 @@ bool login_escape_reserved() noexcept {
     const auto& login = g_app.login;
     return login.reset_mode || login_requires_back(login.status, login.remote_status) ||
            login_phone_mode(login.status) || login_recovery_mode(login.status) ||
-           login.status == RendererLoginStatus::restoring_session ||
-           login.status == RendererLoginStatus::cancelling ||
-           (login.webauthn_attempted && login.status == RendererLoginStatus::submitting);
+           login.status == LoginStatus::restoring_session ||
+           login.status == LoginStatus::cancelling ||
+           (login.webauthn_attempted && login.status == LoginStatus::submitting);
 }
 
 // A rejected token marks its entry; an idle sign-in screen offers Esc back
@@ -394,7 +394,7 @@ void observe_signed_out() noexcept {
     if (g_app.account.instance || !g_app.login.visible || application_account_logout_locked())
         return;
     const u32 slot = selected();
-    if (g_app.login.status == RendererLoginStatus::session_expired) {
+    if (g_app.login.status == LoginStatus::session_expired) {
         auto* entry = entry_for(slot);
         if (entry && !(entry->flags & account_inventory_needs_login) && !slot_profile_present(slot)) {
             entry->flags |= account_inventory_needs_login;
@@ -645,7 +645,7 @@ void account_switch_reset() noexcept {
     clear_login_hints();
     g_app.login_scene.switching_accounts = true;
     g_app.login.visible = true;
-    g_app.login.status = RendererLoginStatus::restoring_session;
+    g_app.login.status = LoginStatus::restoring_session;
     g_app.login.focus = LoginControl::none;
     g_app.login.remote_restart_at_ms = 0;
     if (!application_refresh_login_view())
@@ -668,7 +668,7 @@ bool account_switch_open_login() noexcept {
     g_app.login_scene.switching_accounts = false;
     g_app.login_scene.account_return = false;
     g_app.login_scene.add_account = true;
-    g_app.login.status = RendererLoginStatus::idle;
+    g_app.login.status = LoginStatus::idle;
     g_app.login.focus = LoginControl::login;
     if (!application_refresh_login_view())
         log_write(LogLevel::warning, "ui", "add_account_view_refresh_failed");

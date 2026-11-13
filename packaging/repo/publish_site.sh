@@ -55,10 +55,7 @@ for attempt in 1 2 3; do
     fi
     python3 -B "$here/build_repo.py" --site "$site/repo" --base-url "$base_url" --deb "$deb" --rpm "$rpm" --pacman "$pacman_package"
     git -C "$site" add --all repo
-    if [ -z "$(git -C "$site" status --porcelain -- repo)" ]; then
-        changed=false
-        break
-    fi
+    [ -n "$(git -C "$site" status --porcelain -- repo)" ] || break
     tree="$(git -C "$site" write-tree)"
     commit="$(git -C "$site" commit-tree "$tree" -m "$message")"
     if git -C "$site" push --quiet "--force-with-lease=refs/heads/$branch:$base" origin "$commit:refs/heads/$branch"; then

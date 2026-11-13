@@ -1256,7 +1256,7 @@ void test_plugin_card_embed_geometry(Check check) noexcept {
          message_text_coordinator_converge(request).ok();
     const auto* embed_row = message_scene_find_row(f.scene, 0);
     const auto* card_row = message_scene_find_row(f.scene, 1);
-    const float embed_height = embed_row ? embed_row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] -
+    const float embed_height = embed_row ? embed_row->rich_item_layout.heights[kMessageRichEmbedItemOffset] -
                                                kMessageEmbedItemGap
                                          : 0.0f;
     const float card_height = card_row ? card_row->rich_item_layout.plugin_card_height : 0.0f;

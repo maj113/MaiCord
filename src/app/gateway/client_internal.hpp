@@ -28,9 +28,6 @@
 #include "maicord/app/gateway/member_request_owner.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "maicord/app/gateway/channel_info_requests.hpp"
-#if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
-#include "self_status_test.hpp"
-#endif
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/thread.hpp"

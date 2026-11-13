@@ -202,17 +202,17 @@ void refresh(Implementation* value) noexcept {
 }
 
 // The input method's preedit replaces the composition (starting one at the selection when there is none).
-bool apply_preedit(Implementation* value, const WindowEvent& event) noexcept {
+void apply_preedit(Implementation* value, const WindowEvent& event) noexcept {
     const u32 count = event.ime.count;
     if (count == 0) {
         clear_composition(value);
-        return true;
+        return;
     }
     u32 start = value->start, end = value->end;
     if (!value->composing) {
         TextInputSelection selection{};
         if (text_input_selection(value->target, &selection) == TextInputResult::invalid_input)
-            return true;
+            return;
         start = selection.anchor < selection.caret ? selection.anchor : selection.caret;
         end = selection.anchor < selection.caret ? selection.caret : selection.anchor;
         value->group = text_input_begin_group(value->target);
@@ -225,7 +225,7 @@ bool apply_preedit(Implementation* value, const WindowEvent& event) noexcept {
             value->group = false;
             text_input_end_group(value->target);
         }
-        return true;
+        return;
     }
     value->composing = true;
     value->start = start;
@@ -235,16 +235,15 @@ bool apply_preedit(Implementation* value, const WindowEvent& event) noexcept {
     const u32 caret = value->start + position(event.ime.cursor_end);
     text_input_select(value->target, {caret, caret});
     publish(value, event.ime.cursor_begin < 0 ? length : position(event.ime.cursor_begin), position(event.ime.cursor_end));
-    return true;
 }
 
 // The commit replaces the composition, or the selection when there is none.
-bool apply_commit(Implementation* value, const WindowEvent& event) noexcept {
+void apply_commit(Implementation* value, const WindowEvent& event) noexcept {
     u32 start = value->start, end = value->end;
     if (!value->composing) {
         TextInputSelection selection{};
         if (text_input_selection(value->target, &selection) == TextInputResult::invalid_input)
-            return true;
+            return;
         start = selection.anchor < selection.caret ? selection.anchor : selection.caret;
         end = selection.anchor < selection.caret ? selection.caret : selection.anchor;
     }
@@ -259,24 +258,22 @@ bool apply_commit(Implementation* value, const WindowEvent& event) noexcept {
     if (result == TextInputResult::changed || result == TextInputResult::unchanged)
         text_input_select(value->target, {caret, caret});
     publish(value, 0, 0);
-    return true;
 }
 
 // Text around the caret the method asked to remove, in units before and after it.
-bool apply_delete(Implementation* value, const WindowEvent& event) noexcept {
+void apply_delete(Implementation* value, const WindowEvent& event) noexcept {
     clear_composition(value);
     TextInputSelection selection{};
     u32 length = 0;
     if (text_input_selection(value->target, &selection) == TextInputResult::invalid_input ||
         text_input_length(value->target, &length) == TextInputResult::invalid_input)
-        return true;
+        return;
     const u32 caret = selection.caret;
     const u32 from = caret > event.ime.delete_before ? caret - event.ime.delete_before : 0;
     const u32 to = length - caret > event.ime.delete_after ? caret + event.ime.delete_after : length;
     TextInputChange change{};
     if (text_input_replace(value->target, from, to, {}, &change) == TextInputResult::changed)
         text_input_select(value->target, {from, from});
-    return true;
 }
 
 } // namespace
@@ -335,23 +332,22 @@ bool secure_text_store_ime_event(const WindowEvent& event) noexcept {
     Implementation* value = g_active;
     if (!value || !text_input_ready(value->target))
         return false;
-    bool taken = false;
     switch (event.type) {
     case EventType::ime_preedit:
-        taken = apply_preedit(value, event);
+        apply_preedit(value, event);
         break;
     case EventType::ime_commit:
-        taken = apply_commit(value, event);
+        apply_commit(value, event);
         break;
     case EventType::ime_delete_surrounding:
-        taken = apply_delete(value, event);
+        apply_delete(value, event);
         break;
     default:
         return false;
     }
     notify(value);
     refresh(value);
-    return taken;
+    return true;
 }
 
 bool secure_text_store_bind(SecureTextStore* store, SecureEdit* edit, SecureTextInputScope scope) noexcept {

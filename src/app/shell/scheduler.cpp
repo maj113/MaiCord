@@ -240,7 +240,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     limit_timeout(timeout, now_ms, application_login_phone_deadline());
     limit_timeout(timeout, now_ms, application_login_reset_deadline());
     limit_timeout(timeout, now_ms, application_login_captcha_deadline());
-    if (g_app.login.status == RendererLoginStatus::mfa_backup_acknowledgement &&
+    if (g_app.login.status == LoginStatus::mfa_backup_acknowledgement &&
         g_app.login.backup_acknowledgement_at_ms != 0) {
         const u64 remaining = g_app.login.backup_acknowledgement_at_ms <= now_ms
                                   ? 0

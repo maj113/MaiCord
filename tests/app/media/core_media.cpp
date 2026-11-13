@@ -3283,7 +3283,7 @@ void test_message_media_controller() noexcept {
     primary_layout[0].content_rectangle = primary_layout[0].rectangle;
     scene.viewport = UiRect{0.0f, 0.0f, 100.0f, 100.0f};
     scene_rows[0].attachment_item_count = 1;
-    scene_rows[0].rich_items[kMessageSceneAttachmentItemOffset] = UiWidgetHandle{0, 1};
+    scene_rows[0].rich_items[kMessageRichAttachmentItemOffset] = UiWidgetHandle{0, 1};
     MessageMediaTestCapture primary_capture{};
     const MessageMediaControllerCallbacks primary_callbacks{
         &primary_capture, message_media_test_capture_attachment, message_media_test_ignore_embed,

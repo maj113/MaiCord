@@ -987,7 +987,7 @@ u32 run_account_pump_tests() noexcept {
     g_app.account.instance = reinterpret_cast<void*>(1);
     g_account_fake.pump = pump;
     g_account_fake.gateway_source = no_gateway_source;
-    g_app.login.status = RendererLoginStatus::idle;
+    g_app.login.status = LoginStatus::idle;
     bool media_repaint = false;
     browser_blocks_read = true;
     check(application_pump_visible_static_media(&media_repaint) && media_repaint && !normal_media_pumps &&
@@ -1031,11 +1031,11 @@ u32 run_account_pump_tests() noexcept {
     reset_counts();
     next_status.coordinator_phase = static_cast<u8>(UserAccountCoordinatorPhase::running);
     next_status.running = true;
-    g_app.login.status = RendererLoginStatus::restoring_session;
+    g_app.login.status = LoginStatus::restoring_session;
     g_app.login.visible = true;
     check(application_pump_account() && refreshes == 1 && forced == 1 && history_calls == 1 && order_ok,
           "ready_transition_coalesces_model_and_phase_presentation");
-    check(catalog_restores == 1 && !g_app.login.visible && g_app.login.status == RendererLoginStatus::idle,
+    check(catalog_restores == 1 && !g_app.login.visible && g_app.login.status == LoginStatus::idle,
           "catalog_restores_once_after_authenticated_shell_transition");
     reset_counts();
     history_ok = false;

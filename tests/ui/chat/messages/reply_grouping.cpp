@@ -242,9 +242,9 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         measured = measured && message_scene_update(&f.scene, viewport).ok();
         const u32 before_height = ui_variable_list_item_units(f.list, 3);
         const u32 before_widgets = f.scene.widgets.count;
-        bool changed = false;
-        const bool marked = measured && message_scene_set_unread_cursor(&f.scene, 7, 102, true, &changed) && changed &&
-            message_scene_update(&f.scene, viewport).ok();
+        const u32 unmarked_revision = f.scene.unread_revision;
+        const bool marked = measured && message_scene_set_unread_cursor(&f.scene, 7, 102, true) &&
+            f.scene.unread_revision != unmarked_revision && message_scene_update(&f.scene, viewport).ok();
         const auto* boundary = message_scene_find_row(f.scene, 3);
         const auto* following = message_scene_find_row(f.scene, 5);
         const auto divider = boundary ? message_scene_unread_divider_rectangle(f.scene, *boundary) : UiRect{};
@@ -304,16 +304,16 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         const u32 layouts = f.scene.layout_passes, rebuilds = f.scene.rebuilds, preparations = f.scene.preparation_passes;
         bool warm = marked;
         for (u32 i = 0; i < 2; ++i) { // the second frame repeats the first's already-clean state
-            changed = true;
-            const bool same = message_scene_set_unread_cursor(&f.scene, 7, 102, true, &changed);
+            const u32 revision = f.scene.unread_revision;
+            const bool same = message_scene_set_unread_cursor(&f.scene, 7, 102, true);
             const auto update = message_scene_update(&f.scene, viewport);
-            warm &= same && !changed && update.ok() && !update.changed;
+            warm &= same && f.scene.unread_revision == revision && update.ok() && !update.changed;
         }
         check(warm && layouts == f.scene.layout_passes && rebuilds == f.scene.rebuilds &&
             preparations == f.scene.preparation_passes,
             "unread_divider_unchanged_cursor_frames_do_not_reprepare_or_relayout");
-        changed = false;
-        check(message_scene_set_unread_cursor(&f.scene, 7, 0, false, &changed) && changed &&
+        const u32 known_revision = f.scene.unread_revision;
+        check(message_scene_set_unread_cursor(&f.scene, 7, 0, false) && f.scene.unread_revision != known_revision &&
             message_scene_update(&f.scene, viewport).ok() && !f.scene.unread_first_message_id &&
             ui_variable_list_item_units(f.list, 3) == before_height,
             "unread_divider_unknown_cursor_removes_reserved_height_without_changing_body_metrics");
@@ -337,14 +337,6 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(resident_heights_preserved,
             "unread_cursor_change_preserves_virtualized_body_heights_and_only_changes_boundary_chrome");
-        auto taller_style = kDefaultUiUnreadDividerStyle;
-        taller_style.height = 36;
-        const bool restyled = anchored && message_scene_set_unread_cursor(&f.scene, 7, 102, true, nullptr, &taller_style) &&
-            message_scene_update(&f.scene, compact).ok() &&
-            ui_variable_list_capture_anchor(f.list, f.timeline.scroll_units, &after);
-        check(restyled && before.index == after.index && before.within_item_units == after.within_item_units &&
-            ui_variable_list_item_units(f.list, 3) == retained_heights[3] + ui_extent_units(71),
-            "unread_divider_style_height_change_preserves_virtualized_body_height_and_scroll_anchor");
         bool bottom = false;
         const bool followed = message_scene_scroll_to_bottom(&f.scene, &bottom) &&
             message_scene_update(&f.scene, compact).ok() && message_scene_set_unread_cursor(&f.scene, 7, 107, true) &&

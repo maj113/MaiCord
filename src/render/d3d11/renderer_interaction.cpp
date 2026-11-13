@@ -398,14 +398,14 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
     return MessageTextHit{};
 }
 
-RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
-                                                                       i32 client_x_pixels,
-                                                                       i32 client_y_pixels) noexcept {
+MessagePositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
+                                                           i32 client_x_pixels,
+                                                           i32 client_y_pixels) noexcept {
     const MessageTextPresentation* presentation = renderer.message_text;
     if (!presentation || !renderer.message_scene || !renderer.message_scene->active ||
         !ui_rect_has_area(renderer.message_scene->viewport) ||
         !renderer_message_view_hit_test(renderer, client_x_pixels, client_y_pixels)) {
-        return RendererMessageTextPositionHit{};
+        return MessagePositionHit{};
     }
     return message_position_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system,
                                      renderer_text_system(&renderer, ui_text_face_chat(UiTextFace::normal)),
@@ -459,7 +459,7 @@ void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept {
 }
 
 void renderer_set_message_text_selection(D3D11Renderer* renderer,
-                                         const RendererMessageTextPositionHit& command, u32 anchor,
+                                         const MessagePositionHit& command, u32 anchor,
                                          u32 caret) noexcept {
     if (!command.valid || command.message_id == 0 || anchor > command.text_bytes || caret > command.text_bytes) {
         renderer_clear_message_text_selection(renderer);

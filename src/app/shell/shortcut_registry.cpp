@@ -271,7 +271,7 @@ static_assert(static_cast<u8>(shortcut_ctrl) == mod_ctrl && static_cast<u8>(shor
               static_cast<u8>(shortcut_shift) == mod_shift);
 
 ShortcutChord shortcut_chord_from_keyboard(u32 key) noexcept {
-    const auto modifiers = static_cast<u8>(window_modifiers(nullptr) & (mod_ctrl | mod_alt | mod_shift));
+    const auto modifiers = static_cast<u8>(window_modifiers() & (mod_ctrl | mod_alt | mod_shift));
     return {key <= 0xff ? static_cast<u8>(key) : u8{0}, modifiers};
 }
 

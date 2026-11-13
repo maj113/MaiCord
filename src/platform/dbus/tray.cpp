@@ -35,7 +35,6 @@ struct Tray {
     TrayHandler handler;
     void* context;
     u32 watch;
-    char id[64];
     char service[96];
     char title[64];
     char tooltip[192];
@@ -184,7 +183,7 @@ void write_item_property(u32 index, Builder* b) noexcept {
         variant_text(b, "s", "ApplicationStatus");
         break;
     case Id:
-        variant_text(b, "s", g.id);
+        variant_text(b, "s", "maicord");  // the application's id for the host
         break;
     case Title:
         variant_text(b, "s", g.title);
@@ -382,7 +381,7 @@ void write_layout(Builder* b, i32 id, i32 depth) noexcept {
 
 void menu_clicked(i32 id) noexcept {
     const Item* item = item_by_id(id);
-    if (item && !item->separator && item->command)
+    if (item && item->command)  // a separator's is 0
         emit_event(TrayEventKind::command, 0, 0, item->command);
 }
 
@@ -553,13 +552,12 @@ bool same_menu(const TrayState& state) noexcept {
 
 } // namespace
 
-bool tray_start(const char* id, TrayHandler handler, void* context) noexcept {
+bool tray_start(TrayHandler handler, void* context) noexcept {
     if (g.started)
         return true;
     g.started = true;
     g.handler = handler;
     g.context = context;
-    c_string_copy(g.id, sizeof(g.id), id);
     // org.kde.StatusNotifierItem-<pid>-<n>: the name hosts expect (the watcher is told it).
     const char prefix[] = "org.kde.StatusNotifierItem-";
     copy_bytes(g.service, prefix, sizeof(prefix) - 1);

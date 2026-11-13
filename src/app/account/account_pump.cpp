@@ -803,11 +803,11 @@ bool application_pump_account() noexcept {
     if (!present_private_conversation_error() || !application_private_channel_present_error())
         log_write(LogLevel::warning, "private", "error_presentation_failed");
     // A startup shell released the view before READY; the catalog waits for it.
-    if (status.running && (g_app.login.status == RendererLoginStatus::restoring_session ||
+    if (status.running && (g_app.login.status == LoginStatus::restoring_session ||
                            application_startup_shell_take_release())) {
         application_trace_load_stage("authenticated_shell_released");
         g_app.login.visible = false;
-        g_app.login.status = RendererLoginStatus::idle;
+        g_app.login.status = LoginStatus::idle;
         if (!application_synchronize_login_view())
             return false;
         application_catalog_restore();

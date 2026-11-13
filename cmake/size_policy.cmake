@@ -43,7 +43,8 @@ maicord_compact_sources(
         src/app/account/detectable_list.cpp src/core/log.cpp src/platform/window/win32/clipboard.cpp
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
-        src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
+        src/platform/desktop/clipboard_source.cpp src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp
+        src/platform/crypto/secure_buffer.cpp
     TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_catalog
         maicord_plugin_runtime maicord_packages
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn

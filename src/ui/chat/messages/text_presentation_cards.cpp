@@ -412,7 +412,7 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     const bool accessories = decoration && decoration->accessory_count;
     const bool card = decoration && decoration->has_card;
     if (!failed && !ephemeral && !accessories && !card) {
-        measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset] = offset;
+        measured.rich_item_layout.heights[kMessageRichNoticeItemOffset] = offset;
         measured.rich_layout.notice = offset;
         return true;
     }
@@ -472,8 +472,8 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     if (accessories && !append_plugin_accessories(presentation, *decoration, region, row_clip, owner, theme, record,
                                                   measurement_index, &top))
         return false;
-    measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset] = top - region.top;
-    measured.rich_layout.notice = measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset];
+    measured.rich_item_layout.heights[kMessageRichNoticeItemOffset] = top - region.top;
+    measured.rich_layout.notice = measured.rich_item_layout.heights[kMessageRichNoticeItemOffset];
     return true;
 }
 
@@ -866,7 +866,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     return fail(presentation, MessageTextPresentationError::layout);
                 }
             }
-            const u32 slot = kMessageSceneAttachmentItemOffset + index;
+            const u32 slot = kMessageRichAttachmentItemOffset + index;
             if (!ui_text_flow_ensure_extent(&flow, required_extent) ||
                 !finish_flow(presentation, flow, &row_measurement.rich_item_layout.heights[slot])) {
                 return fail(presentation, MessageTextPresentationError::layout);
@@ -874,7 +874,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             saturating_accumulate(presentation->rich.attachments);
         }
         row_measurement.rich_layout.attachments = rich_item_total(
-            row_measurement.rich_item_layout, kMessageSceneAttachmentItemOffset, rich->attachment_count);
+            row_measurement.rich_item_layout, kMessageRichAttachmentItemOffset, rich->attachment_count);
     }
 
     if (rich->embed_count != 0 && message_rich_display().embeds) {
@@ -891,7 +891,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             MessageRichItemLayout& merged_items = row_measurement.rich_item_layout;
             if (message_rich_embed_merge_host(*rich_store, *rich, index) != index) {
                 // A merged embed's image is drawn in the first embed's gallery.
-                merged_items.heights[kMessageSceneEmbedItemOffset + index] = 0.0f;
+                merged_items.heights[kMessageRichEmbedItemOffset + index] = 0.0f;
                 merged_items.embed_widths[index] = merged_items.embed_media_tops[index] = 0.0f;
                 merged_items.embed_media_widths[index] = merged_items.embed_media_heights[index] = 0.0f;
                 merged_items.embed_author_tops[index] = merged_items.embed_footer_tops[index] = 0.0f;
@@ -1112,7 +1112,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     return fail(presentation, MessageTextPresentationError::layout);
                 }
             }
-            const u32 slot = kMessageSceneEmbedItemOffset + index;
+            const u32 slot = kMessageRichEmbedItemOffset + index;
             // The content width comes from the initial maximum-width pass.
             // Measuring again after wrapping at that width feeds the shorter
             // wrapped lines back and keeps shrinking the card. A new
@@ -1131,7 +1131,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             saturating_accumulate(presentation->rich.embeds);
         }
         row_measurement.rich_layout.embeds = rich_item_total(row_measurement.rich_item_layout,
-                                                             kMessageSceneEmbedItemOffset, rich->embed_count);
+                                                             kMessageRichEmbedItemOffset, rich->embed_count);
     }
 
     return true;

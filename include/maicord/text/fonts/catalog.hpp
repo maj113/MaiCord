@@ -18,7 +18,6 @@ struct NativeFontCatalog {
     const NativeFontProperties* properties;const FontAxisSetting* settings;
     u32 face_index,count,axis_count;
 };
-struct NativeFontCatalogMatch {u32 candidate;NativeFontProperties properties;u32 simulations;};
 constexpr ConstSlice<FontAxisSetting> native_font_catalog_settings(const NativeFontCatalog& c,u32 candidate) noexcept {return {c.settings+candidate*c.axis_count,c.axis_count};}
 // Check an already loaded face against the catalog's stamp. No references
 // change. A changed identity, size, write/change time or collection-face index

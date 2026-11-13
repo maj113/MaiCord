@@ -408,31 +408,27 @@ bool ui_image_viewer_set_media(UiImageViewer* v, UiImageViewerMedia media) noexc
     }
     return true;
 }
-bool ui_image_viewer_set_chrome(UiImageViewer* v, float opacity) noexcept {
+void ui_image_viewer_set_chrome(UiImageViewer* v, float opacity) noexcept {
     if (!v || !v->active || !ui_coordinate_valid(opacity))
-        return false;
+        return;
     opacity = maximum(0.0f, minimum(1.0f, opacity));
     if (v->chrome != opacity) {
         v->chrome = opacity;
         ++v->revision;
     }
-    return true;
 }
-bool ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept {
-    if (!v || !v->active)
-        return false;
-    if (v->fullscreen != fullscreen) {
-        v->fullscreen = fullscreen;
-        // A page's regions and toolbar follow it; its viewport usually changes with it too.
-        if (v->page) {
-            body_for(v);
-            if (!place_controls(v))
-                return false;
-            arrange(v);
-        }
-        ++v->revision;
+void ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept {
+    if (!v || !v->active || v->fullscreen == fullscreen)
+        return;
+    v->fullscreen = fullscreen;
+    // A page's regions and toolbar follow it; its viewport usually changes with it too.
+    if (v->page) {
+        body_for(v);
+        if (!place_controls(v))
+            return;
+        arrange(v);
     }
-    return true;
+    ++v->revision;
 }
 void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, const UiRect& origin) noexcept {
     if (!v || !v->active || !ui_coordinate_valid(reveal))

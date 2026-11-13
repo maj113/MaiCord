@@ -328,19 +328,4 @@ GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDoc
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
-                                                            u32 maximum_depth, Slice<char> text_output,
-                                                            u32* text_used,
-                                                            const GatewayMessageRichScratch& scratch,
-                                                            GatewayMessageEvent* output) noexcept {
-    if (!data.source.data || data.source.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0)
-        return decode_failure(GatewayEventDecodeError::invalid_input);
-    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
-    return gateway_decode_message_rich_fields({data.source, {structural_scratch.data, scan.count}}, data,
-                                              maximum_depth, text_output, text_used, scratch, output);
-}
-
 } // namespace maicord

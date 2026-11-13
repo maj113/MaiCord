@@ -185,8 +185,7 @@ void send_request(const TextInputRequest& request) noexcept {
         length = minimum(whole.bytes, kSurroundingMaximum);
         if (whole.bytes > kSurroundingMaximum) {
             // Centre the window on the caret and keep it on character boundaries.
-            const u32 want = request.cursor_byte > kSurroundingMaximum / 2 ? request.cursor_byte - kSurroundingMaximum / 2 : 0;
-            start = want;
+            start = request.cursor_byte > kSurroundingMaximum / 2 ? request.cursor_byte - kSurroundingMaximum / 2 : 0;
             while (start < whole.bytes && !utf8_is_boundary(whole, start))
                 ++start;
             length = minimum(whole.bytes - start, kSurroundingMaximum);
@@ -214,7 +213,6 @@ void send_request(const TextInputRequest& request) noexcept {
     zwp_text_input_v3_commit(input);
     g_client.display_flush(g.display);
 }
-
 
 } // namespace
 

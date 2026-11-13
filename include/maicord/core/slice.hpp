@@ -58,6 +58,13 @@ constexpr u32 c_string_length(const char* text) noexcept {
     return bytes;
 }
 
+// Entry `index` of a '\0'-separated list of C strings.
+constexpr Utf8View c_string_list_entry(const char* list, u32 index) noexcept {
+    while (index--)
+        list += c_string_length(list) + 1;
+    return {list, c_string_length(list)};
+}
+
 inline bool c_string_equal(const char* left, const char* right) noexcept {
     while (*left && *left == *right)
         ++left, ++right;

@@ -138,10 +138,6 @@ bool set_text(char* field, u32 capacity, const char* text, u32 length) noexcept 
     return changed;
 }
 
-ColorScheme scheme_of_number(i64 number) noexcept {
-    return number == 1 ? ColorScheme::dark : number == 2 ? ColorScheme::light : ColorScheme::no_preference;
-}
-
 // The namespaces the settings portal is asked for (ReadAll's filter), in the order of Setting::space.
 constexpr const char* kNamespaces[] = {"org.freedesktop.appearance", "org.gnome.desktop.interface",
                                        "org.gnome.desktop.peripherals.mouse", "org.kde.kdeglobals.KDE"};
@@ -211,7 +207,7 @@ u32 apply_field(DesktopSettings* s, u32 space, const char* key, const Value& v) 
 }
 
 // Applies one setting to `s`; the areas that changed.
-u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, const Value& v) noexcept {
+u32 apply(DesktopSettings* s, const char* ns, const char* key, const Value& v) noexcept {
     u32 space = 0;
     while (space < sizeof(kNamespaces) / sizeof(kNamespaces[0]) && !c_string_equal(ns, kNamespaces[space]))
         ++space;
@@ -221,14 +217,14 @@ u32 apply(State* state, DesktopSettings* s, const char* ns, const char* key, con
     // What is more than one field or reads another way.
     if (space == space_appearance) {
         if (c_string_equal(key, "color-scheme") && integer_in(v, 0, 2)) {
-            state->portal_scheme_seen = true;
-            const ColorScheme next = scheme_of_number(v.integer);
+            g.portal_scheme_seen = true;
+            const auto next = static_cast<ColorScheme>(v.integer);  // the portal's numbers are ColorScheme's
             if (s->color_scheme != next)
                 areas |= desktop_scheme;
             s->color_scheme = next;
         }
     } else if (space == space_interface) {
-        if (c_string_equal(key, "color-scheme") && v.type == 's' && !state->portal_scheme_seen) {
+        if (c_string_equal(key, "color-scheme") && v.type == 's' && !g.portal_scheme_seen) {
             const ColorScheme next = equals_n(v.text, v.text_length, "prefer-dark")    ? ColorScheme::dark
                                      : equals_n(v.text, v.text_length, "prefer-light") ? ColorScheme::light
                                                                                        : ColorScheme::no_preference;
@@ -275,7 +271,7 @@ void on_setting_changed(void*, const Message& signal) noexcept {
     if (!reader_string(&r, &ns, nullptr) || !reader_string(&r, &key, nullptr) || !read_value(&r, &value))
         return;
     DesktopSettings next = g.value;
-    const u32 areas = apply(&g, &next, ns, key, value);
+    const u32 areas = apply(&next, ns, key, value);
     if (areas) {
         publish(next);
         announce(areas);
@@ -302,7 +298,7 @@ void on_read_all(void*, Status status, const Message* reply) noexcept {
             Value value;
             ok = reader_enter_struct(&r) && reader_string(&r, &key, nullptr) && read_value(&r, &value);
             if (ok)
-                areas |= apply(&g, &next, ns, key, value);
+                areas |= apply(&next, ns, key, value);
             ok = ok && reader_leave(&r);
         }
         ok = ok && reader_leave(&r) && reader_leave(&r);

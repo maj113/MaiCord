@@ -222,11 +222,6 @@ void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexce
     reset_value(attention);
 }
 #else
-namespace {
-// The desktop file of the application (packaging/linux), which the dock matches the entry to.
-constexpr char kDesktopId[] = "io.github.maj113.MaiCord.desktop";
-} // namespace
-
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
     if (!attention)
         return false;
@@ -248,7 +243,7 @@ void taskbar_attention_apply(TaskbarAttention* attention, Window window, const T
     entry.count = badge == kTaskbarBadgeNone || badge == kTaskbarBadgeDot ? 0 : plan.mentions ? plan.mentions : badge;
     entry.count_visible = entry.count > 0;
     entry.urgent = attention->state.flashing || badge == kTaskbarBadgeDot;
-    dbus::launcher_entry_update(kDesktopId, entry);
+    dbus::launcher_entry_update(entry);
 }
 
 void taskbar_attention_release(TaskbarAttention* attention, Window window) noexcept {
@@ -256,7 +251,7 @@ void taskbar_attention_release(TaskbarAttention* attention, Window window) noexc
         return;
     if (window && attention->state.flashing)
         window_request_attention(window, Attention::stop);
-    dbus::launcher_entry_update(kDesktopId, dbus::LauncherEntryState{});
+    dbus::launcher_entry_update(dbus::LauncherEntryState{});
     reset_value(attention);
 }
 #endif

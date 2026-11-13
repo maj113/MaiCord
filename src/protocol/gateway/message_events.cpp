@@ -909,30 +909,6 @@ GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument
                         {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, true, output);
 }
 
-GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept {
-    JsonIndexedDocument document;
-    const auto indexed = index_message(data, structural_scratch, &document, output);
-    if (!indexed.ok())
-        return indexed;
-    return gateway_decode_message_create(document, data, maximum_depth, content_scratch, output);
-}
-
-GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       Slice<u64> mention_role_scratch,
-                                                       Slice<GatewayMessageNamedUser> mention_user_scratch,
-                                                       u64 current_user_id,
-                                                       GatewayMessageEvent* output) noexcept {
-    JsonIndexedDocument document;
-    const auto indexed = index_message(data, structural_scratch, &document, output);
-    if (!indexed.ok())
-        return indexed;
-    return gateway_decode_message_create(document, data, maximum_depth, content_scratch, mention_role_scratch,
-                                         mention_user_scratch, current_user_id, output);
-}
-
 GatewayEventDecodeResult gateway_decode_message_create(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> content_scratch,
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
@@ -947,18 +923,6 @@ GatewayEventDecodeResult gateway_decode_message_create(
                                          current_user_id, output);
 }
 
-GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept {
-    JsonIndexedDocument document;
-    const auto indexed = index_message(data, structural_scratch, &document, output);
-    if (!indexed.ok())
-        return indexed;
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    return decode_plain(document, data, maximum_depth, content_scratch,
-                        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, false, output);
-}
-
 GatewayEventDecodeResult gateway_decode_message_update(
     const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> content_scratch,
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
@@ -967,20 +931,6 @@ GatewayEventDecodeResult gateway_decode_message_update(
     return decode_message(document, data, maximum_depth, content_scratch, mention_role_scratch,
                           member_role_scratch, mention_user_scratch, rich_scratch, current_user_id, true,
                           true, false, output);
-}
-
-GatewayEventDecodeResult gateway_decode_message_update(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> content_scratch,
-    Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
-    Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
-    u64 current_user_id, GatewayMessageEvent* output) noexcept {
-    JsonIndexedDocument document;
-    const auto indexed = index_message(data, structural_scratch, &document, output);
-    if (!indexed.ok())
-        return indexed;
-    return gateway_decode_message_update(document, data, maximum_depth, content_scratch, mention_role_scratch,
-                                         member_role_scratch, mention_user_scratch, rich_scratch,
-                                         current_user_id, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32> structural_scratch,

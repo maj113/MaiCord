@@ -1,4 +1,4 @@
-#include "maicord/protocol/gateway/message_events.hpp"
+#include "../../support/gateway_message_decode.hpp"
 #include "maicord/protocol/messages/history.hpp"
 #include "maicord/protocol/messages/search.hpp"
 #include "maicord/protocol/encoding/writer.hpp"

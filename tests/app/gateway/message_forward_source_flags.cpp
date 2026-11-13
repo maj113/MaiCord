@@ -2,6 +2,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/model/chat/message_reconcile.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "../../support/gateway_message_decode.hpp"
 
 namespace maicord {
 namespace {

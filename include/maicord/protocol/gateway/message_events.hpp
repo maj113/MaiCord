@@ -39,17 +39,8 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(const JsonIndexedD
 GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocument& document, JsonValue array,
                                                           u32 maximum_depth, JsonValue* body,
                                                           bool* present) noexcept;
-GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       Slice<u64> mention_role_scratch,
-                                                       Slice<GatewayMessageNamedUser> mention_user_scratch,
-                                                       u64 current_user_id,
                                                        GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth, Slice<char> content_scratch,
@@ -64,14 +55,6 @@ GatewayEventDecodeResult gateway_decode_message_create(
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(
     const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> content_scratch,
-    Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
-    Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
-    u64 current_user_id, GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_update(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> content_scratch,
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
@@ -81,11 +64,6 @@ GatewayEventDecodeResult gateway_decode_message_update(
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
 
-GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
-                                                            u32 maximum_depth, Slice<char> text_output,
-                                                            u32* text_used,
-                                                            const GatewayMessageRichScratch& scratch,
-                                                            GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDocument& document, JsonValue data,
                                                             u32 maximum_depth, Slice<char> text_output,
                                                             u32* text_used,

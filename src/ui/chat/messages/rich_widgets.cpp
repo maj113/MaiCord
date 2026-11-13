@@ -177,7 +177,7 @@ void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
     for (u32 index = 0; index < kGatewayMessageReactionMaximum; ++index) {
         row->reaction_buttons[index] = ui_widget_invalid_handle();
     }
-    for (u32 index = 0; index < kMessageSceneRichItemMaximum; ++index) {
+    for (u32 index = 0; index < kMessageRichItemMaximum; ++index) {
         row->rich_items[index] = ui_widget_invalid_handle();
     }
     row->reaction_button_count = 0;
@@ -311,23 +311,23 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
         return true;
     };
     for (u32 index = 0; index < row->attachment_item_count; ++index)
-        if (!add_slot(attachments.handle, kMessageSceneAttachmentItemOffset + index, "AttachmentItem",
+        if (!add_slot(attachments.handle, kMessageRichAttachmentItemOffset + index, "AttachmentItem",
                       rich && rich->attachments[index].url.bytes != 0))
             return false;
     for (u32 index = 0; index < row->embed_item_count; ++index)
-        if (!add_slot(embeds.handle, kMessageSceneEmbedItemOffset + index, "EmbedItem",
+        if (!add_slot(embeds.handle, kMessageRichEmbedItemOffset + index, "EmbedItem",
                       rich && rich->embeds[index].url.bytes != 0 && message_rich_display().embeds))
             return false;
     for (u32 index = 0; index < row->sticker_item_count; ++index)
-        if (!add_slot(stickers.handle, kMessageSceneStickerItemOffset + index, "StickerItem", true))
+        if (!add_slot(stickers.handle, kMessageRichStickerItemOffset + index, "StickerItem", true))
             return false;
     for (u32 index = 0; index < row->component_item_count; ++index) {
-        const u32 slot = kMessageSceneComponentItemOffset + index;
+        const u32 slot = kMessageRichComponentItemOffset + index;
         const bool interactive = rich && message_component_hit_target(rich->components[index]);
         const u16 parent_index = rich->components[index].parent;
         const auto component_parent =
             parent_index == 0xFFFFu ? components.handle
-                                    : row->rich_items[kMessageSceneComponentItemOffset + parent_index];
+                                    : row->rich_items[kMessageRichComponentItemOffset + parent_index];
         const UiWidgetResult item = ui_widget_manager_add_prevalidated(
             manager, component_parent,
             UiWidgetDesc{rich_id + slot,
@@ -347,7 +347,7 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
         if (!add_slot(invite_group.handle, kMessageRichInviteItemOffset + index, "InviteItem", true))
             return false;
     if (row->notice_item_count != 0) {
-        const u32 slot = kMessageSceneNoticeItemOffset;
+        const u32 slot = kMessageRichNoticeItemOffset;
         const UiWidgetResult item =
             add_item(manager, notice.handle, rich_id + slot, "NoticeItem", UiWidgetKind::text,
                      ui_widget_enabled, row->rich_item_layout.heights[slot]);
@@ -411,23 +411,23 @@ bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecor
     }
     for (u32 index = 0; index < row->component_item_count; ++index) {
         const bool interactive = rich && message_component_hit_target(rich->components[index]);
-        auto* node = ui_widget_manager_layout_node(manager, row->rich_items[kMessageSceneComponentItemOffset + index]);
+        auto* node = ui_widget_manager_layout_node(manager, row->rich_items[kMessageRichComponentItemOffset + index]);
         if (!node || !rich)
             return false;
         node->spec.style = message_component_style(*rich, index, row->rich_item_layout);
-        if (!set_interaction(manager, row->rich_items[kMessageSceneComponentItemOffset + index],
+        if (!set_interaction(manager, row->rich_items[kMessageRichComponentItemOffset + index],
                              interactive)) {
             return false;
         }
     }
     for (u32 index = 0; index < row->attachment_item_count; ++index) {
-        if (!set_interaction(manager, row->rich_items[kMessageSceneAttachmentItemOffset + index],
+        if (!set_interaction(manager, row->rich_items[kMessageRichAttachmentItemOffset + index],
                              rich && rich->attachments[index].url.bytes != 0))
             return false;
     }
     for (u32 index = 0; index < row->embed_item_count; ++index) {
         const bool interactive = rich && rich->embeds[index].url.bytes != 0 && message_rich_display().embeds;
-        if (!set_interaction(manager, row->rich_items[kMessageSceneEmbedItemOffset + index], interactive)) {
+        if (!set_interaction(manager, row->rich_items[kMessageRichEmbedItemOffset + index], interactive)) {
             return false;
         }
     }

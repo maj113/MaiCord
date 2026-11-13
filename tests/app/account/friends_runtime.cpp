@@ -68,8 +68,8 @@ bool synthetic_input(UiInputKind kind, u32 code, bool repeated, u8 modifiers = 0
     if (control) window_test::hold(key::ctrl);
     if (shift) window_test::hold(key::shift);
     if (alt) window_test::hold(key::alt);
-    const bool applied = window_key_down(nullptr, key::ctrl) == control && window_key_down(nullptr, key::shift) == shift &&
-        window_key_down(nullptr, key::alt) == alt;
+    const bool applied = window_key_down(key::ctrl) == control && window_key_down(key::shift) == shift &&
+        window_key_down(key::alt) == alt;
     check(applied, "friends fixture: synthetic message owns exact modifiers");
     const bool handled = applied && application_friends_input(kind, code, repeated);
     null_window_release_keys();

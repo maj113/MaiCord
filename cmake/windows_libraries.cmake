@@ -100,7 +100,8 @@ maicord_library(maicord_platform
     src/platform/crypto/aes_gcm.cpp src/platform/crypto/aes_gcm64.cpp
     src/platform/crypto/hkdf_sha256.cpp src/platform/crypto/p256.cpp src/platform/crypto/xchacha20_poly1305.cpp
     src/platform/net/network.cpp src/platform/net/datagram.cpp src/platform/net/file.cpp src/platform/net/socket.cpp
-    src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp src/platform/desktop/clipboard_image.cpp
+    src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp src/platform/desktop/clipboard_source.cpp
+    src/platform/desktop/clipboard_image.cpp
     src/platform/desktop/file_identity.cpp src/platform/net/worker.cpp src/platform/crypto/random.cpp
     src/platform/desktop/timezone.cpp src/platform/crypto/remote_auth_crypto.cpp src/platform/crypto/secure_buffer.cpp
     src/platform/net/tls_client.cpp src/platform/net/tls_stream.cpp src/platform/desktop/notifications.cpp

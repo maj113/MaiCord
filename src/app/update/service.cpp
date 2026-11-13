@@ -474,10 +474,10 @@ UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
     if (!file_replace(paths.executable, paths.replaced, true)) {
         r.error = UpdateSwapError::replace; r.native_error = thread_last_error(); return r;
     }
-    if (file_rename_noreplace(paths.staged, paths.executable, true)) return r;
+    if (file_rename_noreplace(paths.staged, paths.executable)) return r;
     r.error = UpdateSwapError::install; r.native_error = thread_last_error();
     // Put the running executable back; a copy is the last resort.
-    if (!file_rename_noreplace(paths.replaced, paths.executable, true)) {
+    if (!file_rename_noreplace(paths.replaced, paths.executable)) {
         r.restore_error = thread_last_error();
         if (file_copy_new(paths.replaced, paths.executable)) r.restore_error = 0;
     }

@@ -1,7 +1,7 @@
 #include "server_internal.hpp"
 
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/bus.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
@@ -18,14 +18,6 @@ constexpr const char kStatusPath[] = "/org/a11y/bus";
 constexpr const char kStatusInterface[] = "org.a11y.Status";
 constexpr const char kRegistryName[] = "org.a11y.atspi.Registry";
 constexpr u32 kCallTimeoutMs = 10000;
-
-bool equal(const char* a, const char* b) noexcept {
-    if (!a || !b)
-        return false;
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
 
 void disconnect_bus() noexcept {
     Server& s = g_server;
@@ -148,8 +140,8 @@ void on_status(void*, Status status, const Message* reply) noexcept {
             if (!reader_enter_struct(&reader) || !reader_string(&reader, &key, nullptr) ||
                 !reader_enter_variant(&reader, &signature))
                 break;
-            if (signature && equal(signature, "b") && reader_bool(&reader, &value) &&
-                (equal(key, "IsEnabled") || equal(key, "ScreenReaderEnabled")))
+            if (c_string_equal(signature, "b") && reader_bool(&reader, &value) &&
+                (c_string_equal(key, "IsEnabled") || c_string_equal(key, "ScreenReaderEnabled")))
                 wanted = wanted || value;
             if (!reader_leave(&reader) || !reader_leave(&reader))
                 break;

@@ -52,7 +52,7 @@ StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes, c
     if (!current(owner, &native)) return {native, StagedFileError::destination_changed};
     allowed = fence(cancellation, deadline); if (!allowed.ok()) return allowed;
     const bool committed = owner->destination_exists ? file_replace(owner->stage_path, owner->destination_path, true)
-                                                     : file_rename_noreplace(owner->stage_path, owner->destination_path, true);
+                                                     : file_rename_noreplace(owner->stage_path, owner->destination_path);
     if (!committed) return {thread_last_error(), StagedFileError::commit};
     owner->stage_owned = false; return {};
 }

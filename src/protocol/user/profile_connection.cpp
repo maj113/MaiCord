@@ -25,12 +25,6 @@ constexpr char kIcons[] =
     "90d18081c2eb2ea3" "8cea2073e188eabe" "c569f6e10f1fa390";
 constexpr u32 kPlatformCount = 27;
 static_assert(kPlatformCount == static_cast<u32>(K::youtube) && sizeof(kIcons) == kPlatformCount * 16 + 1);
-// Entry `index` of a '\0'-separated list.
-Utf8View entry(const char* list, u32 index) noexcept {
-    while (index--)
-        list += c_string_length(list) + 1;
-    return {list, c_string_length(list)};
-}
 // A service's account page, in kPageTexts' order (prefix, suffix): the prefix, the name (or the ID) as a URI
 // component, then the suffix. Mastodon and domain connections carry their own URL and host instead.
 struct Page {
@@ -110,7 +104,7 @@ ProfileConnectionKind profile_connection_kind(const Utf8View& type) noexcept {
 }
 Utf8View profile_connection_name(ProfileConnectionKind kind) noexcept {
     const u32 index = static_cast<u32>(kind);
-    return index && index <= kPlatformCount ? entry(kNames, index - 1) : Utf8View{};
+    return index && index <= kPlatformCount ? c_string_list_entry(kNames, index - 1) : Utf8View{};
 }
 Utf8View profile_connection_icon(ProfileConnectionKind kind) noexcept {
     const u32 index = static_cast<u32>(kind);
@@ -150,9 +144,9 @@ u32 profile_connection_url(const ProfileConnection& connection, Slice<char> outp
             // The page is built from the name or from the ID, which must then be there.
             const Utf8View value = page.by_id ? id : connection.name.view();
             if (value.bytes) {
-                w.add(entry(kPageTexts, 2 * i));
+                w.add(c_string_list_entry(kPageTexts, 2 * i));
                 component(w, value, page.keep_colon);
-                w.add(entry(kPageTexts, 2 * i + 1));
+                w.add(c_string_list_entry(kPageTexts, 2 * i + 1));
             }
             break;
         }

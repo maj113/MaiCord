@@ -42,7 +42,7 @@ struct KeyboardFixture {
         null_window_release_keys();
         if (control)
             window_test::hold(key::ctrl);
-        return window_key_down(nullptr, key::ctrl) == control;
+        return window_key_down(key::ctrl) == control;
     }
     ~KeyboardFixture() noexcept {
         window_test::close();
@@ -87,7 +87,7 @@ void run() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     g_app.keyboard_focus_visible = true;
     ui_widget_manager_focus(&g_app.shell_scene.widgets, footer);
-    check(keyboard.apply(true) && window_key_down(nullptr, key::ctrl) &&
+    check(keyboard.apply(true) && window_key_down(key::ctrl) &&
               !application_account_menu_key(key::enter) && !g_app.popup_scene.active,
           "account menu runtime: explicit Ctrl guard never opens a footer menu");
     check(keyboard.apply() && application_account_menu_key(key::enter) && g_app.popup_scene.active &&

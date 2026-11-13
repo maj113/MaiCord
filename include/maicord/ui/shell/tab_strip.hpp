@@ -92,9 +92,6 @@ struct UiTabStripLayout {
     // The active item that draws in the last slot after the hidden ones (bit set), 0 when none does: a tab dragged
     // past the end must not land among the hidden ones.
     u32 beyond;
-    // Items beyond this many did not fit: the first `shown` items draw, the active one taking the last slot when
-    // it lies further. Equal to the live item count when everything fits.
-    u8 shown;
     bool overflowed;
 };
 

@@ -72,7 +72,6 @@ maicord ($version-$revision~${series}1) $series; urgency=medium
 
  -- $maintainer  $date
 CHANGELOG
-# The upstream tarball's own debian-looking files would clash; the tarball has none.
 (cd "$scratch/maicord-$version" && dpkg-buildpackage -S -sa -d -us -uc >"$scratch/build.log" 2>&1) || { cat "$scratch/build.log" >&2; exit 1; }
 mv "$scratch"/maicord_* "$output/"
 echo "Source package for $series in $output:"

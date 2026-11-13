@@ -1066,7 +1066,7 @@ void test_component_embed(Check check) noexcept {
         underline |= (span.flags & text_style_underline) != 0;
         block |= (span.flags & text_style_code_block) != 0;
     }
-    const float height = row ? row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] : 0.0f;
+    const float height = row ? row->rich_item_layout.heights[kMessageRichEmbedItemOffset] : 0.0f;
     check(title && code && has_style(title, utf8_literal("Example"), text_style_link) && colored && background &&
               underline && block && !test_contains(code->text, utf8_literal("\x1b")) &&
               !test_contains(code->text, utf8_literal("```")) && height > 52.0f,
@@ -1145,7 +1145,7 @@ CodeBlockCase code_block_case(Utf8View payload, Utf8View title) noexcept {
         const float width = c.row->rich_item_layout.embed_widths[0];
         c.card = {item->rectangle.left, item->rectangle.top,
                   minimum(item->rectangle.right, item->rectangle.left + (width > 0 ? width : kMessageEmbedMaximumWidth)),
-                  item->rectangle.top + c.row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] -
+                  item->rectangle.top + c.row->rich_item_layout.heights[kMessageRichEmbedItemOffset] -
                       kMessageEmbedItemGap};
     }
     return c;

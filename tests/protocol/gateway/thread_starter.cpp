@@ -1,4 +1,4 @@
-#include "maicord/protocol/gateway/message_events.hpp"
+#include "../../support/gateway_message_decode.hpp"
 #include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
 

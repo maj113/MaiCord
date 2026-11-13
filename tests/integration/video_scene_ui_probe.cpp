@@ -311,9 +311,9 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
                                      probe_present(&renderer, kDefaultTheme) &&
                                      capture(L"media-viewer-loading.bmp"),
                                  26);
-        valid = valid && require(ui_image_viewer_set_media(&viewer, UiImageViewerMedia::failed) &&
-                                     ui_image_viewer_set_fullscreen(&viewer, true) &&
-                                     renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+        valid = valid && require(ui_image_viewer_set_media(&viewer, UiImageViewerMedia::failed), 27);
+        ui_image_viewer_set_fullscreen(&viewer, true);
+        valid = valid && require(renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                                      probe_present(&renderer, kDefaultTheme) &&
                                      capture(L"media-viewer-failed.bmp"),
                                  27);

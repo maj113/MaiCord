@@ -1,6 +1,5 @@
 #pragma once
 
-
 namespace maicord::gles {
 
 // The hooks of gpu_retain and gpu_release (resources.cpp, sync.cpp) for the handles of the decoded-picture planes

@@ -219,8 +219,8 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     const auto* grouped = message_scene_find_row(f.scene,1);
     if (!require(grouped && grouped->grouped,6)) return false;
     const u32 widget_count = f.scene.widgets.count,row_capacity = f.scene.owned_rows.capacity;
-    bool changed{};
-    if (!require(message_scene_set_unread_cursor(&f.scene,channel,first,true,&changed) && changed &&
+    const u32 unmarked_revision = f.scene.unread_revision;
+    if (!require(message_scene_set_unread_cursor(&f.scene,channel,first,true) && f.scene.unread_revision != unmarked_revision &&
         show(L"unread-default.bmp") && f.scene.widgets.count == widget_count &&
         f.scene.owned_rows.capacity == row_capacity,7)) return false;
     const auto default_geometry = geometry(f.scene,first);
@@ -319,6 +319,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     const auto* boundary_row = message_scene_find_row(f.scene,1);
     const auto strip = boundary_row ? message_scene_unread_divider_rectangle(f.scene,*boundary_row) : UiRect{};
     const u32 shell_replays = renderer.shell_segment.replays, shell_builds = renderer.shell_segment.builds;
+    bool changed{};
     if (!require(ui_rect_has_area(strip) && message_scene_scroll_by(&f.scene,
         static_cast<i64>(ui_extent_units(maximum(1.f,strip.top - f.scene.viewport.top + 12.f))),0,&changed) && changed &&
         show(L"unread-scrolled-clip.bmp") && verify_boundary(),14)) return false;
@@ -376,7 +377,8 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     if (!require(show(L"unread-light.bmp") && verify_boundary() && pixels(renderer,f.scene,theme,geometry(f.scene,first)),18)) return false;
     theme.accent = {.95f,.85f,.4f,1}; theme.notification = theme.accent;
     if (!require(show(L"unread-light-bright-accent.bmp") && verify_boundary() && pixels(renderer,f.scene,theme,geometry(f.scene,first)),19)) return false;
-    if (!require(message_scene_set_unread_cursor(&f.scene,channel,first + 3,true,&changed) && changed &&
+    const u32 marked_revision = f.scene.unread_revision;
+    if (!require(message_scene_set_unread_cursor(&f.scene,channel,first + 3,true) && f.scene.unread_revision != marked_revision &&
         show(L"unread-cleared.bmp") && !f.scene.unread_first_message_id,20)) return false;
     for (u32 i = 0; i < f.presentation.command_count; ++i)
         if (utf8_equal(f.presentation.commands[i].text,kUiUnreadDividerLabel)) return require(false,21);

@@ -9,7 +9,7 @@ bool native_font_selection_cases() noexcept {
     CHECK(!catalogs.files&&!catalogs.storage.committed);
     CHECK(native_text_catalog_range(&catalogs,base,session,&scratch,utf8_literal("ABC"),&range)&&range.bytes==3);
     CHECK(catalogs.files&&!catalogs.files->next&&catalogs.files->catalog.count);
-    const auto selected=range.match.candidate;auto* first=catalogs.files;const auto saved=first->catalog.properties[selected];
+    const auto selected=range.match.index;auto* first=catalogs.files;const auto saved=first->catalog.properties[selected];
     CHECK(native_text_catalog_select_face(&catalogs,0,selected,0,session,&scratch,&instance,&source));
     const auto* held=native_font_instance_get(*native_font_session_instances(session),instance);CHECK(held);
     const auto* face=native_font_get(*native_font_session_fonts(session),held->face);CHECK(face);u16 glyph=0;
@@ -22,8 +22,8 @@ bool native_font_selection_cases() noexcept {
     u32 candidates[5]{};u64 builds=0;usize offset=0;
     for(u32 pass=0;pass<2;++pass){for(u32 i=0;i<5;++i){auto request=base;if(i==4)request.properties={600,5,2};
             CHECK(native_text_catalog_range(&catalogs,request,session,&scratch,samples[i],&range));
-            CHECK(range.bytes==samples[i].bytes&&range.scope==0&&range.match.candidate!=native_fallback_missing);
-            if(!pass)candidates[i]=range.match.candidate;else CHECK(range.match.candidate==candidates[i]);
+            CHECK(range.bytes==samples[i].bytes&&range.scope==0&&range.match.index!=native_fallback_missing);
+            if(!pass)candidates[i]=range.match.index;else CHECK(range.match.index==candidates[i]);
         }if(!pass){builds=catalogs.builds;offset=catalogs.storage.offset;}else CHECK(catalogs.builds==builds&&catalogs.storage.offset==offset);
     }
     CHECK(bytes_equal(&saved,&first->catalog.properties[selected],sizeof(saved)));
@@ -38,7 +38,7 @@ bool native_font_selection_cases() noexcept {
     const bool failed=native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source);
     catalogs.storage.reserved=reserved;
     CHECK(!failed&&!absent.slot&&catalogs.files==before);
-    CHECK(native_text_catalog_range(&catalogs,base,session,&scratch,utf8_literal("ABC"),&range)&&range.match.candidate==selected);
+    CHECK(native_text_catalog_range(&catalogs,base,session,&scratch,utf8_literal("ABC"),&range)&&range.match.index==selected);
     CHECK(!native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source));
     auto* cached=catalogs.families;const auto previous_builds=catalogs.builds;
     CHECK(!native_text_catalog_select_query(&catalogs,missing,session,&scratch,&absent,&source)&&catalogs.families==cached&&catalogs.builds==previous_builds&&catalogs.files==before);

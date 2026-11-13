@@ -1,4 +1,4 @@
-#include "maicord/protocol/gateway/message_events.hpp"
+#include "../../support/gateway_message_decode.hpp"
 
 namespace maicord {
 void test_message_rich_index(void (*check)(bool, const char*) noexcept) noexcept {

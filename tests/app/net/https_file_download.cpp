@@ -82,7 +82,7 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
     seed(path, &selected); request.destination = selected;
     DeleteFileW(replacement);
     FileSnapshot new_selected{};
-    check(file_rename_noreplace(path, replacement, false) && seed(path, &new_selected) &&
+    check(file_rename_noreplace(path, replacement) && seed(path, &new_selected) &&
         https_file_download_start(&owner, request) == HttpsFileDownloadError::none,
         "replacement destination fixture changes file identity while preserving size");
     if (owner.runtime) { check(await_local_failure(&owner) && retained(path) && retained(replacement),

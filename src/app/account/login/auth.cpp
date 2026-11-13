@@ -331,7 +331,7 @@ bool application_login_tick_backup_acknowledgement(u64 now_ms) noexcept {
     if (application_account_logout_locked())
         return true;
     LoginRuntime& login = g_app.login;
-    if (login.status != RendererLoginStatus::mfa_backup_acknowledgement ||
+    if (login.status != LoginStatus::mfa_backup_acknowledgement ||
         login.backup_acknowledgement_at_ms == 0) {
         return true;
     }
@@ -365,7 +365,7 @@ bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexc
     }
     login.mfa_type = type;
     if (type == UserAuthMfaType::webauthn) {
-        login.status = RendererLoginStatus::webauthn_required;
+        login.status = LoginStatus::webauthn_required;
         login.focus = LoginControl::mfa_webauthn;
         return begin_webauthn();
     }
@@ -378,7 +378,7 @@ bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexc
         }
         return present(LoginStatus::mfa_backup_acknowledgement, LoginControl::submit);
     }
-    login.status = RendererLoginStatus::mfa_required;
+    login.status = LoginStatus::mfa_required;
     login.focus = LoginControl::password;
     return type == UserAuthMfaType::sms ? request_sms(allow_resend) : application_refresh_login_view();
 }
@@ -413,7 +413,7 @@ bool webauthn_begin(u64 posted_epoch, WebAuthnMfaRequestOptions* request, WebAut
     AccountHost& host = g_app.account;
     if (!g_app.login.visible || !posted_epoch || posted_epoch != g_app.login.webauthn_post_epoch ||
         posted_epoch != g_app.login.application_auth_epoch || !host.login_instance || host.stop_failed ||
-        g_app.login.status != RendererLoginStatus::webauthn_required || !g_app.login.webauthn_attempted ||
+        g_app.login.status != LoginStatus::webauthn_required || !g_app.login.webauthn_attempted ||
         login_requires_back(g_app.login.status, g_app.login.remote_status) ||
         g_app.login.mfa_type != UserAuthMfaType::webauthn) {
         return false;
@@ -490,7 +490,7 @@ bool webauthn_finish(WebAuthnFlight& flight, bool asserted_ok, u64 error, u32 na
         !g_app.login.visible || g_app.login.reset_mode != flight.reset || g_app.login.mfa_type != flight.method ||
         !g_app.login.webauthn_attempted ||
         g_app.login.status !=
-            (flight.reset ? RendererLoginStatus::reset_mfa_pending : RendererLoginStatus::submitting)) {
+            (flight.reset ? LoginStatus::reset_mfa_pending : LoginStatus::submitting)) {
         secure_buffer_release(&flight.credential);
         return true;
     }
@@ -633,7 +633,7 @@ bool application_login_webauthn_progress(u64 token, u64 kind) noexcept {
     // The ceremony may end on the PIN screen: the screen goes back to the one that waits for the key.
     if (login.security_key_pin) {
         end_security_key_pin();
-        login.status = g_flight.reset ? RendererLoginStatus::reset_mfa_pending : RendererLoginStatus::submitting;
+        login.status = g_flight.reset ? LoginStatus::reset_mfa_pending : LoginStatus::submitting;
     }
     login.security_key = ended.ok() ? LoginSecurityKey::none : security_key_state(ended.error);
     return webauthn_finish(g_flight, ended.ok(), static_cast<u64>(ended.error), static_cast<u32>(ended.native), 0);
@@ -683,11 +683,11 @@ namespace {
 bool submit_password() noexcept {
     if (application_account_logout_locked())
         return false;
-    if (!g_app.login.visible || g_app.login.status == RendererLoginStatus::restoring_session ||
-        g_app.login.status == RendererLoginStatus::submitting) {
+    if (!g_app.login.visible || g_app.login.status == LoginStatus::restoring_session ||
+        g_app.login.status == LoginStatus::submitting) {
         return true;
     }
-    if (g_app.login.status == RendererLoginStatus::mfa_backup_acknowledgement) {
+    if (g_app.login.status == LoginStatus::mfa_backup_acknowledgement) {
         const u64 now_ms = clock_monotonic_milliseconds();
         const u32 seconds =
             login_mfa_backup_acknowledgement_seconds(now_ms, g_app.login.backup_acknowledgement_at_ms);
@@ -699,18 +699,18 @@ bool submit_password() noexcept {
         g_app.login.backup_acknowledged = true;
         return present(LoginStatus::mfa_required, LoginControl::password);
     }
-    if (g_app.login.status == RendererLoginStatus::profile_save_failed)
+    if (g_app.login.status == LoginStatus::profile_save_failed)
         return present(LoginStatus::submitting, LoginControl::none) && application_login_pump();
     if (login_requires_back(g_app.login.status, g_app.login.remote_status)) {
         return application_refresh_login_view();
     }
     if (application_login_auth_cooldown_active())
         return true;
-    if (g_app.login.status == RendererLoginStatus::mfa_required ||
-        g_app.login.status == RendererLoginStatus::mfa_input_invalid ||
-        g_app.login.status == RendererLoginStatus::mfa_code_rejected ||
-        g_app.login.status == RendererLoginStatus::webauthn_required ||
-        g_app.login.status == RendererLoginStatus::webauthn_failed) {
+    if (g_app.login.status == LoginStatus::mfa_required ||
+        g_app.login.status == LoginStatus::mfa_input_invalid ||
+        g_app.login.status == LoginStatus::mfa_code_rejected ||
+        g_app.login.status == LoginStatus::webauthn_required ||
+        g_app.login.status == LoginStatus::webauthn_failed) {
         return application_login_submit_mfa();
     }
     if (g_app.login.reset_mode) return application_login_submit_reset();
@@ -805,7 +805,7 @@ bool application_login_pump() noexcept {
     AccountHost& host = g_app.account;
     // A failed stop still owns its worker. Do not accept queued authentication
     // results after the user cancelled; Back retries stop, shutdown keeps it.
-    if (g_app.login.status == RendererLoginStatus::cancelling) return true;
+    if (g_app.login.status == LoginStatus::cancelling) return true;
     if (!host.login_instance) {
         return true;
     }
@@ -997,7 +997,7 @@ bool application_login_pump() noexcept {
         g_app.login.browser_return_to_qr = false;
         application_login_reset_attempt();
         application_login_reset_remote_session();
-        g_app.login.status = RendererLoginStatus::idle;
+        g_app.login.status = LoginStatus::idle;
         application_account_attach_if_present();
         // Startup-marker recovery may block this late authenticated result.
         // Preserve that owner's presentation instead of reporting bad login.
@@ -1081,10 +1081,10 @@ bool application_login_pump() noexcept {
         const bool declined = host.login_status.remote_event == RemoteAuthClientEventKind::cancelled && !expired;
         if (declined) g_app.login.remote_retry_attempt = 0;
         if (g_app.login.remote_status == LoginRemoteStatus::captcha_required ||
-            g_app.login.status == RendererLoginStatus::captcha_required) {
+            g_app.login.status == LoginStatus::captcha_required) {
             application_captcha_auth_reset();
-            if (g_app.login.status == RendererLoginStatus::captcha_required) {
-                g_app.login.status = RendererLoginStatus::idle;
+            if (g_app.login.status == LoginStatus::captcha_required) {
+                g_app.login.status = LoginStatus::idle;
                 g_app.login.focus = LoginControl::login;
             }
         }
@@ -1142,18 +1142,18 @@ bool application_login_pump() noexcept {
     }
     if (host.login_status.phase == AccountLoginPhase::captcha_required) {
         // Enter verifies in the browser; Back and Escape still leave.
-        g_app.login.status = RendererLoginStatus::captcha_required;
+        g_app.login.status = LoginStatus::captcha_required;
         g_app.login.focus = LoginControl::submit;
         if (g_app.login.remote_active)
             g_app.login.remote_status = LoginRemoteStatus::captcha_required;
     } else if (host.login_status.error == AccountLoginError::profile &&
                host.login_status.phase == AccountLoginPhase::authenticated &&
                !host.login_status.profile_saved) {
-        g_app.login.status = RendererLoginStatus::profile_save_failed;
+        g_app.login.status = LoginStatus::profile_save_failed;
         g_app.login.focus = LoginControl::submit;
     } else if (host.login_status.phase == AccountLoginPhase::rejected ||
                host.login_status.phase == AccountLoginPhase::failed || !host.login_status.ok()) {
-        g_app.login.status = RendererLoginStatus::rejected;
+        g_app.login.status = LoginStatus::rejected;
         g_app.login.account_suspended = host.login_status.account_suspended;
         g_app.login.focus = g_app.login.login.storage.bytes == 0 ? LoginControl::login : LoginControl::password;
         if (host.login_instance) {
@@ -1182,17 +1182,17 @@ bool application_login_begin_remote_auth() noexcept {
     if (!g_app.login.visible) {
         return false;
     }
-    if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
+    if (g_app.login.status == LoginStatus::restoring_session) return true;
     if (g_app.login.remote_active) {
         return true;
     }
-    if (g_app.login.status == RendererLoginStatus::submitting ||
-        g_app.login.status == RendererLoginStatus::mfa_required ||
-        g_app.login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
-        g_app.login.status == RendererLoginStatus::mfa_input_invalid ||
+    if (g_app.login.status == LoginStatus::submitting ||
+        g_app.login.status == LoginStatus::mfa_required ||
+        g_app.login.status == LoginStatus::mfa_backup_acknowledgement ||
+        g_app.login.status == LoginStatus::mfa_input_invalid ||
         login_requires_back(g_app.login.status, g_app.login.remote_status) ||
-        g_app.login.status == RendererLoginStatus::profile_save_failed ||
-        g_app.login.status == RendererLoginStatus::webauthn_required) {
+        g_app.login.status == LoginStatus::profile_save_failed ||
+        g_app.login.status == LoginStatus::webauthn_required) {
         return true;
     }
     g_app.login.remote_restart_at_ms = 0;
@@ -1258,7 +1258,7 @@ bool application_login_cancel_blocked() noexcept {
     secure_edit_clear(&login.mfa);
     application_login_reset_remote_session();
     login.mfa_capabilities = 0;
-    login.status = RendererLoginStatus::cancelling;
+    login.status = LoginStatus::cancelling;
     login.focus = LoginControl::back;
     if (g_app.account.login_instance) {
         const auto stopped = stop_login_owner();
@@ -1274,7 +1274,7 @@ bool application_login_cancel_blocked() noexcept {
         log_write(LogLevel::warning, "auth", "login_cancel_release_pending");
         return application_refresh_login_view();
     }
-    login.status = RendererLoginStatus::idle;
+    login.status = LoginStatus::idle;
     restore_identifier_bound();
     login.reset_mode = false; login.reset_retry = false; login.login.password = false;
     login.focus = keep_identifier && login.login.storage.bytes ? LoginControl::password : LoginControl::login;
@@ -1328,7 +1328,7 @@ bool application_login_handle_click(const WindowEvent& event) noexcept {
     if (!g_app.login.visible) {
         return false;
     }
-    if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
+    if (g_app.login.status == LoginStatus::restoring_session) return true;
     const i32 x = static_cast<short>(event.pointer.x);
     const i32 y = static_cast<short>(event.pointer.y);
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
@@ -1370,7 +1370,7 @@ bool application_login_handle_key(u32 key, bool repeated) noexcept {
     }
     if (repeated && (key == key::enter || key == key::space))
         return true;
-    if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
+    if (g_app.login.status == LoginStatus::restoring_session) return true;
     if (key == key::caps_lock) {
         // The Caps Lock hint follows the toggle state while typing a password.
         if (!application_refresh_login_view()) log_write(LogLevel::error, "ui", "login_caps_refresh_failed");

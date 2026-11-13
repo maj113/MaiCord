@@ -44,10 +44,10 @@ jobs:
 
       # What actions/deploy-pages does, but with the deployed files' own build version. The action sends the workflow's
       # commit SHA, and Pages answers a second deployment of a version it already deployed with that old deployment,
-      # reporting success while the site keeps the old files: the v0.7.0 release's tag pointed at a commit CI had already
-      # deployed, so the release's channels never went live. Pages accepts only a commit of this repository as the
-      # version, so it is the update-channels commit being deployed: every change of the channels is a new commit, and
-      # deploying the same commit again would serve the same files.
+      # reporting success while the site keeps the old files (a release tag on a commit CI had already deployed never
+      # goes live). Pages accepts only a commit of this repository as the version, so it is the update-channels commit
+      # being deployed: every change of the channels is a new commit, and deploying the same commit again would serve the
+      # same files.
       - name: Deploy
         id: deployment
         env:

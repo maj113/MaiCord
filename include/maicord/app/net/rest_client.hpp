@@ -317,12 +317,6 @@ struct RestUserConfiguration {
 
 // Start requires a zero-initialized or fully stopped client. A live client is
 // rejected without changing its allocations, handles, or credential storage.
-// Starts a credential-free client for documented public endpoints such as Get
-// Gateway. The worker connects lazily on its first request.
-RestClientResult rest_client_start_public(RestClient* client,
-                                          u32 response_capacity,
-                                          RestSharedState* shared = nullptr) noexcept;
-
 // Starts a normal-user client. Authorization is the session token with no
 // authorization-scheme prefix, and every request carries the copied public
 // client metadata. The credential moves only on success; the source remains

@@ -88,7 +88,7 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer&, i32, i32) noexcep
     ++settings_runtime_test::observed.content_hits;
     return {};
 }
-RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer&, i32, i32) noexcept {
+MessagePositionHit renderer_message_text_position_hit_test(D3D11Renderer&, i32, i32) noexcept {
     ++settings_runtime_test::observed.text_hits;
     return {};
 }

@@ -845,7 +845,7 @@ bool application_hide_account_scenes() noexcept {
 
 namespace {
 // The sign-in form after an account ended: secrets cleared, the status notice set.
-void reset_login_form(RendererLoginStatus status) noexcept {
+void reset_login_form(LoginStatus status) noexcept {
     secure_edit_clear(&g_app.login.password);
     secure_edit_clear(&g_app.login.mfa);
     g_app.login.visible = true;
@@ -872,7 +872,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     if (g_app.account_ui)
         application_release_account_ui(g_app);
     const bool shell_reset = application_hide_account_scenes();
-    reset_login_form(unconfirmed ? RendererLoginStatus::signed_out_unconfirmed : RendererLoginStatus::signed_out);
+    reset_login_form(unconfirmed ? LoginStatus::signed_out_unconfirmed : LoginStatus::signed_out);
     g_app.login.remote_active = false;
     g_app.login.qr_ready = false;
     g_app.login.remote_status = LoginRemoteStatus::idle;
@@ -905,7 +905,7 @@ bool application_account_return_to_login(bool rejected) noexcept {
                     log_write(LogLevel::warning, "auth", "invalidated_session_removal_failed");
         }
     }
-    reset_login_form(rejected ? RendererLoginStatus::session_expired : RendererLoginStatus::connection_failed);
+    reset_login_form(rejected ? LoginStatus::session_expired : LoginStatus::connection_failed);
     // QR login is a new unauthenticated flow; it never retries the rejected token.
     return present_login(true);
 }
@@ -981,7 +981,7 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
     AccountHost& host = g_app.account;
     application_account_report_focus(application_window_focused());
     g_app.login.visible = true;
-    g_app.login.status = RendererLoginStatus::restoring_session;
+    g_app.login.status = LoginStatus::restoring_session;
     g_app.login.focus = LoginControl::none;
     if (!application_synchronize_login_view()) {
         log_write(LogLevel::error, "ui", "login_view_hide_failed");
@@ -998,7 +998,7 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
     // The previous session's shell replaces the restoring view until READY.
     if (application_startup_shell_apply()) {
         g_app.login.visible = false;
-        g_app.login.status = RendererLoginStatus::idle;
+        g_app.login.status = LoginStatus::idle;
         if (!application_synchronize_login_view() || !synchronize_navigation_view() ||
             !synchronize_selected_channel() || !synchronize_shell_layout() || !refresh_account_text(true))
             log_write(LogLevel::warning, "shell", "startup_shell_present_failed");

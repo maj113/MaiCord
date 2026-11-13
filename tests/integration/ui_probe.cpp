@@ -591,14 +591,14 @@ bool probe_caption_relayout(u32 content_height) noexcept {
 
 namespace ui_probe_detail {
 
-bool set_probe_login_view(RendererLoginView view) noexcept {
+bool set_probe_login_view(LoginView view) noexcept {
     LoginScene& scene = g_probe.login_scene;
-    scene.restoring_session = view.status == RendererLoginStatus::restoring_session;
+    scene.restoring_session = view.status == LoginStatus::restoring_session;
     scene.back_only = login_requires_back(view.status, view.remote_status);
     scene.focus = view.focus;
     scene.mfa_capabilities = view.mfa_capabilities;
     scene.selected_mfa_capability = view.selected_mfa_capability;
-    scene.credential_fields_hidden = view.status == RendererLoginStatus::mfa_backup_acknowledgement;
+    scene.credential_fields_hidden = view.status == LoginStatus::mfa_backup_acknowledgement;
     scene.action_disabled = login_view_action_disabled(view);
     scene.recovery_disabled = login_view_recovery_disabled(view);
     scene.submit_disabled = login_view_submit_disabled(view);
@@ -629,15 +629,15 @@ namespace {
 // The sign-in screen (a QR code, no credentials) under the window caption.
 bool probe_caption_login(bool visible) noexcept {
     if (!visible)
-        return set_probe_login_view(RendererLoginView{}) && probe_sync_shell_and_text();
+        return set_probe_login_view(LoginView{}) && probe_sync_shell_and_text();
     constexpr Utf8View payload =
         utf8_literal("https://chat_state.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     static QrCode qr{};
     if (!qr_code_encode_m(ConstSlice<u8>{reinterpret_cast<const u8*>(payload.data), payload.bytes}, 5, &qr))
         return false;
-    const RendererLoginView view{{},    {},    {},    0,     0,     false, LoginControl::qr,
-                                 RendererLoginStatus::remote_qr_ready, login_mfa_capability_none,
-                                 login_mfa_capability_none, 0, false, &qr, false, false, false, true};
+    const LoginView view{{},    {},    {},    0,     0,     false, LoginControl::qr,
+                         LoginStatus::remote_qr_ready, login_mfa_capability_none,
+                         login_mfa_capability_none, 0, false, &qr, false, false, false, true};
     return set_probe_login_view(view);
 }
 
@@ -1702,10 +1702,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     const u32 selection_builds_before = g_probe.renderer.message_hit_test.builds;
     const u32 selection_hits_before = g_probe.renderer.message_hit_test.hits;
     const u32 selection_rejected_before = g_probe.renderer.message_hit_test.rejected;
-    const RendererMessageTextPositionHit selection_hit = renderer_message_text_position_hit_test(
+    const MessagePositionHit selection_hit = renderer_message_text_position_hit_test(
         g_probe.renderer, static_cast<i32>(selectable_x * message_scale + 0.5f),
         static_cast<i32>(selectable_y * message_scale + 0.5f));
-    const RendererMessageTextPositionHit retained_selection_hit = renderer_message_text_position_hit_test(
+    const MessagePositionHit retained_selection_hit = renderer_message_text_position_hit_test(
         g_probe.renderer, static_cast<i32>(selectable_x * message_scale + 0.5f),
         static_cast<i32>(selectable_y * message_scale + 0.5f));
     const u32 unselected_quad_count = g_probe.text.quad_count;
@@ -1756,7 +1756,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     const u32 retained_builds = g_probe.renderer.message_hit_test.builds;
     const u32 retained_hits = g_probe.renderer.message_hit_test.hits;
-    const RendererMessageTextPositionHit post_rebuild_hit = renderer_message_text_position_hit_test(
+    const MessagePositionHit post_rebuild_hit = renderer_message_text_position_hit_test(
         g_probe.renderer, static_cast<i32>(selectable_x * message_scale + 0.5f),
         static_cast<i32>(selectable_y * message_scale + 0.5f));
     if (!post_rebuild_hit.valid || post_rebuild_hit.command_identity != selection_hit.command_identity ||
@@ -2361,23 +2361,23 @@ int run_probe() noexcept {
                           &login_qr)) {
         return finish_probe(8);
     }
-    const RendererLoginView login_view{utf8_literal("native.user@example.test"),
-                                       Utf8View{password_mask, sizeof(password_mask)},
-                                       {},
-                                       0,
-                                       0,
-                                       false,
-                                       LoginControl::qr,
-                                       RendererLoginStatus::remote_qr_ready,
-                                       login_mfa_capability_none,
-                                       login_mfa_capability_none,
-                                       0,
-                                       false,
-                                       &login_qr,
-                                       false,
-                                       false,
-                                       false,
-                                       true};
+    const LoginView login_view{utf8_literal("native.user@example.test"),
+                               Utf8View{password_mask, sizeof(password_mask)},
+                               {},
+                               0,
+                               0,
+                               false,
+                               LoginControl::qr,
+                               LoginStatus::remote_qr_ready,
+                               login_mfa_capability_none,
+                               login_mfa_capability_none,
+                               0,
+                               false,
+                               &login_qr,
+                               false,
+                               false,
+                               false,
+                               true};
     struct WrappedRenderProbe {
         const wchar_t* option;
         WrappedProbeScript script;
@@ -2600,8 +2600,8 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "login_present_required", g_probe.renderer.present_required);
         return finish_probe(8);
     }
-    RendererLoginView restoring_view = login_view;
-    restoring_view.status = RendererLoginStatus::restoring_session;
+    LoginView restoring_view = login_view;
+    restoring_view.status = LoginStatus::restoring_session;
     restoring_view.qr_code = nullptr;
     if (!set_probe_login_view(restoring_view) || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !probe_login_pixels(true) || !set_probe_login_view(login_view) ||
@@ -2618,7 +2618,7 @@ int run_probe() noexcept {
             color_emoji_login[emoji * 4u + byte] = static_cast<char>(grinning_face[byte]);
         }
     }
-    RendererLoginView color_emoji_view = login_view;
+    LoginView color_emoji_view = login_view;
     color_emoji_view.login = Utf8View{color_emoji_login, sizeof(color_emoji_login)};
     color_emoji_view.focus = LoginControl::login;
     color_emoji_view.qr_code = nullptr;
@@ -2674,12 +2674,12 @@ int run_probe() noexcept {
         LoginControl::password) {
         return finish_probe(9);
     }
-    RendererLoginView edit_view = login_view;
+    LoginView edit_view = login_view;
     edit_view.edit_anchor = 6;
     edit_view.edit_caret = 2;
     edit_view.edit_active = true;
     edit_view.focus = LoginControl::login;
-    edit_view.status = RendererLoginStatus::idle;
+    edit_view.status = LoginStatus::idle;
     edit_view.qr_code = nullptr;
     if (!set_probe_login_view(edit_view) || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !g_probe.renderer.login_edit.active || g_probe.renderer.login_edit.selection_count == 0 ||
@@ -2691,7 +2691,7 @@ int run_probe() noexcept {
     for (u32 dpi : login_dpis) {
         renderer_set_dpi(&g_probe.renderer, dpi);
         for (u32 sample = 0; sample < 4; ++sample) {
-            RendererLoginView centered = edit_view;
+            LoginView centered = edit_view;
             centered.focus = sample < 2 ? LoginControl::login : LoginControl::password;
             centered.login = sample == 1 ? utf8_literal("native") : Utf8View{};
             centered.password_mask = sample == 3 ? utf8_literal("••••") : Utf8View{};
@@ -2753,14 +2753,14 @@ int run_probe() noexcept {
     // Synthetic scene projections exercise the shipping renderer/policy only;
     // they do not claim a live provider response or authentication cancellation.
     {
-        RendererLoginView blocked{};
+        LoginView blocked{};
         blocked.visible = true;
         blocked.focus = LoginControl::back;
-        blocked.status = RendererLoginStatus::captcha_required;
+        blocked.status = LoginStatus::captcha_required;
         const wchar_t* names[]{L"login-flow-password-captcha.bmp", L"login-flow-qr-captcha.bmp"};
         for (u32 sample = 0; sample < 2; ++sample) {
             if (sample == 1) {
-                blocked.status = RendererLoginStatus::mfa_required;
+                blocked.status = LoginStatus::mfa_required;
                 blocked.mfa_capabilities = login_mfa_capability_sms;
                 blocked.selected_mfa_capability = login_mfa_capability_sms;
                 blocked.remote_status = LoginRemoteStatus::captcha_required;
@@ -2790,7 +2790,7 @@ int run_probe() noexcept {
                 return finish_probe(9);
             }
         }
-        RendererLoginView restored{};
+        LoginView restored{};
         restored.visible = true;
         restored.focus = LoginControl::login;
         if (!set_probe_login_view(restored))
@@ -2811,40 +2811,40 @@ int run_probe() noexcept {
         }
         log_write(LogLevel::info, "probe", "login_blocked_back_and_restored_projections_passed");
     }
-    RendererLoginView mobile_view = login_view;
+    LoginView mobile_view = login_view;
     mobile_view.remote_user = utf8_literal("doodles");
-    mobile_view.status = RendererLoginStatus::remote_mobile_pending;
+    mobile_view.status = LoginStatus::remote_mobile_pending;
     mobile_view.focus = LoginControl::submit;
     if (!set_probe_login_view(mobile_view) || !probe_present(&g_probe.renderer, kDefaultTheme)) {
         return finish_probe(9);
     }
-    RendererLoginView expired_view = mobile_view;
+    LoginView expired_view = mobile_view;
     expired_view.remote_user = {};
     expired_view.qr_code = nullptr;
-    expired_view.status = RendererLoginStatus::remote_expired;
+    expired_view.status = LoginStatus::remote_expired;
     expired_view.focus = LoginControl::qr;
     if (!set_probe_login_view(expired_view) || !probe_present(&g_probe.renderer, kDefaultTheme)) {
         return finish_probe(9);
     }
-    const RendererLoginView mfa_view{utf8_literal("native.user@example.test"),
-                                     {},
-                                     {},
-                                     0,
-                                     0,
-                                     false,
-                                     LoginControl::mfa_sms,
-                                     RendererLoginStatus::mfa_required,
-                                     static_cast<u8>(login_mfa_capability_totp | login_mfa_capability_sms |
-                                                     login_mfa_capability_backup |
-                                                     login_mfa_capability_webauthn),
-                                     login_mfa_capability_sms,
-                                     0,
-                                     false,
-                                     nullptr,
-                                     false,
-                                     true,
-                                     false,
-                                     true};
+    const LoginView mfa_view{utf8_literal("native.user@example.test"),
+                             {},
+                             {},
+                             0,
+                             0,
+                             false,
+                             LoginControl::mfa_sms,
+                             LoginStatus::mfa_required,
+                             static_cast<u8>(login_mfa_capability_totp | login_mfa_capability_sms |
+                                             login_mfa_capability_backup |
+                                             login_mfa_capability_webauthn),
+                             login_mfa_capability_sms,
+                             0,
+                             false,
+                             nullptr,
+                             false,
+                             true,
+                             false,
+                             true};
     if (!set_probe_login_view(mfa_view)) {
         return finish_probe(9);
     }
@@ -2860,9 +2860,9 @@ int run_probe() noexcept {
         LoginControl::mfa_backup) {
         return finish_probe(9);
     }
-    RendererLoginView backup_acknowledgement_view = mfa_view;
+    LoginView backup_acknowledgement_view = mfa_view;
     backup_acknowledgement_view.focus = LoginControl::submit;
-    backup_acknowledgement_view.status = RendererLoginStatus::mfa_backup_acknowledgement;
+    backup_acknowledgement_view.status = LoginStatus::mfa_backup_acknowledgement;
     backup_acknowledgement_view.mfa_capabilities = login_mfa_capability_backup;
     backup_acknowledgement_view.selected_mfa_capability = login_mfa_capability_backup;
     backup_acknowledgement_view.backup_acknowledgement_seconds = 10;
@@ -2873,23 +2873,23 @@ int run_probe() noexcept {
         !g_probe.login_scene.action_disabled) {
         return finish_probe(9);
     }
-    if (!set_probe_login_view(RendererLoginView{{},
-                                                {},
-                                                {},
-                                                0,
-                                                0,
-                                                false,
-                                                LoginControl::none,
-                                                RendererLoginStatus::idle,
-                                                login_mfa_capability_none,
-                                                login_mfa_capability_none,
-                                                0,
-                                                false,
-                                                nullptr,
-                                                false,
-                                                false,
-                                                false,
-                                                false})) {
+    if (!set_probe_login_view(LoginView{{},
+                                        {},
+                                        {},
+                                        0,
+                                        0,
+                                        false,
+                                        LoginControl::none,
+                                        LoginStatus::idle,
+                                        login_mfa_capability_none,
+                                        login_mfa_capability_none,
+                                        0,
+                                        false,
+                                        nullptr,
+                                        false,
+                                        false,
+                                        false,
+                                        false})) {
         return finish_probe(9);
     }
     // Recovery uses the standalone login renderer before account text is bound.

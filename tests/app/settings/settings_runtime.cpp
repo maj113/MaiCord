@@ -279,7 +279,7 @@ void test_search_field() noexcept {
     check(key(key::left) && key(key::left) && key(key::del) && query("thm") && current->search.view.caret == 2,
           "settings search: arrows move the caret and Delete removes forward");
     null_window_set_key(key::ctrl, true);
-    if (window_key_down(nullptr, key::ctrl)) {
+    if (window_key_down(key::ctrl)) {
         const bool selected = key('A') && current->search.view.anchor == 0 && current->search.view.caret == 3;
         null_window_release_keys();
         check(selected && key(key::backspace) && query("") && ui_page_key_equal(current->selected_page, kAppearancePage) &&
@@ -650,7 +650,7 @@ void test_controller() noexcept {
               observed.profile_hits == profile_hits,
           "settings: empty opaque page owns cursor without consulting underlying profiles, links or text");
     null_window_set_key(key::alt, true);
-    if (window_key_down(nullptr, key::alt))
+    if (window_key_down(key::alt))
         check(!application_settings_input(UiInputKind::system_key_down, key::f4, false) &&
                   application_settings_active(),
               "settings: Alt+F4 passes through modal keyboard handling");

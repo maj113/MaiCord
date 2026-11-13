@@ -1,42 +1,39 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/launcher_entry.hpp"
 #include "maicord/platform/dbus/session.hpp"
 
 namespace maicord::dbus {
 namespace {
 
+constexpr char kScheme[] = "application://";
+// The application's desktop file (packaging/linux), which the dock matches the entry to.
+constexpr char kDesktopUri[] = "application://io.github.maj113.MaiCord.desktop";
+constexpr char kPathBase[] = "/com/canonical/unity/launcherentry/";
+
+// The FNV-1a hash of the desktop id, the last element of the entry's object path.
+constexpr u32 entry_hash() noexcept {
+    u32 hash = 2166136261u;
+    for (u32 i = sizeof(kScheme) - 1; kDesktopUri[i]; ++i)
+        hash = (hash ^ static_cast<u8>(kDesktopUri[i])) * 16777619u;
+    return hash;
+}
+
 struct Entry {
     bool known;
     bool hook_added;
-    char desktop_id[160];
     LauncherEntryState state;
 };
 
 Entry g;
 
-// "/com/canonical/unity/launcherentry/<number>": the number a hash of the desktop id.
-void entry_path(const char* desktop_id, char (&path)[64]) noexcept {
-    u32 hash = 2166136261u;
-    for (u32 i = 0; desktop_id[i]; ++i)
-        hash = (hash ^ static_cast<u8>(desktop_id[i])) * 16777619u;
-    const char base[] = "/com/canonical/unity/launcherentry/";
-    copy_bytes(path, base, sizeof(base) - 1);
-    const u32 length = sizeof(base) - 1;
-    path[length + decimal_write(path + length, hash)] = 0;
-}
-
 bool send(Connection* c) noexcept {
-    char uri[192];
-    const char scheme[] = "application://";
-    copy_bytes(uri, scheme, sizeof(scheme) - 1);
-    copy_bytes(uri + sizeof(scheme) - 1, g.desktop_id, c_string_length(g.desktop_id) + 1);
     char path[64];
-    entry_path(g.desktop_id, path);
+    copy_bytes(path, kPathBase, sizeof(kPathBase) - 1);
+    path[sizeof(kPathBase) - 1 + decimal_write(path + sizeof(kPathBase) - 1, entry_hash())] = 0;
     Builder body;
     builder_init(&body);
-    builder_string(&body, uri);
+    builder_string(&body, kDesktopUri);
     builder_open_array(&body, "{sv}");
     builder_open_dict_entry(&body, "count", "x");
     builder_i64(&body, g.state.count);
@@ -56,11 +53,8 @@ void on_session(Connection* c) noexcept {
 
 } // namespace
 
-bool launcher_entry_update(const char* desktop_id, const LauncherEntryState& state) noexcept {
-    if (!desktop_id || c_string_length(desktop_id) >= sizeof(g.desktop_id) - 20)
-        return false;
+bool launcher_entry_update(const LauncherEntryState& state) noexcept {
     g.known = true;
-    copy_bytes(g.desktop_id, desktop_id, c_string_length(desktop_id) + 1);
     g.state = state;
     if (!g.hook_added) {
         g.hook_added = true;

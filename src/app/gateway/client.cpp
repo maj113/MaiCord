@@ -16,14 +16,6 @@ bool gateway_user_client_configuration_validate(
     return written.ok();
 }
 
-namespace {
-
-#if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
-GatewaySelfStatusTestSubmit self_status_test_submit;
-#endif
-
-} // namespace
-
 GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProfile* profile,
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
@@ -316,12 +308,7 @@ RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime
                                          request_id,
                                          kRestClientDefaultTimeoutMs,
                                          update};
-#if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
-    const auto submitted = self_status_test_submit ? self_status_test_submit(rest_request)
-                                                   : rest_client_submit(rest, rest_request);
-#else
     const auto submitted = rest_client_submit(rest, rest_request);
-#endif
     if (submitted.ok()) {
         auto& owner = runtime->self_status;
         owner.request_id = request_id;
@@ -526,69 +513,6 @@ RestClientSubmitResult gateway_client_activity_sharing_submit(GatewayClient* cli
         },
         &share);
 }
-
-#if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
-bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 self,
-                                     GatewaySelfStatusTestSubmit submit) noexcept {
-    if (client->runtime || !profile || !self || !submit)
-        return false;
-    auto* runtime = static_cast<GatewayClientRuntime*>(
-        commit_pages(kGatewayUserClientRuntimeBytes));
-    if (!runtime)
-        return false;
-    client->runtime = runtime;
-    runtime->user =
-        reinterpret_cast<GatewayUserRuntime*>(reinterpret_cast<u8*>(runtime) + kGatewayUserRuntimeOffset);
-    runtime->user->metadata.profile_id = profile;
-    runtime->session.lifecycle.phase = GatewayLifecyclePhase::ready;
-    runtime->self_user_id = self;
-    gateway_self_status_initialize(&runtime->self_status, profile,
-                                   {0, GatewayUserStatus::online, false, false});
-    gateway_self_status_bind(&runtime->self_status, self);
-    client->phase = static_cast<LONG>(GatewayClientPhase::ready);
-    self_status_test_submit = submit;
-    return true;
-}
-bool gateway_self_status_test_observe(GatewayClient* client, Utf8View dispatch) noexcept {
-    if (!client->runtime)
-        return false;
-    return self_settings_dispatch(client, static_cast<GatewayClientRuntime*>(client->runtime), dispatch);
-}
-
-void gateway_self_status_test_ready(GatewayClient* client, bool ready) noexcept {
-    if (!client->runtime)
-        return;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    AcquireSRWLockExclusive(&runtime->subscription_lock);
-    gateway_self_status_reset_connection(&runtime->self_status);
-    runtime->session.lifecycle.phase =
-        ready ? GatewayLifecyclePhase::ready : GatewayLifecyclePhase::awaiting_hello;
-    client->phase =
-        static_cast<LONG>(ready ? GatewayClientPhase::ready : GatewayClientPhase::reconnect_wait);
-    ReleaseSRWLockExclusive(&runtime->subscription_lock);
-}
-u32 gateway_self_status_test_group_bytes(const GatewayClient* client) noexcept {
-    return client->runtime ? static_cast<const GatewayClientRuntime*>(client->runtime)->self_status_group_bytes : 0;
-}
-u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
-    if (!client->runtime)
-        return 0;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    u32 wiped = 0;
-    if (runtime->self_status_group) {
-        SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
-        for (u32 i = 0; i < kSelfStatusSettingsMaximumGroupBytes; ++i)
-            if (!runtime->self_status_group[i])
-                ++wiped;
-        pages_release(runtime->self_status_group);
-    }
-    SecureZeroMemory(runtime, kGatewayUserClientRuntimeBytes);
-    pages_release(runtime);
-    reset_value(client);
-    self_status_test_submit = nullptr;
-    return wiped;
-}
-#endif
 
 bool gateway_client_request_voice_state(GatewayClient* client,
                                         const GatewayVoiceStateUpdate& state) noexcept {

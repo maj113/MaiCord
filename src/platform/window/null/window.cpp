@@ -271,7 +271,7 @@ bool window_focus(Window) noexcept {
     return g.probe.focused;
 }
 
-u8 window_modifiers(Window) noexcept {
+u8 window_modifiers() noexcept {
     u32 modifiers = 0;
     if (key_state(g.keys_down, key::ctrl))
         modifiers |= mod_ctrl;
@@ -290,15 +290,15 @@ u8 window_modifiers(Window) noexcept {
     return static_cast<u8>(modifiers);
 }
 
-bool window_key_down(Window, Key key_code) noexcept {
+bool window_key_down(Key key_code) noexcept {
     return key_state(g.keys_down, key_code);
 }
 
-bool window_toggle_state(Window, Key key_code) noexcept {
+bool window_toggle_state(Key key_code) noexcept {
     return key_state(g.toggles, key_code);
 }
 
-bool window_layout_types_text(Window, Key, u8) noexcept {
+bool window_layout_types_text(Key, u8) noexcept {
     return false;
 }
 

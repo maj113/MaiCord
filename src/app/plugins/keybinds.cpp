@@ -60,7 +60,7 @@ bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated
     const auto focus = application_shortcut_context().focus;
     const bool text_focus = focus == ShortcutFocus::text || focus == ShortcutFocus::composer;
     if (text_focus && (pressed.modifiers & (shortcut_ctrl | shortcut_alt)) == (shortcut_ctrl | shortcut_alt) &&
-        window_layout_types_text(nullptr, pressed.key, pressed.modifiers))
+        window_layout_types_text(pressed.key, pressed.modifiers))
         return false;
     return plugin_dispatch_keybind(pressed.key | (pressed.modifiers & shortcut_ctrl ? kPluginKeyControl : 0) |
                                    (pressed.modifiers & shortcut_shift ? kPluginKeyShift : 0) |

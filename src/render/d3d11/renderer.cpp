@@ -468,7 +468,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
 }
 
 bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
-                             const RendererLoginView& view, const Theme& theme) noexcept {
+                             const LoginView& view, const Theme& theme) noexcept {
     if (!renderer->glyph_text.ready || !login_view_valid(view)) {
         return false;
     }
@@ -480,7 +480,7 @@ bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
         renderer->login_qr_ready = false;
         renderer->login_caret_visible = false;
         renderer->login_composition_metric_count = 0;
-        renderer->login_status = RendererLoginStatus::idle;
+        renderer->login_status = LoginStatus::idle;
         shaped_text_reset(&renderer->glyph_text.title);
         return d3d11_glyph_text_rebuild_title(&renderer->glyph_text, renderer->graphics.context,
                                               renderer->dpi, false);

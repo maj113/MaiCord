@@ -176,7 +176,7 @@ const char* layout_of(const char* line, u32* revision) noexcept {
 
 void test_tray() noexcept {
     clear_log();
-    check(tray_start("maicord", on_tray, nullptr), "the tray item starts on the bus");
+    check(tray_start(on_tray, nullptr), "the tray item starts on the bus");
     tray_update(tray_state(kMenu, 4, false, "3 unread"));
     settle(300);
     check(!tray_available(), "without a watcher nothing is registered, and nothing fails");
@@ -311,7 +311,7 @@ void test_tray() noexcept {
 }
 
 void test_tray_bare() noexcept {
-    check(tray_start("maicord", on_tray, nullptr), "the tray starts on a bus with no watcher");
+    check(tray_start(on_tray, nullptr), "the tray starts on a bus with no watcher");
     tray_update(tray_state(kMenu, 4, false, "x"));
     settle(300);
     check(!tray_available(), "no watcher: unavailable, silently");
@@ -602,27 +602,26 @@ void test_file_chooser_bare() noexcept {
 
 void test_launcher_entry() noexcept {
     clear_log();
-    check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{7, true, false}), "an update is sent");
+    check(launcher_entry_update(LauncherEntryState{7, true, false}), "an update is sent");
     settle(150);
     take_log();
     const char* line = find_line("LauncherEntry");
-    check(line && contains(line, "s:application://io.github.maj113.MaiCord.desktop {s:count-visible=v(b:1),s:count=v(x:7),s:urgent=v(b:0)} /com/canonical/unity/launcherentry/"),
+    check(line && contains(line, "s:application://io.github.maj113.MaiCord.desktop {s:count-visible=v(b:1),s:count=v(x:7),s:urgent=v(b:0)} /com/canonical/unity/launcherentry/1142860250"),
           "the Update signal: the application URI, count, visibility and urgency as libdbus decoded them");
     if (!line)
         dump_log();
     clear_log();
-    check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{12345678901ll, true, true}), "a large count, urgent");
+    check(launcher_entry_update(LauncherEntryState{12345678901ll, true, true}), "a large count, urgent");
     settle(150);
     take_log();
     line = find_line("LauncherEntry");
     check(line && contains(line, "s:count-visible=v(b:1),s:count=v(x:12345678901),s:urgent=v(b:1)"), "64-bit counts and the urgent flag");
     clear_log();
-    check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{}), "cleared");
+    check(launcher_entry_update(LauncherEntryState{}), "cleared");
     settle(150);
     take_log();
     line = find_line("LauncherEntry");
     check(line && contains(line, "s:count-visible=v(b:0),s:count=v(x:0),s:urgent=v(b:0)"), "the badge is hidden again");
-    check(!launcher_entry_update(nullptr, LauncherEntryState{}), "no desktop id is refused");
 }
 
 // Single instance --------------------------------------------------------------------------------------------------------------
@@ -929,7 +928,7 @@ MAICORD_TEST_ENTRY(maicord_dbus_desktop_entry) {
         test_shortcuts_bare();
         test_file_chooser_bare();
         test_screen_color(true);
-        check(launcher_entry_update("io.github.maj113.MaiCord.desktop", LauncherEntryState{1, true, false}), "the launcher entry is sent on any bus");
+        check(launcher_entry_update(LauncherEntryState{1, true, false}), "the launcher entry is sent on any bus");
         test_exit(g_failures, "dbus_desktop_bare");
     }
     g_control = connection_open_address(environment_get("MAICORD_DBUS_TEST_ADDRESS"));

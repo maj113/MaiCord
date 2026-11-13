@@ -768,7 +768,7 @@ bool application_attachment_strip_key(u32 key) noexcept {
     auto& scene = g_app.message_composer_scene;
     const auto tiles = message_composer_scene_attachment_tiles(scene);
     if (!state || !tiles.count) return false;
-    const bool control = window_key_down(nullptr, key::ctrl) && !window_key_down(nullptr, key::alt);
+    const bool control = window_key_down(key::ctrl) && !window_key_down(key::alt);
     u32 index = message_composer_scene_attachment_selected(scene);
     const bool selected = index < tiles.count;
     if (!selected) index = 0;

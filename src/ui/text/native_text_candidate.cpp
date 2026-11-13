@@ -282,7 +282,7 @@ NativeTextFontQuery font_query(const NativeTextContext& owner,const NativeFormat
 }
 bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,NativeRunPlanHandle* output,NativeFontRunHandle* font,u32* key,const NativeTextFontRange* face=nullptr) noexcept {
     NativeFontInstanceHandle instance{};NativeFontSelection source{};const auto query=font_query(owner,format,font_flags);u32 candidate=0xffffffffu,simulations=0,scope=query.scope;bool missing_family=false;
-    if(face){candidate=face->match.candidate;simulations=face->match.simulations;scope=face->scope;if(!native_text_catalog_select_face(&owner.catalogs,scope,candidate,simulations,owner.fonts,&owner.scratch,&instance,&source))return false;}
+    if(face){candidate=face->match.index;simulations=face->match.simulations;scope=face->scope;if(!native_text_catalog_select_face(&owner.catalogs,scope,candidate,simulations,owner.fonts,&owner.scratch,&instance,&source))return false;}
     else if(!native_text_catalog_select_query(&owner.catalogs,query,owner.fonts,&owner.scratch,&instance,&source,&candidate,&simulations,&scope,&missing_family))return false;
     struct Release {NativeFontInstanceStore* store;NativeFontInstanceHandle instance;~Release() noexcept {native_font_instance_release(store,instance);}} release{owner.store.instances,instance};
     if(scope>=32||candidate>0x1fffffu||simulations>3)return false;*key=(simulations<<26)|(scope<<21)|candidate|(missing_family?binding_missing_family:0);
@@ -317,8 +317,8 @@ Binding* binding(NativeTextContext& owner,const NativeFormat* format,u32 font_fl
     return &slot;
 }
 Binding* binding_face(NativeTextContext& owner,const NativeFormat* format,u32 flags,const NativeTextFontRange& face) noexcept {
-    if(face.match.candidate>0x1fffffu||face.scope>=32||face.match.simulations>3)return nullptr;
-    const u32 key=(face.match.simulations<<26)|(face.scope<<21)|face.match.candidate;
+    if(face.match.index>0x1fffffu||face.scope>=32||face.match.simulations>3)return nullptr;
+    const u32 key=(face.match.simulations<<26)|(face.scope<<21)|face.match.index;
     // An explicit fallback face is independent of the requesting family.
     // Default bindings retain family identity for nominal-layout policy.
     for(u32 i=0;i<owner.binding_count;++i){auto& slot=owner.bindings[i];if((slot.key&binding_face_mask)==key&&slot.font_flags==flags&&

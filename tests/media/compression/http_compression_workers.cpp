@@ -3,6 +3,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/app/account/user_account_coordinator.hpp"
 #include "../../support/rest_wait_response.hpp"
+#include "../../support/rest_client_public.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {

@@ -20,8 +20,8 @@ struct LauncherEntryState {
     bool urgent;
 };
 
-// Sends the state for the desktop entry `desktop_id` ("io.github.maj113.MaiCord.desktop"). False without a session bus.
-// The state is remembered and sent again after a bus reconnect.
-bool launcher_entry_update(const char* desktop_id, const LauncherEntryState& state) noexcept;
+// Sends the state for the desktop entry io.github.maj113.MaiCord.desktop. False without a session bus. The state is
+// remembered and sent again after a bus reconnect.
+bool launcher_entry_update(const LauncherEntryState& state) noexcept;
 
 } // namespace maicord::dbus

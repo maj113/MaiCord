@@ -1,6 +1,7 @@
 // wl_pointer to WindowEvents: motion, buttons with the double-click synthesiser, wheel, capture bookkeeping and the
 // cursor (wp_cursor_shape, with an XCursor wl_shm fallback).
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -287,12 +288,7 @@ void choose_cursor_theme(char (&name)[64], u32* size) noexcept {
     const char* theme = environment_get("XCURSOR_THEME");
     if (!theme || !*theme)
         theme = desktop.cursor_theme;
-    u32 length = 0;
-    while (theme[length] && length < sizeof(name) - 1) {
-        name[length] = theme[length];
-        ++length;
-    }
-    name[length] = 0;
+    c_string_copy(name, sizeof(name), theme);
     *size = parse_unsigned(environment_get("XCURSOR_SIZE"));
     if (*size == 0)
         *size = desktop.cursor_size;
