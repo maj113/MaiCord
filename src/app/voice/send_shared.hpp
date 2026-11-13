@@ -19,6 +19,5 @@ struct VoiceSendShared {
     VoiceTransmitter transmitter;
     u64 wake_us;
     i16 frame[kVoiceFrameSamples];
-    OpusScratch scratch; // Capture thread's encode scratch.
 };
 } // namespace maicord

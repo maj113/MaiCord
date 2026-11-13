@@ -520,7 +520,7 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
         maicord_account_host maicord_account_paths maicord_account_media maicord_message_media
         maicord_ui_input maicord_text maicord_render_core maicord_model kernel32 user32 bcrypt crypt32 ws2_32
         maicord_sspicli ole32 ntdll
-    INCLUDES src/app third_party/opus/include "${MAICORD_GENERATED_DIRECTORY}"
+    INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}"
     DEFINES "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     USES_CLIENT MaiCord)
 # The same 164 fixtures run once across four private process/profile owners.
@@ -3235,18 +3235,20 @@ maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_referen
 maicord_test(MaiCordMediaGpuReferenceTests ONLY WINDOWS ENTRY maicord_media_gpu_reference_tests_entry
     SOURCES tests/media/image/media_gpu_reference.cpp
     BUNDLE MaiCordGpuUnitTests TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_media_gpu_reference)
-maicord_test(MaiCordOpusEncoderTests ONLY WINDOWS ENTRY maicord_opus_encoder_tests_entry
+# The encoder through the decoder: pinned packets, range check, rates, fidelity, stereo image, FEC, and both
+# directions on a 64 KB thread stack.
+maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry
     SOURCES tests/media/audio/opus_encoder.cpp
-    LIBS maicord_voice_encoder maicord_opus_encoder
-    INCLUDES tests third_party/opus/include
+    LIBS maicord_voice_encoder
+    INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_encoder)
-# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range- and
-# bit-exact; the official test vectors run opt-in (tools/opus_conformance.ps1).
+# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range-exact with pinned PCM; the official
+# test vectors run opt-in (tools/opus_conformance.ps1).
 maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tests_entry
     SOURCES tests/media/audio/opus_decoder_vectors.cpp
-    LIBS maicord_opus_decoder
-    INCLUDES tests third_party/opus/include
+    LIBS maicord_media_codec
+    INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_decoder_vectors)
 # Voice messages: the Ogg Opus writer, recorder, waveform, upload/message
@@ -3254,7 +3256,7 @@ maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tes
 maicord_test(MaiCordVoiceMessageTests ONLY WINDOWS ENTRY maicord_voice_message_tests_entry
     SOURCES tests/app/voice/voice_message.cpp
     LIBS maicord_app_core maicord_message_runtime maicord_model maicord_protocol maicord_platform
-        maicord_voice_encoder maicord_opus_encoder maicord_opus_decoder ole32 user32
+        maicord_voice_encoder ole32 user32
     INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_voice_message)

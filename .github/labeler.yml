@@ -7,7 +7,7 @@
       - any-glob-to-any-file: ["src/app/voice/**", "include/maicord/app/voice/**", "src/ui/voice/**", "src/protocol/voice/**"]
 "area: media":
   - changed-files:
-      - any-glob-to-any-file: ["src/media/**", "src/app/media/**", "include/maicord/app/media/**", "src/platform/decode/**", "src/render/media/**", "third_party/opus/**"]
+      - any-glob-to-any-file: ["src/media/**", "src/app/media/**", "include/maicord/app/media/**", "src/platform/decode/**", "src/render/media/**"]
 "area: servers":
   - changed-files:
       - any-glob-to-any-file: ["src/app/guild/**", "include/maicord/app/guild/**", "src/ui/guild/**", "src/model/guild/**", "src/protocol/guild/**"]

@@ -50,7 +50,7 @@ constexpr u32 voice_message_duration_ms(u64 samples) noexcept {
 enum class VoiceMessageRecorderError : u8 { none, invalid_input, invalid_state, memory, encoder, capacity };
 struct VoiceMessageRecorder {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
-    OpusEncoder encoder;
+    OpusEncoder* encoder; // At the start of the block.
     OggOpusWriter writer;
     u8* block;
     u32 block_bytes;
@@ -68,8 +68,8 @@ struct VoiceMessageRecorder {
     bool finished;
     VoiceMessageRecorderError error;
 };
-// Reserves and commits the block, configures the encoder (VOIP, CBR, no FEC)
-// and writes the Ogg headers. gain_percent follows the input volume (0..200).
+// Reserves and commits the block, starts the encoder (32 kbit/s, no FEC) and
+// writes the Ogg headers. gain_percent follows the input volume (0..200).
 VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder*, u32 serial, u32 gain_percent) noexcept;
 // Captured 48 kHz mono PCM. Stops accepting at the maximum duration and sets
 // limit_reached; later input is ignored without error.

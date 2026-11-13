@@ -12,8 +12,6 @@
 
 namespace maicord {
 namespace {
-constexpr usize kEncoderOffset = (sizeof(VoiceSendShared) + 63) & ~usize{63};
-
 bool key_down(VoiceSendShared& s, u8 key) noexcept {
     if (!key)
         return false;
@@ -65,12 +63,8 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         packet.frame = index;
         packet.action = action;
         packet.bytes = 0;
-        if (action == VoiceTransmitAction::start || action == VoiceTransmitAction::voice) {
-            const auto encoded = opus_encoder_encode(&s.encoder, {s.frame, kVoiceFrameSamples},
-                                                     {packet.opus, kOpusEncoderMaximumPacketBytes}, &s.scratch);
-            if (encoded.ok() && encoded.bytes)
-                packet.bytes = static_cast<u16>(encoded.bytes);
-        }
+        if (action == VoiceTransmitAction::start || action == VoiceTransmitAction::voice)
+            packet.bytes = static_cast<u16>(opus_encode(&s.encoder, s.frame, packet.opus));
         if (!packet.bytes) {
             copy_bytes(packet.opus, kVoiceSilenceFrame, sizeof(kVoiceSilenceFrame));
             packet.bytes = sizeof(kVoiceSilenceFrame);
@@ -94,13 +88,18 @@ void stop_capture(VoiceSend& send) noexcept {
         return;
     voice_send_close(&send);
 }
+u64 tick(void* context, u64 now_us) noexcept {
+    auto& send = *static_cast<VoiceSend*>(context);
+    process(send, now_us);
+    return send.shared->wake_us;
+}
 bool start_capture(VoiceSend& send) noexcept {
     if (!send.shared && !voice_send_open(&send))
         return false;
     copy_bytes(send.capture_device, send.applied.input_device, sizeof(send.capture_device));
     send.capture_processing = send.applied.voice_processing;
-    if (!voice_audio_capture_start(&send.capture, send.capture_device, send.capture_processing, voice_send_push,
-                                   voice_send_tick, &send)) {
+    if (!voice_audio_capture_start(&send.capture, send.capture_device, send.capture_processing, voice_send_push, tick,
+                                   &send)) {
         voice_send_close(&send);
         return false;
     }
@@ -128,18 +127,10 @@ VoiceSocketSend connection_speaking(void* context, u32 flags) noexcept {
 bool voice_send_open(VoiceSend* send) noexcept {
     if (send->shared)
         return false;
-    const u32 encoder_bytes = opus_encoder_storage_bytes(1);
-    if (!encoder_bytes)
+    auto* shared = static_cast<VoiceSendShared*>(commit_pages(sizeof(VoiceSendShared)));
+    if (!shared)
         return false;
-    auto* block = static_cast<u8*>(
-        commit_pages(kEncoderOffset + encoder_bytes));
-    if (!block)
-        return false;
-    auto* shared = reinterpret_cast<VoiceSendShared*>(block);
-    if (!opus_encoder_initialize(&shared->encoder, {block + kEncoderOffset, encoder_bytes}, 1).ok()) {
-        pages_release(block);
-        return false;
-    }
+    opus_encoder_start(&shared->encoder, {}); // mono, the profile's defaults
     send->shared = shared;
     return true;
 }
@@ -147,7 +138,6 @@ bool voice_send_open(VoiceSend* send) noexcept {
 void voice_send_close(VoiceSend* send) noexcept {
     if (!send || !send->shared)
         return;
-    opus_encoder_release(&send->shared->encoder);
     pages_release(send->shared);
     send->shared = nullptr;
     InterlockedExchange(&send->cells.level, 0);
@@ -167,12 +157,6 @@ void voice_send_push(void* context, ConstSlice<i16> mono, u64 now_us) noexcept {
     auto& send = *static_cast<VoiceSend*>(context);
     voice_framer_push(&send.shared->framer, mono);
     process(send, now_us);
-}
-
-u64 voice_send_tick(void* context, u64 now_us) noexcept {
-    auto& send = *static_cast<VoiceSend*>(context);
-    process(send, now_us);
-    return send.shared->wake_us;
 }
 
 void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) noexcept {

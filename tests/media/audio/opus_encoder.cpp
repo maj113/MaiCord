@@ -1,35 +1,39 @@
 #include "../../support/test_output.hpp"
-#include "maicord/media/audio/opus_encoder.hpp"
-#include "maicord/media/audio/opus_decoder.hpp"
 #include "../../fixtures/opus_voice_signal.hpp"
-#include "maicord/core/win32_kernel.hpp"
-#include <opus.h>
+#include "maicord/media/audio/opus_decoder.hpp"
+#include "maicord/media/audio/opus_encoder.hpp"
+#include "maicord/os/thread.hpp"
 
+// The encoder through the decoder: every packet must decode to 20 ms and leave the decoder's range coder
+// where the encoder's ended (the format's own check that both read the same symbols), rates must follow the
+// profile, the decoded audio must resemble the input, and the packets are pinned, so that both systems code
+// the same bytes.
 namespace maicord {
 namespace {
-using Check = void (*)(bool, const char*) noexcept;
+u32 failures;
+void check(bool passed, const char* message) noexcept {
+    test_check(&failures, passed, message);
+}
 constexpr u32 kFrame = kOpusEncoderFrameSamples, kMaximumFrames = 50;
+// signal: 0 speech, 1 tones, 2 speech then digital silence, 3 two high tones mostly on the left, 4 digital
+// silence.
 struct Scenario {
-    u32 channels, bitrate, complexity, fec, loss, signal, frames, bitrate2, complexity2;
-    // FNV-1a of the packets, and of the decoder's final range after each packet (little-endian 32-bit), which equals
-    // the encoder's for a conformant bitstream. Scenarios 1-3 were pinned from unmodified upstream 1.6.1 (its own CMake,
-    // fixed point; SIMD and scalar agree); the others, MaiCord's settings, from the encoder before its reduction to
-    // full-band hybrid, which they equal.
+    u32 channels, bitrate, complexity, loss, signal, frames;
+    // FNV-1a of the packets (with their lengths), and of the range coder's final state after each packet.
     u64 digest, ranges;
 };
-// signal: 0 speech, 1 tones, 2 speech then digital silence. Half-way changes apply bitrate2/complexity2.
 constexpr Scenario kScenarios[]{
-    {2, 64000, 10, 1, 5, 0, 25, 0, 0, 0x7d2175e8c525c94full, 0x2fe65413dcfaae09ull},
-    {1, 16000, 2, 0, 0, 2, 50, 0, 0, 0x90257e0b9d439e71ull, 0x075f8a24294bc53eull},
-    {2, 128000, 8, 1, 20, 1, 25, 0, 0, 0x9ccfd7e830b5ebfbull, 0x98a61a934c5ec221ull},
-    {1, 40000, 7, 1, 10, 0, 50, 64000, 3, 0x4b4d0614ce9b5b54ull, 0x46a2f575051c0373ull},
-    {1, 64000, 7, 1, 10, 0, 50, 0, 0, 0x6356a098b7b241f7ull, 0x2ba18314bacaa7c1ull}, // voice send
-    {2, 128000, 7, 1, 10, 0, 50, 0, 0, 0xcdd1e74f6367e6fdull, 0x913dfaceaf6376cdull}, // Go Live
-    {1, 32000, 10, 0, 0, 0, 50, 0, 0, 0x39871ca962ec2b0dull, 0x4fcda627aae66cb4ull}, // voice message
-    {2, 32000, 10, 0, 0, 1, 25, 0, 0, 0x6d2e9dfeabee8736ull, 0x0266fe0beef7b743ull},
+    {2, 64000, 10, 5, 0, 25, 0xaa7f46872d3cd10full, 0x69c2e66ca33e629eull},
+    {1, 16000, 2, 0, 2, 50, 0xd77c8a441ace0d71ull, 0x56bc051107bc56a3ull},
+    {2, 128000, 8, 20, 1, 25, 0x2830c100c03f1c8dull, 0x0d7bff35e0445af6ull},
+    {1, 40000, 3, 10, 0, 50, 0x9150c4b20dc8dda8ull, 0xa7d9764d1e6d7407ull},
+    {1, 64000, 7, 10, 0, 50, 0xca0f880d5f0f1906ull, 0xedf1e9bd5015c561ull},  // voice send
+    {2, 128000, 7, 10, 0, 50, 0x652b46c7735fba7bull, 0x53b49e0720130aaaull}, // Go Live
+    {1, 32000, 10, 0, 0, 50, 0x7fd619d625705ca9ull, 0x080bcf2c0850cf55ull},  // voice message
+    {2, 32000, 10, 0, 1, 25, 0x4af09f3a0a5f9cceull, 0xc29702e5b253e991ull},
 };
-alignas(16) u8 encoder_storage[32768], decoder_storage[32768], saved[32768];
-OpusScratch scratch;
+OpusEncoder encoder;
+OpusDecoder decoder;
 i16 input[2 * kFrame * kMaximumFrames], output[2 * kFrame * kMaximumFrames + 2];
 u8 packets[kMaximumFrames][kOpusEncoderMaximumPacketBytes + 1];
 u32 sizes[kMaximumFrames];
@@ -39,67 +43,88 @@ void fill(const Scenario& s) noexcept {
     opus_voice_signal_initialize(&signal);
     u32 left_phase = 0, right_phase = 0;
     for (u32 i = 0; i < s.frames * kFrame; ++i) {
-        i16 left, right;
+        i16 left = 0, right = 0;
         if (s.signal == 1) {
             left = opus_voice_tone_sample(&signal, &left_phase, 1000, 10000);
             right = opus_voice_tone_sample(&signal, &right_phase, 660, 8000);
-        } else {
+        } else if (s.signal == 3) {
+            left = static_cast<i16>(opus_voice_tone_sample(&signal, &left_phase, 10000, 6000) +
+                                    opus_voice_tone_sample(&signal, &right_phase, 13000, 4000));
+            right = static_cast<i16>(left * 3 / 10);
+        } else if (s.signal != 4) {
             left = opus_voice_speech_sample(&signal);
-            if (s.signal == 2 && i >= s.frames * kFrame / 2) left = 0;
-            right = static_cast<i16>(left * 3 / 4 + opus_voice_tone_sample(&signal, &right_phase, 220, 2000));
+            if (s.signal == 2 && i >= s.frames * kFrame / 2)
+                left = 0;
+            right =
+                static_cast<i16>(left * 3 / 4 + opus_voice_tone_sample(&signal, &right_phase, 220, 2000));
         }
-        if (s.channels == 1) input[i] = left;
-        else input[2 * i] = left, input[2 * i + 1] = right;
+        if (s.channels == 1)
+            input[i] = left;
+        else
+            input[2 * i] = left, input[2 * i + 1] = right;
     }
 }
-bool configure(OpusEncoder* encoder, const Scenario& s) noexcept {
-    return opus_encoder_bitrate(encoder, s.bitrate).ok() && opus_encoder_complexity(encoder, s.complexity).ok() &&
-           opus_encoder_inband_fec(encoder, s.fec != 0).ok() && opus_encoder_packet_loss(encoder, s.loss).ok();
+OpusEncoderProfile profile_of(const Scenario& s) noexcept {
+    OpusEncoderProfile profile;
+    profile.bitrate = s.bitrate;
+    profile.channels = static_cast<u8>(s.channels);
+    profile.complexity = static_cast<u8>(s.complexity);
+    profile.loss_percent = static_cast<u8>(s.loss);
+    return profile;
 }
-// FNV-1a over little-endian 16-bit lengths and packet bytes.
-bool encode_all(OpusEncoder* encoder, const Scenario& s, u64* digest) noexcept {
-    u64 hash = 0xcbf29ce484222325ull;
-    for (u32 f = 0; f < s.frames; ++f) {
-        if (f == s.frames / 2 && s.bitrate2 &&
-            (!opus_encoder_bitrate(encoder, s.bitrate2).ok() || !opus_encoder_complexity(encoder, s.complexity2).ok()))
+u64 hash_bytes(u64 hash, const u8* bytes, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i)
+        hash = (hash ^ bytes[i]) * 0x100000001b3ull;
+    return hash;
+}
+u64 hash_value(u64 hash, u32 value, u32 bytes) noexcept {
+    for (u32 i = 0; i < bytes; ++i)
+        hash = (hash ^ ((value >> (8 * i)) & 0xff)) * 0x100000001b3ull;
+    return hash;
+}
+// Encodes the scenario from `input`. False when a packet leaves its bounds: 2 to 1275 bytes behind a hybrid
+// full-band 20 ms table-of-contents byte, and nothing written past them.
+bool encode_all(const OpusEncoderProfile& profile, u32 frames, u64* digest,
+                u64* ranges = nullptr) noexcept {
+    const u32 channels = profile.channels == 2 ? 2 : 1;
+    u64 hash = 0xcbf29ce484222325ull, range_hash = hash;
+    opus_encoder_start(&encoder, profile);
+    for (u32 f = 0; f < frames; ++f) {
+        packets[f][kOpusEncoderMaximumPacketBytes] = 0xa5;
+        const u32 bytes = opus_encode(&encoder, input + f * kFrame * channels, packets[f]);
+        if (bytes < 2 || bytes > kOpusEncoderMaximumPacketBytes ||
+            packets[f][kOpusEncoderMaximumPacketBytes] != 0xa5 ||
+            (packets[f][0] != 0x78 && (channels != 2 || packets[f][0] != 0x7c)))
             return false;
-        const auto encoded = opus_encoder_encode(encoder, {input + f * kFrame * s.channels, kFrame * s.channels},
-                                                 {packets[f], kOpusEncoderMaximumPacketBytes}, &scratch);
-        if (!encoded.ok()) return false;
-        sizes[f] = encoded.bytes;
-        const u8 length[2]{static_cast<u8>(encoded.bytes), static_cast<u8>(encoded.bytes >> 8)};
-        for (u8 byte : length) hash = (hash ^ byte) * 0x100000001b3ull;
-        for (u32 i = 0; i < encoded.bytes; ++i) hash = (hash ^ packets[f][i]) * 0x100000001b3ull;
+        sizes[f] = bytes;
+        hash = hash_bytes(hash_value(hash, bytes, 2), packets[f], bytes);
+        range_hash = hash_value(range_hash, opus_encoder_final_range(&encoder), 4);
     }
     *digest = hash;
+    if (ranges)
+        *ranges = range_hash;
     return true;
 }
-bool decoder_open(OpusDecoder* decoder, u32 channels) noexcept {
-    *decoder = {};
-    const u32 bytes = opus_decoder_storage_bytes(channels);
-    return bytes <= sizeof(decoder_storage) && opus_decoder_initialize(decoder, {decoder_storage, bytes}, channels).ok();
-}
-// Every packet decodes 20 ms; `ranges` receives FNV-1a over the decoder's final range after each packet, which
-// equals the encoder's for a conformant bitstream (the RFC 6716 range check).
+// Every packet decodes 20 ms into `output`; `ranges` hashes the decoder's final range after each packet.
 bool decode_all(u32 channels, u32 frames, u64* ranges = nullptr) noexcept {
-    OpusDecoder decoder;
-    if (!decoder_open(&decoder, channels)) return false;
     u64 hash = 0xcbf29ce484222325ull;
+    opus_decoder_start(&decoder, channels);
     for (u32 f = 0; f < frames; ++f) {
-        const auto decoded = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {output + f * kFrame * channels, kFrame * channels}, &scratch);
-        opus_uint32 range = 0;
-        ::opus_decoder_ctl(reinterpret_cast<::OpusDecoder*>(decoder_storage), OPUS_GET_FINAL_RANGE(&range));
-        if (!decoded.ok() || decoded.frames != kFrame) return false;
-        for (u32 i = 0; i < 4; ++i) hash = (hash ^ ((range >> (8 * i)) & 0xff)) * 0x100000001b3ull;
+        if (opus_decode(&decoder, {packets[f], sizes[f]},
+                        {output + f * kFrame * channels, kFrame * channels}) != kFrame)
+            return false;
+        hash = hash_value(hash, opus_decoder_final_range(&decoder), 4);
     }
-    opus_decoder_release(&decoder);
-    if (ranges) *ranges = hash;
+    if (ranges)
+        *ranges = hash;
     return true;
 }
 double decibels(double ratio) noexcept { // 10 log10(ratio), ratio > 0
     i32 exponent = 0;
-    while (ratio >= 2) ratio *= 0.5, ++exponent;
-    while (ratio < 1) ratio *= 2, --exponent;
+    while (ratio >= 2)
+        ratio *= 0.5, ++exponent;
+    while (ratio < 1)
+        ratio *= 2, --exponent;
     const double y = (ratio - 1) / (ratio + 1), y2 = y * y;
     const double ln = 2 * y * (1 + y2 * (1.0 / 3 + y2 * (1.0 / 5 + y2 * (1.0 / 7 + y2 / 9))));
     return 3.0102999566398120 * (exponent + ln * 1.4426950408889634);
@@ -112,243 +137,243 @@ double energy_ratio_db(const i16* reference, const i16* test, u32 samples) noexc
     }
     return decibels((signal + 1) / (noise + 1));
 }
-// Best-aligned SNR over frames [skip, frames - 1) against the codec's ~312-sample delay.
-struct Quality { double snr, segmental; u32 lag; };
+// Best-aligned SNR over frames [skip, frames - 1) around the codec's delay of kOpusEncoderLookahead
+// samples.
+struct Quality {
+    double snr, segmental;
+    u32 lag;
+};
 Quality quality(u32 channels, u32 frames, u32 skip) noexcept {
     Quality best{-1000, 0, 0};
     const u32 first = skip * kFrame, last = (frames - 1) * kFrame;
-    for (u32 lag = 280; lag <= 344; ++lag) {
-        const double snr = energy_ratio_db(input + first * channels, output + (first + lag) * channels, (last - first) * channels);
-        if (snr > best.snr) best = {snr, 0, lag};
+    for (u32 lag = kOpusEncoderLookahead - 32; lag <= kOpusEncoderLookahead + 32; ++lag) {
+        const double snr = energy_ratio_db(input + first * channels, output + (first + lag) * channels,
+                                           (last - first) * channels);
+        if (snr > best.snr)
+            best = {snr, 0, lag};
     }
     double sum = 0;
     u32 segments = 0;
     for (u32 f = skip; f + 1 < frames; ++f) {
-        const double value = energy_ratio_db(input + f * kFrame * channels, output + (f * kFrame + best.lag) * channels, kFrame * channels);
+        const double value = energy_ratio_db(
+            input + f * kFrame * channels, output + (f * kFrame + best.lag) * channels, kFrame * channels);
         sum += value < -10 ? -10 : value > 35 ? 35 : value;
         ++segments;
     }
     best.segmental = segments ? sum / segments : 0;
     return best;
 }
-constexpr Scenario kStackScenario{2, 24000, 10, 1, 20, 0, 8, 128000, 10, 0, 0}; // low then high bitrate
-DWORD WINAPI stack_worker(void* parameter) noexcept {
-    u64 digest = 0;
-    auto* encoder = static_cast<OpusEncoder*>(parameter);
-    return configure(encoder, kStackScenario) && encode_all(encoder, kStackScenario, &digest) ? 0 : 1;
+void write_hex(u64 value) noexcept {
+    char text[19]{'0', 'x'};
+    for (u32 i = 0; i < 16; ++i)
+        text[2 + i] = "0123456789abcdef"[(value >> (60 - 4 * i)) & 15];
+    test_write_text(text);
 }
-} // namespace
 
-void test_opus_encoder(Check check) noexcept {
-    check(!opus_encoder_storage_bytes(0) && !opus_encoder_storage_bytes(3) && opus_encoder_storage_bytes(1) &&
-              opus_encoder_storage_bytes(2) > opus_encoder_storage_bytes(1) && opus_encoder_storage_bytes(2) <= sizeof(encoder_storage),
-          "Opus encoder storage: native mono/stereo sizes fit caller storage; other channel counts refused");
-    OpusEncoder absent{};
-    check(opus_encoder_encode(&absent, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_state &&
-              opus_encoder_bitrate(&absent, 64000).error == OpusEncodeError::invalid_state &&
-              opus_encoder_bitrate(nullptr, 1).error == OpusEncodeError::invalid_state &&
-              opus_encoder_initialize(nullptr, {encoder_storage, sizeof(encoder_storage)}, 1).error == OpusEncodeError::invalid_input,
-          "Opus encoder lifecycle: inactive and null callers never reach the native encoder");
-    OpusEncoder encoder{};
-    const u32 mono = opus_encoder_storage_bytes(1);
-    check(opus_encoder_initialize(&encoder, {encoder_storage, mono - 1}, 1).error == OpusEncodeError::capacity &&
-              opus_encoder_initialize(&encoder, {encoder_storage + 1, mono}, 1).error == OpusEncodeError::invalid_input &&
-              opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 3).error == OpusEncodeError::invalid_input &&
-              !encoder.initialized && !encoder.state,
-          "Opus encoder admission: short, misaligned or unsupported storage leaves the handle inactive");
-    check(opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 1).ok() && encoder.state == encoder_storage &&
-              encoder.state_bytes == mono && encoder.channels == 1 &&
-              opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 1).error == OpusEncodeError::busy,
-          "Opus encoder lifecycle: caller storage binds once at 48 kHz VOIP");
-    auto* native = reinterpret_cast<::OpusEncoder*>(encoder_storage);
-    opus_int32 vbr = 0, application = 0;
-    check(::opus_encoder_ctl(native, OPUS_GET_VBR(&vbr)) == OPUS_UNIMPLEMENTED &&
-              ::opus_encoder_ctl(native, OPUS_GET_APPLICATION(&application)) == OPUS_UNIMPLEMENTED &&
-              ::opus_encoder_ctl(native, OPUS_SET_VBR(0)) == OPUS_UNIMPLEMENTED &&
-              ::opus_encoder_ctl(native, OPUS_SET_DTX(1)) == OPUS_UNIMPLEMENTED &&
-              ::opus_encoder_ctl(native, OPUS_SET_INBAND_FEC(2)) == OPUS_BAD_ARG &&
-              ::opus_encode(native, input, static_cast<int>(kFrame / 2), packets[0], kOpusEncoderMaximumPacketBytes, scratch.bytes) == OPUS_BAD_ARG &&
-              ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 24000, 1, OPUS_APPLICATION_VOIP) == OPUS_BAD_ARG &&
-              ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 48000, 1, OPUS_APPLICATION_AUDIO) == OPUS_BAD_ARG,
-          "Opus encoder profile: 48 kHz VOIP, VBR, no DTX and 20 ms frames are fixed; other settings are refused");
-    copy_bytes(saved, encoder_storage, mono);
-    check(opus_encoder_bitrate(&encoder, kOpusEncoderMinimumBitrate - 1).error == OpusEncodeError::invalid_input &&
-              opus_encoder_bitrate(&encoder, kOpusEncoderMaximumBitrate + 1).error == OpusEncodeError::invalid_input &&
-              opus_encoder_complexity(&encoder, kOpusEncoderMinimumComplexity - 1).error == OpusEncodeError::invalid_input &&
-              opus_encoder_complexity(&encoder, 11).error == OpusEncodeError::invalid_input &&
-              opus_encoder_packet_loss(&encoder, 101).error == OpusEncodeError::invalid_input &&
-              bytes_equal(saved, encoder_storage, mono),
-          "Opus encoder settings: out-of-range bitrate, complexity and loss are refused without state change");
-    for (u32 i = 0; i < kFrame * 2; ++i) input[i] = static_cast<i16>(i * 37);
-    for (auto& byte : packets[0]) byte = 0xa5;
-    check(opus_encoder_encode(&encoder, {input, kFrame - 1}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {nullptr, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes - 1}, &scratch).error == OpusEncodeError::capacity &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {reinterpret_cast<u8*>(input) + 2, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {reinterpret_cast<const i16*>(encoder_storage), kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {encoder_storage + 64, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              bytes_equal(saved, encoder_storage, mono) && packets[0][0] == 0xa5,
-          "Opus encoder preflight: frame size, capacity and aliasing are refused before native encoding");
-    check(opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, nullptr).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes},
-                                  reinterpret_cast<OpusScratch*>(encoder_storage)).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes},
-                                  reinterpret_cast<OpusScratch*>(input)).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {scratch.bytes + 64, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
-              bytes_equal(saved, encoder_storage, mono) && packets[0][0] == 0xa5,
-          "Opus encoder scratch: a missing scratch or one overlapping state, PCM or packet is refused");
-    const auto first = opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes + 1}, &scratch);
-    check(first.ok() && first.bytes > 2 && first.bytes <= kOpusEncoderMaximumPacketBytes &&
-              packets[0][kOpusEncoderMaximumPacketBytes] == 0xa5,
-          "Opus encoder bound: larger packet buffers are capped at the single-frame maximum");
-    opus_encoder_release(&encoder);
+// The heaviest paths of both directions on the smallest stack a thread of either client can have: stereo at
+// the highest complexity with redundant frames, first at a rate that codes mono, then at the highest; every
+// packet decoded, and a loss both recovered from the next packet and concealed. `passed` is a bool the
+// worker sets.
+u32 small_stack_worker(void* passed) noexcept {
+    static OpusDecoder lossy;
+    static i16 pcm[2 * kFrame];
+    const Scenario stack_scenarios[]{{2, 24000, 10, 20, 0, 8, 0, 0}, {2, 510000, 10, 20, 0, 8, 0, 0}};
+    for (const Scenario& s : stack_scenarios) {
+        u64 digest = 0;
+        if (!encode_all(profile_of(s), s.frames, &digest) || !decode_all(2, s.frames))
+            return 0;
+        opus_decoder_start(&lossy, 2);
+        for (u32 f = 0; f + 2 < s.frames; f += 2) {
+            if (opus_decode(&lossy, {packets[f], sizes[f]}, {pcm, 2 * kFrame}) != kFrame)
+                return 0;
+            // Frame f + 1 is lost: from frame f + 2's redundant copy when it has one, else concealed.
+            const ConstSlice<u8> next =
+                (f & 2) ? ConstSlice<u8>{packets[f + 2], sizes[f + 2]} : ConstSlice<u8>{};
+            if (opus_decode_lost(&lossy, next, kFrame, {pcm, 2 * kFrame}) != kFrame)
+                return 0;
+        }
+    }
+    *static_cast<bool*>(passed) = true;
+    return 0;
+}
 
-    // Defaults: an initialized encoder codes exactly as one given the default settings through the setters.
+void test_opus_encoder() noexcept {
+    // Profile values outside their ranges act as the nearest valid ones.
     {
-        const Scenario s{1, kOpusEncoderDefaultBitrate, kOpusEncoderDefaultComplexity, 1, kOpusEncoderDefaultPacketLossPercent,
-                         0, 10, 0, 0, 0, 0};
+        const Scenario s{1, 64000, 7, 10, 0, 6, 0, 0};
         fill(s);
-        u64 implicit = 0, configured = 1;
-        encoder = {};
-        bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 1).ok() &&
-                  encode_all(&encoder, s, &implicit);
-        opus_encoder_release(&encoder);
-        ok = ok && opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 1).ok() &&
-             configure(&encoder, s) && encode_all(&encoder, s, &configured);
-        opus_encoder_release(&encoder);
-        check(ok && implicit == configured,
-              "Opus encoder defaults: initialization codes as 64 kbit/s, measured complexity and FEC with a loss hint");
+        const auto same = [&](OpusEncoderProfile odd, OpusEncoderProfile valid) noexcept {
+            u64 a = 0, b = 1;
+            return encode_all(odd, s.frames, &a) && encode_all(valid, s.frames, &b) && a == b;
+        };
+        OpusEncoderProfile low{1, 3, 0, 0}, low_valid{6000, 1, 1, 0};
+        OpusEncoderProfile high{4000000000u, 1, 200, 255}, high_valid{510000, 1, 10, 100};
+        u64 implicit = 0, written = 1;
+        check(same(low, low_valid) && same(high, high_valid),
+              "Opus encoder profile: bitrate, complexity, loss and channel count outside their ranges are "
+              "clamped");
+        check(
+            encode_all({}, s.frames, &implicit) && encode_all(profile_of(s), s.frames, &written) &&
+                implicit == written,
+            "Opus encoder profile: the defaults are mono, 64 kbit/s, complexity 7 and 10 % expected loss");
     }
 
-    // Pinned packets, then decodability and the range check of the same packets.
+    // Pinned packets; the decoder ends every one of them where the encoder did.
     for (const Scenario& s : kScenarios) {
         fill(s);
-        u64 digest = 0, ranges = 0;
-        encoder = {};
-        check(opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, s.channels).ok() &&
-                  configure(&encoder, s) && encode_all(&encoder, s, &digest) && digest == s.digest,
-              "Opus encoder pinned output: MaiCord profile packets equal the pinned digests");
-        check(decode_all(s.channels, s.frames, &ranges) && ranges == s.ranges,
-              "Opus encoder bitstream: every pinned packet decodes 20 ms and ends at the pinned final range");
-        opus_encoder_release(&encoder);
+        u64 digest = 0, ranges = 0, decoded_ranges = 1;
+        const bool encoded = encode_all(profile_of(s), s.frames, &digest, &ranges);
+        const bool decoded = encoded && decode_all(s.channels, s.frames, &decoded_ranges);
+        check(decoded && ranges == decoded_ranges,
+              "Opus encoder bitstream: every packet decodes 20 ms to the encoder's final range");
+        if (digest != s.digest || ranges != s.ranges) {
+            test_write_text("    {"), write_hex(digest), test_write_text("ull, "), write_hex(ranges),
+                test_write_line("ull}");
+        }
+        check(encoded && digest == s.digest && ranges == s.ranges,
+              "Opus encoder pinned output: the packets equal the pinned digests");
     }
 
     // Decodability and rate control across the supported bitrate range.
-    const u32 rates[]{kOpusEncoderMinimumBitrate, 12000, 24000, 40000, 64000, 128000, kOpusEncoderMaximumBitrate};
+    const u32 rates[]{6000, 12000, 24000, 40000, 64000, 128000, 510000};
     for (u32 channels = 1; channels <= 2; ++channels) {
-        Scenario s{channels, 0, kOpusEncoderDefaultComplexity, 1, 10, 0, 12, 0, 0, 0, 0};
+        Scenario s{channels, 0, 7, 10, 0, 12, 0, 0};
         fill(s);
         for (u32 rate : rates) {
             s.bitrate = rate;
             u64 digest = 0;
-            encoder = {};
-            bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, channels).ok() &&
-                      configure(&encoder, s) && encode_all(&encoder, s, &digest) && decode_all(channels, s.frames);
+            const bool ok = encode_all(profile_of(s), s.frames, &digest) && decode_all(channels, s.frames);
             u32 total = 0;
-            for (u32 f = 2; f < s.frames; ++f) total += sizes[f];
+            for (u32 f = 2; f < s.frames; ++f)
+                total += sizes[f];
             const u32 average = total * 8 * 50 / (s.frames - 2);
             check(ok && average <= rate + rate / 4 + 4000 && average >= (rate < 128000 ? rate / 3 : 24000),
-                  "Opus encoder rates: 6-510 kbit/s mono/stereo packets decode and track the requested bitrate");
-            opus_encoder_release(&encoder);
+                  "Opus encoder rates: 6-510 kbit/s mono and stereo packets decode and follow the "
+                  "requested bitrate");
         }
     }
 
-    // Waveform fidelity through the MaiCord decoder; measured 12.3/9.8, 12.0/10.8 and 34.7 dB.
-    struct Fidelity { Scenario scenario; double snr, segmental; const char* message; };
+    // Waveform fidelity through the decoder.
+    struct Fidelity {
+        Scenario scenario;
+        double snr, segmental;
+        const char* message;
+    };
     const Fidelity fidelity[]{
-        {{1, 32000, kOpusEncoderDefaultComplexity, 1, 10, 0, 50, 0, 0, 0, 0}, 9, 7,
+        {{1, 32000, 7, 10, 0, 50, 0, 0},
+         9,
+         7,
          "Opus encoder fidelity: mono speech at 32 kbit/s keeps SNR and segmental SNR"},
-        {{2, 64000, kOpusEncoderDefaultComplexity, 1, 10, 0, 25, 0, 0, 0, 0}, 9, 8,
+        {{2, 64000, 7, 10, 0, 25, 0, 0},
+         9,
+         8,
          "Opus encoder fidelity: stereo speech at 64 kbit/s keeps SNR and segmental SNR"},
-        {{1, 64000, kOpusEncoderDefaultComplexity, 0, 0, 1, 25, 0, 0, 0, 0}, 22, 22,
+        {{1, 64000, 7, 0, 1, 25, 0, 0},
+         22,
+         22,
          "Opus encoder fidelity: a 1 kHz tone at 64 kbit/s keeps SNR"},
     };
     for (const Fidelity& item : fidelity) {
         const Scenario& s = item.scenario;
         fill(s);
         u64 digest = 0;
-        encoder = {};
-        const bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, s.channels).ok() &&
-                        configure(&encoder, s) && encode_all(&encoder, s, &digest) && decode_all(s.channels, s.frames);
+        const bool ok = encode_all(profile_of(s), s.frames, &digest) && decode_all(s.channels, s.frames);
         const Quality measured = ok ? quality(s.channels, s.frames, 5) : Quality{};
         check(ok && measured.snr >= item.snr && measured.segmental >= item.segmental, item.message);
-        opus_encoder_release(&encoder);
     }
 
-    // In-band FEC: the next packet's LBRR copy restores a lost voiced frame (measured 18.6 dB, PLC -2.3 dB).
+    // The stereo image above 8 kHz, where the two channels are coded as mid and side: tones 10 dB louder on
+    // the left must come out louder on the left by as much (a side with the wrong sign would swap the
+    // channels).
     {
-        const Scenario s{1, 32000, kOpusEncoderDefaultComplexity, 1, 20, 0, 24, 0, 0, 0, 0};
+        const Scenario s{2, 256000, 7, 10, 3, 25, 0, 0};
         fill(s);
         u64 digest = 0;
-        encoder = {};
-        bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 1).ok() &&
-                  configure(&encoder, s) && encode_all(&encoder, s, &digest) && decode_all(1, s.frames);
-        u32 lbrr = 0;
-        for (u32 f = 2; f < s.frames; ++f) lbrr += ::opus_packet_has_lbrr(packets[f], static_cast<opus_int32>(sizes[f])) == 1;
+        const bool ok = encode_all(profile_of(s), s.frames, &digest) && decode_all(2, s.frames);
+        double left = 1, right = 1, left_in = 1, right_in = 1;
+        for (u32 i = 5 * kFrame; i < (s.frames - 1) * kFrame; ++i) {
+            left += static_cast<double>(output[2 * i]) * output[2 * i],
+                right += static_cast<double>(output[2 * i + 1]) * output[2 * i + 1];
+            left_in += static_cast<double>(input[2 * i]) * input[2 * i],
+                right_in += static_cast<double>(input[2 * i + 1]) * input[2 * i + 1];
+        }
+        const double balance = decibels(left / right), wanted = decibels(left_in / right_in),
+                     level = decibels(left / left_in);
+        check(ok && packets[10][0] == 0x7c && balance >= wanted - 2 && balance <= wanted + 2 &&
+                  level >= -3 && level <= 3,
+              "Opus encoder stereo: high tones keep their side and their level");
+    }
+
+    // Digital silence takes a fraction of the rate (there is no discontinuous transmission) and decodes to
+    // silence.
+    {
+        const Scenario s{1, 64000, 7, 10, 4, 25, 0, 0};
+        fill(s);
+        u64 digest = 0;
+        const bool ok = encode_all(profile_of(s), s.frames, &digest) && decode_all(1, s.frames);
+        u32 largest = 0;
+        i32 peak = 0;
+        for (u32 f = 5; f < s.frames; ++f)
+            largest = sizes[f] > largest ? sizes[f] : largest;
+        for (u32 i = 5 * kFrame; i < s.frames * kFrame; ++i)
+            peak = output[i] > peak ? output[i] : -output[i] > peak ? -output[i] : peak;
+        check(ok && largest <= 64 && peak <= 8,
+              "Opus encoder silence: silent input makes small packets that decode to silence");
+    }
+
+    // In-band FEC: the next packet's redundant copy restores a lost voiced frame far better than
+    // concealment.
+    {
+        const Scenario s{1, 32000, 7, 20, 0, 24, 0, 0};
+        fill(s);
+        u64 digest = 0;
+        bool ok = encode_all(profile_of(s), s.frames, &digest) && decode_all(1, s.frames);
+        u32 redundant = 0;
+        for (u32 f = 2; f < s.frames; ++f)
+            redundant += opus_packet_has_fec({packets[f], sizes[f]});
         constexpr u32 lost = 20;
-        i16 prefix[kFrame], recovered[kFrame], concealed[kFrame];
+        static i16 prefix[kFrame], recovered[kFrame], concealed[kFrame];
         for (u32 pass = 0; ok && pass < 2; ++pass) {
-            OpusDecoder decoder;
-            ok = decoder_open(&decoder, 1);
+            static OpusDecoder lossy;
+            opus_decoder_start(&lossy, 1);
             for (u32 f = 0; ok && f < lost; ++f)
-                ok = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {prefix, kFrame}, &scratch).ok();
-            auto* state = reinterpret_cast<::OpusDecoder*>(decoder_storage);
-            i16* target = pass ? concealed : recovered;
-            const int frames = pass ? ::opus_decode(state, nullptr, 0, target, static_cast<int>(kFrame), 0, scratch.bytes)
-                                    : ::opus_decode(state, packets[lost + 1], static_cast<opus_int32>(sizes[lost + 1]), target,
-                                                    static_cast<int>(kFrame), 1, scratch.bytes);
-            ok = ok && frames == static_cast<int>(kFrame);
-            opus_decoder_release(&decoder);
+                ok = opus_decode(&lossy, {packets[f], sizes[f]}, {prefix, kFrame}) == kFrame;
+            const ConstSlice<u8> next =
+                pass ? ConstSlice<u8>{} : ConstSlice<u8>{packets[lost + 1], sizes[lost + 1]};
+            ok = ok &&
+                 opus_decode_lost(&lossy, next, kFrame, {pass ? concealed : recovered, kFrame}) == kFrame;
         }
         const double fec_db = energy_ratio_db(output + lost * kFrame, recovered, kFrame);
         const double plc_db = energy_ratio_db(output + lost * kFrame, concealed, kFrame);
-        check(ok && lbrr >= s.frames - 4 && fec_db >= 10 && fec_db >= plc_db + 10,
-              "Opus encoder FEC: LBRR in every warm packet recovers a lost frame above PLC");
-        opus_encoder_release(&encoder);
+        check(ok && redundant >= s.frames - 4 && fec_db >= 10 && fec_db >= plc_db + 10,
+              "Opus encoder FEC: every warm packet carries a redundant copy that recovers a lost frame "
+              "well above concealment");
+        OpusEncoderProfile no_loss = profile_of(s);
+        no_loss.loss_percent = 0;
+        redundant = 0;
+        ok = encode_all(no_loss, s.frames, &digest);
+        for (u32 f = 0; f < s.frames; ++f)
+            redundant += opus_packet_has_fec({packets[f], sizes[f]});
+        check(ok && !redundant, "Opus encoder FEC: no redundant copies when no loss is expected");
     }
 
+    // Neither direction needs caller scratch: the state is the struct and the rest fits a small thread's
+    // stack.
     {
-        encoder = {};
-        const bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok();
-        copy_bytes(saved, encoder_storage, encoder.state_bytes);
-        const u32 bytes = encoder.state_bytes;
-        opus_encoder_release(&encoder);
-        check(ok && !encoder.state && !encoder.initialized && bytes_equal(saved, encoder_storage, bytes) &&
-                  opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_state,
-              "Opus encoder release: detach clears only wrapper metadata");
-    }
-
-    // Scratch is caller memory, so the heaviest stereo complexity-10 paths fit
-    // the smallest thread stack Windows reserves (one 64 KB allocation unit).
-    {
-        fill(kStackScenario);
-        encoder = {};
-        DWORD code = 1;
-        HANDLE thread = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok()
-                            ? CreateThread(nullptr, 64u * 1024u, stack_worker, &encoder, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)
-                            : nullptr;
+        bool passed = false;
+        Thread* const thread = thread_start(small_stack_worker, &passed, 64u * 1024u, nullptr);
         if (thread) {
-            WaitForSingleObject(thread, INFINITE);
-            GetExitCodeThread(thread, &code);
-            CloseHandle(thread);
+            thread_wait(thread, INFINITE);
+            thread_close(thread);
         }
-        check(code == 0, "Opus encoder stack: stereo complexity 10 encodes on a 64 KB thread stack");
-        opus_encoder_release(&encoder);
+        check(passed, "Opus stack: stereo complexity 10 encoding, decoding, FEC recovery and concealment "
+                      "run on a 64 KB thread stack");
     }
-    opus_encoder_release(nullptr);
-}
-} // namespace maicord
-
-namespace maicord {
-namespace opus_encoder_entry {
-u32 failures;
-void check(bool passed, const char* message) noexcept {
-    test_check(&failures, passed, message);
 }
 } // namespace
 } // namespace maicord
-extern "C" __declspec(noreturn) void WINAPI maicord_opus_encoder_tests_entry() noexcept {
-    maicord::test_opus_encoder(maicord::opus_encoder_entry::check);
-    ExitProcess(maicord::opus_encoder_entry::failures ? 1 : 0);
+
+MAICORD_TEST_ENTRY(maicord_opus_encoder_tests_entry) {
+    maicord::test_opus_encoder();
+    ::maicord::test_process_exit(maicord::failures ? 1 : 0);
 }

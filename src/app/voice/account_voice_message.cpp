@@ -20,14 +20,6 @@ VoiceAudioCaptureStatus wasapi_status(void* self) noexcept {
     return voice_audio_capture_status(*static_cast<const VoiceAudioCapture*>(self));
 }
 constexpr VoiceMessageCaptureOps kWasapi{wasapi_start, wasapi_stop, wasapi_status};
-// The decoder state and then the preview thread's decode scratch follow the
-// preview in the same block.
-constexpr usize kPreviewStateOffset = (sizeof(VoiceMessagePreview) + kOpusDecoderStateAlignment - 1) &
-                                      ~usize{kOpusDecoderStateAlignment - 1};
-usize preview_scratch_offset(u32 state_bytes) noexcept {
-    return (kPreviewStateOffset + state_bytes + alignof(OpusScratch) - 1) & ~usize{alignof(OpusScratch) - 1};
-}
-
 u64 no_wake(void*, u64) noexcept {
     return 0;
 }
@@ -51,7 +43,6 @@ void rewind_preview(AccountVoiceMessage* v) noexcept {
 void free_preview(AccountVoiceMessage* v) noexcept {
     if (!v->preview_state)
         return;
-    opus_decoder_release(&v->preview_state->decoder);
     pages_release(v->preview_state);
     v->preview_state = nullptr;
 }
@@ -76,6 +67,13 @@ void fail(AccountVoiceMessage* v, VoiceMessageFailure failure, u32 native_error 
     v->native_error = native_error;
     ReleaseSRWLockExclusive(v->lock.native());
 }
+void sink(void* context, ConstSlice<i16> mono, u64) noexcept {
+    auto* v = static_cast<AccountVoiceMessage*>(context);
+    AcquireSRWLockExclusive(v->lock.native());
+    if (v->state == VoiceMessageState::recording && v->recorder.block)
+        voice_message_recorder_push(&v->recorder, mono);
+    ReleaseSRWLockExclusive(v->lock.native());
+}
 bool start(AccountVoiceMessage* v) noexcept {
     if (v->state == VoiceMessageState::recording || v->state == VoiceMessageState::finished)
         return false;
@@ -87,8 +85,7 @@ bool start(AccountVoiceMessage* v) noexcept {
         return true;
     }
     v->state = VoiceMessageState::recording;
-    v->capture_running = v->capture_ops->start(v->capture_self, v->input_device, v->processing,
-                                               account_voice_message_sink, no_wake, v);
+    v->capture_running = v->capture_ops->start(v->capture_self, v->input_device, v->processing, sink, no_wake, v);
     if (!v->capture_running)
         fail(v, VoiceMessageFailure::microphone);
     return true;
@@ -102,15 +99,12 @@ bool finish(AccountVoiceMessage* v) noexcept {
     bool preview = false;
     if (finished) {
         v->state = VoiceMessageState::finished;
-        const u32 state_bytes = opus_decoder_storage_bytes(1);
-        v->preview_state = static_cast<VoiceMessagePreview*>(
-            commit_pages(preview_scratch_offset(state_bytes) + sizeof(OpusScratch)));
+        v->preview_state = static_cast<VoiceMessagePreview*>(commit_pages(sizeof(VoiceMessagePreview)));
         auto* p = v->preview_state;
-        preview = p && state_bytes &&
-                  ogg_opus_demux_initialize(&p->demux, voice_message_recorder_stream(v->recorder), {}) ==
-                      OggOpusError::none &&
-                  opus_decoder_initialize(&p->decoder, {reinterpret_cast<u8*>(p) + kPreviewStateOffset, state_bytes}, 1)
-                      .ok();
+        preview = p && ogg_opus_demux_initialize(&p->demux, voice_message_recorder_stream(v->recorder), {}) ==
+                           OggOpusError::none;
+        if (preview)
+            opus_decoder_start(&p->decoder, 1);
         if (!preview)
             free_preview(v); // The recording still sends; it just cannot play.
         v->played_frames = 0;
@@ -143,13 +137,14 @@ bool decode_next(VoiceMessagePreview* p) noexcept {
         const auto packet = ogg_opus_demux_next(&p->demux, {});
         if (!packet.ok())
             return false;
-        auto* scratch = reinterpret_cast<OpusScratch*>(reinterpret_cast<u8*>(p) +
-                                                      preview_scratch_offset(p->decoder.state_bytes));
-        const auto decoded = opus_decoder_decode(&p->decoder, packet.bytes, {p->decoded, kOpusDecoderMaximumFrames},
-                                                 scratch);
-        if (!decoded.ok())
+        // A packet the decoder rejects is concealed like a lost one.
+        const Slice<i16> out{p->decoded, kOpusDecoderMaximumFrames};
+        u32 frames = opus_decode(&p->decoder, packet.bytes, out);
+        if (!frames)
+            frames = opus_decode_lost(&p->decoder, {}, packet.duration_frames, out);
+        if (!frames)
             return false;
-        const u32 end = decoded.frames > packet.trim_back_frames ? decoded.frames - packet.trim_back_frames : 0;
+        const u32 end = frames > packet.trim_back_frames ? frames - packet.trim_back_frames : 0;
         if (packet.trim_front_frames >= end)
             continue;
         p->decoded_offset = packet.trim_front_frames;
@@ -180,14 +175,6 @@ void account_voice_message_configure(AccountVoiceMessage* v, const VoiceAudioSet
     v->input_gain_percent = minimum<u16>(settings.input_gain_percent, 200);
     v->output_gain_percent = minimum<u16>(settings.output_gain_percent, 200);
     v->processing = settings.voice_processing;
-}
-
-void account_voice_message_sink(void* context, ConstSlice<i16> mono, u64) noexcept {
-    auto* v = static_cast<AccountVoiceMessage*>(context);
-    AcquireSRWLockExclusive(v->lock.native());
-    if (v->state == VoiceMessageState::recording && v->recorder.block)
-        voice_message_recorder_push(&v->recorder, mono);
-    ReleaseSRWLockExclusive(v->lock.native());
 }
 
 void account_voice_message_render(void* context, Slice<i16> pcm, u64) noexcept {

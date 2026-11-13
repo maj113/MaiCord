@@ -85,11 +85,10 @@ bool voice_send_speaking(const VoiceSend& send) noexcept;
 // Sends queued frames in order until the transport is busy.
 void voice_send_flush(VoiceSend* send, const VoiceSendTransport& transport) noexcept;
 
-// Test seam: the capture pipeline without WASAPI. start allocates the shared
-// block (encoder included); push/tick are the capture sink and tick.
+// Test seam: the capture pipeline without WASAPI. open allocates the shared
+// block (encoder included); push is the capture sink.
 bool voice_send_open(VoiceSend* send) noexcept;
 void voice_send_close(VoiceSend* send) noexcept;
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept;
 void voice_send_push(void* send, ConstSlice<i16> mono, u64 now_us) noexcept;
-u64 voice_send_tick(void* send, u64 now_us) noexcept;
 } // namespace maicord

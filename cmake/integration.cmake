@@ -30,6 +30,6 @@ maicord_program(MaiCordCdnClientProbe ENTRY maicord_cdn_client_probe_entry
 # against the SDK (MAICORD_SDK_INCLUDES) for bcrypt's SHA-256.
 maicord_program(MaiCordOpusConformance ENTRY maicord_opus_conformance_entry
     SOURCES tests/integration/opus_conformance.cpp
-    LIBS maicord_core maicord_media_codec maicord_opus_decoder kernel32 bcrypt
-    INCLUDES tests third_party/opus/include)
+    LIBS maicord_core maicord_media_codec kernel32 bcrypt
+    INCLUDES tests)
 set_target_properties(MaiCordOpusConformance PROPERTIES MAICORD_SDK_INCLUDES ON)

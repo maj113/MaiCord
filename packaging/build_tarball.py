@@ -44,8 +44,8 @@ MARKER = '.maicord-portable'
 MARKER_TEXT = 'maicord-portable 1\n'
 EXECUTABLES = ('MaiCord', 'install.sh', 'uninstall.sh')
 LICENSE_SOURCES = (
-    ('third_party/opus/COPYING', 'Opus-BSD.txt'),
     ('LICENSE', 'MaiCord-MPL-2.0.txt'),
+    ('assets/licenses/Opus-BSD.txt', None),
     ('assets/licenses/Twemoji-graphics.txt', None),
     ('assets/licenses/Unicode-3.0.txt', None),
     ('assets/licenses/ICU-Thai-dictionary.txt', None),

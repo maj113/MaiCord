@@ -1,57 +1,36 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/media/audio/opus_scratch.hpp"
 
 namespace maicord {
+// MaiCord's Opus decoder (RFC 6716 with the RFC 8251 updates): every packet a peer or an Opus file can
+// carry (SILK, CELT and hybrid frames of 2.5 to 60 ms, up to 120 ms per packet, mono or stereo, mode
+// switches, in-band FEC, loss concealment) to 48 kHz PCM16 in the channel count the caller asked for,
+// whatever the packet codes. No allocation: the state is this struct, and a call uses about 21 KB of the
+// caller's stack.
 inline constexpr u32 kOpusDecoderSampleRate = 48000;
-inline constexpr u32 kOpusDecoderMaximumFrames = 5760;
-inline constexpr u32 kOpusDecoderStateAlignment = 16;
-// Local admission policy, including padding; not a claimed bitstream maximum.
-inline constexpr u32 kOpusDecoderMaximumPacketBytes = 65536;
-enum class OpusDecodeError : u8 {
-    none,
-    invalid_input,
-    invalid_state,
-    busy,
-    capacity,
-    packet,
-    decoder
-};
-struct OpusDecodeResult {
-    OpusDecodeError error{};
-    i32 native_status{};
-    u32 frames{}; // Per channel; PCM is interleaved for stereo.
-    constexpr bool ok() const noexcept {
-        return error == OpusDecodeError::none;
-    }
-};
+inline constexpr u32 kOpusDecoderMaximumFrames = 5760; // 120 ms, the longest packet
+inline constexpr u32 kOpusDecoderBytes = 26336;
 struct OpusDecoder {
-    u8* state{};
-    u32 state_bytes{}, channels{};
-    bool initialized{};
+    alignas(32) u8 state[kOpusDecoderBytes];
 };
-// No allocation or destruction by the wrapper. Storage must stay alive and
-// exclusively owned by the stream until release; one serial worker uses it.
-u32 opus_decoder_storage_bytes(u32 channels) noexcept;
-OpusDecodeResult opus_decoder_initialize(OpusDecoder*, Slice<u8> storage, u32 channels) noexcept;
-OpusDecodeResult opus_decoder_reset(OpusDecoder*) noexcept;
-// The session chooses the header gain; Opus applies Q8dB gain before PCM16
-// clipping. Device/user volume remains a separate session policy.
-OpusDecodeResult opus_decoder_gain(OpusDecoder*, i16 gain_q8) noexcept;
-// Complete packets only: empty input is an error, never implicit concealment.
-// Capacity/argument rejection precedes state mutation. Native packet failure
-// is explicit; the playback owner decides whether to reset or end the stream.
-// `scratch` is the calling thread's (see opus_scratch.hpp); it must not overlap
-// the state, packet or PCM.
-OpusDecodeResult opus_decoder_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm, OpusScratch* scratch) noexcept;
-// Packet-loss concealment for one missing packet: synthesizes `frames` (a
-// 2.5 ms multiple, at most 120 ms) from decoder history. Same preflight rules.
-OpusDecodeResult opus_decoder_conceal(OpusDecoder*, u32 frames, Slice<i16> pcm, OpusScratch* scratch) noexcept;
-// Recovers the packet lost immediately before `next` from next's in-band FEC
-// (SILK LBRR); without LBRR libopus conceals instead. The caller still decodes
-// `next` normally afterwards.
-OpusDecodeResult opus_decoder_decode_fec(OpusDecoder*, ConstSlice<u8> next, u32 frames,
-                                         Slice<i16> pcm, OpusScratch* scratch) noexcept;
+// Starts a stream of 1 or 2 output channels (interleaved); `gain_q8` is the Ogg Opus header gain in 1/256
+// dB, applied before the PCM16 clipping. Any content of the struct is overwritten.
+void opus_decoder_start(OpusDecoder*, u32 channels, i32 gain_q8 = 0) noexcept;
+// Forgets the decoded history, as after a seek; channels and gain stay.
+void opus_decoder_reset(OpusDecoder*) noexcept;
+// Decodes one packet into pcm and returns the frames (samples per channel) written, at most
+// kOpusDecoderMaximumFrames. 0: the packet is malformed or longer than pcm; nothing was written and the
+// state is unchanged, except for a frame that overruns its own bits (the caller conceals or resets either
+// way).
+u32 opus_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm) noexcept;
+// Fills in for the packet lost just before `next`: `frames` (a multiple of 120, at most 5760) are concealed
+// from the decoder's history, or, when `next` carries a redundant copy of the lost frame (LBRR), decoded
+// from it; the caller still decodes `next` afterwards. An empty `next` always conceals. 0 on a malformed
+// `next` or a short pcm.
+u32 opus_decode_lost(OpusDecoder*, ConstSlice<u8> next, u32 frames, Slice<i16> pcm) noexcept;
+// True when the packet carries a redundant copy of the frame before it.
 bool opus_packet_has_fec(ConstSlice<u8> packet) noexcept;
-void opus_decoder_release(OpusDecoder*) noexcept;
+// The range coder's final state after the last packet, which equals the encoder's for a conformant decoder;
+// 0 after a concealed frame. For tests.
+u32 opus_decoder_final_range(const OpusDecoder*) noexcept;
 } // namespace maicord

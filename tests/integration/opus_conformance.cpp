@@ -7,8 +7,9 @@
 //   - the decoder's final range must equal the encoder's for every packet;
 //   - quality must pass upstream's opus_compare metric against either the
 //     original (.dec) or the RFC 8251 (m.dec) reference output;
-//   - the decoded PCM must hash to the pinned value of the fixed-point build,
-//     so any change to the codec has to be bit-exact.
+//   - the decoded PCM must hash to the pinned value, so any change to the
+//     decoder's arithmetic shows (the SILK-only vectors' values are also those
+//     of libopus's fixed-point build: that layer is bit-exact by definition).
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/compression/deflate.hpp"
@@ -55,20 +56,20 @@ struct Line {
 constexpr u8 kArchiveSha256[32]{0x6b, 0x26, 0xa2, 0x2f, 0x9b, 0xa8, 0x7b, 0x2b, 0x83, 0x69, 0x06, 0xa9, 0xbb, 0x7a, 0xfe, 0xc5,
                                 0xf8, 0xe5, 0x4d, 0x49, 0x55, 0x3b, 0x12, 0x00, 0x38, 0x25, 0x20, 0xee, 0x6f, 0xed, 0xfa, 0x55};
 constexpr u32 kVectors = 12;
-// FNV-1a of the PCM decoded by unmodified libopus 1.6.1 (fixed point), [vector][mono, stereo].
+// FNV-1a of the PCM this decoder produces, on Windows and on Linux alike, [vector][mono, stereo].
 constexpr u64 kPinned[kVectors][2]{
-    {0x42261282ad8626a1ull, 0x0302d7690368764aull},
+    {0x374418a9d2a536afull, 0xceb59d5e74cb3df1ull},
     {0x15f959f97260e086ull, 0x5eac01cccc93301cull},
     {0xa97a51247684aa2aull, 0x9c7f7e103fca8b5full},
     {0x60e5f0434845cc9dull, 0xf24e9c3a21a8902dull},
-    {0x5072419e87286935ull, 0xea5b53c828374244ull},
-    {0x9143e22a20e275b1ull, 0xf165114f2eefcf53ull},
-    {0xcd9a9dcbf038cb9dull, 0x11795ea66da2a042ull},
-    {0x5be7eb8e0f5d2287ull, 0x9b6aa219dc26689dull},
-    {0x166498a87dca8553ull, 0xca981f98a0dedee4ull},
-    {0xbf58ee061ddae274ull, 0x6f9cdf643a99031full},
-    {0x6abb4582f0eec50full, 0xf39e5464a08ba234ull},
-    {0x2a281c70d5a80b77ull, 0x4e168c3987b94351ull},
+    {0xf98d6941df756100ull, 0xa5b4bef7365afdb1ull},
+    {0x9c9338c1880b6a2full, 0xc1b03aae1e111a9aull},
+    {0x0d6b2435a7decfd9ull, 0x4e01f81d9a9a4eb0ull},
+    {0x21cd4f2b95cce43full, 0x61899eca4ca49915ull},
+    {0xcc87ff1177588622ull, 0x4c2f5a4d55bf3ffeull},
+    {0xfd1887b1eac67826ull, 0x3749e87f6680308dull},
+    {0x101a7a695952ca5bull, 0x8d0d9fab42dffeacull},
+    {0xea42c5447510c71aull, 0x0f8b1985a5857249ull},
 };
 
 // One decimal, sign kept.
@@ -217,16 +218,15 @@ volatile LONG next_job = 0;
 void run_job(Job* job) noexcept {
     const u32 channels = job->channels;
     const u32 reference_frames = job->reference[0].bytes / 4;
-    const usize capacity = (static_cast<usize>(reference_frames) + kOpusVectorMaximumFrame) * channels;
+    const usize capacity = (static_cast<usize>(reference_frames) + kOpusDecoderMaximumFrames) * channels;
     auto* pcm = static_cast<i16*>(VirtualAlloc(nullptr, capacity * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    auto* frame = static_cast<i16*>(VirtualAlloc(nullptr, kOpusVectorMaximumFrame * 2 * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    auto* decoder = static_cast<OpusDecoder*>(VirtualAlloc(nullptr, static_cast<usize>(opus_decoder_get_size(static_cast<int>(channels))),
-                                                            MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    void* scratch = VirtualAlloc(nullptr, OPUS_SCRATCH_BYTES, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (!pcm || !frame || !decoder || !scratch || opus_decoder_init(decoder, 48000, static_cast<int>(channels)) != OPUS_OK)
+    auto* frame = static_cast<i16*>(VirtualAlloc(nullptr, kOpusDecoderMaximumFrames * 2 * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    auto* decoder = static_cast<OpusDecoder*>(VirtualAlloc(nullptr, sizeof(OpusDecoder), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!pcm || !frame || !decoder)
         return;
+    opus_decoder_start(decoder, channels);
     const OpusVectorDecode decoded =
-        opus_vector_decode(decoder, scratch, channels, job->bitstream.data, job->bitstream.bytes, frame, pcm, capacity);
+        opus_vector_decode(decoder, channels, job->bitstream.data, job->bitstream.bytes, frame, pcm, capacity);
     job->packets = decoded.packets, job->lost = decoded.lost;
     job->range_errors = decoded.range_errors, job->decode_errors = decoded.decode_errors;
     job->digest = decoded.digest;
@@ -256,7 +256,6 @@ void run_job(Job* job) noexcept {
     VirtualFree(pcm, 0, MEM_RELEASE);
     VirtualFree(frame, 0, MEM_RELEASE);
     VirtualFree(decoder, 0, MEM_RELEASE);
-    VirtualFree(scratch, 0, MEM_RELEASE);
 }
 
 DWORD WINAPI job_thread(void*) noexcept {
@@ -359,7 +358,7 @@ bool run() noexcept {
         line.field("range_errors", job.range_errors), line.field("decode_errors", job.decode_errors);
         line.field("samples", job.samples), tenths(line, "q_dec", job.q[0]), tenths(line, "q_mdec", job.q[1]);
         line.digest("pcm", job.digest);
-        line.field("bit_exact", kPinned[job.vector][job.channels - 1] == job.digest ? 1 : 0);
+        line.field("pinned", kPinned[job.vector][job.channels - 1] == job.digest ? 1 : 0);
         line.field("pass", job.ok ? 1 : 0);
         line.emit();
         ok = ok && job.ok;

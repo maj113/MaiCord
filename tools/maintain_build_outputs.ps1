@@ -153,7 +153,7 @@ if ($RuntimeOnly) {
     [void]$targets.Add($ownership)
     # Include empty configure-created directories without treating unknown
     # files in them as disposable products.
-    foreach ($name in @('generated', 'CMakeFiles', 'third_party')) { Add-Tree (Join-Path $releaseRoot $name) { $false } }
+    foreach ($name in @('generated', 'CMakeFiles')) { Add-Tree (Join-Path $releaseRoot $name) { $false } }
     # Test bundle dispatchers (maicord_finish_test_bundles); every configure writes them again.
     Add-Tree (Join-Path $releaseRoot 'test_bundles') { param($file) $file.Name -cmatch '^MaiCord[A-Za-z0-9]+\.cpp$' }
     # The resource editor's precompiled cache is not a build input or runtime asset.

@@ -25,8 +25,7 @@ set(maicord_sys_headers
     include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
     include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
     include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/desktop_capture.hpp
-    include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h
-    include/maicord/sys/libc/stdarg.h include/maicord/sys/libc/crtdbg.h)
+    include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h)
 set(maicord_sys_conformance_unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance.cpp")
 add_custom_command(OUTPUT "${maicord_sys_conformance_unit}"
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_sys_conformance.py"

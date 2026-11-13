@@ -17,7 +17,7 @@ Files: licenses/*
 Copyright: see each file
 License: see-licenses-directory
  /usr/lib/maicord/licenses holds the license texts of the third-party material
- the program bundles (Opus: BSD-3-Clause, Twemoji graphics, the Unicode data,
+ the program bundles (the Opus codec's tables: BSD-3-Clause, Twemoji graphics, the Unicode data,
  the ICU Thai dictionary, the PyThaiNLP corpus, gemoji and emojibase: MIT,
  Lucide: ISC, and the program's own sounds).
 

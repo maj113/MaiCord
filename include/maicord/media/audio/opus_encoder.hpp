@@ -1,55 +1,33 @@
 #pragma once
-#include "maicord/core/slice.hpp"
-#include "maicord/media/audio/opus_scratch.hpp"
+#include "maicord/core/base.hpp"
 
 namespace maicord {
-// Voice profile: 48 kHz PCM16, VOIP application, one 20 ms VBR frame per packet, always coded as full-band hybrid
-// (SILK wideband plus CELT bands 17-20); bitrate 6-510 kbit/s, complexity 1-10.
+// MaiCord's Opus encoder (RFC 6716): 48 kHz PCM16, mono or stereo, one 20 ms frame per packet, always coded
+// as full-band hybrid (SILK wideband plus CELT above 8 kHz) at a variable rate around the profile's. No
+// allocation: the state is this struct, and a call uses about 34 KB of the caller's stack.
 inline constexpr u32 kOpusEncoderSampleRate = 48000;
-inline constexpr u32 kOpusEncoderFrameSamples = 960; // Per channel; stereo PCM is interleaved.
-inline constexpr u32 kOpusEncoderStateAlignment = 16;
-inline constexpr u32 kOpusEncoderMaximumPacketBytes = 1275; // RFC 6716 single-frame bound.
-inline constexpr u32 kOpusEncoderMinimumBitrate = 6000, kOpusEncoderMaximumBitrate = 510000;
-inline constexpr u32 kOpusEncoderDefaultBitrate = 64000;
-inline constexpr u32 kOpusEncoderDefaultComplexity = 7, kOpusEncoderMinimumComplexity = 1,
-                     kOpusEncoderMaximumComplexity = 10;
-inline constexpr u32 kOpusEncoderDefaultPacketLossPercent = 10;
-enum class OpusEncodeError : u8 {
-    none,
-    invalid_input,
-    invalid_state,
-    busy,
-    capacity,
-    encoder
+inline constexpr u32 kOpusEncoderFrameSamples = 960;        // per channel; stereo PCM is interleaved
+inline constexpr u32 kOpusEncoderMaximumPacketBytes = 1275; // RFC 6716's bound for one frame
+inline constexpr u32 kOpusEncoderLookahead =
+    312; // samples the decoded signal lags the input (Ogg pre-skip)
+struct OpusEncoderProfile {
+    u32 bitrate = 64000; // 6000 to 510000 bits per second
+    u8 channels = 1;
+    u8 complexity = 7; // 1 to 10: how hard the encoder searches
+    // Expected packet loss, 0 to 100. Above 0 a packet also carries a coarse copy of the frame before it
+    // (in-band FEC) when the rate allows, and the coding leans less on what a lost packet would take with
+    // it.
+    u8 loss_percent = 10;
 };
-struct OpusEncodeResult {
-    OpusEncodeError error{};
-    i32 native_status{};
-    u32 bytes{}; // Packets of at most 2 bytes carry no audio (DTX).
-    constexpr bool ok() const noexcept {
-        return error == OpusEncodeError::none;
-    }
-};
+inline constexpr u32 kOpusEncoderBytes = 20896;
 struct OpusEncoder {
-    u8* state{};
-    u32 state_bytes{}, channels{};
-    bool initialized{};
+    alignas(32) u8 state[kOpusEncoderBytes];
 };
-// Same ownership contract as OpusDecoder: caller storage, one serial worker,
-// no allocation or destruction by the wrapper. Initialization applies the
-// defaults above with in-band FEC on and DTX off. Setters validate before the
-// native call and leave state untouched on rejection.
-u32 opus_encoder_storage_bytes(u32 channels) noexcept;
-OpusEncodeResult opus_encoder_initialize(OpusEncoder*, Slice<u8> storage, u32 channels) noexcept;
-OpusEncodeResult opus_encoder_bitrate(OpusEncoder*, u32 bits_per_second) noexcept;
-OpusEncodeResult opus_encoder_complexity(OpusEncoder*, u32 complexity) noexcept;
-OpusEncodeResult opus_encoder_inband_fec(OpusEncoder*, bool enabled) noexcept;
-OpusEncodeResult opus_encoder_packet_loss(OpusEncoder*, u32 percent) noexcept;
-// Encoder delay in 48 kHz samples (the Ogg Opus pre-skip).
-OpusEncodeResult opus_encoder_lookahead(OpusEncoder*, u32* samples) noexcept;
-// Exactly one frame (960 * channels samples) into at least
-// kOpusEncoderMaximumPacketBytes of packet capacity. `scratch` is the calling
-// thread's (see opus_scratch.hpp); it must not overlap the state, PCM or packet.
-OpusEncodeResult opus_encoder_encode(OpusEncoder*, ConstSlice<i16> pcm, Slice<u8> packet, OpusScratch* scratch) noexcept;
-void opus_encoder_release(OpusEncoder*) noexcept;
+// Starts a stream; out-of-range profile values are clamped. Any content of the struct is overwritten.
+void opus_encoder_start(OpusEncoder*, const OpusEncoderProfile&) noexcept;
+// Encodes kOpusEncoderFrameSamples per channel into `packet` (kOpusEncoderMaximumPacketBytes of room) and
+// returns the packet's bytes: 2 for a frame that carries no audio (the decoder conceals), more otherwise.
+u32 opus_encode(OpusEncoder*, const i16* pcm, u8* packet) noexcept;
+// The range coder's final state of the last packet, which a decoder of it must reach too. For tests.
+u32 opus_encoder_final_range(const OpusEncoder*) noexcept;
 } // namespace maicord

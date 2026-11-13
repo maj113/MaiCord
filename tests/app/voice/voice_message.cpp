@@ -205,19 +205,18 @@ void test_recorder() noexcept {
               demux.input_sample_rate == 48000 && demux.packet_count == r.frames,
           "recorder: demuxer reads OpusHead/OpusTags and the span");
     // Decoding the stream reproduces speech then silence.
-    alignas(16) static u8 decoder_storage[32768];
-    OpusDecoder decoder{};
+    static OpusDecoder decoder;
     static i16 pcm[kOpusDecoderMaximumFrames];
-    static OpusScratch opus_scratch;
     u64 loud = 0, quiet = 0, decoded = 0;
-    bool decodes = opus_decoder_initialize(&decoder, {decoder_storage, sizeof(decoder_storage)}, 1).ok();
+    bool decodes = true;
+    opus_decoder_start(&decoder, 1);
     for (;;) {
         const auto packet = ogg_opus_demux_next(&demux, {scratch, sizeof(scratch)});
         if (!packet.ok())
             break;
-        const auto result = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames}, &opus_scratch);
-        decodes = decodes && result.ok();
-        for (u32 i = packet.trim_front_frames; result.ok() && i + packet.trim_back_frames < result.frames; ++i) {
+        const u32 frames = opus_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames});
+        decodes = decodes && frames;
+        for (u32 i = packet.trim_front_frames; i + packet.trim_back_frames < frames; ++i) {
             const u64 energy = static_cast<u64>(static_cast<i64>(pcm[i]) * pcm[i]);
             (decoded < 120000 ? loud : quiet) += energy;
             ++decoded;

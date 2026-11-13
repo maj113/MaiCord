@@ -1,21 +1,12 @@
 #pragma once
 
 // Compiler intrinsics, declared as the SDK declares them; see maicord/sys/sdk.hpp.
-// C as well as C++: maiopus includes it through sys/libc.
 
 #if defined(__linux__)
-// Linux: the MSVC intrinsics shared code names are clang builtins in C++ (with the Windows signatures) and the
-// twin's wrappers; maiopus's C needs only __fastfail, which ends the process at once (the code only means
-// something to Windows' failure report).
-#if defined(__cplusplus)
+// Linux: the MSVC intrinsics shared code names are clang builtins (with the Windows signatures) and the twin's
+// wrappers; __fastfail ends the process at once (the code only means something to Windows' failure report).
 extern "C" __declspec(noreturn) void __fastfail(unsigned int);
 #include "maicord/os/linux/intrin.hpp"
-#else
-static inline __attribute__((noreturn)) void __fastfail(unsigned int code) {
-    (void)code;
-    __builtin_trap();
-}
-#endif
 #else
 
 #include "maicord/sys/sdk.hpp"
@@ -26,9 +17,7 @@ static inline __attribute__((noreturn)) void __fastfail(unsigned int code) {
 #include <intrin.h>
 #endif
 
-#if defined(__cplusplus)
 extern "C" {
-#endif
 
 // <intrin0.inl.h>
 unsigned char _BitScanForward(unsigned long* _Index, unsigned long _Mask);
@@ -63,8 +52,6 @@ unsigned __int64 __readgsqword(unsigned long);
 [[nodiscard]] unsigned long __cdecl _byteswap_ulong(unsigned long);
 [[nodiscard]] unsigned short __cdecl _byteswap_ushort(unsigned short);
 
-#if defined(__cplusplus)
 }
-#endif
 
 #endif // __linux__

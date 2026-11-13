@@ -18,8 +18,7 @@ struct VoiceMessageCaptureOps {
     VoiceAudioCaptureStatus (*status)(void* self) noexcept;
 };
 
-// Preview decode state, committed only while a finished recording exists; the
-// decoder's state follows it in the same block.
+// Preview decode state, committed only while a finished recording exists.
 struct VoiceMessagePreview {
     OggOpusDemuxer demux;
     OpusDecoder decoder;
@@ -60,8 +59,6 @@ void account_voice_message_configure(AccountVoiceMessage*, const VoiceAudioSetti
 // Applies the operation (if any) and fills status. False rejects the command.
 bool account_voice_message_command(AccountVoiceMessage*, const VoiceMessageCommand*, VoiceMessageStatus*) noexcept;
 void account_voice_message_release(AccountVoiceMessage*) noexcept;
-// The capture sink, exposed for synthetic sources.
-void account_voice_message_sink(void* context, ConstSlice<i16> mono, u64 now_us) noexcept;
 // The preview render callback (48 kHz stereo PCM16), exposed for tests.
 void account_voice_message_render(void* context, Slice<i16> pcm, u64 now_us) noexcept;
 } // namespace maicord

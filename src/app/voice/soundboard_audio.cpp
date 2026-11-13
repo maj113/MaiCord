@@ -123,10 +123,8 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded) noexcept {
 
 SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     const usize pcm_offset = align_up(kSoundboardProbeScratchBytes, 64);
-    const usize state_offset = pcm_offset + align_up(usize{kOpusDecoderMaximumFrames} * 2 * sizeof(i16), 64);
-    const u32 state_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(2), 64));
-    const usize opus_scratch_offset = state_offset + state_bytes;
-    auto* work = commit_pages<u8>(opus_scratch_offset + sizeof(OpusScratch));
+    const usize decoder_offset = pcm_offset + align_up(usize{kOpusDecoderMaximumFrames} * 2 * sizeof(i16), 64);
+    auto* work = commit_pages<u8>(decoder_offset + sizeof(OpusDecoder));
     if (!work)
         return nullptr;
     const Slice<u8> scratch{work, kSoundboardProbeScratchBytes};
@@ -138,12 +136,11 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
         release(work);
         return nullptr;
     }
-    OpusDecoder decoder{};
-    bool ok = opus_decoder_initialize(&decoder, {work + state_offset, state_bytes}, demuxer.channels).ok() &&
-              (!demuxer.output_gain_q8 || opus_decoder_gain(&decoder, demuxer.output_gain_q8).ok());
+    auto* decoder = reinterpret_cast<OpusDecoder*>(work + decoder_offset);
+    opus_decoder_start(decoder, demuxer.channels, demuxer.output_gain_q8);
     const u32 frames = static_cast<u32>(minimum<u64>(demuxer.total_frames, kSoundboardClipMaximumFrames));
-    clip = ok ? allocate_clip(sound_id, frames) : nullptr;
-    ok = ok && clip;
+    clip = allocate_clip(sound_id, frames);
+    bool ok = clip;
     u32 produced = 0;
     while (ok && produced < frames) {
         const auto packet = ogg_opus_demux_next(&demuxer, scratch);
@@ -155,9 +152,12 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
             ok = false;
             break;
         }
-        const auto decoded = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames * 2},
-                                                 reinterpret_cast<OpusScratch*>(work + opus_scratch_offset));
-        if (!decoded.ok() || decoded.frames != packet.duration_frames) {
+        // A packet the decoder rejects is concealed like a lost one; the clip keeps its length.
+        const Slice<i16> out{pcm, kOpusDecoderMaximumFrames * 2};
+        u32 decoded = opus_decode(decoder, packet.bytes, out);
+        if (!decoded)
+            decoded = opus_decode_lost(decoder, {}, packet.duration_frames, out);
+        if (decoded != packet.duration_frames) {
             ok = false;
             break;
         }
@@ -170,7 +170,6 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
         }
         produced += take;
     }
-    opus_decoder_release(&decoder);
     release(work);
     if (!ok || !produced) {
         if (clip)
@@ -180,9 +179,7 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     clip->frames = produced;
     return clip;
 }
-} // namespace
-
-SoundboardAudioFormat soundboard_detect_format(ConstSlice<u8> file) noexcept {
+SoundboardAudioFormat detect_format(ConstSlice<u8> file) noexcept {
     if (!file.data || file.count < 4)
         return SoundboardAudioFormat::unknown;
     if (file[0] == 'O' && file[1] == 'g' && file[2] == 'g' && file[3] == 'S')
@@ -194,6 +191,7 @@ SoundboardAudioFormat soundboard_detect_format(ConstSlice<u8> file) noexcept {
         return SoundboardAudioFormat::mp3;
     return SoundboardAudioFormat::unknown;
 }
+} // namespace
 
 SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch) noexcept {
     SoundboardFileInfo info{};
@@ -210,7 +208,7 @@ SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch)
         info.error = SoundboardFileError::too_large;
         return info;
     }
-    info.format = soundboard_detect_format(file);
+    info.format = detect_format(file);
     if (info.format == SoundboardAudioFormat::mp3) {
         Mp3Stream stream{};
         const auto error = mp3_stream_initialize(&stream, file);
@@ -253,7 +251,7 @@ SoundboardFileInfo soundboard_probe_file(ConstSlice<u8> file, Slice<u8> scratch)
 SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noexcept {
     if (!sound_id || !encoded.data || !encoded.count || !byte_range_valid(encoded))
         return nullptr;
-    switch (soundboard_detect_format(encoded)) {
+    switch (detect_format(encoded)) {
     case SoundboardAudioFormat::mp3:
         return decode_mp3(sound_id, encoded);
     case SoundboardAudioFormat::ogg_opus:
@@ -263,11 +261,6 @@ SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noe
     }
 }
 #pragma clang attribute pop
-
-void soundboard_clip_retain(SoundboardClip* clip) noexcept {
-    if (clip)
-        InterlockedIncrement(&clip->references);
-}
 
 void soundboard_clip_release(SoundboardClip* clip) noexcept {
     if (clip && InterlockedDecrement(&clip->references) == 0)
@@ -341,7 +334,7 @@ void soundboard_cache_clear(SoundboardCache* cache) noexcept {
 bool soundboard_mixer_play(SoundboardMixer* mixer, SoundboardClip* clip, u32 sound_per_mille, u64 user_id) noexcept {
     if (!clip || !clip->frames)
         return false;
-    soundboard_clip_retain(clip);
+    InterlockedIncrement(&clip->references);
     SoundboardClip* replaced = nullptr;
     AcquireSRWLockExclusive(mixer->lock.native());
     u32 slot = mixer->count;

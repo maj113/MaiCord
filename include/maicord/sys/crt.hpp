@@ -1,7 +1,7 @@
 #pragma once
 
 // The CRT functions the compiler expands inline (memcpy, memmove, memset), declared as the SDK declares them; see
-// maicord/sys/sdk.hpp. C as well as C++: maiopus includes it through sys/libc. memcmp, abs and _alloca are in
+// maicord/sys/sdk.hpp. C as well as C++: the MP3 decoder includes it through sys/libc. memcmp, abs and _alloca are in
 // crt_extra.hpp.
 
 #include "maicord/sys/sdk.hpp"

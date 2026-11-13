@@ -233,11 +233,28 @@ maicord_compact_sources(
 # per-granule code compiles for size through minsize attributes in the source, its per-line and per-sample kernels for
 # speed. Wholly at -Oz it decoded a 5 s 128 kbit/s stereo clip 33% slower than the old /O2 code and a 30 s 64 kbit/s
 # mono one 44% slower; split, it is 9-15% faster than that /O2 code, in 14.1 KB of code and 8.0 KB of tables
-# (-Oz: 11.7 and 7.8 KB; /O2: 22.9 and 9.8 KB).
+# (-Oz: 11.7 and 7.8 KB; /O2: 22.9 and 9.8 KB). The Opus codec (src/media/audio/opus, opus_decoder.cpp and
+# opus_encoder.cpp) is split the same way: the functions that run once per packet or frame and only parse, decide or
+# code side information (their loops are over a packet's frames, channels, subframes, filter coefficients, codebook
+# candidates or the 21 bands) are minsize in the source; every loop over samples, spectral bins or pulses, and the
+# concealment of lost frames, is not. Measured with both
+# codecs in one program, against the codec wholly at /O2: 45 KB less linked code on Windows and 33 KB on Linux, the 15
+# encode and decode workloads between 0.9% faster and 1.7% slower on Windows and 0.0-1.2% slower on Linux (the same
+# build run twice differs by up to 1.1%).
 maicord_compact_sources(
     SOURCES
         src/media/audio/mp3_stream.cpp src/media/audio/notification_pcm.cpp src/app/notifications/sound_assets.cpp
         src/gpu/d3d11/shader_pack.cpp)
+# The Opus sources without an unroll-sensitive kernel also drop loop unrolling on Windows: 24 KB less linked code, every
+# workload as fast or up to 2.6% faster. Not on Linux, where three workloads took 2.0-2.1% longer with it, and never the
+# SILK decoder, the SILK analysis, prediction and quantizer or the transforms: without unrolling SILK decoding took 23%
+# longer and encoding 9-13%.
+if(NOT MAICORD_LINUX)
+    set_property(SOURCE src/media/audio/opus/celt_bands.cpp src/media/audio/opus/celt_decoder.cpp
+        src/media/audio/opus/celt_encoder.cpp src/media/audio/opus/silk_encoder.cpp src/media/audio/opus_decoder.cpp
+        src/media/audio/opus_encoder.cpp
+        APPEND PROPERTY COMPILE_OPTIONS ${maicord_clang}-fno-unroll-loops)
+endif()
 # The Linux client. Its application sources are one library (maicord_app_client; the Windows build spreads them over
 # MaiCord, the account module and maicord_app_core, and compacts the first two and the listed units of the third), so
 # the application is cold except what the Windows build leaves at -O2: Gateway dispatch and payload decode, the media
@@ -384,17 +401,17 @@ endif()
 # code by up to 5% on a metric of a few nanoseconds, so a path counts when several of its metrics move together.
 # At -Os, text shaping cycles were 5-13% longer, the stores 3-9%, atlas allocation 9-17%, text entry (with the unicode
 # tables) 3-12%, Markdown and code highlighting 3-4%, the history page decode 4-6%, JPEG thumbnails 12-31%, Adam7 PNG 6%,
-# lossless WebP 4-6%, the AAC decoder 20% more instructions, the CELT encode 18%; those stay -O2. What is left at -Os
-# measured within that noise: the Gateway replay (READY, supplemental, 3200 events: zstd, ETF, scan, dispatch), message
-# and event decoding, the event pump, inflate and zstd, the fonts, GIF, and the render, GPU and container code. The text
+# lossless WebP 4-6%, the AAC decoder 20% more instructions, and the Opus codec took 14-15% longer to encode and 10-42%
+# longer to decode (wall time, best of nine); those stay -O2. What is left at -Os measured within that noise: the
+# Gateway replay (READY, supplemental, 3200 events: zstd, ETF, scan, dispatch), message and event decoding, the event
+# pump, inflate and zstd, the fonts, GIF, and the render, GPU and container code. The text
 # shapers also drop loop unrolling and vectorization (neutral, 5 KB); the same on the stores, text entry or the OpenType
 # tables made them 3-43% slower, and outlining the -Os group made the stores and text entry 3-20% slower, so neither is
 # done there. Code that runs once per user action or per network request (the media sessions and CDN pipeline, the
 # Gateway handlers of the rarer events, HTTP/1, the MP4 and MPEG-TS containers) compiles -Oz: with it the Gateway
 # replay, the event pump and the channel switch moved 0.0-0.8% in instructions (the wall times inside the noise), while
 # -Oz on the whole of src/app/gateway made the READY producer 10% slower, so only the handlers named below.
-# third_party/opus has its own tiers (third_party/opus/CMakeLists.txt). The Windows build never defines or calls any of
-# this.
+# The Windows build never defines or calls any of this.
 if(MAICORD_LINUX)
     # maicord_source_options(OPTIONS <option>... [INCLUDE <regex>...] [EXCLUDE <regex>...]): appends the options to
     # every src/*.cpp that no list above compiled for size or balance, when it matches INCLUDE (any, without it) and not EXCLUDE.
@@ -443,7 +460,7 @@ if(MAICORD_LINUX)
         EXCLUDE "^src/core/(json_reader|json_scan|utf)\\.cpp$" "^src/core/linux/(runtime|start)\\.cpp$"
             "^src/os/linux/(thread|wait|srwlock)\\.cpp$" "^src/platform/crypto/"
             "^src/media/image/(jpeg|webp|lossy_webp|animated_webp|vp8|apng|png\\.cpp|png_common|png_stream)"
-            "^src/media/audio/aac_lc\\.cpp$"
+            "^src/media/audio/aac_lc\\.cpp$" "^src/media/audio/(opus/|opus_(de|en)coder\\.cpp$)"
             "^src/protocol/(encoding|gateway/etf|messages/history|gateway/message_)"
             "^src/app/voice/(mixer|transmit|playback|receive|jitter_buffer|packet_crypto|udp_media|send)"
             "^src/text/(shaping|scripts|layout|opentype|unicode)/" "^src/ui/text/" "^src/ui/chat/messages/markdown"

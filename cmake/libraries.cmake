@@ -26,31 +26,12 @@ maicord_library(maicord_media_core
     src/media/image/regional_flag_art.cpp src/media/image/dominant_color.cpp src/ui/text/regional_flag.cpp
     LIBS maicord_core)
 
-# maiopus (third_party/opus): the Opus decoder, and the voice encoder, as C under the same freestanding contract: like
-# every MaiCord unit it sees only MaiCord's C library and intrinsic headers and follows the unwind-table and no-outline
-# policies (see cmake/build_contract.cmake), with whole-program optimization.
-set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
-set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
-set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
-set(MAIOPUS_LTCG ON)
-set(MAIOPUS_LTCG_OPTION ${MAICORD_WHOLE_PROGRAM_OPTION})
-set(MAIOPUS_SSE4_1 ON)
-if(MAICORD_LINUX)
-    set(MAIOPUS_ARCH -march=sandybridge -mtune=generic)
-    set(maicord_opus_options -nostdinc -fPIE -fvisibility=hidden -fno-stack-protector -fcf-protection=none
-        -ffp-contract=off ${MAICORD_NO_OUTLINE_OPTION} ${MAICORD_UNWIND_OPTIONS})
-else()
-    set(MAIOPUS_ARCH /arch:AVX)
-    set(maicord_opus_options /clang:-nostdinc ${MAICORD_UNWIND_OPTIONS} ${MAICORD_NO_OUTLINE_OPTION})
-endif()
-add_subdirectory(third_party/opus)
-foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
-    target_include_directories(${maiopus_target} PRIVATE include include/maicord/sys/libc)
-    target_compile_options(${maiopus_target} PRIVATE ${maicord_opus_options})
-endforeach()
-
+# src/media/audio/opus is MaiCord's Opus codec; the decoder side (and what the encoder shares with it) is here.
 maicord_library(maicord_media_codec
-    src/media/audio/opus_decoder.cpp src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp src/media/audio/wave_pcm.cpp
+    src/media/audio/opus_decoder.cpp src/media/audio/opus/celt_tables.cpp src/media/audio/opus/celt_mdct.cpp
+    src/media/audio/opus/celt_bands.cpp src/media/audio/opus/celt_decoder.cpp src/media/audio/opus/silk_tables.cpp
+    src/media/audio/opus/silk_common.cpp src/media/audio/opus/silk_decoder.cpp
+    src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp src/media/audio/wave_pcm.cpp
     src/media/audio/mp3_stream.cpp src/media/image/apng.cpp src/media/image/gif.cpp src/media/video/h264_parameters.cpp
     src/media/video/h264_configuration.cpp src/media/video/h264_slice.cpp src/media/video/h264_access_unit.cpp
     src/media/video/h264_output_queue.cpp src/media/video/h264_picture_order.cpp src/media/video/h264_references.cpp
@@ -71,7 +52,7 @@ maicord_library(maicord_media_codec
     src/media/containers/mpeg_ts_codec.cpp
     src/media/containers/mpeg_ts_segment_store.cpp
     src/media/audio/mp3_decoder.c
-    LIBS maicord_core maicord_compression maicord_opus_decoder windows:ntdll)
+    LIBS maicord_core maicord_compression windows:ntdll)
 # The MPEG audio decoder is C: the contract's C++ code generation and warnings,
 # for C (LTO comes from the contract), and its hint-only inlining (/Ob1): on Linux
 # 0.9 KB smaller and its decode 0.9-1.8% slower, which the size cap takes.
@@ -104,8 +85,13 @@ maicord_library(maicord_capture
     LIBS maicord_core windows:d3d11 windows:dxgi windows:user32 windows:gdi32 windows:ole32 windows:maicord_combase
     linux:maicord_dbus)
 
-# Voice send encoder; linked only through the account module.
-maicord_library(maicord_voice_encoder src/media/audio/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
+# The Opus encoder (voice, Go Live audio, voice messages); linked only through the account module.
+maicord_library(maicord_voice_encoder
+    src/media/audio/opus_encoder.cpp src/media/audio/opus/range_encoder.cpp src/media/audio/opus/celt_encoder.cpp
+    src/media/audio/opus/silk_analysis.cpp src/media/audio/opus/silk_prediction.cpp
+    src/media/audio/opus/silk_quantize.cpp src/media/audio/opus/silk_excitation.cpp
+    src/media/audio/opus/silk_encoder.cpp
+    LIBS maicord_core maicord_media_codec)
 
 # The headless window backend (src/platform/window/null) behind the same service as the system's, for tests that drive
 # handlers without a window: list it before the system backend (maicord_platform on Windows, maicord_window_wayland on

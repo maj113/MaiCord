@@ -30,18 +30,17 @@ struct VoicePlaybackStats {
     u64 decoded, concealed, recovered, dropped;
 };
 // Shared by the network worker (push), the audio thread (render) and the UI
-// (per-user settings); every entry point takes the one short lock. Streams,
-// decoder state and the mix accumulator live in one block reserved only
-// between initialize and release; settings and the lock are always valid.
-// Streams [0, stream_count) are committed: a call commits one stream (with
-// its decoder) per concurrent speaker, up to kVoicePlaybackStreams.
+// (per-user settings); every entry point takes the one short lock. Streams
+// (each with its decoder) and the mix accumulator live in one block reserved
+// only between initialize and release; settings and the lock are always valid.
+// Streams [0, stream_count) are committed: a call commits one stream per
+// concurrent speaker, up to kVoicePlaybackStreams.
 struct VoicePlayback {
     SrwLock lock;
     u8* block;
     VoicePlaybackStream* streams;
     i32* mix;
     u32 stream_count;
-    u32 decoder_bytes;
     VoiceUserAudio users[kVoicePlaybackUsers];
     u32 user_count;
     i32 master_delta; // Output volume minus 100 %, so zero-initialized playback is at 100 %.

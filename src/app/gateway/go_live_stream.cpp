@@ -41,8 +41,6 @@ struct GoLiveMedia {
     u32 audio_head, audio_count, audio_frame, pcm_count;
     i16 pcm[kOpusEncoderFrameSamples * 2];
     OpusEncoder opus;
-    u8* opus_state;
-    OpusScratch scratch;
 };
 
 namespace {
@@ -76,28 +74,22 @@ StreamBitrate bounds(const GoLiveSettings& settings) noexcept {
 // Once per stream (buffers, teardown, end reasons), compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GoLiveMedia* media_create(GatewayGoLive& live) noexcept {
-    const u32 opus_bytes = (opus_encoder_storage_bytes(2) + 15) & ~15u;
-    auto* block = static_cast<u8*>(
-        pages_allocate(sizeof(GoLiveMedia) + opus_bytes + u64{kSlots} * kGoLiveFrameBytes));
+    auto* block = static_cast<u8*>(pages_allocate(sizeof(GoLiveMedia) + u64{kSlots} * kGoLiveFrameBytes));
     if (!block)
         return nullptr;
     auto* media = reinterpret_cast<GoLiveMedia*>(block);
-    media->opus_state = block + ((sizeof(GoLiveMedia) + 15) & ~usize{15});
-    media->units = media->opus_state + opus_bytes;
+    media->units = block + sizeof(GoLiveMedia);
     media->wake = live.wake;
     media->wake_context = live.wake_context;
-    if (!opus_encoder_initialize(&media->opus, {media->opus_state, opus_bytes}, 2).ok() ||
-        !opus_encoder_bitrate(&media->opus, kGoLiveAudioBitrate).ok()) {
-        pages_release(block);
-        return nullptr;
-    }
+    OpusEncoderProfile profile;
+    profile.bitrate = kGoLiveAudioBitrate;
+    profile.channels = 2;
+    opus_encoder_start(&media->opus, profile);
     return media;
 }
 void media_release(GoLiveMedia* media) noexcept {
-    if (!media)
-        return;
-    opus_encoder_release(&media->opus);
-    pages_release(media);
+    if (media)
+        pages_release(media);
 }
 
 void stop_producers(GatewayGoLive& live) noexcept {
@@ -431,12 +423,8 @@ void go_live_media_audio(GoLiveMedia* media, ConstSlice<i16> stereo) noexcept {
             continue;
         media->pcm_count = 0;
         GoLiveOpusPacket packet;
-        const auto encoded = opus_encoder_encode(&media->opus, {media->pcm, kFrame},
-                                                 {packet.data, sizeof(packet.data)}, &media->scratch);
+        packet.bytes = static_cast<u16>(opus_encode(&media->opus, media->pcm, packet.data));
         packet.frame = media->audio_frame++;
-        if (!encoded.ok() || !encoded.bytes)
-            continue;
-        packet.bytes = static_cast<u16>(encoded.bytes);
         AcquireSRWLockExclusive(media->lock.native());
         if (media->audio_count == kAudioPackets) { // The worker fell behind: the oldest is late anyway.
             media->audio_head = (media->audio_head + 1) % kAudioPackets;

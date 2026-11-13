@@ -1,121 +1,250 @@
+// Opus encoding of 20 ms hybrid frames (RFC 6716 3 and 5): the input high-pass, the split of the rate
+// between the SILK layer (below 8 kHz) and the CELT layer (above), the decisions on in-band FEC and on
+// coding stereo input as mono, and the packet around the two layers' shared range coder.
 #include "maicord/media/audio/opus_encoder.hpp"
+#include "opus/celt.hpp"
+#include "opus/silk_encoder.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
-#include <opus.h>
 
 namespace maicord {
 namespace {
-static_assert(sizeof(i16) == sizeof(opus_int16));
-static_assert(kOpusScratchBytes == OPUS_SCRATCH_BYTES && alignof(OpusScratch) >= 16);
-OpusEncodeResult result(OpusEncodeError error, i32 native = OPUS_OK, u32 bytes = 0) noexcept {
-    return {error, native, bytes};
+using namespace opus;
+
+constexpr u32 kFrame = kOpusEncoderFrameSamples;
+constexpr u32 kPayloadBytes = kOpusEncoderMaximumPacketBytes - 1;
+// The CELT layer runs this much behind the SILK layer's input, which the SILK encoder's own delay
+// (resampling and lookahead) makes up for at the decoder.
+constexpr u32 kDelay = 192;
+static_assert(kOpusEncoderLookahead == kDelay + kOverlap);
+
+struct alignas(32) State {
+    u32 bitrate, channels, complexity, loss_percent;
+    u32 stream_channels; // coded in the last frame
+    bool to_mono, fec;
+    i32 stereo_width_q14; // applied to the CELT layer's input in the last frame
+    float cutoff;         // log2 of the high-pass cutoff in Hz
+    float high_band_gain; // of the last frame
+    float high_pass[2][2];
+    float delay[2][kDelay];
+    u32 final_range;
+    SilkEncoder silk;
+    CeltEncoder celt;
+};
+static_assert(sizeof(State) == kOpusEncoderBytes && alignof(State) <= 32);
+
+__forceinline State& state_of(OpusEncoder* encoder) noexcept {
+    return *reinterpret_cast<State*>(encoder->state);
 }
-// Only initialize (which validates the storage) sets `initialized`, and only release clears it.
-bool current(const OpusEncoder* encoder) noexcept {
-    return encoder && encoder->initialized;
+
+// The rate at which a 20 ms encoder at full complexity would do as well: lower complexity and losses cost
+// quality.
+i32 equivalent_rate(i32 bitrate, bool hybrid, i32 complexity, i32 loss) noexcept {
+    i32 rate = bitrate * (90 + complexity) / 100;
+    if (!hybrid)
+        return rate - rate * loss / (12 * loss + 20);
+    if (complexity < 2)
+        rate = rate * 4 / 5; // a single quantizer state
+    return rate - rate * loss / (6 * loss + 10);
 }
-::OpusEncoder* native_state(OpusEncoder* encoder) noexcept {
-    return reinterpret_cast<::OpusEncoder*>(encoder->state);
+// The SILK layer's share of a total rate, by table for one channel: up to 64 kbit/s interpolated, half of
+// what is above that. Redundant frames need a larger share.
+i32 silk_share(i32 rate, bool fec, i32 channels) noexcept {
+    static constexpr i32 kTable[7][3]{{0, 0, 0},
+                                      {12000, 10000, 11000},
+                                      {16000, 13500, 15000},
+                                      {20000, 16000, 18000},
+                                      {24000, 18000, 21000},
+                                      {32000, 22000, 28000},
+                                      {64000, 38000, 50000}};
+    rate /= channels;
+    const u32 column = fec ? 2 : 1;
+    u32 i = 1;
+    while (i < 7 && kTable[i][0] <= rate)
+        ++i;
+    i32 share;
+    if (i == 7)
+        share = kTable[6][column] + (rate - kTable[6][0]) / 2;
+    else
+        share = (kTable[i - 1][column] * (kTable[i][0] - rate) +
+                 kTable[i][column] * (rate - kTable[i - 1][0])) /
+                (kTable[i][0] - kTable[i - 1][0]);
+    share *= channels;
+    if (channels == 2 && rate >= 12000)
+        share -= 1000;
+    return share;
 }
-OpusEncodeResult control(OpusEncoder* encoder, int request, u32 value, u32 minimum, u32 maximum) noexcept {
-    if (!current(encoder))
-        return result(OpusEncodeError::invalid_state, OPUS_INVALID_STATE);
-    if (value < minimum || value > maximum)
-        return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
-    const int status = ::opus_encoder_ctl(native_state(encoder), request, static_cast<opus_int32>(value));
-    return result(status == OPUS_OK ? OpusEncodeError::none : OpusEncodeError::encoder, status);
+
+// Second-order high-pass at 2^cutoff Hz of one channel of interleaved PCM16.
+void high_pass(float* state, float cutoff, const i16* in, u32 stride, float* out) noexcept {
+    const float frequency = 1.5f * 3.14159f / 48000.f * exp2_approximate(cutoff);
+    const float r = 1.f - 0.92f * frequency;
+    const float a0 = r * (frequency * frequency - 2.f), a1 = r * r;
+    float s0 = state[0], s1 = state[1];
+    for (u32 i = 0; i < kFrame; ++i) {
+        const float x = static_cast<float>(in[i * stride]);
+        const float y = s0 + r * x;
+        s0 = s1 - a0 * y - 2.f * r * x;
+        s1 = r * x - a1 * y;
+        out[i] = y;
+    }
+    // Silence must not leave the state decaying through the denormal range.
+    const auto settle = [](float value) noexcept {
+        return value > -1e-15f && value < 1e-15f ? 0.f : value;
+    };
+    state[0] = settle(s0);
+    state[1] = settle(s1);
 }
+// The gain from `before` to `now` along the squared window, then held.
+__forceinline float fade(u32 i, float before, float now) noexcept {
+    if (i >= kOverlap)
+        return now;
+    const float w = kWindow.value[i] * kWindow.value[i];
+    return w * now + (1.f - w) * before;
+}
+
 } // namespace
 
-u32 opus_encoder_storage_bytes(u32 channels) noexcept {
-    if (channels != 1 && channels != 2)
-        return 0;
-    const int bytes = ::opus_encoder_get_size(static_cast<int>(channels));
-    return bytes > 0 ? static_cast<u32>(bytes) : 0;
+void opus_encoder_start(OpusEncoder* encoder, const OpusEncoderProfile& profile) noexcept {
+    State& st = state_of(encoder);
+    clear_bytes(&st, sizeof(st));
+    st.bitrate = clamp_value<u32>(profile.bitrate, 6000, 510000);
+    st.channels = profile.channels == 2 ? 2 : 1;
+    st.complexity = clamp_value<u32>(profile.complexity, 1, 10);
+    st.loss_percent = minimum<u32>(profile.loss_percent, 100);
+    st.stream_channels = 0;
+    st.stereo_width_q14 = 1 << 14;
+    st.high_band_gain = 1.f;
+    st.cutoff = 5.9068906f; // 60 Hz
+    silk_encoder_reset(&st.silk);
+    st.celt.channels = st.channels;
+    celt_encoder_reset(&st.celt);
 }
-// Once per call or stream: compiled for size (the encode below stays at full speed).
-__attribute__((minsize)) OpusEncodeResult opus_encoder_initialize(OpusEncoder* encoder, Slice<u8> storage,
-                                                                  u32 channels) noexcept {
-    if (!encoder)
-        return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
-    if (encoder->initialized || encoder->state)
-        return result(OpusEncodeError::busy, OPUS_INVALID_STATE);
-    const u32 bytes = opus_encoder_storage_bytes(channels);
-    if (!bytes || !storage.data ||
-        (reinterpret_cast<usize>(storage.data) & (kOpusEncoderStateAlignment - 1)) ||
-        byte_ranges_overlap(encoder, sizeof(*encoder), storage.data, bytes))
-        return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
-    if (storage.count < bytes)
-        return result(OpusEncodeError::capacity, OPUS_BUFFER_TOO_SMALL);
-    auto* native = reinterpret_cast<::OpusEncoder*>(storage.data);
-    int status = ::opus_encoder_init(native, static_cast<opus_int32>(kOpusEncoderSampleRate),
-                                     static_cast<int>(channels), OPUS_APPLICATION_VOIP);
-    if (status == OPUS_OK)
-        status = ::opus_encoder_ctl(native, OPUS_SET_BITRATE(static_cast<opus_int32>(kOpusEncoderDefaultBitrate)));
-    if (status == OPUS_OK)
-        status = ::opus_encoder_ctl(native, OPUS_SET_COMPLEXITY(static_cast<int>(kOpusEncoderDefaultComplexity)));
-    if (status == OPUS_OK)
-        status = ::opus_encoder_ctl(native, OPUS_SET_INBAND_FEC(1));
-    if (status == OPUS_OK)
-        status = ::opus_encoder_ctl(native, OPUS_SET_PACKET_LOSS_PERC(static_cast<int>(kOpusEncoderDefaultPacketLossPercent)));
-    if (status != OPUS_OK)
-        return result(OpusEncodeError::encoder, status);
-    *encoder = {storage.data, bytes, channels, true};
-    return result(OpusEncodeError::none);
+
+u32 opus_encoder_final_range(const OpusEncoder* encoder) noexcept {
+    return reinterpret_cast<const State*>(encoder->state)->final_range;
 }
-OpusEncodeResult opus_encoder_bitrate(OpusEncoder* encoder, u32 bits_per_second) noexcept {
-    return control(encoder, OPUS_SET_BITRATE_REQUEST, bits_per_second, kOpusEncoderMinimumBitrate,
-                   kOpusEncoderMaximumBitrate);
+
+u32 opus_encode(OpusEncoder* encoder, const i16* pcm, u8* packet) noexcept {
+    State& st = state_of(encoder);
+    const u32 channels = st.channels;
+    const i32 bitrate = static_cast<i32>(st.bitrate), complexity = static_cast<i32>(st.complexity),
+              loss = static_cast<i32>(st.loss_percent);
+    bool silent = true;
+    for (u32 i = 0; i < kFrame * channels && silent; ++i)
+        silent = pcm[i] == 0;
+
+    // Stereo is coded as such above a rate threshold, with hysteresis; the last stereo frame before a
+    // switch fades its width out.
+    const u32 previous_channels = st.stream_channels;
+    u32 stream_channels = channels;
+    if (channels == 2) {
+        const i32 threshold = 17000 + ((115 * 115 * 2000) >> 14) + (previous_channels == 2 ? -1000 : 1000);
+        stream_channels = equivalent_rate(bitrate, false, complexity, loss) > threshold ? 2 : 1;
+    }
+    if (stream_channels == 1 && previous_channels == 2 && !st.to_mono) {
+        st.to_mono = true;
+        stream_channels = 2;
+    } else {
+        st.to_mono = false;
+    }
+    const i32 equivalent = equivalent_rate(bitrate, true, complexity, loss);
+    // Redundant frames when losses are expected and the rate carries them, with hysteresis.
+    if (loss == 0)
+        st.fec = false;
+    else
+        st.fec = equivalent > multiply_high_16((st.fec ? 21000 : 23000) * (125 - minimum(loss, 25)), 655);
+
+    const i32 total_rate = (bitrate * 6 / 300 - 8) * 50; // less the packet's first byte
+    const i32 silk_rate = silk_share(total_rate, st.fec, static_cast<i32>(stream_channels));
+    const i32 celt_rate = total_rate - silk_rate;
+
+    // The input without its lowest frequencies: below the pitch of the voice there is only noise to spend
+    // bits on.
+    st.cutoff += 0.015f * (st.silk.variable_cutoff_smooth - st.cutoff);
+    // One buffer per channel serves both layers: the frame after the delay line's samples, which the CELT
+    // layer (running kDelay behind) starts from, after room for that layer's window overlap.
+    alignas(32) float buffer[2][kOverlap + kDelay + kFrame];
+    for (u32 c = 0; c < channels; ++c)
+        high_pass(st.high_pass[c], st.cutoff, pcm + c, channels, buffer[c] + kOverlap + kDelay);
+    const float* const silk_input[2]{buffer[0] + kOverlap + kDelay, buffer[1] + kOverlap + kDelay};
+
+    RangeCoder coder;
+    coder.start_encode(packet + 1, kPayloadBytes);
+    SilkEncodeFrame silk_frame;
+    silk_frame.input_channels = channels;
+    silk_frame.coded_channels = stream_channels;
+    silk_frame.bitrate = silk_rate;
+    silk_frame.maximum_bits =
+        silk_share(static_cast<i32>(kPayloadBytes * 8 * 50), st.fec, static_cast<i32>(stream_channels)) *
+        6 / 300;
+    silk_frame.complexity = st.complexity;
+    silk_frame.loss_percent = st.loss_percent;
+    silk_frame.fec = st.fec;
+    silk_frame.to_mono = st.to_mono;
+    silk_frame.silent = silent;
+    const SilkEncodeResult silk = silk_encode(&st.silk, coder, silk_input, silk_frame);
+
+    // The CELT layer's input: delayed, and at low rates with the high band and the stereo width turned
+    // down, both gliding from the last frame's setting.
+    float* const delayed[2]{buffer[0] + kOverlap, buffer[1] + kOverlap};
+    for (u32 c = 0; c < channels; ++c)
+        for (u32 i = 0; i < kDelay; ++i) {
+            const float held = st.delay[c][i];
+            st.delay[c][i] = delayed[c][kFrame + i];
+            delayed[c][i] = held;
+        }
+    constexpr float kFull = 1.f - 1.f / 32768;
+    const float high_band_gain =
+        1.f - 0.5f * exp2_approximate(static_cast<float>(-celt_rate) * (1.f / 1024));
+    if (st.high_band_gain < kFull || high_band_gain < kFull)
+        for (u32 c = 0; c < channels; ++c)
+            for (u32 i = 0; i < kFrame; ++i)
+                delayed[c][i] *= fade(i, st.high_band_gain, high_band_gain);
+    st.high_band_gain = high_band_gain;
+    if (channels == 2) {
+        i32 width_q14 = silk.stereo_width_q14;
+        if (stream_channels == 1)
+            width_q14 = equivalent > 32000   ? 16384
+                        : equivalent < 16000 ? 0
+                                             : 16384 - 2048 * (32000 - equivalent) / (equivalent - 14000);
+        if (st.stereo_width_q14 < (1 << 14) || width_q14 < (1 << 14)) {
+            const float before = 1.f - static_cast<float>(st.stereo_width_q14) * (1.f / 16384),
+                        now = 1.f - static_cast<float>(width_q14) * (1.f / 16384);
+            for (u32 i = 0; i < kFrame; ++i) {
+                const float difference = 0.5f * (delayed[0][i] - delayed[1][i]) * fade(i, before, now);
+                delayed[0][i] -= difference;
+                delayed[1][i] += difference;
+            }
+            st.stereo_width_q14 = width_q14;
+        }
+    }
+
+    // No redundant CELT frame follows the SILK layer (a mode switch would send one).
+    if (coder.tell() + 17 + 20 <= 8 * kPayloadBytes)
+        coder.encode_bit(false, 12);
+    u32 bytes = 0;
+    if (coder.tell() <= 8 * kPayloadBytes) {
+        float* const celt_input[2]{delayed[0], delayed[1]};
+        CeltEncodeFrame celt_frame;
+        celt_frame.stream_channels = stream_channels;
+        celt_frame.bitrate = bitrate - silk_rate;
+        celt_frame.complexity = st.complexity;
+        celt_frame.loss_percent = st.loss_percent;
+        celt_frame.silk_signal = silk.signal;
+        celt_frame.silk_offset = silk.offset_q10;
+        bytes = celt_encode(&st.celt, coder, celt_input, kPayloadBytes, celt_frame);
+    }
+    st.final_range = st.celt.range;
+    st.stream_channels = stream_channels;
+    packet[0] = static_cast<u8>(0x78 | (stream_channels == 2) << 2); // full-band hybrid, 20 ms, one frame
+    if (bytes == 0) {
+        // The SILK layer overran the packet, which the bit budget makes all but impossible: a frame without
+        // content, which the decoder conceals.
+        packet[1] = 0;
+        st.final_range = 0;
+        return 2;
+    }
+    return bytes + 1;
 }
-OpusEncodeResult opus_encoder_complexity(OpusEncoder* encoder, u32 complexity) noexcept {
-    return control(encoder, OPUS_SET_COMPLEXITY_REQUEST, complexity, kOpusEncoderMinimumComplexity,
-                   kOpusEncoderMaximumComplexity);
-}
-OpusEncodeResult opus_encoder_inband_fec(OpusEncoder* encoder, bool enabled) noexcept {
-    return control(encoder, OPUS_SET_INBAND_FEC_REQUEST, enabled, 0, 1);
-}
-OpusEncodeResult opus_encoder_packet_loss(OpusEncoder* encoder, u32 percent) noexcept {
-    return control(encoder, OPUS_SET_PACKET_LOSS_PERC_REQUEST, percent, 0, 100);
-}
-OpusEncodeResult opus_encoder_lookahead(OpusEncoder* encoder, u32* samples) noexcept {
-    if (!current(encoder))
-        return result(OpusEncodeError::invalid_state, OPUS_INVALID_STATE);
-    if (!samples)
-        return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
-    opus_int32 value = 0;
-    const int status = ::opus_encoder_ctl(native_state(encoder), OPUS_GET_LOOKAHEAD(&value));
-    if (status != OPUS_OK || value < 0)
-        return result(OpusEncodeError::encoder, status);
-    *samples = static_cast<u32>(value);
-    return result(OpusEncodeError::none);
-}
-OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, Slice<u8> packet,
-                                     OpusScratch* scratch) noexcept {
-    if (!current(encoder))
-        return result(OpusEncodeError::invalid_state, OPUS_INVALID_STATE);
-    const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(i16);
-    if (!pcm.data || pcm.count != kOpusEncoderFrameSamples * encoder->channels ||
-        (reinterpret_cast<usize>(pcm.data) & (alignof(i16) - 1)) || !packet.data ||
-        byte_ranges_overlap(encoder->state, encoder->state_bytes, pcm.data, pcm_bytes) ||
-        byte_ranges_overlap(encoder->state, encoder->state_bytes, packet.data, packet.count) ||
-        byte_ranges_overlap(pcm.data, pcm_bytes, packet.data, packet.count) ||
-        byte_ranges_overlap(encoder, sizeof(*encoder), packet.data, packet.count) || !scratch ||
-        byte_ranges_overlap(scratch, sizeof(*scratch), encoder->state, encoder->state_bytes) ||
-        byte_ranges_overlap(scratch, sizeof(*scratch), encoder, sizeof(*encoder)) ||
-        byte_ranges_overlap(scratch, sizeof(*scratch), pcm.data, pcm_bytes) ||
-        byte_ranges_overlap(scratch, sizeof(*scratch), packet.data, packet.count))
-        return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
-    if (packet.count < kOpusEncoderMaximumPacketBytes)
-        return result(OpusEncodeError::capacity, OPUS_BUFFER_TOO_SMALL);
-    const opus_int32 bytes = ::opus_encode(native_state(encoder), pcm.data, static_cast<int>(kOpusEncoderFrameSamples),
-                                           packet.data, static_cast<opus_int32>(kOpusEncoderMaximumPacketBytes),
-                                           scratch->bytes);
-    if (bytes <= 0 || bytes > static_cast<opus_int32>(kOpusEncoderMaximumPacketBytes))
-        return result(OpusEncodeError::encoder, bytes < 0 ? bytes : OPUS_INTERNAL_ERROR);
-    return result(OpusEncodeError::none, OPUS_OK, static_cast<u32>(bytes));
-}
-void opus_encoder_release(OpusEncoder* encoder) noexcept {
-    if (encoder)
-        reset_value(encoder);
-}
+
 } // namespace maicord

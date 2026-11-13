@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/core/memory.hpp"
-
-#include <opus.h>
+#include "maicord/media/audio/opus_decoder.hpp"
 
 namespace maicord {
 // Decodes an opus_demo bitstream (per packet: big-endian length, big-endian
@@ -16,20 +15,20 @@ struct OpusVectorDecode {
     u64 digest;
     bool overflow;
 };
-inline constexpr u32 kOpusVectorMaximumPacket = 1500, kOpusVectorMaximumFrame = 48000 * 2;
+inline constexpr u32 kOpusVectorMaximumPacket = 1500;
 
 inline u32 opus_vector_big_endian(const u8* p) noexcept {
     return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
 }
-// `frame` holds kOpusVectorMaximumFrame * channels samples; `pcm` may be null to
-// only hash; `scratch` is OPUS_SCRATCH_BYTES of 16-byte aligned memory.
-inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, void* scratch, u32 channels, const u8* bitstream,
-                                           usize bytes, i16* frame, i16* pcm, usize capacity) noexcept {
+// `frame` holds kOpusDecoderMaximumFrames * channels samples; `pcm` may be null to only hash.
+inline OpusVectorDecode opus_vector_decode(OpusDecoder* decoder, u32 channels, const u8* bitstream, usize bytes, i16* frame,
+                                           i16* pcm, usize capacity) noexcept {
     OpusVectorDecode result{};
     u64 hash = 0xcbf29ce484222325ull;
     u32 lost_count = 0, last_duration = 0;
     bool lost_prev = true;
     const u8 *cursor = bitstream, *end = bitstream + bytes;
+    const Slice<i16> out{frame, kOpusDecoderMaximumFrames * channels};
     while (end - cursor >= 8) {
         const u32 length = opus_vector_big_endian(cursor), encoder_range = opus_vector_big_endian(cursor + 4);
         cursor += 8;
@@ -37,28 +36,26 @@ inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, void* scratch
             ++result.decode_errors;
             break;
         }
-        const u8* data = cursor;
+        const ConstSlice<u8> packet{cursor, length};
         cursor += length;
         ++result.packets;
         const bool lost = length == 0;
         const u32 runs = lost ? 0 : 1 + lost_count;
         if (lost) ++lost_count, ++result.lost;
         for (u32 run = 0; run < runs; ++run) {
-            int samples;
-            if (run + 1 == lost_count && opus_packet_has_lbrr(data, static_cast<opus_int32>(length)) > 0) {
+            u32 samples;
+            if (run + 1 == lost_count && opus_packet_has_fec(packet)) {
                 ++result.recovered;
-                samples = opus_decode(decoder, data, static_cast<opus_int32>(length), frame, static_cast<int>(last_duration), 1,
-                                      scratch);
+                samples = opus_decode_lost(decoder, packet, last_duration, out);
             } else if (run < lost_count)
-                samples = opus_decode(decoder, nullptr, 0, frame, static_cast<int>(last_duration), 0, scratch);
+                samples = opus_decode_lost(decoder, {}, last_duration, out);
             else
-                samples = opus_decode(decoder, data, static_cast<opus_int32>(length), frame,
-                                      static_cast<int>(kOpusVectorMaximumFrame), 0, scratch);
-            if (samples <= 0) {
+                samples = opus_decode(decoder, packet, out);
+            if (!samples) {
                 ++result.decode_errors;
                 continue;
             }
-            last_duration = static_cast<u32>(samples);
+            last_duration = samples;
             const usize count = static_cast<usize>(samples) * channels;
             const auto* sample_bytes = reinterpret_cast<const u8*>(frame);
             for (usize i = 0; i < count * 2; ++i) hash = (hash ^ sample_bytes[i]) * 0x100000001b3ull;
@@ -70,11 +67,9 @@ inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, void* scratch
                     copy_bytes(pcm + result.samples * channels, frame, static_cast<u32>(count * 2));
                 }
             }
-            result.samples += static_cast<usize>(samples);
+            result.samples += samples;
         }
-        opus_uint32 decoder_range = 0;
-        opus_decoder_ctl(decoder, OPUS_GET_FINAL_RANGE(&decoder_range));
-        if (encoder_range && !lost && !lost_prev && decoder_range != encoder_range) ++result.range_errors;
+        if (encoder_range && !lost && !lost_prev && opus_decoder_final_range(decoder) != encoder_range) ++result.range_errors;
         lost_prev = lost;
         if (!lost) lost_count = 0;
     }

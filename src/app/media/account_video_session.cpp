@@ -314,11 +314,9 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
         const auto audio = media_audio_release(owner, timeout);
         if (!audio.ok())
             return result(AccountVideoError::release, audio.native_error, true);
-        if (s->status.kind == AccountPlaybackKind::ogg_opus) {
-            opus_decoder_release(&static_cast<OpusWorkspace*>(s->workspace)->decoder);
-        } else if (s->status.kind == AccountPlaybackKind::mp3) {
+        if (s->status.kind == AccountPlaybackKind::mp3) {
             mp3_decoder_release(&static_cast<Mp3Workspace*>(s->workspace)->decoder);
-        } else if (!standalone(*s)) {
+        } else if (s->status.kind != AccountPlaybackKind::ogg_opus && !standalone(*s)) {
             const auto decoder = aac_decoder_release(&static_cast<Workspace*>(s->workspace)->decoder);
             if (!decoder.ok())
                 return result(AccountVideoError::release, static_cast<u32>(decoder.native_status), true);

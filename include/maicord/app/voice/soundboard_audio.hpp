@@ -17,7 +17,6 @@ inline constexpr u32 kSoundboardVolumeMaximumPercent = 100;
 // A call render this recent owns the mixer; the preview output then stays silent.
 inline constexpr u64 kSoundboardCallRenderHoldUs = 200'000;
 
-SoundboardAudioFormat soundboard_detect_format(ConstSlice<u8> file) noexcept;
 // Parses only (no decoder); `scratch` needs kSoundboardProbeScratchBytes for
 // Ogg pages that continue packets.
 inline constexpr u32 kSoundboardProbeScratchBytes = 61'440;
@@ -36,7 +35,6 @@ struct SoundboardClip {
 };
 // Allocates a clip with one reference; null on failure.
 SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noexcept;
-void soundboard_clip_retain(SoundboardClip*) noexcept;
 void soundboard_clip_release(SoundboardClip*) noexcept;
 
 // Worker-owned LRU of decoded clips bounded by count and bytes.

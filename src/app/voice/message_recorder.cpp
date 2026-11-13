@@ -6,23 +6,21 @@
 
 namespace maicord {
 namespace {
-// The block holds the encode scratch, the encoder, frame levels and the stream.
+// The block holds the encoder, frame levels and the stream.
 struct Layout {
     u32 levels, stream, total;
 };
-constexpr u32 kEncoderOffset = sizeof(OpusScratch);
 constexpr u32 align(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 Layout layout() noexcept {
     Layout l{};
-    const u32 encoder = opus_encoder_storage_bytes(1);
-    l.levels = align(kEncoderOffset + encoder, 64);
+    l.levels = align(sizeof(OpusEncoder), 64);
     l.stream = align(l.levels + kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames, 64);
     const u64 stream = ogg_opus_writer_capacity(kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames,
                                                 kVoiceMessagePacketBudget, kVoiceMessageVendor.bytes);
     l.total = align(static_cast<u32>(l.stream + stream), 4096);
-    return encoder ? l : Layout{};
+    return l;
 }
 VoiceMessageRecorderError fail(VoiceMessageRecorder* r, VoiceMessageRecorderError error) noexcept {
     r->error = error;
@@ -31,15 +29,12 @@ VoiceMessageRecorderError fail(VoiceMessageRecorder* r, VoiceMessageRecorderErro
 // Encodes r->frame (silence when not audible) and records its level.
 VoiceMessageRecorderError encode(VoiceMessageRecorder* r, bool audible) noexcept {
     u8 packet[kOpusEncoderMaximumPacketBytes];
-    const auto encoded = opus_encoder_encode(&r->encoder, {r->frame, kVoiceMessageFrameSamples},
-                                             {packet, sizeof(packet)}, reinterpret_cast<OpusScratch*>(r->block));
-    if (!encoded.ok())
-        return fail(r, VoiceMessageRecorderError::encoder);
+    const u32 bytes = opus_encode(r->encoder, r->frame, packet);
     // Audible frames leave room for the delay padding that finish appends.
     constexpr u32 kPaddingReserve = kVoiceMessagePaddingFrames * (kOpusEncoderMaximumPacketBytes + 6);
-    if (audible && ogg_opus_writer_free(r->writer) < encoded.bytes + kPaddingReserve)
+    if (audible && ogg_opus_writer_free(r->writer) < bytes + kPaddingReserve)
         return VoiceMessageRecorderError::capacity;
-    const auto written = ogg_opus_writer_packet(&r->writer, {packet, encoded.bytes}, kVoiceMessageFrameSamples);
+    const auto written = ogg_opus_writer_packet(&r->writer, {packet, bytes}, kVoiceMessageFrameSamples);
     if (written == OggOpusWriterError::capacity)
         return VoiceMessageRecorderError::capacity;
     if (written != OggOpusWriterError::none)
@@ -70,8 +65,6 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     if (r->block)
         return VoiceMessageRecorderError::invalid_state;
     const Layout l = layout();
-    if (!l.total)
-        return VoiceMessageRecorderError::encoder;
     reset_value(r);
     // Reserved and committed once for the longest recording; pages fault in
     // as the stream grows and nothing is allocated per frame.
@@ -81,17 +74,16 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     r->block_bytes = l.total;
     r->frame_levels = r->block + l.levels;
     r->gain_q16 = (minimum<u32>(gain_percent, 200) << 16) / 100;
-    u32 lookahead = 0;
-    if (!opus_encoder_initialize(&r->encoder, {r->block + kEncoderOffset, l.levels - kEncoderOffset}, 1).ok() ||
-        !opus_encoder_bitrate(&r->encoder, kVoiceMessageBitrate).ok() ||
-        !opus_encoder_inband_fec(&r->encoder, false).ok() ||
-        !opus_encoder_packet_loss(&r->encoder, 0).ok() || !opus_encoder_complexity(&r->encoder, 10).ok() ||
-        !opus_encoder_lookahead(&r->encoder, &lookahead).ok() ||
-        lookahead > kVoiceMessageFrameSamples * (kVoiceMessagePaddingFrames - 1)) {
-        voice_message_recorder_release(r);
-        return fail(r, VoiceMessageRecorderError::encoder);
-    }
-    r->pre_skip = static_cast<u16>(lookahead);
+    // A file is not a call: no redundancy for lost packets, the most thorough search.
+    OpusEncoderProfile profile;
+    profile.bitrate = kVoiceMessageBitrate;
+    profile.complexity = 10;
+    profile.loss_percent = 0;
+    r->encoder = reinterpret_cast<OpusEncoder*>(r->block);
+    opus_encoder_start(r->encoder, profile);
+    // The padding frames at the end flush the encoder's delay.
+    static_assert(kOpusEncoderLookahead <= kVoiceMessageFrameSamples * (kVoiceMessagePaddingFrames - 1));
+    r->pre_skip = static_cast<u16>(kOpusEncoderLookahead);
     if (ogg_opus_writer_begin(&r->writer, {r->block + l.stream, l.total - l.stream}, serial, r->pre_skip,
                               kVoiceMessageSampleRate, kVoiceMessageVendor) != OggOpusWriterError::none) {
         voice_message_recorder_release(r);
@@ -173,7 +165,6 @@ void voice_message_recorder_waveform(const VoiceMessageRecorder& r,
 }
 
 void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {
-    opus_encoder_release(&r->encoder);
     if (r->block) {
         // Wipe only what the recording touched; untouched pages are still zero.
         const u32 touched = r->writer.output.data

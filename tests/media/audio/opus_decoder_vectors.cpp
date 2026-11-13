@@ -5,16 +5,15 @@
 // Fast in-suite subset of tools/opus_conformance.ps1: synthetic streams that
 // reach every decoder mode, bandwidth class, frame size, frame-count code,
 // concealment, FEC and DTX path, decoded mono and stereo. Each must be
-// range-exact against the encoder and bit-exact against the unmodified
-// fixed-point decoder.
+// range-exact against the encoder and produce the pinned PCM.
 namespace maicord {
 namespace {
 u32 failures;
 void check(bool passed, const char* message) noexcept {
     test_check(&failures, passed, message);
 }
-alignas(16) u8 decoder_storage[65536], scratch[OPUS_SCRATCH_BYTES];
-i16 frame[kOpusVectorMaximumFrame * 2];
+OpusDecoder decoder;
+i16 frame[kOpusDecoderMaximumFrames * 2];
 
 void test_opus_decoder_vectors() noexcept {
     u32 configs = 0, codes = 0, layouts = 0, lost = 0, recovered = 0;
@@ -28,16 +27,13 @@ void test_opus_decoder_vectors() noexcept {
             offset += 8 + length;
         }
         for (u32 channels = 1; channels <= 2; ++channels) {
-            auto* decoder = reinterpret_cast<::OpusDecoder*>(decoder_storage);
-            const bool ready = opus_decoder_get_size(static_cast<int>(channels)) <= static_cast<int>(sizeof(decoder_storage)) &&
-                               opus_decoder_init(decoder, 48000, static_cast<int>(channels)) == OPUS_OK;
-            const OpusVectorDecode decoded =
-                opus_vector_decode(decoder, scratch, channels, vector.data, vector.bytes, frame, nullptr, 0);
-            const bool ok = ready && decoded.packets == vector.packets && decoded.lost == vector.lost &&
+            opus_decoder_start(&decoder, channels);
+            const OpusVectorDecode decoded = opus_vector_decode(&decoder, channels, vector.data, vector.bytes, frame, nullptr, 0);
+            const bool ok = decoded.packets == vector.packets && decoded.lost == vector.lost &&
                             decoded.recovered == vector.recovered && !decoded.range_errors && !decoded.decode_errors &&
                             decoded.digest == vector.digest[channels - 1];
             if (!ok) test_write_text(vector.name), test_write_text(channels == 1 ? " (mono): " : " (stereo): ");
-            check(ok, "Opus decoder vectors: range-exact against the encoder and PCM bit-exact against the reference decoder");
+            check(ok, "Opus decoder vectors: range-exact against the encoder, and the pinned PCM");
             if (channels == 1) lost += decoded.lost, recovered += decoded.recovered;
         }
     }

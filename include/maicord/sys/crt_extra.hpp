@@ -2,7 +2,7 @@
 
 // The rarely used CRT functions, declared as the SDK declares them; see maicord/sys/sdk.hpp. Kept apart from
 // crt.hpp, which nearly every unit includes, because each redeclaration of a compiler-known function costs
-// parse time. C as well as C++: maiopus includes it through sys/libc.
+// parse time. C as well as C++: the MP3 decoder includes it through sys/libc.
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/sys/crt.hpp"

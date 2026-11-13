@@ -10,7 +10,7 @@ namespace {
 
 static_assert(sizeof(Workspace) <= 84 * 1024);
 
-static_assert(sizeof(OpusWorkspace) <= 208 * 1024);
+static_assert(sizeof(OpusWorkspace) <= 220 * 1024); // the decoder is part of it
 
 static_assert(sizeof(PcmWorkspace) <= 84 * 1024);
 
@@ -306,35 +306,16 @@ bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 cha
         terminal(s, AccountVideoError::audio, started.native_error);
     return started.ok();
 }
-// The decoder state and then the decode scratch follow the workspace.
-constexpr u32 kOpusStateOffset =
-    (sizeof(OpusWorkspace) + kOpusDecoderStateAlignment - 1) & ~(kOpusDecoderStateAlignment - 1);
-usize opus_scratch_offset(u32 state_bytes) noexcept {
-    return (kOpusStateOffset + state_bytes + alignof(OpusScratch) - 1) & ~usize{alignof(OpusScratch) - 1};
-}
 bool opus_workspace(AccountVideoSession& s) noexcept {
     const auto* source = opus_source(s);
-    const u32 state_bytes = opus_decoder_storage_bytes(source->channels);
-    if (!state_bytes || state_bytes > 128 * 1024) {
-        terminal(s, AccountVideoError::decoder);
-        return false;
-    }
-    const usize bytes = opus_scratch_offset(state_bytes) + sizeof(OpusScratch);
-    auto* w = static_cast<OpusWorkspace*>(commit_pages(bytes));
+    auto* w = static_cast<OpusWorkspace*>(commit_pages(sizeof(OpusWorkspace)));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
     }
     s.workspace = w;
-    w->allocation_bytes = static_cast<u32>(bytes);
-    auto decoded = opus_decoder_initialize(&w->decoder, {reinterpret_cast<u8*>(w) + kOpusStateOffset, state_bytes},
-                                           source->channels);
-    if (decoded.ok())
-        decoded = opus_decoder_gain(&w->decoder, source->output_gain_q8);
-    if (!decoded.ok()) {
-        terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded.native_status));
-        return false;
-    }
+    w->allocation_bytes = sizeof(OpusWorkspace);
+    opus_decoder_start(&w->decoder, source->channels, source->output_gain_q8);
     if (!start_audio(s, &w->audio, w->ring, source->channels, kOggOpusSampleRate))
         return false;
     if (!opus_window(s, *w)) {
@@ -531,14 +512,7 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
     }
     if (auto* owner = audio_owner(s)) {
         if (s.status.kind == AccountPlaybackKind::ogg_opus) {
-            auto& w = *static_cast<OpusWorkspace*>(s.workspace);
-            auto flushed = opus_decoder_reset(&w.decoder);
-            if (flushed.ok())
-                flushed = opus_decoder_gain(&w.decoder, opus_source(s)->output_gain_q8);
-            if (!flushed.ok()) {
-                terminal(s, AccountVideoError::decoder, static_cast<u32>(flushed.native_status));
-                return false;
-            }
+            opus_decoder_reset(&static_cast<OpusWorkspace*>(s.workspace)->decoder);
         } else if (s.status.kind == AccountPlaybackKind::mp3) {
             const auto flushed = mp3_decoder_reset(&static_cast<Mp3Workspace*>(s.workspace)->decoder);
             if (flushed != Mp3Error::none) {
@@ -1049,16 +1023,17 @@ bool opus_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, voi
             *interrupted = true;
             return true;
         }
-        const auto decoded =
-            opus_decoder_decode(&w.decoder, packet.bytes, {w.pcm16, kOpusDecoderMaximumFrames * 2},
-                                reinterpret_cast<OpusScratch*>(reinterpret_cast<u8*>(&w) +
-                                                               opus_scratch_offset(w.decoder.state_bytes)));
+        // A packet the decoder rejects is concealed like a lost one: the timeline keeps its length.
+        const Slice<i16> out{w.pcm16, kOpusDecoderMaximumFrames * 2};
+        u32 decoded = opus_decode(&w.decoder, packet.bytes, out);
+        if (!decoded)
+            decoded = opus_decode_lost(&w.decoder, {}, packet.duration_frames, out);
         ++packets;
-        if (!decoded.ok() || decoded.frames != packet.duration_frames) {
-            terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded.native_status));
+        if (decoded != packet.duration_frames) {
+            terminal(s, AccountVideoError::decoder);
             break;
         }
-        for (u32 i = 0; i < decoded.frames * w.demux.channels; ++i)
+        for (u32 i = 0; i < decoded * w.demux.channels; ++i)
             w.pcm[i] = w.pcm16[i] / 32768.0f;
         const u64 first = maximum(w.first_frame, packet.decoded_first_frame + packet.trim_front_frames);
         const u64 last = minimum(w.end_frame, packet.decoded_first_frame + packet.duration_frames -

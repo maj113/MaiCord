@@ -286,7 +286,7 @@ endif()
 # a vectored handler) and debuggers walk crash-dump stacks by heuristics. The
 # in-process stack walkers (the perf probe's sampler and allocation sites)
 # configure with MAICORD_UNWIND_TABLES. MAICORD_UNWIND_OPTIONS are the compile
-# options, also for the targets outside the contract (maiopus).
+# options.
 option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" OFF)
 set(MAICORD_UNWIND_OPTIONS)
 if(NOT MAICORD_UNWIND_TABLES)

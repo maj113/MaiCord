@@ -152,7 +152,7 @@ stdenv.mkDerivation (finalAttrs: {
     changelog = "https://github.com/maj113/MaiCord/releases/tag/v${finalAttrs.version}";
     license = with lib.licenses; [
       mpl20
-      # The bundled fonts, the Twemoji flags, Opus's notice, the emoji tables, Lucide icons and Unicode data.
+      # The bundled fonts, the Twemoji flags, the Opus tables' notice, the emoji tables, Lucide icons and Unicode data.
       ofl
       cc-by-40
       cc0
