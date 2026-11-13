@@ -230,7 +230,7 @@ void changed(void* context) noexcept {
                            : profile_edit()  ? application_profile_refresh_message()
                            : friends_edit()  ? application_friends_search_changed(content)
                            : gallery_edit()  ? application_media_picker_edit_changed(content)
-                           : search_edit()   ? application_search_edit_changed(content)
+                           : search_edit()   ? application_search_edit_changed()
                                              : composer_apply_result(MessageComposerResult::changed, content);
     if (g_app.composer_text_input == input)
         input->busy = false;

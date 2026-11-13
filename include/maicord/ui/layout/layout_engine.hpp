@@ -145,8 +145,8 @@ constexpr UiLayoutLength ui_layout_fixed(float extent) noexcept {
     return UiLayoutLength{UiLayoutLengthMode::fixed, extent};
 }
 
-constexpr UiLayoutLength ui_layout_fill(float weight = 1.0f) noexcept {
-    return UiLayoutLength{UiLayoutLengthMode::fill, weight};
+constexpr UiLayoutLength ui_layout_fill() noexcept {
+    return UiLayoutLength{UiLayoutLengthMode::fill, 1.0f};
 }
 
 UiLayoutStyle ui_layout_style() noexcept;

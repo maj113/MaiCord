@@ -31,7 +31,6 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/containers/track_info.hpp"
 #include "maicord/render/media/atlas.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
 #include "maicord/ui/voice/video_controls.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 
@@ -43,7 +42,7 @@ struct MediaPage {
     char title[96], source[96];
     MediaAssetKey key, fallback;
     UiSize pixels;
-    u64 channel_id, message_id, author_id;
+    u64 channel_id, message_id;
     u32 revision;
     // The image's zoom (relative to fit) and pan, kept while the page is hidden.
     float zoom;
@@ -454,7 +453,6 @@ u8 application_media_page_open(const MediaPageSource& source) noexcept {
     page->pixels = ui_size_valid(source.pixels) ? source.pixels : UiSize{16, 9};
     page->channel_id = source.channel_id;
     page->message_id = source.message_id;
-    page->author_id = source.author_id;
     page->revision = source.revision;
     page->flags = source.flags;
     page->kind = source.kind;

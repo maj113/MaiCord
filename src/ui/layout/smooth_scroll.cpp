@@ -65,7 +65,7 @@ double curve_velocity(const UiSmoothScroll& scroll, u64 now_us) noexcept {
 
 bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
                             double units_per_pixel) noexcept {
-    if (!scroll || !finite_delta(delta) || !finite_delta(units_per_pixel) ||
+    if (!finite_delta(delta) || !finite_delta(units_per_pixel) ||
         units_per_pixel <= 0.0) {
         return false;
     }
@@ -109,9 +109,6 @@ bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
 }
 
 bool ui_smooth_scroll_step(UiSmoothScroll* scroll, u64 now_us, double* delta) noexcept {
-    if (!scroll || !delta) {
-        return false;
-    }
     *delta = 0.0;
     if (!scroll->active) {
         return true;
@@ -141,9 +138,7 @@ bool ui_smooth_scroll_step(UiSmoothScroll* scroll, u64 now_us, double* delta) no
 }
 
 void ui_smooth_scroll_cancel(UiSmoothScroll* scroll) noexcept {
-    if (scroll) {
-        reset_value<UiSmoothScroll>(scroll);
-    }
+    reset_value<UiSmoothScroll>(scroll);
 }
 
 } // namespace maicord

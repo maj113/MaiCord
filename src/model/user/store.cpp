@@ -105,7 +105,7 @@ bool remove_slot(UserStore* store, u32 slot) noexcept {
 
 UserStoreResult store_error(UserStore* store, UserStoreError error) noexcept {
     if (store) saturating_increment(store->rejected);
-    return UserStoreResult{error, false, false, false};
+    return UserStoreResult{error, false, false};
 }
 
 #include "../chat/asset_hash_validation.inc"
@@ -182,7 +182,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
             bytes_equal(store->names + record.name_offset + record.name_bytes, compared.data, compared.bytes)) {
             saturating_increment(store->clock);
             record.last_seen = store->clock;
-            return UserStoreResult{UserStoreError::none, false, false, false};
+            return UserStoreResult{UserStoreError::none, false, false};
         }
     }
     if (display_name.bytes > kUserDisplayNameMaximumBytes || username.bytes > kUserDisplayNameMaximumBytes) {
@@ -295,7 +295,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     saturating_increment(store->revision);
     saturating_increment(store->mutations);
     store->evictions = eviction_count > ~u32{0} - store->evictions ? ~u32{0} : store->evictions + eviction_count;
-    return UserStoreResult{UserStoreError::none, !found, true, evicted};
+    return UserStoreResult{UserStoreError::none, !found, evicted};
 }
 
 bool user_store_set_avatar(UserStore* store, u64 id, const Utf8View& avatar_view) noexcept {

@@ -1,3 +1,4 @@
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/os/file.hpp"
@@ -34,10 +35,6 @@ bool equal_ignore_case(const char* a, u32 a_length, const char* b) noexcept {
         if ((a[i] | 0x20) != (b[i] | 0x20))
             return false;
     return i == a_length && !b[i];
-}
-
-bool is_space(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
 // The style words a GTK font description may carry after the family ("Noto Sans Bold Italic 11").
@@ -78,20 +75,20 @@ bool split_description(const char* description, char (&with_style)[kDescriptionC
     // Only the first family of a comma separated list.
     while (description[length] && description[length] != ',' && length + 1 < kDescriptionCapacity)
         ++length;
-    while (length && is_space(description[length - 1]))
+    while (length && ascii_is_space(description[length - 1]))
         --length;
     u32 begin = 0;
-    while (begin < length && is_space(description[begin]))
+    while (begin < length && ascii_is_space(description[begin]))
         ++begin;
     u32 end = length;
     auto trim_word = [&](bool (*accept)(const char*, u32)) noexcept {
         u32 start = end;
-        while (start > begin && !is_space(description[start - 1]))
+        while (start > begin && !ascii_is_space(description[start - 1]))
             --start;
         if (start == begin || !accept(description + start, end - start))
             return false;
         end = start;
-        while (end > begin && is_space(description[end - 1]))
+        while (end > begin && ascii_is_space(description[end - 1]))
             --end;
         return true;
     };
@@ -141,10 +138,10 @@ bool ini_value(const char* utf8_path, const char* section, const char* key, char
             return false;
         }
         u32 start = 0;
-        while (start < line_length && is_space(line[start]))
+        while (start < line_length && ascii_is_space(line[start]))
             ++start;
         u32 stop = line_length;
-        while (stop > start && is_space(line[stop - 1]))
+        while (stop > start && ascii_is_space(line[stop - 1]))
             --stop;
         if (start >= stop || line[start] == '#' || line[start] == ';')
             return false;
@@ -156,12 +153,12 @@ bool ini_value(const char* utf8_path, const char* section, const char* key, char
         if (!in_section || stop - start <= key_length || !bytes_equal(line + start, key, key_length))
             return false;
         u32 at = start + key_length;
-        while (at < stop && is_space(line[at]))
+        while (at < stop && ascii_is_space(line[at]))
             ++at;
         if (at >= stop || line[at] != '=')
             return false;
         ++at;
-        while (at < stop && is_space(line[at]))
+        while (at < stop && ascii_is_space(line[at]))
             ++at;
         u32 count = 0;
         for (; at < stop && count + 1 < capacity; ++at) {

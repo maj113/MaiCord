@@ -1,4 +1,7 @@
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/chat/polls/controls.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/text/form.hpp"
 #include "maicord/core/utf.hpp"
 

@@ -29,7 +29,7 @@ bool message_scene_reveal_message(MessageScene* scene, u64 message_id) noexcept 
 }
 
 MessageSceneHit message_scene_navigate(MessageScene* scene, UiListMove move) noexcept {
-    if (!scene || !scene->active || !scene->timeline || !scene->timeline->store ||
+    if (!scene->active || !scene->timeline || !scene->timeline->store ||
         !scene->timeline->list || !scene->timeline->store->count ||
         scene->timeline->list->count != scene->timeline->store->count) return {};
     auto& timeline = *scene->timeline;

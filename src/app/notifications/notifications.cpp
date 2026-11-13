@@ -223,8 +223,8 @@ void audio_reset(ApplicationNotifications& n,bool enabled) noexcept {
 }
 void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     notification_sound_assets_volume(&n.sound_assets,a.preferences.output_volume);
-    // Local pack override changes future invocation mapping, never H's logical
-    // pending args, an accepted clip ID, active voice, or account audio epoch.
+    // A local pack override changes the mapping of future sounds only: never a pending request, an accepted
+    // clip, an active voice or the account audio epoch.
     n.current_pack=a.preferences.soundpack;
     if(n.audio_preference!=a.preferences.message_sounds_enabled) {
         n.audio_preference=a.preferences.message_sounds_enabled;
@@ -248,17 +248,15 @@ void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
 void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
     const auto invocation=notification_sound_throttle_request(&n.sound_throttle,sound_clock(n),
-        {epoch,0,.4f,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1});
+        {epoch,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1});
     if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
 }
 Display* ensure_display(ApplicationNotifications& n) noexcept {
     if(n.display) return n.display;
     auto* display=commit_pages<Display>();
     if(!display) return nullptr;
-    if(!desktop_notification_queue_initialize(&display->queue,{display->rows,kDesktopNotificationQueueRows},
-        {display->bytes,kDesktopNotificationQueueBytes},{display->scratch,kDesktopNotificationQueueItemBytes})) {
-        pages_release(display); return nullptr;
-    }
+    desktop_notification_queue_initialize(&display->queue,{display->rows,kDesktopNotificationQueueRows},
+        {display->bytes,kDesktopNotificationQueueBytes},{display->scratch,kDesktopNotificationQueueItemBytes});
     desktop_notification_queue_reset(&display->queue,n.profile,n.generation);
     n.display=display; return display;
 }
@@ -306,12 +304,12 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
 #endif
     auto* rows=allocate_rows?commit_pages<NotificationRetentionRow>(static_cast<SIZE_T>(row_bytes)):nullptr;
     auto* index=rows && allocate_index?commit_pages<u32>(static_cast<SIZE_T>(index_bytes)):nullptr;
-    auto* old_rows=n.retention.rows.data; auto* old_index=n.retention.index.data;
-    if(!rows || !index || notification_retention_rebind(&n.retention,{rows,capacity},{index,slots})!=NotificationRetentionError::none) {
+    if(!rows || !index) {
         if(rows) pages_release(rows);
-        if(index) pages_release(index);
         return retention_unavailable(n);
     }
+    auto* old_rows=n.retention.rows.data; auto* old_index=n.retention.index.data;
+    notification_retention_rebind(&n.retention,{rows,capacity},{index,slots});
     if(old_rows) pages_release(old_rows);
     if(old_index) pages_release(old_index);
     return true;
@@ -339,22 +337,19 @@ ApplicationNotifications* ensure(Application* a) noexcept {
        !stable_storage_initialize(&n->threads,channel_capacity,0,sizeof(MessageNotificationThreadSetting),alignof(MessageNotificationThreadSetting)) ||
        !stable_storage_initialize(&n->staging,channel_capacity,0,sizeof(MessageNotificationOverride),alignof(MessageNotificationOverride)) ||
        !stable_storage_initialize(&n->guild_scopes,guild_capacity,0,sizeof(Scope),alignof(Scope)) ||
-       !stable_storage_initialize(&n->channel_scopes,channel_capacity,0,sizeof(Scope),alignof(Scope)) ||
-       !message_notifications_initialize(&n->settings,
-          {stable_storage_data<MessageNotificationGuildSetting>(n->guilds),guild_capacity},
-          {stable_storage_data<MessageNotificationOverride>(n->overrides),channel_capacity},
-          {stable_storage_data<MessageNotificationThreadSetting>(n->threads),channel_capacity},
-          [](void* context,u32 g,u32 o,u32 t) noexcept {
-              auto& owner=*static_cast<ApplicationNotifications*>(context);
-              return (!g || stable_storage_reserve(&owner.guilds,g)) &&
-                  (!o || stable_storage_reserve(&owner.overrides,o)) &&
-                  (!t || stable_storage_reserve(&owner.threads,t));
-          },n)) {
+       !stable_storage_initialize(&n->channel_scopes,channel_capacity,0,sizeof(Scope),alignof(Scope))) {
         release_storage(*n); pages_release(n); return nullptr;
     }
-    if(!notification_retention_initialize(&n->retention,{},{})) {
-        release_storage(*n); pages_release(n); return nullptr;
-    }
+    message_notifications_initialize(&n->settings,
+        {stable_storage_data<MessageNotificationGuildSetting>(n->guilds),guild_capacity},
+        {stable_storage_data<MessageNotificationOverride>(n->overrides),channel_capacity},
+        {stable_storage_data<MessageNotificationThreadSetting>(n->threads),channel_capacity},
+        [](void* context,u32 g,u32 o,u32 t) noexcept {
+            auto& owner=*static_cast<ApplicationNotifications*>(context);
+            return (!g || stable_storage_reserve(&owner.guilds,g)) &&
+                (!o || stable_storage_reserve(&owner.overrides,o)) &&
+                (!t || stable_storage_reserve(&owner.threads,t));
+        },n);
     n->audio_epoch=1; n->audio_preference=a->preferences.message_sounds_enabled;
     n->current_pack=a->preferences.soundpack;
     n->sound_assets.module=module_image();
@@ -1331,11 +1326,11 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     }
     input.required_gates=(1u<<16)-1;
     const MessageNotificationDevice device{a->preferences.desktop_enabled,a->preferences.message_sounds_enabled,
-        a->preferences.selected_message_sounds_enabled,a->preferences.taskbar_flash,n.mention_on_all};
-    const auto outputs=message_notification_outputs({&input,true,channel->id==state.selected_channel_id,true,
+        a->preferences.taskbar_flash,n.mention_on_all};
+    const auto outputs=message_notification_outputs({&input,channel->id==state.selected_channel_id,
         a->preferences.selected_message_sounds_enabled},device);
     // Selected message3 is direct and precedes preview/ordinary transport. It
-    // shares MESSAGE1's sound enablement, but never shares fallback H throttle.
+    // shares message1's sound enablement, but never goes through the throttle.
     if(outputs.selected_sound) sound_submit(n,2,n.audio_epoch);
     if(!outputs.ordinary) return;
     Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) return;
@@ -1344,9 +1339,8 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     if(author.bytes>256) author=utf8_literal("New message");
     char body[1024];
     const Utf8View text=preview(*a,message.content,body,sizeof(body));
-    // Source projects title/body (and dispatches RPC) before the ordinary
-    // desktop-NEVER or popup sound branch. Invalid author projection must not
-    // produce that later sound; selected message3 has already been handled.
+    // The title and body are projected before the ordinary sound branch: an invalid author projection must
+    // not produce that sound (the selected message3 has already been handled).
     if(outputs.sound==NotificationMessageSoundRoute::direct) sound_submit(n,1,n.audio_epoch);
     else if(outputs.sound==NotificationMessageSoundRoute::popup) sound_throttled(n,1,n.audio_epoch);
     // Popup transport contributes only streamer here; sound remains independent.

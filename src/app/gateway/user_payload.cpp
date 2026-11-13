@@ -3,6 +3,7 @@
 #include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
+#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/user/profile.hpp"
 
 namespace maicord {
@@ -130,7 +131,7 @@ GatewayClientDispatchRouteResult gateway_append_user(JsonValue value, Slice<u32>
     }
     if (decoded.avatar.encoded.bytes) {
         const auto result = json_string_decode_utf8(decoded.avatar, {avatar, 34});
-        if (!result.ok() || !guild_icon_hash_valid({avatar, result.bytes}))
+        if (!result.ok() || !asset_hash_hex_valid({avatar, result.bytes}))
             return error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_user);
         avatar_bytes = result.bytes;
     }
@@ -172,7 +173,7 @@ bool gateway_client_user_record(ConstSlice<u8> payload, u32* cursor,
     *avatar = {name->data + user->name_bytes, user->avatar_bytes};
     const Utf8View login_name{avatar->data + avatar->bytes, user->username_bytes};
     if (username) *username = login_name;
-    if (!utf8_validate(login_name).valid || !utf8_validate(*name).valid || (avatar->bytes && !guild_icon_hash_valid(*avatar))) return false;
+    if (!utf8_validate(login_name).valid || !utf8_validate(*name).valid || (avatar->bytes && !asset_hash_hex_valid(*avatar))) return false;
     const ConstSlice<u8> extra{reinterpret_cast<const u8*>(login_name.data + login_name.bytes), user->appearance_bytes};
     UserAppearance decoded{};
     if (!user_appearance_read(extra, user->id, 0, &decoded)) return false;

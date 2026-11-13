@@ -6,10 +6,6 @@
 
 namespace maicord {
 namespace {
-bool owner_current(UiWidgetReference owner) noexcept {
-    const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
-    return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
-}
 bool rounded(PaintStream* stream, const UiRect& bounds, const Color& color, float radius) noexcept {
     return !ui_rect_has_area(bounds) ||
            paint_stream_push_rounded(stream, bounds, color, radius);
@@ -98,7 +94,7 @@ u64 geometry_hash(u64 hash, const UiPollGeometry& geometry) noexcept {
 bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
                             const Theme& theme, UiWidgetReference owner, PaintStream* paint,
                             UiPollTarget focus, UiPollTarget hover, bool keyboard) noexcept {
-    if (!paint || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
+    if (!paint || !ui_poll_owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;
     const auto visible = ui_rect_intersection(clip, projection.geometry.bounds);
     if (!ui_rect_has_area(visible))
@@ -200,7 +196,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
 
 bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
                                   UiWidgetReference owner, UiTextOutput* output, UiPollTarget hover) noexcept {
-    if (!output || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
+    if (!output || !ui_poll_owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;
     const auto visible = ui_rect_intersection(clip, projection.geometry.bounds);
     const auto& geometry = projection.geometry;
@@ -274,7 +270,7 @@ bool ui_poll_scene_text_output(const UiPollScene& scene, UiTextOutput* output) n
            ui_poll_controls_text_output(scene.projection, scene.style, scene.clip, scene.owner, output, scene.hover);
 }
 u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
-    if (!scene.active || !owner_current(scene.owner))
+    if (!scene.active || !ui_poll_owner_current(scene.owner))
         return 0;
     u64 hash = geometry_hash(kHash64Seed, scene.projection.geometry);
     hash = hash64_bytes(hash, &scene.clip, sizeof(scene.clip));
@@ -315,7 +311,7 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
     return hash64_bytes(hash, &scene.style.radius, sizeof(scene.style.radius));
 }
 u64 ui_poll_scene_text_revision(const UiPollScene& scene) noexcept {
-    return scene.active && owner_current(scene.owner)
+    return scene.active && ui_poll_owner_current(scene.owner)
                ? ui_text_output_signature<UiPollScene, ui_poll_scene_text_output>(scene)
                : 0;
 }
@@ -324,7 +320,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
                                 PaintStream* paint) noexcept {
     if (!scene.active)
         return true;
-    if (!paint || !owner_current(scene.owner))
+    if (!paint || !ui_poll_owner_current(scene.owner))
         return false;
     const auto& geometry = scene.geometry;
     Color dim = theme.base_lowest;
@@ -398,7 +394,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
 bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutput* output) noexcept {
     if (!scene.active)
         return true;
-    if (!output || !owner_current(scene.owner))
+    if (!output || !ui_poll_owner_current(scene.owner))
         return false;
     const auto& geometry = scene.geometry;
     if (!label(output, scene.style.title, geometry.title, geometry.panel, scene.owner, scene.foreground,
@@ -483,12 +479,12 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
     return true;
 }
 u64 ui_poll_voters_scene_text_revision(const UiPollVotersScene& scene) noexcept {
-    return scene.active && owner_current(scene.owner)
+    return scene.active && ui_poll_owner_current(scene.owner)
                ? ui_text_output_signature<UiPollVotersScene, ui_poll_voters_scene_text_output>(scene)
                : 0;
 }
 u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept {
-    if (!scene.active || !owner_current(scene.owner))
+    if (!scene.active || !ui_poll_owner_current(scene.owner))
         return 0;
     const auto& g = scene.geometry;
     static_assert(__builtin_offsetof(UiPollVotersGeometry, body) == 7 * sizeof(UiRect));

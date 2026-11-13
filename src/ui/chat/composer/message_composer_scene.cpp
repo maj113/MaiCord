@@ -1363,7 +1363,7 @@ UiComposerAttachmentHit message_composer_scene_attachment_hit(const MessageCompo
     return ui_composer_attachment_strip_hit(view.strip, view.tiles, view.scroll, x, y);
 }
 bool message_composer_scene_attachment_hover(MessageComposerScene* scene, UiComposerAttachmentHit hit) noexcept {
-    if (!scene || !scene->attachment_strip)
+    if (!scene->attachment_strip)
         return false;
     auto& strip = *scene->attachment_strip;
     if (hit.index >= strip.count)
@@ -1375,7 +1375,7 @@ bool message_composer_scene_attachment_hover(MessageComposerScene* scene, UiComp
     return true;
 }
 bool message_composer_scene_attachment_scroll(MessageComposerScene* scene, float delta) noexcept {
-    if (!scene || !scene->attachment_strip || !scene->attachment_strip->count || delta != delta)
+    if (!scene->attachment_strip || !scene->attachment_strip->count || delta != delta)
         return false;
     const auto view = message_composer_scene_attachment_view(*scene, false);
     const float next = ui_composer_attachment_strip_clamp_scroll(view.strip, scene->attachment_strip->count,
@@ -1386,7 +1386,7 @@ bool message_composer_scene_attachment_scroll(MessageComposerScene* scene, float
     return true;
 }
 bool message_composer_scene_attachment_select(MessageComposerScene* scene, u32 index) noexcept {
-    if (!scene || !scene->attachment_strip)
+    if (!scene->attachment_strip)
         return false;
     auto& strip = *scene->attachment_strip;
     const u64 id = index < strip.count ? strip.tiles[index].id : 0;
@@ -1417,16 +1417,12 @@ bool message_composer_scene_can_send(const MessageComposerScene& scene) noexcept
                              scene.premium_type);
 }
 
-bool message_composer_scene_set_voice(MessageComposerScene* scene, const UiComposerVoiceView* view) noexcept {
-    if (!scene)
-        return false;
+void message_composer_scene_set_voice(MessageComposerScene* scene, const UiComposerVoiceView* view) noexcept {
     const UiComposerVoiceMode mode = view ? view->mode : UiComposerVoiceMode::none;
-    const bool changed = scene->voice_mode != mode || scene->voice != view;
     if (ui_composer_voice_bar_visible(scene->voice_mode) != ui_composer_voice_bar_visible(mode))
         scene->geometry_dirty = true;
     scene->voice_mode = mode;
     scene->voice = view;
-    return changed;
 }
 UiComposerVoiceMode message_composer_scene_voice_mode(const MessageComposerScene& scene) noexcept {
     return scene.voice_mode;
@@ -1472,12 +1468,8 @@ u32 message_composer_scene_focused_plugin_slot(const MessageComposerScene& scene
     return kMessageComposerPluginSlots;
 }
 
-bool message_composer_scene_set_caret_visible(MessageComposerScene* scene, bool visible) noexcept {
-    if (!scene) {
-        return false;
-    }
+void message_composer_scene_set_caret_visible(MessageComposerScene* scene, bool visible) noexcept {
     scene->caret_visible = visible;
-    return true;
 }
 
 void message_composer_scene_release(MessageComposerScene* scene) noexcept {

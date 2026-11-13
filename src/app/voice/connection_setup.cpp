@@ -51,8 +51,6 @@ VoiceSetupResult evaluate(VoiceConnectionSetup* setup) noexcept {
 } // namespace
 
 void voice_setup_leave(VoiceConnectionSetup* setup) noexcept {
-    if (!setup)
-        return;
     advance(setup);
     secure_buffer_release(&setup->server_credentials);
     setup->guild_id = setup->channel_id = setup->state_deadline_ms = 0;
@@ -65,8 +63,6 @@ void voice_setup_leave(VoiceConnectionSetup* setup) noexcept {
 }
 
 void voice_setup_release(VoiceConnectionSetup* setup) noexcept {
-    if (!setup)
-        return;
     voice_setup_leave(setup);
     secure_buffer_release(&setup->login_session);
     setup->user_id = 0;
@@ -102,7 +98,7 @@ VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id,
 }
 
 VoiceSetupResult voice_setup_state(VoiceConnectionSetup* setup, const GatewayVoiceState& event) noexcept {
-    if (!setup || setup->phase == VoiceSetupPhase::idle || setup->stream || event.user_id != setup->user_id ||
+    if (setup->phase == VoiceSetupPhase::idle || setup->stream || event.user_id != setup->user_id ||
         event.guild_id != setup->guild_id)
         return VoiceSetupResult::ignored;
     if (!event.channel_id ||
@@ -166,7 +162,7 @@ VoiceSetupResult assign_server(VoiceConnectionSetup* setup, JsonString token, Js
 } // namespace
 
 VoiceSetupResult voice_setup_server(VoiceConnectionSetup* setup, const GatewayVoiceServer& event) noexcept {
-    if (!setup || setup->phase == VoiceSetupPhase::idle || setup->stream || event.guild_id != setup->guild_id ||
+    if (setup->phase == VoiceSetupPhase::idle || setup->stream || event.guild_id != setup->guild_id ||
         (event.channel_id && event.channel_id != setup->channel_id) ||
         (!event.guild_id && !event.channel_id))
         return VoiceSetupResult::ignored;

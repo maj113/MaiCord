@@ -3,6 +3,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 // Visible cells bound the widest pane: a wider request shrinks to the columns
@@ -432,4 +433,8 @@ bool ui_media_picker_scene_footer_media(const UiMediaPickerScene&, UiMediaPicker
 // ":name:" and "from <detail>" for emoji; the name and its source otherwise.
 Utf8View ui_media_picker_scene_footer_title(const UiMediaPickerScene&) noexcept;
 Utf8View ui_media_picker_scene_footer_detail(const UiMediaPickerScene&) noexcept;
+inline UiCursor ui_media_picker_scene_cursor(const UiMediaPickerScene& scene, float x, float y) noexcept {
+    const auto action = ui_media_picker_scene_hit_test(scene, x, y).action;
+    return ui_action_cursor(action != UiMediaPickerAction::none, action == UiMediaPickerAction::edit);
+}
 } // namespace maicord

@@ -197,7 +197,7 @@ bool frame_damage_ui_probe() noexcept {
         }
     }
     if (!message_view_runtime_reindex(&g_probe.message_view,
-                                      ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, false)
+                                      ui_extent_units(kUiBootstrapMessageRowHeight), 1, false)
              .ok())
         return Gate::fail(stage, 11);
     if (!media_pixels(r, 40))

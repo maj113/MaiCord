@@ -3,12 +3,11 @@
 
 namespace maicord {
 void ui_button_keyboard_cancel(UiButtonKeyboard* state) noexcept {
-    if (state) reset_value(&state->pressed);
+    reset_value(&state->pressed);
 }
 
 UiButtonKeyResult ui_button_keyboard_key(UiButtonKeyboard* state, const UiWidgetManager* owner,
     UiButtonKey key, bool down, bool repeated) noexcept {
-    if (!state) return {};
     const auto pressed = state->pressed;
     if (!down && key != UiButtonKey::space) return {};
     if (!down || key != UiButtonKey::space) ui_button_keyboard_cancel(state);

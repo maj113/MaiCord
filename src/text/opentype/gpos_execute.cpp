@@ -46,11 +46,12 @@ i32 kern_value(ConstSlice<u8> table,u16 left,u16 right) noexcept {
     return sum;
 }
 }
-bool sfnt_legacy_kern_valid(ConstSlice<u8> table) noexcept {return table.data&&kern_lists(table,[](const u8*,u32) noexcept {});}
-void sfnt_legacy_kern_glyphs(ConstSlice<u8> table,Slice<u64> bitmap) noexcept {
+bool sfnt_legacy_kern_open(ConstSlice<u8> table,Slice<u64> bitmap) noexcept {
+    if(!table.data||!kern_lists(table,[](const u8*,u32) noexcept {}))return false;
     kern_lists(table,[&](const u8* pairs,u32 count) noexcept {
         for(u32 i=0;i<count;++i)for(u32 side=0;side<2;++side){const u32 glyph=byte_load_be16(pairs+i*6+side*2);
             if(glyph/64<bitmap.count)bitmap.data[glyph/64]|=1ull<<(glyph%64);}});
+    return true;
 }
 SfntStatus sfnt_legacy_kern_apply(ConstSlice<u8> table,SfntGlyphView glyphs,ConstSlice<u8> flags,Slice<SfntPosition> positions,bool rtl,u64* work) noexcept {
     const u32 count=sfnt_glyph_count(glyphs);if(flags.count<count||positions.count<count)return SfntStatus::invalid_input;

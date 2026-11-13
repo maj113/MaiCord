@@ -30,9 +30,6 @@ bool paint_stream_initialize(PaintStream* stream, u32 initial_capacity) noexcept
 }
 
 void paint_stream_release(PaintStream* stream) noexcept {
-    if (!stream) {
-        return;
-    }
     stable_storage_release(&stream->quad_storage);
     stream->quads = nullptr;
     stream->quad_capacity = 0;

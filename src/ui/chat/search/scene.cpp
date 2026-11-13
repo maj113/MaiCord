@@ -29,8 +29,6 @@ bool ui_search_scene_current(const UiSearchScene& scene) noexcept {
     return current(scene);
 }
 bool ui_search_scene_bind_theme_styles(UiSearchScene* scene, const UiResolvedThemeStyles* styles) noexcept {
-    if (!scene)
-        return false;
     const bool changed = scene->theme_styles != styles;
     scene->theme_styles = styles;
     if (changed)
@@ -40,9 +38,8 @@ bool ui_search_scene_bind_theme_styles(UiSearchScene* scene, const UiResolvedThe
     return changed || geometry;
 }
 bool ui_search_scene_set_media_policy(UiSearchScene* scene, const MessageMediaPolicy& policy) noexcept {
-    if (!scene ||
-        (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
-         scene->media_policy.revision == policy.revision))
+    if (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
+        scene->media_policy.revision == policy.revision)
         return false;
     scene->media_policy = policy;
     scene->media_policy_dirty = true;
@@ -462,8 +459,6 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     return rebuild(*s);
 }
 void ui_search_scene_release(UiSearchScene* s) noexcept {
-    if (!s)
-        return;
     ui_fixed_widget_storage_release(&s->storage);
     if (s->rich_projection) {
         message_scene_release(&s->rich_projection->scene);

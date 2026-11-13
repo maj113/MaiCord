@@ -10,8 +10,6 @@ namespace maicord {
 struct GatewayClientEvent;
 namespace app_detail {
 
-// Idempotent: turns on the live timeline's tombstone query, once a plugin keeps or listens.
-void application_plugins_pipeline_install() noexcept;
 // One popped Gateway event, before the stores apply it: MESSAGE_DELETED and MESSAGE_EDITED hooks see the
 // cached copy, and the event feed queues what some plugin asked for. A no-op without a subscriber.
 void application_plugins_pipeline_gateway(const GatewayClientEvent&, ConstSlice<u8> payload) noexcept;
@@ -30,8 +28,6 @@ bool application_plugins_send_confirm(Utf8View question) noexcept;
 // A pre_send hook asked for the next send to suppress link embeds; the send takes it (once).
 void application_plugins_suppress_embeds_next(bool suppress) noexcept;
 bool application_plugins_take_suppress_embeds() noexcept;
-// Kept messages and plugin state belong to the account: drop them when it goes.
-void application_plugins_pipeline_account_invalidated() noexcept;
 // A removal this MaiCord asked for (leave or delete a server, leave a group DM, end a relationship): the
 // event that confirms it within a minute carries MC_EVENT_OWN. A no-op unless a plugin listens for the kind.
 enum class PluginOwnRemoval : u8 { channel = 10, guild = 13, relationship = 18 }; // MC_EVENT_* kinds

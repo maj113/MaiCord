@@ -248,7 +248,6 @@ bool present_rejected(const char* stage) noexcept {
     g_present_rejected_stage = stage;
     return false;
 }
-} // namespace
 
 // The GPU device was lost (a reset, a driver update, a removed adapter): the renderer rebuilds itself on a new
 // one, the loop rebuilds text for the empty atlas and media owners request their images again. A failed attempt
@@ -266,6 +265,7 @@ __attribute__((minsize)) bool application_recover_device() noexcept {
     application_request_frame();
     return true;
 }
+} // namespace
 
 bool application_present_frame() noexcept {
     if (!g_app.renderer_ready) {
@@ -325,7 +325,8 @@ bool application_present_frame() noexcept {
     now_ms = clock_monotonic_milliseconds();
     application_message_forward_tick(now_ms);
     application_quick_switcher_tick(now_ms);
-    if (!application_shortcuts_overlay_synchronize() || !application_downloads_synchronize() ||
+    application_shortcuts_overlay_synchronize();
+    if (!application_downloads_synchronize() ||
         !application_go_live_modal_synchronize() ||
         !application_message_forward_synchronize() ||
         !application_quick_switcher_synchronize() || !application_search_synchronize() ||

@@ -43,6 +43,10 @@ bool encode(ClientSessionMetadata* metadata) noexcept {
     return true;
 }
 
+bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept {
+    return session.valid && now_ms < session.last_used_ms + kClientHeartbeatSessionIdleMs;
+}
+
 // Locked. The session the client would report at now_ms.
 const ClientHeartbeatSession* live_session(const ClientSessionMetadata& metadata, u64 now_ms) noexcept {
     return client_heartbeat_session_live(metadata.session, now_ms) ? &metadata.session : nullptr;
@@ -58,10 +62,6 @@ bool locale_valid(Utf8View locale) noexcept {
 }
 
 } // namespace
-
-bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept {
-    return session.valid && now_ms < session.last_used_ms + kClientHeartbeatSessionIdleMs;
-}
 
 bool client_heartbeat_session_valid(const ClientHeartbeatSession& session) noexcept {
     if (!session.valid || session.created_ms == 0 || session.last_used_ms < session.created_ms)

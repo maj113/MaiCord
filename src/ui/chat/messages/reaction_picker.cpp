@@ -70,8 +70,9 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
     return true;
 }
 
+// Only rebuild_results pushes, after checking storage_valid.
 inline bool push_result(ReactionPickerModel* picker, u32 value) noexcept {
-    if (!storage_valid(picker) || picker->result_count >= picker->result_capacity)
+    if (picker->result_count >= picker->result_capacity)
         return false;
     picker->results[picker->result_count++] = value;
     return true;
@@ -92,7 +93,7 @@ inline Utf8View custom_name(const CustomEmojiRecord& emoji) noexcept {
 }
 
 inline bool push_section(ReactionPickerModel* picker, u32 section) noexcept {
-    if (!storage_valid(picker) || picker->section_count >= picker->guild_count + 10)
+    if (picker->section_count >= picker->guild_count + 10)
         return false;
     if (picker->section_count) {
         auto& previous = picker->sections[picker->section_count - 1];
@@ -431,8 +432,6 @@ ReactionPickerResult reaction_picker_refresh_search(ReactionPickerModel* picker)
 }
 
 ReactionPickerResult reaction_picker_refresh_preferences(ReactionPickerModel* picker) noexcept {
-    if (!storage_valid(picker) || !picker->message_id)
-        return {ReactionPickerError::invalid_input, false};
     return rebuild_results(picker);
 }
 

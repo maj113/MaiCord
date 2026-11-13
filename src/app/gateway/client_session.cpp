@@ -9,35 +9,15 @@ namespace maicord {
 namespace {
 
 // READY's replacement token (AUTH_TOKEN_REFRESH): the worker identifies and resumes with it from now on, and the
-// owner takes a copy for REST and the saved profile. A malformed or unchanged one is ignored; the copies are made
-// before either holder changes, so a failed allocation leaves both on the old token.
+// owner takes a copy for REST and the saved profile. A malformed or unchanged one is ignored.
 void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* runtime, JsonValue value) noexcept {
     JsonString text{};
-    if (!json_value_as_string(value, &text) || text.has_escapes || !text.encoded.bytes ||
-        text.encoded.bytes > kGatewayUserMaximumTokenBytes)
+    if (!json_value_as_string(value, &text) || text.has_escapes)
         return;
     const ConstSlice<u8> token{reinterpret_cast<const u8*>(text.encoded.data), text.encoded.bytes};
-    for (u32 i = 0; i < token.count; ++i)
-        if (token.data[i] <= 0x20 || token.data[i] >= 0x7F)
-            return;
     const ConstSlice<u8> current = secure_buffer_view(runtime->credential);
-    if (current.count == token.count && bytes_equal(current.data, token.data, token.count))
-        return;
-    SecureBuffer worker{}, owner{};
-    if (!secure_buffer_initialize(&worker, token.count).ok() || !secure_buffer_assign(&worker, token).ok() ||
-        !secure_buffer_initialize(&owner, token.count).ok() || !secure_buffer_assign(&owner, token).ok()) {
-        secure_buffer_release(&worker);
-        secure_buffer_release(&owner);
-        return;
-    }
-    secure_buffer_release(&runtime->credential);
-    secure_buffer_transfer(&runtime->credential, &worker);
-    AcquireSRWLockExclusive(&runtime->resume_lock);
-    secure_buffer_release(&runtime->refreshed_credential);
-    secure_buffer_transfer(&runtime->refreshed_credential, &owner);
-    ReleaseSRWLockExclusive(&runtime->resume_lock);
-    if (client->notification_event)
-        event_set(client->notification_event);
+    if (current.count != token.count || !bytes_equal(current.data, token.data, token.count))
+        gateway_hand_over_token(client, runtime, &runtime->credential, token);
 }
 
 bool auth_session_member(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -176,7 +156,7 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
         remember_gateway_url(captured_state);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_state_recovery_ready(&runtime->state_recovery);
-    gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, true);
+    reset_value(&runtime->thread_subscription_owner);
     gateway_channel_info_reset_session(&runtime->channel_info);
     if (gateway_self_status_bind(&runtime->self_status, event.ready.user_id))
         self_settings_observe_locked(runtime, event.ready.user_settings_proto, false);
@@ -275,7 +255,6 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             AcquireSRWLockExclusive(&runtime->subscription_lock);
             gateway_channel_info_reset_session(&runtime->channel_info);
             ReleaseSRWLockExclusive(&runtime->subscription_lock);
-            gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, false);
             publish_voice_snapshot(client, runtime);
             runtime->deadline_ms = 0;
             gateway_reconnect_reset(&runtime->reconnect_backoff);

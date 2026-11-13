@@ -113,7 +113,7 @@ inline bool edited_label_ui_probe(D3D11Renderer& renderer, MessageViewRuntime& v
         return true;
     };
     if (!message_timeline_reset(&view.timeline) || !publish(true) ||
-        !message_view_runtime_reindex(&view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+        !message_view_runtime_reindex(&view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok() ||
         !message_view_runtime_bind_rich_store(&view, &rich).ok() || !message_timeline_set_scroll(&view.timeline, 0, false) ||
         !rebuild_model() || !rebuild_model())

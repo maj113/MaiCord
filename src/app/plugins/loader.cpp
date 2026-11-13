@@ -310,7 +310,7 @@ bool button_ok(const mc_button_def& b, const Image& image) noexcept {
 }
 
 #if defined(_WIN32)
-// ---- The pinned directory and the file opened beside it -------------------------------------------
+// The pinned directory and the file opened beside it.
 
 // CON, PRN, AUX, NUL, COM1-9 and LPT1-9 in any case: Windows device names, with or without an extension.
 bool reserved_device_name(const wchar_t* name, u32 stem) noexcept {
@@ -563,7 +563,7 @@ PluginLoadResult image_check(const u8* file, u64 file_bytes, PluginImage* output
 }
 
 #else
-// ---- Linux: the pinned directory, the sealed copy and the ELF checks ------------------------------
+// Linux: the pinned directory, the sealed copy and the ELF checks.
 
 // ELF64 little-endian fields (System V x86-64), read as bytes for the same reason as the PE headers: nothing here
 // overlays a struct on an untrusted file.

@@ -1315,7 +1315,7 @@ void application_message_forward_completion(const MessageSendCompletion&) noexce
 bool refresh_account_text(bool) noexcept {
     return true;
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return true;
 }
 bool refresh_message_composer_ui() noexcept {

@@ -39,13 +39,12 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
                                          u64 work_limit=1000000,u32 match_limit=1000000,
                                          SfntPositionApplication application=SfntPositionApplication::scan,
                                          const SfntLookupBounds* bounds=nullptr) noexcept;
-// Legacy 'kern' table (version 0): whether every subtable header is in bounds and one
+// Legacy 'kern' table (version 0): true when every subtable header is in bounds and one
 // is a horizontal, not cross-stream format-0 pair list, the ones HarfBuzz applies when
-// GPOS has no kern feature (hb-ot-kern-table.hh). The last pair list may outgrow its
-// 16-bit length; the table end bounds it.
-bool sfnt_legacy_kern_valid(ConstSlice<u8> table) noexcept;
-// Sets the bit of every glyph (below bitmap.count*64) that one of those pairs names.
-void sfnt_legacy_kern_glyphs(ConstSlice<u8> table,Slice<u64> bitmap) noexcept;
+// GPOS has no kern feature (hb-ot-kern-table.hh); then sets the bit of every glyph
+// (below bitmap.count*64) that one of those pairs names. The last pair list may
+// outgrow its 16-bit length; the table end bounds it.
+bool sfnt_legacy_kern_open(ConstSlice<u8> table,Slice<u64> bitmap) noexcept;
 // Applies a valid table to positioned glyphs in logical order as HarfBuzz's kern machine:
 // each glyph pairs with the next one without the zero-advance flag (marks and hidden
 // controls); the first of a pair takes half the value (rounded down) as advance, the

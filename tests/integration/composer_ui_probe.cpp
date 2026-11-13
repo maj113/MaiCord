@@ -1637,7 +1637,7 @@ bool synchronize_shell_layout() noexcept {
     fixture->refresh_ok = fixture->refresh_ok && project();
     return fixture->refresh_ok;
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return synchronize_shell_layout();
 }
 bool refresh_account_text(bool) noexcept {

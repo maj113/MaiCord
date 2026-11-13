@@ -9,8 +9,8 @@ struct Fixture {
     NotificationRetention owner{};
     NotificationRetentionRow rows[8]{};
     u32 index[16]{};
-    bool initialize(u32 capacity=8) noexcept {return notification_retention_initialize(&owner,{rows,capacity},{index,16});}
-    bool reinitialize() noexcept {owner={};return initialize();}
+    void initialize(u32 capacity=8) noexcept {notification_retention_rebind(&owner,{rows,capacity},{index,16});}
+    void reinitialize() noexcept {owner={};initialize();}
 };
 NotificationRetentionRow large_rows[8192]{};
 u32 large_index[16384]{};
@@ -19,7 +19,7 @@ bool ticket(const NotificationRetention& n,u64 channel,u32 ordinal,u64 expected)
     u64 value=~expected;return notification_retention_ticket(&n,channel,ordinal,&value)&&value==expected;
 }
 void fifo(void(*check)(bool,const char*)noexcept) noexcept {
-    Fixture f{};check(f.initialize(),"retention: caller-owned sparse storage initializes");
+    Fixture f{};f.initialize();
     bool ordered=true;
     for(u32 i=0;i<20;++i){const auto added=notification_retention_append(&f.owner,7,i);ordered=ordered&&added.ok()&&!added.evicted;}
     for(u32 i=0;i<20;++i)ordered=ordered&&ticket(f.owner,7,i,i);
@@ -42,10 +42,7 @@ void fifo(void(*check)(bool,const char*)noexcept) noexcept {
 }
 void validation(void(*check)(bool,const char*)noexcept) noexcept {
     Fixture f{},before{};
-    check(!notification_retention_initialize(&f.owner,{f.rows,8},{f.index,8})&&!f.owner.rows.data,
-        "retention: index must provide at least twice caller row capacity");
-    check(!notification_retention_initialize(&f.owner,{f.rows,8},{f.index,15})&&f.initialize(),
-        "retention: non-power-of-two index rejected before valid initialization");
+    f.initialize();
     notification_retention_append(&f.owner,1,11);notification_retention_append(&f.owner,2,22);
     copy_bytes(&before,&f,sizeof(f));
     u64 output[20]{};output[0]=71;
@@ -55,24 +52,13 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
     check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&
         !notification_retention_ticket(&f.owner,1,0,nullptr)&&unchanged(f,before),
         "retention: an out-of-range ordinal or missing output yields no ticket");
-    check(notification_retention_rebind(&f.owner,{f.rows+1,4},{f.index,16})==Error::invalid_input&&
-        notification_retention_rebind(&f.owner,{f.rows,1},{f.index,16})==Error::invalid_input&&unchanged(f,before),
-        "retention: partial storage overlap and shrinking below active count are atomic");
-    Fixture destination{},saved_destination{};copy_bytes(&saved_destination,&destination,sizeof(destination));
-    check(notification_retention_rebind(&f.owner,{destination.rows,8},{reinterpret_cast<u32*>(f.rows),16})==Error::invalid_input&&
-        unchanged(f,before)&&unchanged(destination,saved_destination),
-        "retention: cross-bank rebind overlap leaves both source and destination untouched");
     NotificationRetention empty{};
-    check(notification_retention_initialize(&empty,{},{})&&notification_retention_room(&empty,1).error==Error::full_channels&&
+    check(notification_retention_room(&empty,1).error==Error::full_channels&&
         notification_retention_append(&empty,1,2).error==Error::full_channels,
-        "retention: zero initial storage is valid without hidden allocations");
-    Fixture alias{};
-    check(!notification_retention_initialize(&alias.owner,{reinterpret_cast<NotificationRetentionRow*>(&alias.owner),1},{alias.index,16})&&
-        !notification_retention_initialize(&alias.owner,{alias.rows,1},{reinterpret_cast<u32*>(alias.rows),16}),
-        "retention: initialization rejects owner and row/index storage aliases");
+        "retention: zero storage reports full channels without hidden allocations");
 }
 void mapping(void(*check)(bool,const char*)noexcept) noexcept {
-    Fixture f{};check(f.initialize(),"retention: collision fixture initializes");
+    Fixture f{};f.initialize();
     // Discover colliders through the actual initialized index, without copying
     // the hash formula into an oracle. Last bucket forces wrap through zero.
     u64 colliders[5]{};u32 found{};
@@ -113,23 +99,22 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
         "retention: full-width channel IDs retain high-bit and maximum values independently");
 }
 void growth(void(*check)(bool,const char*)noexcept) noexcept {
-    Fixture f{},destination{};check(f.initialize(2),"retention: small growth fixture initializes");
+    Fixture f{},destination{};f.initialize(2);
     for(u32 i=0;i<25;++i)notification_retention_append(&f.owner,41,i);
     notification_retention_append(&f.owner,42,77);
-    check(notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16})==Error::none&&
-        f.owner.count==2&&ticket(f.owner,41,0,5)&&ticket(f.owner,41,19,24)&&ticket(f.owner,42,0,77),
+    notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16});
+    check(f.owner.count==2&&ticket(f.owner,41,0,5)&&ticket(f.owner,41,19,24)&&ticket(f.owner,42,0,77),
         "retention: disjoint replacement banks preserve live wrapped FIFO rows and rebuild indexes");
-    check(notification_retention_rebind(&f.owner,{destination.rows,2},{destination.index,4})==Error::none&&
-        notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16})==Error::none&&ticket(f.owner,41,19,24),
-        "retention: same-base shrink and geometric growth preserve metadata");
-    NotificationRetention large{};check(notification_retention_initialize(&large,{large_rows,4096},{large_index,8192}),
-        "retention: large caller storage initializes without a model source cap");
+    notification_retention_rebind(&f.owner,{destination.rows,2},{destination.index,4});
+    notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16});
+    check(ticket(f.owner,41,19,24),"retention: same-base shrink and geometric growth preserve metadata");
+    NotificationRetention large{};notification_retention_rebind(&large,{large_rows,4096},{large_index,8192});
     bool correct=true;
     for(u32 i=0;i<4096;++i)correct=correct&&notification_retention_append(&large,(u64(i+1)<<22)|17,i).ok();
     check(correct&&large.count==4096&&notification_retention_room(&large,(u64{4097}<<22)|17).error==Error::full_channels,
         "retention: same-low22-bit4096-channel dataset fills only caller capacity");
-    check(notification_retention_rebind(&large,{large_rows,8192},{large_index,16384})==Error::none&&
-        notification_retention_append(&large,(u64{4097}<<22)|17,4096).ok()&&large.count==4097&&
+    notification_retention_rebind(&large,{large_rows,8192},{large_index,16384});
+    check(notification_retention_append(&large,(u64{4097}<<22)|17,4096).ok()&&large.count==4097&&
         ticket(large,(u64{1}<<22)|17,0,0)&&ticket(large,(u64{4097}<<22)|17,0,4096),
         "retention: caller growth beyond4096 historical channels preserves first and last success");
 }

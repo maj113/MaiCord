@@ -274,7 +274,7 @@ bool handle_composer_hover(const WindowEvent& event) noexcept {
             hit == MessageComposerControl::attachments
                 ? message_composer_scene_attachment_hit(g_app.message_composer_scene, x, y)
                 : UiComposerAttachmentHit{kUiComposerAttachmentNoTile, UiComposerAttachmentPart::none}))
-        refresh_account_frame(true);
+        refresh_account_frame();
     return hit != MessageComposerControl::none;
 }
 

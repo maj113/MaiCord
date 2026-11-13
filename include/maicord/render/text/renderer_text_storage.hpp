@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/render/text/glyph_quad.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/text/text.hpp"

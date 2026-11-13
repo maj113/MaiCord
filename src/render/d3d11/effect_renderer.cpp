@@ -433,11 +433,10 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
                                        const BackgroundEffectSpec& spec, const EffectSettings& settings,
                                        u64 adapter_key, GpuSrv* glyph_view, u32 window_width,
                                        u32 window_height) noexcept {
-    const auto result = [](GpuStatus error, EffectSelect state) noexcept { return EffectSelectResult{error, state}; };
-    if (!device || !context || !spec.identity || !spec.bytecode.data || !spec.bytecode.count ||
-        !effect_settings_valid(settings) || (spec.uses & ~static_cast<u32>(effect_use_all)) ||
-        static_cast<u8>(spec.blend) > 2 || !window_width || !window_height)
-        return result(E_INVALIDARG, EffectSelect::rejected);
+    if (!spec.identity || !spec.bytecode.data || !spec.bytecode.count || !effect_settings_valid(settings) ||
+        (spec.uses & ~static_cast<u32>(effect_use_all)) || static_cast<u8>(spec.blend) > 2 || !window_width ||
+        !window_height)
+        return {E_INVALIDARG, EffectSelect::rejected};
     const bool same = owner->selected && owner->identity == spec.identity;
     owner->window_width = window_width;
     owner->window_height = window_height;
@@ -457,14 +456,14 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
             if (restart)
                 start_controller(owner);
         }
-        return result(S_OK, changed ? EffectSelect::changed : EffectSelect::unchanged);
+        return {S_OK, changed ? EffectSelect::changed : EffectSelect::unchanged};
     }
     if (!same)
         d3d11_effect_clear(owner);
     // The package's shaders (a graph's: shader 0 and the rest, each of its stage) and its inputs. A graph is one
     // mcfx_parse accepted.
     if (!create_pass_objects(owner, device))
-        return result(E_FAIL, EffectSelect::rejected);
+        return {E_FAIL, EffectSelect::rejected};
     const EffectGraph* graph = spec.graph && spec.shaders ? spec.graph : nullptr;
     GpuPixelShader* shader = nullptr;
     D3D11EffectStage stages[kEffectGraphShaders]{};
@@ -482,7 +481,7 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
         for (auto& stage : stages)
             gpu_release(stage.vertex);
         d3d11_effect_clear(owner);
-        return result(made, EffectSelect::rejected);
+        return {made, EffectSelect::rejected};
     }
     for (u32 i = 0; i < kD3D11EffectInputs; ++i) {
         gpu_release(owner->inputs[i]);
@@ -513,10 +512,10 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, GpuDevice* devic
         owner->verdict = EffectVerdict::refused;
         owner->verdict_identity = spec.identity;
         d3d11_effect_clear(owner);
-        return result(S_OK, EffectSelect::refused);
+        return {S_OK, EffectSelect::refused};
     }
     owner->dirty = true;
-    return result(S_OK, EffectSelect::changed);
+    return {S_OK, EffectSelect::changed};
 }
 
 bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
@@ -542,6 +541,10 @@ bool d3d11_effect_clear(D3D11EffectOwner* owner) noexcept {
 void d3d11_effect_set_pointer(D3D11EffectOwner* owner, float x, float y) noexcept {
     owner->pointer[0] = is_finite(x) ? x : -1.f;
     owner->pointer[1] = is_finite(y) ? y : -1.f;
+}
+
+void d3d11_effect_set_marker(D3D11EffectOwner* owner, volatile u64* marker) noexcept {
+    owner->marker = marker;
 }
 
 bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, GpuDevice* device, GpuContext* context,
@@ -739,10 +742,4 @@ void d3d11_effect_release(D3D11EffectOwner* owner) noexcept {
     reset_value(owner);
 }
 
-} // namespace maicord
-
-namespace maicord {
-void d3d11_effect_set_marker(D3D11EffectOwner* owner, volatile u64* marker) noexcept {
-    owner->marker = marker;
-}
 } // namespace maicord

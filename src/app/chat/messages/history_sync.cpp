@@ -58,16 +58,6 @@ MessageHistoryApplyResult apply_error(MessageHistoryApplyError error, bool destr
     return result;
 }
 
-bool content_overlaps_store(const MessageStore& store, Utf8View content) noexcept {
-    if (!content.data || content.bytes == 0) {
-        return false;
-    }
-    const u64 content_begin = reinterpret_cast<u64>(content.data);
-    const u64 text_begin = reinterpret_cast<u64>(store.text);
-    return content_begin < text_begin ? text_begin - content_begin < content.bytes
-                                      : content_begin - text_begin < store.text_capacity;
-}
-
 const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
     return message_store_resolve(store, message_store_ordered_handle(store, index));
 }
@@ -401,7 +391,7 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
         if (message.channel_id != channel_id) {
             return apply_error(MessageHistoryApplyError::channel_mismatch);
         }
-        if (message.id >= previous_id || content_overlaps_store(store, message.content)) {
+        if (message.id >= previous_id || message_store_content_overlaps(store, message.content)) {
             return apply_error(MessageHistoryApplyError::invalid_page);
         }
         previous_id = message.id;

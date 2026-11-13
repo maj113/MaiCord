@@ -100,8 +100,8 @@ WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maxi
 WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, const WebSocketFrame& frame,
                                            u64 maximum_message_bytes) noexcept;
 
-WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, bool final,
-                                                  ConstSlice<u8> payload, u32 masking_key,
+// One whole (FIN) masked frame: MaiCord never fragments what it sends.
+WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, ConstSlice<u8> payload, u32 masking_key,
                                                   Slice<u8> output) noexcept;
 
 } // namespace maicord

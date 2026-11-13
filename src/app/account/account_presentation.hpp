@@ -18,7 +18,7 @@ u16 shell_header_flags(bool friends) noexcept;
 bool rebuild_account_text_cache(bool scroll_refresh = false, bool scroll_moving = false) noexcept;
 bool refresh_account_text(bool force = false) noexcept;
 bool refresh_account_scroll(bool scroll_moving = false) noexcept;
-bool refresh_account_frame(bool force = false) noexcept;
+bool refresh_account_frame() noexcept;
 
 } // namespace app_detail
 } // namespace maicord

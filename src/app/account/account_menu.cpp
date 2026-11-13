@@ -180,7 +180,7 @@ bool publish(ApplicationAccountMenu& owner, UiRect anchor, u32 selected_index = 
     g_app.context_focus = &g_app.popup_scene.widgets;
     renderer_bind_focus_owner(&g_app.renderer,
                               g_app.keyboard_focus_visible ? g_app.context_focus : nullptr);
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 } // namespace
 void application_account_menu_clear() noexcept {
@@ -207,7 +207,7 @@ bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcep
         return false;
     if (g_app.account_menu && popup_current(*g_app.account_menu)) {
         application_account_menu_clear();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     if (!g_app.account_menu)
         g_app.account_menu = static_cast<ApplicationAccountMenu*>(commit_pages(sizeof(ApplicationAccountMenu)));
@@ -241,13 +241,13 @@ bool application_account_menu_synchronize() noexcept {
     }
     if (!source_current(owner)) {
         application_account_menu_clear();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     const auto* node = ui_widget_manager_layout_node(g_app.shell_scene.widgets, owner.source);
     const auto anchor = node ? ui_rect_intersection(node->rectangle, node->clip_rectangle) : UiRect{};
     if (!ui_rect_has_area(anchor)) {
         application_account_menu_clear();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     const auto* user = user_store_find(g_app.account_ui->user_store, owner.self_user);
     const auto revision = user ? user->revision : 0;
@@ -268,7 +268,7 @@ bool application_account_menu_action(u32 value) noexcept {
                                                 : ui_account_menu_action_enabled(owner->model, value));
     if (!owner || !popup_current(*owner) || !source_current(*owner) || !enabled) {
         application_account_menu_clear();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     const auto user = owner->self_user;
     const auto anchor = owner->anchor;
@@ -295,12 +295,12 @@ bool application_account_menu_action(u32 value) noexcept {
             status.profile_id != owner->profile_id ||
             status.self_user_id != owner->self_user) {
             application_account_menu_clear();
-            return refresh_account_frame(true);
+            return refresh_account_frame();
         }
         const auto selected = static_cast<GatewayUserStatus>(value - first_status);
         application_account_menu_clear();
         const bool requested = application_self_status_request(selected);
-        return refresh_account_frame(true) && requested;
+        return refresh_account_frame() && requested;
     }
     application_account_menu_clear();
     if (value == static_cast<u32>(UiAccountMenuAction::log_out))
@@ -310,7 +310,7 @@ bool application_account_menu_action(u32 value) noexcept {
     if (value == static_cast<u32>(UiAccountMenuAction::custom_status))
         return application_custom_status_open();
     if (value == static_cast<u32>(UiAccountMenuAction::clear_custom_status))
-        return application_custom_status_request(nullptr) && refresh_account_frame(true);
+        return application_custom_status_request(nullptr) && refresh_account_frame();
     if (value == static_cast<u32>(UiAccountMenuAction::view_profile_header) ||
         value == static_cast<u32>(UiAccountMenuAction::view_profile) ||
         value == static_cast<u32>(UiAccountMenuAction::edit_profile)) {
@@ -326,7 +326,7 @@ bool application_account_menu_action(u32 value) noexcept {
         char digits[20]{};
         const u32 count = message_context_format_snowflake(user, {digits, 20});
         const bool copied = application_copy_text({digits, count}, kToastIdCopied, kToastIdCopyFailed);
-        return refresh_account_frame(true) && copied;
+        return refresh_account_frame() && copied;
     }
     return false;
 }

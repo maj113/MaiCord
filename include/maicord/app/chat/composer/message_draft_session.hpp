@@ -31,8 +31,5 @@ void message_draft_session_observe(MessageDraftSession& session, const MessageDr
 // synchronously with write-through.
 void message_draft_session_persist(MessageDraftSession& session, const MessageDraftStore& drafts,
                                    u64 now_ms, bool force) noexcept;
-// Blocks until no save is in flight and applies its result. Returns false on timeout.
-bool message_draft_session_wait(MessageDraftSession& session, const MessageDraftStore& drafts, u64 now_ms,
-                                u32 timeout_ms) noexcept;
 
 } // namespace maicord

@@ -178,7 +178,7 @@ void test_requests() noexcept {
     write = {utf8_literal("BUG"), {}, {}, 12};
     check(!guild_admin_request_valid(request), "requests: a retired badge is refused");
     write.badge = 6;
-    patch.fields = guild_settings_patch_name;
+    patch.fields = guild_settings_patch_description;
     check(!guild_admin_request_valid(request), "requests: the tag PATCH carries no other guild field");
     patch.fields = 0;
     request.operation = GuildAdminOperation::profile_update;

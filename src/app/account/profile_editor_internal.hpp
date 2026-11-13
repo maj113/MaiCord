@@ -2,7 +2,6 @@
 // Shared by profile_editor.cpp and its parts (profile_editor_*.cpp); private to them.
 #include "account_presentation.hpp"
 #include "../settings/modal.hpp"
-#include "../shell/state.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../settings/catalog.hpp"
 #include "maicord/model/user/profile_editor.hpp"

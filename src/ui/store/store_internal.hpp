@@ -4,7 +4,7 @@
 
 namespace maicord::store_detail {
 
-// Metrics of the store pages (store-ui.md section 3 and 4), in DIPs.
+// Metrics of the store pages, in DIPs.
 inline constexpr float kCardMinWidth = 232, kChipHeight = 24, kFilterHeight = 32, kTabHeight = 40, kFieldHeight = 40, kButtonSmall = 32,
                        kButtonLarge = 40, kSwitchWidth = 48, kSwitchHeight = 24, kRadius = 12, kTailPadding = 60;
 inline constexpr float kBadgeHeight = 18;

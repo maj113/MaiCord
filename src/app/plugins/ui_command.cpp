@@ -71,8 +71,6 @@ bool write_command(ProtocolWriter* w, const PluginBinding& binding, u32 item) no
     return protocol_write(w, "]}");
 }
 
-// ---- Running a command ---------------------------------------------------------------
-
 // Text values decode into this; one command's arguments share it.
 constexpr u32 kTextBytes = 16384;
 char g_text[kTextBytes];

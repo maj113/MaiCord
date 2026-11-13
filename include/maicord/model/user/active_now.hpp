@@ -30,9 +30,7 @@ struct ActiveNowCard {
 struct ActiveNowInput {
     ConstSlice<u64> friends; // friends that are online, idle or busy
     const VoiceStateStore* voice;
-    const void* context;
-    // Copies a user's activities into *out; false when the user has none.
-    bool (*activities)(const void* context, u64 user_id, UserActivitySet* out) noexcept;
+    const UserActivityStore* activities;
 };
 
 // Returns the card count (at most output.count and kActiveNowMaximumCards).

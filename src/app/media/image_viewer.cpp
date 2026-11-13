@@ -48,10 +48,6 @@ bool over_image(const UiImageViewer& scene, UiPoint point) noexcept {
     return !current_video() && ui_rect_contains(scene.image, point.x, point.y) &&
            ui_rect_contains(scene.body, point.x, point.y);
 }
-// A fitted image has nothing to pan, so a button held on it shows the lens.
-bool fitted_zoom(const UiImageViewer& scene) noexcept {
-    return scene.zoom - 1 < 1e-3f && 1 - scene.zoom < 1e-3f;
-}
 MessageScene* viewer_media_scene(bool searched) noexcept {
     if (!searched)
         return &g_app.message_scene;
@@ -311,8 +307,7 @@ void activate(u32 index) noexcept {
     case ui_image_viewer_save: {
         const auto& viewer = g_app.image_viewer;
         if (viewer.search_result) {
-            ApplicationSearchSourceView source{};
-            if (viewer.attachment_id && application_image_viewer_source(&source))
+            if (viewer.attachment_id)
                 application_downloads_begin_search(viewer.search_source, viewer.attachment_id, viewer.attachment_snapshot);
             return;
         }
@@ -568,7 +563,6 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
         return true;
     if (!title.bytes)
         title = item_caption(source, *item);
-    const Utf8View line = page_source_line(viewer.channel_id, source.message->author_id);
     const bool embed = item->kind == MessageSceneRichItemKind::embed;
     const MediaPageKind kind = item->video ? MediaPageKind::video : MediaPageKind::image;
     *out = {kind,
@@ -577,13 +571,12 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
                             (item->video && embed_collection_url(url) ? media_page_playlist : 0)),
             url,
             page_title(title, kind),
-            line,
+            page_source_line(viewer.channel_id, source.message->author_id),
             item->key,
             item->fallback,
             item->pixels,
             viewer.channel_id,
             viewer.message_id,
-            source.message->author_id,
             viewer.message_revision};
     // Open original leaves for the embed's own link (the page it describes, with the message's playlist), not the
     // media it plays.
@@ -707,7 +700,6 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
             pixels,
             message->channel_id,
             message_id,
-            message->author_id,
             revision,
             art,
             link};
@@ -800,7 +792,7 @@ void application_image_viewer_request_failed(const MediaAssetKey& key) noexcept 
 }
 u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noexcept {
     const auto& viewer = g_app.image_viewer;
-    if (!keys || !capacity || !viewer.scene.active || viewer.closing)
+    if (!viewer.scene.active || viewer.closing)
         return 0;
     ApplicationSearchSourceView source{};
     if (!application_image_viewer_source(&source))
@@ -988,10 +980,9 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                 media_asset_attachment(attachment.id, format,
                                        media_resolution_tier_for_display(width, height, g_app.renderer.dpi,
                                                                          media_preview_extent_cap(format)));
-            const UiSize shown = attachment.width && attachment.height
-                                     ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
-                                     : UiSize{width, height};
-            request.pixels = shown;
+            request.pixels = attachment.width && attachment.height
+                                 ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
+                                 : UiSize{width, height};
             open_local(*message, row.message, content_scope != 0, request);
             return true;
         }
@@ -1034,11 +1025,10 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             request.fallback =
                 media_asset_embed(message->id, message->revision, static_cast<u8>(member), selected.resource,
                                   selected.format, selected.animated, tier, row.forwarded_snapshot);
-            const UiSize shown = selected.media->width && selected.media->height
-                                     ? UiSize{static_cast<float>(selected.media->width),
-                                              static_cast<float>(selected.media->height)}
-                                     : UiSize{width, height};
-            request.pixels = shown;
+            request.pixels = selected.media->width && selected.media->height
+                                 ? UiSize{static_cast<float>(selected.media->width),
+                                          static_cast<float>(selected.media->height)}
+                                 : UiSize{width, height};
             open_local(*message, row.message, content_scope != 0, request);
             return true;
         }
@@ -1092,7 +1082,7 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
             media_preview_extent_cap(format) > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512, snapshot);
     } else return false;
     if (!media_asset_key_valid(key) || !media_asset_key_valid(fallback)) return false;
-    if (kind == MessageSceneRichItemKind::attachment && index < rich.attachment_count) {
+    if (kind == MessageSceneRichItemKind::attachment) {
         const auto& attachment = rich.attachments[index];
         if (application_media_activation_consumed(
                 *policy_scene,
@@ -1103,7 +1093,7 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
                 message_rich_attachment_spoiler(store, attachment),
                 message_rich_attachment_explicit(attachment)))
             return true;
-    } else if (kind == MessageSceneRichItemKind::embed && index < rich.embed_count) {
+    } else {
         if (application_media_activation_consumed(
                 *policy_scene,
                 message_media_owner(*source.message, message_rich_store_find(store, source.message->id)),
@@ -1222,8 +1212,7 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
     // another press.
     if (input_double(event)) {
         const auto hit = ui_widget_manager_hit_test(scene.widgets, point.x, point.y);
-        if (!hit.generation && !video && ui_rect_contains(scene.image, point.x, point.y) &&
-            ui_rect_contains(scene.body, point.x, point.y)) {
+        if (!hit.generation && over_image(scene, point)) {
             ui_image_viewer_toggle_zoom(&scene, point);
             scene.dragging = true;
             scene.pointer = point;
@@ -1245,12 +1234,12 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
         }
         if (video && application_video_viewer_pointer(VideoPointer::down, point))
             return true;
-        if (!video && ui_rect_contains(scene.image, point.x, point.y) &&
-            ui_rect_contains(scene.body, point.x, point.y)) {
+        if (over_image(scene, point)) {
             scene.dragging = true;
             scene.pointer = point;
             window_capture_pointer(g_app.window);
-            application_image_zoom_viewer_pointer(point, true, fitted_zoom(scene));
+            // A fitted image has nothing to pan, so a button held on it shows the lens.
+            application_image_zoom_viewer_pointer(point, true, ui_image_viewer_fitted(scene));
         } else {
             pointer_tail = true;
             application_image_viewer_dismiss();

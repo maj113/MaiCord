@@ -462,9 +462,9 @@ bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept {
     return false;
 }
 
-bool emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept {
-    if (!visit || (key.bytes && !key.data) || !pool_ready())
-        return false;
+void emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept {
+    if ((key.bytes && !key.data) || !pool_ready())
+        return;
     u8 found[(kEmojiPoolCatalogEntryCount + 7) / 8]{};
     u8 shortcode_only[(kEmojiPoolAliasCount + 7) / 8]{};
     const u32 letters = search_letters(key);
@@ -490,7 +490,6 @@ bool emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) n
     for (u32 row = 0; row < kEmojiPoolAliasCount; ++row)
         if (bit(shortcode_only, row))
             visit(context, {aliases[row].name(), aliases[row].glyph(), ~0u});
-    return true;
 }
 
 } // namespace maicord

@@ -79,6 +79,6 @@ MessageComposer* application_search_edit_model() noexcept;
 bool application_search_edit_focused() noexcept;
 TextInputTarget application_search_edit_target() noexcept;
 UiRect application_search_edit_bounds() noexcept;
-bool application_search_edit_changed(bool content) noexcept;
+bool application_search_edit_changed() noexcept;
 void application_search_edit_cancel_native_group(const TextInputTarget&) noexcept;
 } // namespace maicord::app_detail

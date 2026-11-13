@@ -28,10 +28,6 @@ Color mix(const Color& a, const Color& b, float t) noexcept {
             a.alpha + (b.alpha - a.alpha) * t};
 }
 
-bool inside(const UiRect& r, float x, float y) noexcept {
-    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
-}
-
 // A `size` square centred on `x` (centre) and the area's middle.
 UiRect centred(const UiTabStripLayout& layout, float x, float size) noexcept {
     const float top = (layout.area.top + layout.area.bottom - size) * .5f;
@@ -194,19 +190,19 @@ Color ui_tab_strip_ink(const Theme& theme, const UiTabStripView& view, const UiT
 }
 
 UiTabHit ui_tab_strip_hit(const UiTabStripLayout& layout, float x, float y) noexcept {
-    if (!inside(layout.area, x, y))
+    if (!ui_rect_contains(layout.area, x, y))
         return {};
-    if (inside(layout.plus, x, y))
+    if (ui_rect_contains(layout.plus, x, y))
         return {UiTabHitKind::plus, 0};
-    if (inside(layout.overflow, x, y))
+    if (ui_rect_contains(layout.overflow, x, y))
         return {UiTabHitKind::overflow, 0};
     for (u32 i = kUiTabCapacity; i-- > 0;) {
         // Closing and hidden tabs take no input, whatever is left of them mid-transition.
-        if (!(layout.slot_width[i] > 0) || !inside(ui_tab_strip_tab(layout, i), x, y))
+        if (!(layout.slot_width[i] > 0) || !ui_rect_contains(ui_tab_strip_tab(layout, i), x, y))
             continue;
         const UiRect close = ui_tab_strip_close(layout, i);
         const bool on_close = ui_rect_has_area(close) && x >= close.left - kGap * .5f && x < close.right + kGap * .5f;
-        const bool on_icon = ((layout.playing >> i) & 1) && inside(ui_tab_strip_icon(layout, i), x, y);
+        const bool on_icon = ((layout.playing >> i) & 1) && ui_rect_contains(ui_tab_strip_icon(layout, i), x, y);
         return {on_close ? UiTabHitKind::close : on_icon ? UiTabHitKind::icon : UiTabHitKind::tab, static_cast<u8>(i)};
     }
     return {};

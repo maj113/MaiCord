@@ -1,6 +1,6 @@
 #include "downloads_internal.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/media/download_scene.hpp"
 #include "../shell/content_input.hpp"
 #include "../shell/input.hpp"
 #include "../shell/window_events.hpp"

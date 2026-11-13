@@ -379,7 +379,7 @@ SfntStatus cluster_run(NativeTextContext& owner,NativeClusterScript script,const
 const NativeIndicFormPlan* form_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
     for(auto* p=owner.form_profiles;p;p=p->next)if(p->plan.indic.run.slot==selected.plan.slot&&p->plan.indic.run.generation==selected.plan.generation&&p->plan.indic.profile==script)return p->plan.indic.cmap?&p->plan:nullptr;
     auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<IndicFormProfile>(&arena);
-    const auto status=p?native_indic_plan_prepare(owner.store,selected.plan,script,&arena,&owner.scratch,&p->plan.indic,{p->plan.forms,128}):SfntStatus::resource_limit;
+    const auto status=p?native_indic_plan_prepare(owner.store,selected.plan,script,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
     if(status!=SfntStatus::ok){++owner.prepare_failed;
         if(p&&status==SfntStatus::unsupported_sequence){p->plan.indic.run=selected.plan;p->plan.indic.profile=script;p->next=owner.form_profiles;owner.form_profiles=p;}
         else arena_rewind(&arena,mark);return nullptr;}
@@ -791,7 +791,7 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
 }
 }
 bool native_text_context_initialize(NativeTextContext** output,NativeFontSession* fonts) noexcept {
-    if(!output)return false;*output=nullptr;if(!fonts)return false;
+    *output=nullptr;if(!fonts)return false;
     auto* reserved=static_cast<u8*>(pages_reserve(context_reserved_bytes));if(!reserved)return false;
     if(!pages_commit_at(reserved, sizeof(NativeTextContext))){pages_release(reserved);return false;}
     auto* owner=reinterpret_cast<NativeTextContext*>(reserved);reset_value(owner);owner->backing=owner;
@@ -807,7 +807,7 @@ bool native_text_candidate_take_output_failure(const TextSystem& system) noexcep
     if(!system.native_text)return false;const bool failed=system.native_text->output_capacity_failed;system.native_text->output_capacity_failed=false;return failed;
 }
 bool native_text_format_create(NativeTextContext* owner,const NativeTextFormatDescription& d,u32* handle) noexcept {
-    if(!handle)return false;*handle=0;if(!owner)return false;
+    *handle=0;if(!owner)return false;
     *handle=intern_format(*owner,{{d.family,d.scope,d.properties},d.em_size,d.tab_stop,0,d.word_wrap});return *handle!=0;
 }
 bool native_text_context_set_code_format(NativeTextContext* owner,u32 handle) noexcept {
@@ -870,7 +870,7 @@ void release_context_contents(NativeTextContext* o) noexcept {
 }
 }
 void native_text_context_release(NativeTextContext** pointer) noexcept {
-    if(!pointer||!*pointer)return;auto* o=*pointer;auto* backing=o->backing;
+    if(!*pointer)return;auto* o=*pointer;auto* backing=o->backing;
     release_context_contents(o);if(backing!=o)pages_release(backing);
     pages_release(o);*pointer=nullptr;
 }
@@ -1079,20 +1079,15 @@ bool native_text_candidate_line_once(const TextSystem& system,const NativeTextRe
        owner.last_text.count==text.bytes&&(known||bytes_equal(owner.last_text.data,text.data,text.bytes));
     if(!arabic&&(controls||(same&&owner.last_paragraph)))
         return (paragraph(system,*selected,format,request,output,measure,{latin,profile})&&routed())||styled();
-    if(same&&!owner.last_paragraph){}
-    else{
+    if(!same||owner.last_paragraph){
         owner.last_valid=false;owner.prefer_multiline=false;NativeAsciiLineStorage buffers{};Slice<char> saved_text{};
         NativeAsciiLineResult line{};SfntStatus status{};
         for(u32 attempt=0;attempt<2;++attempt){
-        {
             arena_reset(&owner.scratch);saved_text=take<char>(owner.scratch,text.bytes);if(!saved_text.data)return false;
             buffers=storage(owner.scratch,text.bytes,text.bytes*(attempt?4u:1u)+16,arabic,attempt!=0);
-        }
-        reset_value(&line);
-        {
+            reset_value(&line);
             status=arabic?arabic_line(owner,*selected,text,system.independent_letters,em,buffers,&line):latin?native_latin_line(owner.store,selected->plan,text,system.independent_letters,em,buffers,&line,{},em*system.tracking,profile):native_ascii_line(owner.store,selected->plan,text,system.independent_letters,em,buffers,&line,{},em*system.tracking);
-        }
-        if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
+            if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
         }
         if(status!=SfntStatus::ok){++owner.execute_failed;return styled();}
         copy_bytes(saved_text.data,text.data,text.bytes);owner.last_text={saved_text.data,text.bytes};++owner.text_epoch;owner.last_storage=buffers;owner.last_line=line;

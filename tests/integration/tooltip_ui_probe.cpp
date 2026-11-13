@@ -67,7 +67,7 @@ bool expression_card_stages(D3D11Renderer& renderer, UiRect viewport, UiTextMeas
         D3D11Renderer& renderer;
         UiExpressionCardScene& card;
         ~Detach() noexcept {
-            ui_expression_card_close(&card);
+            ui_hover_card_close(&card);
             renderer.expression_card_scene = nullptr;
         }
     } detach{renderer, card};

@@ -15,7 +15,7 @@ struct UiEditGeometry {
 };
 bool ui_edit_field_paint(PaintStream* paint, const UiRect& field, const UiRect& content, const UiEditView& view,
                          const UiEditGeometry* geometry, const Color& background, const Theme& theme,
-                         u32 dpi, float radius = kUiEditCornerRadius) noexcept;
+                         u32 dpi, float radius) noexcept;
 // Selection and pixel-snapped caret only, for hosts that paint their own field
 // shell; one selection colour for every text field.
 bool ui_edit_field_paint_content(PaintStream* paint, const UiRect& content, const UiEditView& view,

@@ -137,8 +137,6 @@ bool run_verdicts(PluginHook hook, PluginCallKind kind, PluginCallClass call_cla
     return answered;
 }
 
-// ---- Events ---------------------------------------------------------------------------
-
 struct EventSlot {
     mc_event event;
     char text[kPluginEventTextBytes];
@@ -273,8 +271,6 @@ bool plugin_events_deliver() noexcept {
     return plugin_events_pending();
 }
 
-// ---- Timers ---------------------------------------------------------------------------
-
 u64 plugin_timers_next_due() noexcept {
     u64 next = 0;
     for (const auto& side : g_sides) {
@@ -318,8 +314,6 @@ u32 plugin_timers_poll(u64 now_ms) noexcept {
     }
     return total;
 }
-
-// ---- Per-plugin state --------------------------------------------------------------------
 
 void plugin_pipeline_add(PluginBinding* binding) noexcept {
     if (plugin_subscribed(binding, PluginHook::events)) {

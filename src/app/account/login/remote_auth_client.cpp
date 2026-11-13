@@ -4,7 +4,6 @@
 
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
 #include "maicord/app/net/signed_out_session.hpp"
-#include "maicord/os/wait.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/protocol/http/rest.hpp"
 #include "maicord/core/byte_queue.hpp"
@@ -261,7 +260,7 @@ bool send_frame(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, WebS
         return false;
     }
     const WebSocketWriteResult written = websocket_write_client_frame(
-        opcode, true, payload, masking_key, Slice<u8>{runtime->frame_output, kFrameOutputBytes});
+        opcode, payload, masking_key, Slice<u8>{runtime->frame_output, kFrameOutputBytes});
     const bool sent =
         written.ok() &&
         send_plaintext(client, runtime, ConstSlice<u8>{runtime->frame_output, written.bytes}, native_error);

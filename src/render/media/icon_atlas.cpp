@@ -71,7 +71,7 @@ void align_stems(const IconPack& pack, u32 index, IconPlacement* placement) noex
 } // namespace
 
 bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept {
-    if (!atlas || !device || atlas->ready)
+    if (atlas->ready)
         return false;
     if (!glyph_atlas_initialize(&atlas->allocator, kIconAtlasExtent, kIconAtlasExtent, kPadding,
                                 {atlas->entries, kIconAtlasEntries}, {atlas->rows, kIconAtlasRows}) ||
@@ -85,8 +85,6 @@ bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept {
 }
 
 void icon_atlas_release(IconAtlas* atlas) noexcept {
-    if (!atlas)
-        return;
     glyph_atlas_gpu_release(&atlas->gpu);
     atlas->ready = false;
     atlas->resolved_dpi = 0;

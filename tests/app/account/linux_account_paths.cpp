@@ -72,7 +72,7 @@ MAICORD_TEST_ENTRY(maicord_linux_account_paths_entry) {
     check(begun.ok(), "a logout can record its intention");
     const auto pending = account_credential_forget_probe(paths);
     check(pending.ok() && pending.pending, "the recorded intention is found again");
-    check(account_credential_forget_complete_after_join(paths, true).ok() && !account_credential_forget_probe(paths).pending,
+    check(account_credential_forget_complete_after_join(paths).ok() && !account_credential_forget_probe(paths).pending,
           "finishing the logout clears it");
     test_exit(g_failures, "linux_account_paths");
 }

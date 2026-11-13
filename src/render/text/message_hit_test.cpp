@@ -9,7 +9,6 @@
 
 #include <limits.h>
 
-
 namespace maicord {
 namespace {
 
@@ -345,9 +344,6 @@ MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const Me
 }
 
 void message_hit_test_cache_invalidate(MessageHitTestCacheOwner* owner) noexcept {
-    if (!owner) {
-        return;
-    }
     arena_reset(&owner->storage);
     owner->native_format = 0;
     owner->message_id = 0;
@@ -365,9 +361,6 @@ void message_hit_test_cache_invalidate(MessageHitTestCacheOwner* owner) noexcept
 }
 
 void message_hit_test_cache_release(MessageHitTestCacheOwner* owner) noexcept {
-    if (!owner) {
-        return;
-    }
     message_hit_test_cache_invalidate(owner);
     arena_release(&owner->storage);
     owner->builds = 0;

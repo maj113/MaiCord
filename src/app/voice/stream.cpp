@@ -186,19 +186,14 @@ void release_press() noexcept {
         application_release_capture();
     }
 }
-// The live badge (or row) of a streaming participant under (x, y).
+// The live badge (or row) of a streaming participant under (x, y); *row and *badge are meaningful only when true.
 bool live_at(float x, float y, GatewayStreamKey* key, UiRect* row, UiRect* badge) noexcept {
     if (const auto* call = g_app.renderer.call_scene; call && ui_call_scene_contains(*call, x, y))
         return false; // The call view covers the channel list (fullscreen).
-    UiRect r{}, live{};
-    const auto* state = application_voice_participant_at(x, y, &r, &live);
+    const auto* state = application_voice_participant_at(x, y, row, badge);
     if (!state || !voice_state_live(*state) || state->user_id == g_app.account_ui->chat_state.self_user_id)
         return false;
     *key = gateway_stream_key_for(state->guild_id, state->channel_id, state->user_id);
-    if (row)
-        *row = r;
-    if (badge)
-        *badge = live;
     return valid(*key);
 }
 } // namespace
@@ -252,13 +247,6 @@ MediaAssetKey application_stream_preview(const GatewayStreamKey& key, bool* load
     return stream_preview_ready(*entry) ? stream_preview_media_key(*entry) : MediaAssetKey{};
 }
 
-void application_stream_set_volume(u32 percent) noexcept {
-    auto& host = g_app.account;
-    percent = percent > kGatewayStreamVolumeMaximum ? kGatewayStreamVolumeMaximum : percent;
-    if (host.instance && account_module_stream_volume(host.instance, percent))
-        stream.volume = percent;
-}
-
 bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullscreen) noexcept {
     if (!watching(stream.view) || application_stream_tile(stream.view.key.owner_id) != tile_id)
         return false;
@@ -306,10 +294,11 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept {
         stream.menu_dragging = false;
         return false;
     }
-    u32 percent = 0;
+    u32 percent = 0; // 0..kGatewayStreamVolumeMaximum: the slider's steps.
     const auto result = volume_menu_pointer(&stream.menu_dragging, x, y, press, kVolumeSteps, &percent);
     if (result == VolumeMenuPointer::moved) {
-        application_stream_set_volume(percent);
+        if (g_app.account.instance && account_module_stream_volume(g_app.account.instance, percent))
+            stream.volume = percent;
         stream.menu_label_bytes = volume_menu_text(stream.menu_label, utf8_literal("Stream volume"), percent);
         volume_menu_label(stream.menu_label, stream.menu_label_bytes);
     }

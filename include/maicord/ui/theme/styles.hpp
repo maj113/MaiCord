@@ -110,7 +110,7 @@ struct UiThemeScaleDescriptor {
     float maximum() const noexcept { return high; }
 };
 ConstSlice<UiThemeScaleDescriptor> ui_theme_scale_descriptors() noexcept;
-bool ui_theme_scale_get(const UiThemeScale&, UiThemeScaleToken, float*) noexcept;
+float ui_theme_scale_value(const UiThemeScale&, UiThemeScaleToken) noexcept;
 bool ui_theme_scale_set(UiThemeScale*, UiThemeScaleToken, float) noexcept;
 enum class UiThemeMotionToken : u8 {
 #define MAICORD_THEME_MOTION(name, duration, curve) name,

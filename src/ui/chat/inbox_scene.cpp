@@ -288,7 +288,7 @@ bool ui_inbox_scene_focus(UiInboxScene* s, UiInboxTarget target) noexcept {
     return true;
 }
 bool ui_inbox_scene_move_focus(UiInboxScene* s, UiInboxFocusMove move) noexcept {
-    if (!s || !current(*s))
+    if (!current(*s))
         return false;
     UiInboxTarget pick{};
     // Tabs, filters, every row's actions, Load more / Retry, then Close.

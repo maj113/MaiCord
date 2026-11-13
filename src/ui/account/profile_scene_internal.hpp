@@ -4,8 +4,6 @@
 #include "maicord/model/user/profile_connection.hpp"
 #include "maicord/ui/account/activity_card.hpp"
 #include "maicord/ui/plugins/slots.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord::profile_scene_detail {
 

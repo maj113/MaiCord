@@ -9,7 +9,7 @@
 #include "../support/media_fixture.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/sys/tsf.hpp"
-#include "chat/threads/forum_form_state.hpp"
+#include "../support/forum_form_access.hpp"
 #include "shell/state.hpp"
 #include "chat/threads/browser.hpp"
 #include "maicord/core/time.hpp"

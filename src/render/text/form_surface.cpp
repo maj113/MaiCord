@@ -39,7 +39,6 @@ bool text_form_field_update(TextEditLayoutOwner* owner, TextEditMetric* metrics,
     return true;
 }
 bool text_form_surface_update(TextFormSurface* surface, const TextSystem& text) noexcept {
-    if (!surface) return false;
     reset_value(&surface->geometry);
     surface->composition_complete = true;
     if (!surface->scene || !surface->scene->active || surface->scene->content.confirmation_only) {
@@ -56,7 +55,6 @@ bool text_form_surface_update(TextFormSurface* surface, const TextSystem& text) 
                                   content.composition, content.single_line);
 }
 void text_form_surface_release(TextFormSurface* surface) noexcept {
-    if (!surface) return;
     text_edit_layout_release(&surface->layout);
     reset_value(surface);
 }

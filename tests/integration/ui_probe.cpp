@@ -81,7 +81,7 @@ TextInputTarget application_search_edit_target() noexcept {
 UiRect application_search_edit_bounds() noexcept {
     return {};
 }
-bool application_search_edit_changed(bool) noexcept {
+bool application_search_edit_changed() noexcept {
     return true;
 }
 void application_search_edit_cancel_native_group(const TextInputTarget&) noexcept {
@@ -776,7 +776,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 3;
     if (!message_view_runtime_reindex(
-             &g_probe.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+             &g_probe.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok() ||
         !message_view_runtime_bind_rich_store(&g_probe.message_view, &g_probe.rich_store).ok()) {
         return false;
@@ -1084,7 +1084,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                                     "||spoiler||")) ||
         !add_message(message_base + 4, Utf8View{}, MessageContentAvailability::restricted) ||
         !message_view_runtime_reindex(
-             &g_probe.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+             &g_probe.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok() ||
         !message_view_runtime_bind_rich_store(&g_probe.message_view, &g_probe.rich_store).ok()) {
         return false;
@@ -1828,7 +1828,7 @@ int run_probe() noexcept {
     // worker before the model and window exist.
     renderer_prestart();
     if (!message_view_runtime_initialize(
-             &g_probe.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+             &g_probe.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok() ||
         !create_probe_window() || !initialize_probe_renderer()) {
         renderer_prestart_cancel();

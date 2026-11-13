@@ -60,8 +60,7 @@ SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allo
 u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept;
 // Inspect actual glyph instruction spans, including composite records. maxp's
 // declared maximum is not a reliable presence test.
-SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present,
-    u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
+SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present) noexcept;
 // Output is normalized to one em with y down, matching GlyphOutline. Scratch and
 // commands are caller-owned. Any failure returns no partial outline; capacity
 // failure and work/depth exhaustion are errors, never missing glyphs.

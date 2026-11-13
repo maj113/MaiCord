@@ -148,7 +148,6 @@ void set_notice(u64 guild_id, const Utf8View& text) noexcept {
     repaint();
 }
 
-// Catalog -----------------------------------------------------------------------
 SoundboardSound* find_sound(u64 sound_id) noexcept {
     for (u32 i = 0; i < board.sound_count; ++i)
         if (board.sounds[i].sound_id == sound_id)
@@ -224,7 +223,6 @@ void list_failed(bool defaults, GuildLoad* load, u64 now) noexcept {
     }
 }
 
-// Effects -----------------------------------------------------------------------
 u32 effect_text(char* output, u32 capacity, Utf8View emoji, bool custom_emoji, Utf8View name) noexcept {
     u32 bytes = 0;
     if (emoji.bytes && !custom_emoji) {
@@ -258,7 +256,6 @@ void add_effect(u64 user_id, u64 channel_id, const Utf8View& emoji, bool custom_
     repaint();
 }
 
-// Account module playback -------------------------------------------------------
 bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 volume) noexcept {
     auto& h = g_app.account;
     if (!h.instance)
@@ -271,7 +268,6 @@ bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 vo
     return account_module_soundboard_audio(h.instance, &command);
 }
 
-// Queue -------------------------------------------------------------------------
 void drop_head() noexcept {
     auto& slot = board.queue[board.head];
     if (slot.file)
@@ -322,7 +318,6 @@ bool next_load(SoundboardRequest* request) noexcept {
     return false;
 }
 
-// Picker ------------------------------------------------------------------------
 bool picker_open() noexcept {
     return g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::soundboard;
 }
@@ -390,8 +385,9 @@ void default_footer(bool truncated) noexcept {
     add(utf8_literal(" · Shift-click to preview"));
     p.footer_bytes = bytes;
 }
-// Rebuilds the popup rows: this server's sounds, other servers' (Nitro), then defaults.
-bool build_picker(bool open) noexcept {
+// Rebuilds the popup rows: this server's sounds, other servers' (Nitro), then defaults. Every caller but the one
+// opening the picker checks it is still open.
+bool build_picker() noexcept {
     auto& p = *g_picker;
     u32 count = 0, sound_count = 0;
     bool truncated = false;
@@ -468,8 +464,6 @@ bool build_picker(bool open) noexcept {
     default_footer(truncated);
     const UiPopupFeedback feedback{{p.footer, p.footer_bytes}, ui_popup_feedback_style(), p.error_until_ms != 0, 0,
                                    0};
-    if (!open && !picker_open())
-        return false;
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, p.channel_id, {p.items, count}, p.anchor,
                           application_viewport_dips(), kPickerWidth, true, 0, 0, 0, &feedback)
              .ok())
@@ -479,7 +473,7 @@ bool build_picker(bool open) noexcept {
 }
 void refresh_picker() noexcept {
     if (picker_open())
-        build_picker(false);
+        build_picker();
 }
 bool send(const SoundboardSound& sound) noexcept {
     auto context = call_context();
@@ -510,7 +504,6 @@ bool send(const SoundboardSound& sound) noexcept {
     return true;
 }
 
-// Gateway -----------------------------------------------------------------------
 void effect_gateway(Utf8View json) noexcept {
     GatewayVoiceChannelEffect effect{};
     if (!soundboard_decode_effect(json, scratch(), &effect).ok())
@@ -635,7 +628,7 @@ bool application_soundboard_toggle(u64 channel_id, UiRect anchor) noexcept {
         }
     }
     application_request_frame();
-    return build_picker(true);
+    return build_picker();
 }
 
 bool application_soundboard_menu_action(u32 action) noexcept {
@@ -668,13 +661,13 @@ bool application_soundboard_menu_key(u32 key) noexcept {
         if (!p.query_bytes)
             return true;
         --p.query_bytes;
-        return build_picker(false) || true;
+        return build_picker() || true;
     } else
         return false;
     if (p.query_bytes + 1 >= kQueryBytes)
         return true;
     p.query[p.query_bytes++] = typed;
-    return build_picker(false) || true;
+    return build_picker() || true;
 }
 
 Utf8View application_soundboard_effect(u64 user_id) noexcept {
@@ -732,17 +725,15 @@ const SoundboardSound* application_soundboard_find(u64 sound_id) noexcept {
 }
 
 bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info, Utf8View* error) noexcept {
-    SoundboardFileInfo local{};
-    auto* out = info ? info : &local;
-    reset_value(out);
+    reset_value(info);
     SoundboardRequest request{};
     request.operation = SoundboardOperation::probe;
     request.sound = file;
-    request.info = out;
+    request.info = info;
     auto& h = g_app.account;
-    const bool ok = h.instance && account_module_soundboard(h.instance, &request, 0).ok() && out->ok();
+    const bool ok = h.instance && account_module_soundboard(h.instance, &request, 0).ok() && info->ok();
     if (!ok && error) {
-        switch (out->error) {
+        switch (info->error) {
         case SoundboardFileError::too_long: *error = utf8_literal("Sounds can be at most 5.2 seconds long."); break;
         case SoundboardFileError::format: *error = utf8_literal("Choose an MP3 or Ogg file."); break;
         case SoundboardFileError::empty: *error = utf8_literal("That file is empty."); break;

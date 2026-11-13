@@ -17,6 +17,5 @@ u32 member_context_moderation_build(const ModerationCapabilities&, const MemberM
 u32 member_context_timeout_choices(const MemberModerationMenuActions&, const Slice<PopupItem>&) noexcept;
 // Message history deletion windows, in kModerationBanDeleteChoices order.
 u32 member_context_ban_choices(const MemberModerationMenuActions&, Slice<PopupItem>) noexcept;
-Utf8View member_context_block_text(ModerationBlock) noexcept;
 
 } // namespace maicord

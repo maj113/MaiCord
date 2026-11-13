@@ -1,5 +1,4 @@
 #include "account_module_internal.hpp"
-#include "maicord/os/wait.hpp"
 #include "maicord/app/net/signed_out_session.hpp"
 #include "login/account_login_captcha.hpp"
 #include "maicord/app/account/account_user_social.hpp"
@@ -374,26 +373,15 @@ RestClientSubmitResult account_module_private_conversation(void* instance,
 RestClientSubmitResult account_module_history_submit(void* instance, u64 channel_id,
                                                      const MessageHistoryQuery* query,
                                                      u64 request_id) noexcept {
-    const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     // The restored channel's first page may go out before READY.
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     RestClient* rest = runtime ? user_account_coordinator_startup_rest(&runtime->coordinator) : nullptr;
-    if (!rest || !query || request_id == 0) {
-        return invalid;
-    }
+    if (!rest || !query || request_id == 0)
+        return kInvalidSubmit;
     u8 target[128];
-    const MessageHistoryTargetResult written =
-        write_message_history_target(channel_id, *query, Slice<u8>{target, sizeof(target)});
-    if (!written.ok()) {
-        return invalid;
-    }
-    return rest_client_submit(rest, ConstSlice<u8>{target, written.bytes},
-                              {},
-                              RestRouteKey{kMessageHistoryRouteId, channel_id,
-                                           RestMethod::get,
-                                           RestMajorParameter::channel},
-                              request_id,
-                              false);
+    const auto written = write_message_history_target(channel_id, *query, {target, sizeof(target)});
+    return submit_channel_target(rest, written.ok(), target, written.bytes, kMessageHistoryRouteId, channel_id,
+                                 RestMethod::get, request_id);
 }
 
 AccountUploadResult account_module_upload(void* instance, AccountUploadOperation operation, u64 id,
@@ -549,6 +537,14 @@ __declspec(noinline) RestClientSubmitResult submit_channel_body(RestClient* rest
     return submitted;
 }
 
+__declspec(noinline) RestClientSubmitResult account_module_detail::submit_channel_target(
+    RestClient* rest, bool written, const u8* target, u32 target_bytes, u64 route_id, u64 channel_id,
+    RestMethod method, u64 request_id) noexcept {
+    return written ? rest_client_submit(rest, {target, target_bytes}, {},
+                                        {route_id, channel_id, method, RestMajorParameter::channel}, request_id, false)
+                   : kInvalidSubmit;
+}
+
 RestClientSubmitResult
 account_module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonce, u64 reply_message_id,
                               ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sticker_ids,
@@ -587,24 +583,13 @@ RestClientSubmitResult account_module_message_forward(void* instance, u64 destin
 
 RestClientSubmitResult account_module_message_delete(void* instance, u64 channel_id, u64 message_id,
                                                      u64 request_id) noexcept {
-    const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
-    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
-        return invalid;
-    }
+    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0)
+        return kInvalidSubmit;
     u8 target[128];
-    const MessageDeleteWriteResult written =
-        write_message_delete_target(channel_id, message_id, Slice<u8>{target, sizeof(target)});
-    if (!written.ok()) {
-        return invalid;
-    }
-    return rest_client_submit(rest, ConstSlice<u8>{target, written.bytes},
-                              {},
-                              RestRouteKey{kMessageDeleteRouteId, channel_id,
-                                           RestMethod::delete_method,
-                                           RestMajorParameter::channel},
-                              request_id,
-                              false);
+    const auto written = write_message_delete_target(channel_id, message_id, {target, sizeof(target)});
+    return submit_channel_target(rest, written.ok(), target, written.bytes, kMessageDeleteRouteId, channel_id,
+                                 RestMethod::delete_method, request_id);
 }
 
 RestClientSubmitResult account_module_message_edit(void* instance, u64 channel_id, u64 message_id,
@@ -628,25 +613,14 @@ RestClientSubmitResult account_module_message_reaction(void* instance, u64 chann
                                                        u64 emoji_id, Utf8View emoji_name,
                                                        MessageReactionType type, bool add,
                                                        u64 request_id) noexcept {
-    const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
-    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
-        return invalid;
-    }
+    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0)
+        return kInvalidSubmit;
     u8 target[kMessageReactionMaximumTargetBytes];
-    const MessageReactionWriteResult written = write_message_reaction_target(
-        channel_id, message_id, emoji_id, emoji_name, type, add, Slice<u8>{target, sizeof(target)});
-    if (!written.ok()) {
-        return invalid;
-    }
-    return rest_client_submit(rest, ConstSlice<u8>{target, written.bytes},
-                              {},
-                              RestRouteKey{kMessageReactionRouteId, channel_id,
-                                           add ? RestMethod::put
-                                                              : RestMethod::delete_method,
-                                           RestMajorParameter::channel},
-                              request_id,
-                              false);
+    const auto written = write_message_reaction_target(channel_id, message_id, emoji_id, emoji_name, type, add,
+                                                       {target, sizeof(target)});
+    return submit_channel_target(rest, written.ok(), target, written.bytes, kMessageReactionRouteId, channel_id,
+                                 add ? RestMethod::put : RestMethod::delete_method, request_id);
 }
 
 // The interaction POST of slash commands and message components: `write` fills a body of up to `capacity`
@@ -835,7 +809,7 @@ namespace {
 AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profile_path,
                                            bool reset) noexcept {
     if (!instance || *instance || !profile_path)
-        return login_invalid_input();
+        return account_login_invalid_input();
     auto* runtime = commit_pages<AccountLoginRuntime>();
     if (!runtime) {
         AccountLoginStatus status{};
@@ -887,7 +861,7 @@ AccountLoginStatus account_module_login_submit_password(void* instance, const Se
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || !password || runtime->remote_mode || runtime->reset_mode ||
         runtime->browser_mode) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime)) {
         return login_status(runtime);
@@ -908,7 +882,7 @@ AccountLoginStatus account_module_login_submit_recovery(void* instance, const Se
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved || account_profile_promotion_has_credential(runtime->promotion)) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -930,7 +904,7 @@ AccountLoginStatus account_module_login_start_browser(void* instance, u64 genera
     if (!runtime || !generation || runtime->browser_mode || runtime->remote_mode || runtime->reset_mode ||
         runtime->coordinator_started || runtime->profile_saved || timeout_ms < 1000 ||
         timeout_ms > 300000) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -952,7 +926,7 @@ AccountLoginStatus account_module_login_submit_verification(void* instance,
                                                             const SecureBuffer* link_token) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !link_token || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode)
-        return login_invalid_input();
+        return account_login_invalid_input();
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
     const UserAuthCoordinatorResult submitted =
@@ -991,13 +965,13 @@ AccountLoginStatus account_module_login_submit_phone_verify(void* instance,
                                                             const SecureBuffer* code) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!phone_recovery_ready(runtime))
-        return login_invalid_input();
+        return account_login_invalid_input();
     return phone_submitted(runtime, user_auth_coordinator_submit_phone_verify(&runtime->coordinator, code).ok());
 }
 AccountLoginStatus account_module_login_submit_phone_resend(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!phone_recovery_ready(runtime))
-        return login_invalid_input();
+        return account_login_invalid_input();
     return phone_submitted(runtime, user_auth_coordinator_submit_phone_resend(&runtime->coordinator).ok());
 }
 SecureBufferResult account_module_login_take_phone_reset_token(void* instance, u64 generation,
@@ -1012,7 +986,7 @@ AccountLoginStatus account_module_login_submit_mfa(void* instance, const SecureB
                                                    UserAuthMfaType type) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !code || runtime->remote_mode || !runtime->coordinator_started)
-        return login_invalid_input();
+        return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     runtime->error_code = 0;
     const UserAuthCoordinatorResult submitted =
@@ -1028,7 +1002,7 @@ AccountLoginStatus account_module_login_submit_reset(void* instance, const Secur
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !password || !runtime->reset_mode || runtime->remote_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -1046,7 +1020,7 @@ AccountLoginStatus account_module_login_submit_reset(void* instance, const Secur
 AccountLoginStatus account_module_login_send_sms(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || runtime->remote_mode || !runtime->coordinator_started)
-        return login_invalid_input();
+        return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     const UserAuthCoordinatorResult submitted =
         user_auth_coordinator_submit_sms_send(&runtime->coordinator);
@@ -1062,7 +1036,7 @@ AccountLoginStatus account_module_login_start_remote_auth(void* instance) noexce
         runtime->profile_saved ||
         (runtime->coordinator_started &&
          user_auth_coordinator_status(&runtime->coordinator).phase != UserAuthCoordinatorPhase::idle)) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     if (runtime->coordinator_started) {
         const UserAuthCoordinatorResult stopped = user_auth_coordinator_stop(&runtime->coordinator, 5'000);
@@ -1102,7 +1076,7 @@ bool account_module_login_copy_remote_auth_user(void* instance, Slice<char> outp
 AccountLoginStatus account_module_login_cancel_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !runtime->remote_mode || !runtime->remote_active)
-        return login_invalid_input();
+        return account_login_invalid_input();
     runtime->remote_status = remote_auth_client_cancel(&runtime->remote_auth);
     return login_status(runtime);
 }

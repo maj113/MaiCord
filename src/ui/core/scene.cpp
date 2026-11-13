@@ -484,8 +484,6 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
 
 } // namespace
 
-const UiBootstrapMetrics kDefaultUiBootstrapMetrics{68.0f};
-
 bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
     if (!scene || scene->storage.arena.base) {
         return false;

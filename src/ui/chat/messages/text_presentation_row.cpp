@@ -394,9 +394,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                               (rich->reference.content_flags & gateway_reference_poll_question))
                 : MessageReplyIcon::none;
         const UiWidgetReference owner{&scene.widgets, row.reply};
-        // Role colours are server data and pass through every theme unchanged.
-        // The quoted author's name is muted; the
-        // interaction header mutes its name when it lays the line out.
+        // Role colours are server data and pass through every theme unchanged. The quoted author's name is muted;
+        // the interaction header mutes its name when it lays the line out.
         const Color reply_author_color = member_role_color(*presentation, scene.display, state, record->channel_id,
                                                            message_rich_header_user(*rich), theme.text_primary);
         const Color reply_name_color =
@@ -511,8 +510,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             record->content_availability == MessageContentAvailability::available;
     const bool thinking =
         !forwarded && !collapsed && (record->flags & kMessageFlagLoading) != 0 && content.bytes == 0;
-    // A local command message shows its status text as
-    // is ("Sending command...", the refusal), after a status icon.
+    // A local command message shows its status text as is ("Sending command...", the refusal), after a status icon.
     const bool command_status = !forwarded && !replaced && !collapsed && !thinking && content.bytes != 0 &&
                                 (record->type == 20 || record->type == 23) &&
                                 record->delivery != MessageDeliveryState::authoritative;
@@ -523,8 +521,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         content_color = ui_background_muted_text_color(theme);
         row_measurement.content_present = true;
     } else if (thinking || command_status) {
-        // Deferred interaction response: the
-        // app "is thinking..." until 15 minutes after the message id, then
+        // Deferred interaction response: the app "is thinking..." until 15 minutes after the message id, then
         // "The application did not respond" in the critical colour.
         bool failed = record->delivery == MessageDeliveryState::failed;
         Utf8View name{}, suffix = content;
@@ -906,7 +903,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         const float left = card.left + kMessageThreadCardPaddingDips + 30.0f;
         const float right = maximum(left + 1.0f, card.right - kMessageThreadCardPaddingDips);
         const UiWidgetReference owner{&scene.widgets, row.thread};
-        Utf8View name = message_rich_store_string(*scene.timeline->rich_store, rich->thread.name);
+        Utf8View name = message_rich_store_string(*rich_store, rich->thread.name);
         if (!name.bytes)
             name = utf8_literal("Thread");
         char detail[96];

@@ -140,7 +140,7 @@ __forceinline UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSe
 // One option of a tabs, buttons or colors row inside its control rectangle;
 // colours report their trailing button as index choices.count.
 UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
-                   const UiKitMeasure* measure) noexcept {
+                   UiTextMeasureCache* measure) noexcept {
     float x = field.left;
     if (c.kind == UiSettingsControlKind::tabs || c.kind == UiSettingsControlKind::buttons) {
         const bool tabs = c.kind == UiSettingsControlKind::tabs;
@@ -1190,7 +1190,7 @@ __declspec(noinline) void row_text(UiTextPen<>& pen, UiTextOutput* output, const
     }
     if (c.kind == UiSettingsControlKind::preview && scene.content.preview) {
         const auto& s = *scene.content.preview;
-        const UiKitMeasure* m = scene.measure;
+        UiTextMeasureCache* m = scene.measure;
         const float em = s.text_size > 0 ? s.text_size : 16.f;
         text(c.label, r.label, tc.text_subtle, kUiKitTextBody);
         const Color name_ink = s.role_style == 0 && s.role_rgb ? color_from_rgb24(s.role_rgb) : tc.text_strong;

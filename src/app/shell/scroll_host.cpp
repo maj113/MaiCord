@@ -120,7 +120,7 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
                   static_cast<double>(timeline.list->total_units > timeline.viewport_units
                                           ? timeline.list->total_units - timeline.viewport_units
                                           : 0),
-                  static_cast<double>(ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height)),
+                  static_cast<double>(ui_extent_units(kUiBootstrapMessageRowHeight)),
                   static_cast<double>(ui_extent_units(1.0f)),
                   timeline.scroll_origin_units,
                   timeline.reset_generation};
@@ -423,7 +423,7 @@ bool handle_scroll_wheel(const WindowEvent& event) noexcept {
         if (strip.tiles.count && ui_rect_contains(strip.strip, point.x, point.y)) {
             if (message_composer_scene_attachment_scroll(&g_app.message_composer_scene,
                                                          -static_cast<float>(delta) / 120.0f * 96.f) &&
-                !refresh_account_frame(true))
+                !refresh_account_frame())
                 log_write(LogLevel::error, "ui", "attachment_strip_scroll_refresh_failed");
             return true;
         }

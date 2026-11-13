@@ -48,7 +48,7 @@ enum CardEdge : u8 {
 // What a layout needs besides the content: text measuring (null estimates), the retained markdown blocks and
 // whether field rows group into cards (the modal's pages).
 struct RowContext {
-    const UiKitMeasure* measure;
+    UiTextMeasureCache* measure;
     UiMarkdownBank** markdown;
     bool cards;
 };
@@ -136,12 +136,12 @@ const UiSettingsListItem* list_item(const UiSettingsPageContent& content, u32 in
 bool list_style(const UiSettingsPageContent& content, u32 index, UiSettingsListStyle style) noexcept;
 bool progress(const UiSettingsPageContent& content, u32 index) noexcept;
 bool progress_fill(const UiSettingsPageContent& content, u32 index) noexcept;
-float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept;
+float button_label_width(UiTextMeasureCache* measure, const Utf8View& label) noexcept;
 // A status card's action leads with a 16 DIP refresh glyph unless it is running (spinner) or fills as a progress
 // button. With the glyph the pair is centred in the button; the label then starts after the glyph.
 inline constexpr float kStatusGlyphSize = 16, kStatusGlyphGap = 8;
 bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept;
-UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept;
+UiRect status_button_label(UiTextMeasureCache* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept;
 // A status meta line of " · "-separated parts, flowed in `box`: each part is one unbreakable label and a line breaks
 // only between parts. A part that is not first on its line leads with its separator ("· Stable channel"); the
 // separator at a break is dropped, so no line ends with a dot or starts with one. `out` (kStatusMetaParts entries,
@@ -152,7 +152,7 @@ struct StatusMetaPart {
     UiRect rect;
     bool lead;
 };
-u32 status_meta_flow(const UiKitMeasure* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
+u32 status_meta_flow(UiTextMeasureCache* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
                      u32* count) noexcept;
 ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index,
                      const UiRect& row) noexcept;
@@ -199,7 +199,7 @@ UiMarkdown* markdown_block(const UiSettingsPageContent& content, u32 index, cons
 // The status button of a row's presentation: kinds and tones of its chips.
 u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept;
 // Chips of a status row flowed left to right inside `width`: each chip's rectangle in `out`, the flow's height.
-void flow_chips(const UiSettingsControl& c, const UiKitMeasure* measure, float left, float top, float width, UiRect* out,
+void flow_chips(const UiSettingsControl& c, UiTextMeasureCache* measure, float left, float top, float width, UiRect* out,
                 float* height) noexcept;
 bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept;
 float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
@@ -255,6 +255,6 @@ bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone,
                    UiVisitRef<UiSettingsTarget> visit) noexcept;
 UiSettingsFocusZone zone_of(const UiSettingsTarget& target) noexcept;
 UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
-                   const UiKitMeasure* measure) noexcept;
+                   UiTextMeasureCache* measure) noexcept;
 
 } // namespace maicord::settings_scene_detail

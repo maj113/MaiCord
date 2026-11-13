@@ -2,7 +2,6 @@
 #include "maicord/ui/theme/background_theme.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/text/presentation.hpp"
-#include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 
 namespace maicord {

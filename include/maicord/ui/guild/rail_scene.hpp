@@ -10,7 +10,6 @@ namespace maicord {
 
 struct UiVirtualRowStorageOwner;
 
-inline constexpr u32 kGuildRailOverscanRows = 2;
 // Vertical gap between rail rows (drop lines sit in its middle).
 inline constexpr float kGuildRailRowGapDips = kUiGuildRailGap;
 
@@ -24,12 +23,6 @@ struct GuildRailIndicatorMotion {
 struct GuildRailIndicator {
     GuildRailIndicatorMotion height, visibility;
 };
-inline UiMotionTransition guild_rail_indicator_transition(const GuildRailIndicatorMotion& motion) noexcept {
-    return {{motion.scope.owner, motion.scope.generation}, motion.started_ms, motion.sampled_ms,
-            motion.value, motion.from, motion.target, {200, UiMotionCurve::css_ease_out}, motion.active};
-}
-bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMotionScope scope,
-                                         float target, u64 now_ms, bool animate) noexcept;
 bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
                                bool selected, bool hovered, bool unread,
                                u64 now_ms, bool animate) noexcept;
@@ -70,8 +63,6 @@ struct GuildRailRowWidget {
     float reveal; // folder member extent while expanding/collapsing (0..1]
 };
 
-// Folder expand/collapse: 150 ms CSS ease-out on member row extent.
-inline constexpr u32 kGuildRailFolderMotionMs = 150;
 inline constexpr u32 kGuildRailFolderMotionSlots = 8;
 // Plain fields keep GuildRailScene constant-initializable.
 struct GuildRailFolderMotion {

@@ -302,7 +302,7 @@ bool ui_thread_browser_scene_focus(UiThreadBrowserScene* s, UiThreadBrowserTarge
     return true;
 }
 bool ui_thread_browser_scene_move_focus(UiThreadBrowserScene* s, bool reverse) noexcept {
-    if (!s || !current(*s)) return false;
+    if (!current(*s)) return false;
     UiThreadBrowserTarget pick{};
     // Close, Create post, both tabs, the forum controls (sort, List, Gallery, tag chips), the page rows, then
     // Retry and both page buttons.

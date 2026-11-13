@@ -442,7 +442,7 @@ void application_expression_card_close() noexcept {
     g_card->open = false;
     g_card->control_pressed = false;
     g_card->wanted = Lookup::none;
-    ui_expression_card_close(&g_card->scene);
+    ui_hover_card_close(&g_card->scene);
     if (g_app.renderer.expression_card_scene == &g_card->scene)
         g_app.renderer.expression_card_scene = nullptr;
     application_request_frame();
@@ -453,7 +453,7 @@ bool application_expression_card_shows(const MessageExpression& expression) noex
 }
 
 bool application_expression_card_contains(UiPoint point) noexcept {
-    return open_now() && ui_expression_card_contains(g_card->scene, point.x, point.y);
+    return open_now() && ui_hover_card_contains(g_card->scene, point.x, point.y);
 }
 
 bool application_expression_card_window_event(const WindowEvent& event) noexcept {
@@ -496,7 +496,7 @@ bool application_expression_card_window_event(const WindowEvent& event) noexcept
             return false;
     } else
         point = {client_dip_x(event), client_dip_y(event)};
-    const bool over = ui_expression_card_contains(c.scene, point.x, point.y);
+    const bool over = ui_hover_card_contains(c.scene, point.x, point.y);
     const auto hit = ui_expression_card_hit(c.scene, point.x, point.y);
     if (move) {
         if (ui_expression_card_set_hover(&c.scene, point.x, point.y))
@@ -513,7 +513,7 @@ bool application_expression_card_window_event(const WindowEvent& event) noexcept
         if (over) {
             c.control_pressed = hit != UiExpressionCardControl::none;
             c.pressed_control = hit;
-            if (ui_expression_card_set_pressed(&c.scene, hit == UiExpressionCardControl::button))
+            if (ui_hover_card_set_pressed(&c.scene, hit == UiExpressionCardControl::button))
                 application_request_frame();
             return true;
         }
@@ -530,7 +530,7 @@ bool application_expression_card_window_event(const WindowEvent& event) noexcept
         const auto control = c.pressed_control;
         c.control_pressed = false;
         c.pressed_control = UiExpressionCardControl::none;
-        if (ui_expression_card_set_pressed(&c.scene, false))
+        if (ui_hover_card_set_pressed(&c.scene, false))
             application_request_frame();
         if (!over)
             return pressed;

@@ -357,10 +357,6 @@ bool wake_worker(GatewayClient* client, NetworkSignal* signal) noexcept;
 void post_subscription_change(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 GatewayClientResult invalid_input_result() noexcept;
 
-template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity>& text) noexcept {
-    return Utf8View{text.data, text.bytes};
-}
-
 bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes + 1]) noexcept;
 // The presence status the page's store holds: unknown before the launch's first
 // session opened, then the last status sent after a READY.
@@ -405,6 +401,11 @@ Slice<u32> object_scratch(GatewayClientRuntime* runtime) noexcept;
 void publish_resume(GatewayClientRuntime* runtime, const GatewayResumeState& state) noexcept;
 // Makes a token the owner replaced (gateway_client_replace_credential) the session's credential.
 void gateway_adopt_replacement_credential(GatewayClientRuntime* runtime) noexcept;
+// Two locked copies of a token (1..kGatewayUserMaximumTokenBytes visible ASCII bytes): `worker_slot` takes one, the
+// owner the other through gateway_client_take_refreshed_credential. The copies are made before either holder changes,
+// so a malformed token or a failed allocation leaves both on the old one.
+bool gateway_hand_over_token(GatewayClient* client, GatewayClientRuntime* runtime, SecureBuffer* worker_slot,
+                             ConstSlice<u8> token) noexcept;
 void publish_failure(GatewayClient* client, GatewayClientError error, u32 native_error) noexcept;
 void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;

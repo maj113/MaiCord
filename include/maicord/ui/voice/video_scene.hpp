@@ -3,6 +3,7 @@
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/widgets/spinner.hpp"
 #include "maicord/ui/core/transition.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiVideoControlsFadeMs = 120;
@@ -136,4 +137,17 @@ float ui_video_scene_chrome_opacity(const UiVideoScene&) noexcept;
 // scene keeps the scene safe to copy and preserves the shared text ownership contract.
 bool ui_video_scene_text_output(const UiVideoScene&, const Theme&, UiTextOutput*,
                                 UiWidgetReference text_owner) noexcept;
+inline UiCursor ui_video_scene_cursor(const UiVideoScene& scene, UiPoint point) noexcept {
+    if (!scene.active)
+        return UiCursor::arrow;
+    if (scene.capture != UiVideoControl::none)
+        return UiCursor::hand;
+    const auto id = ui_video_scene_hit(scene, point);
+    if (id == UiVideoControl::none)
+        return UiCursor::arrow;
+    for (const auto& descriptor : scene.projection.controls)
+        if (descriptor.id == id)
+            return ui_action_cursor(descriptor.kind != UiVideoControlKind::label);
+    return UiCursor::hand;
+}
 } // namespace maicord

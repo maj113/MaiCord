@@ -86,7 +86,7 @@ bool account_inventory_touch(AccountInventory* inventory, u32 slot, u64 now_unix
 // Lowest unused slot; false when the account limit is reached.
 bool account_inventory_free_slot(const AccountInventory& inventory, u32* slot) noexcept;
 // Entry indices, most recently used first (ties: lower slot first).
-u32 account_inventory_order(const AccountInventory& inventory, u8* indices, u32 capacity) noexcept;
+u32 account_inventory_order(const AccountInventory& inventory, u8 (&indices)[kAccountInventoryMaximumAccounts]) noexcept;
 // Copies display identity (whole code points, bounded); true when it changed.
 bool account_inventory_set_identity(AccountInventoryEntry* entry, Utf8View display_name, Utf8View username,
                                     Utf8View avatar_hash) noexcept;

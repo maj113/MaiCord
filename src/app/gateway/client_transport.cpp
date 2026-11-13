@@ -11,7 +11,7 @@ void reset_session_outputs(GatewayClientRuntime* runtime) noexcept {
     runtime->sent_guild_count = 0;
     runtime->sent_members_guild = runtime->members_release_ms = 0;
     runtime->sent_member_count = 0;
-    gateway_subscription_thread_owner_reset_connection(&runtime->thread_subscription_owner);
+    gateway_subscription_thread_owner_complete(&runtime->thread_subscription_owner, false);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_self_status_reset_connection(&runtime->self_status);
     gateway_member_request_reset_connection(&runtime->member_requests, !runtime->resume.valid);
@@ -97,7 +97,7 @@ bool send_frame(GatewayClientRuntime* runtime, WebSocketOpcode opcode, ConstSlic
     if (!secure_random_u32(&masking_key).ok())
         return false;
     const WebSocketWriteResult framed = websocket_write_client_frame(
-        opcode, true, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+        opcode, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
     u32 encrypted_bytes = 0;
     const bool encrypted =
         framed.ok() && tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
@@ -569,7 +569,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     } else if (next.action == GatewayLifecycleAction::send_time_spent_session) {
         command = gateway_write_time_spent_session(
             runtime->time_spent.created_ms, {runtime->time_spent.uuid, kGatewayUserLaunchIdBytes},
-            user_text(runtime->user->client_launch_id),
+            {runtime->user->client_launch_id.data, runtime->user->client_launch_id.bytes},
             Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     } else {
         return OutboundDrive::failed;

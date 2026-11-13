@@ -21,47 +21,25 @@ RestClientSubmitResult account_module_reaction_users(void* instance, u64 channel
                                                      MessageReactionType type,
                                                      u64 after_user_id, u32 limit,
                                                      u64 request_id) noexcept {
-    const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
-    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
-        return invalid;
-    }
+    if (!rest || channel_id == 0 || message_id == 0 || request_id == 0)
+        return kInvalidSubmit;
     u8 target[kReactionUsersMaximumTargetBytes];
-    const ReactionUsersWriteResult written =
-        write_reaction_users_target(channel_id, message_id, emoji_id, emoji_name, type,
-                                    after_user_id, limit, Slice<u8>{target, sizeof(target)});
-    if (!written.ok()) {
-        return invalid;
-    }
-    return rest_client_submit(rest, ConstSlice<u8>{target, written.bytes},
-                              {},
-                              RestRouteKey{kReactionUsersRouteId, channel_id,
-                                           RestMethod::get,
-                                           RestMajorParameter::channel},
-                              request_id,
-                              false);
+    const auto written = write_reaction_users_target(channel_id, message_id, emoji_id, emoji_name, type,
+                                                     after_user_id, limit, {target, sizeof(target)});
+    return submit_channel_target(rest, written.ok(), target, written.bytes, kReactionUsersRouteId, channel_id,
+                                 RestMethod::get, request_id);
 }
 
 RestClientSubmitResult account_module_message_typing(void* instance, u64 channel_id,
                                                      u64 request_id) noexcept {
-    const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     RestClient* rest = module_rest(instance);
-    if (!rest || channel_id == 0 || request_id == 0) {
-        return invalid;
-    }
+    if (!rest || channel_id == 0 || request_id == 0)
+        return kInvalidSubmit;
     u8 target[kMessageTypingMaximumTargetBytes];
-    const MessageTypingWriteResult written =
-        write_message_typing_target(channel_id, Slice<u8>{target, sizeof(target)});
-    if (!written.ok()) {
-        return invalid;
-    }
-    return rest_client_submit(rest, ConstSlice<u8>{target, written.bytes},
-                              {},
-                              RestRouteKey{kMessageTypingRouteId, channel_id,
-                                           RestMethod::post,
-                                           RestMajorParameter::channel},
-                              request_id,
-                              false);
+    const auto written = write_message_typing_target(channel_id, {target, sizeof(target)});
+    return submit_channel_target(rest, written.ok(), target, written.bytes, kMessageTypingRouteId, channel_id,
+                                 RestMethod::post, request_id);
 }
 
 bool account_module_guild_members_request(void* instance,

@@ -344,10 +344,8 @@ bool command_item(void* opaque, u32, JsonValue value) noexcept {
         p.error = p.error == GuildAutomationError::none ? GuildAutomationError::field : p.error;
         return false;
     }
-    if (p.id != p.application_id) {
-        ++p.page->command_overrides;
+    if (p.id != p.application_id)
         return true;
-    }
     p.page->count = 0;
     return json_visit_indexed_array(*p.document, p.permissions, kDepth, permission_item, &p).ok();
 }
@@ -929,14 +927,14 @@ GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32>
                                                        GuildCommandPermissionsPage* page) noexcept {
     if (!page || !application_id || (!page->entries.data && page->entries.count))
         return {0, GuildAutomationError::input};
-    page->count = page->command_overrides = 0;
+    page->count = 0;
     const auto s = scan_json<GuildAutomationError>(body, scratch);
     if (s.error != GuildAutomationError::none)
         return {0, s.error};
     CommandParse p{&s.document, page, application_id, 0, {}, GuildAutomationError::none};
     const auto read = json_visit_root_array(s.document.input, s.document.structurals, kDepth, command_item, &p);
     if (!read.ok()) {
-        page->count = page->command_overrides = 0;
+        page->count = 0;
         return failure(read, p.error);
     }
     return {body.bytes, GuildAutomationError::none};

@@ -136,11 +136,10 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     check(owner.sent_guild_id == 8 && !owner.active && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
         "failed send commits no new thread owner and retry retains old cleanup");
     gateway_subscription_thread_owner_admit(&owner, frame);
-    gateway_subscription_thread_owner_reset_connection(&owner);
-    gateway_subscription_thread_owner_ready(&owner, false);
+    gateway_subscription_thread_owner_complete(&owner, false);
     check(owner.sent_guild_id == 8 && !owner.active && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && frame.clear_thread_guild_id == 8,
         "connection reset drops active send while successful resume retains completed thread owner");
-    gateway_subscription_thread_owner_ready(&owner, true);
+    reset_value(&owner);
     check(!owner.sent_guild_id && gateway_subscription_thread_owner_prepare(owner, latest, &frame) && !frame.clear_thread_guild_id,
         "fresh READY clears completed old-session thread ownership before republishing desired scope");
     gateway_subscription_thread_owner_admit(&owner, frame); gateway_subscription_thread_owner_complete(&owner, true);

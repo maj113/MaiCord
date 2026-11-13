@@ -81,14 +81,4 @@ __forceinline u32 current_thread_id() noexcept {
 #endif
 }
 
-// Ends the process at once for a misuse nothing can recover from: __fastfail(FAST_FAIL_INVALID_ARG) on Windows, a
-// trap elsewhere.
-[[noreturn]] __forceinline void fail_fast_invalid_argument() noexcept {
-#if defined(_WIN32)
-    __fastfail(5); // FAST_FAIL_INVALID_ARG
-#else
-    __builtin_trap();
-#endif
-}
-
 } // namespace maicord

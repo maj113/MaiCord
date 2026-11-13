@@ -20,8 +20,8 @@ UserAuthCoordinatorSecretKind coordinator_captcha_kind(CaptchaChallengeSecretKin
     }
 }
 
-SecureBufferResult WINAPI module_login_copy_captcha_secret(void* instance, CaptchaChallengeSecretKind kind,
-                                                           SecureBuffer* output) noexcept {
+SecureBufferResult module_login_copy_captcha_secret(void* instance, CaptchaChallengeSecretKind kind,
+                                                    SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !output || login_status(runtime).phase != AccountLoginPhase::captcha_required)
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
@@ -35,10 +35,10 @@ SecureBufferResult WINAPI module_login_copy_captcha_secret(void* instance, Captc
 
 // Replays the retained password, MFA, SMS, recovery, reset, phone or QR
 // ticket request with the solution; the solution is copied synchronously.
-AccountLoginStatus WINAPI module_login_submit_captcha(void* instance, const SecureBuffer* solution) noexcept {
+AccountLoginStatus module_login_submit_captcha(void* instance, const SecureBuffer* solution) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !solution || login_status(runtime).phase != AccountLoginPhase::captcha_required)
-        return login_invalid_input();
+        return account_login_invalid_input();
     if (runtime->remote_mode) {
         runtime->remote_status = remote_auth_client_submit_captcha(&runtime->remote_auth, solution);
         if (!runtime->remote_status.ok())
@@ -56,11 +56,11 @@ AccountLoginStatus WINAPI module_login_submit_captcha(void* instance, const Secu
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 generation, u32 timeout_ms) noexcept {
+AccountLoginStatus module_login_start_captcha_bridge(void* instance, u64 generation, u32 timeout_ms) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !generation || runtime->captcha_bridge.runtime || runtime->browser_mode ||
         runtime->error == AccountLoginError::stop || timeout_ms < 1000 || timeout_ms > kCaptchaBridgeDefaultTimeoutMs) {
-        return login_invalid_input();
+        return account_login_invalid_input();
     }
     const AccountLoginStatus current = login_status(runtime);
     if (current.phase != AccountLoginPhase::captcha_required) {
@@ -78,15 +78,15 @@ AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 
     return login_status(runtime);
 }
 
-CaptchaBridgeStatus WINAPI module_login_captcha_bridge_status(void* instance) noexcept {
+CaptchaBridgeStatus module_login_captcha_bridge_status(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime) return {};
     if (runtime->captcha_bridge.runtime) runtime->captcha_status = captcha_bridge_status(&runtime->captcha_bridge);
     return runtime->captcha_status;
 }
 
-SecureBufferResult WINAPI module_login_copy_captcha_bridge_url(void* instance, u64 generation,
-                                                               SecureBuffer* output) noexcept {
+SecureBufferResult module_login_copy_captcha_bridge_url(void* instance, u64 generation,
+                                                        SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || runtime->error == AccountLoginError::stop)
         return {0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
@@ -94,10 +94,10 @@ SecureBufferResult WINAPI module_login_copy_captcha_bridge_url(void* instance, u
 }
 
 // Stops only the bridge; the CAPTCHA challenge stays available for a retry.
-AccountLoginStatus WINAPI module_login_cancel_captcha_bridge(void* instance) noexcept {
+AccountLoginStatus module_login_cancel_captcha_bridge(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime)
-        return login_invalid_input();
+        return account_login_invalid_input();
     if (runtime->captcha_bridge.runtime) runtime->captcha_status = captcha_bridge_stop(&runtime->captcha_bridge, 5'000);
     AccountLoginStatus status = login_status(runtime);
     if (runtime->captcha_bridge.runtime) status.error = AccountLoginError::stop;
@@ -129,13 +129,13 @@ void pump_login_captcha_bridge(AccountLoginRuntime* runtime) noexcept {
         runtime->captcha_status = captcha_bridge_stop(&runtime->captcha_bridge, 5'000);
 }
 
-AccountLoginStatus WINAPI module_login_pump_with_captcha(void* instance) noexcept {
+AccountLoginStatus module_login_pump_with_captcha(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (runtime) pump_login_captcha_bridge(runtime);
     return module_login_pump(instance);
 }
 
-HANDLE WINAPI module_login_notification_handle_with_captcha(void* instance) noexcept {
+HANDLE module_login_notification_handle_with_captcha(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (runtime && runtime->captcha_bridge.runtime && runtime->error != AccountLoginError::stop &&
         runtime->error != AccountLoginError::profile) {

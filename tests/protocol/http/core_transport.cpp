@@ -100,7 +100,7 @@ void test_websocket_frames() noexcept {
     const u8 hello[] = {'H', 'e', 'l', 'l', 'o'};
     u8 masked[32]{};
     const WebSocketWriteResult written = websocket_write_client_frame(
-        WebSocketOpcode::text, true, ConstSlice<u8>{hello, 5}, 0x37FA213Du, Slice<u8>{masked, 32});
+        WebSocketOpcode::text, ConstSlice<u8>{hello, 5}, 0x37FA213Du, Slice<u8>{masked, 32});
     const u8 expected[] = {0x81, 0x85, 0x37, 0xFA, 0x21, 0x3D, 0x7F, 0x9F, 0x4D, 0x51, 0x58};
     bool wire_matches = written.ok() && written.bytes == sizeof(expected);
     for (u32 index = 0; index < sizeof(expected) && wire_matches; ++index) {
@@ -111,7 +111,7 @@ void test_websocket_frames() noexcept {
         ConstSlice<u8>{masked, written.bytes}, 1024, WebSocketDirection::client_to_server);
     expect(client_frame.ok() && client_frame.frame.masked && client_frame.frame.header_bytes == 6,
            "websocket_parse_client_mask");
-    expect(websocket_write_client_frame(WebSocketOpcode::text, true, ConstSlice<u8>{hello, 5}, 1,
+    expect(websocket_write_client_frame(WebSocketOpcode::text, ConstSlice<u8>{hello, 5}, 1,
                                         Slice<u8>{masked, 8})
                    .error == WebSocketError::output_too_small,
            "websocket_writer_output_bound");
@@ -120,7 +120,7 @@ void test_websocket_frames() noexcept {
         g_websocket_payload[index] = static_cast<u8>(index);
     }
     const WebSocketWriteResult extended = websocket_write_client_frame(
-        WebSocketOpcode::binary, true, ConstSlice<u8>{g_websocket_payload, 64 * 1024}, 0x01020304u,
+        WebSocketOpcode::binary, ConstSlice<u8>{g_websocket_payload, 64 * 1024}, 0x01020304u,
         Slice<u8>{g_websocket_frame, 64 * 1024 + 16});
     const WebSocketParseResult extended_parsed = websocket_parse_frame(
         ConstSlice<u8>{g_websocket_frame, extended.bytes}, 64 * 1024, WebSocketDirection::client_to_server);

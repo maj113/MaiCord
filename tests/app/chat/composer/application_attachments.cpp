@@ -26,7 +26,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
     if (captured_form.valid == validator) { captured_form = {}; captured_form_open = false; }
 }
-bool refresh_account_frame(bool) noexcept { return true; }
+bool refresh_account_frame() noexcept { return true; }
 bool refresh_message_composer_ui() noexcept { return true; }
 u32 history_pump_calls = 0;
 bool pump_message_history() noexcept { ++history_pump_calls; return true; }

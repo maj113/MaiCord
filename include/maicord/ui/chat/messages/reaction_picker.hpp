@@ -32,7 +32,6 @@ inline constexpr u32 kReactionPickerSectionGuild = 16;
 enum class ReactionPickerError : u8 {
     none,
     invalid_input,
-    invalid_character,
     capacity,
 };
 

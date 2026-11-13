@@ -61,16 +61,14 @@ bool busy() noexcept {
     return account_switch_busy(g_switch.machine);
 }
 
-bool save_inventory() noexcept {
+void save_inventory() noexcept {
     ++g_switch.inventory_revision;
     AccountPaths root;
     wchar_t path[kAccountProfileMaximumPathCharacters];
-    const bool saved = account_paths_resolve_slot(0, &root).ok() && account_paths_ensure_directories(root).ok() &&
-                       account_inventory_path(root, path, kAccountProfileMaximumPathCharacters) &&
-                       account_inventory_save(path, g_switch.inventory).ok();
-    if (!saved)
+    if (!account_paths_resolve_slot(0, &root).ok() || !account_paths_ensure_directories(root).ok() ||
+        !account_inventory_path(root, path, kAccountProfileMaximumPathCharacters) ||
+        !account_inventory_save(path, g_switch.inventory).ok())
         log_write(LogLevel::warning, "account", "inventory_save_failed");
-    return saved;
 }
 
 bool profile_present(const AccountPaths& paths) noexcept {
@@ -92,9 +90,8 @@ bool forget_slot(u32 slot, bool drafts) noexcept {
     FileStat directory{};
     if (!file_path_stat(paths.account_directory, &directory))
         return win32_error_is_missing_file(thread_last_error());
-    const auto begun = account_credential_forget_begin(paths);
-    const auto forgotten = begun.ok() ? account_credential_forget_complete_after_join(paths, true) : begun;
-    if (!forgotten.ok() || forgotten.pending) {
+    const auto forgotten = account_credential_forget_complete_after_join(paths);
+    if (!forgotten.ok()) {
         log_u64(LogLevel::warning, "account", "saved_account_forget_error", static_cast<u64>(forgotten.error));
         return false;
     }
@@ -110,7 +107,7 @@ AccountInventoryEntry* entry_for(u32 slot) noexcept {
 // Most recently used saved account other than `excluded` that can restore.
 bool most_recent_saved(u32 excluded, u32* slot) noexcept {
     u8 order[kAccountInventoryMaximumAccounts]{};
-    const u32 count = account_inventory_order(g_switch.inventory, order, kAccountInventoryMaximumAccounts);
+    const u32 count = account_inventory_order(g_switch.inventory, order);
     for (u32 i = 0; i < count; ++i) {
         const auto& entry = g_switch.inventory.entries[order[i]];
         if (entry.slot != excluded && !(entry.flags & account_inventory_needs_login) &&
@@ -196,27 +193,6 @@ bool show_login() noexcept {
     return shown;
 }
 
-bool io_stop_begin(void*) noexcept {
-    AccountHost& host = g_app.account;
-    if (!host.module && !host.instance && !host.login_instance) {
-        g_switch.nothing_to_stop = true;
-        return true;
-    }
-    // Quiesce owners while the host still exists; drafts are persisted here.
-    application_prepare_account_stop();
-    account_host_move(&g_switch.stop_host, &host);
-    g_switch.host_transferred = true;
-    const auto started =
-        account_logout_stop_start(&g_switch.stop, &g_switch.stop_host, kAccountStopTimeoutMs,
-                                  clock_monotonic_milliseconds(), clock_unix_milliseconds(), account_host_stop);
-    if (started.ok())
-        return true;
-    account_host_move(&host, &g_switch.stop_host);
-    g_switch.host_transferred = false;
-    log_u64(LogLevel::warning, "account", "switch_stop_start_error", static_cast<u64>(started.error));
-    return false;
-}
-
 void restore_transferred_host(const AccountHostStopResult& result) noexcept {
     if (!g_switch.host_transferred)
         return;
@@ -225,70 +201,6 @@ void restore_transferred_host(const AccountHostStopResult& result) noexcept {
     else
         clear_bytes(&g_switch.stop_host, sizeof(g_switch.stop_host));
     g_switch.host_transferred = false;
-}
-
-AccountSwitchStop io_stop_poll(void*) noexcept {
-    if (g_switch.nothing_to_stop) {
-        g_switch.nothing_to_stop = false;
-        return AccountSwitchStop::stopped;
-    }
-    AccountHostStopResult result{};
-    if (!account_logout_stop_take(&g_switch.stop, &result))
-        return AccountSwitchStop::pending;
-    restore_transferred_host(result);
-    application_account_stop_observed(result, true);
-    return result.ok() ? AccountSwitchStop::stopped : AccountSwitchStop::failed;
-}
-
-void io_reset(void*) noexcept {
-    application_release_account_ui(g_app);
-    if (!application_hide_account_scenes())
-        log_write(LogLevel::error, "account", "switch_message_view_failed");
-    clear_login_hints();
-    g_app.login_scene.switching_accounts = true;
-    g_app.login.visible = true;
-    g_app.login.status = RendererLoginStatus::restoring_session;
-    g_app.login.focus = LoginControl::none;
-    g_app.login.remote_restart_at_ms = 0;
-    if (!application_refresh_login_view())
-        log_write(LogLevel::warning, "ui", "switch_view_refresh_failed");
-    application_request_frame();
-}
-
-bool io_select(void*, u32 slot) noexcept {
-    return account_paths_select_slot(slot);
-}
-
-bool io_attach(void*) noexcept {
-    return attach_selected();
-}
-
-bool io_open_login(void*) noexcept {
-    if (!show_login())
-        return false;
-    g_switch.add_mode = true;
-    g_app.login_scene.switching_accounts = false;
-    g_app.login_scene.account_return = false;
-    g_app.login_scene.add_account = true;
-    g_app.login.status = RendererLoginStatus::idle;
-    g_app.login.focus = LoginControl::login;
-    if (!application_refresh_login_view())
-        log_write(LogLevel::warning, "ui", "add_account_view_refresh_failed");
-    return true;
-}
-
-void io_commit(void*, u32 slot, AccountSwitchKind) noexcept {
-    const auto* entry = account_inventory_find_slot(g_switch.inventory, slot);
-    if (!entry || entry->user_id != g_app.account.status.profile_id)
-        record_account(slot, g_app.account.status.profile_id);
-    account_inventory_touch(&g_switch.inventory, slot, clock_unix_milliseconds());
-    save_inventory();
-    g_switch.add_mode = false;
-    g_app.login_scene.add_account = false;
-}
-
-AccountSwitchIo switch_io() noexcept {
-    return {nullptr, io_stop_begin, io_stop_poll, io_reset, io_select, io_attach, io_open_login, io_commit};
 }
 
 void after_machine() noexcept {
@@ -309,7 +221,7 @@ void after_machine() noexcept {
 }
 
 bool begin(AccountSwitchKind kind, u32 target) noexcept {
-    if (!account_switch_begin(&g_switch.machine, switch_io(), kind, selected(), target))
+    if (!account_switch_begin(&g_switch.machine, kind, selected(), target))
         return false;
     // A host-less stop completes at once; a worker stop wakes the loop by handle.
     application_account_switch_pump();
@@ -538,7 +450,7 @@ void application_account_switch_initialize() noexcept {
         slot = g_switch.inventory.active_slot;
     } else if (g_switch.inventory.count) {
         u8 order[kAccountInventoryMaximumAccounts]{};
-        account_inventory_order(g_switch.inventory, order, kAccountInventoryMaximumAccounts);
+        account_inventory_order(g_switch.inventory, order);
         slot = g_switch.inventory.entries[order[0]].slot;
     }
     account_paths_select_slot(slot);
@@ -560,7 +472,7 @@ bool application_account_switch_panel(UiAccountSwitcherModel* model, u64 owner_i
     observe_running();
     UiAccountSwitcherAccount accounts[kUiAccountSwitcherAccounts]{};
     u8 order[kAccountInventoryMaximumAccounts]{};
-    const u32 count = account_inventory_order(g_switch.inventory, order, kAccountInventoryMaximumAccounts);
+    const u32 count = account_inventory_order(g_switch.inventory, order);
     const u32 active = selected();
     for (u32 i = 0; i < count; ++i) {
         const auto& entry = g_switch.inventory.entries[order[i]];
@@ -610,10 +522,10 @@ void application_account_switch_pump() noexcept {
         return;
     auto& machine = g_switch.machine;
     if (machine.phase == AccountSwitchPhase::stopping) {
-        if (account_switch_pump(&machine, switch_io()))
+        if (account_switch_pump(&machine))
             after_machine();
     } else if (machine.phase == AccountSwitchPhase::login && g_app.account.instance) {
-        account_switch_login_finished(&machine, switch_io(), true);
+        account_switch_login_finished(&machine, true);
         after_machine();
     }
     if (!busy()) {
@@ -631,7 +543,7 @@ bool application_account_switch_login_escape() noexcept {
         return false;
     auto& machine = g_switch.machine;
     if (machine.phase == AccountSwitchPhase::login) {
-        account_switch_login_finished(&machine, switch_io(), false);
+        account_switch_login_finished(&machine, false);
         after_machine();
         return true;
     }
@@ -665,7 +577,7 @@ bool application_account_switch_after_logout() noexcept {
         return false;
     log_write(LogLevel::info, "account", "logout_continues_with_saved_account");
     account_paths_select_slot(next);
-    io_reset(nullptr);
+    account_switch_reset();
     if (attach_selected()) {
         account_inventory_touch(&g_switch.inventory, next, clock_unix_milliseconds());
         save_inventory();
@@ -689,3 +601,88 @@ bool application_account_switch_shutdown() noexcept {
 }
 
 } // namespace maicord::app_detail
+
+namespace maicord {
+using namespace app_detail;
+
+bool account_switch_stop_begin() noexcept {
+    AccountHost& host = g_app.account;
+    if (!host.module && !host.instance && !host.login_instance) {
+        g_switch.nothing_to_stop = true;
+        return true;
+    }
+    // Quiesce owners while the host still exists; drafts are persisted here.
+    application_prepare_account_stop();
+    account_host_move(&g_switch.stop_host, &host);
+    g_switch.host_transferred = true;
+    const auto started = account_logout_stop_start(&g_switch.stop, &g_switch.stop_host, kAccountStopTimeoutMs,
+                                                   clock_monotonic_milliseconds(), clock_unix_milliseconds());
+    if (started.ok())
+        return true;
+    account_host_move(&host, &g_switch.stop_host);
+    g_switch.host_transferred = false;
+    log_u64(LogLevel::warning, "account", "switch_stop_start_error", static_cast<u64>(started.error));
+    return false;
+}
+
+AccountSwitchStop account_switch_stop_poll() noexcept {
+    if (g_switch.nothing_to_stop) {
+        g_switch.nothing_to_stop = false;
+        return AccountSwitchStop::stopped;
+    }
+    AccountHostStopResult result{};
+    if (!account_logout_stop_take(&g_switch.stop, &result))
+        return AccountSwitchStop::pending;
+    restore_transferred_host(result);
+    application_account_stop_observed(result, true);
+    return result.ok() ? AccountSwitchStop::stopped : AccountSwitchStop::failed;
+}
+
+void account_switch_reset() noexcept {
+    application_release_account_ui(g_app);
+    if (!application_hide_account_scenes())
+        log_write(LogLevel::error, "account", "switch_message_view_failed");
+    clear_login_hints();
+    g_app.login_scene.switching_accounts = true;
+    g_app.login.visible = true;
+    g_app.login.status = RendererLoginStatus::restoring_session;
+    g_app.login.focus = LoginControl::none;
+    g_app.login.remote_restart_at_ms = 0;
+    if (!application_refresh_login_view())
+        log_write(LogLevel::warning, "ui", "switch_view_refresh_failed");
+    application_request_frame();
+}
+
+bool account_switch_select(u32 slot) noexcept {
+    return account_paths_select_slot(slot);
+}
+
+bool account_switch_attach() noexcept {
+    return attach_selected();
+}
+
+bool account_switch_open_login() noexcept {
+    if (!show_login())
+        return false;
+    g_switch.add_mode = true;
+    g_app.login_scene.switching_accounts = false;
+    g_app.login_scene.account_return = false;
+    g_app.login_scene.add_account = true;
+    g_app.login.status = RendererLoginStatus::idle;
+    g_app.login.focus = LoginControl::login;
+    if (!application_refresh_login_view())
+        log_write(LogLevel::warning, "ui", "add_account_view_refresh_failed");
+    return true;
+}
+
+void account_switch_commit(u32 slot) noexcept {
+    const auto* entry = account_inventory_find_slot(g_switch.inventory, slot);
+    if (!entry || entry->user_id != g_app.account.status.profile_id)
+        record_account(slot, g_app.account.status.profile_id);
+    account_inventory_touch(&g_switch.inventory, slot, clock_unix_milliseconds());
+    save_inventory();
+    g_switch.add_mode = false;
+    g_app.login_scene.add_account = false;
+}
+
+} // namespace maicord

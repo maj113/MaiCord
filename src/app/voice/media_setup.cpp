@@ -5,8 +5,6 @@
 
 namespace maicord {
 void voice_media_clear(VoiceMediaSetup* setup) noexcept {
-    if (!setup)
-        return;
     voice_packet_release(&setup->packets);
     reset_value(setup);
 }
@@ -33,7 +31,7 @@ VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady&
     return VoiceMediaSetupError::none;
 }
 bool voice_media_protocol_selected(VoiceMediaSetup* setup, u32 mode) noexcept {
-    if (!setup || !setup->has_ready || setup->has_description || setup->selected_mode ||
+    if (!setup->has_ready || setup->has_description || setup->selected_mode ||
         (mode != voice_transport_aes256_gcm_rtpsize &&
          mode != voice_transport_xchacha20_poly1305_rtpsize) ||
         !(setup->offered_modes & mode))
@@ -44,7 +42,7 @@ bool voice_media_protocol_selected(VoiceMediaSetup* setup, u32 mode) noexcept {
 VoiceMediaSetupError voice_media_description(VoiceMediaSetup* setup, JsonValue data, Slice<u32> scratch,
                                              u32 maximum_depth, u16 advertised_dave_version,
                                              u64 ready_generation) noexcept {
-    if (!setup || !setup->has_ready || !setup->selected_mode || setup->has_description ||
+    if (!setup->has_ready || !setup->selected_mode || setup->has_description ||
         setup->packets.generation || !ready_generation)
         return VoiceMediaSetupError::order;
     SecureBuffer key{};

@@ -58,7 +58,8 @@ UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardSce
 UiMessageForwardTarget ui_message_forward_scene_hit_test(const UiMessageForwardScene&, float x, float y) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_selected(const UiMessageForwardScene&) noexcept;
 bool ui_message_forward_scene_move(UiMessageForwardScene*, UiQuickSwitcherMove) noexcept;
-bool ui_message_forward_scene_set_hover(UiMessageForwardScene*, float x, float y, bool* changed) noexcept;
+// True when the hovered widget or the selected row changed.
+bool ui_message_forward_scene_set_hover(UiMessageForwardScene*, float x, float y) noexcept;
 float ui_message_forward_scene_scroll_maximum(const UiMessageForwardScene&) noexcept;
 bool ui_message_forward_scene_scroll(UiMessageForwardScene*, float offset) noexcept;
 bool ui_message_forward_scene_paint(const UiMessageForwardScene&, const Theme&, PaintStream*,
@@ -79,4 +80,12 @@ struct UiMessageForwardMedia {
 };
 bool ui_message_forward_scene_media(const UiMessageForwardScene&, u32 slot, const ChatStateStore* state,
                                     UiMessageForwardMedia*) noexcept;
+// Modal backdrops dismiss on click but stay an arrow.
+inline UiCursor ui_message_forward_scene_cursor(const UiMessageForwardScene& scene, float x, float y) noexcept {
+    if (!ui_rect_contains(scene.panel, x, y))
+        return UiCursor::arrow;
+    const auto action = ui_message_forward_scene_hit_test(scene, x, y).action;
+    return ui_action_cursor(action != UiMessageForwardAction::none,
+                            action == UiMessageForwardAction::edit || action == UiMessageForwardAction::caption);
+}
 } // namespace maicord

@@ -41,13 +41,22 @@ bool initialize(UiShortcutsScene& s) noexcept {
     s.close = ui_scene_part(&s.widgets, s.root, UiWidgetKind::button, utf8_literal("Close keyboard shortcuts"));
     return s.close.generation;
 }
+// Estimated key cap width for a key label.
+float key_width(const Utf8View& key) noexcept {
+    return maximum(kCapHeight, ui_settings_text_width(key, kKeyEm) * 1.1f + 14);
+}
 float chord_width(const UiShortcutsRow& row, u32 chord) noexcept {
     float width = 0;
     for (u32 key = 0; key < row.key_counts[chord]; ++key)
-        width += ui_shortcuts_key_width(row.keys[chord][key]) + (key ? kCapGap : 0);
+        width += key_width(row.keys[chord][key]) + (key ? kCapGap : 0);
     return width;
 }
-float caps_width(const UiShortcutsRow& row) noexcept;
+float caps_width(const UiShortcutsRow& row) noexcept {
+    float width = chord_width(row, 0) + chord_width(row, 1);
+    if (row.key_counts[0] && row.key_counts[1])
+        width += kChordGap;
+    return width;
+}
 // A label that would not fit beside its key caps wraps onto a second line.
 float row_height(const UiShortcutsRow& row, float column_width) noexcept {
     if (row.header)
@@ -98,7 +107,7 @@ bool each_cap(const UiShortcutsRow& row, const UiRect& r, UiVisitRef<const Utf8V
         right = x - kChordGap;
         const float top = (r.top + r.bottom - kCapHeight) * .5f;
         for (u32 key = 0; key < row.key_counts[chord]; ++key) {
-            const float width = ui_shortcuts_key_width(row.keys[chord][key]);
+            const float width = key_width(row.keys[chord][key]);
             if (!visit(row.keys[chord][key], UiRect{x, top, x + width, top + kCapHeight}))
                 return false;
             x += width + kCapGap;
@@ -108,17 +117,8 @@ bool each_cap(const UiShortcutsRow& row, const UiRect& r, UiVisitRef<const Utf8V
     }
     return true;
 }
-float caps_width(const UiShortcutsRow& row) noexcept {
-    float width = chord_width(row, 0) + chord_width(row, 1);
-    if (row.key_counts[0] && row.key_counts[1])
-        width += kChordGap;
-    return width;
-}
 } // namespace
 
-float ui_shortcuts_key_width(const Utf8View& key) noexcept {
-    return maximum(kCapHeight, ui_settings_text_width(key, kKeyEm) * 1.1f + 14);
-}
 bool ui_shortcuts_scene_current(const UiShortcutsScene& s) noexcept {
     return current(s);
 }

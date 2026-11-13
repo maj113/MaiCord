@@ -165,6 +165,15 @@ void commit(const NavigationDragTarget& target, NavigationDragList list, u64 sou
     if (count)
         application_guild_lifecycle_reorder_channels(guild_id, {positions, count});
 }
+void cancel() noexcept {
+    if (g_drag.drag.phase == NavigationDragPhase::idle)
+        return;
+    const bool dragging = navigation_drag_dragging(g_drag.drag);
+    end_capture();
+    reset_value(&g_drag);
+    if (dragging)
+        clear_visuals();
+}
 } // namespace
 
 bool application_navigation_drag_press(const WindowEvent& event) noexcept {
@@ -219,7 +228,7 @@ bool application_navigation_drag_window_event(const WindowEvent& event) noexcept
     case EventType::pointer_move: {
         if (!input_held(event)) {
             // The button came up outside the window: no click, no drop.
-            application_navigation_drag_cancel();
+            cancel();
             return false;
         }
         const UiPoint point{client_dip_x(event), client_dip_y(event)};
@@ -262,7 +271,7 @@ bool application_navigation_drag_window_event(const WindowEvent& event) noexcept
         if (!input_plain_key_down(event))
             return false;
         if (event.key.key == key::escape && navigation_drag_dragging(g_drag.drag)) {
-            application_navigation_drag_cancel();
+            cancel();
             return true;
         }
         return navigation_drag_dragging(g_drag.drag);
@@ -270,19 +279,19 @@ bool application_navigation_drag_window_event(const WindowEvent& event) noexcept
         if (!input_press(event, PointerButton::right))
             return false;
         if (navigation_drag_dragging(g_drag.drag)) {
-            application_navigation_drag_cancel();
+            cancel();
             return true;
         }
         return false;
     case EventType::capture_lost:
         if (g_drag.captured && event.focus.other != g_app.window) {
             g_drag.captured = false;
-            application_navigation_drag_cancel();
+            cancel();
         }
         return false;
     case EventType::focus_changed:
         if (!event.focus.gained)
-            application_navigation_drag_cancel();
+            cancel();
         return false;
     default:
         return false;
@@ -293,7 +302,7 @@ void application_navigation_drag_tick(u64 now_ms) noexcept {
     if (!navigation_drag_dragging(g_drag.drag))
         return;
     if (!account_ready()) {
-        application_navigation_drag_cancel();
+        cancel();
         return;
     }
     const u64 elapsed = now_ms > g_drag.last_tick_ms ? now_ms - g_drag.last_tick_ms : 0;
@@ -318,16 +327,5 @@ void application_navigation_drag_tick(u64 now_ms) noexcept {
     }
     // Keep sampling while the pointer rests in the edge band.
     application_request_frame();
-}
-
-void application_navigation_drag_cancel() noexcept {
-    if (g_drag.drag.phase == NavigationDragPhase::idle)
-        return;
-    const bool dragging = navigation_drag_dragging(g_drag.drag);
-    navigation_drag_cancel(&g_drag.drag);
-    end_capture();
-    reset_value(&g_drag);
-    if (dragging)
-        clear_visuals();
 }
 } // namespace maicord::app_detail

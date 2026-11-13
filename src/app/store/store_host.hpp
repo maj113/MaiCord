@@ -5,7 +5,7 @@
 #include "maicord/ui/core/input_router.hpp"
 #include "maicord/ui/settings/scene.hpp"
 
-// Settings > Plugins, Themes and Effects (store-ui.md): the host side. The three pages are host pages of the
+// Settings > Plugins, Themes and Effects: the host side. The three pages are host pages of the
 // settings scene; their column is drawn by UiStoreScene (src/ui/store) from a page built out of the catalog and
 // package models (store_page.cpp). This module owns the page state, the search editor, the pop-up menus, the
 // install dialogs' bookkeeping and the commands the pages issue. UI thread only.

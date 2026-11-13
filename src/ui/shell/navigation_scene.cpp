@@ -157,7 +157,8 @@ float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& vi
     return right;
 }
 
-float shell_navigation_content_height(const NavigationView* view) noexcept {
+// Rows plus the 8 DIP insets above and below them (banner inset excluded).
+static float shell_navigation_content_height(const NavigationView* view) noexcept {
     if (!view || view->channel_count > view->channel_capacity ||
         (view->channel_count != 0 && !view->channel_rows)) {
         return 0.0f;

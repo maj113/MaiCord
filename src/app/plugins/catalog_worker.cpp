@@ -67,7 +67,6 @@ u32 append(wchar_t (&path)[600], u32 length, const wchar_t* text) noexcept {
     return wide_append(path, 600, &length, text) ? length : 0;
 }
 
-// ---- files --------------------------------------------------------------------------------------
 // Reads a whole regular file of at most maximum bytes (not following a final reparse point) into a new
 // allocation; null when it is missing, larger or unreadable.
 u8* read_file(const wchar_t* path, u32 maximum, u32* bytes) noexcept {
@@ -109,7 +108,6 @@ bool ensure(const Worker& w, const wchar_t* directory, wchar_t (&path)[600]) noe
     return directory_ensure(w.base) && catalog_path(base(w), directory, path) && directory_ensure(path);
 }
 
-// ---- hashing and keys -----------------------------------------------------------------------------
 struct Crypto {
     KdfSha256Workspace workspace;
     bool ready;
@@ -125,7 +123,6 @@ struct Crypto {
     }
 };
 
-// ---- network --------------------------------------------------------------------------------------
 struct Network {
     Worker* w;
     UpdateHttpsTransport* https;
@@ -211,7 +208,6 @@ CatalogError fetch(Worker& w, Network& net, const Utf8View& relative, u32 maximu
     return CatalogError::none;
 }
 
-// ---- the index -----------------------------------------------------------------------------------
 struct Keys {
     P256Key keys[2];
     const P256Key* list[2];
@@ -302,7 +298,6 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     release(signature);
 }
 
-// ---- files the index lists -------------------------------------------------------------------------
 static_assert(static_cast<u8>(CatalogKind::theme) == static_cast<u8>(PackageLinkKind::theme) &&
               static_cast<u8>(CatalogKind::effect) == static_cast<u8>(PackageLinkKind::effect));
 u32 file_path(const Worker& w, CatalogKind kind, Utf8View slug, const u8 (&sha256)[32], wchar_t (&path)[600]) noexcept {
@@ -352,7 +347,6 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     if (w.library_changed) w.library_changed();
 }
 
-// ---- details and previews -----------------------------------------------------------------------------
 void trim_assets(const Worker& w) noexcept {
     wchar_t directory[600];
     if (!catalog_path(base(w), L"catalog-cache\\", directory)) return;
@@ -416,7 +410,6 @@ void asset(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     r.count = count;
 }
 
-// ---- plugin data and sideloads -------------------------------------------------------------------------
 void delete_data(const Worker& w, const CatalogJob& job) noexcept {
     wchar_t directory[600];
     u32 length = catalog_path(base(w), L"plugin-data\\", directory);

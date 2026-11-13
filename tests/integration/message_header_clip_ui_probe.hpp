@@ -159,7 +159,7 @@ inline bool message_header_clip_ui_probe(D3D11Renderer& renderer, MessageViewRun
     if (!user_guild_badge_media(tag(caller, true), {}, {}, &tag_media) ||
         !renderer_upload_media_rgba8(&renderer, tag_media.key, 32, 32, 32 * 4, {square, sizeof(square)}).ok() ||
         !show_headers(true) ||
-        !message_view_runtime_reindex(&view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+        !message_view_runtime_reindex(&view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok() ||
         !rebuild_model() || !rebuild_model())
         return false;

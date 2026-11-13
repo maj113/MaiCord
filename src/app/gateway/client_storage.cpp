@@ -163,6 +163,31 @@ void gateway_adopt_replacement_credential(GatewayClientRuntime* runtime) noexcep
     ReleaseSRWLockExclusive(&runtime->resume_lock);
 }
 
+bool gateway_hand_over_token(GatewayClient* client, GatewayClientRuntime* runtime, SecureBuffer* worker_slot,
+                             ConstSlice<u8> token) noexcept {
+    if (!token.count || token.count > kGatewayUserMaximumTokenBytes)
+        return false;
+    for (u32 i = 0; i < token.count; ++i)
+        if (token.data[i] <= 0x20 || token.data[i] >= 0x7F)
+            return false;
+    SecureBuffer worker{}, owner{};
+    if (!secure_buffer_initialize(&worker, token.count).ok() || !secure_buffer_assign(&worker, token).ok() ||
+        !secure_buffer_initialize(&owner, token.count).ok() || !secure_buffer_assign(&owner, token).ok()) {
+        secure_buffer_release(&worker);
+        secure_buffer_release(&owner);
+        return false;
+    }
+    AcquireSRWLockExclusive(&runtime->resume_lock);
+    secure_buffer_release(worker_slot);
+    secure_buffer_transfer(worker_slot, &worker);
+    secure_buffer_release(&runtime->refreshed_credential);
+    secure_buffer_transfer(&runtime->refreshed_credential, &owner);
+    ReleaseSRWLockExclusive(&runtime->resume_lock);
+    if (client->notification_event)
+        event_set(client->notification_event);
+    return true;
+}
+
 } // namespace client_detail
 namespace {
 

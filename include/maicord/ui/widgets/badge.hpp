@@ -23,7 +23,7 @@ inline constexpr float kUiBadgeCompactIconGap = 2.0f;
 // The widest the mark and label may grow.
 inline constexpr float kUiBadgeCompactMaximumContent = 70.0f;
 UiBadgeLayout ui_badge_compact_layout(UiTextMeasureCache* cache, const Utf8View& label, const UiRect& line,
-                                      bool icon, u32 flags = text_style_subtext | text_style_bold) noexcept;
+                                      bool icon, u32 flags) noexcept;
 // A badge binds its geometry, label and leading mark to one widget. Paint and
 // text use the same insets. A compact accent badge is the APP tag beside a
 // bot's name: the brand fill, white text, and a leading check when verified.

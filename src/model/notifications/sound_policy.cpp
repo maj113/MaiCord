@@ -4,8 +4,6 @@
 namespace maicord {
 NotificationSoundDecision notification_selected_sound_admission(const NotificationSelectedSoundInput& i) noexcept {
     using A=NotificationSoundDecision;
-    if(!i.selection_known)return A::unknown;
-    if(!i.main_selected)return A::denied;
     if(!i.self_id||!i.author_id||!i.scope_known)return A::unknown;
     if(i.self_id==i.author_id||i.allow_no_messages)return A::denied;
     constexpr u32 required=notification_gate_managed|notification_gate_spammer|notification_gate_blocked|
@@ -21,15 +19,14 @@ NotificationSoundDecision notification_selected_sound_admission(const Notificati
 NotificationMessageSoundDecision notification_message_sound_decide(const NotificationMessageSoundInput& i) noexcept {
     using A=NotificationSoundDecision;
     NotificationMessageSoundDecision d{};
-    if(!i.ready||!i.live||i.duplicate||i.optimistic||i.restrictions!=A::allowed||!i.focus_known)return d;
+    if(!i.ready||!i.live||i.duplicate||i.restrictions!=A::allowed)return d;
     const bool selected=i.selected==A::allowed;
-    d.selected_direct=selected&&i.preference_known&&i.message1_enabled;
+    d.selected_direct=selected&&i.message1_enabled;
     // While unfocused, a selected candidate returns before ordinary notification
     // processing, even when the message1 preference disables the selected sound.
-    if((!i.focused&&i.selected!=A::denied)||i.ordinary!=A::allowed||i.overlay!=A::allowed||
-        !i.desktop_type_known)return d;
+    if((!i.focused&&i.selected!=A::denied)||i.ordinary!=A::allowed||i.overlay!=A::allowed)return d;
     d.ordinary_notification=true;
-    if(!i.preference_known||!i.message1_enabled)return d;
+    if(!i.message1_enabled)return d;
     d.ordinary=i.desktop_never?NotificationMessageSoundRoute::direct:NotificationMessageSoundRoute::popup;
     return d;
 }
@@ -47,7 +44,7 @@ NotificationSoundInvocation invoke(NotificationSoundThrottle* s,u64 now) noexcep
 }
 NotificationSoundInvocation notification_sound_throttle_request(NotificationSoundThrottle* s,u64 now,
     NotificationSoundRequest request) noexcept {
-    if(!s||!request.generation||request.generation!=s->generation)return {};
+    if(!request.generation||request.generation!=s->generation)return {};
     const bool invoking=should_invoke(*s,now);
     s->pending_request=request;s->pending=true;s->last_call_ms=now;s->has_last_call=true;
     if(invoking) {
@@ -59,11 +56,10 @@ NotificationSoundInvocation notification_sound_throttle_request(NotificationSoun
     return {};
 }
 NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundThrottle* s,u64 now,u64 generation) noexcept {
-    if(!s||!generation||generation!=s->generation||!s->timer_active)return {};
-    // An elapsed timer can observe the clock moving backwards. Lodash treats a
-    // negative time since the last call as its trailing edge, so that case must
-    // not be hidden behind the nominal deadline. Early timer notifications
-    // still leave the deadline and pending request untouched.
+    if(!generation||generation!=s->generation||!s->timer_active)return {};
+    // An elapsed timer can observe the clock moving backwards. A negative time since the last call is the
+    // trailing edge (as in a Lodash throttle), so that case must not be hidden behind the nominal deadline.
+    // Early timer notifications still leave the deadline and pending request untouched.
     if(now<s->deadline_ms&&now>=s->last_call_ms)return {};
     if(should_invoke(*s,now)) {
         s->timer_active=false;
@@ -76,8 +72,8 @@ NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundT
     return {};
 }
 bool notification_sound_throttle_deadline(const NotificationSoundThrottle& s,u64* out) noexcept {
-    if(!out||!s.timer_active)return false;*out=s.deadline_ms;return true;
+    if(!s.timer_active)return false;*out=s.deadline_ms;return true;
 }
-void notification_sound_throttle_cancel(NotificationSoundThrottle* s) noexcept {if(s){const u64 generation=s->generation;reset_value(s);s->generation=generation;}}
-void notification_sound_throttle_generation(NotificationSoundThrottle* s,u64 generation) noexcept {if(s){reset_value(s);s->generation=generation;}}
+void notification_sound_throttle_cancel(NotificationSoundThrottle* s) noexcept {const u64 generation=s->generation;reset_value(s);s->generation=generation;}
+void notification_sound_throttle_generation(NotificationSoundThrottle* s,u64 generation) noexcept {reset_value(s);s->generation=generation;}
 } // namespace maicord

@@ -19,8 +19,6 @@ inline void plugin_ui_scope_invalidate(u64* serial) noexcept {
     if (serial && *serial != ~u64{0}) ++*serial;
 }
 
-// ---- Context menus ------------------------------------------------------------------
-
 enum class PluginMenuKind : u8 { user, message, channel, guild, link, image, emoji };
 inline constexpr u32 kPluginMenuTargetOwn = 1;      // your message or yourself
 inline constexpr u32 kPluginMenuTargetPrivate = 2;  // in a DM or group DM
@@ -66,8 +64,6 @@ PluginMenuRun plugin_menu_activate(const PluginMenuTarget&, u64 owner_id, u32 it
 // Changes whenever a plugin is enabled or disabled: captured rows are stale after it.
 u32 plugin_ui_revision() noexcept;
 
-// ---- Slash commands -------------------------------------------------------------------
-
 // Plugin commands live in the composer's command index as applications whose ids have this
 // bit set; Discord ids never do.
 inline constexpr u64 kPluginCommandApplicationFlag = 1ull << 63;
@@ -102,8 +98,6 @@ struct PluginCommandResult {
 PluginCommandResult plugin_command_run(u64 application_id, u64 command_id, u64 channel_id, u64 guild_id,
                                        Utf8View options_json, Slice<u32> scratch) noexcept;
 
-// ---- Banners -------------------------------------------------------------------------
-
 // What the banner card shows. Views are valid until the banner changes.
 struct PluginBannerView {
     u64 owner_id, tag;
@@ -115,8 +109,6 @@ struct PluginBannerView {
 bool plugin_banner_current(PluginBannerView*) noexcept;
 // The user pressed the action (true) or dismissed the banner: tells the plugin and removes it.
 bool plugin_banner_resolve(bool action) noexcept;
-
-// ---- Modals --------------------------------------------------------------------------
 
 enum class PluginModalKind : u8 {
     confirm,      // text and two buttons
@@ -146,8 +138,6 @@ const PluginModalRequest* plugin_modal_current() noexcept;
 // Answers it: tells the plugin (accepted, or cancelled) and frees the slot. input and select are
 // ignored for kinds that don't have them.
 bool plugin_modal_resolve(bool accepted, Utf8View input, bool toggle, u32 select) noexcept;
-
-// ---- Host ------------------------------------------------------------------------------
 
 enum class PluginUiStatus : u8 { ok, busy, not_found, denied };
 // What the application provides to the plugin API (ui_host.cpp); the plugin runtime calls these by name. A test that

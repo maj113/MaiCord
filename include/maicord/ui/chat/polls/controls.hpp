@@ -3,6 +3,7 @@
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiPollMaximumAnswers = 10;
@@ -159,12 +160,13 @@ enum class UiPollPointerEvent : u8 {
     leave,
     cancel
 };
-enum class UiPollSourceSurface : u8 {
-    timeline,
-    search,
-    pins,
-    forward
-};
+enum class UiPollSourceSurface : u8 { timeline, search };
+// A poll surface's owner widget still exists, is enabled and takes input. Internal linkage, as the per-file
+// copies it replaces had: the per-frame revision checks call it without home space and keep their tail calls.
+static inline bool ui_poll_owner_current(UiWidgetReference owner) noexcept {
+    const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
+    return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
+}
 struct UiPollScene {
     UiPollProjection projection{};
     UiPollStyle style{};
@@ -276,4 +278,20 @@ bool ui_poll_voters_scene_focus(UiPollVotersScene*, UiPollVotersTarget, bool key
 UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene*, UiPollPointerEvent,
                                                      UiPoint) noexcept;
 UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene*, UiPollKey) noexcept;
+inline UiCursor ui_poll_controls_cursor(const UiPollProjection& projection, UiPoint point) noexcept {
+    const auto target = ui_poll_controls_hit(projection, point);
+    return ui_action_cursor(target.control != UiPollControl::none && ui_poll_target_enabled(projection, target));
+}
+inline UiCursor ui_poll_scene_cursor(const UiPollScene& scene, UiPoint point) noexcept {
+    if (!scene.active)
+        return UiCursor::arrow;
+    const auto target = ui_poll_scene_hit(scene, point);
+    return ui_action_cursor(target.control != UiPollControl::none &&
+                            ui_poll_target_enabled(scene.projection, target));
+}
+inline UiCursor ui_poll_voters_scene_cursor(const UiPollVotersScene& scene, UiPoint point) noexcept {
+    const auto target = ui_poll_voters_scene_hit(scene, point);
+    return ui_action_cursor(target.control != UiPollVotersControl::none &&
+                            ui_poll_voters_target_enabled(scene, target));
+}
 } // namespace maicord

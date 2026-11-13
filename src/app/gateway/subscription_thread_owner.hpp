@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/protocol/gateway/commands.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 // Worker-owned state describes completed transport writes. Latest desired UI
@@ -28,15 +27,10 @@ inline void gateway_subscription_thread_owner_admit(GatewaySubscriptionThreadOwn
         ? (frame.thread_id ? frame.guild_id : 0) : owner->sent_guild_id;
     owner->active = true;
 }
+// A failed send or a dropped connection (sent false) commits nothing; a fresh READY resets the owner.
 inline void gateway_subscription_thread_owner_complete(GatewaySubscriptionThreadOwner* owner,
     bool sent) noexcept {
     if (sent && owner->active) owner->sent_guild_id = owner->active_guild_id;
     owner->active_guild_id = 0; owner->active = false;
-}
-inline void gateway_subscription_thread_owner_reset_connection(GatewaySubscriptionThreadOwner* owner) noexcept {
-    gateway_subscription_thread_owner_complete(owner, false);
-}
-inline void gateway_subscription_thread_owner_ready(GatewaySubscriptionThreadOwner* owner, bool fresh) noexcept {
-    if (fresh) reset_value(owner);
 }
 } // namespace maicord

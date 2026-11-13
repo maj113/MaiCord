@@ -598,7 +598,7 @@ bool refresh_account_text(bool) noexcept {
     ++mutation_notice_test::text_refreshes;
     return true;
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     ++mutation_notice_test::frame_refreshes;
     return true;
 }

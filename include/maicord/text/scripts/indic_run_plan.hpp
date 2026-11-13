@@ -29,11 +29,11 @@ struct NativeIndicFormPlan {NativeIndicPlan indic;u8 forms[128];};
 static_assert(sizeof(NativeIndicFormPlan)==192);
 // Appends roots and any required GPOS subset; shares the parent's GSUB, coordinates,
 // mapping and metrics, with no extra parent reference or retained arena. Scratch
-// rewinds on every return; failed calls also rewind state and clear output. The
-// optional 128-byte form output covers the selected script's BMP block (sfnt_deva_*
-// would-substitute bits per consonant, the font forms an Indic run needs) and is written
-// only on success. All form queries share one lookup budget. State, scratch, borrowed
-// views and outputs must be disjoint.
+// rewinds on every return; failed calls also rewind state and clear output's plan.
+// The forms cover the selected script's BMP block (sfnt_deva_* would-substitute bits
+// per consonant, the font forms an Indic run needs) and are written only on success.
+// All form queries share one lookup budget. State, scratch, borrowed views and
+// output must be disjoint.
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,SfntIndicProfile,
-    Arena* state,Arena* scratch,NativeIndicPlan*,Slice<u8> forms={},const SfntShapeLimits& limits={}) noexcept;
+    Arena* state,Arena* scratch,NativeIndicFormPlan* output) noexcept;
 }

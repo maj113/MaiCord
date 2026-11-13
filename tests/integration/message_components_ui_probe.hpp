@@ -71,7 +71,7 @@ inline bool message_components_ui_probe(D3D11Renderer& renderer, MessageViewRunt
     constexpr u64 id = 1'270'000'000'300'000'000ull, author = id + 10'000, emoji_id = 123;
     if (!message_store_upsert(&view.store, {id, 111, author, snowflake_timestamp_ms(id), 0, Utf8View{}, 0}).ok() ||
         !user_store_upsert(&users, author, utf8_literal("BlueprintBot")).ok() ||
-        !message_view_runtime_reindex(&view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+        !message_view_runtime_reindex(&view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok())
         return false;
     GatewayMessageComponent components[4]{};

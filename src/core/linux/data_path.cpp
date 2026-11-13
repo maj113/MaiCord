@@ -4,9 +4,7 @@
 //
 // D19 also names a cache directory ($XDG_CACHE_HOME/maicord, else $HOME/.cache/maicord) for what can be created
 // again and a state directory ($XDG_STATE_HOME/maicord, else $HOME/.local/state/maicord) for logs and state: the
-// same rule and the same builder, under cache_path and state_path. Nothing is moved into them yet; until what is
-// re-creatable has been classified, callers keep their files under the data directory, as on Windows everything
-// lives under %LOCALAPPDATA%\MaiCord.
+// same rule and the same builder, under cache_path and state_path. On Windows both are the data directory.
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/linux/calls.hpp"

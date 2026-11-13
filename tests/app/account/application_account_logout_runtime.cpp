@@ -91,20 +91,16 @@ AccountPathsResult logout_fixture_paths(AccountPaths* output) noexcept {
     *output = logout_fixture::paths;
     return {};
 }
-AccountCredentialForgetResult logout_fixture_begin(const AccountPaths& paths,
-                                                   const AccountCredentialForgetIo* io = nullptr) noexcept {
+AccountCredentialForgetResult logout_fixture_begin(const AccountPaths& paths) noexcept {
     if (logout_fixture::marker_failure)
-        return {ERROR_ACCESS_DENIED, AccountCredentialForgetError::marker_write, account_forget_marker,
-                true};
-    return account_credential_forget_begin(paths, io);
+        return {AccountCredentialForgetError::marker_write, true};
+    return account_credential_forget_begin(paths);
 }
-AccountCredentialForgetResult logout_fixture_forget(
-    const AccountPaths& paths, bool joined, const AccountCredentialForgetIo* io = nullptr) noexcept {
+AccountCredentialForgetResult logout_fixture_forget(const AccountPaths& paths) noexcept {
     ++logout_fixture::forgets;
-    if (!joined || app_detail::application_account_logout_host_owned() ||
-        read_acquire(&logout_fixture::stop_active))
+    if (app_detail::application_account_logout_host_owned() || read_acquire(&logout_fixture::stop_active))
         logout_fixture::file_order_violation = true;
-    return account_credential_forget_complete_after_join(paths, joined, io);
+    return account_credential_forget_complete_after_join(paths);
 }
 AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout, u64 monotonic,
                                           u64 unix_time) noexcept {

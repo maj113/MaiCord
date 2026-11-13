@@ -35,7 +35,6 @@ struct Fixture {
     UiSettingsControl controls[kSettingsPanelCount + 2][kRows];
     UiSettingsControlPresentation looks[kSettingsPanelCount + 2][kRows];
     u16 update_meters[kRows], showcase_meters[kRows];
-    UiKitMeasure measure;
     UiSettingsEditor editors[2];
     UiEditGeometry geometries[2];
     UiPageRegistry registry;
@@ -660,8 +659,7 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     valid = valid && ui_settings_scene_set_presentation(&f.scene, UiSettingsPresentation::modal) &&
             ui_settings_scene_bind_navigation(&f.scene, navigation, 1) &&
             ui_settings_scene_bind_palette(&f.scene, {&f, palette, 1});
-    ui_kit_measure_cache(&f.measure, &cache);
-    valid = valid && (ui_settings_scene_bind_measure(&f.scene, &f.measure), true);
+    valid = valid && (ui_settings_scene_bind_measure(&f.scene, &cache), true);
     // The probe's shell scene keeps the size it was laid out at and clips every label to it: lay a fresh one out at
     // the capture size so wide pages are not cut.
     valid = valid && ui_scene_initialize_bootstrap(&g_shell) &&

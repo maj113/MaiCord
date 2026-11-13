@@ -69,7 +69,7 @@ UiLayoutStyle avatar_style(const MessageScene& scene, bool grouped, float reply_
     style.height = ui_layout_fixed(avatar_height(scene, grouped));
     // The large avatar belongs to the current author, so it starts below the
     // reply preview that precedes the header.
-    style.margin.top = grouped && !compact(scene) ? 0.0f : reply_height + 0.f;
+    style.margin.top = grouped && !compact(scene) ? 0.0f : reply_height;
     if (grouped && !compact(scene)) {
         style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
     }
@@ -779,7 +779,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
     }
     avatar_node->spec.style.width = ui_layout_fixed(avatar_width(*scene));
     avatar_node->spec.style.height = ui_layout_fixed(avatar_height(*scene, row->grouped));
-    avatar_node->spec.style.margin.top = row->grouped && !compact(*scene) ? 0.0f : reply + 0.f;
+    avatar_node->spec.style.margin.top = row->grouped && !compact(*scene) ? 0.0f : reply;
     if (row->has_snapshot) {
         auto* child = const_cast<MessageSceneRowWidget*>(message_scene_snapshot_row(*scene, *row));
         const auto* snapshot = snapshot_rich(*scene, row->message_id);

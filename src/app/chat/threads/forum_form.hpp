@@ -21,5 +21,4 @@ void application_forum_form_theme_changed() noexcept;
 void application_forum_form_tick(u64 now_ms) noexcept;
 u64 application_forum_form_next_wake() noexcept;
 struct ApplicationForumForm;
-ApplicationForumForm* application_forum_form_state() noexcept;
 } // namespace maicord::app_detail

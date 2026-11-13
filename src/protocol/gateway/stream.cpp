@@ -17,16 +17,16 @@ GatewayCommandWriteResult finish(const u8* built, u32 bytes, bool valid, Slice<u
     copy_bytes(output.data, built, bytes);
     return {bytes};
 }
-// {"op":<op>,"d":{"stream_key":"<key>"<tail>}}
+// <prefix>"<key>"<tail>: {"op":<op>,"d":{"stream_key":"<key>"}} unless tail adds members.
 template <usize Count>
-GatewayCommandWriteResult keyed(const char (&prefix)[Count], const GatewayStreamKey& key,
-                                Slice<u8> output) noexcept {
+GatewayCommandWriteResult keyed(const char (&prefix)[Count], const GatewayStreamKey& key, Slice<u8> output,
+                                const char* tail = "}}") noexcept {
     char text[kGatewayStreamKeyMaximumBytes];
     const u32 key_bytes = gateway_stream_key_write(key, {text, sizeof(text)});
     u8 built[kCommandBytes];
     ProtocolWriter writer{{built, sizeof(built)}, 0};
     const bool valid =
-        key_bytes && protocol_write(&writer, prefix, json_text({text, key_bytes}), "}}");
+        key_bytes && protocol_write(&writer, prefix, json_text({text, key_bytes}), tail);
     return finish(built, writer.used, valid, output);
 }
 
@@ -293,14 +293,8 @@ GatewayCommandWriteResult gateway_write_stream_create(const GatewayStreamKey& ke
 }
 GatewayCommandWriteResult gateway_write_stream_set_paused(const GatewayStreamKey& key, bool paused,
                                                           Slice<u8> output) noexcept {
-    char text[kGatewayStreamKeyMaximumBytes];
-    const u32 key_bytes = gateway_stream_key_write(key, {text, sizeof(text)});
-    u8 built[kCommandBytes];
-    ProtocolWriter writer{{built, sizeof(built)}, 0};
-    const bool valid = key_bytes && protocol_write(&writer, "{\"op\":22,\"d\":{\"stream_key\":",
-                                                   json_text({text, key_bytes}),
-                                                   paused ? ",\"paused\":true}}" : ",\"paused\":false}}");
-    return finish(built, writer.used, valid, output);
+    return keyed("{\"op\":22,\"d\":{\"stream_key\":", key, output,
+                 paused ? ",\"paused\":true}}" : ",\"paused\":false}}");
 }
 GatewayEventDecodeResult gateway_decode_stream_create(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamCreate* output) noexcept {

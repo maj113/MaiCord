@@ -126,7 +126,7 @@ bool application_message_component_click(u64, UiWidgetHandle, UiRect) noexcept {
 bool application_pinned_messages_toggle() noexcept {
     return true;
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return true;
 }
 void application_user_settings_request_content_confirmation() noexcept {}

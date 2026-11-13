@@ -114,8 +114,6 @@ PluginMessage to_plugin(const MessageRecord& record, Utf8View content) noexcept 
     return message;
 }
 
-// ---- Gateway: hooks and the event feed ------------------------------------------------------------
-
 // Removals asked for here (application_plugins_own_removal), each matched once by the event confirming it.
 struct OwnRemoval {
     u64 id, until;
@@ -344,8 +342,6 @@ void relationship_changed(const GatewayClientEvent& event, ConstSlice<u8> payloa
     push(out, ui);
 }
 
-// ---- Kept messages on screen -------------------------------------------------------------------
-
 // Puts tombstones of the open channel back into the timeline once its history is resident.
 bool restore_tombstones() noexcept {
     if (!g_app.account_ui || !keep_stats().messages) return false;
@@ -379,8 +375,6 @@ void drop_tombstone_rows() noexcept {
         if (record && record->delivery == MessageDeliveryState::retained) message_timeline_remove_local(&timeline, record->id);
     }
 }
-
-// ---- Actions ------------------------------------------------------------------------------------
 
 const MessageRecord* cached_message(u64 channel_id, u64 message_id) noexcept {
     const auto* record = application_message_record(message_id);
@@ -559,8 +553,6 @@ mc_status plugin_host_local_message_remove(u64, u64 channel, u64 message) noexce
     return MC_OK;
 }
 
-// ---- Composer ---------------------------------------------------------------------------------
-
 mc_status plugin_host_composer_text(void* output, u32 capacity, u32* bytes) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
     const Utf8View text = message_composer_text(g_app.message_composer);
@@ -606,8 +598,6 @@ void plugin_host_keep_changed() noexcept {
     application_request_frame();
 }
 
-// ---- Reads ------------------------------------------------------------------------------------
-
 mc_status plugin_host_read_open_channel(mc_open_channel* out) noexcept {
     const AccountUiRuntime* ui = plugin_account_ready() ? g_app.account_ui : nullptr;
     if (!ui || !ui->active_channel_id) return MC_E_NOT_FOUND;
@@ -644,8 +634,6 @@ mc_status plugin_host_read_messages(u64 channel_id, u64 before, mc_message_ref* 
 namespace maicord::app_detail {
 namespace {
 
-// ---- Confirming a send ---------------------------------------------------------------------------
-
 TextFormOwnerKey g_confirm;
 
 bool confirm_valid(TextFormOwnerKey key) noexcept {
@@ -664,12 +652,12 @@ bool confirm_save(TextFormOwnerKey key, Utf8View) noexcept {
     return true;
 }
 
-} // namespace
-
-void application_plugins_pipeline_install() noexcept {
+// Idempotent: turns on the live timeline's tombstone query, once a plugin keeps or listens.
+void install_pipeline() noexcept {
     g_message_retain_query = keep_is_deleted;
     g_app.message_view.timeline.retains = true;
 }
+} // namespace
 
 void application_plugins_pipeline_gateway(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
     using K = GatewayClientDispatchKind;
@@ -677,7 +665,7 @@ void application_plugins_pipeline_gateway(const GatewayClientEvent& event, Const
     const bool hooks = plugin_hook_subscribed(PluginHook::message_deleted) || plugin_hook_subscribed(PluginHook::message_edited);
     const u64 interest = plugin_events_interest();
     if (!hooks && !interest) return;
-    application_plugins_pipeline_install();
+    install_pipeline();
     const AccountUiRuntime* ui = g_app.account_ui;
     switch (event.dispatch_kind) {
     case K::message_create:
@@ -762,13 +750,16 @@ void poll_pipeline() noexcept {
     if (!keepers && !plugin_hook_subscribed(PluginHook::events) && !plugin_hook_subscribed(PluginHook::timer) &&
         !keep_stats().messages)
         return;
-    application_plugins_pipeline_install();
+    install_pipeline();
     // Kept messages belong to the account that saw them, and to the plugins that kept them: the tombstones
     // go when the last one is disabled.
     static u64 profile;
     static bool had_keepers;
     if (profile != g_app.account.status.profile_id || (had_keepers && !keepers)) {
-        if (profile) application_plugins_pipeline_account_invalidated();
+        if (profile && keep_stats().messages) {
+            drop_tombstone_rows();
+            keep_clear();
+        }
         profile = g_app.account.status.profile_id;
     }
     had_keepers = keepers;
@@ -862,12 +853,6 @@ bool application_plugins_take_suppress_embeds() noexcept {
     const bool suppress = g_suppress_embeds;
     g_suppress_embeds = false;
     return suppress;
-}
-
-void application_plugins_pipeline_account_invalidated() noexcept {
-    if (!keep_stats().messages) return;
-    drop_tombstone_rows();
-    keep_clear();
 }
 
 void application_plugins_own_removal(PluginOwnRemoval kind, u64 id) noexcept {

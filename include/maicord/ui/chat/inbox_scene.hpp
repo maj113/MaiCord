@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 struct UiTextOutput;
@@ -102,4 +103,7 @@ bool ui_inbox_scene_text_output(const UiInboxScene&, const Theme&, UiTextOutput*
 // Unreads: a channel row's check button paints only while the row or the
 // button is hovered or focused; it stays hit-testable and in the focus order.
 bool ui_inbox_scene_channel_action_visible(const UiInboxScene&, u32 slot) noexcept;
+inline UiCursor ui_inbox_scene_cursor(const UiInboxScene& scene, float x, float y) noexcept {
+    return ui_action_cursor(ui_inbox_scene_hit_test(scene, x, y).action != UiInboxAction::none);
+}
 } // namespace maicord

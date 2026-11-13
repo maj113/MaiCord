@@ -4,7 +4,7 @@
 #include "../../shell/window_events.hpp"
 #include "../../shell/click_count.hpp"
 #include "maicord/app/shell/shortcut_registry.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/chat/search/scene.hpp"
 #include "../composer/text_input.hpp"
 #include "../composer/text_edit_keys.hpp"
 #include "maicord/platform/window/clipboard.hpp"
@@ -76,7 +76,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
             return true;
         if (message_composer_insert_utf16(&s->edit, static_cast<u16>(key),
                                           clock_monotonic_milliseconds()) == MessageComposerResult::changed)
-            application_search_edit_changed(true);
+            application_search_edit_changed();
         return true;
     }
     if (kind == UiInputKind::key_up)
@@ -216,7 +216,6 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     }
     if (!s->focused)
         return true;
-    const u32 revision = s->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
     if (key == key::backspace) {
         s->held_key = key;
@@ -231,7 +230,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     else
         message_composer_edit_key(&s->edit, key, control, shift, &result);
     if (result == MessageComposerResult::changed)
-        application_search_edit_changed(revision != s->edit.text_revision);
+        application_search_edit_changed();
     return true;
 }
 bool application_search_window_event(const WindowEvent& event) noexcept {
@@ -365,7 +364,7 @@ bool application_search_window_event(const WindowEvent& event) noexcept {
                     message_composer_set_selection(&s->edit, byte, byte);
             }
             s->dragging = !triple;
-            application_search_edit_changed(false);
+            application_search_edit_changed();
         } else if (hit.action == UiSearchAction::filter_value) {
             // The chooser is part of the current text edit; preserve its TSF
             // target and selection throughout the pointer capture.
@@ -411,7 +410,7 @@ bool application_search_window_event(const WindowEvent& event) noexcept {
         if (text_edit_layout_hit_test(g_app.renderer.search_layout, x, y, &position) &&
             utf8_byte_offset_for_utf16_position(message_composer_text(s->edit), position, &byte)) {
             message_composer_set_selection(&s->edit, s->edit.anchor, byte);
-            application_search_edit_changed(false);
+            application_search_edit_changed();
         }
         return true;
     }
@@ -433,7 +432,7 @@ bool application_search_window_event(const WindowEvent& event) noexcept {
         focus(*s, true);
         application_click_count(event, &s->edit, x, y, true);
         message_composer_select_word(&s->edit, s->edit.caret);
-        application_search_edit_changed(false);
+        application_search_edit_changed();
         return true;
     }
     return inside && (event.type == EventType::pointer_move || event.type == EventType::context_menu ||

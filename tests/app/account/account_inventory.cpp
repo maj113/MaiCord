@@ -285,11 +285,11 @@ void test_limits(Check check) noexcept {
               inventory.count == 5,
           "account_inventory_upsert_replaces_by_slot");
     u8 order[kAccountInventoryMaximumAccounts]{};
-    const u32 count = account_inventory_order(inventory, order, kAccountInventoryMaximumAccounts);
+    const u32 count = account_inventory_order(inventory, order);
     check(count == 5 && inventory.entries[order[0]].slot == 2 && inventory.entries[order[1]].slot == 4 &&
               inventory.entries[order[4]].slot == 0,
           "account_inventory_orders_by_last_used");
-    check(account_inventory_touch(&inventory, 0, 1) && account_inventory_order(inventory, order, 5) == 5 &&
+    check(account_inventory_touch(&inventory, 0, 1) && account_inventory_order(inventory, order) == 5 &&
               inventory.entries[order[0]].slot == 0 && inventory.active_slot == 0,
           "account_inventory_touch_moves_to_front_even_with_old_clock");
     check(account_inventory_remove_slot(&inventory, 1) && inventory.count == 4 &&
@@ -316,7 +316,7 @@ void test_inactive_logout(Check check, const Profile& profile) noexcept {
                        account_paths_ensure_directories(active).ok() && account_paths_ensure_directories(other).ok() &&
                        save_profile(active.profile, 11) && save_profile(other.profile, 44);
     const auto begun = ready ? account_credential_forget_begin(other) : AccountCredentialForgetResult{};
-    const auto completed = begun.ok() ? account_credential_forget_complete_after_join(other, true)
+    const auto completed = begun.ok() ? account_credential_forget_complete_after_join(other)
                                       : AccountCredentialForgetResult{};
     const auto probe = account_credential_forget_probe(other);
     check(ready && begun.ok() && completed.ok() && !completed.pending && !exists(other.profile) &&
@@ -334,7 +334,6 @@ struct FakeIo {
     u32 used;
     u32 selected;
     u32 committed_slot;
-    AccountSwitchKind committed_kind;
     u32 polls_pending;
     bool stop_ok = true, stop_fails, attach_target = true, attach_source = true, login_ok = true;
     void put(char c) noexcept {
@@ -346,126 +345,120 @@ struct FakeIo {
         return bytes == used && bytes_equal(trace, expected, bytes);
     }
 };
+FakeIo* g_fake;
 
-AccountSwitchIo fake_io(FakeIo* fake) noexcept {
-    AccountSwitchIo io{};
-    io.context = fake;
-    io.stop_begin = [](void* c) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put('S');
-        return f->stop_ok;
-    };
-    io.stop_poll = [](void* c) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put('p');
-        if (f->polls_pending) {
-            --f->polls_pending;
-            return AccountSwitchStop::pending;
-        }
-        return f->stop_fails ? AccountSwitchStop::failed : AccountSwitchStop::stopped;
-    };
-    io.reset = [](void* c) noexcept { static_cast<FakeIo*>(c)->put('R'); };
-    io.select = [](void* c, u32 slot) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put(static_cast<char>('0' + slot));
-        f->selected = slot;
-        return true;
-    };
-    io.attach = [](void* c) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put('A');
-        return f->selected == 0 ? f->attach_source : f->attach_target;
-    };
-    io.open_login = [](void* c) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put('L');
-        return f->login_ok;
-    };
-    io.commit = [](void* c, u32 slot, AccountSwitchKind kind) noexcept {
-        auto* f = static_cast<FakeIo*>(c);
-        f->put('C');
-        f->committed_slot = slot;
-        f->committed_kind = kind;
-    };
-    return io;
+} // namespace
+
+bool account_switch_stop_begin() noexcept {
+    g_fake->put('S');
+    return g_fake->stop_ok;
 }
+AccountSwitchStop account_switch_stop_poll() noexcept {
+    g_fake->put('p');
+    if (g_fake->polls_pending) {
+        --g_fake->polls_pending;
+        return AccountSwitchStop::pending;
+    }
+    return g_fake->stop_fails ? AccountSwitchStop::failed : AccountSwitchStop::stopped;
+}
+void account_switch_reset() noexcept {
+    g_fake->put('R');
+}
+bool account_switch_select(u32 slot) noexcept {
+    g_fake->put(static_cast<char>('0' + slot));
+    g_fake->selected = slot;
+    return true;
+}
+bool account_switch_attach() noexcept {
+    g_fake->put('A');
+    return g_fake->selected == 0 ? g_fake->attach_source : g_fake->attach_target;
+}
+bool account_switch_open_login() noexcept {
+    g_fake->put('L');
+    return g_fake->login_ok;
+}
+void account_switch_commit(u32 slot) noexcept {
+    g_fake->put('C');
+    g_fake->committed_slot = slot;
+}
+
+namespace {
 
 void test_switch_machine(Check check) noexcept {
     {
         FakeIo fake{};
+        g_fake = &fake;
         fake.polls_pending = 2;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        const bool begun = account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 0, 3);
-        const bool waiting = !account_switch_pump(&machine, io) && !account_switch_pump(&machine, io) &&
+        const bool begun = account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 3);
+        const bool waiting = !account_switch_pump(&machine) && !account_switch_pump(&machine) &&
                              machine.phase == AccountSwitchPhase::stopping;
-        const bool done = account_switch_pump(&machine, io);
+        const bool done = account_switch_pump(&machine);
         check(begun && waiting && done && fake.is("SRppp3AC") && machine.phase == AccountSwitchPhase::idle &&
-                  machine.outcome == AccountSwitchOutcome::switched && fake.committed_slot == 3 &&
-                  fake.committed_kind == AccountSwitchKind::switch_account,
+                  machine.outcome == AccountSwitchOutcome::switched && fake.committed_slot == 3,
               "account_switch_stops_resets_then_attaches_and_commits");
     }
     {
         FakeIo fake{};
+        g_fake = &fake;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 0, 2);
-        check(!account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 0, 4) && fake.is("SR"),
+        account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 2);
+        check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 4) && fake.is("SR"),
               "account_switch_rejects_second_switch_while_busy");
         fake.attach_target = false;
-        account_switch_pump(&machine, io);
+        account_switch_pump(&machine);
         check(fake.is("SRp2A0A") && machine.outcome == AccountSwitchOutcome::reverted && fake.committed_slot == 0 &&
                   machine.phase == AccountSwitchPhase::idle,
               "account_switch_failed_attach_reverts_without_commit");
     }
     {
         FakeIo fake{};
+        g_fake = &fake;
         fake.stop_fails = true;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 0, 1);
+        account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 1);
         for (u32 i = 0; i < 5; ++i)
-            account_switch_pump(&machine, io);
+            account_switch_pump(&machine);
         check(fake.is("SRpSpSp") && machine.outcome == AccountSwitchOutcome::failed &&
                   machine.phase == AccountSwitchPhase::idle,
               "account_switch_bounded_stop_retries");
     }
     {
         FakeIo fake{};
+        g_fake = &fake;
         fake.stop_ok = false;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        check(!account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 0, 1) && fake.is("S") &&
+        check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 0, 1) && fake.is("S") &&
                   machine.phase == AccountSwitchPhase::idle,
               "account_switch_unstarted_stop_keeps_current_account");
-        check(!account_switch_begin(&machine, io, AccountSwitchKind::switch_account, 2, 2) &&
-                  !account_switch_begin(&machine, io, AccountSwitchKind::add_account, 0, kAccountPathsSlotCount) &&
-                  !account_switch_begin(&machine, io, AccountSwitchKind::none, 0, 1) && fake.is("S"),
+        check(!account_switch_begin(&machine, AccountSwitchKind::switch_account, 2, 2) &&
+                  !account_switch_begin(&machine, AccountSwitchKind::add_account, 0, kAccountPathsSlotCount) &&
+                  !account_switch_begin(&machine, AccountSwitchKind::none, 0, 1) && fake.is("S"),
               "account_switch_rejects_invalid_requests_before_stopping");
     }
     {
         FakeIo fake{};
+        g_fake = &fake;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        account_switch_begin(&machine, io, AccountSwitchKind::add_account, 0, 5);
-        account_switch_pump(&machine, io);
+        account_switch_begin(&machine, AccountSwitchKind::add_account, 0, 5);
+        account_switch_pump(&machine);
         const bool login = machine.phase == AccountSwitchPhase::login && fake.is("SRp5L") && !fake.committed_slot;
-        check(login && account_switch_login_finished(&machine, io, true) && fake.is("SRp5LC") &&
-                  fake.committed_slot == 5 && fake.committed_kind == AccountSwitchKind::add_account &&
-                  machine.outcome == AccountSwitchOutcome::added,
+        check(login && account_switch_login_finished(&machine, true) && fake.is("SRp5LC") &&
+                  fake.committed_slot == 5 && machine.outcome == AccountSwitchOutcome::added,
               "account_switch_add_mode_commits_only_after_login");
     }
     {
         FakeIo fake{};
+        g_fake = &fake;
         AccountSwitch machine{};
-        const auto io = fake_io(&fake);
-        account_switch_begin(&machine, io, AccountSwitchKind::add_account, 0, 5);
-        account_switch_pump(&machine, io);
-        check(account_switch_login_finished(&machine, io, false) && fake.is("SRp5L0A") && !fake.committed_slot &&
+        account_switch_begin(&machine, AccountSwitchKind::add_account, 0, 5);
+        account_switch_pump(&machine);
+        check(account_switch_login_finished(&machine, false) && fake.is("SRp5L0A") && !fake.committed_slot &&
                   machine.outcome == AccountSwitchOutcome::cancelled &&
-                  !account_switch_login_finished(&machine, io, true),
+                  !account_switch_login_finished(&machine, true),
               "account_switch_add_cancel_restores_previous_account");
     }
+    g_fake = nullptr;
 }
 
 } // namespace

@@ -21,7 +21,7 @@ enum class WavePcmEncoding : u8 {
 };
 struct WavePcmSource {
     ConstSlice<u8> encoded, data;
-    u64 total_frames, duration_ms;
+    u64 total_frames;
     u32 sample_rate, channel_mask;
     u16 block_align, container_bits, valid_bits;
     u8 channels;

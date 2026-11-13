@@ -345,22 +345,8 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
     }
     return failure;
 }
-} // namespace
-bool clipboard_has_attachment() noexcept {
-#if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
-    if (clipboard_attachment_ui_fixture_provider())
-        return true;
-#endif
-    const UINT descriptors = RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW),
-               png = RegisterClipboardFormatW(L"PNG");
-    return IsClipboardFormatAvailable(CF_HDROP) ||
-           (descriptors && IsClipboardFormatAvailable(descriptors)) ||
-           (png && IsClipboardFormatAvailable(png)) || IsClipboardFormatAvailable(CF_DIBV5) ||
-           IsClipboardFormatAvailable(CF_DIB);
-}
-bool clipboard_attachment_capture(ClipboardCapture* output) noexcept {
-    if (!output || output->object)
-        return false;
+// Retains/marshals the data object, without copying attachment payloads; `output` is zeroed.
+bool capture_clipboard(ClipboardCapture* output) noexcept {
     if (!ole_initialized) {
         if (FAILED(OleInitialize(nullptr)))
             return false;
@@ -382,6 +368,19 @@ bool clipboard_attachment_capture(ClipboardCapture* output) noexcept {
     object->Release();
     return SUCCEEDED(result);
 }
+} // namespace
+bool clipboard_has_attachment() noexcept {
+#if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
+    if (clipboard_attachment_ui_fixture_provider())
+        return true;
+#endif
+    const UINT descriptors = RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW),
+               png = RegisterClipboardFormatW(L"PNG");
+    return IsClipboardFormatAvailable(CF_HDROP) ||
+           (descriptors && IsClipboardFormatAvailable(descriptors)) ||
+           (png && IsClipboardFormatAvailable(png)) || IsClipboardFormatAvailable(CF_DIBV5) ||
+           IsClipboardFormatAvailable(CF_DIB);
+}
 void clipboard_attachment_release(ClipboardCapture* input) noexcept {
     if (input && input->object) {
         LARGE_INTEGER zero{};
@@ -391,7 +390,7 @@ void clipboard_attachment_release(ClipboardCapture* input) noexcept {
 }
 ClipboardCapture* clipboard_capture_attachment() noexcept {
     auto* capture = static_cast<ClipboardCapture*>(heap_allocate(sizeof(ClipboardCapture), true));
-    if (capture && !clipboard_attachment_capture(capture)) {
+    if (capture && !capture_clipboard(capture)) {
         heap_free(capture);
         return nullptr;
     }

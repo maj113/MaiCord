@@ -4,6 +4,7 @@
 #include "maicord/protocol/messages/reaction_users.hpp"
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 
@@ -140,8 +141,6 @@ void reaction_viewer_set_loading(ReactionViewer* viewer,
 void reaction_viewer_set_failed(ReactionViewer* viewer) noexcept;
 bool reaction_viewer_request_more(ReactionViewer* viewer,
                                   bool* requested) noexcept;
-bool reaction_viewer_scroll_users(ReactionViewer* viewer, i32 rows,
-                                  bool* changed) noexcept;
 float reaction_viewer_scroll_maximum(const ReactionViewer& viewer, bool users) noexcept;
 bool reaction_viewer_set_scroll(ReactionViewer* viewer, bool users, float offset, bool* changed) noexcept;
 ReactionViewerHit reaction_viewer_hit_test(const ReactionViewer& viewer,
@@ -161,6 +160,11 @@ Utf8View reaction_viewer_user_username(const ReactionViewer& viewer,
                                        const ReactionViewerUser& user) noexcept;
 Utf8View reaction_viewer_user_avatar_hash(
     const ReactionViewerUser& user) noexcept;
+inline UiCursor ui_reaction_viewer_cursor(const ReactionViewer& viewer, float x, float y) noexcept {
+    const auto kind = reaction_viewer_hit_test(viewer, x, y).kind;
+    return ui_action_cursor(kind == ReactionViewerHitKind::close || kind == ReactionViewerHitKind::aggregate ||
+                            kind == ReactionViewerHitKind::user);
+}
 
 static_assert(sizeof(ReactionViewerUser) == 56);
 

@@ -145,8 +145,6 @@ bool carve(UiMarkdown* block, const TextStyleSpan* source, u32 source_count) noe
 } // namespace
 
 bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, u8 body_size, Slice<u32> scratch) noexcept {
-    if (!block)
-        return false;
     // The parser writes the upper half of the span storage; the parts' own spans fill the lower half.
     const u32 half = block->spans.count / 2;
     if (source.bytes > kUiMarkdownSourceMaximum || source.bytes > block->text.count || source.bytes > scratch.count ||
@@ -192,8 +190,8 @@ bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, u8 body_size, 
     return block->parsed;
 }
 
-float ui_markdown_height(UiMarkdown* block, float width, const UiKitMeasure* measure) noexcept {
-    if (!block || !block->parsed)
+float ui_markdown_height(UiMarkdown* block, float width, UiTextMeasureCache* measure) noexcept {
+    if (!block->parsed)
         return 0;
     const float bucket = static_cast<float>(static_cast<u32>(width < 1 ? 1.f : width));
     if (block->measured_width == bucket)
@@ -208,7 +206,7 @@ float ui_markdown_height(UiMarkdown* block, float width, const UiKitMeasure* mea
             const Utf8View text{block->text.data + part.offset, part.bytes};
             const ConstSlice<TextStyleSpan> spans{block->spans.data + part.span_first, part.span_count};
             const float available = maximum(1.f, bucket - (item ? item_indent(part.level) : 0.f));
-            height = measure && measure->styled_height ? measure->styled_height(measure->context, text, spans, available) : -1.f;
+            height = ui_kit_styled_text_height(measure, text, spans, available);
             if (height < 0)
                 height = estimate_height(block->body_size, text, spans, available);
         }
@@ -226,11 +224,11 @@ u32 ui_markdown_part_count(const UiMarkdown& block) noexcept {
     return block.parsed ? block.part_count : 0;
 }
 
-UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, const UiKitMeasure* measure,
+UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, UiTextMeasureCache* measure,
                                   UiWidgetReference owner, const UiRect& rectangle, const UiRect& clip,
                                   const Color& color, const Color& muted, float fade) noexcept {
     UiTextCommand command{};
-    if (!block || !block->parsed || index >= block->part_count)
+    if (!block->parsed || index >= block->part_count)
         return command;
     ui_markdown_height(block, ui_rect_width(rectangle), measure);
     const auto& part = block->parts[index];
@@ -271,7 +269,7 @@ UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, con
 }
 
 UiMarkdown* ui_markdown_bank_block(UiMarkdownBank** slot, u64 owner) noexcept {
-    if (!slot || !owner)
+    if (!owner)
         return nullptr;
     if (!*slot) {
         constexpr usize kBlock = kUiMarkdownSourceMaximum + kUiMarkdownSpanStorage * sizeof(TextStyleSpan) +
@@ -324,11 +322,11 @@ UiMarkdown* ui_markdown_bank_block(UiMarkdownBank** slot, u64 owner) noexcept {
 }
 
 Slice<u32> ui_markdown_bank_scratch(UiMarkdownBank* bank) noexcept {
-    return bank ? bank->scratch : Slice<u32>{};
+    return bank->scratch;
 }
 
 void ui_markdown_bank_release(UiMarkdownBank** slot) noexcept {
-    if (!slot || !*slot)
+    if (!*slot)
         return;
     Arena arena = (*slot)->arena;
     *slot = nullptr;

@@ -71,8 +71,6 @@ bool plugin_user_is_bot(const AccountUiRuntime& ui, u64 user_id) noexcept {
 
 namespace {
 
-// ---- inputs -------------------------------------------------------------------------------------
-
 u32 presence_of(u8 packed) noexcept {
     switch (client_status_overall(packed)) {
     case ClientPlatformStatus::online: return kPluginPresenceOnline;
@@ -194,8 +192,6 @@ void guild_input(const AccountUiRuntime& ui, const GuildRecord& guild, PluginGui
     in.name = chat_state_store_guild_name(ui.chat_state, guild);
     *out = in;
 }
-
-// ---- the prepare pass -----------------------------------------------------------------------------
 
 u64 signature(const AccountUiRuntime& ui, const MessageStore& store) noexcept {
     u64 hash = hash64_mix(kHash64Seed, g_plugin_surface_revision);
@@ -347,7 +343,6 @@ bool message_for(u64 message_id, u32 needs, PluginMessageInput* out) noexcept {
 namespace maicord {
 using namespace app_detail;
 
-// ---- the cache reader -------------------------------------------------------------------------
 namespace {
 
 // A generated DM name lives here until the next read.
@@ -497,9 +492,11 @@ void application_plugin_surfaces_rendered() noexcept {
 
 bool application_plugin_surfaces_poll() noexcept {
     if (!g_app.account_ui) return false;
-    // The open channel decides the buttons that depend on it.
+    // The open channel decides the buttons that depend on it: they are asked again when it changes.
     if (g_plugin_surfaces_active && g_host.context_channel != g_app.account_ui->active_channel_id) {
-        application_plugin_surfaces_context_changed();
+        const AccountUiRuntime& ui = *g_app.account_ui;
+        g_host.context_channel = ui.active_channel_id;
+        plugin_surfaces_refresh_buttons(ui.active_channel_id, plugin_guild_of_channel(ui, ui.active_channel_id));
     }
     const bool changed = g_plugin_surfaces_active
                              ? g_host.pending || g_host.rendered_revision != g_plugin_surface_revision ||
@@ -578,14 +575,6 @@ bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept 
     return application_plugin_surfaces_activate(node.owner_id,
                                                 {kUiPluginSlotMessageAccessory, record->channel_id, record->id, 0, 0},
                                                 node.action_id);
-}
-
-void application_plugin_surfaces_context_changed() noexcept {
-    if (!g_app.account_ui) return;
-    const AccountUiRuntime& ui = *g_app.account_ui;
-    g_host.context_channel = ui.active_channel_id;
-    if (g_plugin_surfaces_active)
-        plugin_surfaces_refresh_buttons(ui.active_channel_id, plugin_guild_of_channel(ui, ui.active_channel_id));
 }
 
 } // namespace maicord::app_detail

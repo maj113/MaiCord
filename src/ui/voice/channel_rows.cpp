@@ -94,7 +94,7 @@ bool ui_voice_invite_tick(UiVoiceInviteCountdown* countdown, u64 now_ms, bool ru
 }
 
 bool ui_voice_invite_dismiss(UiVoiceInviteCountdown* countdown) noexcept {
-    if (!countdown || !ui_voice_invite_channel(*countdown))
+    if (!ui_voice_invite_channel(*countdown))
         return false;
     countdown->dismissed = true;
     countdown->counting = false;

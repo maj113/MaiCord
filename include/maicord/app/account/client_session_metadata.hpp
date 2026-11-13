@@ -20,7 +20,6 @@ struct ClientHeartbeatSession {
     bool valid;
 };
 
-bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept;
 // A restored or persisted session: a v4 UUID and ordered times.
 bool client_heartbeat_session_valid(const ClientHeartbeatSession& session) noexcept;
 

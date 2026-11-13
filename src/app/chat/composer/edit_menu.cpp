@@ -27,7 +27,7 @@ bool apply_spelling(u32 action) noexcept {
     if (g_app.message_composer_scene.model != &composer) return true;
     const auto activation = composer_spellcheck_menu_activate(&g_app.composer_spellcheck,
         message_composer_text(composer), composer.text_revision, action);
-    if (activation.effect == ComposerSpellcheckEffect::learned) return refresh_account_frame(true);
+    if (activation.effect == ComposerSpellcheckEffect::learned) return refresh_account_frame();
     if (activation.effect != ComposerSpellcheckEffect::replace) return true;
     message_composer_break_history_run(&composer);
     return composer_apply_result(
@@ -104,7 +104,7 @@ bool application_composer_edit_menu_open(UiRect anchor, u32 spell_offset) noexce
             {items, spelling + kTextEditMenuItems}, anchor, application_viewport_dips(), 260.0f).ok()) return false;
     set_popup_owner(PopupOwnerKind::composer_edit);
     g_app.composer_menu_revision = g_app.message_composer.revision;
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 bool application_composer_edit_menu_action(u32 action) noexcept {
     if (!ready() || !g_app.popup_scene.active || g_app.popup_owner_kind != PopupOwnerKind::composer_edit) return false;

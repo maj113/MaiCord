@@ -122,7 +122,6 @@ void toast(CatalogError error) noexcept {
     if (g->host.toast) g->host.toast(application_catalog_error_text(error), true);
 }
 
-// ---- state ----------------------------------------------------------------------------------------
 bool save_state() noexcept {
     const auto saved = catalog_state_save(g->state_path, g->state_path_characters, g->state);
     if (!saved.ok()) UpdateLog(kLog, "state_save_failed").field("error", static_cast<u8>(saved.error)).field("native", saved.native_error).write(LogLevel::error);
@@ -141,7 +140,6 @@ u64 entry_code(const CatalogStateEntry& e) noexcept {
     return catalog_version_code(catalog_entry_version(e), &code) ? code : 0;
 }
 
-// ---- worker ---------------------------------------------------------------------------------------
 bool ensure_worker() noexcept {
     if (g->worker) return true;
     const u8* keys[2]{g->keys[0], g->keys[1]};
@@ -173,7 +171,6 @@ __declspec(noinline) bool check() noexcept {
     return g->check_job != 0;
 }
 
-// ---- the runtime -------------------------------------------------------------------------------------
 __declspec(noinline) Runtime* runtime() noexcept {
     if (g->runtime && g->runtime->open) return g->runtime;
     if (!g->runtime && !(g->runtime = commit_pages<Runtime>())) return nullptr;
@@ -279,7 +276,6 @@ __declspec(noinline) void delete_unreferenced_plugins() noexcept {
     dir_close(&scan);
 }
 
-// ---- the index ------------------------------------------------------------------------------------------
 u32 item_of(CatalogKind kind, const Utf8View& slug) noexcept {
     return g->index ? catalog_index_find(*g->index, kind, slug) : kCatalogNone;
 }
@@ -350,7 +346,6 @@ void set_index(CatalogIndex* index, bool fresh) noexcept {
     bump();
 }
 
-// ---- operations --------------------------------------------------------------------------------------------
 // Also before restore: nothing may write catalog-state.bin until it has been read.
 bool busy() noexcept {
     const auto phase = g->view.operation.phase;
@@ -372,7 +367,7 @@ void begin(CatalogAction action, CatalogKind kind, const Utf8View& slug) noexcep
     g->dev_detail_bytes = 0;
     bump();
 }
-// ---- Developer Mode: the dev folder -----------------------------------------------------------------------------
+// Developer Mode: the dev folder.
 bool developer() noexcept { return g->host.developer_mode && g->host.developer_mode(); }
 
 void dev_line(DevLineKind kind, const Utf8View& text) noexcept {
@@ -702,7 +697,7 @@ __declspec(noinline) void take_results() noexcept {
     }
 }
 
-// ---- Developer Mode: watching the dev folder -----------------------------------------------------------------------
+// Developer Mode: watching the dev folder.
 constexpr u32 kNoDevFile = 0xFFFFFFFFu;
 
 // Copies a DLL into plugins\ and reviews it. file is the dev folder entry for a reload (a plugin the user

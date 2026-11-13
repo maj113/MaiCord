@@ -354,19 +354,19 @@ void test_decoders() noexcept {
               apps[1].type == GuildIntegrationType::twitch,
           "integrations: apps with their bot and adder; a non-snowflake ID keeps the row without an ID");
     GuildCommandPermission entries[4];
-    GuildCommandPermissionsPage page{{entries, 4}, 0, 0};
+    GuildCommandPermissionsPage page{{entries, 4}, 0};
     const auto permissions = utf8_literal(
         R"([{"id":"80","application_id":"70","guild_id":"10","permissions":[{"id":"9","type":3,"permission":false}]},)"
         R"({"id":"70","application_id":"70","guild_id":"10","permissions":[{"id":"10","type":1,"permission":false},)"
         R"({"id":"20","type":1,"permission":true}]}])");
     check(guild_command_permissions_decode(permissions, {scratch, 4096}, 70, &page).ok() && page.count == 2 &&
-              page.command_overrides == 1 && entries[0].id == 10 && !entries[0].permission && entries[1].permission,
-          "command permissions: the app-wide entry is kept; commands with their own are counted");
-    page = {{entries, 4}, 0, 0};
+              entries[0].id == 10 && !entries[0].permission && entries[1].permission,
+          "command permissions: the app-wide entry is kept");
+    page = {{entries, 4}, 0};
     check(guild_command_permissions_decode(permissions, {scratch, 4096}, 80, &page).ok() && page.count == 1 &&
               entries[0].id == 9 && entries[0].type == guild_command_permission_channel && !entries[0].permission,
           "command permissions: one command's overwrites are read from the same list");
-    page = {{entries, 4}, 0, 0};
+    page = {{entries, 4}, 0};
     check(guild_command_permissions_decode(permissions, {scratch, 4096}, 81, &page).ok() && !page.count,
           "command permissions: a command without overwrites of its own has none");
     static GuildApplicationCommand commands[3];

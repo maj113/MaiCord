@@ -11,7 +11,6 @@
 #include "pipewire_stream.hpp"
 #include "maicord/platform/audio/stream_audio.hpp"
 #include "../capture_policy.hpp"
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/core/log.hpp"

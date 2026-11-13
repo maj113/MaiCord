@@ -23,13 +23,6 @@ enum class AacLcError : u8 {
     invalid_stream  // a syntax element out of range: reserved codebook, scalefactor, band or pulse position
 };
 
-// What the frames decoded so far used, for tests to see which coding tools a stream exercises. Counters wrap at 2^32;
-// the decoder never reads them.
-struct AacLcStats {
-    u32 start_frames, short_frames, stop_frames;
-    u32 noise_bands, escapes, pulses;
-};
-
 inline constexpr u32 kAacLcFrameSamples = 1024;
 inline constexpr u32 kAacLcMaximumChannels = 2;
 
@@ -52,7 +45,5 @@ AacLcError aac_lc_decode(AacLc* decoder, ConstSlice<u8> frame, float* pcm) noexc
 
 // Forgets the overlap of the previous frame, as at a seek. The noise generator starts again, as at the stream start.
 void aac_lc_reset(AacLc* decoder) noexcept;
-
-AacLcStats aac_lc_stats(const AacLc* decoder) noexcept;
 
 } // namespace maicord

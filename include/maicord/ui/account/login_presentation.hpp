@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/ui/account/login_scene.hpp"
-#include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/widgets/qr_code.hpp"
 #include "maicord/ui/text/composition.hpp"
 

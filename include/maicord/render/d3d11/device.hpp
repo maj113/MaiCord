@@ -7,7 +7,6 @@ namespace maicord {
 
 enum class D3D11DeviceOwnerError : u8 {
     none,
-    invalid_input,
     hardware_device,
     // The surface could not be created; the backend logged which step failed.
     surface,

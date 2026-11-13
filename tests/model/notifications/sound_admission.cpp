@@ -11,7 +11,7 @@ struct Fixture {
     NotificationSoundAdmissionInput sound{};
     MessageNotificationGuildSetting guild{};
     bool initialize() noexcept {
-        if(!message_notifications_initialize(&store,{guilds,4},{overrides,8},{threads,4}))return false;
+        message_notifications_initialize(&store,{guilds,4},{overrides,8},{threads,4});
         guild.guild_id=10;guild.setting.fields=notification_level;guild.setting.level=L::all;
         if(message_notifications_apply_settings(&store,{&guild,1},{},false,1)!=MessageNotificationApplyError::none)return false;
         policy.settings=&store;policy.self_id=1;policy.author_id=2;policy.guild_id=10;policy.channel_id=20;
@@ -20,7 +20,7 @@ struct Fixture {
         policy.guild_default=L::all;policy.global.fields=notification_status|notification_quiet;
         policy.global.status=MessageNotificationStatus::online;policy.required_gates=(1u<<16)-1;
         policy.known_gates=policy.required_gates;
-        sound={&policy,true,false,true,false};return true;
+        sound={&policy,false,false};return true;
     }
     bool settings(ConstSlice<MessageNotificationOverride> rows={}) noexcept {
         return message_notifications_apply_settings(&store,{&guild,1},rows,true,store.version+1)==MessageNotificationApplyError::none;
@@ -51,7 +51,7 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     f.policy.sidebar_selected=false;f.sound.selected_preference=f.sound.original_main_selected=true;
     f.policy.message_flags=4096;
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary==A::denied&&pair.ordinary_reason==R::silent&&pair.selected==A::allowed,
+    check(pair.ordinary==A::denied&&notification_sound_ordinary_admit(f.policy)==R::silent&&pair.selected==A::allowed,
         "selected kY does not inherit ordinary suppress-notifications message flag");
     f.policy.message_flags=0;f.policy.gates=notification_gate_age_access|notification_gate_lurking|
         notification_gate_request|notification_gate_own_activity|notification_gate_active_application|notification_gate_rpc_suppressed;
@@ -65,7 +65,7 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     check(pair.ordinary==A::unknown&&pair.selected==A::unknown,"unsupported modern interaction identity fails closed on both predicates");
     f.policy.known_gates=(1u<<16)-1;f.policy.author_id=1;f.policy.self_mentionable_system=true;f.policy.message_type=46;
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary==A::allowed&&pair.selected==A::denied&&pair.selected_reason==R::self,
+    check(pair.ordinary==A::allowed&&pair.selected==A::denied&&notification_sound_selected_admit(f.sound)==R::self,
         "ordinary self-mentionable system exemption does not leak into selected sound");
     f.policy.author_id=2;f.policy.self_mentionable_system=false;f.policy.message_type=0;
 
@@ -89,17 +89,17 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     f.policy.channel_type=11;f.policy.channel_id=30;f.policy.parent_id=20;f.policy.category_id=21;
     f.sound.original_main_selected=true;
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::not_joined&&pair.selected==A::allowed,
+    check(notification_sound_ordinary_admit(f.policy)==R::not_joined&&pair.selected==A::allowed,
         "selected generic scope does not require joined thread membership");
     MessageNotificationThreadSetting thread{};thread.guild_id=10;thread.thread_id=30;
     thread.setting.fields=notification_flags|notification_muted;thread.setting.flags=2;thread.setting.muted=true;
     check(message_notifications_upsert_thread(&f.store,thread)==MessageNotificationApplyError::none,"joined thread mute fixture admitted");
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::muted&&pair.selected==A::allowed,
+    check(notification_sound_ordinary_admit(f.policy)==R::muted&&pair.selected==A::allowed,
         "joined thread-specific mute suppresses p but is absent from generic selected kY");
     thread.setting.muted=false;thread.setting.flags=8;message_notifications_upsert_thread(&f.store,thread);
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::nothing&&pair.selected==A::allowed,"thread-specific NONE remains distinct from selected generic level");
+    check(notification_sound_ordinary_admit(f.policy)==R::nothing&&pair.selected==A::allowed,"thread-specific NONE remains distinct from selected generic level");
     thread.setting.flags=1;message_notifications_upsert_thread(&f.store,thread);
     category=level(21,L::mentions);
     check(f.settings({&category,1})&&message_notification_scope_resolve(f.policy).level==L::mentions&&
@@ -127,7 +127,7 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     check(pair.ordinary==A::allowed&&pair.selected==A::allowed,"type21 original selected thread can admit both normalized parent p and raw-selection T");
     f.policy.selected=true;f.sound.original_main_selected=false;
     pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::selected&&pair.selected==A::denied,"type21 selected parent is not fabricated original thread selection");
+    check(notification_sound_ordinary_admit(f.policy)==R::selected&&pair.selected==A::denied,"type21 selected parent is not fabricated original thread selection");
     f.policy.selected=false;f.policy.focused=false;f.sound.original_main_selected=true;
     f.policy.global.fields=15;f.policy.global.status=MessageNotificationStatus::dnd;f.policy.global.quiet=true;
     f.policy.global.status_expires_ms=f.policy.global.focus_expires_ms=100;
@@ -149,10 +149,10 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     check(notification_sound_ordinary_admit(f.policy)==R::eligible,"current voice channel enables ALL fast path");
     f.policy.channel_type=0;u64 role=99;f.policy.mention_roles={&role,1};f.policy.roles_known=false;
     check(notification_sound_ordinary_admit(f.policy)==R::eligible,"ordinary nonvocal ALL does not demand irrelevant role membership");
-    f.policy.duplicate=true;pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::duplicate&&pair.selected_reason==R::duplicate,"host duplicate barrier covers both source predicates");
-    f.policy.duplicate=false;f.policy.live=false;pair=notification_sound_admissions(f.sound);
-    check(pair.ordinary_reason==R::not_live&&pair.selected_reason==R::not_live,"host pre-resume barrier is shared without adding it to source gate mask");
+    f.policy.duplicate=true;
+    check(notification_sound_ordinary_admit(f.policy)==R::duplicate&&notification_sound_selected_admit(f.sound)==R::duplicate,"host duplicate barrier covers both source predicates");
+    f.policy.duplicate=false;f.policy.live=false;
+    check(notification_sound_ordinary_admit(f.policy)==R::not_live&&notification_sound_selected_admit(f.sound)==R::not_live,"host pre-resume barrier is shared without adding it to source gate mask");
     MessageNotificationGuildSetting private_setting{};private_setting.setting.fields=notification_level|notification_flags;
     private_setting.setting.level=L::all;private_setting.setting.flags=16384;
     check(message_notifications_apply_settings(&f.store,{&private_setting,1},{},true,f.store.version+1)==MessageNotificationApplyError::none,

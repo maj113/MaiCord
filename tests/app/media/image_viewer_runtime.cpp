@@ -383,7 +383,7 @@ void item_page_source_tests() noexcept {
               media_asset_key_equal(page.key, media_asset_attachment(930, MediaAttachmentFormat::png,
                                                                       MediaResolutionTier::px2048)) &&
               media_asset_key_valid(page.fallback) && page.pixels.width == 640 && page.pixels.height == 480 &&
-              page.channel_id == 999 && page.message_id == 820 && page.author_id == 3 &&
+              page.channel_id == 999 && page.message_id == 820 &&
               page.revision == live_revision(820),
           "Item pages: an image attachment is an image page with the viewer's 2048 tier, its URL and title");
     check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 931, &page) &&
@@ -866,7 +866,7 @@ bool application_preferences_image_zoom(u8 factor, u8 size) noexcept {
     return true;
 }
 UiSearchScene* application_search_scene() noexcept { return &image_viewer_runtime_test::search_scene; }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     ++image_viewer_runtime_test::media_refreshes;
     return true;
 }

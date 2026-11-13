@@ -18,15 +18,6 @@ struct FrameTransform {
 
 static_assert(sizeof(FrameTransform) == kD3D11UiFrameConstantBytes);
 
-constexpr D3D11DrawPipelineResult pipeline_success() noexcept {
-    return D3D11DrawPipelineResult{S_OK, D3D11DrawPipelineError::none};
-}
-
-constexpr D3D11DrawPipelineResult pipeline_failure(D3D11DrawPipelineError error,
-                                                   HRESULT native_error) noexcept {
-    return D3D11DrawPipelineResult{native_error, error};
-}
-
 bool valid_buffer_dimensions(u32 stride, u32 capacity) noexcept {
     return stride != 0 && capacity != 0 && capacity <= ~0u / stride;
 }
@@ -150,22 +141,22 @@ D3D11DrawPipelineError create_pipeline_resources(D3D11DrawPipelineOwner* owner, 
 
 D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* staged, GpuDevice* device,
                                                    const D3D11DrawPipelineConfig& config) noexcept {
-    if (!device || config.ui_instance_stride < 64 || config.glyph_instance_stride < 48 ||
+    if (config.ui_instance_stride < 64 || config.glyph_instance_stride < 48 ||
         config.media_instance_stride < 48 ||
         !valid_buffer_dimensions(config.ui_instance_stride, config.ui_instance_capacity) ||
         config.ui_instance_capacity > kD3D11MaximumUiInstanceCapacity ||
         !valid_buffer_dimensions(config.glyph_instance_stride, config.glyph_instance_capacity) ||
         !valid_buffer_dimensions(config.media_instance_stride, config.media_instance_capacity)) {
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+        return {E_INVALIDARG, D3D11DrawPipelineError::invalid_input};
     }
     reset_value<D3D11DrawPipelineOwner>(staged);
     GpuStatus native_error = kGpuOk;
     const D3D11DrawPipelineError error = create_pipeline_resources(staged, device, config, &native_error);
     if (error != D3D11DrawPipelineError::none) {
         d3d11_draw_pipeline_release(staged);
-        return pipeline_failure(error, native_error);
+        return {native_error, error};
     }
-    return pipeline_success();
+    return {S_OK, D3D11DrawPipelineError::none};
 }
 
 void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, GpuDevice* device, GpuContext* context,
@@ -241,44 +232,43 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipeli
                                                                  u32 required_count) noexcept {
     const u32 capacity = d3d11_ui_instance_capacity_for_count(required_count);
     if (!device || stride < 64 || !valid_buffer_dimensions(stride, capacity)) {
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+        return {E_INVALIDARG, D3D11DrawPipelineError::invalid_input};
     }
     if (owner->ui_instance_buffer && required_count <= owner->ui_instance_capacity)
-        return pipeline_success();
+        return {S_OK, D3D11DrawPipelineError::none};
 
     GpuBuffer* replacement = nullptr;
     const GpuStatus result = create_instance_buffer(device, stride, capacity, &replacement);
     if (FAILED(result) || !replacement) {
         gpu_release(replacement);
-        return pipeline_failure(D3D11DrawPipelineError::ui_instance_buffer,
-                                FAILED(result) ? result : E_FAIL);
+        return {FAILED(result) ? result : E_FAIL, D3D11DrawPipelineError::ui_instance_buffer};
     }
     gpu_release(owner->ui_instance_buffer);
     owner->ui_instance_buffer = replacement;
     owner->ui_instance_capacity = capacity;
-    return pipeline_success();
+    return {S_OK, D3D11DrawPipelineError::none};
 }
 
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPipelineOwner* owner,
                                                                     GpuDevice* device, u32 stride,
                                                                     u32 capacity) noexcept {
-    if (!device || stride < 48 || !valid_buffer_dimensions(stride, capacity)) {
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+    if (stride < 48 || !valid_buffer_dimensions(stride, capacity)) {
+        return {E_INVALIDARG, D3D11DrawPipelineError::invalid_input};
     }
     if (owner->glyph_instance_buffer && capacity <= owner->glyph_instance_capacity) {
-        return pipeline_success();
+        return {S_OK, D3D11DrawPipelineError::none};
     }
 
     GpuBuffer* replacement = nullptr;
     const GpuStatus result = create_instance_buffer(device, stride, capacity, &replacement);
     if (FAILED(result)) {
-        return pipeline_failure(D3D11DrawPipelineError::glyph_instance_buffer, result);
+        return {result, D3D11DrawPipelineError::glyph_instance_buffer};
     }
     gpu_release(owner->glyph_instance_buffer);
     owner->glyph_instance_buffer = replacement;
     owner->glyph_instance_capacity = capacity;
     owner->glyph_instance_end = 0;
-    return pipeline_success();
+    return {S_OK, D3D11DrawPipelineError::none};
 }
 
 bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, GpuContext* context,

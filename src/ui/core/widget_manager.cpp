@@ -103,7 +103,7 @@ void ui_widget_manager_reset(UiWidgetManager* manager) noexcept {
 
 bool ui_widget_manager_bind_growable_storage(UiWidgetManager* manager, UiWidgetStorageGrowCallback callback,
                                              void* context) noexcept {
-    if (!manager || !manager->storage.data || !manager->layout.storage.data || !callback || !context) {
+    if (!manager->storage.data || !manager->layout.storage.data || !callback || !context) {
         return false;
     }
     manager->grow_storage = callback;
@@ -372,8 +372,6 @@ UiWidgetHandle ui_widget_manager_pointer_target(UiWidgetManager* manager, float 
 }
 
 UiWidgetHandle ui_widget_manager_move_focus(UiWidgetManager* manager, bool reverse) noexcept {
-    if (!manager)
-        return ui_widget_invalid_handle();
     manager->focused = ui_widget_manager_next_focus(*manager, manager->focused, reverse, true);
     return manager->focused;
 }

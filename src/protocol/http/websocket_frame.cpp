@@ -211,8 +211,7 @@ WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, con
                                 WebSocketMessageState::fragment};
 }
 
-WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, bool final,
-                                                  ConstSlice<u8> payload, u32 masking_key,
+WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, ConstSlice<u8> payload, u32 masking_key,
                                                   Slice<u8> output) noexcept {
     const u8 opcode_value = static_cast<u8>(opcode);
     if ((!payload.data && payload.count != 0) || (!output.data && output.count != 0) ||
@@ -220,9 +219,6 @@ WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, bool f
         return WebSocketWriteResult{0, WebSocketError::invalid_input};
     }
     if (opcode_control(opcode)) {
-        if (!final) {
-            return WebSocketWriteResult{0, WebSocketError::fragmented_control};
-        }
         if (payload.count > 125) {
             return WebSocketWriteResult{0, WebSocketError::control_too_large};
         }
@@ -240,7 +236,7 @@ WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, bool f
     }
 
     u32 offset = 0;
-    output[offset++] = static_cast<u8>((final ? 0x80u : 0) | opcode_value);
+    output[offset++] = static_cast<u8>(0x80u | opcode_value);
     if (payload.count < 126) {
         output[offset++] = static_cast<u8>(0x80u | payload.count);
     } else if (payload.count <= 0xFFFF) {

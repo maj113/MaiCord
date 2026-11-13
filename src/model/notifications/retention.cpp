@@ -1,27 +1,10 @@
 #include "maicord/model/notifications/retention.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
 namespace maicord {
 namespace {
 using Error = NotificationRetentionError;
-bool range(const void* p,usize bytes,usize alignment) noexcept {
-    const usize address=reinterpret_cast<usize>(p);
-    return !bytes || (p && !(address&(alignment-1)) && address<=~usize{0}-bytes);
-}
-usize row_bytes(Slice<NotificationRetentionRow> rows) noexcept {return usize(rows.count)*sizeof(NotificationRetentionRow);}
-usize index_bytes(Slice<u32> index) noexcept {return usize(index.count)*sizeof(u32);}
-bool owner_range(const NotificationRetention* n) noexcept {return n && range(n,sizeof(*n),alignof(NotificationRetention));}
-bool storage(const NotificationRetention* n,const Slice<NotificationRetentionRow>& rows,const Slice<u32>& index,u32 count) noexcept {
-    if(!owner_range(n) || count>rows.count)return false;
-    if(!rows.count || !index.count)return !rows.count && !index.count && !rows.data && !index.data && !count;
-    if((index.count&(index.count-1)) || u64(index.count)<2*u64(rows.count) ||
-        !range(rows.data,row_bytes(rows),alignof(NotificationRetentionRow)) ||
-        !range(index.data,index_bytes(index),alignof(u32)))return false;
-    return !byte_ranges_overlap(rows.data,row_bytes(rows),index.data,index_bytes(index)) &&
-        !byte_ranges_overlap(n,sizeof(*n),rows.data,row_bytes(rows)) && !byte_ranges_overlap(n,sizeof(*n),index.data,index_bytes(index));
-}
 
 u32 bucket(u64 channel,u32 mask) noexcept {
     // Snowflakes often share their low worker/sequence bits. Hash all eight
@@ -61,21 +44,8 @@ u32 ticket_index(const NotificationRetentionRow& row,u32 ordinal) noexcept {
     return index>=kNotificationRetentionTickets?index-kNotificationRetentionTickets:index;
 }
 }
-bool notification_retention_initialize(NotificationRetention* n,Slice<NotificationRetentionRow> rows,Slice<u32> index) noexcept {
-    if(!owner_range(n) || n->rows.data || n->rows.count || n->index.data || n->index.count || n->count ||
-        !storage(n,rows,index,0))return false;
-    zero_index(index);*n={rows,index,0};return true;
-}
-NotificationRetentionError notification_retention_rebind(NotificationRetention* n,
-    Slice<NotificationRetentionRow> rows,Slice<u32> index) noexcept {
-    if(!owner_range(n) || !storage(n,rows,index,n->count))return Error::invalid_input;
-    // Same-base prefix resizing is safe; any other overlap could destroy rows
-    // needed to reconstruct the index, so reject before writing either bank.
-    if((rows.data!=n->rows.data && byte_ranges_overlap(rows.data,row_bytes(rows),n->rows.data,row_bytes(n->rows))) ||
-        (index.data!=n->index.data && byte_ranges_overlap(index.data,index_bytes(index),n->index.data,index_bytes(n->index))) ||
-        byte_ranges_overlap(rows.data,row_bytes(rows),n->index.data,index_bytes(n->index)) ||
-        byte_ranges_overlap(index.data,index_bytes(index),n->rows.data,row_bytes(n->rows)))return Error::invalid_input;
-    if(rows.data!=n->rows.data)for(u32 i=0;i<n->count;++i)rows[i]=n->rows[i];
+void notification_retention_rebind(NotificationRetention* n,Slice<NotificationRetentionRow> rows,Slice<u32> index) noexcept {
+    for(u32 i=0;i<n->count;++i)rows[i]=n->rows[i];
     zero_index(index);
     for(u32 i=0;i<n->count;++i){
         const u32 mask=index.count-1;
@@ -83,7 +53,7 @@ NotificationRetentionError notification_retention_rebind(NotificationRetention* 
         while(index[slot])slot=(slot+1)&mask;
         index[slot]=i+1;
     }
-    n->rows=rows;n->index=index;return Error::none;
+    n->rows=rows;n->index=index;
 }
 NotificationRetentionRoom notification_retention_room(const NotificationRetention* n,u64 channel) noexcept {
     if(!channel)return {Error::invalid_input};

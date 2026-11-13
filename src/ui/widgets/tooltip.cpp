@@ -340,8 +340,6 @@ bool ui_tooltip_key_equal(const UiTooltipKey& a, const UiTooltipKey& b) noexcept
            a.identity == b.identity && a.source_revision == b.source_revision && a.action == b.action;
 }
 bool ui_tooltip_clear(UiTooltipScene* scene) noexcept {
-    if (!scene)
-        return false;
     const bool changed = scene->pending || scene->visible;
     const u32 revision = scene->revision + (scene->visible ? 1u : 0u);
     const auto text_owner = scene->text_owner;
@@ -352,8 +350,6 @@ bool ui_tooltip_clear(UiTooltipScene* scene) noexcept {
 }
 bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRect viewport,
                       UiTooltipTrigger trigger, u64 now_ms, const UiTooltipStyle& style) noexcept {
-    if (!scene)
-        return false;
     // Reject raw descriptor coordinates before intersection can clamp them.
     if (!ui_rect_valid(target.anchor))
         return ui_tooltip_clear(scene);
@@ -425,13 +421,13 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
     return true;
 }
 bool ui_tooltip_bind_text_owner(UiTooltipScene* scene, UiWidgetReference owner) noexcept {
-    if (!scene || !owner.manager || !ui_widget_manager_resolve(*owner.manager, owner.handle))
+    if (!owner.manager || !ui_widget_manager_resolve(*owner.manager, owner.handle))
         return false;
     scene->text_owner = owner;
     return true;
 }
 bool ui_tooltip_tick(UiTooltipScene* scene, u64 now_ms, UiTextMeasureCache* measure) noexcept {
-    if (!scene || (!scene->pending && !scene->visible))
+    if (!scene->pending && !scene->visible)
         return false;
     if (!source_current(scene->key))
         return ui_tooltip_clear(scene);
@@ -668,13 +664,13 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
                                         TextOverflow::ellipsis});
 }
 bool ui_tooltip_emoji(const UiTooltipScene& scene, UiRect* square) noexcept {
-    if (!square || !has_emoji(scene) || !ui_tooltip_visible(scene))
+    if (!has_emoji(scene) || !ui_tooltip_visible(scene))
         return false;
     *square = emoji_square(scene);
     return true;
 }
 bool ui_tooltip_row_media(const UiTooltipScene& scene, u32 index, UiRect* square, MediaAssetKey* key) noexcept {
-    if (!square || !key || scene.layout != UiTooltipLayout::rows || index >= scene.row_count ||
+    if (scene.layout != UiTooltipLayout::rows || index >= scene.row_count ||
         !media_asset_key_valid(scene.row_media[index]) || !ui_tooltip_visible(scene))
         return false;
     const auto row = row_rectangle(scene, index, scene.rectangle.left + scene.style.padding_x, text_top(scene));

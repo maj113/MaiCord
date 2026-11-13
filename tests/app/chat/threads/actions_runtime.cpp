@@ -3,6 +3,7 @@
 #include "chat/threads/actions.hpp"
 #include "shell/state.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../support/thread_locked_access.hpp"
 #include "../../../support/account_module_fake.hpp"
 
 

@@ -42,7 +42,6 @@ enum class MessageEventPumpRejectReason : u8 {
     descriptor_payload_mismatch, // dispatch_payload_bytes disagrees with the payload
     notification_sidecar,
     ready_state,       // READY header did not apply to the chat state
-    ready_typing_reset,
     ready_voice_reset,
     thread_scope,
     completion_payload, // READY/supplemental completion carried bytes

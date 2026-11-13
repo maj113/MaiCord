@@ -230,13 +230,16 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
 }
 
 #if defined(_WIN32)
-HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent) noexcept {
+namespace {
+// The tray icon in MaiCord's mark (callers DestroyIcon it).
+HICON create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent) noexcept {
     static_assert(kTrayIconMaximumExtent == kTaskbarBadgeMaximumExtent);
     ScratchPages<u32[kTrayIconMaximumExtent * kTrayIconMaximumExtent]> pixels;
     if (!pixels.data || !tray_icon_render(state, badge, palette, extent, {*pixels.data, extent * extent}))
         return nullptr;
     return win32_create_icon({*pixels.data, extent * extent}, extent);
 }
+} // namespace
 
 bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message) noexcept {
     if (!tray)
@@ -269,7 +272,7 @@ bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPal
         return true;
     const int metric = GetSystemMetricsForDpi(SM_CXSMICON, dpi ? dpi : 96);
     const u32 extent = static_cast<u32>(metric < 16 ? 16 : metric > 64 ? 64 : metric);
-    const HICON icon = system_tray_create_icon(plan.state, plan.badge, palette, extent);
+    const HICON icon = create_icon(plan.state, plan.badge, palette, extent);
     if (!icon)
         return false;
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;

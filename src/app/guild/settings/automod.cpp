@@ -57,11 +57,9 @@ enum : u64 {
     // Safety Setup's AutoMod row, and the AutoMod page's way back to it (community servers).
     control_safety_entry = control_automation + 48,
     control_safety_back,
-    control_intro = control_automation + 50,
-    control_section_members,
+    control_section_members = control_automation + 50,
     control_section_content,
     control_editing,
-    control_rule_name,
     control_words_heading,
     control_presets_heading,
     control_mention_limit,

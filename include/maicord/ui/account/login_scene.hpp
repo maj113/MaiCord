@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/core/widget_storage.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 
@@ -182,5 +183,13 @@ LoginControl login_scene_move_focus(LoginScene* scene, bool reverse) noexcept;
 const UiLayoutNode* login_scene_element(const LoginScene& scene, LoginElement element) noexcept;
 UiRect login_scene_rectangle(const LoginScene& scene, LoginElement element) noexcept;
 UiRect login_scene_content_rectangle(const LoginScene& scene, LoginElement element) noexcept;
+inline UiCursor ui_login_scene_cursor(const LoginScene& scene, float x, float y) noexcept {
+    if (login_password_reveal_hit_test(scene, x, y))
+        return UiCursor::hand;
+    const auto control = login_scene_hit_test(scene, x, y);
+    return ui_action_cursor(control != LoginControl::none,
+                            control == LoginControl::login || control == LoginControl::password ||
+                                control == LoginControl::phone_code);
+}
 
 } // namespace maicord

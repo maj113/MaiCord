@@ -14,7 +14,6 @@
 #include "maicord/os/file.hpp"
 #include "maicord/os/path.hpp"
 #include "maicord/os/thread.hpp"
-#include "maicord/os/wait.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/core/scratch_pages.hpp"
 

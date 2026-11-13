@@ -335,7 +335,7 @@ MlsStatus prepare_leaf(DaveSession& session) noexcept {
 
 MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_user_id, u64 call_generation,
                                   u16 protocol_version) noexcept {
-    if (!session || session->initialized || session->arena || !group_id || !self_user_id ||
+    if (session->initialized || session->arena || !group_id || !self_user_id ||
         !call_generation || protocol_version > kDaveProtocolVersion)
         return MlsStatus::invalid_argument;
     reset_value(session);
@@ -367,8 +367,6 @@ MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_u
     return MlsStatus::ok;
 }
 void dave_session_release(DaveSession* session) noexcept {
-    if (!session)
-        return;
     if (session->arena) {
         auto* list = receivers(*session);
         for (u32 i = 0; i != session->receiver_count; ++i)
@@ -444,7 +442,7 @@ MlsStatus dave_session_proposals(DaveSession* session, ConstSlice<u8> input, Con
                                  ConstSlice<u8>* output, u32* commit_bytes) noexcept {
     reset_value(output);
     *commit_bytes = 0;
-    if (!session || !session->initialized || !input.data || !input.count ||
+    if (!session->initialized || !input.data || !input.count ||
         session->group_state == DaveGroupState::none || !session->group.initialized)
         return MlsStatus::state_conflict;
     if (const auto status = validate_recognized(recognized); status != MlsStatus::ok)
@@ -497,7 +495,7 @@ MlsStatus dave_session_proposals(DaveSession* session, ConstSlice<u8> input, Con
     return MlsStatus::ok;
 }
 MlsStatus dave_session_commit(DaveSession* session, u16 transition_id, ConstSlice<u8> message) noexcept {
-    if (!session || !session->initialized || !message.data || !message.count ||
+    if (!session->initialized || !message.data || !message.count ||
         session->group_state == DaveGroupState::none)
         return MlsStatus::invalid_argument;
     u8 a = session->pending_state_a, b = session->pending_state_b, c = session->pending_context;
@@ -534,7 +532,7 @@ MlsStatus dave_session_commit(DaveSession* session, u16 transition_id, ConstSlic
 }
 MlsStatus dave_session_welcome(DaveSession* session, u16 transition_id, ConstSlice<u8> welcome,
                                ConstSlice<u64> recognized) noexcept {
-    if (!session || !session->initialized || !welcome.data || !welcome.count ||
+    if (!session->initialized || !welcome.data || !welcome.count ||
         !session->key_package_ready || !session->external_sender_ready ||
         session->group_state == DaveGroupState::established)
         return MlsStatus::state_conflict;

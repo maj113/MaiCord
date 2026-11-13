@@ -348,8 +348,8 @@ static UiSettingsControlPresentation bounded_look(const ApplicationSettings& set
 
 static u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
                          UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
-    // Staging rows (several KiB) on the UI thread, not re-entered; on the stack each projection
-    // walked its guard pages. Value-initialized per call, as the arrays were.
+    // Staging rows (several KiB), never re-entered on the UI thread: a stack array would walk its guard pages on
+    // every projection.
     static UiSettingsControl controls[kSettingsPanelRowLimit];
     static UiSettingsControlPresentation presentation[kSettingsPanelRowLimit];
     for (u32 i = 0; i < capacity; ++i) {
@@ -746,7 +746,6 @@ bool refresh() noexcept {
     return application_request_frame();
 }
 
-static UiKitMeasure g_measure;
 // Before sign-in no account cache exists; the settings measure through a cache of their own over the renderer.
 static UiTextMeasureRecord g_measure_records[128];
 static UiTextMeasureCache g_measure_cache;
@@ -770,8 +769,7 @@ static UiTextMeasureCache* measure_cache() noexcept {
 
 static void bind_chrome(ApplicationSettings& settings) noexcept {
     // Widths and wrapped heights come from a text cache (shaped, not estimated).
-    ui_kit_measure_cache(&g_measure, measure_cache());
-    ui_settings_scene_bind_measure(&settings.scene, &g_measure);
+    ui_settings_scene_bind_measure(&settings.scene, measure_cache());
     // The signed-out list is a navigation of its own.
     const bool signed_out = g_signed_out.active;
     auto navigation = signed_out ? settings_catalog_navigation_signed_out()

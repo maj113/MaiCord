@@ -307,7 +307,7 @@ bool retry_failed_message(u64 nonce) noexcept {
     }
     // A failed local command message re-executes its command instead.
     if (application_commands_retry(nonce))
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     const auto captcha = application_action_captcha_phase(ApplicationActionCaptchaKind::message_send, nonce);
     if (captcha == ApplicationActionCaptchaPhase::captured || captcha == ApplicationActionCaptchaPhase::failed)
         return application_action_captcha_verify(ApplicationActionCaptchaKind::message_send, nonce) &&
@@ -352,7 +352,7 @@ bool discard_failed_message(u64 nonce) noexcept {
     if (armed_channel)
         application_composer_slowmode_clear(armed_channel);
     application_attachment_complete(nonce);
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 } // namespace interaction_detail
@@ -661,7 +661,7 @@ bool open_reaction_viewer(u64 message_id) noexcept {
         return false;
     }
     message_scene_focus_message(&g_app.message_scene, message_id);
-    const bool refreshed = refresh_account_frame(true);
+    const bool refreshed = refresh_account_frame();
     const bool pumped = pump_message_history();
     return refreshed && pumped;
 }
@@ -976,7 +976,7 @@ bool open_focused_context_popup() noexcept {
         if (!revealed)
             return true;
         ui_scroll_host_cancel(&g_app.scroll_host);
-        if (!refresh_account_frame(true))
+        if (!refresh_account_frame())
             return false;
         if (!g_app.context_focus || !ui_widget_manager_context_anchor(*g_app.context_focus, &anchor))
             return true;

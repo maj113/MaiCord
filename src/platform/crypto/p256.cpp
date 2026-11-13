@@ -120,17 +120,9 @@ P256Result p256_export_private(const P256Key& key, Slice<u8> output) noexcept {
     return export_key(key, output, true);
 }
 P256Result p256_ecdh(const P256Key& key, const P256Key& peer, Slice<u8> output) noexcept {
-    auto result = destination(key, output, 32);
+    auto result = ecdh_arguments(key, peer, output);
     if (!result.ok())
         return result;
-    if (!peer.handle)
-        return {0, 0, P256Error::not_initialized};
-    if (key.kind != P256Kind::ecdh || peer.kind != P256Kind::ecdh)
-        return {0, 0, P256Error::wrong_kind};
-    if (!key.has_private)
-        return {0, 0, P256Error::private_required};
-    if (byte_ranges_overlap({output.data, 32}, bytes(peer)))
-        return {0, 0, P256Error::invalid_input};
     void* agreement = nullptr;
     u8 temporary[32];
     ULONG written = 0;
@@ -149,16 +141,9 @@ P256Result p256_ecdh(const P256Key& key, const P256Key& peer, Slice<u8> output) 
     return result;
 }
 P256Result p256_sign_digest(const P256Key& key, ConstSlice<u8> digest, Slice<u8> signature) noexcept {
-    auto result = destination(key, signature, 64);
+    auto result = sign_arguments(key, digest, signature);
     if (!result.ok())
         return result;
-    if (key.kind != P256Kind::ecdsa)
-        return {0, 0, P256Error::wrong_kind};
-    if (!key.has_private)
-        return {0, 0, P256Error::private_required};
-    if (digest.count != 32 || !byte_range_valid(digest) || byte_ranges_overlap(digest, bytes(key)) ||
-        byte_ranges_overlap(digest, {signature.data, 64}))
-        return {0, 0, P256Error::invalid_input};
     u8 temporary[64];
     ULONG written = 0;
     const auto status =

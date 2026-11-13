@@ -52,7 +52,6 @@ struct InflateState {
     Slice<u8> output;
     DeflateWorkspace* workspace;
     u32 output_bytes;
-    u32 blocks;
     u32 window_size;
     ZlibInflateError error;
     // Windowed (sink) mode: output[0, emitted) was delivered already.
@@ -257,7 +256,7 @@ const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
 }
 
 ZlibInflateResult failure(const InflateState& state, ZlibInflateError error) noexcept {
-    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks, error};
+    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, error};
 }
 
 bool advance_span(BitReader* reader) noexcept {
@@ -742,7 +741,6 @@ bool decode_final_blocks(InflateState* state) noexcept {
             return false;
         }
         final_block = final != 0;
-        ++state->blocks;
         if (!decode_block(state, type))
             return false;
     }
@@ -963,7 +961,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         cursor += 8;
         result.input_bytes = cursor;
         result.output_bytes += state.output_bytes;
-        result.blocks += state.blocks;
     }
     return result;
 }

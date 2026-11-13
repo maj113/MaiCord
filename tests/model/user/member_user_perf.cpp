@@ -22,8 +22,8 @@ void test_member_user_perf(void (*check)(bool, const char*) noexcept) noexcept {
     const auto aliased_names = user_store_upsert(&users, 1,
         user_store_name(users, *first), user_store_username(users, *first));
     const auto omitted_username = user_store_upsert(&users, 1, user_store_name(users, *first));
-    check(explicit_names.ok() && !explicit_names.name_changed && !explicit_names.inserted && !explicit_names.evicted &&
-        aliased_names.ok() && !aliased_names.name_changed && omitted_username.ok() && !omitted_username.name_changed &&
+    check(explicit_names.ok() && !explicit_names.inserted && !explicit_names.evicted &&
+        aliased_names.ok() && omitted_username.ok() &&
         users.clock == clock + 3 && first->last_seen == users.clock && first->revision == record_revision &&
         first->name_offset == name_offset && first->pinned && users.revision == revision && users.mutations == mutations &&
         users.name_used == 8 && !users.name_wasted && !users.evictions && !users.compactions &&
@@ -34,7 +34,7 @@ void test_member_user_perf(void (*check)(bool, const char*) noexcept) noexcept {
         user_store_name(users, *second), user_store_username(users, *first));
     first = user_store_find(users, 1);
     second = user_store_find(users, 2);
-    check(changed_alias.ok() && changed_alias.name_changed && !changed_alias.evicted && users.compactions == 1 &&
+    check(changed_alias.ok() && !changed_alias.evicted && users.compactions == 1 &&
         first && second && first->pinned && second->pinned &&
         utf8_equal(user_store_name(users, *first), utf8_literal("Two")) &&
         utf8_equal(user_store_username(users, *first), utf8_literal("1")) &&
@@ -43,7 +43,7 @@ void test_member_user_perf(void (*check)(bool, const char*) noexcept) noexcept {
         "member user: changed bank aliases remain staged across compaction and retain pinned neighbors");
     const auto changed_omitted = user_store_upsert(&users, 1, utf8_literal("New"));
     first = user_store_find(users, 1);
-    check(changed_omitted.ok() && changed_omitted.name_changed && users.compactions == 2 &&
+    check(changed_omitted.ok() && users.compactions == 2 &&
         first && utf8_equal(user_store_name(users, *first), utf8_literal("New")) &&
         utf8_equal(user_store_username(users, *first), utf8_literal("1")) && !users.evictions,
         "member user: changed display preserves omitted borrowed username across compaction");

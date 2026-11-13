@@ -273,7 +273,7 @@ void run() noexcept {
 } // namespace maicord::search_content_test
 
 namespace maicord::app_detail {
-bool refresh_account_frame(bool) noexcept { ++search_content_test::account_refreshes; return true; }
+bool refresh_account_frame() noexcept { ++search_content_test::account_refreshes; return true; }
 void application_user_settings_request_content_confirmation() noexcept { ++search_content_test::confirmations; }
 UiSearchScene* application_search_scene() noexcept { return &search_content_test::scene; }
 bool application_search_source_resolve(const ApplicationSearchSourceTicket& id, bool snapshot,

@@ -4,7 +4,7 @@
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 
-// The pictures of the store tiles (store-ui.md 4.10 and 8.4): a catalog `previews/<sha>.png` reduced by an
+// The pictures of the store tiles: a catalog `previews/<sha>.png` reduced by an
 // integer box factor to the tile's size on screen and uploaded as straight RGBA into the media atlas. The
 // decode and the identity are pure; the host's pump (store_preview_pump.cpp) fetches, decodes lazily for the
 // visible tiles only and forgets them when the page closes.

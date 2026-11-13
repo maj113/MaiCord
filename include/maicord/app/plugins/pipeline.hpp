@@ -35,8 +35,6 @@ bool plugin_dispatch_click(const PluginMessage&, const PluginClick&) noexcept;
 // PRE_TYPING: true when a plugin suppresses the typing notice (the first one that does ends the pass).
 bool plugin_dispatch_typing(u64 channel_id) noexcept;
 
-// ---- Events -----------------------------------------------------------------------
-
 // One gateway change as the EVENTS hook sees it. Text and name are copied by push.
 struct PluginEvent {
     u32 kind, flags; // MC_EVENT_*, MC_EVENT_* flags
@@ -58,14 +56,10 @@ bool plugin_events_push(const PluginEvent&) noexcept;
 bool plugin_events_deliver() noexcept;
 bool plugin_events_pending() noexcept;
 
-// ---- Timers -----------------------------------------------------------------------
-
 // The earliest due time on the monotonic millisecond clock, or 0 with no timers.
 u64 plugin_timers_next_due() noexcept;
 // Calls TIMER hooks of due timers (at most kPluginEventCallsPerPass per plugin); returns how many calls ran.
 u32 plugin_timers_poll(u64 now_ms) noexcept;
-
-// ---- Application side of the actions ----------------------------------------------------
 
 struct PluginSend {
     u64 channel_id, reply_to;

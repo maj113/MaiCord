@@ -146,7 +146,7 @@ bool plugin_runtime_keep_state(PluginRuntime*, const PluginBinding*) noexcept;
 // call again until it returns 0.
 u64 plugin_runtime_poll(PluginRuntime*, u64 now_ms) noexcept;
 
-// ---- Inside the runtime: dispatch.cpp and tests ---------------------------------
+// Inside the runtime: dispatch.cpp and tests.
 
 // What one call into a plugin did.
 struct PluginCallResult {

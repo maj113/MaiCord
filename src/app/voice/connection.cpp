@@ -97,8 +97,6 @@ bool dave_step_failed(VoiceConnection* connection, u8 opcode) noexcept {
 }
 } // namespace
 bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent& value) noexcept {
-    if (!connection)
-        return false;
     // A refused downgrade or repeated invalid MLS message is closing this
     // socket (4804/4803); nothing more from it is applied.
     if (connection->dave_close_code && value.kind != VoiceSessionEventKind::closed)
@@ -280,7 +278,7 @@ bool prepare(VoiceConnection* connection, const VoiceSetupCredentials& credentia
 }
 } // namespace
 VoiceMediaSetupError voice_connection_ready(VoiceConnection* connection, const VoiceReady& ready) noexcept {
-    if (!connection || !connection->identify_submitted ||
+    if (!connection->identify_submitted ||
         connection->socket.phase != VoiceSocketPhase::open || connection->ready_revision == ~u64{0})
         return VoiceMediaSetupError::order;
     const auto result = voice_media_ready(&connection->media, ready);
@@ -302,8 +300,6 @@ u64 voice_connection_deadline(const VoiceConnection& connection) noexcept {
         earliest_deadline(voice_socket_deadline(connection.socket), connection.udp.deadline_ms));
 }
 void voice_connection_stop(VoiceConnection* connection) noexcept {
-    if (!connection)
-        return;
     secure_buffer_release(&connection->command);
     stop_media_io(connection);
     voice_media_clear(&connection->media);
@@ -366,7 +362,7 @@ VoiceProtocolCommand voice_connection_protocol_command(const VoiceConnection& co
 }
 bool voice_connection_protocol_submitted(VoiceConnection* connection, const VoiceProtocolCommand& command,
                                          u64 now_ms) noexcept {
-    if (!connection || !command.write.ok() || !command.write.bytes || !can_select(*connection) ||
+    if (!command.write.ok() || !command.write.bytes || !can_select(*connection) ||
         deadline_due(now_ms, connection->protocol_deadline_ms) ||
         command.ready_revision != connection->ready_revision || command.mode != offered_cipher(*connection) ||
         !voice_media_protocol_selected(&connection->media, command.mode))
@@ -379,7 +375,7 @@ bool voice_connection_protocol_submitted(VoiceConnection* connection, const Voic
 VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, JsonValue data,
                                                   Slice<u32> scratch, u32 maximum_depth,
                                                   u64 now_ms) noexcept {
-    if (!connection || !socket_live(*connection) || !udp_ready(*connection) ||
+    if (!socket_live(*connection) || !udp_ready(*connection) ||
         deadline_due(now_ms, connection->protocol_deadline_ms))
         return VoiceMediaSetupError::order;
     // Must stay consistent with the actual Identify advertisement in prepare.
@@ -403,7 +399,7 @@ bool voice_connection_owns(const VoiceConnection& connection,
 }
 VoiceParticipantsResult voice_connection_participant(VoiceConnection* connection, u8 opcode, JsonValue data,
                                                      Slice<u32> scratch, u32 maximum_depth) noexcept {
-    if (!connection || !socket_live(*connection))
+    if (!socket_live(*connection))
         return {VoiceParticipantsError::invalid_input};
     return voice_participants_event(&connection->participants, connection->socket.setup_generation, opcode,
                                     data, scratch, maximum_depth);
@@ -411,7 +407,7 @@ VoiceParticipantsResult voice_connection_participant(VoiceConnection* connection
 bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive_buffer,
                                   Slice<u8> send_buffer, VoiceMappedMediaReceive receive,
                                   void* context, u32 receive_slots) noexcept {
-    if (!connection || !receive || !socket_live(*connection) || !connection->media.has_description ||
+    if (!receive || !socket_live(*connection) || !connection->media.has_description ||
         connection->ready_revision != connection->udp_revision)
         return false;
     const bool started = voice_udp_media_begin(&connection->media_io, &connection->udp,
@@ -526,7 +522,7 @@ void retire_socket(VoiceConnection* connection, u64 now_ms) noexcept {
 }
 } // namespace
 VoiceSocketSend voice_connection_speaking(VoiceConnection* connection, u32 flags, u64 now_ms) noexcept {
-    if (!connection || !connection->identify_submitted || !connection->media.has_ready)
+    if (!connection->identify_submitted || !connection->media.has_ready)
         return VoiceSocketSend::invalid;
     u8 payload[96];
     const auto encoded = voice_gateway_write_speaking(flags, connection->media.ssrc, {payload, sizeof(payload)});

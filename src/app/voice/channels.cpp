@@ -178,7 +178,6 @@ Hit hit(float x, float y) noexcept {
     return {};
 }
 
-// Status editor ---------------------------------------------------------------
 bool form_valid(TextFormOwnerKey key) noexcept {
     const auto& f = vc.form;
     return f.serial && key.scope == f.serial && key.collection == f.channel_id &&

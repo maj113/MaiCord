@@ -151,8 +151,9 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
         session.persist_at_ms == 1'500,
         "message_draft_session_cleanup_keeps_first_deadline_and_file_until_due");
     message_draft_session_persist(session, drafts, 1'500, false);
-    const bool migration_committed = session.persist_in_flight &&
-        message_draft_session_wait(session, drafts, 1'500, 5'000) && !session.persist_in_flight;
+    const bool queued = session.persist_in_flight;
+    message_draft_session_persist(session, drafts, 1'500, true);
+    const bool migration_committed = queued && !session.persist_in_flight;
     const MessageDraftPersistenceResult rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(migration_committed && rewritten.ok() && rewritten.discarded == 0 && rewritten.records == 1 &&
         rewritten.bytes == 114 && !session.cleanup_required &&
@@ -189,7 +190,8 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
         session.persisted_revision == 12 && session.persist_at_ms == 2'500,
         "message_draft_session_failed_reload_does_not_skip_dirty_save_or_advance_deadline");
     message_draft_session_persist(session, drafts, 2'500, false);
-    const bool dirty_committed = message_draft_session_wait(session, drafts, 2'500, 5'000);
+    message_draft_session_persist(session, drafts, 2'500, true);
+    const bool dirty_committed = !session.persist_in_flight;
     const MessageDraftPersistenceResult dirty_rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(dirty_committed && dirty_rewritten.ok() && dirty_rewritten.bytes == 115 &&
         session.persisted_revision == dirty_revision && session.persist_at_ms == 0 &&

@@ -326,7 +326,7 @@ static bool select_row(UiMessageForwardScene* s, u32 index, bool reveal = true) 
     return true;
 }
 bool ui_message_forward_scene_move(UiMessageForwardScene* s, UiQuickSwitcherMove move) noexcept {
-    if (!s || !current(*s) || !s->accepted_count || move > UiQuickSwitcherMove::page_previous) return false;
+    if (!current(*s) || !s->accepted_count || move > UiQuickSwitcherMove::page_previous) return false;
     const bool reverse = move == UiQuickSwitcherMove::previous || move == UiQuickSwitcherMove::page_previous || move == UiQuickSwitcherMove::last;
     const u32 step = move == UiQuickSwitcherMove::page_next || move == UiQuickSwitcherMove::page_previous ?
         maximum(1u, static_cast<u32>(ui_rect_height(s->body) / kUiMessageForwardRowHeight)) : 1;
@@ -342,16 +342,14 @@ bool ui_message_forward_scene_move(UiMessageForwardScene* s, UiQuickSwitcherMove
     }
     return false;
 }
-bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float y, bool* changed) noexcept {
-    if (changed) *changed = false;
-    if (!s || !current(*s)) return false;
+bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float y) noexcept {
+    if (!current(*s)) return false;
     const auto selected = s->selected;
     bool delta = false;
     if (!ui_widget_manager_hover_at(&s->widgets, x, y, &delta)) return false;
     for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(s->widgets.hovered, s->rows[i])) select_row(s, s->first + i, false);
     if (delta) ++s->revision;
-    if (changed) *changed = delta || selected != s->selected;
-    return true;
+    return delta || selected != s->selected;
 }
 
 bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, const ChatStateStore* state,

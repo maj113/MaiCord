@@ -24,10 +24,8 @@ u64 application_shortcuts_next_wake() noexcept;
 
 // Keyboard shortcuts overlay.
 bool application_shortcuts_overlay_active() noexcept;
-bool application_shortcuts_overlay_open() noexcept;
-void application_shortcuts_overlay_close() noexcept;
 bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeated) noexcept;
 bool application_shortcuts_overlay_window_event(const WindowEvent& event) noexcept;
-bool application_shortcuts_overlay_synchronize() noexcept;
+void application_shortcuts_overlay_synchronize() noexcept;
 void application_shortcuts_overlay_release() noexcept;
 } // namespace maicord::app_detail

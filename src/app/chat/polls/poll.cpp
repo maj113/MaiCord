@@ -18,7 +18,7 @@
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/protocol/messages/poll.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/chat/polls/controls.hpp"
 #include "../../account/account_access.hpp"
 #include "maicord/platform/window/key.hpp"
 

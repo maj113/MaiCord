@@ -17,7 +17,7 @@ bool eligible(const MessageNotificationPolicyInput& i) noexcept {
 void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
     using E=MessageNotificationApplyError;using R=MessageNotificationReason;using L=MessageNotificationLevel;
     MessageNotificationGuildSetting gs[4]{};MessageNotificationOverride os[6]{};MessageNotificationThreadSetting ts[4]{};
-    MessageNotificationStore s{};check(message_notifications_initialize(&s,{gs,4},{os,6},{ts,4}),"notification store initialization");
+    MessageNotificationStore s{};message_notifications_initialize(&s,{gs,4},{os,6},{ts,4});
     auto i=input(s);check(message_notification_admit(i)==R::unknown,"unknown READY policy does not invent ALL");
     check(message_notifications_apply_settings(&s,{}, {},false,4)==E::none,"empty full READY establishes implicit defaults");
     check(eligible(i),"ALL defaults admit unrelated live message");
@@ -89,8 +89,8 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
 
     MessageNotificationGuildSetting badge_guilds[2]{};MessageNotificationOverride badge_overrides[3]{};
     MessageNotificationThreadSetting badge_threads[2]{};MessageNotificationStore badge_settings{};
-    check(message_notifications_initialize(&badge_settings,{badge_guilds,2},{badge_overrides,3},{badge_threads,2})&&
-        message_notifications_apply_settings(&badge_settings,{},{},false,1)==E::none,
+    message_notifications_initialize(&badge_settings,{badge_guilds,2},{badge_overrides,3},{badge_threads,2});
+    check(message_notifications_apply_settings(&badge_settings,{},{},false,1)==E::none,
         "read badge: complete empty settings establish private defaults");
     auto badge=input(badge_settings);badge.guild_id=0;badge.channel_type=1;
     badge.known_gates=notification_gate_blocked|notification_gate_ignored;
@@ -160,8 +160,8 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
     // Conversations default to every message and only their own mute applies.
     MessageNotificationGuildSetting dm_guilds[2]{};MessageNotificationOverride dm_overrides[2]{};
     MessageNotificationThreadSetting dm_threads[1]{};MessageNotificationStore dm_settings{};
-    check(message_notifications_initialize(&dm_settings,{dm_guilds,2},{dm_overrides,2},{dm_threads,1})&&
-        message_notifications_apply_settings(&dm_settings,{},{},false,1)==E::none,"conversation settings initialize");
+    message_notifications_initialize(&dm_settings,{dm_guilds,2},{dm_overrides,2},{dm_threads,1});
+    check(message_notifications_apply_settings(&dm_settings,{},{},false,1)==E::none,"conversation settings initialize");
     message_notifications_mark_incomplete(&dm_settings,10);
     auto dm=input(dm_settings);dm.guild_id=0;dm.channel_id=40;dm.channel_type=3;dm.guild_default_known=false;
     dm.known_gates=dm.required_gates=notification_gate_blocked|notification_gate_ignored;

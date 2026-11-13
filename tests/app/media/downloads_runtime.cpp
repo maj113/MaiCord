@@ -1400,7 +1400,7 @@ bool dismiss_popup() noexcept {
 bool refresh_account_text(bool) noexcept {
     return true;
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     ++downloads_runtime_test::media_refreshes;
     return true;
 }

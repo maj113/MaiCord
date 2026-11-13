@@ -2,6 +2,7 @@
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 enum class UiPresence : u8;
@@ -96,4 +97,11 @@ bool ui_quick_switcher_scene_media(const UiQuickSwitcherScene&, u32 slot, const 
 // direct messages at the avatar's lower right, as the DM list draws them.
 UiRect ui_quick_switcher_scene_status_rectangle(const UiQuickSwitcherScene&, u32 slot) noexcept;
 bool ui_quick_switcher_scene_presence_paint(const UiQuickSwitcherScene&, const Theme&, PaintStream*) noexcept;
+// Modal backdrops dismiss on click but stay an arrow.
+inline UiCursor ui_quick_switcher_scene_cursor(const UiQuickSwitcherScene& scene, float x, float y) noexcept {
+    if (!ui_rect_contains(scene.panel, x, y))
+        return UiCursor::arrow;
+    const auto action = ui_quick_switcher_scene_hit_test(scene, x, y).action;
+    return ui_action_cursor(action != UiQuickSwitcherAction::none, action == UiQuickSwitcherAction::edit);
+}
 } // namespace maicord

@@ -284,6 +284,13 @@ struct AccountLoginStatus {
     }
 };
 
+// A login call refused before it reached the login.
+inline AccountLoginStatus account_login_invalid_input() noexcept {
+    AccountLoginStatus status{};
+    status.error = AccountLoginError::invalid_input;
+    return status;
+}
+
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 120);

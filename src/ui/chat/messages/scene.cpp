@@ -39,8 +39,6 @@ void invalidate_geometry(MessageScene* scene) noexcept {
 } // namespace
 
 bool message_scene_bind_theme_styles(MessageScene* scene, const UiResolvedThemeStyles* styles) noexcept {
-    if (!scene)
-        return false;
     const u32 revision = styles && styles->ready ? styles->geometry_revision : 0;
     if (scene->theme_styles == styles && scene->theme_geometry_revision == revision)
         return false;
@@ -51,8 +49,7 @@ bool message_scene_bind_theme_styles(MessageScene* scene, const UiResolvedThemeS
 }
 
 void message_scene_invalidate_geometry(MessageScene* scene) noexcept {
-    if (scene)
-        invalidate_geometry(scene);
+    invalidate_geometry(scene);
 }
 
 MessageMediaPolicyResult message_scene_media_policy(const MessageScene& scene,
@@ -62,9 +59,8 @@ MessageMediaPolicyResult message_scene_media_policy(const MessageScene& scene,
 }
 
 bool message_scene_set_media_policy(MessageScene* scene, const MessageMediaPolicy& policy) noexcept {
-    if (!scene ||
-        (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
-         scene->media_policy.revision == policy.revision))
+    if (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
+        scene->media_policy.revision == policy.revision)
         return false;
     scene->media_policy = policy;
     invalidate_geometry(scene);
@@ -123,7 +119,7 @@ const UiPluginRenderDecoration* message_scene_tombstone_decoration(const Message
 }
 
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
-    if (!scene || !message_media_reveal(&scene->media_reveals, reveal_key))
+    if (!message_media_reveal(&scene->media_reveals, reveal_key))
         return false;
     // Blocked notices and blur labels can differ in height from previews.
     invalidate_geometry(scene);
@@ -131,8 +127,6 @@ bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
 }
 
 bool message_scene_set_interaction(MessageScene* scene, const MessageSceneInteraction& interaction) noexcept {
-    if (!scene)
-        return false;
     const auto& current = scene->interaction;
     if (current.message_id == interaction.message_id && current.component_index == interaction.component_index &&
         current.pending == interaction.pending && current.failed == interaction.failed)
@@ -162,7 +156,7 @@ u32 message_scene_invite_codes(const MessageScene& scene, const MessageRecord& r
 }
 
 bool message_scene_set_content_gated(MessageScene* scene, bool gated) noexcept {
-    if (!scene || scene->content_gated == gated)
+    if (scene->content_gated == gated)
         return false;
     scene->content_gated = gated;
     scene->dirty = true;
@@ -178,14 +172,14 @@ bool message_scene_bind_invite_cards(MessageScene* scene, const InviteCardCache*
 }
 
 bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEventStore* events) noexcept {
-    if (!scene || scene->scheduled_events == events)
+    if (scene->scheduled_events == events)
         return false;
     scene->scheduled_events = events;
     return true;
 }
 
 bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) noexcept {
-    if (!scene || value.group_spacing >= 6 ||
+    if (value.group_spacing >= 6 ||
         (scene->display.compact == value.compact && scene->display.group_spacing == value.group_spacing &&
          scene->display.clock == value.clock && scene->display.reply_timestamps == value.reply_timestamps &&
          scene->display.role_colors == value.role_colors && scene->display.role_style == value.role_style &&
@@ -207,7 +201,7 @@ float message_scene_reply_line_height(const MessageScene& scene) noexcept {
 }
 
 bool message_scene_bind_poll_source(MessageScene* scene, const MessageScenePollBinding* binding) noexcept {
-    if (!scene || (binding && (!binding->measure || !binding->backend_revision)))
+    if (binding && (!binding->measure || !binding->backend_revision))
         return false;
     if (scene->polls == binding)
         return true;
@@ -220,7 +214,7 @@ bool message_scene_bind_poll_source(MessageScene* scene, const MessageScenePollB
 bool message_scene_poll_projection(const MessageScene& scene, const MessageSceneRowWidget& row,
                                    const Theme& theme, const Slice<UiPollAnswer>& answers,
                                    UiPollProjection* out) noexcept {
-    if (!out || !scene.active || row.forwarded_snapshot || row.redacted || !scene.polls ||
+    if (!scene.active || row.forwarded_snapshot || row.redacted || !scene.polls ||
         !scene.timeline || !scene.timeline->store || !ui_widget_manager_resolve(scene.widgets, row.poll))
         return false;
     const auto* record = message_store_resolve(*scene.timeline->store, row.message);
@@ -240,7 +234,7 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
 bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeline, u32 maximum_rows,
                                     u32 initial_rows, const Slice<UiWidget>& widget_storage,
                                     const Slice<UiLayoutNode>& layout_storage, bool defer_measurements) noexcept {
-    if (!scene || scene->owned_rows.arena.base || !timeline || !timeline->store || !timeline->list ||
+    if (scene->owned_rows.arena.base || !timeline || !timeline->store || !timeline->list ||
         !widget_storage.data || !layout_storage.data || widget_storage.count == 0 ||
         layout_storage.count == 0 || maximum_rows == 0 || initial_rows == 0 || initial_rows > maximum_rows) {
         return false;
@@ -273,14 +267,11 @@ bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeli
 }
 
 bool message_scene_reserve_measurements(MessageScene* scene) noexcept {
-    return scene && scene->owned_measurements.arena.base && scene->timeline && scene->timeline->store &&
+    return scene->owned_measurements.arena.base && scene->timeline && scene->timeline->store &&
            stable_storage_reserve(&scene->owned_measurements, scene->timeline->store->capacity);
 }
 
 void message_scene_release(MessageScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     if (scene->owns_rows) {
         stable_storage_release(&scene->owned_rows);
     }
@@ -302,8 +293,6 @@ static bool reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
 }
 
 bool message_scene_set_highlight(MessageScene* scene, u64 message_id, float level) noexcept {
-    if (!scene)
-        return false;
     if (!message_id || level <= 0.0f) {
         message_id = 0;
         level = 0.0f;
@@ -353,7 +342,7 @@ bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 la
 }
 
 bool message_scene_set_result_card_style(MessageScene* scene, const MessageResultCardStyle* style) noexcept {
-    if (!scene || !scene->timeline || !scene->owns_rows ||
+    if (!scene->timeline || !scene->owns_rows ||
         (style && !message_result_card_style_valid(*style)))
         return false;
     const auto next = style ? *style : MessageResultCardStyle{};
@@ -384,7 +373,7 @@ u32 message_scene_source_count(const MessageScene& scene) noexcept {
 }
 bool message_scene_set_source_order(MessageScene* scene, const ConstSlice<MessageHandle>& order,
                                     u32 revision) noexcept {
-    if (!scene || !scene->timeline || !scene->timeline->store || (!order.data && order.count) ||
+    if (!scene->timeline || !scene->timeline->store || (!order.data && order.count) ||
         (order.count && (!scene->result_cards || order.count != scene->timeline->list->count)))
         return false;
     if (scene->source_order.data == order.data && scene->source_order.count == order.count &&
@@ -534,7 +523,7 @@ struct IntroWriter {
 
 bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind kind, u64 channel_id,
                                  const Utf8View& name, const Utf8View& username, u64 user_id, bool locked) noexcept {
-    if (!intro || kind == MessageSceneIntroKind::none || (!name.data && name.bytes) ||
+    if (kind == MessageSceneIntroKind::none || (!name.data && name.bytes) ||
         (!username.data && username.bytes))
         return false;
     reset_value<MessageSceneIntro>(intro);
@@ -600,8 +589,6 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
 
 bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro,
                              UiTextMeasureCache* measure) noexcept {
-    if (!scene)
-        return false;
     MessageSceneIntro next{};
     if (intro && intro->kind != MessageSceneIntroKind::none &&
         intro->header_bytes + intro->subtitle_bytes + intro->description_bytes <= kMessageSceneIntroTextBytes &&
@@ -632,8 +619,6 @@ bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro
 }
 
 bool message_scene_intro_geometry(const MessageScene& scene, MessageSceneIntroGeometry* geometry) noexcept {
-    if (!geometry)
-        return false;
     reset_value(geometry);
     const UiRect area = intro_area(scene);
     if (!ui_rect_has_area(area))
@@ -886,7 +871,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
 
 bool message_scene_scroll_by(MessageScene* scene, i64 delta_units, u64 bottom_tolerance_units,
                              bool* changed) noexcept {
-    if (!scene || !scene->timeline || !changed ||
+    if (!scene->timeline ||
         !message_timeline_scroll_by(scene->timeline, delta_units, bottom_tolerance_units, changed)) {
         return false;
     }
@@ -895,7 +880,7 @@ bool message_scene_scroll_by(MessageScene* scene, i64 delta_units, u64 bottom_to
 }
 
 bool message_scene_scroll_to_start(MessageScene* scene, bool* changed) noexcept {
-    if (!scene || !scene->timeline || !changed ||
+    if (!scene->timeline ||
         !message_timeline_scroll_to_start(scene->timeline, changed)) {
         return false;
     }
@@ -904,7 +889,7 @@ bool message_scene_scroll_to_start(MessageScene* scene, bool* changed) noexcept 
 }
 
 bool message_scene_scroll_to_bottom(MessageScene* scene, bool* changed) noexcept {
-    if (!scene || !scene->timeline || !changed ||
+    if (!scene->timeline ||
         !message_timeline_scroll_to_bottom(scene->timeline, changed)) {
         return false;
     }
@@ -917,10 +902,8 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                                     const MessageSceneRichLayout* rich_layout,
                                     const MessageSceneRichItemLayout* rich_item_layout,
                                     const ConstSlice<float>& reaction_widths, bool* changed) noexcept {
-    if (changed) {
-        *changed = false;
-    }
-    if (!scene || !scene->timeline || !changed || !ui_extent_valid(reply_height) ||
+    *changed = false;
+    if (!scene->timeline || !ui_extent_valid(reply_height) ||
         !ui_extent_valid(content_height) || (rich_layout && !message_rich_layout_valid(*rich_layout)) ||
         (rich_item_layout && !message_rich_item_layout_valid(*rich_item_layout)) ||
         (!reaction_widths.data && reaction_widths.count != 0) ||
@@ -1043,9 +1026,8 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
                                              const MessageSceneRichLayout* rich_layout,
                                              const MessageSceneRichItemLayout* rich_item_layout,
                                              bool* changed) noexcept {
-    if (changed)
-        *changed = false;
-    if (!scene || !changed || !ui_extent_valid(content_height) ||
+    *changed = false;
+    if (!ui_extent_valid(content_height) ||
         (rich_layout && !message_rich_layout_valid(*rich_layout)) ||
         (rich_item_layout && !message_rich_item_layout_valid(*rich_item_layout)))
         return false;
@@ -1138,11 +1120,7 @@ const MessageSceneRowWidget* message_scene_resolve(const MessageScene& scene,
 }
 
 MessageSceneRowWidget* message_scene_find_row(MessageScene* scene, u32 source_index) noexcept {
-    if (!scene || source_index < scene->first || source_index - scene->first >= scene->count) {
-        return nullptr;
-    }
-    MessageSceneRowWidget* row = &scene->rows[source_index - scene->first];
-    return row->source_index == source_index ? row : nullptr;
+    return const_cast<MessageSceneRowWidget*>(message_scene_find_row(*scene, source_index));
 }
 
 const MessageSceneRowWidget* message_scene_find_row(const MessageScene& scene, u32 source_index) noexcept {
@@ -1198,7 +1176,7 @@ MessageReplyHit message_scene_reply_hit_test(const MessageScene& scene, float x,
 }
 
 bool message_scene_reaction_index(const MessageScene& scene, MessageSceneHit hit, u32* index) noexcept {
-    if (!index || hit.message_id == 0 || !message_rich_display().reactions) {
+    if (hit.message_id == 0 || !message_rich_display().reactions) {
         return false;
     }
     const MessageSceneRowWidget* row = message_scene_find_row(scene, hit.source_index);
@@ -1217,8 +1195,6 @@ bool message_scene_reaction_index(const MessageScene& scene, MessageSceneHit hit
 }
 
 bool message_scene_sticker_hit(const MessageScene& scene, float x, float y, MessageStickerHit* hit) noexcept {
-    if (!hit)
-        return false;
     *hit = {};
     const auto at = message_scene_hit_test(scene, x, y);
     const MessageSceneRowWidget* row = at.message_id ? message_scene_find_row(scene, at.source_index) : nullptr;
@@ -1249,9 +1225,6 @@ bool message_scene_sticker_hit(const MessageScene& scene, float x, float y, Mess
 }
 
 bool message_scene_focus_message(MessageScene* scene, u64 message_id) noexcept {
-    if (!scene) {
-        return false;
-    }
     if (message_id == 0) {
         scene->focused_message_id = 0;
         return ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());

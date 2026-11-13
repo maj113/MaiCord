@@ -600,8 +600,6 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
 }
 
 void ui_call_scene_release(UiCallScene* s) noexcept {
-    if (!s)
-        return;
     const u32 revision = s->revision + 1;
     const u64 generation = s->morph_generation + 1;
     s->active = false;
@@ -672,7 +670,7 @@ bool ui_call_scene_set_hover(UiCallScene* s, float x, float y) noexcept {
 }
 
 bool ui_call_scene_set_pressed(UiCallScene* s, UiCallControl control) noexcept {
-    if (!s || s->pressed == control)
+    if (s->pressed == control)
         return false;
     s->pressed = control;
     ++s->revision;
@@ -680,7 +678,7 @@ bool ui_call_scene_set_pressed(UiCallScene* s, UiCallControl control) noexcept {
 }
 
 bool ui_call_scene_scroll(UiCallScene* s, float x, float y, float delta) noexcept {
-    if (!s || !s->active || !ui_coordinate_valid(delta))
+    if (!s->active || !ui_coordinate_valid(delta))
         return false;
     if (s->focus_user) {
         const float overflow = maximum(0.f, s->strip_content_width - ui_rect_width(s->strip));

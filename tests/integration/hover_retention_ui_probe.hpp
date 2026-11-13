@@ -55,7 +55,7 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
                  .ok() ||
             !user_store_upsert(&users, base + i + 10000, utf8_literal("Native Author")).ok())
             return false;
-    if (!message_view_runtime_reindex(&view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height),
+    if (!message_view_runtime_reindex(&view, ui_extent_units(kUiBootstrapMessageRowHeight),
                                       1, true)
              .ok() ||
         !rebuild_model() || scene.count < 4)

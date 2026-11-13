@@ -53,7 +53,7 @@ struct TypingStore {
 bool typing_store_initialize(
     TypingStore* store,
     Slice<TypingRecord> records) noexcept;
-bool typing_store_reset(TypingStore* store) noexcept;
+void typing_store_reset(TypingStore* store) noexcept;
 TypingStoreResult typing_store_start(
     TypingStore* store, u64 channel_id, u64 guild_id, u64 user_id,
     u64 now_ms) noexcept;

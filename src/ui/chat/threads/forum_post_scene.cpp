@@ -75,7 +75,7 @@ bool natural(ForumPostScene* s, u32 key, UiSize constraint, UiTextMeasureValue* 
 }
 bool measure(void* context, const UiLayoutMeasureRequest& r, UiSize* size) noexcept {
     auto* s = static_cast<ForumPostScene*>(context);
-    if (!s || !r.key)
+    if (!r.key)
         return false;
     const u32 key = r.key >= attachment_key_base ? r.key : r.key - 1;
     if (!(key >= attachment_key_base ? ui_attachment_draft_list_label(s->attachment_list, key)
@@ -233,11 +233,9 @@ bool build(ForumPostScene* s) noexcept {
         else
             s->elements[key] = added.handle;
     }
-    if (!ui_attachment_draft_list_build(
-            &s->attachment_list, &s->widgets, s->elements[idx(ForumPostElement::attachments)],
-            s->content.attachments, attachment_key_base, s->content.attachment_style))
-        return false;
-    return true;
+    return ui_attachment_draft_list_build(&s->attachment_list, &s->widgets,
+                                          s->elements[idx(ForumPostElement::attachments)], s->content.attachments,
+                                          attachment_key_base, s->content.attachment_style);
 }
 } // namespace
 const UiLayoutNode* forum_post_node(const ForumPostScene& s, ForumPostElement e) noexcept {
@@ -246,7 +244,7 @@ const UiLayoutNode* forum_post_node(const ForumPostScene& s, ForumPostElement e)
 }
 bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect viewport,
                        UiTextMeasureCache* cache) noexcept {
-    if (!s || !cache || !cache->backend || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 96 ||
+    if (!cache || !cache->backend || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 96 ||
         ui_rect_height(viewport) < 64 || !c.heading.bytes || !c.title_label.bytes || !c.body_label.bytes ||
         !c.cancel.bytes || !c.accept.bytes || c.tags.count > kForumPostTagCapacity ||
         (!c.tags.data && c.tags.count) || c.attachments.count > kUiAttachmentDraftMaximum ||
@@ -462,7 +460,7 @@ ForumPostTarget forum_post_focused(const ForumPostScene& s) noexcept {
     return s.active ? target_of(s, s.widgets.focused) : ForumPostTarget{ForumPostElement::count, 0};
 }
 bool forum_post_focus(ForumPostScene* s, ForumPostTarget t) noexcept {
-    if (!s || !s->active ||
+    if (!s->active ||
         (!edit(t.element) && !button(t.element) && t.element != ForumPostElement::attachments))
         return false;
     const auto h = target_handle(*s, t);
@@ -475,7 +473,7 @@ bool forum_post_focus(ForumPostScene* s, ForumPostTarget t) noexcept {
     return ok;
 }
 bool forum_post_move_focus(ForumPostScene* s, bool reverse) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     // Visual order is independent of retained storage insertion order.
     ForumPostTarget order[kForumPostTagCapacity + 7 + kUiAttachmentDraftMaximum * 4]{};
@@ -532,7 +530,7 @@ UiScrollbarGeometry forum_post_scrollbar(const ForumPostScene& s) noexcept {
                                  ui_rect_height(geometry.viewport) + geometry.maximum.y);
 }
 bool forum_post_scroll(ForumPostScene* s, float delta) noexcept {
-    if (!s || !s->active || !ui_coordinate_valid(delta))
+    if (!s->active || !ui_coordinate_valid(delta))
         return false;
     UiWidgetScrollGeometry geometry{};
     const auto h = s->elements[idx(ui_rect_height(s->viewport) < 240 ? ForumPostElement::panel
@@ -554,7 +552,7 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
     if (!s.active)
         return true;
     const auto* panel = forum_post_node(s, ForumPostElement::panel);
-    if (!out || !panel)
+    if (!panel)
         return false;
     UiPaint p{out, theme};
     p.clip(s.viewport)

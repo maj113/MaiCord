@@ -4,7 +4,6 @@
 #if defined(_WIN32)
 #include "maicord/platform/window/win32.hpp"
 
-#include "maicord/sys/gdi.hpp"
 #include "maicord/sys/shell.hpp"
 #else
 #include "maicord/platform/dbus/launcher_entry.hpp"

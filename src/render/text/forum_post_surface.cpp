@@ -4,8 +4,6 @@
 
 namespace maicord {
 bool forum_post_surface_update(ForumPostSurface* surface, const TextSystem& text) noexcept {
-    if (!surface)
-        return false;
     // Field 0 is the single-line title, field 1 the body.
     for (u32 f = 0; f < 2; ++f) {
         reset_value(&surface->geometry[f]);
@@ -27,8 +25,6 @@ bool forum_post_surface_update(ForumPostSurface* surface, const TextSystem& text
     return true;
 }
 void forum_post_surface_release(ForumPostSurface* surface) noexcept {
-    if (!surface)
-        return;
     for (auto& layout : surface->layouts)
         text_edit_layout_release(&layout);
     reset_value(surface);

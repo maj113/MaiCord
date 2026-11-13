@@ -1090,7 +1090,7 @@ bool handle_content_click(const WindowEvent& event) noexcept {
                 window_focus(g_app.window);
                 if (g_app.message_scene.timeline)
                     message_timeline_remove_local(g_app.message_scene.timeline, message->id);
-                return refresh_account_frame(true);
+                return refresh_account_frame();
             }
             if (message_type_is_system(message->type)) {
                 if (hit.kind == MessageMarkdownSemanticKind::message_link)

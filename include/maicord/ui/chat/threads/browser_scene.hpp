@@ -4,6 +4,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/threads/forum_channel_scene.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiThreadBrowserPageCapacity = 25;
@@ -119,4 +120,7 @@ bool ui_thread_browser_scene_scroll(UiThreadBrowserScene*, float offset) noexcep
 bool ui_thread_browser_scene_spinner_visible(const UiThreadBrowserScene&) noexcept;
 bool ui_thread_browser_scene_paint(const UiThreadBrowserScene&, const Theme&, PaintStream*) noexcept;
 bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene&, const Theme&, UiTextOutput*) noexcept;
+inline UiCursor ui_thread_browser_scene_cursor(const UiThreadBrowserScene& scene, float x, float y) noexcept {
+    return ui_action_cursor(ui_thread_browser_scene_hit_test(scene, x, y).action != UiThreadBrowserAction::none);
+}
 } // namespace maicord

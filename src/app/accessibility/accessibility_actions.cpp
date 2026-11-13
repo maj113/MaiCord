@@ -303,7 +303,7 @@ bool account_surface(u8 surface) noexcept {
 bool reveal_node(const UiAccessNode& node) noexcept {
     if (!reveal_item(node))
         return false;
-    if (account_surface(node.surface) && !refresh_account_frame(true))
+    if (account_surface(node.surface) && !refresh_account_frame())
         log_write(LogLevel::warning, "accessibility", "reveal_refresh_failed");
     application_request_frame();
     return true;
@@ -453,7 +453,7 @@ void focus_owner(UiWidgetManager* owner) noexcept {
     g_app.context_focus = owner;
     g_app.keyboard_focus_visible = true;
     window_focus(g_app.window);
-    if (!refresh_account_frame(true))
+    if (!refresh_account_frame())
         log_write(LogLevel::warning, "accessibility", "focus_refresh_failed");
 }
 

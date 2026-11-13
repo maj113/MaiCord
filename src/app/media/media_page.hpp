@@ -30,7 +30,7 @@ struct MediaPageSource {
     // an embed's thumbnail). The key of an audio page is its audio's.
     MediaAssetKey key, fallback;
     UiSize pixels;
-    u64 channel_id, message_id, author_id;
+    u64 channel_id, message_id;
     u32 revision;
     Utf8View art;
     // What Open original opens: an embed's own link (the page it describes); empty for an attachment, whose URL it is.

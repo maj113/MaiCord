@@ -4,8 +4,7 @@
 
 namespace maicord {
 
-TimestampFormatResult format_profile_date(u64 unix_seconds, Slice<char> output,
-                                                         const wchar_t* locale = L"en-US") noexcept;
+TimestampFormatResult format_profile_date(u64 unix_seconds, Slice<char> output) noexcept;
 
 // The appearance.timestamp_hour_cycle setting: auto follows the Windows locale.
 enum class HourCycle : u8 { automatic, h12, h23 };
@@ -13,9 +12,8 @@ enum class HourCycle : u8 { automatic, h12, h23 };
 bool timestamp_set_hour_cycle(HourCycle) noexcept;
 HourCycle timestamp_hour_cycle() noexcept;
 
-TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
-                                                            u64 now_unix_seconds,
-                                                            Slice<char> output) noexcept;
+TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style, u64 now_unix_seconds,
+                                             Slice<char> output) noexcept;
 
 // The shape of the formatted time of day ('t'), which sizes a fixed timestamp
 // column: a trailing AM/PM, a 24-hour time of at most five characters, or

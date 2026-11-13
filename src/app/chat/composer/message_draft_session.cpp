@@ -191,11 +191,6 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
                  message_drafts_save_file(session.path, session.profile_id, drafts), now_ms);
 }
 
-bool message_draft_session_wait(MessageDraftSession& session, const MessageDraftStore& drafts, u64 now_ms,
-                                u32 timeout_ms) noexcept {
-    return collect(session, drafts, now_ms, maximum(timeout_ms, 1u));
-}
-
 bool message_draft_session_configure(MessageDraftSession& session, MessageDraftStore& drafts,
                                      const wchar_t* path, u64 profile_id, u64 now_ms) noexcept {
     if (!path || profile_id == 0) {

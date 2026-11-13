@@ -200,7 +200,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         // The confirmation replaces the popup; Shift deletes immediately.
         if (!dismiss_popup())
             return false;
-        return application_message_delete_request(owner_id, shift_pressed) || refresh_account_frame(true);
+        return application_message_delete_request(owner_id, shift_pressed) || refresh_account_frame();
     } else if (action == static_cast<u32>(MessageContextAction::retry_send) &&
                g_app.popup_owner_kind == PopupOwnerKind::message) {
         applied = retry_failed_message(owner_id);
@@ -312,7 +312,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
 }
 
 bool refresh_reaction_viewer_presentation() noexcept {
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 static bool dismiss_reaction_viewer() noexcept {
@@ -382,7 +382,7 @@ bool handle_reaction_viewer_key(u32 key) noexcept {
                          : key == key::down  ? 1
                          : key == key::page_up ? -static_cast<i32>(reaction_viewer_visible_user_count(viewer))
                                            : static_cast<i32>(reaction_viewer_visible_user_count(viewer));
-        reaction_viewer_scroll_users(&viewer, rows, &changed);
+        reaction_viewer_set_scroll(&viewer, true, viewer.user_scroll + rows * kReactionViewerUserRowHeight, &changed);
         const ReactionViewerControllerResult more =
             reaction_viewer_controller_request_more(&g_app.reaction_viewer_controller);
         changed = changed || (more.ok() && more.changed);

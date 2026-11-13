@@ -17,7 +17,6 @@ float chip_width(const Utf8View& name, const UiForumStyle& s) noexcept {
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
     return minimum(s.chip_max_width, maximum(s.chip_min_width, width));
 }
-// a sorts before b.
 bool before(const UiForumSortKey& a, const UiForumSortKey& b, UiForumSort sort) noexcept {
     if (a.pinned != b.pinned) return a.pinned;
     if (sort == UiForumSort::latest_activity) {
@@ -81,14 +80,12 @@ bool ui_forum_post_matches(const ConstSlice<u64>& applied, const ConstSlice<u64>
     return match == UiForumTagMatch::all;
 }
 void ui_forum_sort(const Slice<UiForumSortKey>& keys, UiForumSort sort) noexcept {
-    if (!keys.data) return;
     // Ties resolve by unique ID, so the unstable heap sort is deterministic.
     heap_sort_shared(keys.data, keys.count,
               [sort](const UiForumSortKey& a, const UiForumSortKey& b) noexcept { return before(a, b, sort); });
 }
 void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view, const UiForumStyle& s,
     UiForumToolbar* out) noexcept {
-    if (!out) return;
     reset_value(out);
     const float width = maximum(0.f, ui_rect_width(band));
     const float row_top = band.top + (s.toolbar_row_height - s.control_height) * .5f;
@@ -168,7 +165,7 @@ Utf8View ui_forum_sort_label(UiForumSort sort) noexcept {
     return sort == UiForumSort::creation_date ? utf8_literal("Creation date") : utf8_literal("Latest activity");
 }
 bool ui_forum_channel_avatar(const UiThreadBrowserScene& s, u32 index, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !active(s) || index >= s.count || !s.backing->rows[index].generation) return false;
+    if (!active(s) || index >= s.count || !s.backing->rows[index].generation) return false;
     const auto& post = s.view->forum->posts[index];
     if (!post.author_id) return false;
     const auto card = s.backing->cards[index];
@@ -177,7 +174,7 @@ bool ui_forum_channel_avatar(const UiThreadBrowserScene& s, u32 index, UiRect* r
     return ui_rect_has_area(*clip);
 }
 bool ui_forum_channel_media(const UiThreadBrowserScene& s, u32 index, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !active(s) || index >= s.count || !s.backing->rows[index].generation) return false;
+    if (!active(s) || index >= s.count || !s.backing->rows[index].generation) return false;
     const auto& post = s.view->forum->posts[index];
     if (!post.has_media) return false;
     const auto card = s.backing->cards[index];

@@ -17,7 +17,7 @@ bool private_navigation_changed() noexcept {
     application_tabs_note_navigation();
     application_read_state_activity();
     return synchronize_navigation_view() && synchronize_selected_channel() && synchronize_shell_layout() &&
-        refresh_account_frame(true);
+        refresh_account_frame();
 }
 bool queue_private_conversation(PrivateConversationOperation operation, u64 id) noexcept {
     if (!g_app.account_ui || !g_app.account.instance) return false;
@@ -58,7 +58,7 @@ bool accept_private_conversation(const RestClientResponse& response, Utf8View bo
         application_friends_hide();
         application_read_state_activity();
     }
-    return synchronize_navigation_view() && synchronize_selected_channel() && application_profile_conversation_ready() && refresh_account_frame(true);
+    return synchronize_navigation_view() && synchronize_selected_channel() && application_profile_conversation_ready() && refresh_account_frame();
 }
 bool present_private_conversation_error() noexcept {
     if (!g_app.account_ui || g_app.popup_scene.active || (g_app.profile && g_app.profile->scene.active)) return true;
@@ -76,6 +76,6 @@ bool present_private_conversation_error() noexcept {
     if (!opened.ok()) return false;
     set_popup_owner(PopupOwnerKind::private_notice);
     request.feedback_shown = true;
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 }

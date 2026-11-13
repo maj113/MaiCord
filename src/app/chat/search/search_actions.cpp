@@ -317,7 +317,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         message_composer_set_selection(&s.edit, caret, caret);
         suggestions_open(s);
         focus(s, true);
-        return application_search_edit_changed(true);
+        return application_search_edit_changed();
     }
     return true;
 }

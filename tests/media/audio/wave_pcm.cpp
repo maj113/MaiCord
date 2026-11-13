@@ -89,7 +89,7 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
         samples({pcm, 4 * width});
         check(parse() && fixture.source.total_frames == 4 && fixture.source.sample_rate == 8000 &&
                   fixture.source.data.data == fixture.bytes + fixture.data_offset &&
-                  fixture.source.encoded.data == fixture.bytes && fixture.source.duration_ms == 0,
+                  fixture.source.encoded.data == fixture.bytes,
               "wave PCM parser retains immutable source data and exact frames for each integer width");
         const auto result = wave_pcm_decode(fixture.source, 0, 8, {fixture.samples, 16});
         const float maximum = bits == 8    ? 127.0f / 128.0f
@@ -317,10 +317,10 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.count += 8 + 32002;
     fixture.bytes[fixture.count - 1] = 0;
     put32(fixture.bytes + 4, fixture.count - 8);
-    check(parse() && fixture.source.total_frames == 32001 && fixture.source.duration_ms == 2000 &&
+    check(parse() && fixture.source.total_frames == 32001 &&
               wave_pcm_decode(fixture.source, 32000, 8192, {fixture.samples, 1}).ok() &&
               fixture.samples[0] == 0,
-          "wave duration uses exact u64 frame arithmetic and seek retains a final sub-millisecond frame");
+          "wave seek retains a final sub-millisecond frame");
     auto forged = fixture.source;
     forged.total_frames = ~u64{0};
     fixture.samples[0] = 9;

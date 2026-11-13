@@ -2,7 +2,6 @@
 #include "maicord/model/user/image_crop.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/widgets/button_keyboard.hpp"
-#include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/text/presentation.hpp"
@@ -49,8 +48,7 @@ struct UiProfileDialogContent {
     UiProfileDialogKind kind;
     Utf8View title, apply_label;
     // Crop: the picked image in the preview atlas and the crop state. The
-    // scene lays out the viewport and writes it back through
-    // ui_profile_dialog_crop_viewport; the host keeps zoom and offset.
+    // scene lays out the viewport and writes it back to crop_viewport; the host keeps zoom and offset.
     MediaAssetKey image;
     ImageCropState crop;
     bool image_ready;

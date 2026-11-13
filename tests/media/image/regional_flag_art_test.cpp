@@ -23,7 +23,7 @@ bool run() noexcept {
     CHECK(commands[4].kind==GlyphPathCommandKind::end_closed&&commands[8].x1==2&&commands[8].y1==4);
     CHECK(outline.minimum_x==1&&outline.minimum_y==1&&outline.maximum_x==5&&outline.maximum_y==5);
     ColrPaintProgram program{};CHECK(arena_initialize(&program.storage,8*1024*1024,0,4096));
-    CHECK(regional_flag_compile(art,&program,kRegionalFlagPixelsPerUnit));
+    CHECK(regional_flag_compile(art,&program));
     CHECK(program.mask_count==1&&program.stack==1);
     // A black circle at (1, 1), radius .5, and the rotated ellipse, in hundredths.
     constexpr u8 shapes[]{1,0,0,0,0xC8,0x01,0xC8,0x01,0x64,10,0,0,0x80,0xC8,0x01,0xC8,0x01,0x64,0xC8,0x01,0xFF};

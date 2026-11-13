@@ -2,8 +2,8 @@
 
 // The headless window backend (src/platform/window/null): the whole window service over plain memory, with no
 // desktop and no compositor, for the tests that drive window handlers (tests/support/window_fixture.hpp). It keeps
-// what the system keeps: capture, focus, the cursor shape, key state, the pointer position; and, like the system,
-// reports a lost capture to the sink synchronously, from inside the call that lost it
+// what the system keeps: capture, focus, the cursor shape, key state; and, like the system, reports a lost capture
+// to the sink synchronously, from inside the call that lost it
 // (tests/platform/window/win32_behaviour.cpp captures the Windows behaviour it copies).
 #include "maicord/platform/window/window.hpp"
 
@@ -48,17 +48,14 @@ struct NullWindowProbe {
 };
 const NullWindowProbe& null_window_probe() noexcept;
 
-// Forgets the window, the sink and everything the probe counted; key and pointer state go back to nothing held.
+// Forgets the window, the sink and everything the probe counted; key state goes back to nothing held.
 void null_window_reset() noexcept;
 
-// The input device state window_modifiers, window_key_down, window_toggle_state, window_pointer_position and
-// window_layout_types_text read.
+// The input device state window_modifiers, window_key_down and window_toggle_state read.
 void null_window_set_key(Key key, bool down) noexcept;
 void null_window_set_toggle(Key key, bool on) noexcept;
 void null_window_release_keys() noexcept;
-void null_window_set_pointer(float x_px, float y_px) noexcept;
 void null_window_set_metrics(const WindowMetrics& metrics) noexcept;
-void null_window_set_layout_types_text(bool types_text) noexcept;
 // Whether the window has a text input protocol at all (the Wayland compositor's text-input-v3).
 void null_window_set_text_input_available(bool available) noexcept;
 

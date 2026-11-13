@@ -172,7 +172,7 @@ void shaped_text_cache_clear(ShapedTextCache* cache) noexcept {
 }
 
 void shaped_text_cache_destroy(ShapedTextCache** cache) noexcept {
-    if (!cache || !*cache)
+    if (!*cache)
         return;
     shaped_text_cache_clear(*cache);
     pages_release(*cache);

@@ -590,10 +590,9 @@ UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, boo
     }
     return target;
 }
+// Only for a tiled scene (ui_search_scene_rich_preview_geometry).
 const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& target,
                                 u32* slot) noexcept {
-    if (!tiled(s))
-        return nullptr;
     const auto& p = *s.rich_projection;
     for (u32 v = 0; v < p.visible_count; ++v) {
         const auto& item = p.items[p.visible[v]];
@@ -601,8 +600,7 @@ const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& ta
         if (expected.action == UiSearchAction::rich_item && item.source_index == target.source_index &&
             expected.rich_kind == target.rich_kind && item.rich_index == target.rich_index &&
             item.snapshot == target.snapshot && !target.save) {
-            if (slot)
-                *slot = v;
+            *slot = v;
             return &item;
         }
     }

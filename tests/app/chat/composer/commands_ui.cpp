@@ -75,7 +75,7 @@ void application_user_actions_commands_changed() noexcept { ++context_changes; }
 u32 frame_refreshes, modal_nonces;
 u64 expected_modal;
 ApplicationTextFormRequest confirm_request;
-bool refresh_account_frame(bool) noexcept { ++frame_refreshes; return true; }
+bool refresh_account_frame() noexcept { ++frame_refreshes; return true; }
 void application_message_components_expect_modal(u64 nonce, u64) noexcept {
     ++modal_nonces;
     expected_modal = nonce;

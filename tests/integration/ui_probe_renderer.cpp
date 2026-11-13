@@ -776,7 +776,7 @@ bool probe_signout_glyph_atlas() noexcept {
             return false;
     }
     if (!message_view_runtime_reindex(&g_probe.message_view,
-                                      ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+                                      ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
              .ok())
         return false;
     // The shell at several scales (the window moved across monitors) fills several bands of the atlas.

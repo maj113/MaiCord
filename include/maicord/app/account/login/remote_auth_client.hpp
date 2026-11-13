@@ -18,7 +18,6 @@ enum class RestContentEncoding : u8;
 enum class RestContentType : u8;
 
 inline constexpr u32 kRemoteAuthQrUrlBytes = 66;
-inline constexpr u32 kRemoteAuthClientUserBytes = kRemoteAuthMaximumUserPayloadBytes;
 
 enum class RemoteAuthClientPhase : u8 {
     empty,
@@ -142,7 +141,7 @@ struct RemoteAuthClient {
     volatile LONG token_taken;
     volatile LONG64 next_wake_at_ms;
     char qr_url[kRemoteAuthQrUrlBytes];
-    char user[kRemoteAuthClientUserBytes];
+    char user[kRemoteAuthMaximumUserPayloadBytes];
     u32 qr_url_bytes;
     u32 user_bytes;
 };

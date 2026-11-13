@@ -6,8 +6,6 @@ namespace maicord {
 bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme) noexcept {
     if (!geometry.visible)
         return true;
-    if (!paint)
-        return false;
     // Every visible bar is recorded, filtered or not: the pointer tracker lights a bar the moment the
     // pointer reaches its track, in the same move that selects its viewport.
     auto& painted = paint->scrollbar_tracks;
@@ -56,16 +54,13 @@ UiScrollbarHot ui_scrollbar_pointer_update(UiScrollbarPointer* pointer, const Ui
 UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_dips,
                                           float content_height_dips) noexcept {
     UiScrollbarGeometry result{};
-    if (!is_finite(viewport.left) || !is_finite(viewport.top) ||
-        !is_finite(viewport.right) || !is_finite(viewport.bottom) ||
-        !is_finite(content_height_dips) || !is_finite(scroll_dips))
+    if (!is_finite(content_height_dips) || !is_finite(scroll_dips))
         return result;
     const float viewport_height = ui_rect_height(viewport);
     // Logical list length can exceed local layout bounds; the thumb still
     // occupies only the validated viewport. Reject nonfinite scalar inputs.
     if (!ui_rect_valid_or_empty(viewport) || !ui_rect_has_area(viewport) ||
-        !ui_extent_valid(viewport_height) || !(content_height_dips > viewport_height) ||
-        !is_finite(viewport_height)) {
+        !ui_extent_valid(viewport_height) || !(content_height_dips > viewport_height)) {
         return result;
     }
     constexpr float gutter = 12.0f;
@@ -101,8 +96,7 @@ bool ui_scrollbar_thumb_hit(const UiScrollbarGeometry& geometry, float x, float 
 
 float ui_scrollbar_scroll_from_pointer(const UiScrollbarGeometry& geometry, float pointer_y,
                                        float thumb_grab_offset) noexcept {
-    if (!geometry.visible || geometry.maximum_scroll <= 0.0f || !is_finite(pointer_y) ||
-        !is_finite(thumb_grab_offset) || !ui_coordinate_valid(pointer_y) ||
+    if (!geometry.visible || geometry.maximum_scroll <= 0.0f || !ui_coordinate_valid(pointer_y) ||
         !ui_coordinate_valid(thumb_grab_offset)) {
         return 0.0f;
     }

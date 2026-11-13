@@ -24,9 +24,6 @@ struct Reader {
     ProtoSource source() const noexcept {
         return proto_source({data, end});
     }
-    bool varint(u64& n) noexcept {
-        return proto_varint(source(), at, end, n);
-    }
     bool tag(u32& field, u32& type) noexcept {
         return proto_tag(source(), at, end, field, type);
     }

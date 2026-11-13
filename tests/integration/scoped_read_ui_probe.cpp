@@ -698,7 +698,7 @@ UiRect application_viewport_dips() noexcept {
 bool refresh_account_text(bool) noexcept {
     return fixture->refresh_ok = fixture->refresh_ok && project();
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return refresh_account_text(true);
 }
 bool refresh_popup_text() noexcept {

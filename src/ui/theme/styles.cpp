@@ -306,12 +306,9 @@ bool ui_theme_palette_valid(const Theme& theme) noexcept {
     for (const auto& descriptor : tokens)
         if (!color_valid(*ui_theme_token_get(theme, descriptor.id)))
             return false;
-    for (const auto& descriptor : scales) {
-        float value{};
-        ui_theme_scale_get(theme.scale, descriptor.id, &value);
-        if (!between(value, descriptor.minimum(), descriptor.maximum()))
+    for (const auto& descriptor : scales)
+        if (!between(ui_theme_scale_value(theme.scale, descriptor.id), descriptor.minimum(), descriptor.maximum()))
             return false;
-    }
     auto motion = theme.motion;
     for (const auto& descriptor : motions)
         if (!ui_motion_style_valid(*ui_theme_motion_slot(&motion, descriptor.id)))
@@ -325,13 +322,9 @@ bool ui_theme_palette_equal(const Theme& a, const Theme& b) noexcept {
     for (const auto& descriptor : tokens)
         if (!color_equal(*ui_theme_token_get(a, descriptor.id), *ui_theme_token_get(b, descriptor.id)))
             return false;
-    for (const auto& descriptor : scales) {
-        float left{}, right{};
-        ui_theme_scale_get(a.scale, descriptor.id, &left);
-        ui_theme_scale_get(b.scale, descriptor.id, &right);
-        if (left != right)
+    for (const auto& descriptor : scales)
+        if (ui_theme_scale_value(a.scale, descriptor.id) != ui_theme_scale_value(b.scale, descriptor.id))
             return false;
-    }
     auto ma = a.motion, mb = b.motion;
     for (const auto& descriptor : motions) {
         const auto* x = ui_theme_motion_slot(&ma, descriptor.id);
@@ -422,11 +415,8 @@ ConstSlice<UiThemeScaleDescriptor> ui_theme_scale_descriptors() noexcept {
 }
 #define MAICORD_THEME_SCALE(name, value, minimum, maximum)                                                     static_assert(offsetof(UiThemeScale, name) == static_cast<u32>(UiThemeScaleToken::name) * sizeof(float));
 #include "maicord/ui/theme/tokens.inc"
-bool ui_theme_scale_get(const UiThemeScale& scale, UiThemeScaleToken id, float* output) noexcept {
-    if (!output || id >= UiThemeScaleToken::count)
-        return false;
-    *output = reinterpret_cast<const float*>(&scale)[static_cast<u8>(id)];
-    return true;
+float ui_theme_scale_value(const UiThemeScale& scale, UiThemeScaleToken id) noexcept {
+    return reinterpret_cast<const float*>(&scale)[static_cast<u8>(id)];
 }
 bool ui_theme_scale_set(UiThemeScale* scale, UiThemeScaleToken id, float input) noexcept {
     if (!scale || id >= UiThemeScaleToken::count)

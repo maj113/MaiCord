@@ -402,8 +402,8 @@ void drag() noexcept {
     check(t.id == 10 && t.drop == NavigationDropKind::before &&
               !navigation_drag_guild_target(d, {rail, 4}, 170, kGuildRailRowGapDips).id,
           "drag: folders never combine or sit among folder members");
-    navigation_drag_cancel(&d);
-    check(d.phase == NavigationDragPhase::idle && !navigation_drag_release(&d, &dropped), "drag: Esc cancels");
+    d = {};
+    check(!navigation_drag_release(&d, &dropped), "drag: a cancelled drag drops nothing");
 
     const NavigationDragRow list[]{{100, {0, 0, 200, 24}, NavigationDragRowKind::category},
                                    {12, {0, 24, 200, 56}, NavigationDragRowKind::text},
@@ -422,7 +422,6 @@ void drag() noexcept {
     check(navigation_drag_channel_target(d, {list, 4}, 5).drop == NavigationDropKind::before &&
               !navigation_drag_channel_target(d, {list, 4}, 30).id,
           "drag: categories drop beside categories only");
-    navigation_drag_cancel(&d);
 
     const UiRect viewport{0, 100, 72, 700};
     check(navigation_drag_autoscroll(viewport, 105, 16) < 0 && navigation_drag_autoscroll(viewport, 695, 16) > 0 &&

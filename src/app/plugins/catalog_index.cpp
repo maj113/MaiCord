@@ -74,7 +74,6 @@ bool array(Parse& p, JsonValue value, JsonArrayVisitor visitor, void* context, u
 }
 bool required(Parse& p, u32 seen, u32 mask) noexcept { return (seen & mask) == mask || fail(p, E::missing_field); }
 
-// ---- numbers -------------------------------------------------------------------------------
 // A JSON integer: no fraction or exponent and at most 20 digits; anything else is a type error.
 struct Integer {
     bool negative, overflow;
@@ -151,7 +150,6 @@ bool decimal(Parse& p, JsonValue value, i64* out) noexcept {
     return true;
 }
 
-// ---- text ----------------------------------------------------------------------------------
 // One string decoded at the end of the text pool; keep() makes it part of the index.
 struct Text {
     CatalogString ref;
@@ -281,7 +279,6 @@ bool version_text(Parse& p, JsonValue value, CatalogVersion* v) noexcept {
 }
 bool time(Parse& p, JsonValue value, u64* out) noexcept { return unsigned_in(p, value, 1, kTimeMaximum, E::time, out); }
 
-// ---- {sha256, bytes} -------------------------------------------------------------------------
 struct BlobContext {
     Parse* p;
     CatalogBlob* blob;
@@ -299,7 +296,6 @@ bool blob(Parse& p, JsonValue value, u32 maximum, CatalogBlob* out) noexcept {
     return object(p, value, blob_member, &c) && required(p, c.seen, 3);
 }
 
-// ---- previews and the loop -------------------------------------------------------------------
 enum ImageField : u32 { im_sha256, im_bytes, im_width, im_height, im_alt, im_fps, im_seconds };
 constexpr char kImageNames[] = "sha256\0bytes\0width\0height\0alt\0fps\0seconds\0";
 constexpr u32 kPreviewFields = 0x1F, kLoopFields = 0x6F;
@@ -339,7 +335,6 @@ bool preview_entry(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 
-// ---- authors and derived_from ----------------------------------------------------------------
 struct AuthorContext {
     Parse* p;
     CatalogAuthor* author;
@@ -387,7 +382,6 @@ bool category_entry(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 
-// ---- plugin versions -----------------------------------------------------------------------------
 struct PermissionContext {
     Parse* p;
     u64* mask;
@@ -473,7 +467,6 @@ bool version_entry(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 
-// ---- effect knobs ----------------------------------------------------------------------------------
 enum KnobField : u32 { kn_id, kn_type, kn_label, kn_min, kn_max, kn_default, kn_choices, kn_percent };
 constexpr char kKnobNames[] = "id\0type\0label\0min\0max\0default\0choices\0percent\0";
 constexpr u32 kKnobFields[]{0x3F, 0x3F, 0x27, 0x27, 0x67}; // by CatalogKnobType; required, and allowed
@@ -645,7 +638,6 @@ bool swatch_member(void* context, JsonString name, JsonValue value) noexcept {
     return color(t.view, &c.swatches[field]) || fail(*c.p, E::text);
 }
 
-// ---- items -------------------------------------------------------------------------------------
 enum ItemField : u32 { it_kind, it_slug, it_name, it_summary, it_authors, it_license, it_source, it_homepage, it_categories,
     it_derived, it_details, it_previews, it_versions, it_version, it_released, it_changelog, it_file, it_base, it_effect,
     it_swatches, it_cost, it_blend, it_uses, it_knobs, it_loop, it_interface };
@@ -758,7 +750,6 @@ bool item_entry(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 
-// ---- revoked and blocklist ---------------------------------------------------------------------
 struct RevokedContext {
     Parse* p;
     CatalogRevocation* entry;
@@ -797,7 +788,6 @@ bool revoked_entry(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 
-// ---- root ------------------------------------------------------------------------------------------
 enum RootField : u32 { r_format, r_sequence, r_issued, r_expires, r_items, r_revoked, r_blocklist };
 constexpr char kRootNames[] = "format\0sequence\0issued\0expires\0items\0revoked\0blocklist\0";
 struct RootContext {

@@ -747,7 +747,7 @@ void test_ui_scene() noexcept {
     MessageScene grouping_scene{};
     UiWidget grouping_widgets[5 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode grouping_layout[5 * kMessageSceneWidgetsPerRow + 1]{};
-    const u32 grouping_default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 grouping_default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     grouping_seeded =
         grouping_seeded &&
         ui_variable_list_initialize(&grouping_list, Slice<u32>{grouping_units, 5},
@@ -810,7 +810,7 @@ void test_ui_scene() noexcept {
     u64 message_scene_fenwick[32]{};
     UiVariableList message_scene_list{};
     MessageTimeline message_scene_timeline{};
-    const u32 message_default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 message_default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     const bool message_scene_model_ready =
         message_scene_seeded &&
         ui_variable_list_initialize(&message_scene_list, Slice<u32>{message_scene_item_units, 32},

@@ -63,7 +63,6 @@ enum class ZlibInflateError : u8 {
 struct ZlibInflateResult {
     u32 input_bytes;
     u32 output_bytes;
-    u32 blocks;
     ZlibInflateError error;
 
     constexpr bool ok() const noexcept {

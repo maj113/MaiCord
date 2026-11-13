@@ -182,7 +182,8 @@ u32 linux_client_system_locale(const LinuxClientEnvironment& environment, Slice<
     return emit(utf8_literal("en-US"), output);
 }
 
-u32 linux_client_preferred_languages(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
+// The languages of $LANGUAGE as tags, each ended by a NUL (the input of client_accept_language).
+static u32 linux_client_preferred_languages(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
     u32 used = 0;
     char tag[kGatewayUserMaximumLocaleBytes];
     for (u32 at = 0; environment.language.data && at <= environment.language.bytes;) {
@@ -197,7 +198,8 @@ u32 linux_client_preferred_languages(const LinuxClientEnvironment& environment, 
     return used;
 }
 
-u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
+// "<XDG_CURRENT_DESKTOP>,<GDMSESSION>", an unset one as "unknown".
+static u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept {
     const auto part = [](Utf8View value) noexcept {
         return usable(value, kPartBytes) ? value : utf8_literal("unknown");
     };
@@ -233,7 +235,8 @@ Utf8View linux_client_runtime_environment(const LinuxClientEnvironment& environm
     return utf8_literal("native");
 }
 
-Utf8View linux_client_display_server(const LinuxClientEnvironment& environment) noexcept {
+// $XDG_SESSION_TYPE, "unknown" when unset; empty when set and empty.
+static Utf8View linux_client_display_server(const LinuxClientEnvironment& environment) noexcept {
     if (!environment.xdg_session_type.data)
         return utf8_literal("unknown");
     return usable(environment.xdg_session_type, kGatewayUserMaximumRuntimeBytes) ? environment.xdg_session_type

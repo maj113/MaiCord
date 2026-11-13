@@ -11,8 +11,6 @@ using namespace ui_media_picker_detail;
 bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPickerSource* source,
                                   const UiMediaPickerContent* content, UiRect viewport, UiRect anchor,
                                   float preferred_width) noexcept {
-    if (!scene)
-        return false;
     if (!finite_rectangle(viewport) || !finite_rectangle(anchor) ||
         !bounded(preferred_width, 0, kMaximumUiCoordinate))
         return false;
@@ -149,8 +147,6 @@ void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
     scene->footer_title_bytes = scene->footer_detail_bytes = 0;
 }
 void ui_media_picker_scene_release(UiMediaPickerScene* scene) noexcept {
-    if (!scene)
-        return;
     ui_media_picker_scene_close(scene);
     ui_fixed_widget_storage_release(&scene->storage);
     if (scene->tiles)
@@ -214,8 +210,6 @@ bool ui_media_picker_scene_pointer_down(UiMediaPickerScene* scene, float x, floa
            ui_widget_manager_capture(&scene->widgets, widget);
 }
 UiMediaPickerTarget ui_media_picker_scene_pointer_up(UiMediaPickerScene* scene, float x, float y) noexcept {
-    if (!scene)
-        return {};
     const auto pressed = scene->pressed;
     const auto hit = ui_media_picker_scene_hit_test(*scene, x, y);
     const bool valid = scene->widgets.captured.generation && ui_media_picker_target_equal(pressed, hit);

@@ -100,11 +100,8 @@ GoLiveUi ui{};
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
-AccountHost& host() noexcept {
-    return g_app.account;
-}
 bool command(const GoLiveCommand& c) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     return h.instance && account_module_go_live(h.instance, &c);
 }
 bool streaming(const GoLiveSnapshot& s) noexcept {
@@ -114,15 +111,11 @@ bool streaming(const GoLiveSnapshot& s) noexcept {
 bool live() noexcept {
     return ui.snapshot_valid && streaming(ui.snapshot);
 }
-// The call the stream goes to: the account's voice call.
-const GatewayClientVoiceSnapshot* call() noexcept {
-    return application_voice_call();
-}
 u8 premium_type() noexcept {
     return g_app.account_ui ? g_app.account_ui->chat_state.self_premium_type : 0;
 }
 u8 guild_tier() noexcept {
-    const auto* c = call();
+    const auto* c = application_voice_call();
     const auto* record = c && c->guild_id && g_app.account_ui
                              ? guild_detail_store_find(g_app.account_ui->guild_details, c->guild_id)
                              : nullptr;
@@ -482,7 +475,7 @@ void update_live(GoLiveSettings next) noexcept {
 }
 // Starts the stream (or changes the source of the live one) from the dialog.
 void start(const CaptureSource* source) noexcept {
-    const auto* c = call();
+    const auto* c = application_voice_call();
     if (!c)
         return;
     GoLiveCommand cmd{};
@@ -568,7 +561,7 @@ void observe(const GoLiveSnapshot& next) noexcept {
         close_menu();
 }
 void poll(u64 now) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     GoLiveSnapshot next{};
     ui.polled_ms = now;
     if (!h.instance || !account_module_go_live_snapshot(h.instance, &next))
@@ -645,7 +638,7 @@ UiCallShare application_go_live_share(u64 channel_id) noexcept {
 }
 
 bool application_go_live_button(const UiRect& anchor) noexcept {
-    const auto* c = call();
+    const auto* c = application_voice_call();
     if (!c || !g_app.account_ui)
         return false;
     if (live())
@@ -677,7 +670,7 @@ bool application_go_live_tile(u64 channel_id, UiCallParticipant* p) noexcept {
 }
 
 bool application_go_live_preview(VideoStreamFrame* frame) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     return live() && h.instance && account_module_go_live_preview(h.instance, frame);
 }
 
@@ -795,7 +788,7 @@ bool application_go_live_modal_synchronize() noexcept {
         return true;
     }
     // The call left or the account went away: the dialog has nothing to stream into.
-    if (!g_app.account_ui || g_app.login.visible || !call()) {
+    if (!g_app.account_ui || g_app.login.visible || !application_voice_call()) {
         application_go_live_modal_close();
         return true;
     }

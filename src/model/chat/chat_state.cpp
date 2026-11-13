@@ -1317,7 +1317,6 @@ namespace {
 enum class ThreadAuthorityField : u8 {
     membership,
     archived,
-    locked,
     active
 };
 
@@ -1346,12 +1345,10 @@ bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id
         return false;
     const bool old_known = field == ThreadAuthorityField::membership ? channel.thread_self_joined_known
                            : field == ThreadAuthorityField::archived ? channel.thread_archived_known
-                           : field == ThreadAuthorityField::locked ? channel.thread_locked_known
-                                                                   : channel.thread_active_known;
+                                                                     : channel.thread_active_known;
     const bool old_value = field == ThreadAuthorityField::membership ? channel.thread_self_joined
                            : field == ThreadAuthorityField::archived ? channel.thread_archived
-                           : field == ThreadAuthorityField::locked ? channel.thread_locked
-                                                                   : channel.thread_listed_active;
+                                                                     : channel.thread_listed_active;
     if (old_known == known && (!known || old_value == value))
         return true;
     const ChannelActivity old = channel_activity(*store, channel);
@@ -1366,10 +1363,6 @@ bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id
         channel.thread_archived_known = known;
         if (known)
             channel.thread_archived = value;
-    } else if (field == ThreadAuthorityField::locked) {
-        channel.thread_locked_known = known;
-        if (known)
-            channel.thread_locked = value;
     } else {
         channel.thread_active_known = known;
         if (known)
@@ -1409,12 +1402,6 @@ bool chat_state_store_set_thread_archived(ChatStateStore* store, u64 thread_id, 
                                              bool archived, bool known) noexcept {
     return set_thread_authority(store, thread_id, self_user_id, archived, known,
                                 ThreadAuthorityField::archived);
-}
-
-bool chat_state_store_set_thread_locked(ChatStateStore* store, u64 thread_id, u64 self_user_id,
-                                           bool locked, bool known) noexcept {
-    return set_thread_authority(store, thread_id, self_user_id, locked, known,
-                                ThreadAuthorityField::locked);
 }
 
 bool chat_state_store_set_thread_active(ChatStateStore* store, u64 thread_id, u64 self_user_id,

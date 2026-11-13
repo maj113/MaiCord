@@ -11,15 +11,9 @@ AccountHostResult failure(AccountHostError error, u32 native_error = 0) noexcept
     return AccountHostResult{native_error, error};
 }
 
-// No module call was made. login_refused also reports a failed phase and a native error.
-AccountLoginStatus login_invalid_input() noexcept {
-    AccountLoginStatus status{};
-    status.error = AccountLoginError::invalid_input;
-    return status;
-}
-
+// No module call was made; it also reports a failed phase and a native error.
 AccountLoginStatus login_refused() noexcept {
-    AccountLoginStatus status = login_invalid_input();
+    AccountLoginStatus status = account_login_invalid_input();
     status.native_error = ERROR_INVALID_PARAMETER;
     status.phase = AccountLoginPhase::failed;
     return status;
@@ -31,18 +25,17 @@ bool host_empty(const AccountHost& host) noexcept {
 
 // A module with an open login owner that no failed stop has blocked.
 bool login_live(const AccountHost* host) noexcept {
-    return host && host->module && host->login_instance && !host->stop_failed;
+    return host->module && host->login_instance && !host->stop_failed;
 }
 bool login_startable(const AccountHost* host) noexcept {
-    return host && host->module && !host->login_instance && !host->stop_failed;
+    return host->module && !host->login_instance && !host->stop_failed;
 }
 
 } // namespace
 
 AccountHostResult account_host_attach(AccountHost* host, HMODULE module) noexcept {
-    if (!host || !module) {
+    if (!module)
         return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
     if (host->module) {
         return AccountHostResult{};
     }
@@ -62,9 +55,6 @@ void account_host_move(AccountHost* destination, AccountHost* source) noexcept {
 }
 
 AccountHostResult account_host_release(AccountHost* host) noexcept {
-    if (!host) {
-        return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
     if (host->instance || host->login_instance) {
         return failure(AccountHostError::active, ERROR_BUSY);
     }
@@ -73,9 +63,6 @@ AccountHostResult account_host_release(AccountHost* host) noexcept {
 }
 
 u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) noexcept {
-    if (!host) {
-        return 0;
-    }
     u32 observations = 0;
     if (host->last_phase != status.coordinator_phase ||
         host->status.required_action != status.required_action) {
@@ -101,7 +88,7 @@ u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) n
 AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* profile_path,
                                             const wchar_t* session_path, u64 monotonic_now_ms,
                                             u64 unix_now_ms) noexcept {
-    if (!host || !host->module || host->instance || !profile_path || !session_path) {
+    if (!host->module || host->instance || !profile_path || !session_path) {
         AccountModuleStartResult invalid{};
         invalid.native_error = ERROR_INVALID_PARAMETER;
         invalid.error = AccountModuleError::invalid_input;
@@ -142,7 +129,7 @@ AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u
     if (observations) {
         *observations = 0;
     }
-    if (!host || !host->module || !host->instance || host->stop_failed) {
+    if (!host->module || !host->instance || host->stop_failed) {
         AccountModuleStatus invalid{};
         invalid.native_error = ERROR_INVALID_PARAMETER;
         invalid.error = AccountModuleError::invalid_input;
@@ -168,7 +155,7 @@ AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
 AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
     if (!login_live(host) || !login)
-        return login_invalid_input();
+        return account_login_invalid_input();
     host->login_status = account_module_login_submit_recovery(host->login_instance, login);
     return host->login_status;
 }
@@ -183,13 +170,13 @@ AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
 AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
     if (!login_live(host) || !code)
-        return login_invalid_input();
+        return account_login_invalid_input();
     host->login_status = account_module_login_submit_phone_verify(host->login_instance, code);
     return host->login_status;
 }
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
     if (!login_live(host))
-        return login_invalid_input();
+        return account_login_invalid_input();
     host->login_status = account_module_login_submit_phone_resend(host->login_instance);
     return host->login_status;
 }
@@ -208,7 +195,7 @@ SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, 
 }
 
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept {
-    if (!host || !host->module || !host->login_instance || timeout_ms == 0)
+    if (!host->module || !host->login_instance || timeout_ms == 0)
         return login_refused();
     host->login_status = account_module_login_stop(&host->login_instance, timeout_ms);
     if (host->login_instance) {
@@ -222,7 +209,7 @@ AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) no
 AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 monotonic_now_ms,
                                         u64 unix_now_ms) noexcept {
     AccountHostStopResult result{};
-    if (!host || timeout_ms == 0) {
+    if (timeout_ms == 0) {
         result.native_error = ERROR_INVALID_PARAMETER;
         result.error = AccountHostError::invalid_input;
         return result;
@@ -264,8 +251,7 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
 }
 
 u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u32 capacity) noexcept {
-    if (!host || !output || capacity == 0 || capacity > kAccountHostNotificationHandleCapacity ||
-        !host->module) {
+    if (!output || capacity == 0 || capacity > kAccountHostNotificationHandleCapacity || !host->module) {
         return 0;
     }
     HANDLE staged[kAccountHostNotificationHandleCapacity]{};
@@ -291,7 +277,7 @@ u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u
 }
 
 u32 account_host_wait_timeout(const AccountHost* host, u64 now_ms) noexcept {
-    if (!host || !host->instance || host->stop_failed || host->status.next_wake_at_ms == 0) {
+    if (!host->instance || host->stop_failed || host->status.next_wake_at_ms == 0) {
         return INFINITE;
     }
     if (host->status.next_wake_at_ms <= now_ms) {
@@ -302,7 +288,7 @@ u32 account_host_wait_timeout(const AccountHost* host, u64 now_ms) noexcept {
 }
 
 bool account_host_wake_due(const AccountHost* host, u64 now_ms) noexcept {
-    return host && host->instance && !host->stop_failed && host->status.next_wake_at_ms != 0 &&
+    return host->instance && !host->stop_failed && host->status.next_wake_at_ms != 0 &&
            now_ms >= host->status.next_wake_at_ms;
 }
 

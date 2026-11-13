@@ -155,10 +155,10 @@ AccountLoginStatus pump_remote_auth(AccountLoginRuntime* runtime) noexcept {
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_pump(void* instance) noexcept {
+AccountLoginStatus module_login_pump(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime)
-        return login_invalid_input();
+        return account_login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     // A quarantined stop only tears down. Neither a pending browser
     // response nor a late QR completion may restart profile setup.
@@ -225,7 +225,7 @@ AccountLoginStatus WINAPI module_login_pump(void* instance) noexcept {
     return login_status(runtime);
 }
 
-HANDLE WINAPI module_login_notification_handle(void* instance) noexcept {
+HANDLE module_login_notification_handle(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     // Profile faults require a save retry. A joined QR
     // thread stays signaled and must not drive a busy retry loop here.
@@ -241,9 +241,9 @@ HANDLE WINAPI module_login_notification_handle(void* instance) noexcept {
                    : nullptr;
 }
 
-AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noexcept {
+AccountLoginStatus module_login_stop(void** instance, u32 timeout_ms) noexcept {
     if (!instance || !*instance || timeout_ms == 0)
-        return login_invalid_input();
+        return account_login_invalid_input();
     auto* runtime = static_cast<AccountLoginRuntime*>(*instance);
     runtime->authenticated_pending = false;
     runtime->error = AccountLoginError::stop;

@@ -3,6 +3,7 @@
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 
@@ -165,5 +166,13 @@ bool ui_audio_scene_focus(UiAudioScene*, UiAudioControl, bool keyboard) noexcept
 void ui_audio_scene_blur(UiAudioScene*) noexcept;
 UiAudioSceneResult ui_audio_scene_pointer(UiAudioScene*, UiAudioPointerEvent, UiPoint) noexcept;
 UiAudioSceneResult ui_audio_scene_key(UiAudioScene*, UiAudioKey) noexcept;
+inline UiCursor ui_audio_scene_cursor(const UiAudioScene& scene, UiPoint point) noexcept {
+    if (!scene.active)
+        return UiCursor::arrow;
+    if (scene.capture != UiAudioControl::none)
+        return UiCursor::hand;
+    const auto* descriptor = ui_audio_controls_find(scene.projection, ui_audio_scene_hit(scene, point));
+    return ui_action_cursor(descriptor && descriptor->kind != UiAudioControlKind::label);
+}
 
 } // namespace maicord

@@ -299,7 +299,7 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {
 }
 
 bool refresh_message_composer_ui() noexcept {
-    return synchronize_shell_layout() && synchronize_autocomplete() && refresh_account_frame(true);
+    return synchronize_shell_layout() && synchronize_autocomplete() && refresh_account_frame();
 }
 
 static u32 caret_blink_ms() noexcept {

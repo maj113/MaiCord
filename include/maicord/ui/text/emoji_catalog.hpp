@@ -138,7 +138,7 @@ struct EmojiSearchMatch {
 using EmojiSearchVisit = void (*)(void* context, const EmojiSearchMatch& match) noexcept;
 // Visits once each emoji whose catalog name or any shortcode matches `key`:
 // catalog order, then shortcode-only emoji. Skin-tone variants are never
-// results of their own. No allocation; false when the catalog is unavailable.
-bool emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept;
+// results of their own. No allocation; nothing when the catalog is unavailable.
+void emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept;
 
 } // namespace maicord

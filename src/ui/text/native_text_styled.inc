@@ -229,8 +229,6 @@ bool alphabetic_scripts(NativeTextContext& owner, Utf8View text, u8* bytes) noex
     }
     return true;
 }
-// Intersects paint/font styles with the maximal emoji font overrides. One sweep
-// counts the exact storage and fills it; script/bidi resolution is separate.
 u32 requested_font(const TextSystem& system,u32 flags) noexcept {u32 result=flags&(text_style_bold|text_style_italic|text_style_monospace);if(text_system_fixed_weight(system,flags))result&=~text_style_bold;return result;}
 float span_size(const TextSystem& system,const NativeFormat* format,u32 flags) noexcept {const float size=text_system_font_size(system,flags);return size!=system.em_size?size:format->em;}
 bool same_query(const NativeTextFontQuery& a,const NativeTextFontQuery& b) noexcept {return a.scope==b.scope&&bytes_equal(&a.properties,&b.properties,4)&&a.family.count==b.family.count&&
@@ -257,6 +255,8 @@ const Binding* line_metrics_binding(const NativeTextContext& owner,const NativeF
 }
 #endif
 bool layout_control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029||cp==0x200b||native_text_bidi_format(cp)||native_text_zero_width_control(cp);}
+// Intersects paint/font styles with the maximal emoji font overrides. One sweep
+// counts the exact storage and fills it; script/bidi resolution is separate.
 u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 presentation,StyledSpan* spans=nullptr,u8* continuity=nullptr,
     const TextSystem* system=nullptr,const NativeFormat* format=nullptr,const u8* scripts=nullptr,bool fallback=false,bool* changed=nullptr,bool editor=false,u8* directions=nullptr,
     Slice<StyledSpan> prepared={}) noexcept {
@@ -784,18 +784,18 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
             [](void* context,u32 key) noexcept {const auto& o=*static_cast<const NativeTextContext*>(context);const auto& group=o.styled_groups[key];return cut_font(o.store,group.binding->plan,o.last_independent,group.em);},
             [](void* context,u32 key,Utf8View piece,bool start,const NativeAsciiLineStorage& work,NativeAsciiLineResult* line) noexcept {const auto& o=*static_cast<const NativeTextContext*>(context);const auto& group=o.styled_groups[key];
                 return native_latin_line(o.store,group.binding->plan,piece,o.last_independent,group.em,work,line,{},o.styled_spans[0].em*o.last_tracking,group.profile,group.force,false,true,start);}});
-        const u32 published_glyphs=directional?rtl_output.written:visible_glyphs;const bool reshaped=directional;
+        const u32 published_glyphs=directional?rtl_output.written:visible_glyphs;
         u32 decoration_count=0;if(decorations&&!native_styled_decorations(owner,layout,width,tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,directional?output:nullptr))return false;
         u32 hit_count=0;
         if(hits.count){if(!output->hit_regions||!output->hit_region_capacity)return false;
             if(!native_collect_hit_regions(owner,layout,tab_stop,hits,directional,output,&hit_count,directional?output:nullptr))return false;
         }
         if(layout.run_count>output->run_capacity||published_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||published_glyphs>65535)return output_capacity_failure(owner);
-        if(!reshaped)for(u32 i=0;i<visible_source;++i)output->clusters[i]=static_cast<u16>(s.source_glyphs[i]);
+        if(!directional)for(u32 i=0;i<visible_source;++i)output->clusters[i]=static_cast<u16>(s.source_glyphs[i]);
         for(u32 i=visible_source;i<shape.source_units;++i)output->clusters[i]=0xffffu;u32 span=0;
         for(u32 i=0;i<layout.run_count;++i){const auto& run=owner.paragraph_runs[i];while(span+1<owner.styled_spans.count&&owner.styled_spans[span].end_unit<=run.source_first)++span;const auto& style=owner.styled_spans[span];
             const float x=directional?output->runs[i].baseline_x:run.x;const u8 level=directional?output->runs[i].bidi_level:0;
-            const u32 first_glyph=reshaped?output->runs[i].first_glyph:run.glyph_first,glyphs=reshaped?output->runs[i].glyph_count:run.glyph_count;
+            const u32 first_glyph=directional?output->runs[i].first_glyph:run.glyph_first,glyphs=directional?output->runs[i].glyph_count:run.glyph_count;
             output->runs[i]={style.binding()->font,x,run.baseline,style.em,first_glyph,glyphs,run.source_first,run.source_count,style.flags,level,false,true};}
         if(!retain_fonts(owner.fonts,output,layout.run_count))return false;
         output->glyph_count=published_glyphs;output->run_count=layout.run_count;output->cluster_count=shape.source_units;output->decoration_count=decoration_count;output->hit_region_count=hit_count;output->width=layout.width;output->width_including_trailing_whitespace=layout.extent;output->height=layout.height;output->line_count=layout.line_count;++owner.shaped;++owner.paragraphs_shaped;

@@ -38,10 +38,9 @@ SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variat
 }
 }
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,SfntIndicProfile profile,
-    Arena* state,Arena* scratch,NativeIndicPlan* output,Slice<u8> form_output,const SfntShapeLimits& limits) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);
-    const auto* info=sfnt_indic_script(profile);
-    if(!info||(form_output.count&&(form_output.count!=128||!form_output.data)))return SfntStatus::invalid_input;
+    Arena* state,Arena* scratch,NativeIndicFormPlan* output) noexcept {
+    reset_value(&output->indic);if(!sfnt_indic_script(profile))return SfntStatus::invalid_input;
+    const SfntShapeLimits limits{};
     NativePlanSource source{};auto status=native_plan_source(store,run,false,state,scratch,source);if(status!=SfntStatus::ok)return status;
     const auto& parent=*source.parent;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
@@ -69,12 +68,10 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
         if(status!=SfntStatus::ok)return status;
         if(kind){plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);continue;}
         plan.substitution_steps=steps.data;plan.substitution_count=steps.count;plan.per_syllable_steps=per_syllable.data;
-        if(form_output.count){status=forms(layout,variations,*parent.substitutions,plan,{form_bits,128},scratch,mask,limits);if(status!=SfntStatus::ok)return status;continue;}
-        u16 halant=0;status=sfnt_cmap_glyph(*plan.cmap,info->block_first+0x4d,0,&halant);
-        if(status!=SfntStatus::ok)return status;if(!halant)return SfntStatus::unsupported_sequence;
+        status=forms(layout,variations,*parent.substitutions,plan,{form_bits,128},scratch,mask,limits);if(status!=SfntStatus::ok)return status;
     }
     status=native_positioning_prepare(*source.font,parent,plan.positioning(),*state,*scratch,&plan.positioning_program,limits.stage_work);if(status!=SfntStatus::ok)return status;
-    if(form_output.count)copy_bytes(form_output.data,form_bits,128);
-    saved_state.keep=true;*output=plan;return SfntStatus::ok;
+    copy_bytes(output->forms,form_bits,128);
+    saved_state.keep=true;output->indic=plan;return SfntStatus::ok;
 }
 }

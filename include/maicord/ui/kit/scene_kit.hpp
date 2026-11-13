@@ -15,7 +15,6 @@
 // as straight lists without `ok &&` chains.
 namespace maicord {
 
-// ---------------------------------------------------------------------------
 // Theme tokens: a Theme color named by its byte offset, so a description that
 // names colors is a compile-time constant every theme resolves.
 using UiToken = u16;
@@ -26,7 +25,6 @@ inline const Color& ui_token(const Theme& theme, UiToken token) noexcept {
     return *reinterpret_cast<const Color*>(reinterpret_cast<const char*>(&theme) + token);
 }
 
-// ---------------------------------------------------------------------------
 // Plate state bits of one handle (zero-generation handles match nothing).
 enum UiStateBit : u8 {
     ui_state_hovered = 1,
@@ -48,7 +46,6 @@ template <class Scene> bool ui_focused(const Scene& s, UiWidgetHandle handle) no
     return ui_widget_handle_matches(handle, s.widgets.focused);
 }
 
-// ---------------------------------------------------------------------------
 // How a control's plate looks in each state, by theme token:
 //   fill   = selected ? selected : hovered ? hover : fill
 //   border = focused ? focus : selected ? selected_border : border
@@ -78,7 +75,6 @@ inline constexpr UiLook kUiGhostButton{.fill = UI_TOKEN(surface_high), .radius =
 inline constexpr UiLook kUiTab{.fill = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high),
                                .border = UI_TOKEN(surface_high), .flags = ui_look_hot_only | ui_look_pill};
 
-// ---------------------------------------------------------------------------
 // Paint pen: every call is skipped after the first failure; clips it pushed
 // are popped by unclip()/end() only when they were pushed. Pushes, the clip
 // stack and constant looks are force-inlined, so the pen stays in registers
@@ -231,7 +227,6 @@ class UiPaint {
     u8 clips_ = 0;
 };
 
-// ---------------------------------------------------------------------------
 // Text placement bits: wrapped lines (top aligned unless ui_text_middle), the
 // pen's body region instead of its panel, and the horizontal alignment
 // (UiTextAlignment) in bits 2-3.
@@ -335,9 +330,6 @@ class UiLabelWriter {
     u8* bytes_;
     u32 capacity_;
 };
-
-// ---------------------------------------------------------------------------
-// Scene lifecycle.
 
 // Allocates the fixed widget storage (with an optional sidecar) and binds the
 // manager to it; on failure nothing stays allocated.

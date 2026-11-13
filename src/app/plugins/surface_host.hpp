@@ -26,8 +26,6 @@ void application_plugin_surfaces_hover(u64 message_id) noexcept;
 bool application_plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarget& target, u64 action_id) noexcept;
 // A click that landed on text a plugin generated (a message accessory or card link or button, the "Show" link).
 bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept;
-// The open channel changed: buttons whose visibility depends on it are asked again.
-void application_plugin_surfaces_context_changed() noexcept;
 // The plugin ABI's relationship value (kPluginRelationship*, equal to MC_RELATIONSHIP_*) of a stored type, and
 // of what the signed-in account has with a user.
 u32 application_plugin_relationship(RelationshipType type) noexcept;

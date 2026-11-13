@@ -22,7 +22,7 @@ struct SegmentedVideoFetch {
 };
 static_assert(sizeof(SegmentedVideoFetch) <= 3072);
 ProgressiveVideoNext segmented_video_next(ProgressiveVideoFetch*, bool read_ahead, u64 now_seconds) noexcept;
-ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch*, const CdnResponseResult&, ConstSlice<u8>, u64 initial_clock_90k = 0) noexcept;
+ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch*, const CdnResponseResult&, ConstSlice<u8>, u64 initial_clock_90k) noexcept;
 void segmented_video_retire(ProgressiveVideoFetch*) noexcept;
 void segmented_video_release(ProgressiveVideoFetch*) noexcept;
 u32 segmented_video_buffered(ProgressiveVideoFetch*, u64 duration_us, u16* begin, u16* end, u32 capacity) noexcept;

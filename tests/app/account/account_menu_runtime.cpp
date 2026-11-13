@@ -335,7 +335,7 @@ bool application_friends_requests_active() noexcept {
 UiRect application_viewport_dips() noexcept {
     return {0, 0, 1000, 700};
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return true;
 }
 void application_tooltip_clear() noexcept {

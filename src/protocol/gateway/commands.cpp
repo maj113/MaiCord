@@ -23,10 +23,9 @@ template <typename Emit> GatewayCommandWriteResult write_command(Slice<u8> outpu
     return result;
 }
 
-GatewayCommandWriteResult invalid_string_result(const Utf8View& value, bool require_nonempty) noexcept {
-    return (!value.data && value.bytes != 0) || (require_nonempty && value.bytes == 0)
-               ? GatewayCommandWriteResult{0, GatewayCommandError::invalid_input}
-               : GatewayCommandWriteResult{0, GatewayCommandError::invalid_utf8};
+// Why encoded_string refused a required string: an absent or empty one is invalid input, else its UTF-8.
+GatewayCommandWriteResult invalid_string_result(const Utf8View& value) noexcept {
+    return {0, !value.data || value.bytes == 0 ? GatewayCommandError::invalid_input : GatewayCommandError::invalid_utf8};
 }
 
 GatewayCommandWriteResult encode_bounded(Utf8View value, u32 maximum, EncodedString* output) noexcept {
@@ -34,7 +33,7 @@ GatewayCommandWriteResult encode_bounded(Utf8View value, u32 maximum, EncodedStr
         return GatewayCommandWriteResult{0, GatewayCommandError::value_too_large};
     }
     if (!encoded_string(value, true, output)) {
-        return invalid_string_result(value, true);
+        return invalid_string_result(value);
     }
     return GatewayCommandWriteResult{0, GatewayCommandError::none};
 }
@@ -287,10 +286,10 @@ GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slic
     EncodedString token{};
     EncodedString session{};
     if (!encoded_string(resume.token, true, &token)) {
-        return invalid_string_result(resume.token, true);
+        return invalid_string_result(resume.token);
     }
     if (!encoded_string(resume.session_id, true, &session)) {
-        return invalid_string_result(resume.session_id, true);
+        return invalid_string_result(resume.session_id);
     }
 
     constexpr u32 fixed_bytes = sizeof("{\"op\":6,\"d\":{\"token\":,\"session_id\":,\"seq\":}}") - 1;

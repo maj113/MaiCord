@@ -2,6 +2,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 struct UiTextOutput;
@@ -94,4 +95,7 @@ bool ui_pinned_messages_scene_avatar(const UiPinnedMessagesScene&, u32 visible_s
 bool ui_pinned_messages_scene_spinner_visible(const UiPinnedMessagesScene&) noexcept;
 bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene&, const Theme&, PaintStream*) noexcept;
 bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene&, const Theme&, UiTextOutput*) noexcept;
+inline UiCursor ui_pinned_messages_scene_cursor(const UiPinnedMessagesScene& scene, float x, float y) noexcept {
+    return ui_action_cursor(ui_pinned_messages_scene_hit_test(scene, x, y).action != UiPinnedMessagesAction::none);
+}
 } // namespace maicord

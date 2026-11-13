@@ -3,7 +3,6 @@
 #include "../shell/window_events.hpp"
 #include "inbox.hpp"
 #include "../shell/cursor.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
 #include "../account/account_presentation.hpp"
 #include "composer/text_input.hpp"
 #include "../shell/content_input.hpp"
@@ -357,14 +356,14 @@ void release_capture() noexcept {
         application_release_capture();
 }
 bool repaint() noexcept {
-    return application_inbox_synchronize() && refresh_account_frame(true);
+    return application_inbox_synchronize() && refresh_account_frame();
 }
 bool activate(UiInboxTarget target) noexcept {
     auto& value = *inbox;
     switch (target.action) {
     case UiInboxAction::close:
         application_inbox_close();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     case UiInboxAction::tab_mentions:
     case UiInboxAction::tab_unreads:
         value.tab = target.action == UiInboxAction::tab_mentions ? UiInboxTab::mentions : UiInboxTab::unreads;
@@ -438,7 +437,7 @@ bool application_inbox_active() noexcept {
 bool application_inbox_toggle() noexcept {
     if (application_inbox_active()) {
         application_inbox_close();
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     if (!application_inbox_available() || !ensure())
         return false;
@@ -711,7 +710,7 @@ bool application_inbox_window_event(const WindowEvent& event) noexcept {
         // Popouts close on an outside click, letting the click through.
         if (input_press(event) || input_press(event, PointerButton::right)) {
             application_inbox_close();
-            refresh_account_frame(true);
+            refresh_account_frame();
         } else if (event.type == EventType::pointer_move) {
             bool changed = false;
             ui_inbox_scene_set_hover(&inbox->scene, -1.f, -1.f, &changed);
@@ -769,7 +768,7 @@ bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept
                g_app.context_focus == &inbox->scene.widgets;
     if (code == key::escape) {
         application_inbox_close();
-        refresh_account_frame(true);
+        refresh_account_frame();
         return true;
     }
     if (application_control_down() || application_alt_down() ||

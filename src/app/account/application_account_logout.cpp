@@ -132,10 +132,8 @@ void cleanup(ApplicationAccountLogout& owner, bool publish_login) noexcept {
         publish(owner, LogoutPhase::stop_failed, "Still logging out. Try again in a moment.");
         return;
     }
-    const auto forgotten =
-        resolve_paths(owner)
-            ? account_credential_forget_complete_after_join(owner.paths, true)
-            : AccountCredentialForgetResult{0, AccountCredentialForgetError::probe, 0, true};
+    const auto forgotten = resolve_paths(owner) ? account_credential_forget_complete_after_join(owner.paths)
+                                                : AccountCredentialForgetResult{AccountCredentialForgetError::probe, true};
     if (!forgotten.ok()) {
         publish(owner, LogoutPhase::forget_failed, "Couldn't remove saved sign-in data. Try again.");
         return;
@@ -388,9 +386,8 @@ bool application_account_logout_prepare_startup(const AccountPaths* paths) noexc
         return false;
     AccountPaths resolved;
     const bool valid = paths || account_paths_resolve(&resolved).ok();
-    const auto probed =
-        valid ? account_credential_forget_probe(paths ? *paths : resolved)
-              : AccountCredentialForgetResult{0, AccountCredentialForgetError::probe, 0, true};
+    const auto probed = valid ? account_credential_forget_probe(paths ? *paths : resolved)
+                              : AccountCredentialForgetResult{AccountCredentialForgetError::probe, true};
     if (probed.ok() && !probed.pending && !startup_blocked)
         return true;
     startup_blocked = true;

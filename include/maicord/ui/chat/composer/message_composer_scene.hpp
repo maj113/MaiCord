@@ -341,9 +341,8 @@ MessageComposerSceneResult message_composer_scene_update(
 bool message_composer_scene_can_send(const MessageComposerScene& scene) noexcept;
 // Voice message mode. available turns Send into the microphone; the recording
 // modes turn the editor into the recording bar, Add into Delete and Emoji into
-// Stop or Play/Pause, and fold GIF, stickers and plugins away. True when the
-// presentation changed (the next update relayouts as needed).
-bool message_composer_scene_set_voice(MessageComposerScene* scene, const UiComposerVoiceView* view) noexcept;
+// Stop or Play/Pause, and fold GIF, stickers and plugins away (the next update relayouts as needed).
+void message_composer_scene_set_voice(MessageComposerScene* scene, const UiComposerVoiceView* view) noexcept;
 UiComposerVoiceMode message_composer_scene_voice_mode(const MessageComposerScene& scene) noexcept;
 Utf8View message_composer_scene_attachment_label(const MessageComposerScene& scene) noexcept;
 u8 message_composer_scene_attachment_row(const MessageComposerScene& scene) noexcept;
@@ -369,7 +368,7 @@ bool message_composer_scene_focus_edit(MessageComposerScene* scene) noexcept;
 bool message_composer_scene_focus_control(MessageComposerScene* scene,
                                           MessageComposerControl control) noexcept;
 MessageComposerControl message_composer_scene_focused_control(const MessageComposerScene& scene) noexcept;
-bool message_composer_scene_set_caret_visible(MessageComposerScene* scene, bool visible) noexcept;
+void message_composer_scene_set_caret_visible(MessageComposerScene* scene, bool visible) noexcept;
 void message_composer_scene_release(MessageComposerScene* scene) noexcept;
 Utf8View message_composer_scene_display_text(const MessageComposerScene& scene) noexcept;
 Utf8View message_composer_scene_reply_label(const MessageComposerScene& scene) noexcept;

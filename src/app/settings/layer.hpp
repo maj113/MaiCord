@@ -77,10 +77,10 @@ void settings_layer_reset(SettingsLayer*) noexcept;
 bool settings_layer_editor(SettingsLayer*, u64* control_id, MessageComposer** model, BoundedEdit** binding) noexcept;
 UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64 control_id, MessageComposer& model,
                                             const Utf8View& placeholder, bool editable) noexcept;
-bool settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept;
+void settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept;
 // Builds the scene activation for a keyboard target and dispatches it.
 void settings_layer_activate_target(SettingsLayer*, UiSettingsTarget) noexcept;
-bool settings_layer_open_choice(SettingsLayer*, u64 owner_id, const ConstSlice<PopupItem>&, const UiRect& anchor,
+void settings_layer_open_choice(SettingsLayer*, u64 owner_id, const ConstSlice<PopupItem>&, const UiRect& anchor,
                                 float width) noexcept;
 void settings_layer_close_choice(SettingsLayer*) noexcept;
 // Clears a choice popup that another surface replaced behind the layer's back; true when it did.

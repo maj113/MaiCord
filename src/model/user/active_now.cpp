@@ -16,7 +16,7 @@ const VoiceState* voice_of(const VoiceStateStore* store, u64 user_id) noexcept {
 }
 // Points into *set, which receives the user's activities.
 const UserActivity* first_activity(const ActiveNowInput& input, u64 user_id, UserActivitySet* set) noexcept {
-    if (!input.activities || !input.activities(input.context, user_id, set))
+    if (!user_activity_find(*input.activities, user_id, set))
         return nullptr;
     for (u32 i = 0; i < set->count && i < kUserActivityMaximum; ++i)
         if (set->items[i].type != UserActivityType::custom &&

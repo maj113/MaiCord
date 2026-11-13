@@ -207,14 +207,12 @@ bool ui_settings_scene_bind_navigation(UiSettingsScene* scene, ConstSlice<UiSett
     scene->layout_signature = 0;
     return true;
 }
-bool ui_settings_scene_set_navigation_note(UiSettingsScene* scene, Utf8View note) noexcept {
-    if (!scene || !valid_text(note))
-        return false;
-    if (scene->navigation_note.data == note.data && scene->navigation_note.bytes == note.bytes)
-        return false;
+void ui_settings_scene_set_navigation_note(UiSettingsScene* scene, Utf8View note) noexcept {
+    if (!scene || !valid_text(note) ||
+        (scene->navigation_note.data == note.data && scene->navigation_note.bytes == note.bytes))
+        return;
     scene->navigation_note = note;
     scene->layout_signature = 0;
-    return true;
 }
 
 bool ui_settings_scene_set_search(UiSettingsScene* scene, const UiSettingsEditor& search) noexcept {
@@ -434,7 +432,7 @@ void ui_settings_scene_release(UiSettingsScene* scene) noexcept {
     const u64 page_generation = scene->page_generation;
     const auto presentation = scene->presentation;
     const u64 opens = scene->opens;
-    const auto* measure = scene->measure;
+    auto* measure = scene->measure;
     ui_fixed_widget_storage_release(&scene->storage);
     ui_markdown_bank_release(&scene->markdown);
     reset_value(scene);
@@ -444,7 +442,7 @@ void ui_settings_scene_release(UiSettingsScene* scene) noexcept {
     scene->opens = opens;
     scene->measure = measure;
 }
-bool ui_settings_scene_bind_measure(UiSettingsScene* scene, const UiKitMeasure* measure) noexcept {
+bool ui_settings_scene_bind_measure(UiSettingsScene* scene, UiTextMeasureCache* measure) noexcept {
     if (!scene || scene->measure == measure)
         return false;
     scene->measure = measure;
@@ -910,7 +908,7 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettings
 }
 namespace {
 __forceinline u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y,
-               const UiKitMeasure* measure) noexcept {
+               UiTextMeasureCache* measure) noexcept {
     const u32 count = c.choices.count + (c.kind == UiSettingsControlKind::colors && c.action_label.bytes ? 1u : 0u);
     for (u32 i = 0; i < count; ++i)
         if (ui_rect_contains(option_rect(t, c, field, i, measure), x, y))
@@ -1036,9 +1034,9 @@ bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* c
     }
     return found;
 }
-bool ui_settings_scene_set_drag(UiSettingsScene* scene, u64 dragged, u64 drop_control, bool after) noexcept {
+void ui_settings_scene_set_drag(UiSettingsScene* scene, u64 dragged, u64 drop_control, bool after) noexcept {
     if (!scene)
-        return false;
+        return;
     const auto row = [&](u64 id) noexcept -> u16 {
         for (u32 i = 0; id && i < scene->content.controls.count && i < 0xfffe; ++i)
             if (scene->content.controls[i].id == id)
@@ -1048,12 +1046,11 @@ bool ui_settings_scene_set_drag(UiSettingsScene* scene, u64 dragged, u64 drop_co
     const u16 drag = row(dragged), drop = row(drop_control);
     after = after && drop;
     if (scene->drag_row == drag && scene->drop_row == drop && scene->drop_after == after)
-        return false;
+        return;
     scene->drag_row = drag;
     scene->drop_row = drop;
     scene->drop_after = after;
     ++scene->motion_revision;
-    return true;
 }
 bool ui_settings_scene_set_footer_motion(UiSettingsScene* scene, float shift, float alert) noexcept {
     if (!scene || !ui_coordinate_valid(shift))

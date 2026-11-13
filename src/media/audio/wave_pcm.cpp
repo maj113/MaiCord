@@ -14,7 +14,6 @@ bool valid(const WavePcmSource& s) noexcept {
         !s.valid_bits || s.valid_bits > s.container_bits ||
         s.block_align != s.channels * (s.container_bits / 8) || s.data.count % s.block_align ||
         s.total_frames != s.data.count / s.block_align ||
-        s.duration_ms != s.total_frames * 1000 / s.sample_rate ||
         (s.channels == 1 ? (s.channel_mask != 0 && s.channel_mask != 4)
                          : (s.channel_mask != 0 && s.channel_mask != 3)) ||
         (s.encoding != WavePcmEncoding::integer_pcm && s.encoding != WavePcmEncoding::ieee_float) ||
@@ -117,7 +116,6 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
     if (!fmt || !data)
         return WavePcmError::malformed;
     candidate.total_frames = candidate.data.count / candidate.block_align;
-    candidate.duration_ms = candidate.total_frames * 1000 / candidate.sample_rate;
     candidate.ready = true;
     *output = candidate;
     return WavePcmError::none;

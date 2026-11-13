@@ -162,14 +162,14 @@ bool ui_toast_push(UiToastScene* s, UiToastKind kind, const Utf8View& text) noex
 }
 
 bool ui_toast_bind_text_owner(UiToastScene* s, UiWidgetReference owner) noexcept {
-    if (!s || !owner.manager || !ui_widget_manager_resolve(*owner.manager, owner.handle))
+    if (!owner.manager || !ui_widget_manager_resolve(*owner.manager, owner.handle))
         return false;
     s->text_owner = owner;
     return true;
 }
 
 bool ui_toast_update(UiToastScene* s, u64 now, const UiToastEnvironment& env) noexcept {
-    if (!s || !env.theme)
+    if (!env.theme)
         return false;
     now = now ? now : 1;
     const float old_progress = s->progress;
@@ -245,7 +245,7 @@ bool ui_toast_paint(const UiToastScene& s, const Theme& theme, PaintStream* pain
     if (!ui_toast_visible(s))
         return true;
     const auto v = s.viewport, r = s.rectangle;
-    if (!paint || !paint_stream_push_clip(paint, v))
+    if (!paint_stream_push_clip(paint, v))
         return false;
     const float radius = theme.scale.radius_md;
     const auto kind = s.entries[0].kind;
@@ -284,8 +284,6 @@ bool ui_toast_text_output(const UiToastScene& s, const Theme& theme, UiTextOutpu
 }
 
 void ui_toast_clear(UiToastScene* s) noexcept {
-    if (!s)
-        return;
     const auto owner = s->text_owner;
     const u32 serial = s->serial, revision = s->revision + 1;
     reset_value(s);

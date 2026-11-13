@@ -56,10 +56,10 @@ struct DesktopNotificationQueue {
     u32 count{}, used{}, attempt{};
     bool has_inflight{}, dispatching{}, inflight_canceled{};
 };
-// Storage and the queue object must be disjoint. Fresh initialization invalidates
-// all outstanding dispatch tokens; do not reinitialize while a dispatch is outstanding. No allocation,
-// clock, OS call or thread synchronization. One owning event-loop thread only.
-bool desktop_notification_queue_initialize(DesktopNotificationQueue*,
+// Storage and the queue object must be disjoint. Fresh initialization invalidates all outstanding dispatch
+// tokens; do not reinitialize while a dispatch is outstanding. No allocation, clock, OS call or thread
+// synchronization. One owning event-loop thread only.
+void desktop_notification_queue_initialize(DesktopNotificationQueue*,
     Slice<DesktopNotificationQueueRow>, Slice<char> packed_bytes, Slice<char> dispatch_scratch) noexcept;
 // Reset preserves the token counter and marks an active OS dispatch canceled.
 // Use a fresh nonzero generation on READY/account change; RESUMED preserves it.

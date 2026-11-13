@@ -82,10 +82,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     }
     if (event.kind == GatewayClientEventKind::ready && pump->typing) {
         const bool had_typing = pump->typing->count != 0;
-        if (!typing_store_reset(pump->typing)) {
-            reject(pump, &result, MessageEventPumpRejectReason::ready_typing_reset);
-            return result;
-        }
+        typing_store_reset(pump->typing);
         result.repaint = result.repaint || had_typing;
     }
     if (event.kind == GatewayClientEventKind::ready && pump->voice_states) {
@@ -760,7 +757,6 @@ const char* message_event_pump_reject_reason_name(MessageEventPumpRejectReason r
     case R::descriptor_payload_mismatch: return "descriptor_payload_mismatch";
     case R::notification_sidecar: return "notification_sidecar";
     case R::ready_state: return "ready_state";
-    case R::ready_typing_reset: return "ready_typing_reset";
     case R::ready_voice_reset: return "ready_voice_reset";
     case R::thread_scope: return "thread_scope";
     case R::completion_payload: return "completion_payload";

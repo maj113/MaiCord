@@ -43,6 +43,4 @@ u32 voice_preferences_encode(const VoicePreferences& preferences, Slice<u8> outp
 bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferences) noexcept;
 bool voice_preferences_load(VoicePreferences* preferences) noexcept;
 bool voice_preferences_save(const VoicePreferences& preferences) noexcept;
-bool voice_preferences_load_file(const wchar_t* path, VoicePreferences* preferences) noexcept;
-bool voice_preferences_save_file(const wchar_t* path, const VoicePreferences& preferences) noexcept;
 } // namespace maicord

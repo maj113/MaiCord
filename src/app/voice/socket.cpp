@@ -137,7 +137,7 @@ bool frame(VoiceSocket* socket, WebSocketOpcode opcode, ConstSlice<u8> payload,
         abort(socket, VoiceSocketError::random);
         return false;
     }
-    const auto encoded = websocket_write_client_frame(opcode, true, payload, mask, socket->output);
+    const auto encoded = websocket_write_client_frame(opcode, payload, mask, socket->output);
     if (!encoded.ok()) {
         abort(socket, VoiceSocketError::protocol);
         return false;

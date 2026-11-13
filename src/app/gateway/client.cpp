@@ -182,30 +182,10 @@ bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffe
 }
 
 bool gateway_client_replace_credential(GatewayClient* client, ConstSlice<u8> token) noexcept {
-    auto* runtime = user_runtime(client);
-    if (!runtime || !token.count || token.count > kGatewayUserMaximumTokenBytes)
-        return false;
-    for (u32 i = 0; i < token.count; ++i)
-        if (token.data[i] <= 0x20 || token.data[i] >= 0x7F)
-            return false;
-    SecureBuffer worker{}, owner{};
-    if (!secure_buffer_initialize(&worker, token.count).ok() || !secure_buffer_assign(&worker, token).ok() ||
-        !secure_buffer_initialize(&owner, token.count).ok() || !secure_buffer_assign(&owner, token).ok()) {
-        secure_buffer_release(&worker);
-        secure_buffer_release(&owner);
-        return false;
-    }
     // The worker takes its copy at its next IDENTIFY or RESUME; the owner takes the other the way it takes a token
     // READY refreshed (REST and the saved profile).
-    AcquireSRWLockExclusive(&runtime->resume_lock);
-    secure_buffer_release(&runtime->replacement_credential);
-    secure_buffer_transfer(&runtime->replacement_credential, &worker);
-    secure_buffer_release(&runtime->refreshed_credential);
-    secure_buffer_transfer(&runtime->refreshed_credential, &owner);
-    ReleaseSRWLockExclusive(&runtime->resume_lock);
-    if (client->notification_event)
-        event_set(client->notification_event);
-    return true;
+    auto* runtime = user_runtime(client);
+    return runtime && gateway_hand_over_token(client, runtime, &runtime->replacement_credential, token);
 }
 
 bool gateway_client_subscribe_guild_members(GatewayClient* client,

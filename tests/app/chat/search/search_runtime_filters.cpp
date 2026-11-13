@@ -594,7 +594,7 @@ bool choice_draft(Utf8View text, u32 caret = ~u32{0}) noexcept {
         return false;
     const u32 position = caret == ~u32{0} ? text.bytes : caret;
     return message_composer_restore(&g_app.search->edit, 0, text, position, position) &&
-           application_search_edit_changed(true);
+           application_search_edit_changed();
 }
 void filter_choices_runtime() noexcept {
     auto& ui = *g_app.account_ui;
@@ -636,7 +636,7 @@ void filter_choices_runtime() noexcept {
     check(choice_draft(utf8_literal("hello brave world"), 6) &&
               message_composer_set_selection(&g_app.search->edit, 6, 11) ==
                   MessageComposerResult::changed &&
-              application_search_edit_changed(false) && click(UiSearchAction::filter_in) &&
+              application_search_edit_changed() && click(UiSearchAction::filter_in) &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("hello in: world")) &&
               modifiers(true) && key('Z') && modifiers() &&
               utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("hello brave world")) &&
@@ -766,7 +766,7 @@ void filter_choices_runtime() noexcept {
     check(message_composer_set_selection(&g_app.search->edit, 6, quoted_end) ==
                   MessageComposerResult::changed &&
               !choices_current(g_app.search) && !activate(*g_app.search, selection_ticket) &&
-              application_search_edit_changed(false) && bank == g_app.search->choices &&
+              application_search_edit_changed() && bank == g_app.search->choices &&
               bank->scans == reused_scans && bank->copies == reused_copies &&
               bank->rebuilds == reused_rebuilds &&
               bank->source.revision != selection_ticket.source_revision && bank->source.rows.count == 1 &&
@@ -776,7 +776,7 @@ void filter_choices_runtime() noexcept {
     selection_ticket.source_revision = bank->source.revision;
     check(message_composer_set_selection(&g_app.search->edit, 6, quoted_end - 1) ==
                   MessageComposerResult::changed &&
-              !activate(*g_app.search, selection_ticket) && application_search_edit_changed(false) &&
+              !activate(*g_app.search, selection_ticket) && application_search_edit_changed() &&
               bank->scans == reused_scans && bank->copies == reused_copies &&
               bank->rebuilds == reused_rebuilds &&
               bank->source.revision != selection_ticket.source_revision && bank->rows[0].id == 3 &&
@@ -850,7 +850,7 @@ void filter_choices_runtime() noexcept {
     message_composer_set_selection(&g_app.search->edit, 0, 0);
     check(
         !choices_current(g_app.search) && !activate(*g_app.search, old) &&
-            application_search_edit_changed(false) &&
+            application_search_edit_changed() &&
             utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")),
         "search choices: exact anchor/caret fence rejects a retained value action before fresh projection");
     check(choice_draft(utf8_literal("in:")) && !activate(*g_app.search, old),
@@ -881,7 +881,7 @@ void filter_choices_runtime() noexcept {
           "search choices: stale-release case captures a real current row");
     message_composer_set_selection(&g_app.search->edit, 0, 0);
     check(
-        application_search_edit_changed(false) &&
+        application_search_edit_changed() &&
             application_search_window_event(window_test::pointer_up(window_test::x_of(point(bounds)), window_test::y_of(point(bounds)), PointerButton::left)) &&
             utf8_equal(message_composer_text(g_app.search->edit), utf8_literal("in:")),
         "search choices: selection movement retires pointer capture and cannot activate a replacement row");

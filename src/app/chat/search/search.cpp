@@ -579,7 +579,7 @@ void application_search_edit_cancel_native_group(const TextInputTarget& t) noexc
         return;
     EditInput::abandon(t);
 }
-bool application_search_edit_changed(bool) noexcept {
+bool application_search_edit_changed() noexcept {
     auto* s = g_app.search;
     if (!s)
         return false;

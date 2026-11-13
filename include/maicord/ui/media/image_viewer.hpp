@@ -101,6 +101,10 @@ struct UiImageViewer {
     char counter[16], caption[160];
     u32 counter_bytes, caption_bytes;
 };
+// At fit (zoom 1): a fitted image has nothing to pan.
+constexpr bool ui_image_viewer_fitted(const UiImageViewer& viewer) noexcept {
+    return viewer.zoom - 1 < 1e-3f && 1 - viewer.zoom < 1e-3f;
+}
 bool ui_image_viewer_open(UiImageViewer* viewer, const UiRect& viewport, UiSize pixels) noexcept;
 bool ui_image_viewer_layout(UiImageViewer* viewer, const UiRect& viewport) noexcept;
 // Device pixels per DIP; actual size and 1:1 pixel snapping follow it.

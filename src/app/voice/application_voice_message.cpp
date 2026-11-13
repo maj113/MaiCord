@@ -409,7 +409,7 @@ bool application_voice_message_pump() noexcept {
     const u64 now = clock_monotonic_milliseconds();
     if (g_voice.notice != VoiceMessageNotice::none && now >= g_voice.notice_until_ms) {
         g_voice.notice = VoiceMessageNotice::none;
-        refresh_account_frame(true);
+        refresh_account_frame();
     }
     if (!voice_message_flow_active(g_voice.flow) || now < g_voice.next_poll_ms)
         return true;
@@ -437,7 +437,7 @@ bool application_voice_message_pump() noexcept {
         else if (draft == MessageAttachmentDraftPhase::failed)
             apply(VoiceMessageEvent::upload_failed);
     }
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 u32 application_voice_message_wait_timeout(u64 now_ms) noexcept {

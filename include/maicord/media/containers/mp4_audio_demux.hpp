@@ -24,29 +24,27 @@ struct Mp4AudioSampleWindow {
 struct Mp4AudioFrameTimeBounds {
     i64 floor_100ns, ceil_100ns;
 };
-// Container-independent AAC clock. All three timebases retain their original
-// integers: no microsecond intermediate and no inferred encoder priming.
-// source_frames includes final decoder padding; content_ticks excludes the
-// leading empty edit. A nonzero source_start_ticks admits a nonzero TFDT origin.
-// The functions below leave output unchanged on failure and reject output that
-// overlaps this clock. Exact original timebase/edit rational arithmetic, with
-// only the final native timestamp rounded DOWN to 100ns. Source frame includes
-// the endpoint sentinel; no decoder priming/delay is inferred.
+// Container-independent AAC clock. Every timebase keeps its original integers (no
+// microsecond intermediate, no inferred priming or delay): exact rational timebase/edit
+// arithmetic, with only the final native timestamp rounded DOWN to 100ns. source_frames
+// includes final decoder padding; content_ticks excludes the leading empty edit. A
+// nonzero source_start_ticks admits a nonzero TFDT origin. The functions below leave
+// output unchanged on failure or overflow and reject output that overlaps the clock.
 struct Mp4AudioTimeline {
     u64 source_frames, source_start_ticks, media_start_ticks, empty_edit_ticks, content_ticks;
     u32 sample_rate, media_timescale, edit_timescale, content_timescale;
 };
 bool mp4_audio_demux_timeline(const Mp4AudioDemuxer&, Mp4AudioTimeline*) noexcept;
+// source_frame may be the endpoint sentinel.
 bool mp4_audio_frame_time_100ns(const Mp4AudioTimeline&, u64 source_frame, i64*) noexcept;
+// Floor and ceiling of the same rational time; they coincide for integer-exact
+// timestamps (no blanket one-tick tolerance).
 bool mp4_audio_frame_time_bounds_100ns(const Mp4AudioTimeline&, u64 source_frame,
                                       Mp4AudioFrameTimeBounds*) noexcept;
+// Keep source samples in [first,end). Boundaries use the rational edits, not rounded
+// us/100ns; the leading empty-edit gap rounds UP to the source sample grid. The caller
+// validates native PCM timestamp/frame identity.
 bool mp4_audio_sample_window(const Mp4AudioTimeline&, i64 target_100ns, Mp4AudioSampleWindow*) noexcept;
-// Bounds are derived from the same rational source/edit time. They
-// coincide for integer-exact timestamps; no blanket one-tick tolerance.
-// Failure, overflow, and aliased output leave the caller value unchanged.
-// Keep source samples in [first,end). Boundaries use original rational edits,
-// not rounded us/100ns. Leading empty-edit gap is rounded UP to the
-// source sample grid. Caller validates native PCM timestamp/frame identity.
 bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer&, i64 target_100ns,
                                    Mp4AudioSampleWindow*) noexcept;
 } // namespace maicord

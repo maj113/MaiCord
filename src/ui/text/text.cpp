@@ -1,6 +1,5 @@
 #include "maicord/ui/text/text.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/text/fonts/session.hpp"
@@ -200,7 +199,7 @@ void text_system_release(TextSystem* system) noexcept {
 }
 
 bool glyph_outline_initialize(GlyphOutline* outline, Slice<GlyphPathCommand> commands) noexcept {
-    if (!outline || !commands.data || commands.count == 0) {
+    if (!commands.data || commands.count == 0) {
         return false;
     }
     reset_value<GlyphOutline>(outline);

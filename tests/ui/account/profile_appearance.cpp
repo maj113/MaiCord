@@ -279,7 +279,7 @@ void test_profile_game_collection(void (*check)(bool, const char*) noexcept) noe
             game.icon_bytes = 32;
             copy_bytes(game.icon, "0123456789abcdef0123456789abcdef", 32);
         }
-        game_store_put(&games, game, true, 1);
+        game_store_put(&games, game, true);
     }
     const auto row = [&](ProfilePresentation presentation, const GameStore* store, UiRect* card, u32* icons,
                          const ProfilePart** last, UiRect* more) noexcept {

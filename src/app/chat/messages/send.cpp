@@ -183,7 +183,7 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
             {scratch.messages.data, 1})) g_app.message_pump.resync_required = true;
         if (!consume_message_send_completions()) return false;
     }
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 bool application_message_send_captcha_resume() noexcept {

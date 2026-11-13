@@ -64,7 +64,7 @@ const IconPack& icon_pack_builtin() noexcept {
 }
 
 u32 icon_pack_stems(const IconPack& pack, u32 index, IconStem* stems, u32 capacity) noexcept {
-    if (!pack.data || index >= pack.icon_count || !stems)
+    if (!pack.data || index >= pack.icon_count)
         return 0;
     const Record r = record(pack, index);
     const u8* p = pack.data + header(pack).stems + r.stem_first * kStemBytes;
@@ -76,7 +76,7 @@ u32 icon_pack_stems(const IconPack& pack, u32 index, IconStem* stems, u32 capaci
 
 bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransform& transform,
                       GlyphOutline* outline) noexcept {
-    if (!pack.data || index >= pack.icon_count || !outline || !outline->commands || !(transform.scale > 0))
+    if (!pack.data || index >= pack.icon_count || !outline->commands || !(transform.scale > 0))
         return false;
     const Record r = record(pack, index);
     if (r.outline_count > outline->capacity) {

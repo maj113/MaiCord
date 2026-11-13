@@ -930,8 +930,6 @@ bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, 
 
 bool ui_access_message_should_announce(UiAccessMessageCursor* cursor, u64 channel_id, u64 newest_message_id,
                                        bool authored_locally) noexcept {
-    if (!cursor)
-        return false;
     if (!channel_id || !newest_message_id) {
         if (cursor->channel_id != channel_id)
             *cursor = {channel_id, 0, false};

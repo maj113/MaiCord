@@ -241,7 +241,7 @@ bool application_game_lookup_response(const RestClientResponse& response, Utf8Vi
     const bool good = ok && decoded.error == GuildAdminError::none;
     u64 ids[kGameSearchResultMaximum];
     for (u32 i = 0; good && i < decoded.count; ++i) {
-        game_store_put(&l->store, l->decoded[i], kind != Request::search, now);
+        game_store_put(&l->store, l->decoded[i], kind != Request::search);
         ids[i] = l->decoded[i].id;
     }
     if (kind == Request::batch) {

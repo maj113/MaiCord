@@ -14,7 +14,6 @@
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/local_time.hpp"

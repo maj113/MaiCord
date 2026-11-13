@@ -63,22 +63,13 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
         if(value.run.slot==run.slot && value.run.generation==run.generation){if(value.references==0xffffffffu)return {NativeFontError::capacity,SfntStatus::resource_limit,0};++value.references;*output={i+1,value.generation};return {NativeFontError::none,SfntStatus::ok,0};}
     }
     if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};
-#if defined(_WIN32)
-    // The SYSTEM_INFO stays in this frame (pages_page_size() would end its lifetime at once and change the frame).
-    Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;if(!page || (page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
-#else
     const usize page=pages_page_size();if(!page || (page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
-#endif
     if(limit<page || limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
     if(!arena_initialize(&state,limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);
     arena_reset(scratch);const auto status=prepare(*store->runs,run,*data,state,*scratch,work);if(status!=SfntStatus::ok)return failure(status);
-#if defined(_WIN32)
-    DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
-#else
     if(!pages_protect(state.base,state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
-#endif
     if(!native_run_plan_retain(store->runs,run))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     auto& value=store->slots[available];value.run=run;value.state=state;reset_value(&state);value.references=1;++value.generation;*output={available+1,value.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }

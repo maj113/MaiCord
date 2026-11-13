@@ -139,7 +139,6 @@ void drop_head() noexcept {
     --stage.count;
 }
 
-// Start / edit topic form ---------------------------------------------------
 bool form_valid(TextFormOwnerKey key) noexcept {
     const auto& f = stage.form;
     const auto* channel = channel_of(f.channel_id);

@@ -144,9 +144,30 @@ bool pop_query() noexcept {
     while (overlay.query_bytes && (static_cast<u8>(overlay.query[overlay.query_bytes]) & 0xc0) == 0x80);
     return true;
 }
-bool refresh() noexcept {
+void refresh() noexcept {
     project();
-    return application_shortcuts_overlay_synchronize() && (application_repaint(), true);
+    application_shortcuts_overlay_synchronize();
+    application_repaint();
+}
+void close_overlay() noexcept {
+    if (!overlay.active)
+        return;
+    overlay.active = false;
+    overlay.query_bytes = 0;
+    overlay.scene.active = false;
+    g_app.renderer.shortcuts_scene = nullptr;
+    application_repaint();
+}
+bool open_overlay() noexcept {
+    if (overlay.active || !g_app.account_ui || g_app.login.visible)
+        return overlay.active;
+    if (g_app.popup_scene.active)
+        dismiss_popup();
+    overlay.active = true;
+    overlay.query_bytes = 0;
+    overlay.scene.scroll = 0;
+    refresh();
+    return true;
 }
 } // namespace
 
@@ -240,7 +261,7 @@ static bool run_shortcut(ShortcutAction action, bool repeated) noexcept {
     case A::toggle_deafen:
         return application_voice_toggle_deafen();
     case A::shortcuts_help:
-        return application_shortcuts_overlay_open();
+        return open_overlay();
     default:
         return false;
     }
@@ -304,47 +325,20 @@ u64 application_shortcuts_next_wake() noexcept {
 bool application_shortcuts_overlay_active() noexcept {
     return overlay.active;
 }
-bool application_shortcuts_overlay_open() noexcept {
-    if (overlay.active || !g_app.account_ui || g_app.login.visible)
-        return overlay.active;
-    if (g_app.popup_scene.active)
-        dismiss_popup();
-    overlay.active = true;
-    overlay.query_bytes = 0;
-    overlay.scene.scroll = 0;
-    if (!refresh()) {
-        application_shortcuts_overlay_close();
-        return false;
-    }
-    return true;
-}
-void application_shortcuts_overlay_close() noexcept {
-    if (!overlay.active)
-        return;
-    overlay.active = false;
-    overlay.query_bytes = 0;
-    overlay.scene.active = false;
-    g_app.renderer.shortcuts_scene = nullptr;
-    application_repaint();
-}
 void application_shortcuts_overlay_release() noexcept {
     overlay.active = false;
     overlay.held_key = 0;
     g_app.renderer.shortcuts_scene = nullptr;
     ui_shortcuts_scene_release(&overlay.scene);
 }
-bool application_shortcuts_overlay_synchronize() noexcept {
-    if (!overlay.active) {
+void application_shortcuts_overlay_synchronize() noexcept {
+    if (!overlay.active)
         g_app.renderer.shortcuts_scene = nullptr;
-        return true;
-    }
-    if (!g_app.account_ui || g_app.login.visible ||
-        !ui_shortcuts_scene_update(&overlay.scene, &overlay.content, application_viewport_dips())) {
-        application_shortcuts_overlay_close();
-        return true;
-    }
-    g_app.renderer.shortcuts_scene = &overlay.scene;
-    return true;
+    else if (!g_app.account_ui || g_app.login.visible ||
+             !ui_shortcuts_scene_update(&overlay.scene, &overlay.content, application_viewport_dips()))
+        close_overlay();
+    else
+        g_app.renderer.shortcuts_scene = &overlay.scene;
 }
 
 bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeated) noexcept {
@@ -379,7 +373,7 @@ bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeat
                 overlay.query_bytes = 0; // Escape clears the query first.
                 refresh();
             } else
-                application_shortcuts_overlay_close();
+                close_overlay();
         }
         return true;
     }
@@ -428,7 +422,7 @@ bool application_shortcuts_overlay_window_event(const WindowEvent& event) noexce
     if (input_down(event)) {
         if (ui_shortcuts_scene_hit_test(overlay.scene, client_dip_x(event), client_dip_y(event)) ==
             UiShortcutsTarget::close)
-            application_shortcuts_overlay_close();
+            close_overlay();
         return true;
     }
     // The other releases, the other buttons' presses and releases, tilts and the context menu are swallowed.

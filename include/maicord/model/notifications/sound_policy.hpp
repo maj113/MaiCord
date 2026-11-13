@@ -13,7 +13,7 @@ struct NotificationSelectedSoundInput {
     u64 self_id, author_id;
     MessageNotificationGlobal global; // caller supplies effective presence/expiry
     u32 known_gates, gates;
-    bool selection_known, main_selected, scope_known, allow_no_messages;
+    bool scope_known, allow_no_messages;
 };
 NotificationSoundDecision notification_selected_sound_admission(const NotificationSelectedSoundInput&) noexcept;
 
@@ -26,9 +26,8 @@ struct NotificationMessageSoundInput {
     NotificationSoundDecision ordinary, selected;
     NotificationSoundDecision restrictions; // restricted hours / required action / changelog
     NotificationSoundDecision overlay; // ordinary-path overlay early-return condition
-    bool ready, live, duplicate, optimistic;
-    bool focus_known, focused, preference_known, message1_enabled;
-    bool desktop_type_known, desktop_never;
+    bool ready, live, duplicate;
+    bool focused, message1_enabled, desktop_never;
 };
 struct NotificationMessageSoundDecision {
     bool selected_direct; // unthrottled message3, using MESSAGE1's disable setting
@@ -42,13 +41,10 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
 
 struct NotificationSoundRequest {
     u64 generation; // nonzero account epoch; zero disables sounds
-    u32 soundpack; // opaque caller-owned stable token, copied; message3 is unmapped
-    float volume;
     NotificationSoundKind kind;
 };
-// One process-wide throttle shared by all sound names containing "message".
-// Lodash-style throttle: 1000 ms wait, leading=true, trailing=true,
-// maxWait=1000. Direct/selected/native-attached paths bypass it. Owns no
+// One process-wide throttle shared by all sound names containing "message": 1000 ms wait, leading and trailing
+// edge, maxWait 1000. Direct/selected/native-attached paths bypass it. Owns no
 // allocation, audio, message cache, OS timer or callback.
 struct NotificationSoundThrottle {
     u64 generation, last_call_ms, last_invoke_ms, deadline_ms;

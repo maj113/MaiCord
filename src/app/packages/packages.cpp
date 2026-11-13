@@ -372,7 +372,7 @@ void open_catalog_item(const PackageLink& link) noexcept {
 
 // ---- Validation ----------------------------------------------------------------------------------------------
 PackageError package_validate(PackageLinkKind kind, ConstSlice<u8> bytes, PackageInfo* info) noexcept {
-    if (!info || !bytes.data || !bytes.count || (kind != PackageLinkKind::theme && kind != PackageLinkKind::effect))
+    if (!bytes.data || !bytes.count || (kind != PackageLinkKind::theme && kind != PackageLinkKind::effect))
         return PackageError::invalid;
     if (sniff(bytes.data, bytes.count) != (kind == PackageLinkKind::effect ? Sniff::effect : Sniff::theme))
         return PackageError::invalid;

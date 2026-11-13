@@ -29,10 +29,7 @@ struct Null {
     NullWindowProbe probe;
     u64 keys_down[4];  // bit k of word k / 64: Key k is down
     u64 toggles[4];
-    bool pointer_valid;
-    float pointer_x, pointer_y;
     WindowMetrics metrics;
-    bool layout_types_text;
     bool focus_denied;
 } g{};
 WindowObjectStorage g_object;
@@ -87,18 +84,8 @@ void null_window_release_keys() noexcept {
         word = 0;
 }
 
-void null_window_set_pointer(float x_px, float y_px) noexcept {
-    g.pointer_valid = true;
-    g.pointer_x = x_px;
-    g.pointer_y = y_px;
-}
-
 void null_window_set_metrics(const WindowMetrics& metrics) noexcept {
     g.metrics = metrics;
-}
-
-void null_window_set_layout_types_text(bool types_text) noexcept {
-    g.layout_types_text = types_text;
 }
 
 void null_window_set_focus_allowed(bool allowed) noexcept {
@@ -252,14 +239,8 @@ void window_request_cursor_refresh(Window) noexcept {
     ++g.probe.cursor_refreshes;
 }
 
-bool window_pointer_position(Window, float* x_px, float* y_px) noexcept {
-    if (!g.pointer_valid)
-        return false;
-    if (x_px)
-        *x_px = g.pointer_x;
-    if (y_px)
-        *y_px = g.pointer_y;
-    return true;
+bool window_pointer_position(Window, float*, float*) noexcept {
+    return false;
 }
 
 // As the system does: capturing again for the window that holds it reports the capture lost to that window, naming
@@ -318,7 +299,7 @@ bool window_toggle_state(Window, Key key_code) noexcept {
 }
 
 bool window_layout_types_text(Window, Key, u8) noexcept {
-    return g.layout_types_text;
+    return false;
 }
 
 bool global_key_down(Key key_code) noexcept {

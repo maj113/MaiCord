@@ -37,6 +37,6 @@ struct RegionalFlagArt {
 // sources were written in. Malformed records are rejected.
 bool regional_flag_record_parse(ConstSlice<u8> record, RegionalFlagArt* output) noexcept;
 bool regional_flag_layer_outline(const RegionalFlagLayer& layer, GlyphOutline* output) noexcept;
-bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program, float pixels_per_unit) noexcept;
+bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program) noexcept;
 
 } // namespace maicord

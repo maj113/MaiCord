@@ -131,23 +131,18 @@ inline GatewayClientDispatchRouteResult route_decode_error(const GatewayEventDec
     return result;
 }
 
-// A rejected object member: a repeated key is a duplicate, any other failure invalid data.
-constexpr GatewayEventDecodeError gateway_field_error(bool repeated) noexcept {
-    return repeated ? GatewayEventDecodeError::duplicate_field : GatewayEventDecodeError::invalid_data;
-}
-
 // Fails a visit on a repeated key.
 inline bool gateway_duplicate_member(GatewayEventDecodeError* error) noexcept {
     *error = GatewayEventDecodeError::duplicate_field;
     return false;
 }
 
-// Accepts a member once: a repeat or an unreadable value fails the visit and sets *error unless an
-// earlier error is already recorded.
+// Accepts a member once: a repeat (a duplicate) or an unreadable value (invalid data) fails the visit and sets
+// *error unless an earlier error is already recorded.
 inline bool gateway_once_member(GatewayEventDecodeError* error, bool* seen, bool valid) noexcept {
     if (*seen || !valid) {
         if (*error == GatewayEventDecodeError::none)
-            *error = gateway_field_error(*seen);
+            *error = *seen ? GatewayEventDecodeError::duplicate_field : GatewayEventDecodeError::invalid_data;
         return false;
     }
     *seen = true;

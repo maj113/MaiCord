@@ -65,10 +65,9 @@ void test_cdn_targets() noexcept {
                utf8_equal(Utf8View{reinterpret_cast<const char*>(output), guild_icon.bytes},
                           utf8_literal("/icons/123/0123456789abcdef0123456789abcdef.webp?size=64")),
            "cdn_guild_icon_webp_target");
-    expect(!guild_icon_hash_valid(utf8_literal("../../invalid")) &&
-               write_guild_icon_cdn_target(123, utf8_literal("../../invalid"), 64,
-                                           Slice<u8>{output, sizeof(output)})
-                       .error == CdnTargetError::invalid_input,
+    expect(write_guild_icon_cdn_target(123, utf8_literal("../../invalid"), 64,
+                                       Slice<u8>{output, sizeof(output)})
+                   .error == CdnTargetError::invalid_input,
            "cdn_guild_icon_hash_rejects_path_material");
     const CdnTargetResult avatar =
         write_user_avatar_cdn_target(456, guild_icon_hash, 32, Slice<u8>{output, sizeof(output)});

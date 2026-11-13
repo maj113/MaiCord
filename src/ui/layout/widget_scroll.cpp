@@ -23,7 +23,7 @@ bool contains(const UiRect& outer, const UiRect& inner) noexcept {
 
 bool ui_scroll_reveal_offset(float first, float last, float viewport_first, float viewport_last,
     float offset, float maximum_offset, float* result) noexcept {
-    if (!result || !ui_coordinate_valid(first) || !ui_coordinate_valid(last) || first > last ||
+    if (!ui_coordinate_valid(first) || !ui_coordinate_valid(last) || first > last ||
         !ui_coordinate_valid(viewport_first) || !ui_coordinate_valid(viewport_last) || viewport_first >= viewport_last ||
         !ui_extent_valid(offset) || !ui_extent_valid(maximum_offset)) return false;
     *result = reveal_offset(first, last, viewport_first, viewport_last, offset, maximum_offset);
@@ -32,7 +32,6 @@ bool ui_scroll_reveal_offset(float first, float last, float viewport_first, floa
 
 bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle owner,
                                UiWidgetScrollGeometry* geometry) noexcept {
-    if (!geometry) return false;
     reset_value(geometry);
     const auto* root = ui_widget_manager_layout_node(manager, owner);
     if (!root || !root->visible || !(root->spec.style.flags & ui_layout_node_visible) ||
@@ -72,7 +71,7 @@ bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle ow
 }
 
 UiWidgetRevealResult ui_widget_reveal(UiWidgetManager* manager, UiWidgetHandle target) noexcept {
-    if (!manager || !ui_widget_manager_input_enabled(*manager, target))
+    if (!ui_widget_manager_input_enabled(*manager, target))
         return {UiLayoutError::invalid_argument, 0, false};
     const auto* target_node = ui_widget_manager_layout_node(*manager, target);
     if (!target_node || !ui_rect_valid(target_node->rectangle))

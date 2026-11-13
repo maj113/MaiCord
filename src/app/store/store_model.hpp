@@ -4,7 +4,7 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/store/store_scene.hpp"
 
-// The data and state of the Plugins, Themes and Effects pages (store-ui.md). The model is a plain snapshot the
+// The data and state of the Plugins, Themes and Effects pages. The model is a plain snapshot the
 // host fills from the catalog service, the package library and the effect module (store_source.cpp); the page
 // state is what the user has done on a page. Projection, filters, search and actions here are pure: they read the
 // model and answer with commands, so tests run them against hand-made models.

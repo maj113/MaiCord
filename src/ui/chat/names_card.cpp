@@ -55,9 +55,9 @@ void layout(UiNamesCardScene& s, float username_width) noexcept {
 
 bool ui_names_card_show(UiNamesCardScene* s, u64 identity, const UiNamesCardContent& content, UiRect anchor,
                         UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept {
-    if (!s || !identity || !content.row_count || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
+    if (!identity || !content.row_count || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
         !ui_hover_card_initialize(*s, utf8_literal("Other names"))) {
-        if (s && s->active)
+        if (s->active)
             ui_names_card_close(s);
         return false;
     }

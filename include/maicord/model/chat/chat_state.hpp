@@ -316,8 +316,6 @@ bool chat_state_store_set_thread_join_time(ChatStateStore*, u64 thread_id, u64 s
                                               u32 seconds) noexcept;
 bool chat_state_store_set_thread_archived(ChatStateStore*, u64 thread_id, u64 self_user_id,
                                              bool archived, bool known = true) noexcept;
-bool chat_state_store_set_thread_locked(ChatStateStore*, u64 thread_id, u64 self_user_id, bool locked,
-                                           bool known = true) noexcept;
 // Active inventory is independent of stored archive metadata and read access.
 bool chat_state_store_set_thread_active(ChatStateStore*, u64 thread_id, u64 self_user_id,
                                            bool active) noexcept;

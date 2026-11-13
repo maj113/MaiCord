@@ -1052,14 +1052,14 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
 }
 
 u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept {
-    return guild_icon_hash_valid(icon_hash) ? asset_hash_variant(icon_hash) : 0;
+    return asset_hash_hex_valid(icon_hash) ? asset_hash_variant(icon_hash) : 0;
 }
 
 namespace {
 // "<prefix><id>/<hash>.webp?size=<size>", animated when allowed and the hash is.
 CdnTargetResult write_hashed_asset_target(const char* prefix, u64 id, Utf8View hash, u32 size,
                                           bool animate, Slice<u8> output) noexcept {
-    if (id == 0 || !guild_icon_hash_valid(hash) || !image_size_valid(size) ||
+    if (id == 0 || !asset_hash_hex_valid(hash) || !image_size_valid(size) ||
         (!output.data && output.count != 0)) {
         return failure(CdnTargetError::invalid_input);
     }

@@ -34,8 +34,6 @@ bool visible(const PluginBinding& binding, const mc_setting_def& setting) noexce
     return byte_load_le32(at) == setting.visible_value;
 }
 
-// ---- Text of values -----------------------------------------------------------------
-
 u32 write_key(u32 key, Slice<char> out) noexcept {
     TextWriter w{out, 0, true};
     if (key & MC_KEY_CTRL) w.add("Ctrl+", 5);

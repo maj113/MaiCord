@@ -27,7 +27,7 @@ __declspec(noinline) inline bool application_media_activation_consumed(MessageSc
     }
     if (message_scene_reveal_media(&scene, key)) {
         if (&scene == &g_app.message_scene)
-            refresh_account_frame(true);
+            refresh_account_frame();
         else
             application_request_frame();
     }

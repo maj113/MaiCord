@@ -146,7 +146,7 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
         RegionalFlagArt art;
         ColrPaintProgram* program = nullptr;
         if (!regional_flag_record_parse(encoded, &art) || !(program = workspace(media)) ||
-            !regional_flag_compile(art, program, kRegionalFlagPixelsPerUnit))
+            !regional_flag_compile(art, program))
             return false;
     }
     stage_frame(media, key, static_cast<u32>(sizeof(ColrPaintProgram)), request_id, 0, 0);

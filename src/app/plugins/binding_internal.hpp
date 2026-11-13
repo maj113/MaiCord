@@ -22,7 +22,7 @@ PluginKeyValue* store_table(PluginBinding*) noexcept;
 // Keys are 1..maximum bytes of printable ASCII (0x21..0x7E).
 bool key_valid(mc_str key, u32 maximum_bytes) noexcept;
 
-// ---- secrets.cpp: SECRET settings at rest --------------------------------------
+// secrets.cpp: SECRET settings at rest.
 
 // The DPAPI form of plain (1.. bytes), bound to the plugin and the setting; *sealed_bytes is the size
 // it needs (also when sealed is too small, which fails).
@@ -30,7 +30,7 @@ bool plugin_secret_seal(u64 owner_id, mc_str key, ConstSlice<u8> plain, Slice<u8
 // The plaintext of a sealed value written for the same plugin and setting; false for any other.
 bool plugin_secret_unseal(u64 owner_id, mc_str key, ConstSlice<u8> sealed, Slice<u8> plain, u32* plain_bytes) noexcept;
 
-// ---- store.cpp: persisted key-value tables --------------------------------------
+// store.cpp: persisted key-value tables.
 
 bool kv_open(PluginKeyValue*, u32 maximum_keys, u32 maximum_key_bytes, u32 maximum_value_bytes,
              u32 maximum_total_bytes) noexcept;

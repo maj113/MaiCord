@@ -5,7 +5,6 @@
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/text/fonts/run_handle.hpp"
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 struct NativeFontSession;

@@ -6,7 +6,7 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/media/core/asset_key.hpp"
 
-// The Plugins, Themes and Effects pages of Settings (store-ui.md): a retained tree of layout elements the host
+// The Plugins, Themes and Effects pages of Settings: a retained tree of layout elements the host
 // builds from its projection and the scene lays out, paints, hit-tests and scrolls. The scene knows nothing of
 // plugins: an interactive element carries a host action id, and input comes back as UiStoreEvent. Text storage is
 // the host's (elements borrow views) or the builder's arena. UI thread only.

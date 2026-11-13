@@ -65,7 +65,6 @@ struct MentionsQuery {
     u8 limit;
     bool roles, everyone;
 };
-bool mentions_query_valid(const MentionsQuery&) noexcept;
 u32 write_mentions_target(const MentionsQuery&, Slice<u8> output) noexcept;
 // A full page means more may follow.
 constexpr bool mentions_has_more(u32 count, u8 limit) noexcept {

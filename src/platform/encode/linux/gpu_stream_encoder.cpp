@@ -3,7 +3,6 @@
 #include "../access_unit.hpp"
 #include "../av1_headers.hpp"
 #include "../../decode/vaapi/va.hpp"
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"

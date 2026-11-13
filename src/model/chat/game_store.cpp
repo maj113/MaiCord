@@ -145,7 +145,7 @@ u32 game_store_take_batch(GameStore* store, Slice<u64> ids) noexcept {
     return count;
 }
 
-void game_store_put(GameStore* store, const GuildAdminGame& game, bool full, u64) noexcept {
+void game_store_put(GameStore* store, const GuildAdminGame& game, bool full) noexcept {
     if (!game.id)
         return;
     GameRecord* record = find(store, game.id);

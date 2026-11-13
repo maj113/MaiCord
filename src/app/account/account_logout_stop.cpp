@@ -14,8 +14,7 @@ u32 stop_account(void* context) noexcept {
 }
 
 bool joined_result(AccountLogoutStopOwner* owner, AccountHostStopResult* result) noexcept {
-    // The signaled thread handle is the publication barrier for result and all
-    // host writes. Keep even terminal ownership if handle closure fails.
+    // The signaled thread handle is the publication barrier for result and all host writes.
     thread_close(owner->thread);
     if (result)
         *result = owner->result;

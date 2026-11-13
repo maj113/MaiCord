@@ -7,6 +7,7 @@
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 enum class UiIcon : u8;
@@ -452,8 +453,8 @@ struct UiSettingsSegmentMotion {
 
 struct UiResolvedThemeStyles;
 struct UiSettingsScene {
-    // Optional text measuring hooks (the host's text cache); null keeps the per-character estimate.
-    const UiKitMeasure* measure{};
+    // The host's text cache; null keeps the per-character estimate.
+    UiTextMeasureCache* measure{};
     const UiResolvedThemeStyles* theme_styles{};
     u32 theme_geometry_revision{}, projected_theme_geometry_revision{};
     UiFixedWidgetStorageOwner storage;
@@ -513,15 +514,15 @@ struct UiSettingsScene {
     Utf8View navigation_note{};
 };
 inline constexpr u32 kUiSettingsNavigationNoteLines = 3;
-bool ui_settings_scene_set_navigation_note(UiSettingsScene*, Utf8View note) noexcept;
+void ui_settings_scene_set_navigation_note(UiSettingsScene*, Utf8View note) noexcept;
 // True while the page shows a loading notice, whose spinner needs the clock.
 bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 
 // Lazy one-allocation retained scene. Only viewport rows and two spacers per
 // list are materialized; inactive scenes have no widget allocation. UI thread.
 bool ui_settings_scene_bind_theme_styles(UiSettingsScene*, const UiResolvedThemeStyles*) noexcept;
-// Binds the host's text measuring hooks (kept across release); layout then measures instead of estimating.
-bool ui_settings_scene_bind_measure(UiSettingsScene*, const UiKitMeasure*) noexcept;
+// Binds the host's text cache (kept across release); layout then measures instead of estimating.
+bool ui_settings_scene_bind_measure(UiSettingsScene*, UiTextMeasureCache*) noexcept;
 // A host page's column: the rectangle the host draws in (in page coordinates, under the title band's
 // place) and its clip (the panel's body, reaching ui_settings_focus_reach past the column's start and top so
 // focus rings at those edges stay whole). False when the page is not a host page or the scene is inactive.
@@ -598,7 +599,7 @@ bool ui_settings_scene_grip_hit(const UiSettingsScene&, const UiSettingsTarget&,
 // Materialized row nearest to y and whether y falls in its lower half.
 bool ui_settings_scene_drop_target(const UiSettingsScene&, float y, u64* control_id, bool* after) noexcept;
 // Drag feedback for list reordering; zero ids clear it.
-bool ui_settings_scene_set_drag(UiSettingsScene*, u64 dragged, u64 drop_control, bool after) noexcept;
+void ui_settings_scene_set_drag(UiSettingsScene*, u64 dragged, u64 drop_control, bool after) noexcept;
 // Unsaved-changes bar shake offset (DIPs) and alert tint in [0, 1].
 bool ui_settings_scene_set_footer_motion(UiSettingsScene*, float shift, float alert) noexcept;
 
@@ -656,6 +657,55 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
                              const UiSettingsMediaResidency* residency = nullptr) noexcept;
 bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& theme,
                                    UiTextOutput* stream) noexcept;
+// Settings rows activate only on their actual control: action/notice rows on
+// the button, option rows on an option, editors inside their field. Grips and
+// an active list drag present the move shape.
+inline UiCursor ui_settings_scene_cursor(const UiSettingsScene& scene, float x, float y,
+                                         bool dragging = false) noexcept {
+    if (dragging)
+        return UiCursor::move;
+    UiSettingsControlGeometry geometry{};
+    if (ui_settings_scene_editor_hit(scene, x, y, &geometry))
+        return UiCursor::ibeam;
+    const auto target = ui_settings_scene_hit_test(scene, x, y);
+    switch (target.kind) {
+    case UiSettingsTargetKind::none:
+        return UiCursor::arrow;
+    case UiSettingsTargetKind::search:
+        return UiCursor::ibeam;
+    case UiSettingsTargetKind::control:
+        break;
+    default:
+        return UiCursor::hand;
+    }
+    const auto* control = ui_settings_scene_control(scene, target);
+    if (!control || !control->enabled)
+        return UiCursor::arrow;
+    if (ui_settings_scene_grip_hit(scene, target, x, y))
+        return UiCursor::move;
+    UiSettingsActivation activation{};
+    switch (control->kind) {
+    case UiSettingsControlKind::edit:
+    case UiSettingsControlKind::multiline:
+    case UiSettingsControlKind::action:
+    case UiSettingsControlKind::notice:
+        return ui_action_cursor(ui_settings_scene_button_hit(scene, target, x, y));
+    case UiSettingsControlKind::palette:
+        return ui_action_cursor(ui_settings_scene_palette_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::radio:
+        return ui_action_cursor(ui_settings_scene_radio_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::segments:
+    case UiSettingsControlKind::swatches:
+    case UiSettingsControlKind::tabs:
+    case UiSettingsControlKind::buttons:
+    case UiSettingsControlKind::colors:
+        return ui_action_cursor(ui_settings_scene_option_pointer(scene, target, x, y, &activation));
+    case UiSettingsControlKind::error:
+        return UiCursor::arrow;
+    default:
+        return UiCursor::hand;
+    }
+}
 
 } // namespace maicord
 

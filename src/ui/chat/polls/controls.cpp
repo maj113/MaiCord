@@ -222,12 +222,8 @@ void offset(UiRect& rectangle, UiPoint point) noexcept {
         rectangle.bottom += point.y;
     }
 }
-bool owner_current(UiWidgetReference owner) noexcept {
-    const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
-    return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
-}
 bool scene_current(const UiPollScene& scene) noexcept {
-    return scene.active && owner_current(scene.owner);
+    return scene.active && ui_poll_owner_current(scene.owner);
 }
 bool eligible(const UiPollScene& scene, UiPollTarget target) noexcept {
     return scene_current(scene) && ui_poll_target_enabled(scene.projection, target) &&
@@ -252,7 +248,7 @@ u32 targets(const UiPollProjection& projection, UiPollTarget* output) noexcept {
 
 bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollStyle& style,
                             UiTextMeasureCache* cache, u16 backend, UiPollLayout* out) noexcept {
-    if (!out || !cache || !state_valid(state) || !positive(width))
+    if (!cache || !state_valid(state) || !positive(width))
         return false;
     width = minimum(width, style.maximum_width);
     if (width < style.minimum_width)
@@ -414,7 +410,7 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
 bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, const UiPollLayout& layout,
                                      const UiPollStyle& style, const Theme& theme,
                                      UiPollProjection* out) noexcept {
-    if (!out || !state_valid(state) || !ui_coordinate_valid(origin.x) ||
+    if (!state_valid(state) || !ui_coordinate_valid(origin.x) ||
         !ui_coordinate_valid(origin.y) || layout.content_revision != state.content_revision ||
         layout.content_signature != content_signature(state, style) || !positive(layout.height) ||
         !positive(layout.width) || layout.width < style.minimum_width ||
@@ -571,7 +567,7 @@ UiPollTarget ui_poll_controls_hit(const UiPollProjection& projection, UiPoint po
 }
 bool ui_poll_controls_action(const UiPollProjection& projection, UiPollTarget target,
                              UiPollAction* out) noexcept {
-    if (!out || !ui_poll_target_enabled(projection, target))
+    if (!ui_poll_target_enabled(projection, target))
         return false;
     UiPollActionKind kind{};
     switch (target.control) {
@@ -628,11 +624,8 @@ bool ui_poll_action_current(const UiPollState& state, const UiPollAction& action
 bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect bounds, UiRect clip,
                            UiWidgetReference owner, UiPollSourceSurface surface, const UiPollStyle& style,
                            const Theme& theme, UiTextMeasureCache* cache, u16 backend) noexcept {
-    if (!scene)
-        return false;
     UiPollProjection projection{};
-    if (!owner_current(owner) || !ui_rect_valid_or_empty(clip) ||
-        static_cast<u32>(surface) > static_cast<u32>(UiPollSourceSurface::forward) ||
+    if (!ui_poll_owner_current(owner) || !ui_rect_valid_or_empty(clip) ||
         !ui_poll_controls_project(state, bounds, style, theme, cache, backend, &projection)) {
         clear_scene(scene);
         return false;
@@ -681,17 +674,13 @@ UiPollTarget ui_poll_scene_hit(const UiPollScene& scene, UiPoint point) noexcept
                : UiPollTarget{};
 }
 void ui_poll_scene_blur(UiPollScene* scene) noexcept {
-    if (scene) {
-        reset_value(&scene->focus);
-        reset_value(&scene->capture);
-        scene->keyboard_focus = false;
-    }
+    reset_value(&scene->focus);
+    reset_value(&scene->capture);
+    scene->keyboard_focus = false;
 }
 UiPollSceneResult ui_poll_scene_pointer(UiPollScene* scene, UiPollPointerEvent event,
                                         UiPoint point) noexcept {
     UiPollSceneResult result{};
-    if (!scene)
-        return result;
     if (event == UiPollPointerEvent::cancel || event == UiPollPointerEvent::leave ||
         !scene_current(*scene)) {
         result.release_capture = scene->capture.control != UiPollControl::none;
@@ -718,7 +707,7 @@ UiPollSceneResult ui_poll_scene_pointer(UiPollScene* scene, UiPollPointerEvent e
 }
 UiPollSceneResult ui_poll_scene_key(UiPollScene* scene, UiPollKey key) noexcept {
     UiPollSceneResult result{};
-    if (!scene || !scene_current(*scene))
+    if (!scene_current(*scene))
         return result;
     if (key == UiPollKey::activate) {
         result.handled = eligible(*scene, scene->focus);

@@ -282,7 +282,7 @@ bool apply_delete(Implementation* value, const WindowEvent& event) noexcept {
 } // namespace
 
 bool secure_text_store_initialize(SecureTextStore* store, SecureTextStoreConfig config) noexcept {
-    if (!store || store->implementation || !config.window)
+    if (store->implementation || !config.window)
         return false;
     auto* value = static_cast<Implementation*>(heap_allocate(sizeof(Implementation), true));
     if (!value)

@@ -8,7 +8,7 @@
 #include "../../shell/window_state.hpp"
 #include "../composer/text_edit_keys.hpp"
 #include "../../shell/cursor.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "../../shell/state.hpp"
 #include "../../account/account_presentation.hpp"
 #include "../composer/text_input.hpp"
@@ -435,7 +435,7 @@ bool application_message_forward_window_event(const WindowEvent& event) noexcept
     const float x = client_dip_x(event), y = client_dip_y(event);
     if (event.type == EventType::pointer_move) {
         if (q->dragging && input_held(event)) pointer_edit(*q, x, y, true);
-        else { bool changed = false; ui_message_forward_scene_set_hover(&q->scene, x, y, &changed); if (changed) application_request_frame(); }
+        else if (ui_message_forward_scene_set_hover(&q->scene, x, y)) application_request_frame();
         return true;
     }
     const auto hit = ui_message_forward_scene_hit_test(q->scene, x, y);

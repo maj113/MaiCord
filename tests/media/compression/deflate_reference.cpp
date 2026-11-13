@@ -44,7 +44,6 @@ struct InflateState {
     Slice<u8> output;
     DeflateWorkspace* workspace;
     u32 output_bytes;
-    u32 blocks;
     u32 window_size;
     ZlibInflateError error;
 };
@@ -130,7 +129,7 @@ consteval FixedDeflateTables make_fixed_tables() noexcept {
 inline constexpr FixedDeflateTables kFixedTables = make_fixed_tables();
 
 ZlibInflateResult failure(const InflateState& state, ZlibInflateError error) noexcept {
-    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks, error};
+    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, error};
 }
 
 bool reader_initialize(BitReader* reader, ConstSlice<DeflateInputSpan> spans) noexcept {
@@ -497,7 +496,6 @@ bool decode_final_blocks(InflateState* state) noexcept {
             return false;
         }
         final_block = final != 0;
-        ++state->blocks;
         bool decoded = false;
         switch (type) {
         case 0:

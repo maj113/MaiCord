@@ -144,7 +144,6 @@ struct Channel {
 struct AacLc {
     u32 sample_rate, channels, rate_index;
     u32 random_state;
-    AacLcStats stats;
     u8 shape[2];
     float overlap[2][kLines];
     // The frame in progress; nothing above changes before it has decoded completely.
@@ -416,7 +415,7 @@ AacLcError parse_tns(Bits& b, Channel& c) noexcept {
 #pragma clang attribute pop
 
 // One band of spectral values into q; false on a malformed escape.
-bool read_band(Bits& b, u32 book, i32* q, u32 width, AacLcStats& stats) noexcept {
+bool read_band(Bits& b, u32 book, i32* q, u32 width) noexcept {
     static constexpr u8 kModulus[11] = {3, 3, 3, 3, 9, 9, 8, 8, 13, 13, 17};
     const bool is_signed = book <= 2 || book == 5 || book == 6;
     const u32 dimension = book <= 4 ? 4 : 2, modulus = kModulus[book - 1];
@@ -446,7 +445,6 @@ bool read_band(Bits& b, u32 book, i32* q, u32 width, AacLcStats& stats) noexcept
                             return false;
                     }
                     magnitude[i] = static_cast<i32>((1u << n) + b.get(n));
-                    ++stats.escapes;
                 }
         for (u32 i = 0; i < dimension; ++i)
             q[k + i] = negative[i] ? -magnitude[i] : magnitude[i];
@@ -468,7 +466,7 @@ AacLcError read_spectrum(AacLc& d, Bits& b, Channel& c) noexcept {
             const u32 width = ics.bands[sfb + 1] - ics.bands[sfb];
             for (u32 w = 0; w < ics.group_length[g]; ++w)
                 if (!read_band(b, book, d.quantized + (window + w) * kShortLines * (ics.windows > 1) + ics.bands[sfb],
-                               width, d.stats))
+                               width))
                     return b.error ? AacLcError::truncated : AacLcError::invalid_stream;
         }
         window += ics.group_length[g];
@@ -477,7 +475,6 @@ AacLcError read_spectrum(AacLc& d, Bits& b, Channel& c) noexcept {
     for (u32 i = 0; i < c.pulse_count; ++i) {
         i32& value = d.quantized[c.pulse_position[i]];
         value += value < 0 ? -static_cast<i32>(c.pulse_amplitude[i]) : static_cast<i32>(c.pulse_amplitude[i]);
-        ++d.stats.pulses;
     }
     return AacLcError::none;
 }
@@ -510,7 +507,6 @@ void dequantize(AacLc& d, Channel& c, u32& random) noexcept {
                     const float scale = energy > 0 ? power_quarters(c.value[index]) / __builtin_sqrtf(energy) : 0.0f;
                     for (u32 k = 0; k < width; ++k)
                         out[k] *= scale;
-                    ++d.stats.noise_bands;
                 } else if (book < kNoiseBook) {
                     const float gain = power_quarters(c.value[index] - 100);
                     const i32* q = d.quantized + base;
@@ -746,15 +742,6 @@ AacLcError read_channel(AacLc& d, Bits& b, Channel& c, bool common_window) noexc
     return AacLcError::none;
 }
 
-void count_window(AacLc& d, const Ics& ics) noexcept {
-    if (ics.sequence == kLongStart)
-        ++d.stats.start_frames;
-    else if (ics.sequence == kEightShort)
-        ++d.stats.short_frames;
-    else if (ics.sequence == kLongStop)
-        ++d.stats.stop_frames;
-}
-
 AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
     Channel& left = d.channel[first];
     Channel& right = d.channel[first + 1];
@@ -782,9 +769,6 @@ AacLcError read_pair(AacLc& d, Bits& b, u32 first) noexcept {
     if (common && mask_present)
         apply_mid_side(d, left, right);
     apply_intensity(d, left, right, mask_present != 0);
-    count_window(d, left.ics);
-    if (!common)
-        count_window(d, right.ics);
     return AacLcError::none;
 }
 
@@ -848,10 +832,6 @@ void aac_lc_reset(AacLc* d) noexcept {
     d->random_state = 0x1f2e3d4cu;
 }
 
-AacLcStats aac_lc_stats(const AacLc* d) noexcept {
-    return d ? d->stats : AacLcStats{};
-}
-
 namespace {
 
 // Skips `bits` bits of the frame, as a data or fill element's payload.
@@ -889,10 +869,8 @@ AacLcError aac_lc_decode(AacLc* d, ConstSlice<u8> frame, float* pcm) noexcept {
             if (decoded + 1 > d->channels)
                 return AacLcError::invalid_stream;
             b.get(4);
-            if ((error = read_channel(*d, b, d->channel[decoded], false)) == AacLcError::none) {
-                count_window(*d, d->channel[decoded].ics);
+            if ((error = read_channel(*d, b, d->channel[decoded], false)) == AacLcError::none)
                 ++decoded;
-            }
             break;
         case kPair:
             if (decoded + 2 > d->channels)

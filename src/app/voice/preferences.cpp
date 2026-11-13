@@ -197,28 +197,22 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     return true;
 }
 
-bool voice_preferences_load_file(const wchar_t* path, VoicePreferences* preferences) noexcept {
-    if (!path || !preferences)
-        return false;
+bool voice_preferences_load(VoicePreferences* preferences) noexcept {
+    wchar_t path[kAccountProfileMaximumPathCharacters];
     static u8 record[kVoicePreferencesMaximumBytes];
+    if (!user_path(path, false))
+        return false;
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
     return read.ok() && voice_preferences_decode({record, read.bytes}, preferences);
 }
 
-bool voice_preferences_save_file(const wchar_t* path, const VoicePreferences& preferences) noexcept {
-    static u8 record[kVoicePreferencesMaximumBytes];
-    const u32 bytes = voice_preferences_encode(preferences, {record, sizeof(record)});
-    const u32 length = path ? wide_length(path, kAccountProfileMaximumPathCharacters) : 0;
-    return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
-}
-
-bool voice_preferences_load(VoicePreferences* preferences) noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters];
-    return user_path(path, false) && voice_preferences_load_file(path, preferences);
-}
-
 bool voice_preferences_save(const VoicePreferences& preferences) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters];
-    return user_path(path, true) && voice_preferences_save_file(path, preferences);
+    static u8 record[kVoicePreferencesMaximumBytes];
+    if (!user_path(path, true))
+        return false;
+    const u32 bytes = voice_preferences_encode(preferences, {record, sizeof(record)});
+    const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
+    return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
 }
 } // namespace maicord

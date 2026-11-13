@@ -27,11 +27,10 @@ struct UiSplitterLimits {
 
 // The preferred maximum shrinks with the space actually available (so the
 // chat column keeps its minimum width) but never below the pane minimum.
-constexpr UiSplitterLimits ui_splitter_limits(float available,
-                                              float minimum_pane = kUiSplitterMinimumPaneDips,
-                                              float preferred_maximum = kUiSplitterMaximumPaneDips) noexcept {
-    const float bounded = available == available ? available : minimum_pane;
-    return {minimum_pane, minimum(preferred_maximum, maximum(minimum_pane, bounded))};
+constexpr UiSplitterLimits ui_splitter_limits(float available) noexcept {
+    const float bounded = available == available ? available : kUiSplitterMinimumPaneDips;
+    return {kUiSplitterMinimumPaneDips,
+            minimum(kUiSplitterMaximumPaneDips, maximum(kUiSplitterMinimumPaneDips, bounded))};
 }
 
 constexpr float ui_splitter_clamp(float width, UiSplitterLimits limits) noexcept {
@@ -40,12 +39,11 @@ constexpr float ui_splitter_clamp(float width, UiSplitterLimits limits) noexcept
     return minimum(maximum(width, limits.minimum), limits.maximum);
 }
 
-constexpr bool ui_splitter_hit(UiRect pane, UiSplitterEdge edge, float x, float y,
-                               float grip = kUiSplitterGripDips) noexcept {
+constexpr bool ui_splitter_hit(UiRect pane, UiSplitterEdge edge, float x, float y) noexcept {
     if (!(pane.right > pane.left) || !(y >= pane.top) || !(y < pane.bottom))
         return false;
     const float line = edge == UiSplitterEdge::right ? pane.right : pane.left;
-    return x >= line - grip && x < line + grip;
+    return x >= line - kUiSplitterGripDips && x < line + kUiSplitterGripDips;
 }
 
 // Width implied by the pointer while the pane's opposite edge stays fixed.

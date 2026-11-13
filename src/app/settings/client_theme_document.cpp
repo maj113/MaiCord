@@ -1267,10 +1267,8 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     const auto scales = ui_theme_scale_descriptors();
     comma = false;
     for (u32 i = 0; i < scales.count; ++i) {
-        float value{};
-        ui_theme_scale_get(document.theme.scale, scales[i].id, &value);
         writer.key(comma, scales[i].name());
-        writer.real(value);
+        writer.real(ui_theme_scale_value(document.theme.scale, scales[i].id));
     }
     writer.text(utf8_literal("},\"motion\":{"));
     const auto motions = ui_theme_motion_descriptors();

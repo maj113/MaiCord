@@ -32,7 +32,7 @@ ApplicationThreadHeaderActivationSource application_thread_header_activation_sou
             return application_thread_actions_menu_open(source, anchor);
         },
         [](void*) noexcept {
-            return application_refresh_thread_actions_menu() && refresh_account_frame(true);
+            return application_refresh_thread_actions_menu() && refresh_account_frame();
         },
         [](void*, const ApplicationThreadActionTicket& source, ApplicationThreadActionEnqueueResult admission) noexcept {
             return application_thread_actions_admission_status(source, admission);

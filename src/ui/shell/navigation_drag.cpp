@@ -15,7 +15,7 @@ bool channel_source(Kind kind) noexcept {
 // The row a pointer is over, splitting the gaps between rows evenly; the
 // first and last rows extend to the list ends.
 u32 row_at(ConstSlice<NavigationDragRow> rows, float y, float gap) noexcept {
-    if (!rows.data || !rows.count)
+    if (!rows.count)
         return ~0u;
     for (u32 i = 0; i < rows.count; ++i) {
         const float bottom = i + 1 < rows.count ? (rows[i].rect.bottom + rows[i + 1].rect.top) * .5f
@@ -40,8 +40,6 @@ float fraction(const NavigationDragRow& row, float y) noexcept {
 
 void navigation_drag_press(NavigationDrag* drag, NavigationDragList list, u64 source_id, NavigationDragRowKind kind,
                            UiPoint point) noexcept {
-    if (!drag)
-        return;
     reset_value(drag);
     const bool draggable = source_id && list != NavigationDragList::none &&
                            (list == NavigationDragList::guilds ? guild_source(kind) || kind == Kind::folder
@@ -56,7 +54,7 @@ void navigation_drag_press(NavigationDrag* drag, NavigationDragList list, u64 so
 }
 
 bool navigation_drag_move(NavigationDrag* drag, UiPoint point) noexcept {
-    if (!drag || drag->phase == NavigationDragPhase::idle)
+    if (drag->phase == NavigationDragPhase::idle)
         return false;
     drag->pointer = point;
     if (drag->phase != NavigationDragPhase::armed)
@@ -69,17 +67,10 @@ bool navigation_drag_move(NavigationDrag* drag, UiPoint point) noexcept {
     return true;
 }
 
-void navigation_drag_cancel(NavigationDrag* drag) noexcept {
-    if (drag)
-        reset_value(drag);
-}
-
 bool navigation_drag_release(NavigationDrag* drag, NavigationDragTarget* drop) noexcept {
-    if (!drag)
-        return false;
     const bool committed = drag->phase == NavigationDragPhase::dragging && drag->target.drop != Drop::none &&
                            drag->target.id;
-    if (committed && drop)
+    if (committed)
         *drop = drag->target;
     reset_value(drag);
     return committed;
@@ -133,7 +124,7 @@ NavigationDragTarget navigation_drag_channel_target(const NavigationDrag& drag, 
 }
 
 NavigationDragVisual navigation_drag_update_target(NavigationDrag* drag, const NavigationDragTarget& target) noexcept {
-    if (!drag || drag->phase != NavigationDragPhase::dragging)
+    if (drag->phase != NavigationDragPhase::dragging)
         return {};
     drag->target = target;
     const bool ring = target.drop == Drop::combine || target.drop == Drop::into;

@@ -28,7 +28,7 @@ void test_user_store() noexcept {
     const UserStoreResult bob = user_store_upsert(&store, 2, utf8_literal("Bob"));
     const UserStoreResult touch = user_store_upsert(&store, 1, utf8_literal("Alice"));
     const UserStoreResult cara = user_store_upsert(&store, 3, utf8_literal("Cara"));
-    expect(initialized && alice.ok() && alice.inserted && bob.ok() && touch.ok() && !touch.name_changed &&
+    expect(initialized && alice.ok() && alice.inserted && bob.ok() && touch.ok() &&
                cara.ok() && cara.evicted && store.count == 2 && store.evictions == 1 &&
                user_store_find(store, 1) && !user_store_find(store, 2) &&
                user_store_find(store, 3),
@@ -39,7 +39,7 @@ void test_user_store() noexcept {
     const UserStoreResult renamed_cara =
         user_store_upsert(&store, 3, utf8_literal("CaraLongName"));
     const UserRecord* renamed = user_store_find(store, 3);
-    expect(renamed_alice.ok() && renamed_cara.ok() && renamed_cara.name_changed && store.compactions == 1 &&
+    expect(renamed_alice.ok() && renamed_cara.ok() && store.compactions == 1 &&
                renamed &&
                bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(
                                               user_store_name(store, *renamed).data),
@@ -82,8 +82,8 @@ void test_user_store() noexcept {
     const UserStoreResult preserved_touch =
         user_store_upsert(&paired, 1, utf8_literal("Alice"));
     const UserRecord* touched = user_store_find(paired, 1);
-    expect(paired_ready && paired_touch.ok() && !paired_touch.name_changed &&
-               preserved_touch.ok() && !preserved_touch.name_changed &&
+    expect(paired_ready && paired_touch.ok() &&
+               preserved_touch.ok() &&
                paired.revision == paired_revision && paired.name_used == paired_used &&
                paired.clock == paired_clock + 2 && touched && touched->last_seen == paired.clock &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("alice")),
@@ -97,7 +97,7 @@ void test_user_store() noexcept {
     const UserStoreResult borrowed_update =
         user_store_upsert(&paired, 1, borrowed_display);
     touched = user_store_find(paired, 1);
-    expect(paired_renamed && borrowed_update.ok() && borrowed_update.name_changed &&
+    expect(paired_renamed && borrowed_update.ok() &&
                paired.compactions == 1 && touched &&
                utf8_equal(user_store_name(paired, *touched), utf8_literal("Bob")) &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("alice")),
@@ -106,7 +106,7 @@ void test_user_store() noexcept {
     const UserStoreResult repartitioned =
         user_store_upsert(&paired, 1, utf8_literal("Boba"), utf8_literal("lice"));
     touched = user_store_find(paired, 1);
-    expect(repartitioned.ok() && repartitioned.name_changed && touched &&
+    expect(repartitioned.ok() && touched &&
                utf8_equal(user_store_name(paired, *touched), utf8_literal("Boba")) &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("lice")),
            "user_store_equal_concatenation_retains_name_boundaries");

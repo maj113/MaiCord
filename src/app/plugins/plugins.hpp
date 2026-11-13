@@ -73,7 +73,7 @@ void application_plugins_composer_notice_poll(u64 now_ms) noexcept;
 // overlay is open or the window is in the background. True when a plugin handled the chord.
 bool application_plugins_keybind_input(UiInputKind, u32 code, bool repeated) noexcept;
 
-// ---- Slot surfaces (surfaces.cpp) ----
+// Slot surfaces (surfaces.cpp).
 // Slot revision changed: re-layout surfaces that cache plugin items.
 void application_plugins_surfaces_changed() noexcept;
 // Channel/DM row badges, server rail badges and account panel buttons.

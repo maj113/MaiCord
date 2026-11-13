@@ -32,17 +32,12 @@ struct NotificationRetentionAppend {
     bool ok() const noexcept { return error == NotificationRetentionError::none; }
 };
 // One owning event-loop thread. No allocation, clock, OS calls, account policy,
-// ingress deduplication, TTL, or global channel eviction. Rows/index/owner must
-// be disjoint. Nonempty index capacity is a power of two, >= twice row capacity.
-// Empty storage is valid and reports full_channels until the caller binds it.
-bool notification_retention_initialize(NotificationRetention*,
-    Slice<NotificationRetentionRow>, Slice<u32>) noexcept;
-// Preserves active dense rows and rebuilds the index. Corresponding old/new
-// bases may be identical (caller has grown storage); otherwise banks must be
-// disjoint, including across old/new row/index banks. No views escape the API.
-// Invalid input leaves owner, existing storage and destination storage intact.
-NotificationRetentionError notification_retention_rebind(NotificationRetention*,
-    Slice<NotificationRetentionRow>, Slice<u32>) noexcept;
+// ingress deduplication, TTL, or global channel eviction. A zeroed owner has no
+// storage and reports full_channels until the caller binds some.
+// Binds banks that are disjoint from each other and the owner (index capacity a power of two, >= twice the row
+// capacity), keeping the active rows and rebuilding the index. The new banks may share a base with the old
+// ones (the caller has grown storage in place) or be fresh; no views escape the API.
+void notification_retention_rebind(NotificationRetention*, Slice<NotificationRetentionRow>, Slice<u32>) noexcept;
 NotificationRetentionRoom notification_retention_room(const NotificationRetention*, u64 channel) noexcept;
 // Call room/reserve BEFORE external Show; append only its successful outcome.
 // The 21st success returns the oldest ticket after retiring it from metadata.

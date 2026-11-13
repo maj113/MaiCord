@@ -20,7 +20,6 @@ bool items_zero(const MessageSceneRichItemLayout& items) noexcept {
 bool initialize_measurements(MessageScene* scene, bool deferred) noexcept {
     // This fresh reservation already contains zero-filled pages. Do not touch
     // unused slots before a message needs its retained measurement.
-    if (!scene || !scene->timeline || !scene->timeline->store) return false;
     scene->measured_slots = scene->measured_snapshot_slots = 0;
     const u32 reserved = 2u * scene->timeline->store->capacity;
     if (!stable_storage_initialize(&scene->owned_measurements, reserved,
@@ -38,7 +37,7 @@ bool initialize_measurements(MessageScene* scene, bool deferred) noexcept {
 }
 
 Measurement* measurement(MessageScene* scene, u32 slot, bool snapshot) noexcept {
-    if (!scene || !scene->timeline || slot >= scene->timeline->store->capacity) return nullptr;
+    if (slot >= scene->timeline->store->capacity) return nullptr;
     const u32 body_slot = slot;
     if (snapshot) slot += scene->timeline->store->capacity;
     // Newly committed pages are zero: an unmeasured slot reads as not measured.

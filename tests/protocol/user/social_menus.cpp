@@ -309,19 +309,6 @@ void test_user_note_store(void (*check)(bool, const char*) noexcept) noexcept {
 }
 
 namespace {
-struct ActivityFixture {
-    UserActivitySet sets[4];
-    u32 count;
-};
-bool lookup(const void* context, u64 user, UserActivitySet* out) noexcept {
-    const auto& f = *static_cast<const ActivityFixture*>(context);
-    for (u32 i = 0; i < f.count; ++i)
-        if (f.sets[i].user_id == user) {
-            *out = f.sets[i];
-            return true;
-        }
-    return false;
-}
 void playing(UserActivitySet* set, u64 user, u64 application, Utf8View name, u64 start) noexcept {
     clear_bytes(set, static_cast<u32>(sizeof(*set)));
     set->user_id = user;
@@ -335,12 +322,16 @@ void playing(UserActivitySet* set, u64 user, u64 application, Utf8View name, u64
 } // namespace
 
 void test_active_now(void (*check)(bool, const char*) noexcept) noexcept {
-    static ActivityFixture fixture{};
-    fixture.count = 4;
-    playing(&fixture.sets[0], 1, 500, utf8_literal("Valorant"), 3000);
-    playing(&fixture.sets[1], 2, 500, utf8_literal("Valorant"), 1000);
-    playing(&fixture.sets[2], 3, 0, utf8_literal("Minecraft"), 500);
-    playing(&fixture.sets[3], 5, 0, utf8_literal("Chess"), 2000);
+    UserActivityStore activities{};
+    const auto play = [&](u64 user, u64 application, Utf8View name, u64 start) noexcept {
+        UserActivitySet set;
+        playing(&set, user, application, name, start);
+        user_activity_apply(&activities, set, 0, false);
+    };
+    play(1, 500, utf8_literal("Valorant"), 3000);
+    play(2, 500, utf8_literal("Valorant"), 1000);
+    play(3, 0, utf8_literal("Minecraft"), 500);
+    play(5, 0, utf8_literal("Chess"), 2000);
     static VoiceState records[4]{};
     VoiceStateStore voice{};
     voice_state_store_initialize_sparse(&voice, {records, 4});
@@ -349,7 +340,7 @@ void test_active_now(void (*check)(bool, const char*) noexcept) noexcept {
     voice_state_store_apply(&voice, 9, 91, 99, 0); // not a friend
     const u64 friends[]{1, 2, 3, 4, 5, 6, 1};
     ActiveNowCard cards[kActiveNowMaximumCards]{};
-    const ActiveNowInput input{{friends, 7}, &voice, &fixture, lookup};
+    const ActiveNowInput input{{friends, 7}, &voice, &activities};
     const u32 count = active_now_project(input, {cards, kActiveNowMaximumCards});
     check(count == 3, "active now: two activity cards and one voice card; idle friends are left out");
     check(cards[0].kind == ActiveNowKind::voice && cards[0].channel_id == 90 && cards[0].guild_id == 9 &&
@@ -367,8 +358,9 @@ void test_active_now(void (*check)(bool, const char*) noexcept) noexcept {
     ActiveNowCard one[1]{};
     check(active_now_project(input, {one, 1}) == 1 && one[0].kind == ActiveNowKind::voice,
           "active now: output capacity keeps the highest-ranked cards");
-    const ActiveNowInput nobody{{}, &voice, &fixture, lookup};
+    const ActiveNowInput nobody{{}, &voice, &activities};
     check(active_now_project(nobody, {cards, kActiveNowMaximumCards}) == 0, "active now: no friends, no cards");
+    user_activity_release(&activities);
 }
 namespace {
 bool active_resolve(void*, u32 index, UiFriendsRow* out) noexcept {

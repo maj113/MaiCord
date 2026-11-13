@@ -138,7 +138,7 @@ void notice(u64 channel, const Utf8View& text) noexcept {
     input.author_id = 1;
     if (!message_timeline_insert_local(&g_app.message_view.timeline, input).ok())
         log_write(LogLevel::warning, "commands", "builtin_notice_insert_failed");
-    refresh_account_frame(true);
+    refresh_account_frame();
 }
 void clear_action() noexcept {
     auto& s = g_builtins;
@@ -530,7 +530,7 @@ bool builtin_commands_tick() noexcept {
     if (!queued.ok())
         log_u64(LogLevel::warning, "commands", "builtin_message_queue_error", static_cast<u64>(queued.error));
     clear_message();
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 void builtin_commands_release() noexcept {

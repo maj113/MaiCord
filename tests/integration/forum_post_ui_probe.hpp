@@ -3,7 +3,7 @@
 #include "forum_media_ui_probe.hpp"
 #include "reply_draft_ui_probe.hpp"
 #include "maicord/core/time.hpp"
-#include "chat/threads/forum_form_state.hpp"
+#include "../support/forum_form_access.hpp"
 #include "chat/threads/browser.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

@@ -77,7 +77,7 @@ bool game_store_batch_due(const GameStore& store) noexcept;
 u32 game_store_take_batch(GameStore* store, Slice<u64> ids) noexcept;
 // A game object (full) or a search result: a search result never replaces a
 // game object's data.
-void game_store_put(GameStore* store, const GuildAdminGame& game, bool full, u64 now_ms) noexcept;
+void game_store_put(GameStore* store, const GuildAdminGame& game, bool full) noexcept;
 // A batch answered (ok: ids it left out are unknown) or failed (retried later).
 void game_store_settle(GameStore* store, ConstSlice<u64> asked, bool ok, u64 now_ms) noexcept;
 // A batch that could not be sent: its games are wanted again.

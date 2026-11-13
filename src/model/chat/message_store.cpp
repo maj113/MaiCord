@@ -47,16 +47,6 @@ bool content_equal(const MessageStore& store, const MessageRecord& record, Utf8V
     return true;
 }
 
-bool content_overlaps_text(const MessageStore& store, Utf8View content) noexcept {
-    if (!content.data || content.bytes == 0) {
-        return false;
-    }
-    const u64 content_begin = reinterpret_cast<u64>(content.data);
-    const u64 text_begin = reinterpret_cast<u64>(store.text);
-    return content_begin < text_begin ? text_begin - content_begin < content.bytes
-                                      : content_begin - text_begin < store.text_capacity;
-}
-
 constexpr bool valid_content_availability(MessageContentAvailability availability) noexcept {
     return availability == MessageContentAvailability::unknown ||
            availability == MessageContentAvailability::available ||
@@ -109,7 +99,7 @@ AppendRoom append_room(MessageStore* store, u32 bytes, Utf8View source) noexcept
     if (bytes <= store->text_committed - store->text_used)
         return AppendRoom::ready;
     const u32 live = store->text_used - store->text_wasted;
-    if (bytes > store->text_capacity - live || content_overlaps_text(*store, source))
+    if (bytes > store->text_capacity - live || message_store_content_overlaps(*store, source))
         return AppendRoom::full;
     if (bytes <= store->text_committed - live || store->text_used + bytes > store->text_capacity) {
         if (!message_store_compact_in_place(store))
@@ -244,7 +234,7 @@ MessageStoreResult message_store_upsert_located(MessageStore* store, const Messa
                     store->text_wasted -= previous;
                     record.content_bytes = previous;
                     ++store->rejected;
-                    return store_error(content_overlaps_text(*store, input.content)
+                    return store_error(message_store_content_overlaps(*store, input.content)
                                            ? MessageStoreError::invalid_input
                                            : MessageStoreError::text_capacity);
                 }

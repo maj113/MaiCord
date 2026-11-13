@@ -135,8 +135,7 @@ MessageNotificationSetting level_row(L level) noexcept {
 }
 bool apply(const Settings& s) noexcept {
     auto& b = g_store;
-    if (!message_notifications_initialize(&b.store, {b.guilds, 2}, {b.overrides, 4}, {b.threads, 2}))
-        return false;
+    message_notifications_initialize(&b.store, {b.guilds, 2}, {b.overrides, 4}, {b.threads, 2});
     MessageNotificationGuildSetting guilds[2]{};
     MessageNotificationOverride overrides[3]{};
     u32 override_count = 0;
@@ -201,8 +200,8 @@ MessageNotificationOutputs decide(const Settings& s, const Case& c) noexcept {
     in.everyone_mention = c.mention == everyone_mention;
     in.focused = c.focused;
     in.selected = c.selected;
-    const MessageNotificationDevice device{c.desktop, c.sounds, c.selected_sounds, c.flash, false};
-    return message_notification_outputs({&in, true, c.selected, true, c.selected_sounds}, device);
+    const MessageNotificationDevice device{c.desktop, c.sounds, c.flash, false};
+    return message_notification_outputs({&in, c.selected, c.selected_sounds}, device);
 }
 
 struct Tally {

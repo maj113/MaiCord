@@ -304,10 +304,8 @@ bool account_inventory_free_slot(const AccountInventory& inventory, u32* slot) n
     return false;
 }
 
-u32 account_inventory_order(const AccountInventory& inventory, u8* indices, u32 capacity) noexcept {
-    const u32 count = minimum(minimum(inventory.count, kAccountInventoryMaximumAccounts), capacity);
-    if (!indices)
-        return 0;
+u32 account_inventory_order(const AccountInventory& inventory, u8 (&indices)[kAccountInventoryMaximumAccounts]) noexcept {
+    const u32 count = minimum(inventory.count, kAccountInventoryMaximumAccounts);
     for (u32 index = 0; index < count; ++index)
         indices[index] = static_cast<u8>(index);
     for (u32 index = 1; index < count; ++index) {

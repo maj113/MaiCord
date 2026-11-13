@@ -16,8 +16,8 @@ float style_em(u32 style) noexcept {
 }
 // Measuring through the host's text cache: the keys carry the style word (and the spans of a styled block).
 constexpr u64 kMeasureSource = 0x4B49544D45415355ull;
-bool cache_measure(void* context, const Utf8View& text, u32 style, u16 kind, UiSize constraint, bool single_line,
-                   UiTextMeasureValue* value, UiTextFace face = UiTextFace::normal) noexcept {
+bool cache_measure(UiTextMeasureCache* cache, const Utf8View& text, u32 style, u16 kind, UiSize constraint,
+                   bool single_line, UiTextMeasureValue* value, UiTextFace face = UiTextFace::normal) noexcept {
     const TextStyleSpan span{0, text.bytes, style};
     const UiTextMeasureRequest request{{kMeasureSource, hash64_mix(hash64_bytes(kHash64Seed, text.data, text.bytes), style), 0, kind, 0},
                                        text,
@@ -25,73 +25,51 @@ bool cache_measure(void* context, const Utf8View& text, u32 style, u16 kind, UiS
                                        constraint,
                                        single_line,
                                        face};
-    return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, value).ok();
-}
-float cache_width(void* context, const Utf8View& text, u32 style) noexcept {
-    UiTextMeasureValue value{};
-    return cache_measure(context, text, style, 0, {4096.f, 64.f}, true, &value) ? value.size.width
-                                                                               : ui_kit_text_width(nullptr, text, style);
-}
-float cache_height(void* context, const Utf8View& text, u32 style, float width) noexcept {
-    UiTextMeasureValue value{};
-    return cache_measure(context, text, style, 1, {width, 65536.f}, false, &value)
-               ? value.size.height
-               : ui_kit_text_height(nullptr, text, style, width);
-}
-float cache_chat_width(void* context, const Utf8View& text, u32 style) noexcept {
-    UiTextMeasureValue value{};
-    return cache_measure(context, text, style, 3, {4096.f, 64.f}, true, &value, ui_text_face_chat(UiTextFace::normal))
-               ? value.size.width
-               : -1.f;
-}
-// A negative height asks the caller for its estimate.
-float cache_styled_height(void* context, const Utf8View& text, ConstSlice<TextStyleSpan> spans, float width) noexcept {
-    UiTextMeasureValue value{};
-    const u64 signature = hash64_counted_bytes(hash64_bytes(kHash64Seed, text.data, text.bytes), spans.data,
-                                               spans.count * sizeof(TextStyleSpan));
-    const UiTextMeasureRequest request{{kMeasureSource, signature, 0, 2, 0}, text, spans, {width, 65536.f}, false};
-    return ui_text_measure_cache_measure(static_cast<UiTextMeasureCache*>(context), request, &value).ok() ? value.size.height
-                                                                                                          : -1.f;
+    return cache && ui_text_measure_cache_measure(cache, request, value).ok();
 }
 } // namespace
 
-// ---------------------------------------------------------------------------
 float ui_kit_line_height(u32 style) noexcept {
     const float em = style_em(style);
     return em >= 24 ? 30.f : em >= 20 ? 24.f : em >= 17 ? 22.f : em >= 16 ? 20.f : em >= 13 ? 18.f : 16.f;
 }
-float ui_kit_text_width(const UiKitMeasure* measure, const Utf8View& text, u32 style) noexcept {
+float ui_kit_text_width(UiTextMeasureCache* cache, const Utf8View& text, u32 style) noexcept {
     if (!text.bytes)
         return 0;
-    if (measure && measure->width)
-        return measure->width(measure->context, text, style);
+    UiTextMeasureValue value{};
+    if (cache_measure(cache, text, style, 0, {4096.f, 64.f}, true, &value))
+        return value.size.width;
     return ui_settings_text_width(text, style_em(style)) *
            ((style & text_style_bold) ? kBoldFactor : kRegularFactor);
 }
-float ui_kit_chat_text_width(const UiKitMeasure* measure, const Utf8View& text, u32 style, float chat_em) noexcept {
+float ui_kit_chat_text_width(UiTextMeasureCache* cache, const Utf8View& text, u32 style, float chat_em) noexcept {
     if (!text.bytes)
         return 0;
-    if (measure && measure->chat_width) {
-        const float width = measure->chat_width(measure->context, text, style);
-        if (width >= 0)
-            return width;
-    }
+    UiTextMeasureValue value{};
+    if (cache_measure(cache, text, style, 3, {4096.f, 64.f}, true, &value, ui_text_face_chat(UiTextFace::normal)) &&
+        value.size.width >= 0)
+        return value.size.width;
     return ui_settings_text_width(text, style_em(style) * chat_em / 16.f) *
            ((style & text_style_bold) ? kBoldFactor : kRegularFactor);
 }
-float ui_kit_text_height(const UiKitMeasure* measure, const Utf8View& text, u32 style, float width) noexcept {
+float ui_kit_text_height(UiTextMeasureCache* cache, const Utf8View& text, u32 style, float width) noexcept {
     if (!text.bytes)
         return 0;
-    if (measure && measure->height)
-        return measure->height(measure->context, text, style, width);
+    UiTextMeasureValue value{};
+    if (cache_measure(cache, text, style, 1, {width, 65536.f}, false, &value))
+        return value.size.height;
     return static_cast<float>(ui_settings_text_lines(text, style_em(style) * kRegularFactor, width)) *
            ui_kit_line_height(style);
 }
-void ui_kit_measure_cache(UiKitMeasure* out, UiTextMeasureCache* cache) noexcept {
-    *out = cache ? UiKitMeasure{cache_width, cache_height, cache_styled_height, cache_chat_width, cache} : UiKitMeasure{};
+float ui_kit_styled_text_height(UiTextMeasureCache* cache, const Utf8View& text, ConstSlice<TextStyleSpan> spans,
+                                float width) noexcept {
+    UiTextMeasureValue value{};
+    const u64 signature = hash64_counted_bytes(hash64_bytes(kHash64Seed, text.data, text.bytes), spans.data,
+                                               spans.count * sizeof(TextStyleSpan));
+    const UiTextMeasureRequest request{{kMeasureSource, signature, 0, 2, 0}, text, spans, {width, 65536.f}, false};
+    return cache && ui_text_measure_cache_measure(cache, request, &value).ok() ? value.size.height : -1.f;
 }
 
-// ---------------------------------------------------------------------------
 float ui_segmented_item_width(const UiSettingsLayoutTokens&, const float* label_widths, u32 count) noexcept {
     float widest = 0;
     for (u32 i = 0; i < count; ++i)
@@ -163,7 +141,6 @@ bool ui_segmented_fits(float track_width, float row_width) noexcept {
     return track_width <= row_width * .6f;
 }
 
-// ---------------------------------------------------------------------------
 float ui_dropdown_width(const UiSettingsLayoutTokens& t, float label_width, float widest_value_width,
                         float maximum_width) noexcept {
     const float wanted = t.metric.field_padding + (label_width > 0 ? label_width + 8 : 0) + widest_value_width +

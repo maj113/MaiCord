@@ -36,7 +36,7 @@ struct MessageNotificationStore {
     bool complete;
 };
 enum class MessageNotificationApplyError : u8 { none, input, duplicate, capacity, stale };
-bool message_notifications_initialize(MessageNotificationStore*,
+void message_notifications_initialize(MessageNotificationStore*,
     Slice<MessageNotificationGuildSetting>, Slice<MessageNotificationOverride>,
     Slice<MessageNotificationThreadSetting>, MessageNotificationReserve = nullptr, void* = nullptr) noexcept;
 // Source slices must be immutable and disjoint from active store memory. All

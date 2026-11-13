@@ -49,7 +49,6 @@ enum class UiAccessRole : u8 {
 };
 
 enum UiAccessState : u16 {
-    ui_access_state_none = 0,
     ui_access_focusable = 1u << 0,
     ui_access_focused = 1u << 1,
     ui_access_selectable = 1u << 2,

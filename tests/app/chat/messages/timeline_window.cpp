@@ -54,7 +54,7 @@ void test_anchor_geometry(void (*check)(bool, const char*) noexcept) noexcept {
     UiVariableList list{};
     MessageTimeline timeline{};
     MessageScene scene{};
-    const u32 row_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 row_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     const UiRect tall{0.0f, 0.0f, 720.0f, 1'000.0f};
     const bool fixture =
         message_store_initialize(&store, {g_records, kRows}, {g_order, kRows}, {g_text, sizeof(g_text)}) &&

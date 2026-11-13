@@ -34,7 +34,6 @@ struct Settings {
     UiPage pages[kSettingsPanelCount];
     UiSettingsPageContent contents[kSettingsPanelCount];
     UiSettingsControl controls[kSettingsPanelCount];
-    UiKitMeasure measure;
     UiPageRegistry registry;
     UiSettingsScene scene;
 };
@@ -100,8 +99,7 @@ bool settings_titles(D3D11Renderer& renderer, UiTextMeasureCache& cache, bool (*
     if (!ui_settings_scene_set_presentation(&s.scene, UiSettingsPresentation::modal) ||
         !ui_settings_scene_bind_navigation(&s.scene, settings_catalog_navigation(true), 1))
         return fail(3);
-    ui_kit_measure_cache(&s.measure, &cache);
-    ui_settings_scene_bind_measure(&s.scene, &s.measure);
+    ui_settings_scene_bind_measure(&s.scene, &cache);
     const UiPageKey appearance{kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
     if (!ui_page_registry_select(&s.registry, appearance).ok())
         return fail(4);

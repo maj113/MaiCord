@@ -60,7 +60,6 @@ enum class UserStoreError : u8 {
 struct UserStoreResult {
     UserStoreError error;
     bool inserted;
-    bool name_changed;
     bool evicted;
 
     constexpr bool ok() const noexcept {

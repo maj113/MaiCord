@@ -30,7 +30,6 @@
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/platform/desktop/shell_open.hpp"
 
 namespace maicord::app_detail {
 namespace settings_detail {

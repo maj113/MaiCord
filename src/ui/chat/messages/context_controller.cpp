@@ -142,9 +142,6 @@ MessageContextControllerResult message_context_controller_open(
 }
 
 void message_context_controller_close(MessageContextController* controller) noexcept {
-    if (!controller) {
-        return;
-    }
     controller->message_id = 0;
     controller->active = false;
 }

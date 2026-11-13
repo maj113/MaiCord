@@ -19,7 +19,6 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 
 #include "maicord/protocol/user/account_settings.hpp"
-#include "../account/account_ui_runtime.hpp"
 #include "maicord/platform/desktop/webauthn.hpp"
 #include "maicord/platform/window/event.hpp"
 #if defined(MAICORD_TEST_HOOKS)
@@ -284,8 +283,6 @@ Utf8View failure_text(Op op) noexcept {
         return utf8_literal("Something went wrong. Try again.");
     }
 }
-
-// ---- Dialogs ----------------------------------------------------------------------------------------------------
 
 void clear_flow() noexcept {
     if (auto* b = g_owner.bank) {
@@ -1241,8 +1238,6 @@ bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool, u32 choice, u3
     queue(Op::mfa_finish);
     return false;
 }
-
-// ---- Rows ---------------------------------------------------------------------------------------------------------
 
 // A row's texts are read only up to their lengths: emptying it needs no wipe of the buffers.
 void clear_row(Row& row) noexcept {

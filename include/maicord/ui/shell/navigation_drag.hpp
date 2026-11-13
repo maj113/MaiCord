@@ -69,7 +69,6 @@ void navigation_drag_press(NavigationDrag*, NavigationDragList, u64 source_id, N
                            UiPoint point) noexcept;
 // True when this move turned an armed press into a drag (the host captures).
 bool navigation_drag_move(NavigationDrag*, UiPoint point) noexcept;
-void navigation_drag_cancel(NavigationDrag*) noexcept;
 // Ends the drag. True with *drop set when a valid target was under the pointer.
 bool navigation_drag_release(NavigationDrag*, NavigationDragTarget* drop) noexcept;
 constexpr bool navigation_drag_dragging(const NavigationDrag& drag) noexcept {

@@ -330,7 +330,7 @@ void test_transport() noexcept {
                        {}),
           "guild admin account: audit log page query is exact");
 
-    request = guild_request(GuildAdminOperation::role_list);
+    request = guild_request(GuildAdminOperation::role_member_counts);
     request.reason = utf8_literal("reads carry no reason");
     const u32 before = capture.submissions;
     auto empty_read = guild_request(GuildAdminOperation::ban_list);
@@ -346,7 +346,7 @@ void test_transport() noexcept {
                                             RestClientSubmitError::account_restricted,
                                             RestClientSubmitError::memory};
     bool propagated = true;
-    request = guild_request(GuildAdminOperation::role_list);
+    request = guild_request(GuildAdminOperation::role_member_counts);
     for (const auto error : errors) {
         capture.result = error;
         propagated = account_guild_admin_submit(&details, &request, 106).error == error && propagated;
@@ -363,24 +363,21 @@ void test_routes() noexcept {
         Utf8View body;
     };
     GuildSettingsPatch settings{};
-    settings.fields = guild_settings_patch_name | guild_settings_patch_system_channel |
-                      guild_settings_patch_afk_timeout | guild_settings_patch_verification_level |
-                      guild_settings_patch_icon;
-    settings.name = utf8_literal("Lab \"one\"");
+    settings.fields = guild_settings_patch_description | guild_settings_patch_system_channel |
+                      guild_settings_patch_afk_timeout | guild_settings_patch_verification_level;
+    settings.description = utf8_literal("Lab \"one\"");
     settings.afk_timeout_seconds = 900;
     settings.verification_level = 2;
     RolePatch role{};
-    role.fields = role_patch_name | role_patch_permissions | role_patch_color | role_patch_mentionable |
-                  role_patch_unicode_emoji;
+    role.fields = role_patch_name | role_patch_permissions | role_patch_color | role_patch_mentionable;
     role.name = utf8_literal("Mods");
     role.permissions = kPermissionKickMembers | kPermissionModerateMembers;
     role.color = 0x3366FF;
     role.mentionable = true;
     const u64 member_roles[] = {30, 31};
     MemberPatch member{};
-    member.fields = member_patch_nickname | member_patch_roles | member_patch_voice_channel | member_patch_mute;
+    member.fields = member_patch_nickname | member_patch_roles;
     member.role_ids = {member_roles, 2};
-    member.mute = true;
     MemberPatch nickname{};
     nickname.fields = member_patch_nickname;
     nickname.nickname = utf8_literal("Ada");
@@ -392,7 +389,7 @@ void test_routes() noexcept {
     channel.parent_id = 0;
     channel.overwrites = {&overwrite, 1};
     const GuildAdminPosition roles[] = {{30, 0, 2, 0}, {31, 0, 1, 0}};
-    const GuildAdminPosition channels[] = {{50, 60, 0, guild_admin_position_parent | guild_admin_position_lock_permissions},
+    const GuildAdminPosition channels[] = {{50, 60, 0, guild_admin_position_parent},
                                            {51, 0, 1, guild_admin_position_parent}};
     const InviteCreate invite{3'600, 5, true, false};
 
@@ -406,7 +403,7 @@ void test_routes() noexcept {
     r = guild_request(GuildAdminOperation::guild_update);
     r.guild = &settings;
     add(r, RestMethod::patch, utf8_literal("/api/v9/guilds/10"),
-        utf8_literal(R"({"name":"Lab \"one\"","icon":null,"afk_timeout":900,"system_channel_id":null,"verification_level":2})"));
+        utf8_literal(R"({"description":"Lab \"one\"","afk_timeout":900,"system_channel_id":null,"verification_level":2})"));
     r = guild_request(GuildAdminOperation::role_create);
     add(r, RestMethod::post, utf8_literal("/api/v9/guilds/10/roles"),
         utf8_literal(R"({"name":"new role","color":0,"colors":{"primary_color":0,"secondary_color":null,)"
@@ -414,7 +411,7 @@ void test_routes() noexcept {
     r = guild_request(GuildAdminOperation::role_update, 30);
     r.role = &role;
     add(r, RestMethod::patch, utf8_literal("/api/v9/guilds/10/roles/30"),
-        utf8_literal(R"({"name":"Mods","permissions":"1099511627778","color":3368703,"mentionable":true,"unicode_emoji":null})"));
+        utf8_literal(R"({"name":"Mods","permissions":"1099511627778","color":3368703,"mentionable":true})"));
     r = guild_request(GuildAdminOperation::role_delete, 30);
     add(r, RestMethod::delete_method, utf8_literal("/api/v9/guilds/10/roles/30"), {});
     r = guild_request(GuildAdminOperation::role_reorder);
@@ -426,7 +423,7 @@ void test_routes() noexcept {
     r = guild_request(GuildAdminOperation::member_update, 20);
     r.member = &member;
     add(r, RestMethod::patch, utf8_literal("/api/v9/guilds/10/members/20"),
-        utf8_literal(R"({"nick":null,"roles":["30","31"],"channel_id":null,"mute":true})"));
+        utf8_literal(R"({"nick":null,"roles":["30","31"]})"));
     r = guild_request(GuildAdminOperation::member_update_self);
     r.member = &nickname;
     add(r, RestMethod::patch, utf8_literal("/api/v9/guilds/10/members/@me"), utf8_literal(R"({"nick":"Ada"})"));
@@ -441,32 +438,21 @@ void test_routes() noexcept {
     r = guild_request(GuildAdminOperation::channel_reorder);
     r.positions = {channels, 2};
     add(r, RestMethod::patch, utf8_literal("/api/v9/guilds/10/channels"),
-        utf8_literal(R"([{"id":"50","position":0,"parent_id":"60","lock_permissions":true},{"id":"51","position":1,"parent_id":null,"lock_permissions":false}])"));
+        utf8_literal(R"([{"id":"50","position":0,"parent_id":"60","lock_permissions":false},{"id":"51","position":1,"parent_id":null,"lock_permissions":false}])"));
     r = guild_request(GuildAdminOperation::invite_list_guild);
     add(r, RestMethod::get, utf8_literal("/api/v9/guilds/10/invites"), {});
     GuildAdminRequest c{};
     c.channel_id = 50;
     c.operation = GuildAdminOperation::channel_update;
     ChannelPatch rename{};
-    rename.fields = channel_patch_name | channel_patch_topic;
+    rename.fields = channel_patch_name;
     rename.name = utf8_literal("general");
     c.channel = &rename;
     add(c, RestMethod::patch, utf8_literal("/api/v9/channels/50"),
-        utf8_literal(R"({"name":"general","topic":null})"));
+        utf8_literal(R"({"name":"general"})"));
     c.channel = nullptr;
     c.operation = GuildAdminOperation::channel_delete;
     add(c, RestMethod::delete_method, utf8_literal("/api/v9/channels/50"), {});
-    c.operation = GuildAdminOperation::overwrite_put;
-    c.target_id = 40;
-    c.overwrite = &overwrite;
-    add(c, RestMethod::put, utf8_literal("/api/v9/channels/50/permissions/40"),
-        utf8_literal(R"({"id":"40","type":1,"allow":"1024","deny":"2048"})"));
-    c.overwrite = nullptr;
-    c.operation = GuildAdminOperation::overwrite_delete;
-    add(c, RestMethod::delete_method, utf8_literal("/api/v9/channels/50/permissions/40"), {});
-    c.target_id = 0;
-    c.operation = GuildAdminOperation::invite_list_channel;
-    add(c, RestMethod::get, utf8_literal("/api/v9/channels/50/invites"), {});
     c.operation = GuildAdminOperation::invite_create;
     c.invite = &invite;
     add(c, RestMethod::post, utf8_literal("/api/v9/channels/50/invites"),
@@ -549,7 +535,7 @@ void test_routes() noexcept {
         exact = exact && row_exact;
         short_buffers = bounded(row.request) && short_buffers;
     }
-    check(exact && count == 30,
+    check(exact && count == 27,
           "guild admin protocol: every operation writes its exact method, path and body");
     check(short_buffers, "guild admin protocol: every short target buffer is refused untouched");
 
@@ -562,8 +548,8 @@ void test_routes() noexcept {
     bad.guild = &settings;
     rejected = rejected && !guild_admin_request_valid(bad);
     GuildSettingsPatch mixed = widget;
-    mixed.fields |= guild_settings_patch_name;
-    mixed.name = utf8_literal("Lab");
+    mixed.fields |= guild_settings_patch_description;
+    mixed.description = utf8_literal("Lab");
     bad = guild_request(GuildAdminOperation::guild_update);
     bad.guild = &mixed;
     rejected = rejected && !guild_admin_request_valid(bad);
@@ -606,21 +592,17 @@ void test_routes() noexcept {
     bad = guild_request(GuildAdminOperation::guild_update);
     bad.guild = &odd;
     rejected = rejected && !guild_admin_request_valid(bad);
-    GuildSettingsPatch icon{};
-    icon.fields = guild_settings_patch_icon;
-    icon.icon = utf8_literal("https://example.invalid/a.png");
-    bad.guild = &icon;
+    GuildSettingsPatch discovery{};
+    discovery.fields = guild_settings_patch_discovery_splash;
+    discovery.discovery_splash = utf8_literal("https://example.invalid/a.png");
+    bad.guild = &discovery;
     rejected = rejected && !guild_admin_request_valid(bad);
     const PermissionOverwriteWrite conflicting{40, 1, 1, 0};
-    GuildAdminRequest put{};
-    put.operation = GuildAdminOperation::overwrite_put;
-    put.channel_id = 50;
-    put.target_id = 40;
-    put.overwrite = &conflicting;
-    rejected = rejected && !guild_admin_request_valid(put);
-    const PermissionOverwriteWrite other_target{41, 1, 0, 0};
-    put.overwrite = &other_target;
-    rejected = rejected && !guild_admin_request_valid(put);
+    ChannelPatch overwritten = channel;
+    overwritten.overwrites = {&conflicting, 1};
+    bad = guild_request(GuildAdminOperation::channel_create);
+    bad.channel = &overwritten;
+    rejected = rejected && !guild_admin_request_valid(bad);
     GuildAdminRequest invite_bad{};
     invite_bad.operation = GuildAdminOperation::invite_delete;
     invite_bad.invite_code = utf8_literal("../x");
@@ -1074,7 +1056,7 @@ void test_profile_and_boost() noexcept {
     profile.icon = utf8_literal("https://cdn.example/icon.png");
     check(!guild_admin_request_valid(request), "guild admin account: a profile icon is a hash or a data URI");
     profile.icon = {};
-    patch.fields = guild_settings_patch_profile | guild_settings_patch_name;
+    patch.fields = guild_settings_patch_profile | guild_settings_patch_description;
     check(!guild_admin_request_valid(request), "guild admin account: the profile travels alone");
 
     request = guild_request(GuildAdminOperation::vanity_get);

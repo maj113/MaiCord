@@ -1,4 +1,5 @@
 #include "maicord/app/account/login/account_credential_forget.hpp"
+#include "maicord/app/net/file_persistence.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
@@ -12,6 +13,7 @@ constexpr const wchar_t* kNames[]{L"active.profile",     L"active.session", L"ac
                                   L"active.shell",       L"active.shell.new"};
 // Everything logout removes: the credentials and the startup shell.
 constexpr u32 kForgotten[]{0, 1, 2, 3, 6, 7};
+constexpr u8 kMarkerBit = 1u << 4, kMarkerNewBit = 1u << 5;
 constexpr u8 kSentinel[]{'s', 'y', 'n', 't', 'h', 'e', 't', 'i', 'c',
                          '-', 'f', 'i', 'x', 't', 'u', 'r', 'e'};
 
@@ -132,72 +134,82 @@ bool suffix(const wchar_t* path, const wchar_t* name) noexcept {
     return true;
 }
 
+// The faults armed for one call; none outside faulted().
 struct Faults {
-    u32 calls{};
-    u32 removes{};
-    u32 sequence{};
-    u32 marker_new_removed_at{};
-    u32 marker_removed_at{};
-    u32 remove_errors[8]{};
-    u8 probe_errors{};
-    u8 probe_present{};
-    u8 probe_missing{};
-    FilePersistenceWriteError write_error{};
-
-    static u32 index(const wchar_t* path) noexcept {
-        for (u32 i = 0; i < 8; ++i)
-            if (suffix(path, kNames[i]))
-                return i;
-        return 8;
-    }
-    static AccountCredentialForgetProbeResult probe(void* context, const wchar_t* path) noexcept {
-        auto& f = *static_cast<Faults*>(context);
-        ++f.calls;
-        const u32 i = index(path);
-        if (i >= 8)
-            return {ERROR_INVALID_PARAMETER, AccountCredentialForgetPresence::error};
-        if (f.probe_errors & (1u << i))
-            return {ERROR_ACCESS_DENIED, AccountCredentialForgetPresence::error};
-        if (f.probe_present & (1u << i))
-            return {0, AccountCredentialForgetPresence::present};
-        if (f.probe_missing & (1u << i))
-            return {0, AccountCredentialForgetPresence::missing};
-        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
-            return {0, AccountCredentialForgetPresence::present};
-        const u32 error = thread_last_error();
-        return {error, win32_error_is_missing_file(error) ? AccountCredentialForgetPresence::missing
-                                                          : AccountCredentialForgetPresence::error};
-    }
-    static FilePersistenceWriteResult write(void* context, const wchar_t* path, u32 length,
-                                            ConstSlice<u8> bytes) noexcept {
-        auto& f = *static_cast<Faults*>(context);
-        ++f.calls;
-        if (f.write_error != FilePersistenceWriteError::none)
-            return {ERROR_WRITE_FAULT, f.write_error};
-        return file_persistence_write_atomic(path, length, bytes);
-    }
-    static u32 remove(void* context, const wchar_t* path) noexcept {
-        auto& f = *static_cast<Faults*>(context);
-        ++f.calls;
-        ++f.removes;
-        const u32 i = index(path);
-        if (i >= 8)
-            return ERROR_INVALID_PARAMETER;
-        ++f.sequence;
-        if (i == 5)
-            f.marker_new_removed_at = f.sequence;
-        if (i == 4)
-            f.marker_removed_at = f.sequence;
-        if (f.remove_errors[i])
-            return f.remove_errors[i];
-        return DeleteFileW(path) ? 0u : thread_last_error();
-    }
-    AccountCredentialForgetIo io() noexcept {
-        return {this, probe, write, remove};
-    }
+    u32 calls;
+    u32 removes;
+    u32 sequence;
+    u32 marker_new_removed_at;
+    u32 marker_removed_at;
+    bool remove_fails[8];
+    u8 probe_errors;
+    u8 probe_present;
+    u8 probe_missing;
+    bool write_fails;
 };
+Faults* g_faults;
+
+u32 target_index(const wchar_t* path) noexcept {
+    for (u32 i = 0; i < 8; ++i)
+        if (suffix(path, kNames[i]))
+            return i;
+    return 8;
+}
+
+template <typename Call> auto faulted(Faults& faults, Call call) noexcept {
+    g_faults = &faults;
+    const auto result = call();
+    g_faults = nullptr;
+    return result;
+}
 
 } // namespace
+
+// The file operations for every test in this executable; without armed faults they act as
+// account_credential_forget_io.cpp does.
+AccountCredentialForgetPresence account_credential_forget_stat(const wchar_t* path) noexcept {
+    if (Faults* f = g_faults) {
+        ++f->calls;
+        const u32 i = target_index(path);
+        if (i >= 8 || (f->probe_errors & (1u << i)))
+            return AccountCredentialForgetPresence::error;
+        if (f->probe_present & (1u << i))
+            return AccountCredentialForgetPresence::present;
+        if (f->probe_missing & (1u << i))
+            return AccountCredentialForgetPresence::missing;
+    }
+    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+        return AccountCredentialForgetPresence::present;
+    return win32_error_is_missing_file(thread_last_error()) ? AccountCredentialForgetPresence::missing
+                                                             : AccountCredentialForgetPresence::error;
+}
+
+bool account_credential_forget_write(const wchar_t* path, u32 length, ConstSlice<u8> bytes) noexcept {
+    if (Faults* f = g_faults) {
+        ++f->calls;
+        if (f->write_fails)
+            return false;
+    }
+    return file_persistence_write_atomic(path, length, bytes).ok();
+}
+
+bool account_credential_forget_remove(const wchar_t* path) noexcept {
+    if (Faults* f = g_faults) {
+        ++f->calls;
+        ++f->removes;
+        const u32 i = target_index(path);
+        if (i >= 8)
+            return false;
+        ++f->sequence;
+        if (i == 5)
+            f->marker_new_removed_at = f->sequence;
+        if (i == 4)
+            f->marker_removed_at = f->sequence;
+        if (f->remove_fails[i])
+            return false;
+    }
+    return DeleteFileW(path) || win32_error_is_missing_file(thread_last_error());
+}
 
 void test_account_credential_forget(void (*check)(bool, const char*) noexcept) noexcept {
     Fixture fixture{};
@@ -207,18 +219,12 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
         return;
     const auto absent = account_credential_forget_probe(fixture.paths);
     check(absent.ok() && !absent.pending, "absent logout markers allow ordinary startup");
-    Faults faults{};
-    auto io = faults.io();
-    const auto not_joined = account_credential_forget_complete_after_join(fixture.paths, false, &io);
-    check(not_joined.error == AccountCredentialForgetError::not_joined && not_joined.pending &&
-              faults.calls == 0,
-          "unjoined shutdown performs zero filesystem operations");
 
+    Faults faults{};
     AccountPaths noncanonical = fixture.paths;
     noncanonical.profile[0] = L'!';
-    const auto invalid = account_credential_forget_begin(noncanonical, &io);
-    check(invalid.error == AccountCredentialForgetError::invalid_input && invalid.pending &&
-              faults.calls == 0,
+    const auto invalid = faulted(faults, [&]() noexcept { return account_credential_forget_begin(noncanonical); });
+    check(invalid.error == AccountCredentialForgetError::invalid_input && invalid.pending && faults.calls == 0,
           "noncanonical credential paths fail closed before IO");
     check(fixture.credentials() && account_credential_forget_begin(fixture.paths).ok() &&
               account_credential_forget_probe(fixture.paths).pending &&
@@ -231,9 +237,9 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     HANDLE handle = CreateFileW(marker, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     Faults raced{};
-    raced.probe_missing = account_forget_marker;
-    auto raced_io = raced.io();
-    const auto commit_blocked = account_credential_forget_begin(fixture.paths, &raced_io);
+    raced.probe_missing = kMarkerBit;
+    const auto commit_blocked =
+        faulted(raced, [&]() noexcept { return account_credential_forget_begin(fixture.paths); });
     check(handle != INVALID_HANDLE_VALUE &&
               commit_blocked.error == AccountCredentialForgetError::marker_write &&
               commit_blocked.pending && sentinel_unchanged(fixture.paths.profile),
@@ -241,14 +247,15 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
           "intent pending");
     if (handle != INVALID_HANDLE_VALUE)
         CloseHandle(handle);
-    const auto complete = account_credential_forget_complete_after_join(fixture.paths, true, &io);
+    const auto complete =
+        faulted(faults, [&]() noexcept { return account_credential_forget_complete_after_join(fixture.paths); });
     check(complete.ok() && !complete.pending && fixture.all_credentials_absent() &&
               !account_credential_forget_probe(fixture.paths).pending &&
               faults.marker_new_removed_at == 7 && faults.marker_removed_at == 8 &&
               fixture.protected_files(),
           "joined cleanup deletes four exact credentials and the startup shell, then temporary and final "
           "marker, preserving drafts and preferences");
-    const auto repeated = account_credential_forget_complete_after_join(fixture.paths, true);
+    const auto repeated = account_credential_forget_complete_after_join(fixture.paths);
     check(repeated.ok() && !repeated.pending && fixture.protected_files(),
           "missing credentials and markers permit idempotent cleanup");
 
@@ -256,17 +263,16 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     check(write_file(marker) && account_credential_forget_probe(fixture.paths).pending,
           "a malformed interrupted marker.new blocks a fresh startup without parsing contents");
     faults = {};
-    faults.write_error = FilePersistenceWriteError::flush;
-    faults.remove_errors[0] = ERROR_ACCESS_DENIED;
-    io = faults.io();
+    faults.write_fails = true;
+    faults.remove_fails[0] = true;
     const auto interrupted_failure =
-        account_credential_forget_complete_after_join(fixture.paths, true, &io);
+        faulted(faults, [&]() noexcept { return account_credential_forget_complete_after_join(fixture.paths); });
     check(interrupted_failure.error == AccountCredentialForgetError::credential_delete &&
               interrupted_failure.pending && sentinel_unchanged(marker) &&
               account_credential_forget_probe(fixture.paths).pending,
           "retry never rewrites or loses the sole interrupted marker.new even when writer and deletion "
           "would fail");
-    check(account_credential_forget_complete_after_join(fixture.paths, true).ok() &&
+    check(account_credential_forget_complete_after_join(fixture.paths).ok() &&
               !account_credential_forget_probe(fixture.paths).pending,
           "disk-only interrupted intent can be reconstructed and completed");
     fixture.target(4, marker);
@@ -275,82 +281,69 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     RemoveDirectoryW(marker);
 
     faults = {};
-    faults.probe_errors = account_forget_marker | account_forget_marker_new;
-    io = faults.io();
-    const auto inaccessible = account_credential_forget_probe(fixture.paths, &io);
-    check(inaccessible.error == AccountCredentialForgetError::probe && inaccessible.pending &&
-              inaccessible.native_error == ERROR_ACCESS_DENIED &&
-              inaccessible.failed_targets == (account_forget_marker | account_forget_marker_new) &&
-              faults.calls == 2,
-          "both marker probes retain truthful native failures and fail closed");
+    faults.probe_errors = kMarkerBit | kMarkerNewBit;
+    const auto inaccessible =
+        faulted(faults, [&]() noexcept { return account_credential_forget_probe(fixture.paths); });
+    check(inaccessible.error == AccountCredentialForgetError::probe && inaccessible.pending && faults.calls == 2,
+          "both marker probes fail closed");
 
-    constexpr FilePersistenceWriteError stages[]{
-        FilePersistenceWriteError::open, FilePersistenceWriteError::write, FilePersistenceWriteError::flush,
-        FilePersistenceWriteError::commit};
-    bool write_failures = fixture.credentials();
-    for (auto stage : stages) {
-        faults = {};
-        faults.write_error = stage;
-        io = faults.io();
-        const auto failed = account_credential_forget_complete_after_join(fixture.paths, true, &io);
-        write_failures &= failed.error == AccountCredentialForgetError::marker_write && failed.pending &&
-                          failed.native_error == ERROR_WRITE_FAULT && faults.removes == 0 &&
-                          sentinel_unchanged(fixture.paths.profile);
-    }
-    check(write_failures, "marker open write flush and commit failures prevent every credential delete");
+    faults = {};
+    faults.write_fails = true;
+    const auto write_failed = fixture.credentials() && faulted(faults, [&]() noexcept {
+        return account_credential_forget_complete_after_join(fixture.paths);
+    }).error == AccountCredentialForgetError::marker_write;
+    check(write_failed && faults.removes == 0 && sentinel_unchanged(fixture.paths.profile) &&
+              !account_credential_forget_probe(fixture.paths).pending,
+          "a marker write failure prevents every credential delete");
 
     check(account_credential_forget_begin(fixture.paths).ok(),
           "blocked-delete fixture commits intent first");
     handle = CreateFileW(fixture.paths.profile, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                          FILE_ATTRIBUTE_NORMAL, nullptr);
-    const auto blocked = account_credential_forget_complete_after_join(fixture.paths, true);
+    const auto blocked = account_credential_forget_complete_after_join(fixture.paths);
     check(handle != INVALID_HANDLE_VALUE &&
-              blocked.error == AccountCredentialForgetError::credential_delete &&
-              blocked.failed_targets == account_forget_profile && blocked.native_error != 0 &&
-              blocked.pending && account_credential_forget_probe(fixture.paths).pending &&
+              blocked.error == AccountCredentialForgetError::credential_delete && blocked.pending &&
+              account_credential_forget_probe(fixture.paths).pending &&
+              GetFileAttributesW(fixture.paths.session) == INVALID_FILE_ATTRIBUTES &&
               sentinel_unchanged(fixture.paths.profile) && fixture.protected_files(),
           "a real deny-delete handle retains durable intent while other credentials are cleared");
     if (handle != INVALID_HANDLE_VALUE)
         CloseHandle(handle);
-    check(account_credential_forget_complete_after_join(fixture.paths, true).ok() &&
+    check(account_credential_forget_complete_after_join(fixture.paths).ok() &&
               fixture.all_credentials_absent() && !account_credential_forget_probe(fixture.paths).pending,
           "fresh retry after releasing the real lock completes partial cleanup");
 
     faults = {};
-    faults.remove_errors[0] = ERROR_ACCESS_DENIED;
-    faults.remove_errors[1] = ERROR_SHARING_VIOLATION;
-    io = faults.io();
-    const auto multiple = account_credential_forget_complete_after_join(fixture.paths, true, &io);
-    check(multiple.error == AccountCredentialForgetError::credential_delete &&
-              multiple.native_error == ERROR_ACCESS_DENIED &&
-              multiple.failed_targets == (account_forget_profile | account_forget_session) &&
-              faults.removes == 6 && account_credential_forget_probe(fixture.paths).pending,
-          "all exact credential deletions are attempted with first error and complete failed-target mask");
+    faults.remove_fails[0] = true;
+    faults.remove_fails[1] = true;
+    const auto multiple =
+        faulted(faults, [&]() noexcept { return account_credential_forget_complete_after_join(fixture.paths); });
+    check(multiple.error == AccountCredentialForgetError::credential_delete && faults.removes == 6 &&
+              account_credential_forget_probe(fixture.paths).pending,
+          "all exact credential deletions are attempted after one fails");
 
     faults = {};
-    faults.probe_present = account_forget_session_new;
-    io = faults.io();
-    const auto reappeared = account_credential_forget_complete_after_join(fixture.paths, true, &io);
-    check(reappeared.error == AccountCredentialForgetError::credential_delete &&
-              reappeared.native_error == ERROR_BUSY &&
-              reappeared.failed_targets == account_forget_session_new && faults.removes == 6 &&
+    faults.probe_present = 1u << 3;
+    const auto reappeared =
+        faulted(faults, [&]() noexcept { return account_credential_forget_complete_after_join(fixture.paths); });
+    check(reappeared.error == AccountCredentialForgetError::credential_delete && faults.removes == 6 &&
               account_credential_forget_probe(fixture.paths).pending,
           "post-delete absence verification prevents marker clearance if a credential remains");
 
     bool marker_failures = true;
     for (u32 target = 4; target < 6; ++target) {
         faults = {};
-        faults.remove_errors[target] = ERROR_ACCESS_DENIED;
-        io = faults.io();
-        const auto failed = account_credential_forget_complete_after_join(fixture.paths, true, &io);
+        faults.remove_fails[target] = true;
+        const auto failed =
+            faulted(faults, [&]() noexcept { return account_credential_forget_complete_after_join(fixture.paths); });
         marker_failures &= failed.error == AccountCredentialForgetError::marker_delete && failed.pending &&
-                           failed.failed_targets == (1u << target) && fixture.all_credentials_absent() &&
+                           fixture.all_credentials_absent() &&
                            account_credential_forget_probe(fixture.paths).pending &&
                            (target != 5 || faults.marker_removed_at == 0);
     }
     check(marker_failures,
           "marker deletion failures preserve restart blocking and temporary marker is removed first");
-    check(account_credential_forget_complete_after_join(fixture.paths, true).ok() &&
+    check(account_credential_forget_complete_after_join(fixture.paths).ok() &&
               !account_credential_forget_probe(fixture.paths).pending && fixture.protected_files(),
           "marker-only retry finishes without modifying retained drafts or global preferences");
 }

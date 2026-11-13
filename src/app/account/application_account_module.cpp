@@ -839,7 +839,7 @@ bool application_hide_account_scenes() noexcept {
     g_app.message_composer_scene.active = false;
     message_view_runtime_release(&g_app.message_view);
     return message_view_runtime_initialize(
-               &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+               &g_app.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
         .ok();
 }
 

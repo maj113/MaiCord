@@ -39,8 +39,8 @@ void text(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View
         region = ui_rect_intersection(region, s.chooser);
     out.push(region, owner, value, r, color, style, mode);
 }
-void centered(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-              const Color& color, u32 style) noexcept {
+static void centered(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
+                     const Color& color, u32 style = text_style_subtext) noexcept {
     text(out, s, owner, value, r, color, style, ui_text_center);
 }
 } // namespace search_scene_detail
@@ -137,10 +137,10 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                        s.widgets.hovered.generation == s.widgets.generation && s.widgets.hovered.slot == i,
                    captured = s.widgets.captured.generation == s.widgets.generation &&
                               s.widgets.captured.slot == i;
+        // Jump buttons under an open menu stay hidden with the rest of their card.
         if ((!filter && chooser_open(s) && ui_rect_intersects(r, s.chooser)) ||
             (!sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser)))
             continue;
-        // Jump buttons under an open menu stay hidden with the rest of their card.
         if (rich_enabled(s) && action == UiSearchAction::result)
             p.surface(r, theme.surface_high, theme.interactive, ui_theme_metrics(s.theme_styles).control_radius);
         if (action == UiSearchAction::rich_item && s.targets[i].save) {

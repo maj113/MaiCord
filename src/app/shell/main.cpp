@@ -266,7 +266,7 @@ __attribute__((minsize)) int start_interface() noexcept {
     application_account_prestart();
     MAICORD_PERF_MARK("account_prestart");
     const MessageViewRuntimeResult message_view_initialized = message_view_runtime_initialize(
-        &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true);
+        &g_app.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true);
     if (!message_view_initialized.ok()) {
         log_u64(LogLevel::error, "model", "message_view_runtime_initialization_failed",
                 static_cast<u64>(message_view_initialized.error));

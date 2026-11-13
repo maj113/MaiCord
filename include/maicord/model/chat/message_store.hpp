@@ -158,5 +158,15 @@ Utf8View message_store_content(const MessageStore& store,
                                MessageHandle handle) noexcept;
 bool message_store_compact_in_place(MessageStore* store) noexcept;
 u64 snowflake_timestamp_ms(u64 snowflake) noexcept;
+// Whether `content` points into the store's text bank (an input that borrows it must not be moved by a write).
+inline bool message_store_content_overlaps(const MessageStore& store, Utf8View content) noexcept {
+    if (!content.data || content.bytes == 0) {
+        return false;
+    }
+    const u64 content_begin = reinterpret_cast<u64>(content.data);
+    const u64 text_begin = reinterpret_cast<u64>(store.text);
+    return content_begin < text_begin ? text_begin - content_begin < content.bytes
+                                      : content_begin - text_begin < store.text_capacity;
+}
 
 } // namespace maicord

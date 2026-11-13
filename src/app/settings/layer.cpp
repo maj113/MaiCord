@@ -1,7 +1,8 @@
 #include "layer.hpp"
 #include "maicord/core/memory.hpp"
 #include "../shell/cursor.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 #include "../shell/state.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/composer/text_input.hpp"
@@ -105,7 +106,7 @@ __forceinline float keyframe_shift(float t) noexcept {
         }
     return 0;
 }
-bool select_point(SettingsLayer* layer, float x, float y, bool extend) noexcept {
+void select_point(SettingsLayer* layer, float x, float y, bool extend) noexcept {
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     u32 acp = 0, byte = 0;
@@ -121,10 +122,10 @@ bool select_point(SettingsLayer* layer, float x, float y, bool extend) noexcept 
         absolute_value(layout.width - ui_rect_width(field.text)) > .5f ||
         !text_edit_layout_hit_test(layout, x, y, &acp) ||
         !utf8_byte_offset_for_utf16_position(message_composer_text(*model), acp, &byte))
-        return false;
+        return;
     layer->select_anchored = true;
     message_composer_set_selection(model, extend ? model->anchor : byte, byte);
-    return settings_layer_edit_changed(layer, false);
+    settings_layer_edit_changed(layer, false);
 }
 bool replace_selection(SettingsLayer* layer, Utf8View text, bool multiline_allowed) noexcept {
     MessageComposer* model = nullptr;
@@ -250,7 +251,7 @@ UiSettingsEditor settings_layer_editor_view(SettingsLayer* layer, u64 control_id
             placeholder};
 }
 
-bool settings_layer_focus(SettingsLayer* layer, UiSettingsTarget target) noexcept {
+void settings_layer_focus(SettingsLayer* layer, UiSettingsTarget target) noexcept {
     application_composer_text_input_suspend();
     layer->pending_surrogate = 0;
     ui_settings_scene_focus(layer->scene, target);
@@ -261,7 +262,7 @@ bool settings_layer_focus(SettingsLayer* layer, UiSettingsTarget target) noexcep
                           ? deadline_after(clock_monotonic_milliseconds(), kBlinkMs)
                           : 0;
     g_app.context_focus = &layer->scene->widgets;
-    return repaint(layer);
+    repaint(layer);
 }
 
 void settings_layer_activate_target(SettingsLayer* layer, UiSettingsTarget target) noexcept {
@@ -275,23 +276,23 @@ void settings_layer_activate_target(SettingsLayer* layer, UiSettingsTarget targe
     dispatch(layer, activation, false, true);
 }
 
-bool settings_layer_open_choice(SettingsLayer* layer, u64 owner_id, const ConstSlice<PopupItem>& items, const UiRect& anchor,
+void settings_layer_open_choice(SettingsLayer* layer, u64 owner_id, const ConstSlice<PopupItem>& items, const UiRect& anchor,
                                 float width) noexcept {
     if (!items.count)
-        return false;
+        return;
     if (layer->choice)
         settings_layer_close_choice(layer);
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::settings_choice, owner_id, items, anchor,
                           application_viewport_dips(), width)
              .ok())
-        return false;
+        return;
     layer->choice = true;
     layer->popup_opens = g_app.popup_scene.opens;
     layer->popup_pressed = 0;
     g_app.popup_owner_kind = PopupOwnerKind::settings_choice;
     g_app.context_focus = &g_app.popup_scene.widgets;
     application_composer_text_input_suspend();
-    return repaint(layer);
+    repaint(layer);
 }
 
 void settings_layer_close_choice(SettingsLayer* layer) noexcept {

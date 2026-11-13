@@ -10,11 +10,6 @@ TypingStoreResult result(TypingStoreError error, bool changed = false,
     return TypingStoreResult{error, changed, accepted};
 }
 
-bool store_valid(const TypingStore& store) noexcept {
-    return store.records.data && store.records.count != 0 &&
-           store.records.count <= kTypingRecordCapacity && store.count <= store.records.count;
-}
-
 u32 find_record(const TypingStore& store, u64 channel_id, u64 user_id) noexcept {
     for (u32 index = 0; index < store.count; ++index) {
         const TypingRecord& record = store.records[index];
@@ -55,10 +50,7 @@ bool typing_store_initialize(TypingStore* store,
     return true;
 }
 
-bool typing_store_reset(TypingStore* store) noexcept {
-    if (!store || !store_valid(*store)) {
-        return false;
-    }
+void typing_store_reset(TypingStore* store) noexcept {
     const bool changed = store->count != 0;
     for (u32 index = 0; index < store->count; ++index) {
         reset_value<TypingRecord>(&store->records[index]);
@@ -66,12 +58,11 @@ bool typing_store_reset(TypingStore* store) noexcept {
     store->count = 0;
     clear_local_controller(store);
     saturating_increment_if(changed, store->revision);
-    return true;
 }
 
 TypingStoreResult typing_store_start(TypingStore* store, u64 channel_id, u64 guild_id,
                                                     u64 user_id, u64 now_ms) noexcept {
-    if (!store || !store_valid(*store) || channel_id == 0 || user_id == 0 ||
+    if (channel_id == 0 || user_id == 0 ||
         now_ms > ~0ull - kTypingLifetimeMs) {
         return result(TypingStoreError::invalid_input);
     }
@@ -93,7 +84,7 @@ TypingStoreResult typing_store_start(TypingStore* store, u64 channel_id, u64 gui
 }
 
 static TypingStoreResult typing_store_stop(TypingStore* store, u64 channel_id, u64 user_id) noexcept {
-    if (!store || !store_valid(*store) || channel_id == 0 || user_id == 0) {
+    if (channel_id == 0 || user_id == 0) {
         return result(TypingStoreError::invalid_input);
     }
     const u32 existing = find_record(*store, channel_id, user_id);
@@ -108,7 +99,7 @@ static TypingStoreResult typing_store_stop(TypingStore* store, u64 channel_id, u
 TypingStoreResult typing_store_note_local_input(TypingStore* store, u64 channel_id,
                                                                u64 guild_id, u64 user_id,
                                                                u64 now_ms) noexcept {
-    if (!store || !store_valid(*store) || channel_id == 0 || user_id == 0) {
+    if (channel_id == 0 || user_id == 0) {
         return result(TypingStoreError::invalid_input);
     }
     if (store->local_channel_id != 0 && store->local_channel_id != channel_id) {
@@ -144,7 +135,7 @@ TypingStoreResult typing_store_note_local_input(TypingStore* store, u64 channel_
 
 TypingStoreResult typing_store_stop_local(TypingStore* store,
                                                          u64 channel_id) noexcept {
-    if (!store || !store_valid(*store) || channel_id == 0) {
+    if (channel_id == 0) {
         return result(TypingStoreError::invalid_input);
     }
     if (!store->local_post_pending || store->local_channel_id != channel_id || store->local_user_id == 0) {
@@ -157,7 +148,7 @@ TypingStoreResult typing_store_stop_local(TypingStore* store,
 
 TypingStoreResult typing_store_note_message(TypingStore* store, u64 channel_id,
                                                            u64 author_id, bool optimistic) noexcept {
-    if (!store || !store_valid(*store) || channel_id == 0 || author_id == 0) {
+    if (channel_id == 0 || author_id == 0) {
         return result(TypingStoreError::invalid_input);
     }
     if (optimistic && store->local_channel_id == channel_id) {
@@ -167,9 +158,6 @@ TypingStoreResult typing_store_note_message(TypingStore* store, u64 channel_id,
 }
 
 TypingStoreResult typing_store_tick(TypingStore* store, u64 now_ms) noexcept {
-    if (!store || !store_valid(*store)) {
-        return result(TypingStoreError::invalid_input);
-    }
     u32 kept = 0;
     for (u32 index = 0; index < store->count; ++index)
         if (store->records[index].expires_at_ms > now_ms)
@@ -183,7 +171,7 @@ TypingStoreResult typing_store_tick(TypingStore* store, u64 now_ms) noexcept {
 }
 
 TypingPost typing_store_take_local_post(TypingStore* store, u64 now_ms) noexcept {
-    if (!store || !store_valid(*store) || !store->local_post_pending || store->local_channel_id == 0 ||
+    if (!store->local_post_pending || store->local_channel_id == 0 ||
         now_ms < store->local_post_at_ms) {
         return TypingPost{};
     }
@@ -195,9 +183,6 @@ TypingPost typing_store_take_local_post(TypingStore* store, u64 now_ms) noexcept
 }
 
 u64 typing_store_next_wake_at(const TypingStore& store) noexcept {
-    if (!store_valid(store)) {
-        return 0;
-    }
     u64 wake = store.local_post_pending ? store.local_post_at_ms : 0;
     for (u32 index = 0; index < store.count; ++index) {
         const u64 expiry = store.records[index].expires_at_ms;
@@ -210,7 +195,7 @@ u64 typing_store_next_wake_at(const TypingStore& store) noexcept {
 
 u32 typing_store_channel_count(const TypingStore& store, u64 channel_id,
                                        u64 excluded_user_id) noexcept {
-    if (!store_valid(store) || channel_id == 0) {
+    if (channel_id == 0) {
         return 0;
     }
     u32 count = 0;
@@ -225,7 +210,7 @@ u32 typing_store_channel_count(const TypingStore& store, u64 channel_id,
 
 u32 typing_store_channel_users(const TypingStore& store, u64 channel_id,
                                        u64 excluded_user_id, Slice<u64> users) noexcept {
-    if (!store_valid(store) || channel_id == 0 || (!users.data && users.count != 0)) {
+    if (channel_id == 0) {
         return 0;
     }
     u32 written = 0;

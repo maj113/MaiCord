@@ -368,7 +368,7 @@ bool build_wave(Probe& p) noexcept {
     if (parsed != WavePcmError::none)
         return fail(p, static_cast<u32>(parsed));
     if (source.sample_rate != rate || source.channels != 1 || source.total_frames != frames ||
-        source.container_bits != 16 || source.block_align != 2 || source.duration_ms != 800)
+        source.container_bits != 16 || source.block_align != 2)
         return fail(p, ERROR_INVALID_DATA);
     p.audio_metadata = EncodedAudioMetadata{source};
     return true;

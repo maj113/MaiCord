@@ -149,9 +149,7 @@ bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& com
         kRendererGlyphCapacity,
         renderer->dpi,
     };
-    const bool appended =
-        d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, request);
-    return appended;
+    return d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, request);
 }
 
 // Appends the login commands to a fresh title stream; a full atlas is reset and the

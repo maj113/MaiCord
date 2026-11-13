@@ -19,8 +19,6 @@
 namespace maicord::app_detail {
 namespace {
 
-// ---- Modal ---------------------------------------------------------------------------------
-
 // The form's answer is kept until the form has closed, so the plugin runs with the dialog gone.
 struct Answer {
     bool accepted, toggle;
@@ -118,8 +116,6 @@ void plugin_host_close_modal() noexcept {
     application_text_form_cancel_owner(modal_valid);
 }
 
-// ---- Banner and actions --------------------------------------------------------------------
-
 void plugin_host_banner_changed() noexcept {
     application_request_frame();
 }
@@ -172,7 +168,7 @@ bool plugin_host_local_notice(u64 channel_id, Utf8View text, u64* message_id) no
         return false;
     }
     if (message_id) *message_id = input.id;
-    refresh_account_frame(true);
+    refresh_account_frame();
     return true;
 }
 

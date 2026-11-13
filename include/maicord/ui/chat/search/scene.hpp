@@ -3,6 +3,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/chat/search/filter_context.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 struct MessageMediaCommandStream;
@@ -238,4 +239,8 @@ bool ui_search_scene_paint(const UiSearchScene&, const Theme&, PaintStream*, con
                            const MessageTextPresentation* rich_text = nullptr) noexcept;
 bool ui_search_scene_text_output(const UiSearchScene&, const Theme&, UiTextOutput*,
                                  const UiEditGeometry*) noexcept;
+inline UiCursor ui_search_scene_cursor(const UiSearchScene& scene, float x, float y) noexcept {
+    const auto action = ui_search_scene_hit_test(scene, x, y).action;
+    return ui_action_cursor(action != UiSearchAction::none, action == UiSearchAction::edit);
+}
 } // namespace maicord

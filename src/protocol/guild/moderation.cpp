@@ -97,10 +97,9 @@ void write_strings(JsonBody& b, ConstSlice<Utf8View> values) noexcept {
         b.element(json_text(values[i]));
     b.end_array();
 }
-void write_range(JsonBody& b, u64 gte, u64 lte) noexcept {
+void write_range(JsonBody& b, u64 gte) noexcept {
     b.begin_object("range");
     b.member("gte", gte);
-    b.member_if(lte != 0, "lte", lte);
     b.end_object();
 }
 // A member whose value is the snowflake that opens the given time, as a string.
@@ -125,12 +124,12 @@ void write_search(JsonBody& b, const GuildMemberSearchQuery& q) noexcept {
         b.begin_object("safety_signals");
         if (q.signals & guild_member_signal_unusual_dm) {
             b.begin_object("unusual_dm_activity_until");
-            write_range(b, q.now_ms - kGuildMemberSignalDmWindowMs, 0);
+            write_range(b, q.now_ms - kGuildMemberSignalDmWindowMs);
             b.end_object();
         }
         if (q.signals & guild_member_signal_timed_out) {
             b.begin_object("communication_disabled_until");
-            write_range(b, q.now_ms, 0);
+            write_range(b, q.now_ms);
             b.end_object();
         }
         b.member_if(q.signals & guild_member_signal_unusual_account, "unusual_account_activity", "true");
@@ -155,8 +154,6 @@ void write_search(JsonBody& b, const GuildMemberSearchQuery& q) noexcept {
     const auto created_range = [&]() noexcept {
         b.begin_object("range");
         member_snowflake_at(b, "gte", q.created_after_ms);
-        if (q.created_before_ms)
-            member_snowflake_at(b, "lte", q.created_before_ms);
         b.end_object();
     };
     if (pieces.id_count) {
@@ -177,7 +174,7 @@ void write_search(JsonBody& b, const GuildMemberSearchQuery& q) noexcept {
     }
     if (q.joined_after_ms) {
         b.begin_object("guild_joined_at");
-        write_range(b, q.joined_after_ms, q.joined_before_ms);
+        write_range(b, q.joined_after_ms);
         b.end_object();
     }
     if (created && !pieces.id_count) {

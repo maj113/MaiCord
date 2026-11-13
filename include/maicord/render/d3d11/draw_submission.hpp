@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/render/d3d11/raster_clip.hpp"
-#include "maicord/render/media/renderer_media_draw_storage.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

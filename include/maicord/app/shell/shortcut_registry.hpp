@@ -19,9 +19,6 @@ enum ShortcutModifier : u8 {
 struct ShortcutChord {
     u8 key, modifiers;
 };
-constexpr bool shortcut_chord_equal(ShortcutChord a, ShortcutChord b) noexcept {
-    return a.key && a.key == b.key && a.modifiers == b.modifiers;
-}
 // The chord a key-down forms with the modifier keys currently held.
 ShortcutChord shortcut_chord_from_keyboard(u32 key) noexcept;
 
@@ -114,16 +111,12 @@ struct ShortcutDefinition {
 };
 
 const ShortcutDefinition* shortcut_definition(ShortcutAction) noexcept;
-Utf8View shortcut_group_label(ShortcutGroup) noexcept;
-bool shortcut_scope_active(ShortcutScope, ShortcutContext) noexcept;
 // Actions bound to the chord that apply in the context, most specific first.
 // The caller runs them in order until one handles the key.
 u32 shortcut_resolve(ShortcutContext, ShortcutChord, Slice<ShortcutAction> output) noexcept;
 ShortcutAction shortcut_first(ShortcutContext, ShortcutChord) noexcept;
 // True when the chord is one of the action's bindings (scope not considered).
 bool shortcut_matches(ShortcutAction, ShortcutChord) noexcept;
-// Any built-in definition uses the chord.
-const ShortcutDefinition* shortcut_built_in(ShortcutChord) noexcept;
 
 // Display text. Keys use US names ("K", "↑", "Esc", "Page Up", "Num +");
 // chords join modifiers and key with "+" ("Ctrl+Shift+M"). Return bytes written.
@@ -209,7 +202,6 @@ bool custom_keybinds_add(CustomKeybinds*, CustomKeybind, CustomKeybindError* err
 bool custom_keybinds_remove(CustomKeybinds*, u32 index) noexcept;
 // Index of the keybind using the chord, or kCustomKeybindMaximum.
 u32 custom_keybinds_find(const CustomKeybinds&, ShortcutChord) noexcept;
-bool custom_keybinds_valid(const CustomKeybinds&) noexcept;
 // Little-endian record with a checksum; decode leaves the output untouched on failure.
 u32 custom_keybinds_encode(const CustomKeybinds&, Slice<u8> output) noexcept;
 bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds*) noexcept;

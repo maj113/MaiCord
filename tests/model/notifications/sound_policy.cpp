@@ -3,7 +3,7 @@ namespace maicord {
 namespace {
 NotificationSelectedSoundInput selected_input() noexcept {
     NotificationSelectedSoundInput i{};i.self_id=1;i.author_id=2;
-    i.selection_known=i.main_selected=i.scope_known=true;
+    i.scope_known=true;
     i.known_gates=notification_gate_managed|notification_gate_spammer|notification_gate_blocked|
         notification_gate_ignored|notification_gate_interaction_relationship;
     i.global.fields=notification_status|notification_quiet;i.global.status=MessageNotificationStatus::online;return i;
@@ -11,17 +11,16 @@ NotificationSelectedSoundInput selected_input() noexcept {
 NotificationMessageSoundInput message_input() noexcept {
     NotificationMessageSoundInput i{};i.ordinary=i.restrictions=i.overlay=NotificationSoundDecision::allowed;
     i.selected=NotificationSoundDecision::denied;
-    i.ready=i.live=i.focus_known=i.preference_known=i.message1_enabled=i.desktop_type_known=true;return i;
+    i.ready=i.live=i.message1_enabled=true;return i;
 }
-NotificationSoundRequest request(u64 generation,u32 pack=1,NotificationSoundKind kind=NotificationSoundKind::message1) noexcept {
-    return {generation,pack,0.4f,kind};
+NotificationSoundRequest request(u64 generation,NotificationSoundKind kind=NotificationSoundKind::message1) noexcept {
+    return {generation,kind};
 }
 }
 void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noexcept {
-    using A=NotificationSoundDecision;using R=NotificationMessageSoundRoute;
+    using A=NotificationSoundDecision;using R=NotificationMessageSoundRoute;using K=NotificationSoundKind;
     auto selected=selected_input();
     check(notification_selected_sound_admission(selected)==A::allowed,"selected sound independent predicate admits ordinary selected author");
-    selected.main_selected=false;check(notification_selected_sound_admission(selected)==A::denied,"sidebar-only selection does not enter main selected sound path");
     selected=selected_input();selected.author_id=1;check(notification_selected_sound_admission(selected)==A::denied,"selected sound does not exempt self mentionable system authors");
     selected=selected_input();selected.allow_no_messages=true;check(notification_selected_sound_admission(selected)==A::denied,"selected allow-no-messages includes mute NONE and opt-in");
     selected=selected_input();selected.known_gates&=~notification_gate_interaction_relationship;
@@ -59,11 +58,8 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
     i.selected=A::denied;d=notification_message_sound_decide(i);
     check(d.ordinary_notification&&!d.selected_direct&&d.ordinary==R::none,
         "disabled message1 sound preserves ordinary text and popup branch");
-    i.preference_known=false;d=notification_message_sound_decide(i);
-    check(d.ordinary_notification&&d.ordinary==R::none,"unknown sound preference suppresses audio without inventing popup suppression");
     i=message_input();i.duplicate=true;check(notification_message_sound_decide(i).ordinary==R::none,"duplicate sound admission suppresses both transport paths");
-    i.duplicate=false;i.optimistic=true;check(notification_message_sound_decide(i).ordinary==R::none,"optimistic create cannot play notification sound");
-    i.optimistic=false;i.live=false;check(notification_message_sound_decide(i).ordinary==R::none,"history edit and pre-resume admission do not synthesize sound");
+    i.duplicate=false;i.live=false;check(notification_message_sound_decide(i).ordinary==R::none,"history edit and pre-resume admission do not synthesize sound");
 
     NotificationSoundThrottle throttle{};
     check(!notification_sound_throttle_request(&throttle,0,request(0)).invoke&&!throttle.has_last_call&&!throttle.timer_active,
@@ -77,46 +73,46 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
     check(!notification_sound_throttle_timer(&throttle,1000,7).invoke&&!throttle.timer_active,
         "single leading call never emits duplicate trailing sound");
     notification_sound_throttle_cancel(&throttle);
-    notification_sound_throttle_request(&throttle,10,request(7,1));
-    check(!notification_sound_throttle_request(&throttle,100,request(7,2)).invoke&&
-        !notification_sound_throttle_request(&throttle,900,request(7,3,NotificationSoundKind::message3)).invoke,
+    notification_sound_throttle_request(&throttle,10,request(7));
+    check(!notification_sound_throttle_request(&throttle,100,request(7)).invoke&&
+        !notification_sound_throttle_request(&throttle,900,request(7,K::message3)).invoke,
         "burst replaces copied pending args instead of dropping all later sounds");
     output=notification_sound_throttle_timer(&throttle,1010,7);
-    check(output.invoke&&output.request.soundpack==3&&output.request.kind==NotificationSoundKind::message3&&!throttle.timer_active,
-        "trailing edge emits latest pack and sound at leading maxWait deadline");
-    check(!notification_sound_throttle_request(&throttle,1011,request(7,4)).invoke&&
+    check(output.invoke&&output.request.kind==K::message3&&!throttle.timer_active,
+        "trailing edge emits the latest request at the leading maxWait deadline");
+    check(!notification_sound_throttle_request(&throttle,1011,request(7)).invoke&&
         notification_sound_throttle_deadline(throttle,&due)&&due==2011,
         "call immediately after trailing remains deferred until new debounce timer or maxWait request");
-    output=notification_sound_throttle_request(&throttle,2010,request(7,5));
-    check(output.invoke&&output.request.soundpack==5&&notification_sound_throttle_deadline(throttle,&due)&&due==3010,
+    output=notification_sound_throttle_request(&throttle,2010,request(7,K::message3));
+    check(output.invoke&&output.request.kind==K::message3&&notification_sound_throttle_deadline(throttle,&due)&&due==3010,
         "tight-loop maxWait invokes latest current call and restarts timer without stale pending sound");
     check(!notification_sound_throttle_timer(&throttle,3010,7).invoke,"maxWait leading call without later burst has no trailing duplicate");
     notification_sound_throttle_cancel(&throttle);
-    notification_sound_throttle_request(&throttle,4000,request(7,1));
-    check(!notification_sound_throttle_request(&throttle,4100,request(7,2)).invoke,
+    notification_sound_throttle_request(&throttle,4000,request(7));
+    check(!notification_sound_throttle_request(&throttle,4100,request(7,K::message3)).invoke,
         "rollback timer fixture retains a second request for the trailing edge");
     output=notification_sound_throttle_timer(&throttle,3900,7);
-    check(output.invoke&&output.request.soundpack==2&&!throttle.timer_active&&throttle.last_invoke_ms==3900,
+    check(output.invoke&&output.request.kind==K::message3&&!throttle.timer_active&&throttle.last_invoke_ms==3900,
         "elapsed timer observing backwards clock emits latest trailing request despite old absolute deadline");
     notification_sound_throttle_cancel(&throttle);
     notification_sound_throttle_request(&throttle,5000,request(7));
-    output=notification_sound_throttle_request(&throttle,4900,request(7,6));
-    check(output.invoke&&output.request.soundpack==6&&notification_sound_throttle_deadline(throttle,&due)&&due==5900,
-        "known backwards clock call follows Lodash invocation branch and restarts deadline");
-    notification_sound_throttle_request(&throttle,5000,request(7,8));
+    output=notification_sound_throttle_request(&throttle,4900,request(7,K::message3));
+    check(output.invoke&&output.request.kind==K::message3&&notification_sound_throttle_deadline(throttle,&due)&&due==5900,
+        "a call after the clock moved backwards invokes at once and restarts the deadline");
+    notification_sound_throttle_request(&throttle,5000,request(7,K::message3));
     notification_sound_throttle_generation(&throttle,8);
     check(!notification_sound_throttle_deadline(throttle,&due)&&!notification_sound_throttle_timer(&throttle,6000,7).invoke&&
         !notification_sound_throttle_request(&throttle,6000,request(7)).invoke,
         "owner generation change cancels old pending request and rejects stale timer and producer");
-    output=notification_sound_throttle_request(&throttle,6000,request(8,9));
-    notification_sound_throttle_request(&throttle,6100,request(8,10));
+    output=notification_sound_throttle_request(&throttle,6000,request(8));
+    notification_sound_throttle_request(&throttle,6100,request(8,K::message3));
     check(output.invoke&&!notification_sound_throttle_timer(&throttle,7000,7).invoke&&throttle.pending&&
         notification_sound_throttle_timer(&throttle,7000,8).invoke,"stale timer cannot consume current generation pending sound");
     notification_sound_throttle_cancel(&throttle);
     check(throttle.generation==8&&!notification_sound_throttle_deadline(throttle,&due)&&
         !notification_sound_throttle_timer(&throttle,8000,8).invoke,"explicit cancel preserves ownership and emits no stale trailing sound");
     notification_sound_throttle_request(&throttle,9000,request(8));
-    notification_sound_throttle_request(&throttle,9100,request(8,11));
+    notification_sound_throttle_request(&throttle,9100,request(8,K::message3));
     notification_sound_throttle_generation(&throttle,0);
     check(!notification_sound_throttle_request(&throttle,9500,request(0)).invoke&&
         !notification_sound_throttle_timer(&throttle,10000,0).invoke&&!notification_sound_throttle_timer(&throttle,10000,8).invoke&&

@@ -8,10 +8,7 @@
 namespace maicord {
 namespace {
 bool current(const UiPollVotersScene& scene) noexcept {
-    const auto* widget =
-        scene.owner.manager ? ui_widget_manager_resolve(*scene.owner.manager, scene.owner.handle) : nullptr;
-    return scene.active && widget && (widget->flags & ui_widget_enabled) &&
-           !(widget->flags & ui_widget_block_input);
+    return scene.active && ui_poll_owner_current(scene.owner);
 }
 bool valid_text(Utf8View text, u32 maximum) noexcept {
     return text.bytes <= maximum && utf8_validate(text).valid;
@@ -94,11 +91,8 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
                                   UiWidgetReference owner, const UiPollVotersStyle& style,
                                   const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                                   float requested_scroll) noexcept {
-    if (!scene || !valid(state) || !cache || !ui_rect_has_area(viewport) ||
-        !ui_coordinate_valid(requested_scroll))
-        return false;
-    const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
-    if (!widget || !(widget->flags & ui_widget_enabled) || (widget->flags & ui_widget_block_input))
+    if (!valid(state) || !cache || !ui_rect_has_area(viewport) || !ui_coordinate_valid(requested_scroll) ||
+        !ui_poll_owner_current(owner))
         return false;
     UiPollVotersScene projected{};
     projected.state = state;
@@ -238,7 +232,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
     return true;
 }
 bool ui_poll_voters_scene_scroll(UiPollVotersScene* scene, float delta) noexcept {
-    if (!scene || !current(*scene) || !ui_coordinate_valid(delta))
+    if (!current(*scene) || !ui_coordinate_valid(delta))
         return false;
     const float old = scene->scroll;
     publish_scroll(*scene, old + delta);
@@ -256,7 +250,7 @@ UiRect ui_poll_voters_row_rectangle(const UiPollVotersScene& scene, u32 index) n
     return {scene.geometry.body.left, top, scene.geometry.body.right, top + scene.style.row_height};
 }
 bool ui_poll_voters_avatar(const UiPollVotersScene& scene, u32 index, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !scene.active || index < scene.first || index >= scene.first + scene.visible ||
+    if (!scene.active || index < scene.first || index >= scene.first + scene.visible ||
         index >= scene.state.voters.count)
         return false;
     const auto row = ui_poll_voters_row_rectangle(scene, index);
@@ -330,7 +324,7 @@ UiPollVotersTarget ui_poll_voters_scene_hit(const UiPollVotersScene& scene, UiPo
 }
 bool ui_poll_voters_scene_focus(UiPollVotersScene* scene, UiPollVotersTarget target,
                                 bool keyboard) noexcept {
-    if (!scene || !ui_poll_voters_target_enabled(*scene, target))
+    if (!ui_poll_voters_target_enabled(*scene, target))
         return false;
     if (target.control == UiPollVotersControl::user) {
         const auto row = ui_poll_voters_target_rectangle(*scene, target);
@@ -346,8 +340,6 @@ bool ui_poll_voters_scene_focus(UiPollVotersScene* scene, UiPollVotersTarget tar
 UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene* scene, UiPollPointerEvent event,
                                                      UiPoint point) noexcept {
     UiPollVotersSceneResult result{};
-    if (!scene)
-        return result;
     if (!current(*scene) || event == UiPollPointerEvent::cancel || event == UiPollPointerEvent::leave) {
         result.release_capture = scene->capture.control != UiPollVotersControl::none;
         reset_value(&scene->capture);
@@ -373,7 +365,7 @@ UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene* scene, U
 }
 UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene* scene, UiPollKey key) noexcept {
     UiPollVotersSceneResult result{};
-    if (!scene || !current(*scene))
+    if (!current(*scene))
         return result;
     if (key == UiPollKey::activate) {
         result.handled = result.action_requested = ui_poll_voters_target_enabled(*scene, scene->focus);

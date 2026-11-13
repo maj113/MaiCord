@@ -30,6 +30,8 @@
 #include "maicord/sys/linux/path.hpp"
 #include "maicord/sys/linux/process.hpp"
 
+#include "../secure_buffer_shared.inc"
+
 namespace maicord {
 namespace {
 
@@ -52,12 +54,8 @@ constexpr u32 kKeyFileBytes = 4 + 32;
 constexpr char kKeyFileMagic[4] = {'M', 'C', 'K', '1'};
 constexpr u32 kPathCapacity = 1024;
 
-SecureBufferResult success(u32 bytes = 0) noexcept {
-    return SecureBufferResult{bytes, 0, SecureBufferError::none};
-}
-
-SecureBufferResult failure(SecureBufferError error, u32 native_error = 0, u32 bytes = 0) noexcept {
-    return SecureBufferResult{bytes, native_error, error};
+SecureBufferResult invalid_input() noexcept {
+    return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
 }
 
 u32 error_number(long result) noexcept {
@@ -357,7 +355,7 @@ bool open_cipher(XChaChaKey* cipher, u32* native_error, bool create) noexcept {
 
 SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) noexcept {
     if (!buffer || capacity == 0) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     reset_value<SecureBuffer>(buffer);
     auto* allocation = static_cast<u8*>(commit_pages(capacity));
@@ -377,36 +375,6 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
     return success();
 }
 
-SecureBufferResult secure_buffer_assign(SecureBuffer* buffer, ConstSlice<u8> value) noexcept {
-    if (!buffer || !buffer->data || !buffer->locked || (!value.data && value.count != 0)) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
-    }
-    if (value.count > buffer->capacity) {
-        return failure(SecureBufferError::output_too_small, 0, value.count);
-    }
-    secure_clear_bytes(buffer->data, buffer->capacity);
-    copy_bytes(buffer->data, value.data, value.count);
-    buffer->bytes = value.count;
-    return success(value.count);
-}
-
-bool secure_buffer_transfer(SecureBuffer* destination, SecureBuffer* source) noexcept {
-    if (!destination || !source || destination == source || destination->data || destination->locked ||
-        !source->data || !source->locked || source->capacity == 0 || source->bytes == 0) {
-        return false;
-    }
-    *destination = *source;
-    reset_value<SecureBuffer>(source);
-    return true;
-}
-
-void secure_buffer_clear(SecureBuffer* buffer) noexcept {
-    if (buffer && buffer->data) {
-        secure_clear_bytes(buffer->data, buffer->capacity);
-        buffer->bytes = 0;
-    }
-}
-
 void secure_buffer_release(SecureBuffer* buffer) noexcept {
     if (!buffer) {
         return;
@@ -423,11 +391,11 @@ SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintex
                                                     Slice<u8> protected_output) noexcept {
     if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0 ||
         (!protected_output.data && protected_output.count != 0) || (!entropy.data && entropy.count != 0)) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     Binding binding;
     if (!bind(entropy, &binding) || plaintext.bytes > ~u32{0} - kBlobOverheadBytes) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     const u32 required = plaintext.bytes + kBlobOverheadBytes;
     if (required > protected_output.count) {
@@ -467,12 +435,12 @@ SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& pl
                                                           u32 header_bytes, u32 maximum_bytes, u8** block,
                                                           u32* block_bytes) noexcept {
     if (!block || !block_bytes || header_bytes == 0 || header_bytes >= maximum_bytes) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     *block = nullptr;
     *block_bytes = 0;
     if (!plaintext.data || !plaintext.locked || plaintext.bytes == 0) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     // The blob's size is known exactly, unlike a DPAPI blob's: one allocation, one call.
     if (plaintext.bytes > ~u32{0} - kBlobOverheadBytes ||
@@ -501,11 +469,11 @@ SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_i
                                                       SecureBuffer* plaintext) noexcept {
     if (!protected_input.data || protected_input.count == 0 || !plaintext || !plaintext->data ||
         !plaintext->locked || (!entropy.data && entropy.count != 0)) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     Binding binding;
     if (!bind(entropy, &binding)) {
-        return failure(SecureBufferError::invalid_input, static_cast<u32>(kErrorInvalid));
+        return invalid_input();
     }
     if (protected_input.count <= kBlobOverheadBytes || protected_input.data[0] != kBlobVersion) {
         return failure(SecureBufferError::unprotect_failed, kErrorInvalidData);

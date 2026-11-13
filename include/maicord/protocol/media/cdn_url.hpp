@@ -272,7 +272,6 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
 // Guild icon hashes are the 32 hexadecimal hash returned by the guild object,
 // optionally prefixed by `a_` for an animated asset. Both static and animated
 // assets use WebP; the hash controls animation identity, not decoder choice.
-bool guild_icon_hash_valid(Utf8View icon_hash) noexcept;
 u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept;
 // An a_ hash adds &animated=true only when animate is set; otherwise the same
 // .webp?size=N is the CDN's still.

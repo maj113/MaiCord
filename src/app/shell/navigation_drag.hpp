@@ -17,5 +17,4 @@ bool application_navigation_drag_press(const WindowEvent& event) noexcept;
 bool application_navigation_drag_window_event(const WindowEvent& event) noexcept;
 // Per frame while dragging: edge auto-scroll and the published drop visual.
 void application_navigation_drag_tick(u64 now_ms) noexcept;
-void application_navigation_drag_cancel() noexcept;
 } // namespace maicord::app_detail

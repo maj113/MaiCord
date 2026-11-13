@@ -176,7 +176,7 @@ struct TimelineFixture {
 };
 
 bool timeline_ready(TimelineFixture& f, UiRect viewport) noexcept {
-    const u32 units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 units = ui_extent_units(kUiBootstrapMessageRowHeight);
     return message_store_initialize(&f.store, Slice<MessageRecord>{f.records, 2}, Slice<u32>{f.order, 2},
                                     Slice<u8>{f.source_text, 128}) &&
            message_store_upsert(&f.store, MessageInput{71, 7, 9, 1'700'000'000'000ull, 0, utf8_literal("first"), 0})

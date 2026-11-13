@@ -75,6 +75,7 @@ maicord_compact_sources(
         src/app/chat/messages/pinned_message_controller.cpp src/app/chat/polls/controller.cpp src/app/chat/polls/draft.cpp
         src/app/guild/channel_overview_controller.cpp src/app/chat/search/recent.cpp src/app/chat/link_trust.cpp
         src/app/media/received_attachment_open.cpp src/app/account/login/account_credential_forget.cpp
+        src/app/account/login/account_credential_forget_io.cpp
         src/app/account/login/mfa_policy.cpp src/app/shell/navigation_shortcuts.cpp src/app/account/login/continuations.cpp
         src/app/settings/catalog.cpp src/app/voice/settings_binding.cpp
         src/platform/desktop/notifications.cpp src/platform/desktop/notification_identity.cpp
@@ -344,7 +345,7 @@ maicord_fold_helpers(
 # REST and CDN transfer, TLS records and the Gateway transport.
 maicord_fold_helpers(
     INCLUDE "(^|/)src/app/account/(account_(host|module|module_login|profile|session_store))\\.cpp$"
-        "(^|/)src/app/account/login/(account_credential_forget|browser_sign_in_receiver|captcha_bridge|captcha_challenge|remote_auth_client|remote_auth_handshake)\\.cpp$"
+        "(^|/)src/app/account/login/(account_credential_forget(_io)?|browser_sign_in_receiver|captcha_bridge|captcha_challenge|remote_auth_client|remote_auth_handshake)\\.cpp$"
         "(^|/)src/app/gateway/client(_outputs|_storage)?\\.cpp$" "(^|/)src/app/chat/messages/send_tracker\\.cpp$"
         "(^|/)src/app/media/(account_media_requests|regional_flag_assets)\\.cpp$" "(^|/)src/app/packages/(link|mcfx)\\.cpp$"
         "(^|/)src/app/plugins/(api|binding|catalog_index|catalog_service|catalog_state|http|keep|pipeline_api|settings_page)\\.cpp$"

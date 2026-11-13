@@ -46,7 +46,7 @@ MessageMediaPolicy application_message_media_policy() noexcept {
 void application_user_settings_request_content_confirmation() noexcept {
     ++search_runtime_test::content_confirmations;
 }
-bool refresh_account_frame(bool force) noexcept { return refresh_account_text(force); }
+bool refresh_account_frame() noexcept { return refresh_account_text(true); }
 bool application_poll_search_state(u64 id, u32 publication, const Slice<UiPollAnswer>&, UiPollState*,
                                    ApplicationPollSource*) noexcept {
     ++search_runtime_test::poll_projection_calls;

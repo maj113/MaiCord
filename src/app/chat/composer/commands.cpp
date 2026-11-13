@@ -972,7 +972,7 @@ bool application_commands_tick(u64 now) noexcept {
         return false;
     if (c.echo_dirty) {
         c.echo_dirty = false;
-        if (!refresh_account_frame(true))
+        if (!refresh_account_frame())
             return false;
     }
     if (c.catalog_dirty) {

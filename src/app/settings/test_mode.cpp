@@ -10,7 +10,6 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 

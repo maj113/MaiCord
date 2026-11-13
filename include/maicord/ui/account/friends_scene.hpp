@@ -4,6 +4,7 @@
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/layout/list_navigation.hpp"
 #include "maicord/ui/text/edit_field.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 enum class UiPresence : u8;
@@ -212,4 +213,8 @@ bool ui_friends_scene_paint(const UiFriendsScene&,const Theme&,PaintStream*,cons
 bool ui_friends_scene_icon_action(const UiFriendsScene&, bool keyboard, float x, float y, UiWidgetHandle* widget,
                                   UiFriendsTarget* target, Utf8View* tooltip) noexcept;
 bool ui_friends_scene_text_output(const UiFriendsScene& s,const Theme& theme,UiTextOutput* stream,const UiEditGeometry* edit) noexcept;
+inline UiCursor ui_friends_scene_cursor(const UiFriendsScene& scene, float x, float y) noexcept {
+    const auto action = ui_friends_scene_hit_test(scene, x, y).action;
+    return ui_action_cursor(action != UiFriendsAction::none, action == UiFriendsAction::search);
+}
 } // namespace maicord

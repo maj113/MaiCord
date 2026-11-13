@@ -162,7 +162,7 @@ bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExp
         content.layout > UiExpressionCardLayout::pack || content.preview_count > kUiExpressionCardPreviews ||
         !ui_hover_card_initialize(*s, utf8_literal("Expression popout"))) {
         if (s && s->active)
-            ui_expression_card_close(s);
+            ui_hover_card_close(s);
         return false;
     }
     const bool fresh = !s->active || s->identity != identity;
@@ -195,7 +195,7 @@ bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExp
     s->progress = s->entrance.value;
     slide(*s);
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok()) {
-        ui_expression_card_close(s);
+        ui_hover_card_close(s);
         return false;
     }
     u64 hash = hash64_mix(kHash64Seed, identity);
@@ -213,10 +213,6 @@ bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExp
     return true;
 }
 
-void ui_expression_card_close(UiExpressionCardScene* s) noexcept {
-    ui_hover_card_close(s);
-}
-
 bool ui_expression_card_tick(UiExpressionCardScene* s, u64 now_ms, bool reduced_motion) noexcept {
     if (!ui_hover_card_advance(s, kEntrance, now_ms, reduced_motion))
         return false;
@@ -227,10 +223,6 @@ bool ui_expression_card_tick(UiExpressionCardScene* s, u64 now_ms, bool reduced_
 
 u64 ui_expression_card_next_wake(const UiExpressionCardScene& s, bool reduced_motion) noexcept {
     return ui_hover_card_next_wake(s, kEntrance, reduced_motion);
-}
-
-bool ui_expression_card_contains(const UiExpressionCardScene& s, float x, float y) noexcept {
-    return ui_hover_card_contains(s, x, y);
 }
 
 UiExpressionCardControl ui_expression_card_hit(const UiExpressionCardScene& s, float x, float y) noexcept {
@@ -246,8 +238,6 @@ UiExpressionCardControl ui_expression_card_hit(const UiExpressionCardScene& s, f
 }
 
 bool ui_expression_card_set_hover(UiExpressionCardScene* s, float x, float y) noexcept {
-    if (!s)
-        return false;
     const auto hit = ui_expression_card_hit(*s, x, y);
     const bool guild = hit == UiExpressionCardControl::guild;
     const bool changed = guild != s->guild_hovered;
@@ -255,10 +245,6 @@ bool ui_expression_card_set_hover(UiExpressionCardScene* s, float x, float y) no
     if (changed)
         ++s->revision;
     return ui_hover_card_set_hovered(s, hit == UiExpressionCardControl::button) || changed;
-}
-
-bool ui_expression_card_set_pressed(UiExpressionCardScene* s, bool pressed) noexcept {
-    return ui_hover_card_set_pressed(s, pressed);
 }
 
 bool ui_expression_card_media(const UiExpressionCardScene& s, u32 index, UiExpressionCardMedia* output) noexcept {

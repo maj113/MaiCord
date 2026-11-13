@@ -177,16 +177,11 @@ AccountPathsResult logout_native_paths(AccountPaths* output) noexcept {
     *output = logout_native::fixture->paths;
     return {};
 }
-AccountCredentialForgetResult logout_native_begin(const AccountPaths& paths,
-                                                  const AccountCredentialForgetIo* io = nullptr) noexcept {
-    return account_credential_forget_begin(paths, io);
-}
-AccountCredentialForgetResult logout_native_forget(const AccountPaths& paths, bool joined,
-                                                   const AccountCredentialForgetIo* io = nullptr) noexcept {
+AccountCredentialForgetResult logout_native_forget(const AccountPaths& paths) noexcept {
     auto& f = *logout_native::fixture;
-    if (!joined || app_detail::application_account_logout_host_owned() || ReadAcquire(&f.stop_active))
+    if (app_detail::application_account_logout_host_owned() || ReadAcquire(&f.stop_active))
         f.file_order_error = true;
-    return account_credential_forget_complete_after_join(paths, joined, io);
+    return account_credential_forget_complete_after_join(paths);
 }
 AccountHostStopResult logout_native_stop(AccountHost* host, u32 timeout, u64 monotonic,
                                          u64 unix_time) noexcept {
@@ -214,14 +209,12 @@ AccountHostStopResult logout_native_stop(AccountHost* host, u32 timeout, u64 mon
 #define clock_monotonic_milliseconds logout_native_now
 #define clock_unix_milliseconds logout_native_unix
 #define account_paths_resolve logout_native_paths
-#define account_credential_forget_begin logout_native_begin
 #define account_credential_forget_complete_after_join logout_native_forget
 #define account_host_stop logout_native_stop
 #include "../../src/app/account/application_account_logout.cpp"
 #undef clock_monotonic_milliseconds
 #undef clock_unix_milliseconds
 #undef account_paths_resolve
-#undef account_credential_forget_begin
 #undef account_credential_forget_complete_after_join
 #undef account_host_stop
 
@@ -664,7 +657,7 @@ UiRect application_viewport_dips() noexcept {
 bool refresh_account_text(bool) noexcept {
     return fixture->refresh_ok = fixture->refresh_ok && project();
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     return refresh_account_text(true);
 }
 // Saved-account switching has its own runtime coverage; this probe keeps the

@@ -1,6 +1,7 @@
 #pragma once
 #include "probe_present.hpp"
 #include "../support/layout_validation.hpp"
+#include "../support/thread_locked_access.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "native_message_scene.hpp"
 #include "thread_membership_ui_adapter.hpp"

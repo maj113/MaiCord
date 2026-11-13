@@ -2,12 +2,9 @@
 
 #include "maicord/core/base.hpp"
 
-
 namespace maicord::app_detail {
 
 bool application_present_frame() noexcept;
-// Rebuilds the renderer on a new GPU device after a removal or reset. False while a try is backing off or failed.
-bool application_recover_device() noexcept;
 void application_update_frame_rate(u64 now_us) noexcept;
 void application_present_pending_frame() noexcept;
 void application_record_presentation_failure(const char* stage) noexcept;

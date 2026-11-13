@@ -72,7 +72,7 @@ bool finish_focus(UiWidgetManager* owner) noexcept {
         reset_message_composer_caret_timing(false);
     }
     g_app.context_focus = owner;
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 UiWidgetManager* focus_navigation(bool guild, UiListMove move, bool entering) noexcept {

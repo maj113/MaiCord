@@ -133,12 +133,8 @@ UserGuildSettingsWriteResult user_guild_settings_write(const UserGuildSettingsPa
     return ok && b.ok ? UserGuildSettingsWriteResult{t.used, b.writer.used, true} : UserGuildSettingsWriteResult{};
 }
 
-bool mentions_query_valid(const MentionsQuery& q) noexcept {
-    return q.limit && q.limit <= 100;
-}
-
 u32 write_mentions_target(const MentionsQuery& q, Slice<u8> output) noexcept {
-    if (!mentions_query_valid(q))
+    if (!q.limit || q.limit > 100)
         return 0;
     ProtocolWriter w{output, 0};
     bool ok = protocol_write(&w, "/api/v9/users/@me/mentions?limit=", q.limit, "&roles=", json_bool(q.roles),

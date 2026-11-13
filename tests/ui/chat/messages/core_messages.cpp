@@ -523,7 +523,7 @@ void test_message_text_presentation() noexcept {
     MessageSceneRowWidget rows[2]{};
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout[2 * kMessageSceneWidgetsPerRow + 1]{};
-    const u32 default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     constexpr Utf8View source = utf8_literal("**Bold** [link](https://discord.com) ||secret||");
     const bool model_ready =
         message_store_initialize(&store, Slice<MessageRecord>{records, 2}, Slice<u32>{order, 2},
@@ -1777,7 +1777,7 @@ void test_chat_text_size() noexcept {
     MessageSceneRowWidget rows[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout[kMessageSceneWidgetsPerRow + 1]{};
-    const u32 default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     const bool model_ready =
         message_store_initialize(&store, Slice<MessageRecord>{records, 1}, Slice<u32>{order, 1},
                                  Slice<u8>{source_text, 512}) &&
@@ -2583,7 +2583,7 @@ void test_message_action_bar() noexcept {
     MessageSceneRowWidget rows[2]{};
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout_nodes[2 * kMessageSceneWidgetsPerRow + 1]{};
-    const u32 default_units = ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height);
+    const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     const bool model_ready =
         message_store_initialize(&store, Slice<MessageRecord>{records, 2}, Slice<u32>{order, 2},
                                  Slice<u8>{source_text, 128}) &&

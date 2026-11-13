@@ -1819,7 +1819,8 @@ maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_clien
 maicord_test(MaiCordAccountLogoutRuntimeTests ONLY WINDOWS ENTRY maicord_application_account_logout_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/application_account_logout_runtime.cpp src/app/account/account_logout_stop.cpp
-        src/app/account/login/account_credential_forget.cpp src/app/account/account_paths.cpp src/app/net/file_persistence.cpp
+        src/app/account/login/account_credential_forget.cpp src/app/account/login/account_credential_forget_io.cpp
+        src/app/account/account_paths.cpp src/app/net/file_persistence.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_ui maicord_account_host kernel32 user32
     INCLUDES src/app
     TIMEOUT 20 TEST maicord_account_logout_runtime)

@@ -3,13 +3,14 @@
 #include "maicord/core/byte_range.hpp"
 
 namespace maicord {namespace {
+constexpr u32 kNotificationPcmBlockFrames=256;
 u16 restore(u16 encoded,u8 order,u16 previous,u16 before) noexcept {
     const i32 residual=(encoded&1)?-static_cast<i32>(encoded/2)-1:static_cast<i32>(encoded/2);
     const u32 prediction=order==0?0:order==1?previous:2u*previous-before;
     return static_cast<u16>(static_cast<u32>(residual)+prediction);
 }
 }
-NotificationPcmResult notification_pcm_unpack(ConstSlice<u8> packed,NotificationPcmSpec spec,
+NotificationPcmError notification_pcm_unpack(ConstSlice<u8> packed,NotificationPcmSpec spec,
     Slice<u8> pcm,DeflateWorkspace* workspace) noexcept {
     const u32 bytes=spec.frames*4;
     // Every range is nonempty here, so a conflict also covers a null or wrapping range.
@@ -18,10 +19,10 @@ NotificationPcmResult notification_pcm_unpack(ConstSlice<u8> packed,Notification
         byte_ranges_conflict(packed.data,packed.count,pcm.data,pcm.count) ||
         byte_ranges_conflict(packed.data,packed.count,workspace,sizeof(*workspace)) ||
         byte_ranges_conflict(pcm.data,pcm.count,workspace,sizeof(*workspace)))
-        return {NotificationPcmError::invalid_input};
+        return NotificationPcmError::invalid_input;
     const DeflateInputSpan input{packed.data,packed.count};
     const auto inflated=zlib_inflate({&input,1},pcm,bytes,workspace);
-    if(!inflated.ok()) return {NotificationPcmError::inflate,inflated.error};
+    if(!inflated.ok()) return NotificationPcmError::inflate;
     u8 block[kNotificationPcmBlockFrames*4];
     u16 left=0,before_left=0,side=0,before_side=0;
     for(u32 first=0;first<spec.frames;first+=kNotificationPcmBlockFrames) {
@@ -37,6 +38,6 @@ NotificationPcmResult notification_pcm_unpack(ConstSlice<u8> packed,Notification
             byte_store_le32(pcm.data+(first+i)*4,u32(left)|(u32(right)<<16));
         }
     }
-    return {};
+    return NotificationPcmError::none;
 }
 }

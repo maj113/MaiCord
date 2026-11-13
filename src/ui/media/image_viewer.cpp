@@ -91,9 +91,6 @@ inline float clamp_zoom(const UiImageViewer& v, float zoom) noexcept {
     const float actual = ui_image_viewer_actual_zoom(v);
     return maximum(minimum(1.0f, actual), minimum(maximum(kUiImageViewerMaximumZoom, actual), zoom));
 }
-inline bool fitted(const UiImageViewer& v) noexcept {
-    return v.zoom - 1 < 1e-3f && 1 - v.zoom < 1e-3f;
-}
 // Nearest device pixel, for crisp 1:1 sampling.
 inline float snap(float value, float scale) noexcept {
     const float device = value * scale;
@@ -109,7 +106,7 @@ void arrange(UiImageViewer* v) noexcept {
     const float scale = minimum(ui_rect_width(v->body) / v->pixels.width, ui_rect_height(v->body) / v->pixels.height);
     const float fit = v->video ? scale : minimum(1.0f, scale);
     // A zoomed image keeps its absolute scale across resizes; a fitted one refits.
-    if (!fitted(*v) && v->fit > 0 && fit != v->fit) {
+    if (!ui_image_viewer_fitted(*v) && v->fit > 0 && fit != v->fit) {
         v->zoom *= v->fit / fit;
         v->fit = fit;
         v->zoom = clamp_zoom(*v, v->zoom);
@@ -538,7 +535,7 @@ void ui_image_viewer_wheel(UiImageViewer* v, i32 delta, UiPoint anchor) noexcept
 void ui_image_viewer_toggle_zoom(UiImageViewer* v, UiPoint anchor) noexcept {
     if (!v || !v->active || v->video)
         return;
-    if (!fitted(*v)) {
+    if (!ui_image_viewer_fitted(*v)) {
         ui_image_viewer_apply(v, UiImageViewerCommand::fit);
         return;
     }

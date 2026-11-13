@@ -10,8 +10,6 @@ namespace maicord {
 // only while it still holds the captured contents.
 #if defined(_WIN32)
 struct ClipboardCapture { IStream* object; DWORD sequence; };
-// Retains/marshals the data object, without copying attachment payloads.
-bool clipboard_attachment_capture(ClipboardCapture* output) noexcept;
 void clipboard_attachment_release(ClipboardCapture* input) noexcept;
 void clipboard_attachment_shutdown() noexcept;
 #else

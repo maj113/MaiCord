@@ -4,10 +4,6 @@
 namespace maicord {
 
 D3D11DeviceOwnerResult d3d11_device_owner_initialize(D3D11DeviceOwner* owner, const GpuSurfaceDesc& surface) noexcept {
-    if (owner->device || owner->context || owner->context1 || gpu_surface_valid(&owner->surface) ||
-        gpu_surface_target(&owner->surface) || gpu_frame_clock_waitable(&owner->surface)) {
-        return D3D11DeviceOwnerResult{kGpuInvalidArgument, D3D11DeviceOwnerError::invalid_input};
-    }
     const GpuStatus created = gpu_device_create(&owner->device, &owner->context);
     if (!gpu_ok(created)) {
         return D3D11DeviceOwnerResult{created, D3D11DeviceOwnerError::hardware_device};

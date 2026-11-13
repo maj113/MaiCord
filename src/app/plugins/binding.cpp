@@ -40,7 +40,6 @@ u8* settings_block(const PluginBinding& binding) noexcept {
     return const_cast<u8*>(static_cast<const u8*>(binding.ctx.settings));
 }
 
-// ---- Setting values ------------------------------------------------------------
 // A value travels as bytes in the encoding mc_api.set_setting documents: TOGGLE one
 // byte, INT/SLIDER/CHOICE four little-endian bytes, TEXT UTF-8, TEXT_LIST UTF-8
 // items separated by '\n'. Validation and the write share one function.
@@ -230,8 +229,6 @@ void apply_defaults(PluginBinding& binding) noexcept {
     }
 }
 
-// ---- Persistence ------------------------------------------------------------------
-
 bool owner_path(const PluginRuntime& runtime, u64 owner, const wchar_t* leaf, wchar_t (&path)[640]) noexcept {
     u32 length = runtime.data_directory_characters;
     if (!length) return false;
@@ -313,8 +310,6 @@ void flush(PluginBinding& binding, u64 now_ms, bool force) noexcept {
     }
 }
 
-// ---- Calls ------------------------------------------------------------------------
-
 void apply_staged(PluginBinding& binding) noexcept {
     for (u32 i = 0; i < binding.staged_count; ++i) {
         const PluginStagedSetting& staged = binding.staged[i];
@@ -375,8 +370,6 @@ void stop_plugin(PluginBinding& binding) noexcept {
     stop(&binding.ctx);
     call.finish();
 }
-
-// ---- Allocation ---------------------------------------------------------------------
 
 u32 reserve_text(PluginBinding& binding, u32 cursor) noexcept {
     const mc_setting_def* defs = setting_defs(binding);

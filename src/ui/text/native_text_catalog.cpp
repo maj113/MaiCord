@@ -40,7 +40,7 @@ bool same_name(ConstSlice<u16> a,ConstSlice<u16> b) noexcept {
         if((x^y)!=32||(x|32)-'a'>25)return false;}
     return true;
 }
-bool contains_family(const NativeFontCatalog& catalog,const NativeTextFontQuery& query,bool exact=false) noexcept {
+bool contains_family(const NativeFontCatalog& catalog,const NativeTextFontQuery& query,bool exact) noexcept {
     if(!same_name(catalog.name,query.family))return false;
     for(u32 i=0;exact&&i<catalog.count;++i)if(catalog.properties[i]==query.properties)return true;
     return !exact;
@@ -89,7 +89,7 @@ bool coverage_ready(NativeTextCatalogs& owner,NativeFontSession* session) noexce
 }
 }
 bool native_text_catalogs_initialize(NativeTextCatalogs* owner) noexcept {
-    if(!owner||owner->storage.base||owner->count)return false;
+    if(owner->storage.base||owner->count)return false;
     owner->scopes.entries[0]=&owner->scopes.system;
     if(!arena_initialize(&owner->storage,2*1024*1024,0,4096,ArenaTag::text)){native_text_catalogs_release(owner);return false;}
     owner->count=1;

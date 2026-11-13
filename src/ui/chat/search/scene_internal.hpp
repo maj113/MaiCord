@@ -93,8 +93,6 @@ bool paint_tabs(PaintStream* out, const UiSearchScene& s, const Theme& theme) no
 bool rebuild(UiSearchScene& s) noexcept;
 void text(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
           const Color& color, u32 style, u32 mode = 0, bool chooser_text = false) noexcept;
-void centered(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-              const Color& color, u32 style = text_style_subtext) noexcept;
 UiRect rich_item_clip(const UiSearchScene& s, const UiRect& rectangle, const UiRect& node_clip) noexcept;
 
 } // namespace maicord::search_scene_detail

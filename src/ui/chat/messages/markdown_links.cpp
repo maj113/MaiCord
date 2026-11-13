@@ -750,8 +750,8 @@ bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
 // for the chevron, then the trailing margins (U+2005 4 px,
 // U+2006 3 px, U+200A 2 px at 16 px). These spaces never break before
 // themselves (UAX #14 BA); a closing U+200D allows no break after it either,
-// so an icon never wraps away from what follows it. (U+2060, the nowrap
-// nowrap glue, is a default-ignorable the chat hides as U+200C.)
+// so an icon never wraps away from what follows it. (U+2060, the nowrap glue,
+// is a default-ignorable the chat hides as U+200C.)
 constexpr Utf8View kChipCell = utf8_literal("\xE2\x80\x83");
 constexpr Utf8View kChipHalfCell = utf8_literal("\xE2\x80\x82");
 constexpr Utf8View kChipGap4 = utf8_literal("\xE2\x80\x85");

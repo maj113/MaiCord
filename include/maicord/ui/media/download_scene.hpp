@@ -2,6 +2,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/text/presentation.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiDownloadMaximumRows = 8;
@@ -66,4 +67,9 @@ bool ui_download_scene_page(UiDownloadScene*, u32 page) noexcept;
 bool ui_download_scene_set_hover(UiDownloadScene*, float x, float y, bool* changed) noexcept;
 bool ui_download_scene_paint(const UiDownloadScene&, const Theme&, PaintStream*) noexcept;
 bool ui_download_scene_text_output(const UiDownloadScene&, const Theme&, UiTextOutput*) noexcept;
+inline UiCursor ui_download_scene_cursor(const UiDownloadScene& scene, float x, float y) noexcept {
+    if (!ui_rect_contains(scene.panel, x, y))
+        return UiCursor::arrow;
+    return ui_action_cursor(ui_download_scene_hit_test(scene, x, y).action != UiDownloadAction::none);
+}
 } // namespace maicord

@@ -85,6 +85,9 @@ static_assert(name_list_count(kLabels) == kDefinitionCount);
 constexpr char kGroupLabels[] = "Navigation\0Chat\0Messages\0Voice\0Miscellaneous\0";
 static_assert(name_list_count(kGroupLabels) == static_cast<u32>(ShortcutGroup::count));
 
+constexpr bool shortcut_chord_equal(ShortcutChord a, ShortcutChord b) noexcept {
+    return a.key && a.key == b.key && a.modifiers == b.modifiers;
+}
 constexpr bool binds(const ShortcutDefinition& definition, ShortcutChord chord) noexcept {
     return shortcut_chord_equal(definition.chords[0], chord) || shortcut_chord_equal(definition.chords[1], chord);
 }
@@ -278,11 +281,11 @@ const ShortcutDefinition* shortcut_definition(ShortcutAction action) noexcept {
             return &definition;
     return nullptr;
 }
-Utf8View shortcut_group_label(ShortcutGroup group) noexcept {
+static Utf8View shortcut_group_label(ShortcutGroup group) noexcept {
     return group < ShortcutGroup::count ? name_list_at(kGroupLabels, static_cast<u32>(group)) : Utf8View{};
 }
 
-bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcept {
+static bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcept {
     switch (scope) {
     case ShortcutScope::global:
         return true;
@@ -320,7 +323,7 @@ bool shortcut_matches(ShortcutAction action, ShortcutChord chord) noexcept {
     const auto* definition = shortcut_definition(action);
     return definition && binds(*definition, chord);
 }
-const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) noexcept {
+static const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) noexcept {
     for (const auto& definition : kDefinitions)
         if (binds(definition, chord))
             return &definition;
@@ -493,7 +496,7 @@ u32 custom_keybinds_find(const CustomKeybinds& keybinds, ShortcutChord chord) no
             return i;
     return kCustomKeybindMaximum;
 }
-bool custom_keybinds_valid(const CustomKeybinds& keybinds) noexcept {
+static bool custom_keybinds_valid(const CustomKeybinds& keybinds) noexcept {
     if (keybinds.count > kCustomKeybindMaximum)
         return false;
     CustomKeybinds rebuilt{};

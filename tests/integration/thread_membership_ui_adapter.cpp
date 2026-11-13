@@ -1,6 +1,7 @@
 #include "maicord/platform/window/win32.hpp"
 #include "thread_membership_ui_adapter.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/thread_locked_access.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "../support/account_module_fake.hpp"
 #include "shell/state.hpp"

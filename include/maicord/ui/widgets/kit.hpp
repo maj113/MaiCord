@@ -11,7 +11,6 @@
 namespace maicord {
 struct UiTextMeasureCache;
 
-// ---------------------------------------------------------------------------
 // Text ramp (UiTextCommand::style words) and measuring.
 inline constexpr u32 kUiKitTextBody = text_style_none;                                  // 16/20
 inline constexpr u32 kUiKitTextBodyBold = text_style_bold;                              // 16/20 bold
@@ -23,31 +22,21 @@ inline constexpr u32 kUiKitTextEyebrow = kTextStyleSizeCodeXs | text_style_bold;
 inline constexpr u32 kUiKitTextHeading = text_style_heading_2 | text_style_bold;        // 20/24 bold
 inline constexpr u32 kUiKitTextTitle = text_style_heading_1 | text_style_bold;          // 24/30 bold
 
-// Optional measuring hooks over the caller's text cache; null members use the per-character estimate the
-// settings rows share (ui_settings_text_width).
-struct UiKitMeasure {
-    float (*width)(void* context, const Utf8View&, u32 style) noexcept;
-    float (*height)(void* context, const Utf8View&, u32 style, float width) noexcept;
-    // Wrapped height of text carrying style spans (a markdown block); null estimates it.
-    float (*styled_height)(void* context, const Utf8View&, ConstSlice<TextStyleSpan>, float width) noexcept;
-    // Width of text set in the chat face (Accessibility's preview); null estimates it.
-    float (*chat_width)(void* context, const Utf8View&, u32 style) noexcept;
-    void* context;
-};
+// Widths and heights come from the caller's text cache (shaped; the keys carry the style word); a null cache, or
+// text the cache cannot measure, uses the per-character estimate the settings rows share (ui_settings_text_width).
 float ui_kit_line_height(u32 style) noexcept;
-float ui_kit_text_width(const UiKitMeasure*, const Utf8View&, u32 style) noexcept;
+float ui_kit_text_width(UiTextMeasureCache*, const Utf8View&, u32 style) noexcept;
 // The width of chat text of this style at `chat_em` (Text size in chat), rather than the interface's size.
-float ui_kit_chat_text_width(const UiKitMeasure*, const Utf8View&, u32 style, float chat_em) noexcept;
+float ui_kit_chat_text_width(UiTextMeasureCache*, const Utf8View&, u32 style, float chat_em) noexcept;
 // Wrapped height: lines * line height (zero for empty text).
-float ui_kit_text_height(const UiKitMeasure*, const Utf8View&, u32 style, float width) noexcept;
-// A measure over the host's text cache (null cache: every hook null, the estimates apply). A styled height the
-// cache cannot measure is negative: callers fall back to their estimate.
-void ui_kit_measure_cache(UiKitMeasure* out, UiTextMeasureCache* cache) noexcept;
+float ui_kit_text_height(UiTextMeasureCache*, const Utf8View&, u32 style, float width) noexcept;
+// Wrapped height of text carrying style spans (a markdown block); negative when the cache (or its absence) cannot
+// measure it: callers fall back to their estimate.
+float ui_kit_styled_text_height(UiTextMeasureCache*, const Utf8View&, ConstSlice<TextStyleSpan>, float width) noexcept;
 
 // Fixed chip metrics that are not theme tokens.
 inline constexpr float kUiKitChipHeight = 24, kUiKitChipGap = 8;
 
-// ---------------------------------------------------------------------------
 // SegmentedControl: equal measured items in a bordered track (40 high, 32 compact).
 inline constexpr u32 kUiSegmentedMaximum = 5;
 float ui_segmented_item_width(const UiSettingsLayoutTokens&, const float* label_widths, u32 count) noexcept;

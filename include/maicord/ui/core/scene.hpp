@@ -198,11 +198,8 @@ struct UiShellHeaderGeometry {
     UiRect inbox;
 };
 
-struct UiBootstrapMetrics {
-    float message_row_height;
-};
-
-extern const UiBootstrapMetrics kDefaultUiBootstrapMetrics;
+// The height a message row is given before it is measured.
+inline constexpr float kUiBootstrapMessageRowHeight = 68.0f;
 
 bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept;
 void ui_scene_release(UiScene* scene) noexcept;

@@ -37,7 +37,7 @@ enum class PackageError : u8 {
     storage,        // the file could not be written
 };
 
-// ---- Validation (pure; for the catalog worker and for tests) ------------------------------------------------
+// ---- Validation (pure; for the catalog worker) -------------------------------------------------------------
 struct PackageInfo {
     PackageLinkKind kind; // theme or effect
     char slug[kPackageSlugMaximumBytes + 1]; // effect: the manifest's; theme: derived from the name

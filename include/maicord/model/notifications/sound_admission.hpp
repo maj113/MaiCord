@@ -16,12 +16,11 @@ struct NotificationSoundAdmissionInput {
     const MessageNotificationPolicyInput* policy;
     // The selected-channel comparison uses the ORIGINAL channel, not the
     // normalized parent. No policy facts or borrowed views are kept.
-    bool original_selection_known, original_main_selected;
-    bool selected_preference_known, selected_preference;
+    bool original_main_selected;
+    bool selected_preference; // sound for the channel being read, in place of its popup
 };
 struct NotificationSoundAdmissions {
     NotificationSoundDecision ordinary, selected;
-    MessageNotificationReason ordinary_reason, selected_reason;
 };
 // Both keep the host's ready/live/duplicate barriers.
 MessageNotificationReason notification_sound_ordinary_admit(const MessageNotificationPolicyInput&) noexcept;
@@ -32,7 +31,6 @@ NotificationSoundAdmissions notification_sound_admissions(const NotificationSoun
 struct MessageNotificationDevice {
     bool desktop_enabled;  // desktop notifications on (the official client's desktop type ALL)
     bool message_sounds;   // message1 enabled; also gates the selected-channel message3
-    bool selected_sounds;  // sound for the channel being read, in place of its popup
     bool taskbar_flash;
     bool mention_on_all;   // account MENTION_ON_ALL_MESSAGES
 };

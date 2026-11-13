@@ -8,7 +8,7 @@ static_assert(kGuildAdminMaximumTargetBytes <= kRestClientMaximumTargetBytes);
 namespace {
 // Ban list pages: up to kGuildAdminPageMaximum bans with full user objects.
 constexpr u32 kGuildAdminBanListResponseBytes = kRestClientMaximumResponseBytes;
-// Per-server avatar and banner uploads may need up to two minutes.
+// Server image uploads may need up to two minutes.
 constexpr u32 kLargeTimeoutMs = 120 * 1000;
 constexpr auto kMd5HeaderName = utf8_literal("X-Discord-Original-MD5");
 
@@ -30,8 +30,8 @@ u32 md5_header(const GuildAdminRequest& request, Slice<u8> output) noexcept {
     return used == ~0u ? 0 : used;
 }
 // Demand-backed body bank sized to the transport limit plus any image data
-// URIs (per-server avatar or banner); cleared before release. Bodies over
-// the ordinary ceiling take the large path.
+// URIs; cleared before release. Bodies over the ordinary ceiling take the
+// large path.
 __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
                                                              const GuildAdminRequest& request,
                                                              ConstSlice<u8> target,

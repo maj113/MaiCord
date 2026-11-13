@@ -238,7 +238,7 @@ bool ui_go_live_scene_set_hover(UiGoLiveScene* s, float x, float y, bool* change
 }
 
 bool ui_go_live_scene_scroll(UiGoLiveScene* s, float delta) noexcept {
-    if (!s || !s->active || s->mode != UiGoLiveMode::picker)
+    if (!s->active || s->mode != UiGoLiveMode::picker)
         return false;
     const float next = minimum(scroll_limit(*s), maximum(0.f, s->scroll + delta));
     if (next == s->scroll)
@@ -251,7 +251,7 @@ bool ui_go_live_scene_scroll(UiGoLiveScene* s, float delta) noexcept {
 }
 
 bool ui_go_live_scene_focus_next(UiGoLiveScene* s, bool reverse) noexcept {
-    if (!s || !s->active)
+    if (!s->active)
         return false;
     const auto next = ui_widget_manager_next_focus(s->widgets, s->widgets.focused, reverse, true);
     if (!next.generation)

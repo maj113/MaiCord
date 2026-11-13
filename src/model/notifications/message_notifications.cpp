@@ -1,6 +1,5 @@
 #include "maicord/model/notifications/message_notifications.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 namespace maicord {
 namespace {
 constexpr u16 all_fields = 255;
@@ -22,13 +21,6 @@ MessageNotificationSetting merge(MessageNotificationSetting a, const MessageNoti
     if(b.fields&notification_hide_muted)a.hide_muted_channels=b.hide_muted_channels;
     a.fields|=b.fields; return a;
 }
-template<class T> bool slice_valid(ConstSlice<T> s) noexcept {
-    return s.count<=~u32{0}/sizeof(T)&&byte_range_valid({reinterpret_cast<const u8*>(s.data),s.count*static_cast<u32>(sizeof(T))});
-}
-template<class T,class U> bool overlaps(ConstSlice<T> a,Slice<U>b) noexcept {
-    return byte_ranges_overlap({reinterpret_cast<const u8*>(a.data),a.count*static_cast<u32>(sizeof(T))},
-        {reinterpret_cast<const u8*>(b.data),b.count*static_cast<u32>(sizeof(U))});
-}
 bool has_guild(ConstSlice<MessageNotificationGuildSetting> s,u64 id) noexcept {
     for(u32 i=0;i<s.count;++i)if(s[i].guild_id==id)return true;return false;
 }
@@ -39,15 +31,9 @@ bool settings_known(const MessageNotificationStore& s,const MessageNotificationG
 }
 bool private_type(u8 type) noexcept {return type==1||type==3;}
 }
-bool message_notifications_initialize(MessageNotificationStore* s,Slice<MessageNotificationGuildSetting>g,
+void message_notifications_initialize(MessageNotificationStore* s,Slice<MessageNotificationGuildSetting>g,
     Slice<MessageNotificationOverride>o,Slice<MessageNotificationThreadSetting>t,MessageNotificationReserve r,void*c) noexcept {
-    if(!s||!slice_valid(ConstSlice<MessageNotificationGuildSetting>{g.data,g.count})||
-       !slice_valid(ConstSlice<MessageNotificationOverride>{o.data,o.count})||
-       !slice_valid(ConstSlice<MessageNotificationThreadSetting>{t.data,t.count})||
-       overlaps(ConstSlice<MessageNotificationGuildSetting>{g.data,g.count},o)||
-       overlaps(ConstSlice<MessageNotificationGuildSetting>{g.data,g.count},t)||
-       overlaps(ConstSlice<MessageNotificationOverride>{o.data,o.count},t))return false;
-    reset_value(s);s->guilds=g;s->overrides=o;s->threads=t;s->reserve=r;s->reserve_context=c;return true;
+    reset_value(s);s->guilds=g;s->overrides=o;s->threads=t;s->reserve=r;s->reserve_context=c;
 }
 const MessageNotificationGuildSetting* message_notifications_guild(const MessageNotificationStore&s,u64 id) noexcept {
     for(u32 i=0;i<s.guild_count;++i)if(s.guilds[i].guild_id==id)return &s.guilds[i];return nullptr;
@@ -61,9 +47,6 @@ const MessageNotificationThreadSetting* message_notifications_thread(const Messa
 MessageNotificationApplyError message_notifications_apply_settings(MessageNotificationStore*s,
     ConstSlice<MessageNotificationGuildSetting>g,ConstSlice<MessageNotificationOverride>o,bool partial,u64 version) noexcept {
     using E=MessageNotificationApplyError;
-    if(!s||!slice_valid(g)||!slice_valid(o)||s->guild_count>s->guilds.count||s->override_count>s->overrides.count||
-       overlaps(g,s->guilds)||overlaps(g,s->overrides)||overlaps(g,s->threads)||
-       overlaps(o,s->guilds)||overlaps(o,s->overrides)||overlaps(o,s->threads))return E::input;
     if(version<s->version)return E::stale;
     for(u32 i=0;i<g.count;++i){if(!valid(g[i].setting))return E::input;
         for(u32 j=0;j<i;++j)if(g[j].guild_id==g[i].guild_id)return E::duplicate;}
@@ -85,7 +68,7 @@ MessageNotificationApplyError message_notifications_apply_settings(MessageNotifi
     s->version=version;s->complete=s->complete||!partial;++s->revision;return E::none;
 }
 MessageNotificationApplyError message_notifications_upsert_thread(MessageNotificationStore*s,const MessageNotificationThreadSetting&t) noexcept {
-    using E=MessageNotificationApplyError;if(!s||!t.thread_id||!t.guild_id||!valid(t.setting))return E::input;
+    using E=MessageNotificationApplyError;if(!t.thread_id||!t.guild_id||!valid(t.setting))return E::input;
     u32 at=0;while(at<s->thread_count&&s->threads[at].thread_id!=t.thread_id)++at;
     if(at==s->thread_count){if(at>=s->threads.count||
         (s->reserve&&!s->reserve(s->reserve_context,s->guild_count,s->override_count,at+1)))return E::capacity;
@@ -93,15 +76,15 @@ MessageNotificationApplyError message_notifications_upsert_thread(MessageNotific
     s->threads[at].guild_id=t.guild_id;s->threads[at].setting=merge(s->threads[at].setting,t.setting);++s->revision;return E::none;
 }
 void message_notifications_remove_thread(MessageNotificationStore*s,u64 id) noexcept {
-    if(!s)return;for(u32 i=0;i<s->thread_count;++i)if(s->threads[i].thread_id==id){s->threads[i]=s->threads[--s->thread_count];++s->revision;return;}}
+    for(u32 i=0;i<s->thread_count;++i)if(s->threads[i].thread_id==id){s->threads[i]=s->threads[--s->thread_count];++s->revision;return;}}
 void message_notifications_remove_guild(MessageNotificationStore*s,u64 id) noexcept {
-    if(!s)return;u32 n=0;for(u32 i=0;i<s->guild_count;++i)if(s->guilds[i].guild_id!=id)s->guilds[n++]=s->guilds[i];s->guild_count=n;
+    u32 n=0;for(u32 i=0;i<s->guild_count;++i)if(s->guilds[i].guild_id!=id)s->guilds[n++]=s->guilds[i];s->guild_count=n;
     n=0;for(u32 i=0;i<s->override_count;++i)if(s->overrides[i].guild_id!=id)s->overrides[n++]=s->overrides[i];s->override_count=n;
     n=0;for(u32 i=0;i<s->thread_count;++i)if(s->threads[i].guild_id!=id)s->threads[n++]=s->threads[i];s->thread_count=n;++s->revision;
 }
-void message_notifications_clear(MessageNotificationStore*s) noexcept {if(s){s->guild_count=s->override_count=s->thread_count=0;s->complete=false;s->version=0;++s->revision;}}
+void message_notifications_clear(MessageNotificationStore*s) noexcept {s->guild_count=s->override_count=s->thread_count=0;s->complete=false;s->version=0;++s->revision;}
 void message_notifications_mark_incomplete(MessageNotificationStore*s,u64 id) noexcept {
-    if(!s)return;for(u32 n=0;n<s->guild_count;++n)if(s->guilds[n].guild_id==id){s->guilds[n].incomplete=true;++s->revision;return;}
+    for(u32 n=0;n<s->guild_count;++n)if(s->guilds[n].guild_id==id){s->guilds[n].incomplete=true;++s->revision;return;}
     s->complete=false;++s->revision;
 }
 bool message_notification_muted(const MessageNotificationSetting&s,u64 now) noexcept {return s.muted&&(!s.mute_end_ms||s.mute_end_ms>=now);}
@@ -118,7 +101,7 @@ u64 message_notifications_next_mute_expiry(const MessageNotificationStore&s,u64 
     return next;
 }
 void message_notifications_apply_global(MessageNotificationGlobal*a,const MessageNotificationGlobal&b,bool partial) noexcept {
-    if(!a)return;if(!partial)*a={0,0,15,false,MessageNotificationStatus::unknown};
+    if(!partial)*a={0,0,15,false,MessageNotificationStatus::unknown};
     if(b.fields&notification_quiet)a->quiet=b.quiet;
     if(b.fields&notification_focus_expiry)a->focus_expires_ms=b.focus_expires_ms;
     if(b.fields&notification_status)a->status=b.status;
@@ -140,7 +123,7 @@ MessageNotificationGlobal message_notification_effective_global(const MessageNot
 MessageNotificationScope message_notification_scope_resolve(const MessageNotificationPolicyInput&i,MessageNotificationScopeMode mode) noexcept {
     using R=MessageNotificationReason;using L=MessageNotificationLevel;
     const auto fail=[](R reason) noexcept {return MessageNotificationScope{reason,L::inherit,false,false};};
-    if(!i.settings||!i.channel_id)return fail(R::unknown);
+    if(!i.channel_id)return fail(R::unknown);
     const auto*g=message_notifications_guild(*i.settings,i.guild_id);
     if(!settings_known(*i.settings,g,i.guild_id))return fail(R::unknown);
     auto gs=g?g->setting:baseline();
@@ -181,7 +164,7 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
     using R=MessageNotificationReason;using L=MessageNotificationLevel;
     if(!i.live)return R::not_live;if(i.duplicate)return R::duplicate;
     if(i.message_flags&4096)return R::silent;
-    if(!i.ready||!i.settings||!i.identities_known||!i.self_id||!i.author_id||!i.type_known)return R::unknown;
+    if(!i.ready||!i.identities_known||!i.self_id||!i.author_id||!i.type_known)return R::unknown;
     if(i.author_id==i.self_id&&!i.self_mentionable_system)return R::self;
     if((i.known_gates&required_gates)!=required_gates)return R::unknown;
     if(i.gates&required_gates)return R::special;
@@ -189,7 +172,6 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
     const auto global=message_notification_effective_global(i.global,i.now_ms,i.ready&&i.live);
     if((global.fields&~15u)||!(global.fields&notification_status)||!(global.fields&notification_quiet)||
         static_cast<u8>(global.status)>static_cast<u8>(MessageNotificationStatus::offline))return R::unknown;
-    if(global.status==MessageNotificationStatus::unknown)return R::unknown;
     if(global.status==MessageNotificationStatus::dnd)return R::dnd;
     if(global.quiet)return R::quiet;
     const auto scope=message_notification_scope_resolve(i);
@@ -198,7 +180,7 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
     const bool vocal=i.channel_type==2||i.channel_type==13;
     if(scope.level==L::all&&(!vocal||i.current_voice_channel))return R::eligible;
     bool mentioned=i.direct_mention||(i.everyone_mention&&!scope.suppress_everyone);
-    if(!mentioned&&!scope.suppress_roles&&i.mention_roles.count){if(!i.roles_known||(!i.mention_roles.data&&i.mention_roles.count)||(!i.self_roles.data&&i.self_roles.count))return R::unknown;
+    if(!mentioned&&!scope.suppress_roles&&i.mention_roles.count){if(!i.roles_known)return R::unknown;
         for(u32 m=0;m<i.mention_roles.count;++m)for(u32 r=0;r<i.self_roles.count;++r)if(i.mention_roles[m]==i.self_roles[r])mentioned=true;}
     if(mentioned)return R::eligible;
     return R::not_mentioned;
@@ -210,7 +192,7 @@ MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
                                     bool mention_on_all_messages) noexcept {
     using B=MessageReadBadge;using L=MessageNotificationLevel;
     constexpr u32 relationships=notification_gate_blocked|notification_gate_ignored;
-    if(!i.settings||!i.channel_id||!i.self_id||!i.author_id||
+    if(!i.channel_id||!i.self_id||!i.author_id||
        (i.author_id==i.self_id&&i.message_type!=46)||
        (i.known_gates&relationships)!=relationships||(i.gates&relationships))return B::none;
     const auto* guild=message_notifications_guild(*i.settings,i.guild_id);
@@ -224,7 +206,7 @@ MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
         const bool suppress_everyone=guild&&guild->setting.suppress_everyone;
         const bool suppress_roles=guild&&guild->setting.suppress_roles;
         mentioned|=i.everyone_mention&&!suppress_everyone;
-        if(!suppress_roles&&i.roles_known&&slice_valid(i.mention_roles)&&slice_valid(i.self_roles))
+        if(!suppress_roles&&i.roles_known)
             for(u32 m=0;m<i.mention_roles.count;++m)
                 for(u32 r=0;r<i.self_roles.count;++r)
                     mentioned|=i.mention_roles[m]==i.self_roles[r];

@@ -55,7 +55,8 @@ bool scan_audio_extensions(ConstSlice<u8> source, u64 cursor, u64 end, Box* esds
     }
     return true;
 }
-Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
+} // namespace
+Mp4DemuxError mp4_demux_detail::parse_audio_description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
     const auto source = d.samples.encoded;
     AacConfiguration configuration{};
     if (stsd.end - stsd.payload < 8 || read_u32(source.data + stsd.payload) != 0)
@@ -177,10 +178,6 @@ Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
             return Mp4DemuxError::unsupported;
     return Mp4DemuxError::none;
 }
-} // namespace
-Mp4DemuxError mp4_demux_detail::parse_audio_description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
-    return description(d, stsd);
-}
 Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer* output, ConstSlice<u8> source,
                                          Mp4SourceAvailability availability) noexcept {
     if (!output || !byte_range_valid({reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
@@ -194,7 +191,7 @@ Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer* output, ConstSlice<u8>
                                                      mp4_demux_detail::fourcc('s', 'o', 'u', 'n'), &stsd,
                                                      availability);
     if (error == Mp4DemuxError::none)
-        error = description(d, stsd);
+        error = mp4_demux_detail::parse_audio_description(d, stsd);
     if (error == Mp4DemuxError::none)
         copy_value(output, d);
     return error;

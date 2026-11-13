@@ -1095,8 +1095,8 @@ void apps_response(const RestClientResponse& response, const Utf8View& body) noe
         // command. An app without any overwrites may answer 404; it then has none.
         const bool keep = permissions_dirty() && a.permissions_app == a.sent_target &&
                           a.permissions_command == a.sent_command;
-        GuildCommandPermissionsPage app{{a.app_permissions, kGuildCommandPermissionMaximum}, 0, 0};
-        GuildCommandPermissionsPage own{{a.permissions, kGuildCommandPermissionMaximum}, 0, 0};
+        GuildCommandPermissionsPage app{{a.app_permissions, kGuildCommandPermissionMaximum}, 0};
+        GuildCommandPermissionsPage own{{a.permissions, kGuildCommandPermissionMaximum}, 0};
         const bool decoded = ok && guild_command_permissions_decode(body, scratch, a.sent_target, &app).ok() &&
                              (!a.sent_command ||
                               guild_command_permissions_decode(body, scratch, a.sent_command, &own).ok());

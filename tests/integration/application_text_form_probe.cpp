@@ -100,8 +100,8 @@ UiRect application_viewport_dips() noexcept {
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     return {0, 0, g_app.renderer.width * scale, g_app.renderer.height * scale};
 }
-bool refresh_account_frame(bool force) noexcept {
-    return refresh_account_text(force);
+bool refresh_account_frame() noexcept {
+    return refresh_account_text(true);
 }
 bool application_refresh_login_view() noexcept {
     // This account/editor fixture has no login display owner. Startup recovery

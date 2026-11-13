@@ -76,6 +76,9 @@ RestClient* module_rest(void* instance, bool details = false) noexcept;
 GatewayClient* module_gateway(void* instance) noexcept;
 
 constexpr RestClientSubmitResult kInvalidSubmit{RestClientSubmitError::invalid_input};
+// Submits the bodiless request at `target` on a channel route; nothing when the target did not fit (`written` false).
+RestClientSubmitResult submit_channel_target(RestClient* rest, bool written, const u8* target, u32 target_bytes,
+                                             u64 route_id, u64 channel_id, RestMethod method, u64 request_id) noexcept;
 
 RestClient* request_lane(void* instance, u64 request_id) noexcept;
 

@@ -1,5 +1,6 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/thread_locked_access.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord {

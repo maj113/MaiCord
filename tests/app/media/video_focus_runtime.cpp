@@ -2099,7 +2099,7 @@ void application_search_media_dimensions_changed() noexcept {}
 bool refresh_account_text(bool) noexcept {
     return message_scene_update(&g_app.message_scene, g_app.message_scene.viewport).ok();
 }
-bool refresh_account_frame(bool) noexcept {
+bool refresh_account_frame() noexcept {
     ++video_focus_runtime_test::media_refreshes;
     return true;
 }

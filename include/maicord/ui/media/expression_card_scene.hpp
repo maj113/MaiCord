@@ -65,14 +65,11 @@ struct UiExpressionCardScene : UiHoverCard {
 // the viewport. measure sizes the title and the wrapping text when given.
 bool ui_expression_card_show(UiExpressionCardScene*, u64 identity, const UiExpressionCardContent&, UiRect anchor,
                              UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* measure) noexcept;
-void ui_expression_card_close(UiExpressionCardScene*) noexcept;
 bool ui_expression_card_tick(UiExpressionCardScene*, u64 now_ms, bool reduced_motion) noexcept;
 u64 ui_expression_card_next_wake(const UiExpressionCardScene&, bool reduced_motion) noexcept;
-bool ui_expression_card_contains(const UiExpressionCardScene&, float x, float y) noexcept;
 UiExpressionCardControl ui_expression_card_hit(const UiExpressionCardScene&, float x, float y) noexcept;
 // True when the hovered control changed.
 bool ui_expression_card_set_hover(UiExpressionCardScene*, float x, float y) noexcept;
-bool ui_expression_card_set_pressed(UiExpressionCardScene*, bool pressed) noexcept;
 // Media the host draws: 0 the picture, 1..3 the pack's stickers, 4 the server icon.
 inline constexpr u32 kUiExpressionCardMediaCount = 5;
 struct UiExpressionCardMedia {

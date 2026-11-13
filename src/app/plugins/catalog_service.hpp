@@ -74,7 +74,7 @@ struct CatalogItemState {
 };
 CatalogItemState application_catalog_item_state(CatalogKind, const Utf8View& slug) noexcept;
 
-// ---- actions (one at a time; progress through view.operation and the revision) ---------------------
+// Actions (one at a time; progress through view.operation and the revision).
 // Browse was opened: fetches may run from now on (no catalog traffic for users who never browse and have
 // nothing installed). Fetches once an hour while browsing.
 void application_catalog_browse() noexcept;
@@ -121,7 +121,7 @@ const CatalogConsent* application_catalog_consent() noexcept;
 // downloaded and asked about again (not_listed when it offers none).
 bool application_catalog_consent_answer(bool accepted, bool enable_now) noexcept;
 
-// ---- details, previews and loops: verified against the signed digest, cached on disk ----------------
+// Details, previews and loops: verified against the signed digest, cached on disk.
 enum class CatalogAssetKind : u8 { details, preview };
 struct CatalogAsset {
     u8 sha256[32];
@@ -133,11 +133,10 @@ bool application_catalog_asset_request(CatalogAssetKind, const CatalogBlob&) noe
 bool application_catalog_asset_take(const u8 (&sha256)[32], CatalogAsset*) noexcept;
 void application_catalog_asset_release(CatalogAsset*) noexcept;
 
-// ---- the package installer (link and file installs) -------------------------------------------------
+// The package installer (link and file installs).
 bool application_catalog_record_unreviewed(CatalogKind, const Utf8View& slug, const u8 (&sha256)[32], const Utf8View& version) noexcept;
 bool application_catalog_forget(CatalogKind, const Utf8View& slug) noexcept;
 
-// ---- lifecycle ------------------------------------------------------------------------------------------
 // What the service needs from the rest of the client. Tests supply their own.
 struct CatalogServiceHost {
     bool (*developer_mode)() noexcept;

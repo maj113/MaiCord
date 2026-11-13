@@ -96,8 +96,7 @@ void mute_queries(Check check) noexcept {
     MessageNotificationOverride overrides[3]{};
     MessageNotificationThreadSetting threads[1]{};
     MessageNotificationStore store{};
-    check(message_notifications_initialize(&store, {guilds, 2}, {overrides, 3}, {threads, 1}),
-          "mute queries: store initializes");
+    message_notifications_initialize(&store, {guilds, 2}, {overrides, 3}, {threads, 1});
     MessageNotificationGuildSetting entry{10, {5000, 0, notification_muted | notification_mute_end,
                                                MessageNotificationLevel::all, true}};
     MessageNotificationOverride channel{10, 20, {9000, 0, notification_muted | notification_mute_end,

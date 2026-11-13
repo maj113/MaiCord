@@ -42,12 +42,6 @@ struct AccountLoginRuntime {
     bool account_suspended;
 };
 
-AccountLoginStatus login_invalid_input() noexcept {
-    AccountLoginStatus status{};
-    status.error = AccountLoginError::invalid_input;
-    return status;
-}
-
 // Indexed by UserAuthCoordinatorPhase. Failed, stopping and the browser exchange map to failed, as does
 // anything out of range.
 constexpr AccountLoginPhase kLoginPhases[] = {
@@ -129,7 +123,7 @@ AccountLoginPhase remote_login_phase(RemoteAuthClientPhase phase) noexcept {
 
 AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
     if (!runtime)
-        return login_invalid_input();
+        return account_login_invalid_input();
     const UserAuthCoordinatorResult coordinator = runtime->coordinator_started
                                                       ? user_auth_coordinator_status(&runtime->coordinator)
                                                       : UserAuthCoordinatorResult{};

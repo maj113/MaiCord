@@ -37,7 +37,6 @@ static_assert([] {
 }());
 constexpr u32 kStale = ~0u;
 
-// ---- Records ---------------------------------------------------------------------------------------
 // A verdict is one record in a ring: Head, the badge and accessory nodes, an optional card, then every string
 // back to back in a fixed order (see encode). Lengths are in the fixed parts, so reading needs no scanning.
 constexpr u8 kReplaceContent = 1, kHasCard = 2;
@@ -127,8 +126,6 @@ void decode(const u8* record, u64 owner, Decoded* out) noexcept {
         }
     }
 }
-
-// ---- Validation and encoding -----------------------------------------------------------------------
 
 // UTF-8 without control characters (a line feed stays in multi-line text), at most maximum bytes.
 bool text_ok(const mc_str& text, u32 maximum, bool multiline = false) noexcept {
@@ -274,8 +271,6 @@ void encode(Sink& s, const mc_decoration& d, u32 total) noexcept {
     }
 }
 
-// ---- Caches ------------------------------------------------------------------------------------------
-
 // Multiplicative (Fibonacci) hashing: consecutive snowflake ids spread over the table's low bits.
 u32 home(u64 key, u64 scope) noexcept {
     return static_cast<u32>((key * 0x9E37'79B9'7F4A'7C15ull + (scope + 1) * 0xC2B2'AE3D'27D4'EB4Full) >> 32);
@@ -399,8 +394,6 @@ const u8* record_of(const Plugin& plugin, u32 kind, const Entry& entry) noexcept
     return entry.bytes ? plugin.caches[kind].arena + entry.offset : nullptr;
 }
 
-// ---- Session reveals of collapsed messages -------------------------------------------------------------------
-
 constexpr u32 kReveals = 64;
 u64 g_reveals[kReveals];
 u32 g_reveal_count, g_reveal_cursor;
@@ -410,8 +403,6 @@ bool revealed(u64 message_id) noexcept {
         if (g_reveals[i] == message_id) return true;
     return false;
 }
-
-// ---- Merge ------------------------------------------------------------------------------------------------
 
 // Joined name affixes live here; a wrap reports a change like a cache wrap does.
 char g_join[4096];
@@ -579,8 +570,6 @@ u32 slot_query(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 gui
     }
 }
 
-// ---- Pull ---------------------------------------------------------------------------------------------------
-
 template <typename In, typename Function> struct DecorateCall {
     Function function;
     const In* input;
@@ -670,8 +659,6 @@ u32 entity_revision(u64 a, u64 b, u64 c, u64 d, Utf8View name) noexcept {
     for (u32 i = 0; i < name.bytes; ++i) h = hash64_mix(h, static_cast<u8>(name.data[i]));
     return static_cast<u32>(h >> 32);
 }
-
-// ---- Node actions -----------------------------------------------------------------------------------------------
 
 // The decorations a UI surface's nodes come from: the cache kind, the key and scope the verdict is stored under,
 // and which of its node lists the surface shows (1 badges, 2 accessories).

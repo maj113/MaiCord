@@ -284,21 +284,17 @@ void portal_request_end(PortalRequest* request) noexcept {
     request->active = false;
 }
 
-void portal_request_adopt(PortalRequest* request, const char* path) noexcept {
-    if (!request->active || c_string_equal(path, request->path) || c_string_length(path) >= sizeof(request->path))
+void portal_request_adopt_reply(PortalRequest* request, const Message& reply) noexcept {
+    Reader r;
+    message_reader(reply, &r);
+    const char* path = nullptr;
+    if (!reader_string(&r, &path, nullptr) || !request->active || c_string_equal(path, request->path) ||
+        c_string_length(path) >= sizeof(request->path))
         return;
     connection_unsubscribe(request->connection, request->subscription);
     copy_bytes(request->path, path, c_string_length(path) + 1);
     if (!listen(request))
         request->active = false;
-}
-
-void portal_request_adopt_reply(PortalRequest* request, const Message& reply) noexcept {
-    Reader r;
-    message_reader(reply, &r);
-    const char* handle = nullptr;
-    if (reader_string(&r, &handle, nullptr))
-        portal_request_adopt(request, handle);
 }
 
 void portal_request_append_token(Builder* options, const PortalRequest& request) noexcept {

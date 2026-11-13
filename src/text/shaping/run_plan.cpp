@@ -147,7 +147,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
     }
     // Without a GPOS kern feature HarfBuzz kerns with the legacy kern table (hb-ot-shape.cc, apply_kern); independent letters do not kern.
     if(!emoji&&!gpos_kern){status=sfnt_table(face,sfnt_tag('k','e','r','n'),&bytes);
-        if(status==SfntStatus::ok){if(sfnt_legacy_kern_valid(bytes)){p.plans[0].legacy_kern=bytes;sfnt_legacy_kern_glyphs(bytes,participation);}}
+        if(status==SfntStatus::ok){if(sfnt_legacy_kern_open(bytes,participation))p.plans[0].legacy_kern=bytes;}
         else if(status!=SfntStatus::missing_table)return status;}
     bool any=false;for(u32 i=0;i<nominal_words;++i)any=any||participation[i]!=0;
     if(any){auto retained=take<u64>(state,nominal_words);if(!filled(retained))return SfntStatus::resource_limit;
@@ -176,12 +176,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
             ++p.references;*output={i+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};}
     }
     if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};
-#if defined(_WIN32)
-    // The SYSTEM_INFO stays in this frame (pages_page_size() would end its lifetime at once and change the frame).
-    Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;
-#else
     const usize page=pages_page_size();
-#endif
     if(!page||(page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
     if(limit<page||limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     NativeRunPlanHandle parent{};
@@ -197,11 +192,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
         data->metrics=base.metrics;data->nominal=base.nominal;data->nominal.ascii_advances=nullptr;data->layout_metrics=base.layout_metrics;data->parent=parent;data->bold_font=&face->geometry.outline.truetype;
         for(u32 mode=0;mode<2;++mode){data->plans[mode]=base.plans[mode];data->plans[mode].metric_context=data;data->plans[mode].advance=bold_advance;data->plans[mode].cache_advances=true;}}
     else{arena_reset(scratch);const auto status=prepare(*font,*face,*data,state,*scratch,work,limit,store->substitutions);if(status!=SfntStatus::ok)return failure(status);}
-#if defined(_WIN32)
-    DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
-#else
     if(!pages_protect(state.base,state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
-#endif
     if(!bold&&!native_font_instance_retain(store->instances,instance))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     auto& p=store->slots[available];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     substitutions.keep=true;reset_value(&parent);*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};

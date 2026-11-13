@@ -75,8 +75,6 @@ bool http_url(mc_str url) noexcept {
 
 } // namespace
 
-// ---- Banners -----------------------------------------------------------------------------
-
 namespace plugin_ui_detail {
 
 mc_status banner_set(PluginBinding& binding, const mc_banner& banner) noexcept {
@@ -109,8 +107,6 @@ mc_status banner_clear(PluginBinding& binding, u64 tag) noexcept {
     plugin_host_banner_changed();
     return MC_OK;
 }
-
-// ---- Modals ------------------------------------------------------------------------------
 
 mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noexcept {
     if (!gesture(binding)) return MC_E_GESTURE;
@@ -177,8 +173,6 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
     }
     return MC_OK;
 }
-
-// ---- Actions -----------------------------------------------------------------------------
 
 mc_status open_url(PluginBinding& binding, mc_str url) noexcept {
     if (!http_url(url)) return MC_E_INVALID;

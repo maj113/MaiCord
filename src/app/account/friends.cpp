@@ -357,10 +357,8 @@ ApplicationFriends* ensure() noexcept {
     friends->source = {friends, 0, 1, resolve, find};
     friends->requests_source = {friends, 0, 1, requests_resolve, requests_find};
     friends->dm_source = {friends, 0, 0, dm_resolve, dm_find};
-    friends->friends_tab = UiFriendsTab::online;
     friends->sections = {friends->section_rows, 2, 1, false, false, 0};
     friends->requests_sections = {nullptr, 0, 1, false, true, 0};
-    friends->tab = UiFriendsTab::online;
     friends->search_blink_ms = application_caret_blink_ms();
     if (!friends->search_blink_ms) friends->search_blink_ms = 500;
     g_app.friends = friends;
@@ -540,9 +538,6 @@ bool search_pointer(ApplicationFriends& friends, float x, float y, bool extend, 
         message_composer_set_selection(model, extend ? model->anchor : offset, offset);
     return result != MessageComposerResult::invalid_input && application_friends_search_changed(false);
 }
-bool friend_activities(const void*, u64 user_id, UserActivitySet* out) noexcept {
-    return g_app.account_ui && user_activity_find(g_app.account_ui->user_store.activities, user_id, out);
-}
 // Card text, cut on a UTF-8 boundary when the buffer fills.
 struct ActiveText : TextBank {
     void add(const Utf8View& text) noexcept {
@@ -657,7 +652,7 @@ void project_active(ApplicationFriends& friends) noexcept {
             online[count++] = record.user_id;
     }
     static ActiveNowCard cards[kActiveNowMaximumCards];
-    const u32 projected = active_now_project({{online, count}, &ui.voice_states, nullptr, friend_activities},
+    const u32 projected = active_now_project({{online, count}, &ui.voice_states, &ui.user_store.activities},
                                              {cards, kActiveNowMaximumCards});
     const bool same = active_now_equal({cards, projected}, {friends.active_projection, friends.active_projection_count});
     if (same && !users_changed && friends.active_now.collapsed == friends.active_collapsed && friends.active_now.revision)

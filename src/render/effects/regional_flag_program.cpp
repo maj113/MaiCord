@@ -8,7 +8,7 @@ ColrPaintElement leaf(const RegionalFlagLayer& layer,u32 index) noexcept {
 }
 } // namespace
 
-bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program,float pixels_per_unit) noexcept {
+bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program) noexcept {
     Source source{&art};
     ColrPaintSource callbacks{&source,
         +[](void* p,ColrPaintElement* e) noexcept {auto& s=*static_cast<Source*>(p);if(s.child)return false;s.index=0;s.child=true;*e=leaf(s.art->layers[0],0);return true;},
@@ -18,6 +18,6 @@ bool regional_flag_compile(const RegionalFlagArt& art, ColrPaintProgram* program
         +[](void* p,u16 id,GlyphOutline* out) noexcept {const auto& s=*static_cast<Source*>(p);return id<s.art->count&&regional_flag_layer_outline(s.art->layers[id],out);},
         +[](void* p,u16 id) noexcept {const auto& s=*static_cast<Source*>(p);return id<s.art->count?s.art->layers[id].command_bound:0u;}};
     ColrPaintElement root_element{};root_element.kind=ColrPaintKind::layers;root_element.paint.layers.childCount=art.count;
-    return colr_program_build(program,callbacks,root_element,{0,0,36,36},pixels_per_unit);
+    return colr_program_build(program,callbacks,root_element,{0,0,36,36},kRegionalFlagPixelsPerUnit);
 }
 } // namespace maicord

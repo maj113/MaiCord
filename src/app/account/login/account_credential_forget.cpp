@@ -1,9 +1,5 @@
 #include "maicord/app/account/login/account_credential_forget.hpp"
-#include "maicord/core/win32_error.hpp"
-#include "maicord/core/win32_process.hpp"
-
 #include "maicord/core/data_path.hpp"
-#include "maicord/os/file.hpp"
 
 namespace maicord {
 namespace {
@@ -17,9 +13,8 @@ constexpr u32 kForgotten[]{0, 1, 2, 3, 6, 7};
 constexpr u8 kMarker[]{'M', 'A', 'I', 'C', 'L', 'O', 'G', 'O', 1, 0, 0, 0};
 static_assert(sizeof(kMarker) == 12);
 
-AccountCredentialForgetResult failure(AccountCredentialForgetError error, u32 native_error,
-                                      u8 targets = 0) noexcept {
-    return {native_error, error, targets, true};
+AccountCredentialForgetResult failure(AccountCredentialForgetError error) noexcept {
+    return {error, true};
 }
 
 // Writes the path of target and returns its length; zero when it does not fit.
@@ -55,9 +50,7 @@ bool equal_path(const wchar_t* a, const wchar_t* b, u32 length) noexcept {
     return true;
 }
 
-bool valid(const AccountPaths& paths, const AccountCredentialForgetIo* io, wchar_t* scratch) noexcept {
-    if (io && (!io->probe || !io->write_atomic || !io->remove))
-        return false;
+bool valid(const AccountPaths& paths, wchar_t* scratch) noexcept {
     u32 length = target_path(paths, 0, scratch);
     if (!length || !equal_path(scratch, paths.profile, length))
         return false;
@@ -70,129 +63,76 @@ bool valid(const AccountPaths& paths, const AccountCredentialForgetIo* io, wchar
     return true;
 }
 
-AccountCredentialForgetProbeResult probe(const AccountCredentialForgetIo* io,
-                                         const wchar_t* path) noexcept {
-    if (io)
-        return io->probe(io->context, path);
-    FileStat found{};
-    if (file_path_stat(path, &found))
-        return {0, AccountCredentialForgetPresence::present};
-    const u32 error = thread_last_error();
-    return {error, win32_error_is_missing_file(error) ? AccountCredentialForgetPresence::missing
-                                                      : AccountCredentialForgetPresence::error};
-}
-
-u32 remove(const AccountCredentialForgetIo* io, const wchar_t* path) noexcept {
-    const u32 error = io ? io->remove(io->context, path) : (file_remove(path) ? 0u : thread_last_error());
-    return win32_error_is_missing_file(error) ? 0u : error;
-}
-
-AccountCredentialForgetResult write_marker(const AccountPaths& paths, const AccountCredentialForgetIo* io,
-                                           wchar_t* scratch) noexcept {
-    const u32 length = target_path(paths, 4, scratch);
-    if (!length)
-        return failure(AccountCredentialForgetError::invalid_input, ERROR_INVALID_PARAMETER);
-    const auto written = io ? io->write_atomic(io->context, scratch, length, {kMarker, sizeof(kMarker)})
-                            : file_persistence_write_atomic(scratch, length, {kMarker, sizeof(kMarker)});
-    return written.ok() ? AccountCredentialForgetResult{0, AccountCredentialForgetError::none, 0, true}
-                        : failure(AccountCredentialForgetError::marker_write, written.native_error,
-                                  account_forget_marker);
-}
-
-AccountCredentialForgetResult probe_markers(const AccountPaths& paths, const AccountCredentialForgetIo* io,
-                                            wchar_t* scratch) noexcept {
+AccountCredentialForgetResult probe_markers(const AccountPaths& paths, wchar_t* scratch) noexcept {
     AccountCredentialForgetResult result{};
     for (u32 target = 4; target < 6; ++target) {
         target_path(paths, target, scratch);
-        const auto found = probe(io, scratch);
-        if (found.presence != AccountCredentialForgetPresence::missing)
+        const auto found = account_credential_forget_stat(scratch);
+        if (found != AccountCredentialForgetPresence::missing)
             result.pending = true;
-        if (found.presence == AccountCredentialForgetPresence::error) {
-            if (result.ok()) {
-                result.error = AccountCredentialForgetError::probe;
-                result.native_error = found.native_error;
-            }
-            result.failed_targets |= static_cast<u8>(1u << target);
-        }
+        if (found == AccountCredentialForgetPresence::error)
+            result.error = AccountCredentialForgetError::probe;
     }
     return result;
 }
 
-AccountCredentialForgetResult ensure_marker(const AccountPaths& paths, const AccountCredentialForgetIo* io,
-                                            wchar_t* scratch) noexcept {
-    const auto existing = probe_markers(paths, io, scratch);
+// valid() has checked every target path fits.
+AccountCredentialForgetResult ensure_marker(const AccountPaths& paths, wchar_t* scratch) noexcept {
+    const auto existing = probe_markers(paths, scratch);
     // Atomic write failure removes its temporary file. Never overwrite an
     // interrupted .new which may be the sole surviving logout intention.
-    return !existing.ok() || existing.pending ? existing : write_marker(paths, io, scratch);
+    if (!existing.ok() || existing.pending)
+        return existing;
+    const u32 length = target_path(paths, 4, scratch);
+    return account_credential_forget_write(scratch, length, {kMarker, sizeof(kMarker)})
+               ? AccountCredentialForgetResult{AccountCredentialForgetError::none, true}
+               : failure(AccountCredentialForgetError::marker_write);
 }
 
 } // namespace
 
-AccountCredentialForgetResult account_credential_forget_probe(
-    const AccountPaths& paths, const AccountCredentialForgetIo* io) noexcept {
+AccountCredentialForgetResult account_credential_forget_probe(const AccountPaths& paths) noexcept {
     wchar_t scratch[kAccountProfileMaximumPathCharacters];
-    if (!valid(paths, io, scratch))
-        return failure(AccountCredentialForgetError::invalid_input, ERROR_INVALID_PARAMETER);
-    return probe_markers(paths, io, scratch);
+    if (!valid(paths, scratch))
+        return failure(AccountCredentialForgetError::invalid_input);
+    return probe_markers(paths, scratch);
 }
 
-AccountCredentialForgetResult account_credential_forget_begin(
-    const AccountPaths& paths, const AccountCredentialForgetIo* io) noexcept {
+AccountCredentialForgetResult account_credential_forget_begin(const AccountPaths& paths) noexcept {
     wchar_t scratch[kAccountProfileMaximumPathCharacters];
-    if (!valid(paths, io, scratch))
-        return failure(AccountCredentialForgetError::invalid_input, ERROR_INVALID_PARAMETER);
-    return ensure_marker(paths, io, scratch);
+    if (!valid(paths, scratch))
+        return failure(AccountCredentialForgetError::invalid_input);
+    return ensure_marker(paths, scratch);
 }
 
-AccountCredentialForgetResult account_credential_forget_complete_after_join(
-    const AccountPaths& paths, bool workers_joined, const AccountCredentialForgetIo* io) noexcept {
-    if (!workers_joined)
-        return failure(AccountCredentialForgetError::not_joined, ERROR_INVALID_STATE);
+AccountCredentialForgetResult account_credential_forget_complete_after_join(const AccountPaths& paths) noexcept {
     wchar_t scratch[kAccountProfileMaximumPathCharacters];
-    if (!valid(paths, io, scratch))
-        return failure(AccountCredentialForgetError::invalid_input, ERROR_INVALID_PARAMETER);
-    auto result = ensure_marker(paths, io, scratch);
+    if (!valid(paths, scratch))
+        return failure(AccountCredentialForgetError::invalid_input);
+    auto result = ensure_marker(paths, scratch);
     if (!result.ok())
         return result;
+    // Every deletion is attempted, so one locked file leaves the others cleared.
     for (const u32 target : kForgotten) {
         target_path(paths, target, scratch);
-        const u32 error = remove(io, scratch);
-        if (error) {
-            if (result.ok()) {
-                result.error = AccountCredentialForgetError::credential_delete;
-                result.native_error = error;
-            }
-            result.failed_targets |= static_cast<u8>(1u << target);
-        }
+        if (!account_credential_forget_remove(scratch))
+            result.error = AccountCredentialForgetError::credential_delete;
     }
     if (!result.ok())
         return result;
     for (const u32 target : kForgotten) {
         target_path(paths, target, scratch);
-        const auto found = probe(io, scratch);
-        if (found.presence != AccountCredentialForgetPresence::missing) {
-            if (result.ok()) {
-                result.error = AccountCredentialForgetError::credential_delete;
-                result.native_error = found.presence == AccountCredentialForgetPresence::error
-                                          ? found.native_error
-                                          : ERROR_BUSY;
-            }
-            result.failed_targets |= static_cast<u8>(1u << target);
-        }
+        if (account_credential_forget_stat(scratch) != AccountCredentialForgetPresence::missing)
+            return failure(AccountCredentialForgetError::credential_delete);
     }
-    if (!result.ok())
-        return result;
     // Keep the committed marker until the temporary marker is gone, too.
     static constexpr u32 marker_order[]{5u, 4u};
     for (const u32 target : marker_order) {
         target_path(paths, target, scratch);
-        const u32 error = remove(io, scratch);
-        if (error)
-            return failure(AccountCredentialForgetError::marker_delete, error,
-                           static_cast<u8>(1u << target));
+        if (!account_credential_forget_remove(scratch))
+            return failure(AccountCredentialForgetError::marker_delete);
     }
-    result.pending = false;
-    return result;
+    return {};
 }
 
 } // namespace maicord

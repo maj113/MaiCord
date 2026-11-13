@@ -42,16 +42,10 @@ LinuxClientEnvironment linux_client_environment_read(LinuxClientEnvironmentBuffe
 // client_host_locale): the first usable of the first $LANGUAGE entry, $LC_ALL, $LC_MESSAGES and $LANG, as a BCP 47
 // tag (encoding and modifier dropped, "_" as "-"; "C", "POSIX" and empty skipped), else en-US.
 u32 linux_client_system_locale(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
-// The languages of $LANGUAGE as tags, each ended by a NUL (the input of client_accept_language).
-u32 linux_client_preferred_languages(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
-// "<XDG_CURRENT_DESKTOP>,<GDMSESSION>", an unset one as "unknown".
-u32 linux_client_window_manager(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
 // The distribution description (lsb_release -ds, else os-release's PRETTY_NAME); 0 when the host names none.
 u32 linux_client_distro(const LinuxClientEnvironment& environment, Slice<char> output) noexcept;
 // "native", "flatpak", "snap" or "appimage".
 Utf8View linux_client_runtime_environment(const LinuxClientEnvironment& environment) noexcept;
-// $XDG_SESSION_TYPE, "unknown" when unset; empty when set and empty.
-Utf8View linux_client_display_server(const LinuxClientEnvironment& environment) noexcept;
 
 // Fills the host-derived part of a Linux configuration: storage's locale, discord_locale, accept_language, os_version,
 // window_manager, distro, display_server and timezone, and every property except the launch ID and signature.

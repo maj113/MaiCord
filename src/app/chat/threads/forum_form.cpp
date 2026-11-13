@@ -642,9 +642,6 @@ bool application_forum_form_active() noexcept {
 ForumPostScene* application_forum_form_scene() noexcept {
     return owner ? &owner->scene : nullptr;
 }
-ApplicationForumForm* application_forum_form_state() noexcept {
-    return owner;
-}
 void application_forum_form_theme_changed() noexcept {
     // This form borrows the shared account measure cache. The theme code
     // invalidates that cache even while this parent is hidden.

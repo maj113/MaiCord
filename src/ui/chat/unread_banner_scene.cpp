@@ -160,8 +160,6 @@ bool ui_unread_banner_set_notice(UiUnreadBannerScene* scene, const UiBannerNotic
 }
 
 void ui_unread_banner_clear(UiUnreadBannerScene* scene) noexcept {
-    if (!scene)
-        return;
     const u32 revision = scene->revision + 1;
     const auto style = scene->style;
     reset_value(scene);

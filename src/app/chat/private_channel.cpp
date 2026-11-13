@@ -169,7 +169,7 @@ bool application_private_channel_response(const RestClientResponse& response, Ut
             g_private.requests_mode = false;
         return private_navigation_changed();
     }
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 bool application_private_channel_create(ConstSlice<u64> users) noexcept {
@@ -446,7 +446,7 @@ bool application_private_channel_present_error() noexcept {
             return false;
         set_popup_owner(PopupOwnerKind::private_notice);
         g_private.prompt_shown = true;
-        return refresh_account_frame(true);
+        return refresh_account_frame();
     }
     auto& c = g_private.controller;
     if (c.phase != PrivateChannelActionPhase::failed || c.feedback_shown) return true;
@@ -459,6 +459,6 @@ bool application_private_channel_present_error() noexcept {
         return false;
     set_popup_owner(PopupOwnerKind::private_notice);
     c.feedback_shown = true;
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 } // namespace maicord::app_detail

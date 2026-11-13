@@ -158,9 +158,7 @@ maicord_library(maicord_protocol
     src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp src/protocol/user/notification_settings.cpp
     src/protocol/voice/rtcp_sender.cpp src/protocol/voice/dave_codec.cpp
     src/protocol/user/guild_settings.cpp
-    # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
-    # user records) while it forwards every other CDN URL function to the module.
-    src/protocol/media/cdn_icon_hash.cpp src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
+    src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
     src/protocol/guild/automation.cpp
     src/protocol/media/embed_provider.cpp
     src/protocol/media/embed_player.cpp

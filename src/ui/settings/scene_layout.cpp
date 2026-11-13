@@ -118,7 +118,7 @@ bool progress(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.controls[index].kind == UiSettingsControlKind::action && content.meters &&
            content.meters[index] != kUiSettingsNoMeter && !list_item(content, index);
 }
-float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept {
+float button_label_width(UiTextMeasureCache* measure, const Utf8View& label) noexcept {
     return ui_kit_text_width(measure, label, kUiKitTextLabelBold);
 }
 // The circle of an avatar row's lead, after the drag handle's slot when the row has one.
@@ -140,13 +140,13 @@ bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto& c = content.controls[index];
     return c.kind == UiSettingsControlKind::status && c.action_label.bytes && !c.checked && !progress_fill(content, index);
 }
-UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept {
+UiRect status_button_label(UiTextMeasureCache* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept {
     const float group = kStatusGlyphSize + kStatusGlyphGap + ui_kit_text_width(measure, label, kUiKitTextLabelBold);
     const float left = (button.left + button.right - group) * .5f, middle = (button.top + button.bottom) * .5f;
     *glyph = {left, middle - kStatusGlyphSize * .5f, left + kStatusGlyphSize, middle + kStatusGlyphSize * .5f};
     return {left + kStatusGlyphSize + kStatusGlyphGap, button.top, button.right, button.bottom};
 }
-u32 status_meta_flow(const UiKitMeasure* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
+u32 status_meta_flow(UiTextMeasureCache* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
                      u32* count) noexcept {
     constexpr float kGap = 4;
     const float line = ui_kit_line_height(kUiKitTextSmall), width = ui_rect_width(box);
@@ -217,7 +217,7 @@ u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept
     const auto* p = presentation(content, index);
     return p && chip < 8 ? static_cast<u8>((p->chip_tones >> (chip * 2)) & 3) : u8{0};
 }
-void flow_chips(const UiSettingsControl& c, const UiKitMeasure* measure, float left, float top, float width, UiRect* out,
+void flow_chips(const UiSettingsControl& c, UiTextMeasureCache* measure, float left, float top, float width, UiRect* out,
                 float* height) noexcept {
     float x = 0, y = 0;
     for (u32 i = 0; i < c.choices.count && i < 8; ++i) {
@@ -326,7 +326,7 @@ float lead_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, u8
     return width;
 }
 float text_block(const UiSettingsMetrics& m, const Utf8View& label, const Utf8View& description, float width,
-                 const UiKitMeasure* measure) noexcept {
+                 UiTextMeasureCache* measure) noexcept {
     float height = label.bytes ? kUiSettingsLabelLine : 0;
     if (description.bytes)
         height += (label.bytes ? m.label_gap : 0) + ui_kit_text_height(measure, description, kUiKitTextSmall, width);
@@ -334,12 +334,12 @@ float text_block(const UiSettingsMetrics& m, const Utf8View& label, const Utf8Vi
 }
 // The trailing dropdown of a choice row: as wide as its current value, within the select width and 40% of the row.
 __forceinline float dropdown_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, float row_width,
-                     const UiKitMeasure* measure) noexcept {
+                     UiTextMeasureCache* measure) noexcept {
     const Utf8View value = c.selected_choice < c.choices.count ? c.choices[c.selected_choice] : utf8_literal("Select\xE2\x80\xA6");
     return ui_dropdown_width(t, 0, ui_kit_text_width(measure, value, kUiKitTextLabel), minimum(320.f, row_width * .4f));
 }
 // Segmented text look: equal items measured from the labels, bold so the selected one fits.
-float segmented_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiKitMeasure* measure) noexcept {
+float segmented_width(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, UiTextMeasureCache* measure) noexcept {
     float widths[kUiSegmentedMaximum]{};
     const u32 count = minimum<u32>(c.choices.count, kUiSegmentedMaximum);
     for (u32 i = 0; i < count; ++i)
@@ -472,7 +472,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
                      u32 index, float left, float top, float width, const RowContext& context) noexcept {
     const auto& m = t.metric;
     const auto& c = content.controls[index];
-    const auto* measure = context.measure;
+    auto* measure = context.measure;
     const auto look = row_look(content, index);
     RowLayout r{};
     if (c.kind == UiSettingsControlKind::category) {
@@ -989,7 +989,7 @@ bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept {
     return found;
 }
 namespace {
-// Group headers (12 bold caps, 4 DIP above the first, 14 above the rest) replace the old hairlines.
+// Group headers: 12 bold caps, 4 DIP above the first, 14 above the rest.
 float nav_height(const UiSettingsMetrics& m, UiSettingsNavKind kind, u32 index) noexcept {
     return kind == UiSettingsNavKind::header      ? m.nav_header_height + (index ? kNavGroupAbove : kNavGroupBelow)
            : kind == UiSettingsNavKind::separator ? 1 + m.separator_margin * 2

@@ -751,7 +751,7 @@ void application_message_mutation_notice_succeeded(ApplicationMessageMutationKin
     history_decode_storage_test::notice_channel = channel; history_decode_storage_test::notice_message = message;
 }
 bool refresh_account_text(bool) noexcept { ++history_decode_storage_test::refreshes; return true; }
-bool refresh_account_frame(bool) noexcept { ++history_decode_storage_test::refreshes; return true; }
+bool refresh_account_frame() noexcept { ++history_decode_storage_test::refreshes; return true; }
 bool refresh_message_composer_ui() noexcept { ++history_decode_storage_test::refreshes; return true; }
 void reset_message_composer_caret_timing(bool) noexcept {}
 void application_composer_text_input_suspend() noexcept {}

@@ -277,6 +277,35 @@ void drag_tab(float x) noexcept {
         application_tabs_move(at, to);
 }
 
+bool application_caption_command(UiCaptionPart part) noexcept {
+    if (!g_app.window)
+        return false;
+    switch (part) {
+    case UiCaptionPart::icon:
+        // As Alt+Space: the window menu at the caption.
+        window_show_system_menu(g_app.window, 0, static_cast<float>(g_app.renderer.caption_height));
+        return true;
+    case UiCaptionPart::update:
+        if (application_updates_restart())
+            return true;
+        return application_settings_open_page(
+            {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::updates) + 1});
+    case UiCaptionPart::settings:
+        return application_settings_open();
+    case UiCaptionPart::minimize:
+        window_minimize(g_app.window);
+        return true;
+    case UiCaptionPart::maximize:
+        window_toggle_maximize(g_app.window);
+        return true;
+    case UiCaptionPart::close:
+        window_request_close(g_app.window);
+        return true;
+    default:
+        return false;
+    }
+}
+
 // Pointer input over the bar's own items (update badge, Settings, the tabs, the window buttons the platform leaves to
 // the bar).
 bool item_pointer(const WindowEvent& event) noexcept {
@@ -468,35 +497,6 @@ UiCaptionBarLayout application_caption_layout() noexcept {
     lift(&layout.tabs.overflow);
     lift(&layout.tab_hover);
     return layout;
-}
-
-bool application_caption_command(UiCaptionPart part) noexcept {
-    if (!g_app.window)
-        return false;
-    switch (part) {
-    case UiCaptionPart::icon:
-        // As Alt+Space: the window menu at the caption.
-        window_show_system_menu(g_app.window, 0, static_cast<float>(g_app.renderer.caption_height));
-        return true;
-    case UiCaptionPart::update:
-        if (application_updates_restart())
-            return true;
-        return application_settings_open_page(
-            {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::updates) + 1});
-    case UiCaptionPart::settings:
-        return application_settings_open();
-    case UiCaptionPart::minimize:
-        window_minimize(g_app.window);
-        return true;
-    case UiCaptionPart::maximize:
-        window_toggle_maximize(g_app.window);
-        return true;
-    case UiCaptionPart::close:
-        window_request_close(g_app.window);
-        return true;
-    default:
-        return false;
-    }
 }
 
 bool application_caption_access(u64 item) noexcept {

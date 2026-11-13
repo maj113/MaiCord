@@ -184,7 +184,7 @@ bool accept_message_delete_response(const RestClientResponse& response) noexcept
     application_message_mutation_notice_succeeded(ApplicationMessageMutationKind::erase,
                                                   g_app.message_delete.channel_id, message_id);
     reset_message_delete();
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 
 } // namespace maicord::app_detail

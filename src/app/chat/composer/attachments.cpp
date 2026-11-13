@@ -151,7 +151,7 @@ bool open_menu(const ConstSlice<PopupItem>& items) noexcept {
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::popover, g_app.account_ui->active_channel_id ? g_app.account_ui->active_channel_id : 1,
         items, rectangle, application_viewport_dips(), 360.0f, true).ok()) return false;
     set_popup_owner(PopupOwnerKind::attachments);
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 bool show_file(ApplicationAttachments* state, u64 id) noexcept {
     const auto* record = message_attachment_drafts_get(&state->drafts, id);
@@ -360,7 +360,7 @@ bool application_attachment_add_menu() noexcept {
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, channel ? channel : 1, {items, 2}, rectangle,
         application_viewport_dips(), 220.0f, true).ok()) return false;
     set_popup_owner(PopupOwnerKind::attachments);
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 bool application_attachment_action(u32 action) noexcept {
     if (action == popup_action_attachment_upload || action == popup_action_attachment_create_poll) {
@@ -747,7 +747,7 @@ bool application_attachment_modify(u64 id, UiRect anchor) noexcept {
         {items, count}, anchor, application_viewport_dips(), 280.0f, true).ok()) return false;
     set_popup_owner(PopupOwnerKind::attachments);
     state->detail_id = id;
-    return refresh_account_frame(true);
+    return refresh_account_frame();
 }
 bool application_attachment_strip_activate(UiComposerAttachmentHit hit) noexcept {
     auto* state = strip_state();

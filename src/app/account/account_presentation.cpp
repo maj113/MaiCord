@@ -901,8 +901,8 @@ bool refresh_account_scroll(bool scroll_moving) noexcept {
     return rebuilt || refresh_account_text(true);
 }
 
-bool refresh_account_frame(bool force) noexcept {
-    return refresh_account_text(force) && (!g_app.window || application_request_frame() != FALSE);
+bool refresh_account_frame() noexcept {
+    return refresh_account_text(true) && (!g_app.window || application_request_frame() != FALSE);
 }
 
 #if !defined(MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST)

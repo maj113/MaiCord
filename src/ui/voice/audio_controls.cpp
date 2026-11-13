@@ -457,8 +457,6 @@ bool ui_audio_scene_focus(UiAudioScene* scene, UiAudioControl id, bool keyboard)
     return true;
 }
 void ui_audio_scene_blur(UiAudioScene* scene) noexcept {
-    if (!scene)
-        return;
     scene->focus = scene->hover = scene->capture = UiAudioControl::none;
     scene->keyboard_focus = false;
     expand_volume(*scene);

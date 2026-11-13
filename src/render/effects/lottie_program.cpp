@@ -171,11 +171,9 @@ constexpr u16 gradient_flag = 0x8000;
 constexpr u16 gradient_prefix_mask = gradient_flag - 1;
 constexpr u32 leaf_pool_bytes = maximum_leaves * (sizeof(Leaf) + sizeof(Gradient));
 static_assert(sizeof(Leaf) == 48 && sizeof(Gradient) == 680);
-static_assert(sizeof(Leaf) % alignof(Leaf) == 0 && sizeof(Gradient) % alignof(Leaf) == 0);
+static_assert(sizeof(Gradient) % alignof(Leaf) == 0);
 static_assert(alignof(Leaf) >= alignof(Gradient) && sizeof(Leaf) % alignof(Gradient) == 0);
 static_assert(maximum_leaves <= gradient_prefix_mask);
-static_assert((maximum_leaves - 1) * (sizeof(Leaf) + sizeof(Gradient)) +
-                  sizeof(Leaf) + sizeof(Gradient) == leaf_pool_bytes);
 struct Document {
     JsonIndexedDocument json;
     JsonValue assets;
@@ -1289,7 +1287,7 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
 } // namespace
 bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float pixels,
                                   LottieTiming* timing, LottieProgramAcquire acquire, void* context) noexcept {
-    if (!timing || !acquire || !encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes)
+    if (!encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes)
         return false;
     reset_value(timing);
     ScannedJson source;

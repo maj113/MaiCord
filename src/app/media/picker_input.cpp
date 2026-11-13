@@ -10,7 +10,6 @@
 #include "maicord/model/chat/forwarded_input.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/platform/window/key.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
 #include "maicord/ui/layout/splitter.hpp"
 #include "maicord/ui/media/picker.hpp"
 

@@ -22,8 +22,9 @@ inline constexpr float kGuildRailTopInset = kUiGuildRailGap;
 inline constexpr float kGuildRailRowExtent = kUiGuildRailTileExtent;
 inline constexpr float kGuildRailRowGap = kGuildRailRowGapDips;
 inline constexpr float kGuildRailRowStride = kGuildRailRowExtent + kGuildRailRowGap;
-inline constexpr float kGuildRailOverscanDips = kGuildRailOverscanRows * kGuildRailRowStride;
-inline constexpr UiMotionStyle kFolderMotion{kGuildRailFolderMotionMs, UiMotionCurve::css_ease_out};
+inline constexpr float kGuildRailOverscanDips = 2 * kGuildRailRowStride;
+// Folder expand/collapse: 150 ms CSS ease-out on member row extent.
+inline constexpr UiMotionStyle kFolderMotion{150, UiMotionCurve::css_ease_out};
 
 GuildRailSceneResult scene_error(GuildRailScene* scene, GuildRailSceneError error) noexcept {
     saturating_increment_if(scene, scene->rejected);
@@ -628,6 +629,12 @@ u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
     return wake;
 }
 
+namespace {
+UiMotionTransition guild_rail_indicator_transition(const GuildRailIndicatorMotion& motion) noexcept {
+    return {{motion.scope.owner, motion.scope.generation}, motion.started_ms, motion.sampled_ms,
+            motion.value, motion.from, motion.target, {200, UiMotionCurve::css_ease_out}, motion.active};
+}
+
 bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMotionScope scope,
                                          float target, u64 now_ms, bool animate) noexcept {
     auto transition = guild_rail_indicator_transition(*motion);
@@ -639,6 +646,7 @@ bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMot
                transition.sampled_ms, transition.value, transition.from, transition.target, transition.active};
     return changed;
 }
+} // namespace
 
 bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
                                bool selected, bool hovered, bool unread,

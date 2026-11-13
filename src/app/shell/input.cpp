@@ -25,7 +25,11 @@
 
 #include "maicord/render/d3d11/renderer.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
-#include "maicord/ui/core/scene_cursor.hpp"
+#include "maicord/ui/account/friends_scene.hpp"
+#include "maicord/ui/account/login_scene.hpp"
+#include "maicord/ui/chat/messages/reaction_viewer.hpp"
+#include "maicord/ui/chat/threads/browser_scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/chat/messages/action_bar.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/plugins/slots.hpp"

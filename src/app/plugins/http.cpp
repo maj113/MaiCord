@@ -13,8 +13,6 @@
 
 namespace maicord {
 
-// ---- Hosts ------------------------------------------------------------------------
-
 namespace {
 
 // Discord's own domains: the client's token and sessions belong to these, so no plugin request
@@ -69,8 +67,6 @@ bool plugin_network_hosts_valid(const mc_str* hosts, u32 count, bool has_complet
     }
     return true;
 }
-
-// ---- Broker state -----------------------------------------------------------------
 
 namespace {
 
@@ -150,7 +146,7 @@ PluginHttp* http_of(PluginRuntime* runtime, bool create) noexcept {
     return http;
 }
 
-// ---- Validation (UI thread) -------------------------------------------------------
+// Validation (UI thread).
 
 // An absolute https URL -> the request location. No userinfo, port or fragment: the host must be a DNS
 // name and the target made of path and query characters.
@@ -212,8 +208,6 @@ bool slot_allows(const Slot& slot, Utf8View host) noexcept {
         if (plugin_network_pattern_matches({slot.patterns[i], slot.pattern_bytes[i]}, host)) return true;
     return false;
 }
-
-// ---- The worker -------------------------------------------------------------------
 
 bool sink(void* context, ConstSlice<u8> bytes) noexcept {
     auto& slot = *static_cast<Slot*>(context);
@@ -400,8 +394,6 @@ bool ensure_worker(PluginHttp* http) noexcept {
 }
 
 }  // namespace
-
-// ---- Public -----------------------------------------------------------------------
 
 bool plugin_http_use_transport(PluginRuntime* runtime, const PluginHttpTransport& transport) noexcept {
     PluginHttp* http = runtime && transport.exchange ? http_of(runtime, true) : nullptr;

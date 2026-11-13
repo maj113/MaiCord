@@ -146,6 +146,7 @@ maicord_library(maicord_app_core
     src/app/account/login/browser_sign_in_receiver.cpp src/app/account/login/captcha_bridge.cpp src/app/account/login/loopback_server.cpp
     src/app/account/login/continuations.cpp src/app/shell/input_layers.cpp src/app/shell/navigation_shortcuts.cpp
     src/app/shell/shortcut_registry.cpp src/app/account/account_profile.cpp src/app/account/login/account_credential_forget.cpp
+    src/app/account/login/account_credential_forget_io.cpp
     src/app/account/account_logout.cpp src/app/account/account_profile_promotion.cpp src/app/account/account_session_store.cpp
     src/app/account/login/captcha_challenge.cpp src/app/net/cdn_client.cpp src/app/media/progressive_video_fetch.cpp
     src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp src/app/net/rest_client.cpp

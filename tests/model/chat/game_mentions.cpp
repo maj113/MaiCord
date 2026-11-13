@@ -54,7 +54,7 @@ void test_store(Check check) noexcept {
     check(game_store_take_batch(&store, {ids, kGameLookupBatchMaximum}) == 2 && ids[0] == 10 && ids[1] == 11 &&
               !game_store_batch_due(store) && game_store_find(store, 10)->state == GameState::pending,
           "game store: a batch takes the wanted ids");
-    game_store_put(&store, game(10, "Starfall Tactics"), true, 0);
+    game_store_put(&store, game(10, "Starfall Tactics"), true);
     game_store_settle(&store, {ids, 2}, true, 0);
     check(utf8_equal(game_store_name(store, 10), utf8_literal("Starfall Tactics")) &&
               game_store_find(store, 11)->state == GameState::unknown && !game_store_name(store, 11).bytes,
@@ -68,11 +68,11 @@ void test_store(Check check) noexcept {
     game_store_return(&store, {ids, 1});
     check(game_store_find(store, 12)->state == GameState::wanted, "game store: an unsent batch is wanted again");
     // A search result is not the game object: it is fetched once for the cover, and never replaces one.
-    game_store_put(&store, game(13, "Moss Garden"), false, 0);
+    game_store_put(&store, game(13, "Moss Garden"), false);
     check(game_store_want(&store, 13, 0) && !game_store_want(&store, 13, 0) &&
               game_store_find(store, 13)->upgrade == 1,
           "game store: a search result asks once for its game object");
-    game_store_put(&store, game(10, "Other"), false, 0);
+    game_store_put(&store, game(10, "Other"), false);
     check(utf8_equal(game_store_name(store, 10), utf8_literal("Starfall Tactics")),
           "game store: a search result never replaces a game object");
 }

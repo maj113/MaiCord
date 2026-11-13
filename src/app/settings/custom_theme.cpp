@@ -3,7 +3,6 @@
 #include "settings.hpp"
 #include "theme_editor.hpp"
 #include "../account/application_account_logout.hpp"
-#include "maicord/app/settings/client_theme.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"

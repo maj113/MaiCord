@@ -135,8 +135,6 @@ u8 shell_navigation_row_controls(const ChannelViewRow& row, bool hovered, bool s
 UiRect shell_navigation_control_rectangle(const UiRect& row, const ChannelViewRow& view, ChannelRowControl control) noexcept;
 // Where a row's name must end: before its leftmost shown control, else `right`.
 float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& view, u8 shown, float right) noexcept;
-// Rows plus the 8 DIP insets above and below them (banner inset excluded).
-float shell_navigation_content_height(const NavigationView* view) noexcept;
 // The banner state for the selected server: inset 0 (no banner) or
 // kUiGuildBannerListInset. A changed inset rebuilds the list on the next update.
 bool shell_navigation_scene_set_banner(ShellNavigationScene* scene, float inset, bool header_hovered,

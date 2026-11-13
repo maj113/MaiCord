@@ -390,9 +390,9 @@ SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allo
     return SfntStatus::ok;
 }
 
-SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};
-    if(!present)return SfntStatus::invalid_input;*present=false;if(!font.loca.data||!font.glyf.data||(font.loca_stride!=2&&font.loca_stride!=4)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
+SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present) noexcept {
+    u32 work=1000000;*present=false;
+    if(!font.loca.data||!font.glyf.data||(font.loca_stride!=2&&font.loca_stride!=4)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
     for(u32 glyph=0;glyph<font.metrics.glyph_count;++glyph){if(!work)return SfntStatus::resource_limit;--work;const u32 begin=location(font,glyph),end=location(font,glyph+1);
         if(begin>end||end>font.glyf.count)return SfntStatus::malformed;if(begin==end)continue;const u32 size=end-begin;if(size<10)return SfntStatus::truncated;
         const auto* data=font.glyf.data+begin;const i16 contours=s16(data);u32 at=10;

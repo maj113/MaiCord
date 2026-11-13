@@ -829,9 +829,6 @@ void composer_autocomplete_emoji_item(const ComposerAutocompleteSuggestion& sugg
 }
 
 void composer_autocomplete_release(ComposerAutocomplete* autocomplete) noexcept {
-    if (!autocomplete) {
-        return;
-    }
     arena_release(&autocomplete->storage);
     reset_value<ComposerAutocomplete>(autocomplete);
 }

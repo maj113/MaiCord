@@ -146,13 +146,11 @@ bool tag_write_valid(const GuildTagWrite& t) noexcept {
 constexpr u32 kGuildId = 1, kChannelId = 2, kTargetId = 4, kBody = 8, kPositions = 16, kInviteCode = 32,
               kDeleteSeconds = 64, kGameQuery = 128, kGameIds = 256;
 enum Slot : u8 {
-    slot_guild = 1, slot_role = 2, slot_member = 4, slot_profile = 8, slot_channel = 16, slot_overwrite = 32,
-    slot_invite = 64, slot_page = 128
+    slot_guild = 1, slot_role = 2, slot_member = 4, slot_channel = 8, slot_invite = 16, slot_page = 32
 };
 constexpr u8 kSlotOffsets[]{
     __builtin_offsetof(GuildAdminRequest, guild),   __builtin_offsetof(GuildAdminRequest, role),
-    __builtin_offsetof(GuildAdminRequest, member),  __builtin_offsetof(GuildAdminRequest, profile),
-    __builtin_offsetof(GuildAdminRequest, channel), __builtin_offsetof(GuildAdminRequest, overwrite),
+    __builtin_offsetof(GuildAdminRequest, member),  __builtin_offsetof(GuildAdminRequest, channel),
     __builtin_offsetof(GuildAdminRequest, invite),  __builtin_offsetof(GuildAdminRequest, page)};
 
 struct OperationRow {
@@ -163,7 +161,6 @@ struct OperationRow {
 // One row for each GuildAdminOperation, in its order.
 constexpr OperationRow kOperations[]{
     {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // guild_update
-    {kGuildId, RestMethod::get, 0, 0},                                                     // role_list
     {kGuildId | kBody, RestMethod::post, slot_role, 0},                                    // role_create
     {kGuildId | kTargetId | kBody, RestMethod::patch, slot_role, slot_role},               // role_update
     {kGuildId | kTargetId, RestMethod::delete_method, 0, 0},                               // role_delete
@@ -180,14 +177,10 @@ constexpr OperationRow kOperations[]{
     {kChannelId | kBody, RestMethod::patch, slot_channel, slot_channel},                   // channel_update
     {kChannelId, RestMethod::delete_method, 0, 0},                                         // channel_delete
     {kGuildId | kBody | kPositions, RestMethod::patch, 0, 0},                              // channel_reorder
-    {kChannelId | kTargetId | kBody, RestMethod::put, slot_overwrite, slot_overwrite},     // overwrite_put
-    {kChannelId | kTargetId, RestMethod::delete_method, 0, 0},                             // overwrite_delete
     {kGuildId, RestMethod::get, 0, 0},                                                     // invite_list_guild
-    {kChannelId, RestMethod::get, 0, 0},                                                   // invite_list_channel
     {kChannelId | kBody, RestMethod::post, slot_invite, 0},                                // invite_create
     {kInviteCode, RestMethod::delete_method, 0, 0},                                        // invite_delete
     {kGuildId | kBody, RestMethod::delete_method, 0, 0},                                   // guild_leave
-    {kGuildId | kBody, RestMethod::patch, slot_profile, slot_profile},                     // member_profile_self
     {kGuildId, RestMethod::get, 0, 0},                                                     // widget_get
     {kGuildId | kBody, RestMethod::patch, slot_guild, slot_guild},                         // widget_update
     {kGuildId, RestMethod::get, 0, 0},                                                     // profile_get
@@ -247,8 +240,6 @@ bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
            image_valid(guild_settings_patch_banner, patch.banner, patch.banner_original) &&
            image_valid(guild_settings_patch_splash, patch.splash, patch.splash_original) &&
            (!(f & guild_settings_patch_features) || feature_names_valid(patch.feature_names, patch.feature_count)) &&
-           (!(f & guild_settings_patch_name) || text_valid(patch.name, 2, kGuildAdminNameCodepoints, true)) &&
-           (!(f & guild_settings_patch_icon) || image_value_valid(patch.icon)) &&
            (!(f & guild_settings_patch_afk_timeout) ||
             patch.afk_timeout_seconds == 60 || patch.afk_timeout_seconds == 300 ||
             patch.afk_timeout_seconds == 900 || patch.afk_timeout_seconds == 1800 ||
@@ -268,20 +259,13 @@ bool role_patch_valid(const RolePatch& patch, bool create) noexcept {
     constexpr u8 create_fields = role_patch_name | role_patch_color | role_patch_permissions;
     return (create || f) && !(f & ~(create ? create_fields : role_patch_all)) &&
            (!(f & role_patch_name) || text_valid(patch.name, 1, kGuildAdminNameCodepoints, true)) &&
-           (!(f & role_patch_color) || patch.color <= 0xFFFFFFu) &&
-           (!(f & role_patch_icon) || !patch.icon.bytes || data_uri_valid(patch.icon)) &&
-           (!(f & role_patch_unicode_emoji) || !patch.unicode_emoji.bytes ||
-            text_valid(patch.unicode_emoji, 1, 8, true));
+           (!(f & role_patch_color) || patch.color <= 0xFFFFFFu);
 }
 
 bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
     const u8 f = patch.fields;
-    // Oneself: nickname and per-server avatar; others: never the avatar.
-    if (!f || (f & ~member_patch_all) || (self && (f & ~(member_patch_nickname | member_patch_avatar))) ||
-        (!self && (f & member_patch_avatar)))
-        return false;
-    if ((!(f & member_patch_avatar) && patch.avatar.bytes) ||
-        (patch.avatar.bytes && !data_uri_valid(patch.avatar)))
+    // Oneself: the nickname alone.
+    if (!f || (f & ~member_patch_all) || (self && (f & ~member_patch_nickname)))
         return false;
     if ((f & member_patch_nickname) && patch.nickname.bytes &&
         !text_valid(patch.nickname, 1, kGuildAdminNicknameCodepoints, true))
@@ -304,9 +288,8 @@ bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
 bool member_role_patch_valid(const MemberPatch& patch) noexcept {
     return patch.fields == member_patch_roles && patch.role_ids.count == 1 && patch.role_ids.data &&
            byte_range_valid({reinterpret_cast<const u8*>(patch.role_ids.data), sizeof(u64)}) &&
-           patch.role_ids[0] && !patch.nickname.data && !patch.nickname.bytes && !patch.avatar.data &&
-           !patch.avatar.bytes && !patch.communication_disabled_until_ms && !patch.voice_channel_id &&
-           !patch.mute && !patch.deafen;
+           patch.role_ids[0] && !patch.nickname.data && !patch.nickname.bytes &&
+           !patch.communication_disabled_until_ms;
 }
 
 bool overwrite_valid(const PermissionOverwriteWrite& overwrite) noexcept {
@@ -318,9 +301,6 @@ bool channel_patch_valid(const ChannelPatch& patch, bool create) noexcept {
     if ((!create && !f) || (f & ~channel_patch_all) || (create && !(f & channel_patch_name)))
         return false;
     if ((f & channel_patch_name) && !text_valid(patch.name, 1, kGuildAdminNameCodepoints, true))
-        return false;
-    if ((f & channel_patch_topic) && patch.topic.bytes &&
-        !text_valid(patch.topic, 1, kGuildAdminTopicCodepoints, false))
         return false;
     if ((f & channel_patch_type) && patch.type != 0 && patch.type != 2 && patch.type != 4 && patch.type != 5 &&
         patch.type != 13 && patch.type != 15 && patch.type != 16)
@@ -351,8 +331,7 @@ bool positions_valid(ConstSlice<GuildAdminPosition> positions, bool channels) no
     for (u32 i = 0; i < positions.count; ++i) {
         const auto& p = positions[i];
         if (!p.id || (!channels && (p.flags || p.parent_id)) ||
-            (p.flags & ~(guild_admin_position_parent | guild_admin_position_lock_permissions)) ||
-            (!(p.flags & guild_admin_position_parent) && p.parent_id))
+            (p.flags & ~guild_admin_position_parent) || (!(p.flags & guild_admin_position_parent) && p.parent_id))
             return false;
         for (u32 j = 0; j < i; ++j)
             if (positions[j].id == p.id)
@@ -369,18 +348,6 @@ bool page_valid(const GuildAdminPageQuery* page, bool audit) noexcept {
     if (!audit && (page->user_id || page->action_type_set || page->action_type))
         return false;
     return page->action_type_set || !page->action_type;
-}
-
-bool profile_patch_valid(const GuildProfilePatch& patch) noexcept {
-    const u8 f = patch.fields;
-    if (!f || (f & ~guild_profile_patch_all))
-        return false;
-    if ((!(f & guild_profile_patch_pronouns) && patch.pronouns.bytes) ||
-        (!(f & guild_profile_patch_bio) && patch.bio.bytes) || (!(f & guild_profile_patch_banner) && patch.banner.bytes))
-        return false;
-    return (!patch.pronouns.bytes || text_valid(patch.pronouns, 1, kGuildAdminPronounsCodepoints, true)) &&
-           (!patch.bio.bytes || text_valid(patch.bio, 1, kGuildAdminBioCodepoints, false)) &&
-           (!patch.banner.bytes || data_uri_valid(patch.banner));
 }
 
 // A null reason sends nothing; any other, even empty, is sent.
@@ -433,14 +400,12 @@ void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* row
     }
 }
 constexpr MemberRow kGuildRowsBeforeFeatures[]{
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_name, name, text),
-    MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_icon, icon, optional_text),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_splash, splash, optional_text),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_banner, banner, optional_text),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_discovery_splash, discovery_splash, optional_text),
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_description, description, optional_text),
 };
-constexpr char kGuildNamesBeforeFeatures[] = "name\0icon\0splash\0banner\0discovery_splash\0description\0";
+constexpr char kGuildNamesBeforeFeatures[] = "splash\0banner\0discovery_splash\0description\0";
 // The order Enable Community sends: features, then its two channels.
 constexpr MemberRow kGuildRowsAfterFeatures[]{
     MAICORD_ROW(GuildSettingsPatch, guild_settings_patch_rules_channel, rules_channel_id, optional_snowflake),
@@ -469,23 +434,19 @@ constexpr MemberRow kRoleRows[]{
     MAICORD_ROW(RolePatch, role_patch_color, color, number32),
     MAICORD_ROW(RolePatch, role_patch_hoist, hoist, boolean),
     MAICORD_ROW(RolePatch, role_patch_mentionable, mentionable, boolean),
-    MAICORD_ROW(RolePatch, role_patch_icon, icon, optional_text),
-    MAICORD_ROW(RolePatch, role_patch_unicode_emoji, unicode_emoji, optional_text),
 };
-constexpr char kRoleNames[] = "name\0permissions\0color\0hoist\0mentionable\0icon\0unicode_emoji\0";
+constexpr char kRoleNames[] = "name\0permissions\0color\0hoist\0mentionable\0";
 constexpr MemberRow kChannelRows[]{
     MAICORD_ROW(ChannelPatch, channel_patch_name, name, text),
     MAICORD_ROW(ChannelPatch, channel_patch_type, type, number8),
-    MAICORD_ROW(ChannelPatch, channel_patch_topic, topic, optional_text),
     MAICORD_ROW(ChannelPatch, channel_patch_parent, parent_id, optional_snowflake),
-    MAICORD_ROW(ChannelPatch, channel_patch_position, position, number32),
     MAICORD_ROW(ChannelPatch, channel_patch_nsfw, nsfw, boolean),
     MAICORD_ROW(ChannelPatch, channel_patch_slowmode, slowmode_seconds, number32),
     MAICORD_ROW(ChannelPatch, channel_patch_bitrate, bitrate, number32),
     MAICORD_ROW(ChannelPatch, channel_patch_user_limit, user_limit, number32),
 };
 constexpr char kChannelNames[] =
-    "name\0type\0topic\0parent_id\0position\0nsfw\0rate_limit_per_user\0bitrate\0user_limit\0";
+    "name\0type\0parent_id\0nsfw\0rate_limit_per_user\0bitrate\0user_limit\0";
 #undef MAICORD_ROW
 static_assert(name_list_count(kGuildNamesBeforeFeatures) == sizeof(kGuildRowsBeforeFeatures) / sizeof(MemberRow) &&
               name_list_count(kGuildNamesAfterFeatures) == sizeof(kGuildRowsAfterFeatures) / sizeof(MemberRow) &&
@@ -569,7 +530,6 @@ void write_member(JsonBody& b, const MemberPatch& p, bool self) noexcept {
     b.begin_object();
     if (p.fields & member_patch_nickname)
         b.member("nick", self ? OrNull<JsonText>{true, {p.nickname}} : nullable_json(p.nickname));
-    b.member_if(p.fields & member_patch_avatar, "avatar", nullable_json(p.avatar));
     if (p.fields & member_patch_roles) {
         b.begin_array("roles");
         for (u32 i = 0; i < p.role_ids.count; ++i)
@@ -587,17 +547,6 @@ void write_member(JsonBody& b, const MemberPatch& p, bool self) noexcept {
         } else
             b.put("null");
     }
-    b.member_if(p.fields & member_patch_voice_channel, "channel_id", nullable_snowflake(p.voice_channel_id));
-    b.member_if(p.fields & member_patch_mute, "mute", json_bool(p.mute));
-    b.member_if(p.fields & member_patch_deafen, "deaf", json_bool(p.deafen));
-    b.end_object();
-}
-
-void write_profile(JsonBody& b, const GuildProfilePatch& p) noexcept {
-    b.begin_object();
-    b.member_if(p.fields & guild_profile_patch_pronouns, "pronouns", json_text(p.pronouns));
-    b.member_if(p.fields & guild_profile_patch_bio, "bio", json_text(p.bio));
-    b.member_if(p.fields & guild_profile_patch_banner, "banner", nullable_json(p.banner));
     b.end_object();
 }
 
@@ -634,7 +583,7 @@ void write_positions(JsonBody& b, ConstSlice<GuildAdminPosition> positions, bool
         b.member("position", p.position);
         if (channels && (p.flags & guild_admin_position_parent)) {
             b.member("parent_id", nullable_snowflake(p.parent_id));
-            b.member("lock_permissions", json_bool((p.flags & guild_admin_position_lock_permissions) != 0));
+            b.member("lock_permissions", "false");
         }
         b.end_object();
     }
@@ -692,9 +641,6 @@ void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
     case Op::member_update_self:
         write_member(b, *r.member, r.operation == Op::member_update_self);
         break;
-    case Op::member_profile_self:
-        write_profile(b, *r.profile);
-        break;
     case Op::ban_add:
         b.begin_object();
         b.member("delete_message_seconds", r.delete_message_seconds);
@@ -703,9 +649,6 @@ void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
     case Op::channel_create:
     case Op::channel_update:
         write_channel(b, *r.channel);
-        break;
-    case Op::overwrite_put:
-        write_overwrite(b, *r.overwrite);
         break;
     case Op::guild_leave:
         // A member is never lurking here.
@@ -787,11 +730,7 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     if (r.member && (member_role ? !member_role_patch_valid(*r.member)
                                  : !member_patch_valid(*r.member, op == Op::member_update_self)))
         return false;
-    if (r.profile && !profile_patch_valid(*r.profile))
-        return false;
     if (r.channel && !channel_patch_valid(*r.channel, op == Op::channel_create))
-        return false;
-    if (r.overwrite && (!overwrite_valid(*r.overwrite) || r.overwrite->id != r.target_id))
         return false;
     if (r.invite && (r.invite->max_age_seconds > 604'800 || r.invite->max_uses > 100))
         return false;
@@ -853,14 +792,12 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
             w.put("channels/", r.channel_id);
         else
             w.put("guilds/", r.guild_id);
-        // What follows the guild or channel: an entry of kPathParts (16, past its end, for nothing).
-        constexpr char kPathParts[] = "/roles\0/roles/\0/roles/member-counts\0/members/\0/members/@me\0/profile/@me\0"
-                                      "/bans\0/bans/\0/audit-logs\0/channels\0/invites\0/permissions/\0/widget\0"
-                                      "/profile\0/vanity-url\0/top-games\0";
-        static_assert(name_list_count(kPathParts) == 16);
-        u32 part = 16;
+        // What follows the guild or channel: an entry of kPathParts (14, past its end, for nothing).
+        constexpr char kPathParts[] = "/roles\0/roles/\0/roles/member-counts\0/members/\0/members/@me\0/bans\0/bans/\0"
+                                      "/audit-logs\0/channels\0/invites\0/widget\0/profile\0/vanity-url\0/top-games\0";
+        static_assert(name_list_count(kPathParts) == 14);
+        u32 part = 14;
         switch (op) {
-        case Op::role_list:
         case Op::role_create:
         case Op::role_reorder: part = 0; break;
         case Op::role_update:
@@ -871,26 +808,22 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::member_role_add:
         case Op::member_role_remove: part = 3; break;
         case Op::member_update_self: part = 4; break;
-        case Op::member_profile_self: part = 5; break;
-        case Op::ban_list: part = 6; break;
+        case Op::ban_list: part = 5; break;
         case Op::ban_add:
-        case Op::ban_remove: part = 7; break;
-        case Op::audit_log: part = 8; break;
+        case Op::ban_remove: part = 6; break;
+        case Op::audit_log: part = 7; break;
         case Op::channel_create:
-        case Op::channel_reorder: part = 9; break;
+        case Op::channel_reorder: part = 8; break;
         case Op::invite_list_guild:
-        case Op::invite_list_channel:
-        case Op::invite_create: part = 10; break;
-        case Op::overwrite_put:
-        case Op::overwrite_delete: part = 11; break;
+        case Op::invite_create: part = 9; break;
         case Op::widget_get:
-        case Op::widget_update: part = 12; break;
+        case Op::widget_update: part = 10; break;
         case Op::profile_get:
         case Op::profile_update:
-        case Op::tag_update: part = 13; break;
+        case Op::tag_update: part = 11; break;
         case Op::vanity_get:
-        case Op::vanity_update: part = 14; break;
-        case Op::top_games: part = 15; break;
+        case Op::vanity_update: part = 12; break;
+        case Op::top_games: part = 13; break;
         default: break;
         }
         w.put(name_list_at(kPathParts, part));
@@ -961,14 +894,8 @@ bool guild_tag_text_valid(Utf8View tag) noexcept {
 
 u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
     u32 bytes = 0;
-    if (r.member && (r.member->fields & member_patch_avatar))
-        bytes += r.member->avatar.bytes;
-    if (r.profile && (r.profile->fields & guild_profile_patch_banner))
-        bytes += r.profile->banner.bytes;
     if (r.guild) {
         const auto& g = *r.guild;
-        if (g.fields & guild_settings_patch_icon)
-            bytes += g.icon.bytes;
         if (g.fields & guild_settings_patch_banner)
             bytes += g.banner.bytes;
         if (g.fields & guild_settings_patch_splash)

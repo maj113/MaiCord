@@ -105,12 +105,11 @@ bool paint_stream_push(PaintStream* stream, float left, float top, float right, 
 // Two-color gradient encoded in a single 64-byte paint instance.
 bool paint_stream_push_gradient(PaintStream* stream, const UiRect& rectangle, const Color& first,
                                 const Color& last, float radius = 0) noexcept;
-bool paint_stream_push_sv_square(PaintStream*, const UiRect&, const Color& hue_rgb, float radius = 0) noexcept;
-bool paint_stream_push_hue_strip(PaintStream*, const UiRect&, float radius = 0) noexcept;
+bool paint_stream_push_sv_square(PaintStream*, const UiRect&, const Color& hue_rgb, float radius) noexcept;
+bool paint_stream_push_hue_strip(PaintStream*, const UiRect&, float radius) noexcept;
 // Static directional preview of the theme's literal colors, evenly spaced. Uses
 // at most four paint instances; no texture, background constant or animation.
-bool paint_stream_push_palette_gradient(PaintStream*, const UiRect&, const BackgroundTheme&,
-                                        float radius = 0) noexcept;
+bool paint_stream_push_palette_gradient(PaintStream*, const UiRect&, const BackgroundTheme&, float radius) noexcept;
 bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float width,
                             const Color& color) noexcept;
 // The leading `width` DIPs of the rounded rectangle `shape` (an accent border

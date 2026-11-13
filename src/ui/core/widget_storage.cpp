@@ -12,7 +12,7 @@ void append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept 
 
 bool ui_widget_storage_initialize(UiWidgetStorageOwner* storage, u32 reserved_capacity,
                                   u32 initial_capacity) noexcept {
-    if (!storage || reserved_capacity == 0 || initial_capacity == 0 ||
+    if (reserved_capacity == 0 || initial_capacity == 0 ||
         initial_capacity > reserved_capacity || reserved_capacity > kInvalidUiWidgetSlot) {
         return false;
     }
@@ -76,7 +76,7 @@ void ui_widget_storage_release(UiWidgetStorageOwner* storage) noexcept {
 
 bool ui_virtual_row_storage_initialize(UiVirtualRowStorageOwner* storage, u32 reserved_capacity,
                                        u32 initial_capacity, u32 row_bytes, u32 row_alignment) noexcept {
-    if (!storage || storage->rows.arena.base || initial_capacity == 0) {
+    if (storage->rows.arena.base || initial_capacity == 0) {
         return false;
     }
     return stable_storage_initialize(&storage->rows, reserved_capacity, initial_capacity, row_bytes,
@@ -88,9 +88,6 @@ bool ui_virtual_row_storage_grow(UiVirtualRowStorageOwner* storage, u32 required
 }
 
 void ui_virtual_row_storage_release(UiVirtualRowStorageOwner* storage) noexcept {
-    if (!storage) {
-        return;
-    }
     stable_storage_release(&storage->rows);
     reset_value<UiVirtualRowStorageOwner>(storage);
 }

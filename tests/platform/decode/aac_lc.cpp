@@ -132,21 +132,6 @@ bool decode_through_interface(const Fixture& f, Difference* diff, bool check_tim
     return ok;
 }
 
-AacLcStats decode_statistics(const Fixture& f) noexcept {
-    usize bytes = 0;
-    void* memory = aligned_state(&bytes);
-    AacLc* decoder = memory ? aac_lc_initialize(memory, f.rate, f.channels) : nullptr;
-    AacLcStats stats{};
-    if (decoder) {
-        for (u32 i = 0; i < f.frames; ++i)
-            aac_lc_decode(decoder, {f.frame[i], f.size[i]}, g_pcm);
-        stats = aac_lc_stats(decoder);
-    }
-    if (memory)
-        pages_release(memory, bytes);
-    return stats;
-}
-
 Fixture g_fixtures[8];
 u32 g_fixture_count;
 
@@ -188,13 +173,6 @@ void conformance() noexcept {
         metric("  max error x1000 of a step: ", static_cast<u64>(diff.maximum * 1000.0f));
         metric("  mean square error x1e6: ", static_cast<u64>(diff.square_sum / (diff.count ? diff.count : 1) * 1e6));
     }
-    const Fixture& transient = g_fixtures[4];
-    const AacLcStats stats = decode_statistics(transient);
-    check(stats.short_frames >= 1 && stats.start_frames >= 1 && stats.stop_frames >= 1,
-          "AAC coverage: the transient fixture has start, eight-short and stop blocks");
-    const AacLcStats joint = decode_statistics(g_fixtures[5]);
-    check(joint.noise_bands > 0 || g_fixtures[3].channels == 1, "AAC coverage: noise substitution appears");
-    check(decode_statistics(g_fixtures[6]).escapes > 0, "AAC coverage: the loud fixture needs escape codes");
 }
 
 // ---- Containers --------------------------------------------------------------------------------------------------
@@ -341,8 +319,7 @@ void pulse_data() noexcept {
     void* memory = aligned_state(&bytes);
     AacLc* decoder = memory ? aac_lc_initialize(memory, 44100, 1) : nullptr;
     float pcm[1024];
-    check(decoder && aac_lc_decode(decoder, {w.data, w.bytes()}, pcm) == AacLcError::none &&
-              aac_lc_stats(decoder).pulses == 1,
+    check(decoder && aac_lc_decode(decoder, {w.data, w.bytes()}, pcm) == AacLcError::none,
           "AAC pulse data: the frame with a pulse decodes");
     if (decoder) {
         constexpr double kPi = 3.14159265358979323846;

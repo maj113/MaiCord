@@ -121,14 +121,13 @@ HourCycle timestamp_hour_cycle() noexcept {
     return g_hour_cycle;
 }
 
-TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output,
-                                                         const wchar_t* locale) noexcept {
+TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output) noexcept {
     CalendarTime time{};
     wchar_t text[96]{};
     u32 used = 0;
     if (!unix_to_local(seconds, &time))
         return {};
-    const int count = format_date(locale, 0, &time, L"MMM d, yyyy", text, 96);
+    const int count = format_date(L"en-US", 0, &time, L"MMM d, yyyy", text, 96);
     const bool valid = count > 1 && append_wide_utf8(output, &used, text, static_cast<u32>(count - 1));
     return {0, valid ? used : 0, valid};
 }

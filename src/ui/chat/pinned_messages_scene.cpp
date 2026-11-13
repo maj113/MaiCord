@@ -215,7 +215,7 @@ bool ui_pinned_messages_scene_focus(UiPinnedMessagesScene* s, UiPinnedMessagesTa
     return true;
 }
 bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessagesFocusMove move) noexcept {
-    if (!s || !current(*s) || move > UiPinnedMessagesFocusMove::page_next) return false;
+    if (!current(*s) || move > UiPinnedMessagesFocusMove::page_next) return false;
     if (move == UiPinnedMessagesFocusMove::page_previous || move == UiPinnedMessagesFocusMove::page_next) {
         const float direction = move == UiPinnedMessagesFocusMove::page_previous ? -1.f : 1.f;
         if (!ui_pinned_messages_scene_scroll(s, s->scroll_dips + direction * ui_rect_height(s->body))) return false;

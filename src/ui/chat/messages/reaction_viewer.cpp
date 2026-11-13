@@ -327,11 +327,6 @@ bool reaction_viewer_set_scroll(ReactionViewer* viewer, bool users, float offset
     return true;
 }
 
-bool reaction_viewer_scroll_users(ReactionViewer* viewer, i32 rows, bool* changed) noexcept {
-    return viewer && reaction_viewer_set_scroll(viewer, true,
-        viewer->user_scroll + rows * kReactionViewerUserRowHeight, changed);
-}
-
 u32 reaction_viewer_visible_user_count(const ReactionViewer& viewer) noexcept {
     const float height = ui_rect_height(viewer.body) - 4.0f;
     return height > 0.0f ? maximum(1u, static_cast<u32>(height / kReactionViewerUserRowHeight)) : 0;

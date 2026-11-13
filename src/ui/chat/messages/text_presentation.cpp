@@ -153,7 +153,7 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
 
 bool message_markdown_cache_initialize(MessageMarkdownCache* cache, Slice<MessageMarkdownCacheEntry> entries,
                                        Slice<u8> arena) noexcept {
-    if (!cache || !entries.data || entries.count == 0 || (entries.count & (entries.count - 1u)) != 0 ||
+    if (!entries.data || entries.count == 0 || (entries.count & (entries.count - 1u)) != 0 ||
         !arena.data || arena.count < 64 || arena.count % 8u != 0 || reinterpret_cast<usize>(arena.data) % 8u != 0)
         return false;
     reset_value<MessageMarkdownCache>(cache);
@@ -165,7 +165,7 @@ bool message_markdown_cache_initialize(MessageMarkdownCache* cache, Slice<Messag
 }
 
 void message_markdown_cache_clear(MessageMarkdownCache* cache) noexcept {
-    if (!cache || !cache->entries)
+    if (!cache->entries)
         return;
     clear_bytes(cache->entries, cache->slot_count * static_cast<u32>(sizeof(MessageMarkdownCacheEntry)));
     cache->head = 0;

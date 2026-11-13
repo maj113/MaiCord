@@ -32,8 +32,6 @@ bool application_caption_hidden() noexcept;
 void application_caption_synchronize() noexcept;
 // Fullscreen hides the caption; leaving it restores it.
 void application_caption_set_hidden(bool hidden) noexcept;
-// Minimize, maximize/restore or close, as the caption buttons do.
-bool application_caption_command(UiCaptionPart part) noexcept;
 // A bar item as an accessibility node's item: the part, and for a tab, "+" or "..." the hit's kind and index.
 constexpr u64 application_caption_tab_item(UiTabHit hit) noexcept {
     return static_cast<u64>(UiCaptionPart::tab) | static_cast<u64>(hit.kind) << 8 | static_cast<u64>(hit.index) << 16;

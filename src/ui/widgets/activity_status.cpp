@@ -37,8 +37,6 @@ bool shown(const UiActivityStatus& s) noexcept {
 
 bool ui_activity_status(const UserActivity* primary, const UserAppearanceRecord* appearance, bool bot,
                         Slice<char> storage, UiActivityStatus* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     custom_status(appearance, primary != nullptr, output);
     if (primary) {
@@ -50,8 +48,6 @@ bool ui_activity_status(const UserActivity* primary, const UserAppearanceRecord*
 }
 bool ui_user_activity_status(const UserStore& users, u64 user_id, const UserAppearanceRecord* appearance,
                              const Slice<char>& storage, UiActivityStatus* output) noexcept {
-    if (!output)
-        return false;
     reset_value(output);
     UserActivityType type{};
     const bool rich = user_activity_first_type(users.activities, user_id, &type);

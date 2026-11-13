@@ -197,7 +197,7 @@ SecureEditResult select_range(SecureEdit* edit, u32 position,
 
 bool secure_edit_initialize(SecureEdit* edit, u32 capacity, bool password,
                             SecureEditPolicy policy) noexcept {
-    if (!edit || capacity == 0 || (password && policy.multiline)) {
+    if (capacity == 0 || (password && policy.multiline)) {
         return false;
     }
     reset_value<SecureEdit>(edit);
@@ -211,9 +211,6 @@ bool secure_edit_initialize(SecureEdit* edit, u32 capacity, bool password,
 }
 
 void secure_edit_release(SecureEdit* edit) noexcept {
-    if (!edit) {
-        return;
-    }
     secure_edit_history_release(edit);
     secure_buffer_release(&edit->storage);
     reset_value<SecureEdit>(edit);

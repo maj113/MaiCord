@@ -255,13 +255,13 @@ bool application_guild_menu_activate(u32 action) noexcept {
         const auto* record = chat_state_store_find_guild(state(), guild);
         if (!record || !application_notification_controls_set_hide_muted(guild, !record->hide_muted_channels))
             return true;
-        return synchronize_navigation_view() && refresh_account_frame(true);
+        return synchronize_navigation_view() && refresh_account_frame();
     }
     case action_show_all_channels: {
         const auto opt_in = application_notification_controls_channel_opt_in(guild);
         if (!opt_in.available || !application_notification_controls_set_channel_opt_in(guild, !opt_in.enabled))
             return true;
-        return synchronize_navigation_view() && refresh_account_frame(true);
+        return synchronize_navigation_view() && refresh_account_frame();
     }
     case action_leave:
         application_guild_lifecycle_leave(guild);

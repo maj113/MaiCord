@@ -122,7 +122,7 @@ bool widget_write(void* context, u64 key, double offset, bool* changed) noexcept
 UiScrollDispatch ui_scroll_host_wheel(UiScrollHost* host, UiScrollBinding binding, UiPoint point,
                                       i32 wheel_delta, u32 lines, bool page, u64 now_us,
                                       double dips_per_pixel) noexcept {
-    if (!host || !binding.read || !binding.write || !finite(dips_per_pixel) || dips_per_pixel <= 0)
+    if (!binding.read || !binding.write || !finite(dips_per_pixel) || dips_per_pixel <= 0)
         return UiScrollDispatch::failed;
     UiScrollRange range{};
     if (!binding.read(binding.context, binding.key, &range) ||
@@ -147,7 +147,7 @@ UiScrollDispatch ui_scroll_host_wheel(UiScrollHost* host, UiScrollBinding bindin
 
 UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding binding, double first,
                                        double last, u64 now_us, double dips_per_pixel) noexcept {
-    if (!host || !binding.read || !binding.write || !finite(first) || !finite(last) || first < 0 ||
+    if (!binding.read || !binding.write || !finite(first) || !finite(last) || first < 0 ||
         last < first || !finite(dips_per_pixel) || dips_per_pixel <= 0)
         return UiScrollDispatch::failed;
     UiScrollRange range{};
@@ -170,7 +170,7 @@ UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding bindi
 
 UiScrollDispatch ui_scroll_host_scroll_to(UiScrollHost* host, UiScrollBinding binding, double target,
                                           u64 now_us, double dips_per_pixel) noexcept {
-    if (!host || !binding.read || !binding.write || !finite(target) || !finite(dips_per_pixel) ||
+    if (!binding.read || !binding.write || !finite(target) || !finite(dips_per_pixel) ||
         dips_per_pixel <= 0)
         return UiScrollDispatch::failed;
     UiScrollRange range{};
@@ -207,8 +207,6 @@ UiScrollDispatch ui_scroll_host_wheel_widgets(UiScrollHost* host, UiWidgetManage
 }
 
 bool ui_scroll_host_tick(UiScrollHost* host, u64 now_us, bool* changed) noexcept {
-    if (!host || !changed)
-        return false;
     *changed = false;
     if (host->immediate) {
         for (auto& entry : host->entries) ui_smooth_scroll_cancel(&entry.animation);
@@ -276,8 +274,7 @@ bool ui_scroll_host_active(const UiScrollHost& host) noexcept {
     return false;
 }
 void ui_scroll_host_cancel(UiScrollHost* host) noexcept {
-    if (host)
-        for (auto& entry : host->entries)
-            reset_value(&entry);
+    for (auto& entry : host->entries)
+        reset_value(&entry);
 }
 } // namespace maicord

@@ -5,6 +5,7 @@
 
 #include "maicord/core/arena.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
+#include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 
@@ -307,5 +308,8 @@ const UiLayoutNode* popup_scene_layout_node(const PopupScene& scene, UiWidgetHan
 bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupItemLayout* layout) noexcept;
 bool popup_scene_menu_row_geometry(const PopupScene& scene, u32 index,
                                    UiMenuRowGeometry* geometry) noexcept;
+inline UiCursor ui_popup_scene_cursor(const PopupScene& scene, float x, float y) noexcept {
+    return ui_action_cursor(popup_scene_hit_test(scene, x, y).enabled);
+}
 
 } // namespace maicord

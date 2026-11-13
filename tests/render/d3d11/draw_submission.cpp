@@ -2,6 +2,7 @@
 // once per stream, scissors only when they change, and consecutive batches of
 // one pass under the same scissor draw as one call.
 #include "maicord/render/d3d11/draw_submission.hpp"
+#include "maicord/render/media/renderer_media_draw_storage.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::draw_submission_test {

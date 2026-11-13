@@ -93,8 +93,6 @@ bool system_tray_shell_restarted(SystemTray*, UINT message) noexcept;
 // Shows the menu at the cursor and returns the chosen command.
 u32 system_tray_menu(SystemTray*, const TrayMenuItem* items, u32 count) noexcept;
 void system_tray_release(SystemTray*) noexcept;
-// Window/taskbar icon in MaiCord's mark (callers DestroyIcon it).
-HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette&, u32 extent) noexcept;
 #endif
 
 } // namespace maicord

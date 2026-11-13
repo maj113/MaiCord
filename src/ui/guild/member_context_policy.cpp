@@ -4,6 +4,7 @@
 
 namespace maicord {
 
+namespace {
 Utf8View member_context_block_text(ModerationBlock block) noexcept {
     switch (block) {
     case ModerationBlock::unresolved: return utf8_literal("Member details are still loading");
@@ -14,6 +15,7 @@ Utf8View member_context_block_text(ModerationBlock block) noexcept {
     default: return {};
     }
 }
+} // namespace
 
 u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
                                     const MemberModerationMenuActions& actions, const Slice<PopupItem>& output) noexcept {

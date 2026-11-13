@@ -187,7 +187,6 @@ static bool project_geometry(const UiThreadHeaderView& v, const UiThreadHeaderSt
     return true;
 }
 bool ui_thread_header_bind_shell(UiThreadHeader* h, UiScene* shell) noexcept {
-    if (!h || !shell) return false;
     const UiThreadHeaderWidgets widgets{
         shell->semantics[static_cast<u32>(UiSemantic::thread_header)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_status)],
@@ -210,7 +209,7 @@ bool ui_thread_header_bind_shell(UiThreadHeader* h, UiScene* shell) noexcept {
 }
 bool ui_thread_header_update(UiThreadHeader* h, const UiThreadHeaderView& v, UiRect r, UiRect clip,
     const UiThreadHeaderStyle& style) noexcept {
-    if (!h || !h->manager) return false;
+    if (!h->manager) return false;
     UiThreadHeaderGeometry g{};
     if (!project_geometry(v, style, r, clip, &g)) return false;
     const bool changed = !h->published || !same_view(h->view, v) || !bytes_equal(&h->style, &style, sizeof(style)) ||
@@ -253,7 +252,7 @@ bool ui_thread_header_current(const UiThreadHeader& h, const UiThreadHeaderTarge
 UiThreadHeaderPointerResult ui_thread_header_pointer(UiThreadHeader* h, UiButtonPointerEvent event,
     UiPoint point) noexcept {
     UiThreadHeaderPointerResult result{};
-    if (!h || !h->manager) return result;
+    if (!h->manager) return result;
     const auto captured = ui_thread_header_widget_target(*h, h->manager->captured);
     const auto hit = ui_widget_manager_hit_test(*h->manager, point.x, point.y);
     const auto target = ui_thread_header_widget_target(*h, hit);
@@ -276,7 +275,7 @@ UiThreadHeaderPointerResult ui_thread_header_pointer(UiThreadHeader* h, UiButton
     return result;
 }
 bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintStream* out) noexcept {
-    if (!out || !h.manager) return false;
+    if (!h.manager) return false;
     if (!h.active || !ui_rect_has_area(h.geometry.clip)) return true;
     const auto& g = h.geometry;
     if (!paint_stream_push_clip(out, g.clip)) return false;
@@ -345,7 +344,6 @@ u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions action
                 ? utf8_literal("This thread is locked.") : Utf8View{};
             else if (action == UiThreadAction::join) item.detail = utf8_literal("You can't join this thread.");
             else if (v.busy) item.detail = utf8_literal("A thread action is pending.");
-            else reset_value<Utf8View>(&item.detail);
         }
         item.presentation = ui_menu_row_presentation(icon, item.detail.bytes != 0);
     }

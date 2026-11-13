@@ -256,11 +256,10 @@ GuildAutomationResult guild_integrations_decode(Utf8View body, Slice<u32> scratc
                                                 u32* count) noexcept;
 
 // GET .../commands/permissions: the overwrites of `target_id` (the application's own entry, or one command's)
-// into `output`, and how many other entries (commands with overwrites of their own) the list holds.
+// into `output`.
 struct GuildCommandPermissionsPage {
     Slice<GuildCommandPermission> entries;
     u32 count;
-    u32 command_overrides;
 };
 GuildAutomationResult guild_command_permissions_decode(Utf8View body, Slice<u32> scratch, u64 target_id,
                                                        GuildCommandPermissionsPage* page) noexcept;

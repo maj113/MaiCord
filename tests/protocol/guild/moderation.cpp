@@ -70,7 +70,6 @@ void test_search_bodies() noexcept {
     q.role_ids = {roles, 2};
     q.joined_after_ms = kNow - 7 * kDayMs;
     q.created_after_ms = kNow - kDayMs;
-    q.created_before_ms = kNow;
     q.invite_code = utf8_literal("abcDEF");
     q.join_source_type = 5;
     q.join_source_type_set = true;
@@ -78,7 +77,7 @@ void test_search_bodies() noexcept {
     q.limit = 500;
     q.after = {kNow - 3 * kDayMs, 99};
     check(search_body(q, utf8_literal(R"({"or_query":{},"and_query":{"user_id":{"or_query":["123456789012345678"],)"
-                                      R"("range":{"gte":"1190806526361600000","lte":"1191168914227200000"}},)"
+                                      R"("range":{"gte":"1190806526361600000"}},)"
                                       R"("role_ids":{"and_query":["30","31"]},"guild_joined_at":{"range":)"
                                       R"({"gte":1703462400000}},"source_invite_code":{"or_query":["abcDEF"]},)"
                                       R"("join_source_type":{"or_query":[5]}},"sort":2,"limit":500,)"
@@ -88,21 +87,15 @@ void test_search_bodies() noexcept {
     q = {};
     q.limit = 250;
     q.joined_after_ms = kNow - kDayMs;
-    q.joined_before_ms = kNow;
     q.created_after_ms = kNow - kDayMs;
     q.before = {kNow, 7};
     check(search_body(q, utf8_literal(R"({"or_query":{},"and_query":{"guild_joined_at":{"range":)"
-                                      R"({"gte":1703980800000,"lte":1704067200000}},"user_id":{"range":)"
+                                      R"({"gte":1703980800000}},"user_id":{"range":)"
                                       R"({"gte":"1190806526361600000"}}},"limit":250,)"
                                       R"("before":{"guild_joined_at":1704067200000,"user_id":"7"}})")),
           "members search: account age alone follows guild_joined_at; before is the earlier cursor");
-    // An upper bound alone is not sent, as the official builder skips it.
     q = {};
     q.limit = 250;
-    q.joined_before_ms = kNow;
-    q.created_before_ms = kNow;
-    check(search_body(q, utf8_literal(R"({"or_query":{},"and_query":{},"limit":250})")),
-          "members search: a custom range with only an end date sends nothing");
     q.signals = guild_member_signal_all;
     q.now_ms = kNow;
     check(search_body(q, utf8_literal(R"({"or_query":{"safety_signals":{"unusual_dm_activity_until":{"range":)"

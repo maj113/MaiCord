@@ -9,7 +9,6 @@
 #include "maicord/media/video/h264_stream.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/decode/software/abi.hpp"
-#include "maicord/sys/linux/process.hpp"
 #include "../../../media/video/h264_bits.hpp"
 
 // libdav1d and libopenh264 behind SoftwareDecoder (software_decoder.hpp): the dlopen, one decoder per stream, and the

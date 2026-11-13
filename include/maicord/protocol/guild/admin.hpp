@@ -10,7 +10,6 @@ namespace maicord {
 // shared DETAILS owner. All views are borrowed for the call only.
 enum class GuildAdminOperation : u8 {
     guild_update,        // PATCH  /guilds/{g}
-    role_list,           // GET    /guilds/{g}/roles
     role_create,         // POST   /guilds/{g}/roles     {"name","color","colors","permissions"}
     role_update,         // PATCH  /guilds/{g}/roles/{r}
     role_delete,         // DELETE /guilds/{g}/roles/{r}
@@ -27,14 +26,10 @@ enum class GuildAdminOperation : u8 {
     channel_update,      // PATCH  /channels/{c}
     channel_delete,      // DELETE /channels/{c}
     channel_reorder,     // PATCH  /guilds/{g}/channels
-    overwrite_put,       // PUT    /channels/{c}/permissions/{o}
-    overwrite_delete,    // DELETE /channels/{c}/permissions/{o}
     invite_list_guild,   // GET    /guilds/{g}/invites
-    invite_list_channel, // GET    /channels/{c}/invites
     invite_create,       // POST   /channels/{c}/invites
     invite_delete,       // DELETE /invites/{code}
     guild_leave,         // DELETE /users/@me/guilds/{g}  {"lurking":false}
-    member_profile_self, // PATCH  /guilds/{g}/profile/@me    {"pronouns","bio","banner"}
     widget_get,          // GET    /guilds/{g}/widget
     widget_update,       // PATCH  /guilds/{g}/widget           {"enabled","channel_id"}
     profile_get,         // GET    /guilds/{g}/profile
@@ -61,10 +56,6 @@ inline constexpr u32 kGuildAdminMaximumTargetBytes = 128 + kRestAuditReasonMaxim
 inline constexpr u32 kGuildAdminNameCodepoints = 100;
 inline constexpr u32 kGuildAdminNameBytes = kGuildAdminNameCodepoints * 4;
 inline constexpr u32 kGuildAdminNicknameCodepoints = 32;
-// Per-server profile text limits (the guild member profile).
-inline constexpr u32 kGuildAdminPronounsCodepoints = 40;
-inline constexpr u32 kGuildAdminBioCodepoints = 190;
-inline constexpr u32 kGuildAdminTopicCodepoints = 1'024;
 // Room kept for a reason the server returns (ban list, audit entries); longer ones are cut.
 inline constexpr u32 kGuildAdminReasonBytes = 512;
 inline constexpr u32 kGuildAdminHashBytes = 34;
@@ -79,37 +70,35 @@ inline constexpr u32 kGuildAdminPageMaximum = 1'000;
 inline constexpr u32 kGuildAdminAuditPageMaximum = 100;
 
 enum GuildSettingsPatchField : u32 {
-    guild_settings_patch_name = 1u << 0,
-    guild_settings_patch_icon = 1u << 1,
-    guild_settings_patch_banner = 1u << 2,
-    guild_settings_patch_system_channel = 1u << 3,
-    guild_settings_patch_afk_channel = 1u << 4,
-    guild_settings_patch_afk_timeout = 1u << 5,
-    guild_settings_patch_verification_level = 1u << 6,
-    guild_settings_patch_default_notifications = 1u << 7,
-    guild_settings_patch_explicit_content_filter = 1u << 8,
-    guild_settings_patch_system_channel_flags = 1u << 9,
-    guild_settings_patch_features = 1u << 10,
+    guild_settings_patch_banner = 1u << 0,
+    guild_settings_patch_system_channel = 1u << 1,
+    guild_settings_patch_afk_channel = 1u << 2,
+    guild_settings_patch_afk_timeout = 1u << 3,
+    guild_settings_patch_verification_level = 1u << 4,
+    guild_settings_patch_default_notifications = 1u << 5,
+    guild_settings_patch_explicit_content_filter = 1u << 6,
+    guild_settings_patch_system_channel_flags = 1u << 7,
+    guild_settings_patch_features = 1u << 8,
     // widget_update only, and alone: enabled and channel_id.
-    guild_settings_patch_widget = 1u << 11,
-    guild_settings_patch_splash = 1u << 12,
-    guild_settings_patch_progress_bar = 1u << 13,
+    guild_settings_patch_widget = 1u << 9,
+    guild_settings_patch_splash = 1u << 10,
+    guild_settings_patch_progress_bar = 1u << 11,
     // profile_update only, and alone: the server profile.
-    guild_settings_patch_profile = 1u << 14,
+    guild_settings_patch_profile = 1u << 12,
     // vanity_update only, and alone: the code.
-    guild_settings_patch_vanity = 1u << 15,
+    guild_settings_patch_vanity = 1u << 13,
     // Community and Access: the rules, Community Updates and Safety
     // Notifications channels (1 asks for a new rules or updates channel),
     // the description (empty sends null), the primary language and the
     // owner's content level (0 default, 3 age-restricted).
-    guild_settings_patch_rules_channel = 1u << 16,
-    guild_settings_patch_public_updates_channel = 1u << 17,
-    guild_settings_patch_safety_alerts_channel = 1u << 18,
-    guild_settings_patch_description = 1u << 19,
-    guild_settings_patch_preferred_locale = 1u << 20,
-    guild_settings_patch_content_level = 1u << 21,
+    guild_settings_patch_rules_channel = 1u << 14,
+    guild_settings_patch_public_updates_channel = 1u << 15,
+    guild_settings_patch_safety_alerts_channel = 1u << 16,
+    guild_settings_patch_description = 1u << 17,
+    guild_settings_patch_preferred_locale = 1u << 18,
+    guild_settings_patch_content_level = 1u << 19,
     // Access: the Discovery banner (a data URI, or empty for null).
-    guild_settings_patch_discovery_splash = 1u << 22,
+    guild_settings_patch_discovery_splash = 1u << 20,
 };
 // The longest locale code the API names (es-419, zh-TW).
 inline constexpr u32 kGuildAdminLocaleBytes = 8;
@@ -197,8 +186,6 @@ struct GuildTagWrite {
 // Features are the complete list, each name one length byte and its bytes,
 // in the order sent.
 struct GuildSettingsPatch {
-    Utf8View name;
-    Utf8View icon;
     Utf8View banner;
     u64 system_channel_id;
     u64 afk_channel_id;
@@ -238,19 +225,14 @@ enum RolePatchField : u8 {
     role_patch_color = 1u << 2,
     role_patch_hoist = 1u << 3,
     role_patch_mentionable = 1u << 4,
-    role_patch_icon = 1u << 5,
-    role_patch_unicode_emoji = 1u << 6,
-    role_patch_all = (1u << 7) - 1,
+    role_patch_all = (1u << 5) - 1,
 };
 
-// Icon is a data URI and the emoji a short UTF-8 sequence; empty clears.
 // role_create takes only name, color and permissions (or no patch) and always
 // sends the full body: unset fields default to "new role", colour 0 and no
 // permissions.
 struct RolePatch {
     Utf8View name;
-    Utf8View icon;
-    Utf8View unicode_emoji;
     PermissionSet permissions;
     u32 color;
     u8 fields;
@@ -262,12 +244,7 @@ enum MemberPatchField : u8 {
     member_patch_nickname = 1u << 0,
     member_patch_roles = 1u << 1,
     member_patch_timeout = 1u << 2,
-    member_patch_voice_channel = 1u << 3,
-    member_patch_mute = 1u << 4,
-    member_patch_deafen = 1u << 5,
-    // Self only: the per-server avatar.
-    member_patch_avatar = 1u << 6,
-    member_patch_all = (1u << 7) - 1,
+    member_patch_all = (1u << 3) - 1,
 };
 
 // Empty nickname resets it (null for another member, "" for oneself). A zero
@@ -275,49 +252,23 @@ enum MemberPatchField : u8 {
 // milliseconds, sent as YYYY-MM-DDTHH:MM:SS.mmmZ. Roles replace the member's
 // whole list (guild_admin_member_roles_toggle). member_role_add/remove instead
 // require only member_patch_roles and exactly one role ID, carried in the URL.
-// A zero voice channel
-// disconnects the member. The avatar is a complete data URI; empty removes
-// the per-server avatar (null).
 struct MemberPatch {
     Utf8View nickname;
-    Utf8View avatar;
     ConstSlice<u64> role_ids;
     u64 communication_disabled_until_ms;
-    u64 voice_channel_id;
     u8 fields;
-    bool mute;
-    bool deafen;
 };
 
 enum ChannelPatchField : u16 {
     channel_patch_name = 1u << 0,
     channel_patch_type = 1u << 1,
-    channel_patch_topic = 1u << 2,
-    channel_patch_parent = 1u << 3,
-    channel_patch_position = 1u << 4,
-    channel_patch_nsfw = 1u << 5,
-    channel_patch_slowmode = 1u << 6,
-    channel_patch_bitrate = 1u << 7,
-    channel_patch_user_limit = 1u << 8,
-    channel_patch_overwrites = 1u << 9,
-    channel_patch_all = (1u << 10) - 1,
-};
-
-enum GuildProfilePatchField : u8 {
-    guild_profile_patch_pronouns = 1u << 0,
-    guild_profile_patch_bio = 1u << 1,
-    guild_profile_patch_banner = 1u << 2,
-    guild_profile_patch_all = (1u << 3) - 1,
-};
-
-// Per-server profile (member_profile_self). Empty pronouns or bio send ""
-// (the account value shows instead); the banner is a complete data URI and
-// empty removes it (null).
-struct GuildProfilePatch {
-    Utf8View pronouns;
-    Utf8View bio;
-    Utf8View banner;
-    u8 fields;
+    channel_patch_parent = 1u << 2,
+    channel_patch_nsfw = 1u << 3,
+    channel_patch_slowmode = 1u << 4,
+    channel_patch_bitrate = 1u << 5,
+    channel_patch_user_limit = 1u << 6,
+    channel_patch_overwrites = 1u << 7,
+    channel_patch_all = (1u << 8) - 1,
 };
 
 struct PermissionOverwriteWrite {
@@ -331,10 +282,8 @@ struct PermissionOverwriteWrite {
 // Create requires a name. A zero parent serializes as null.
 struct ChannelPatch {
     Utf8View name;
-    Utf8View topic;
     ConstSlice<PermissionOverwriteWrite> overwrites;
     u64 parent_id;
-    u32 position;
     u32 slowmode_seconds;
     u32 bitrate;
     u32 user_limit;
@@ -345,7 +294,6 @@ struct ChannelPatch {
 
 enum GuildAdminPositionFlag : u8 {
     guild_admin_position_parent = 1u << 0,
-    guild_admin_position_lock_permissions = 1u << 1,
 };
 
 // Role reorder uses id/position only; channel reorder may move parents.
@@ -376,7 +324,7 @@ struct GuildAdminRequest {
     GuildAdminOperation operation;
     u64 guild_id;
     u64 channel_id;
-    // Role, user or overwrite target depending on the operation.
+    // Role or user, depending on the operation.
     u64 target_id;
     // Recorded in the audit log for mutations: the X-Audit-Log-Reason header,
     // or the reason query parameter for a kick. A null view (no data) sends
@@ -388,12 +336,10 @@ struct GuildAdminRequest {
     const RolePatch* role;
     const MemberPatch* member;
     const ChannelPatch* channel;
-    const PermissionOverwriteWrite* overwrite;
     const InviteCreate* invite;
     const GuildAdminPageQuery* page;
     ConstSlice<GuildAdminPosition> positions;
     u32 delete_message_seconds;
-    const GuildProfilePatch* profile;
     // game_search: the query as typed (normalized by the target writer);
     // games_list: the application ids.
     Utf8View game_query;
@@ -434,8 +380,7 @@ GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& request, Slic
 // Whether the request carries the X-Audit-Log-Reason header, possibly with an
 // empty value: a reason view with data on any operation but a kick.
 bool guild_admin_reason_header(const GuildAdminRequest& request) noexcept;
-// Bytes of the data URIs the body carries (member avatar, profile banner,
-// server images).
+// Bytes of the data URIs the body carries (the server's images).
 u32 guild_admin_image_bytes(const GuildAdminRequest& request) noexcept;
 // X-Discord-Original-MD5 for guild images: `key="md5"` entries sorted by key
 // (guild_banner, then guild_invite_splash) and joined by ", ". Values that
@@ -633,6 +578,6 @@ GuildAdminResult guild_admin_decode_top_games(Utf8View body, Slice<u32> scratch,
 // most kGuildAdminGameQueryCodepoints. Returns the bytes written; 0 for none.
 u32 guild_admin_game_query(Utf8View typed, Slice<char> output) noexcept;
 
-static_assert(sizeof(GuildAdminRequest) == 184);
+static_assert(sizeof(GuildAdminRequest) == 168);
 
 } // namespace maicord

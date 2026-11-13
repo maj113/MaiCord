@@ -60,14 +60,12 @@ struct GuildMemberSearchCursor {
 // The members table's filters. Text is the search box, trimmed: split on
 // commas, each piece trimmed, 17-19 digit pieces to user_id and the rest to
 // usernames; used only when longer than one character. Times are Unix
-// milliseconds: a zero lower bound leaves its range out (the upper bound
-// alone is not sent) and a zero upper bound leaves lte out.
+// milliseconds; zero leaves the range out.
 struct GuildMemberSearchQuery {
     Utf8View text;
     // Selected roles, in selection order.
     ConstSlice<u64> role_ids;
-    u64 joined_after_ms, joined_before_ms;
-    u64 created_after_ms, created_before_ms;
+    u64 joined_after_ms, created_after_ms;
     // The client clock for the signal windows.
     u64 now_ms;
     Utf8View invite_code;

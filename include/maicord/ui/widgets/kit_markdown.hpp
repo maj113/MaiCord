@@ -48,13 +48,13 @@ struct UiMarkdown {
 // (same signature and body size) keeps the previous parse. False on a parse error: the block is left unparsed.
 bool ui_markdown_parse(UiMarkdown*, const Utf8View& source, u8 body_size, Slice<u32> scratch) noexcept;
 // Wrapped height at `width`, cached with the parts' placement for the bucket (width rounded to whole DIPs).
-float ui_markdown_height(UiMarkdown*, float width, const UiKitMeasure*) noexcept;
+float ui_markdown_height(UiMarkdown*, float width, UiTextMeasureCache*) noexcept;
 u32 ui_markdown_part_count(const UiMarkdown&) noexcept;
 // The text of part `index` (`marker` false) or its list marker (true) inside `rectangle`, whose width is the one the
 // block is measured at (the block is measured here when it is not); empty when the part has none or lies outside
 // `clip`. Nested items take `muted`. A `fade` above zero fades the parts that end within that many DIPs above the
 // rectangle's bottom edge (a block shown clipped), line by part. The command borrows the block's storage.
-UiTextCommand ui_markdown_command(UiMarkdown*, u32 index, bool marker, const UiKitMeasure*, UiWidgetReference owner,
+UiTextCommand ui_markdown_command(UiMarkdown*, u32 index, bool marker, UiTextMeasureCache*, UiWidgetReference owner,
                                   const UiRect& rectangle, const UiRect& clip, const Color& color, const Color& muted,
                                   float fade = 0) noexcept;
 
