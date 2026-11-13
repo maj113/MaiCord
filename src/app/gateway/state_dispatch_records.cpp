@@ -438,10 +438,6 @@ __declspec(noinline) bool visit_self_member(SelfMemberContext* context, JsonValu
         context->error = decoded.error;
         return false;
     }
-    if (context->found) {
-        context->error = GatewayEventDecodeError::invalid_data;
-        return false;
-    }
     context->found = true;
     context->timeout_known = (member.mutation.guild_settings_known & guild_settings_self_timeout) != 0;
     context->timeout_until = member.mutation.self_communication_disabled_until;
@@ -467,13 +463,15 @@ bool visit_member(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<SelfMemberContext*>(opaque);
     // Only the current member's roles and state are read here. Any other entry
     // (voice members, a member without roles) is skipped rather than costing
-    // the guild, so a server joined while running always appears.
+    // the guild, so a server joined while running always appears. So is a
+    // second copy of the current member: Discord lists it again while the
+    // user is in one of the guild's voice channels.
     MemberIdentity identity{};
     const bool identified =
         member_identity(value, context->object_scratch, context->maximum_depth, &identity);
     const bool self =
         identity.user_id == context->self_user_id || identity.nested_id == context->self_user_id;
-    if (!self)
+    if (!self || context->found)
         return true;
     if (!identified ||
         (identity.user_id_seen && identity.user_seen && identity.user_id != identity.nested_id)) {

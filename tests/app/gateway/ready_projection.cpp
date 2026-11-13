@@ -800,6 +800,14 @@ void ready_self_member_roles(void (*check)(bool, const char*) noexcept) noexcept
               !allowed->effective_permissions,
           "READY an explicit empty self-role array is authoritative and grants none of the guild's named "
           "roles");
+    check(reset_self_members(), "READY voice-member fixture resets");
+    const auto in_voice = project_self_members(utf8_literal(
+        R"([[{"user_id":"1","roles":["80"]},{"user_id":"1","roles":["80"]}],[{"user_id":"1","roles":["90"]}]])"));
+    first = chat_state_store_find_guild(p.store, 8);
+    first_role = chat_state_store_find_role(p.store, 8, 80);
+    check(in_voice.ok() && !in_voice.degraded_guilds && p.guild_events == 2 && first && !first->unavailable &&
+              first->member_roles_known && first_role && first_role->self_assigned,
+          "READY lists the current member again while the user is in a voice channel; the guild still loads");
     check(reset_self_members(), "READY malformed-role fixture resets");
     const auto malformed = project_self_members(
         utf8_literal(R"([[{"user_id":"1","roles":["80",false]}],[{"user_id":"1","roles":["90"]}]])"));
