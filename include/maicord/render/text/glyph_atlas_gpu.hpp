@@ -17,7 +17,7 @@ struct GlyphAtlasGpu {
     GpuPagedTexture* surface;
     GpuBuffer* command_buffer;
     GpuSrv* command_view;
-    // Picks the tile-culling loop per raster (glyph_atlas.hlsl).
+    // Culls every raster's commands by tile (glyph_atlas.hlsl).
     GpuComputeShader* raster_shader;
     u64 dispatched_pixels;
     u64 dispatched_commands;

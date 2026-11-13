@@ -178,7 +178,7 @@ void check_png_formats() noexcept {
 }
 
 // ---- JPEG ------------------------------------------------------------------------------
-// Baseline images in the stored-rows layout of JpegCoefficientWorkspace (the jpeg_idct_rows shader) as well, which
+// Baseline images in the stored-rows layout of JpegCoefficientWorkspace (jpeg_idct's other branch) as well, which
 // the decoder gives only larger images than these.
 bool g_stored_rows;
 

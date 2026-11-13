@@ -62,12 +62,6 @@ uint PairSums(uint word) { return (word & 0x00FF00FFu) + ((word >> 8u) & 0x00FF0
 uint SumBytes(uint pair_sums) { return (pair_sums & 0xFFFFu) + (pair_sums >> 16u); }
 uint Pack(uint4 v) { return v.x | (v.y << 8u) | (v.z << 16u) | (v.w << 24u); }
 
-// Four bytes at once: floor((a + b) / 2) and (a + b + 1) / 2 per byte.
-uint AverageDown(uint a, uint b) { return (a & b) + (((a ^ b) >> 1u) & 0x7F7F7F7Fu); }
-uint AverageUp(uint a, uint b) { return (a | b) - (((a ^ b) >> 1u) & 0x7F7F7F7Fu); }
-// The four bytes `offset` (1..3) bytes into the byte stream low, high.
-uint Window(uint low, uint high, uint offset) { return (low >> (offset * 8u)) | (high << (32u - offset * 8u)); }
-
 // Intra 4x4 modes 2..9 (RFC 6386 12.3) predict every sample as a two- or three-tap average of the edge
 // e(k): k < 0 the left column (e(-1) = left[0], repeated past left[3]), e(0) the corner, k > 0 the top row
 // with the top-right (repeated past it). For mode m, row y, sample x, byte x of kSubblockCodes[(m - 2) * 4 + y]
@@ -86,30 +80,23 @@ uint4 PredictSubblockRow(uint mode, uint y, uint left, uint corner, uint top, ui
         const int4 top_samples = int4(Byte(top, 0u), Byte(top, 1u), Byte(top, 2u), Byte(top, 3u));
         return uint4(clamp(top_samples + (int(Byte(left, y)) - int(corner)), 0, 255));
     }
-    // The edge as a byte stream from e(-8): left reversed, corner, top, top-right, then repeats. Two-tap
-    // averages of e(k), e(k + 1) (`pairs`) and three-tap ones centred on e(k) (`triples`) for k = -7..8, word j
-    // holding k = 4j - 7 .. 4j - 4.
+    // The edge as a byte stream from e(-8): left reversed, corner, top, top-right, then repeats. A sample's
+    // window is the three bytes e(k - 1), e(k), e(k + 1), from byte code % 16 of the stream.
     const uint e0 = (left >> 24u) * 0x01010101u;
     const uint e1 = (left >> 24u) | ((left >> 8u) & 0xFF00u) | ((left << 8u) & 0xFF0000u) | (left << 24u);
     const uint e2 = corner | (top << 8u), e3 = (top >> 24u) | (top_right << 8u), e4 = (top_right >> 24u) * 0x01010101u;
-    const uint4 pairs = uint4(AverageUp(Window(e0, e1, 1u), Window(e0, e1, 2u)),
-                              AverageUp(Window(e1, e2, 1u), Window(e1, e2, 2u)),
-                              AverageUp(Window(e2, e3, 1u), Window(e2, e3, 2u)),
-                              AverageUp(Window(e3, e4, 1u), Window(e3, e4, 2u)));
-    const uint4 triples = uint4(AverageUp(AverageDown(e0, Window(e0, e1, 2u)), Window(e0, e1, 1u)),
-                                AverageUp(AverageDown(e1, Window(e1, e2, 2u)), Window(e1, e2, 1u)),
-                                AverageUp(AverageDown(e2, Window(e2, e3, 2u)), Window(e2, e3, 1u)),
-                                AverageUp(AverageDown(e3, Window(e3, e4, 2u)), Window(e3, e4, 1u)));
     const uint codes = gs_codes[min(mode - 2u, 7u) * 4u + y];
-    uint4 value;
-    [unroll] for (uint x = 0u; x < 4u; ++x) {
-        const uint code = Byte(codes, x);
-        const uint4 table = code < 16u ? pairs : triples;
-        const uint2 half = (code & 8u) != 0u ? table.zw : table.xy;
-        value[x] = Byte((code & 4u) != 0u ? half.y : half.x, code & 3u);
-    }
-    return value;
+    const uint4 code = (uint4(codes, codes, codes, codes) >> uint4(0u, 8u, 16u, 24u)) & 255u;
+    const uint4 word = (code >> 2u) & 3u, shift = (code & 3u) * 8u;
+    const uint4 low = word == 0u ? e0 : word == 1u ? e1 : word == 2u ? e2 : e3;
+    const uint4 high = word == 0u ? e1 : word == 1u ? e2 : word == 2u ? e3 : e4;
+    // A shift by 32 has to drop the higher word: in two steps, as a shift counts modulo 32.
+    const uint4 window = (low >> shift) | ((high << (31u - shift)) << 1u);
+    // The two-tap average is the three-tap one with e(k + 1) in place of e(k - 1).
+    const uint4 after = (window >> 16u) & 255u, before = code < 16u ? after : window & 255u;
+    return (before + 2u * ((window >> 8u) & 255u) + after + 2u) >> 2u;
 }
+
 // 16x16 and chroma prediction (RFC 6386 12.2) of the four samples under `top` from the left sample, the
 // corner and the DC value.
 uint4 PredictBig(uint mode, uint left, uint top, uint corner, uint dc) {
@@ -327,20 +314,17 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                 const uint dc = DCValue(SumBytes(PairSums(top0) + PairSums(top1)),
                                         SumBytes(PairSums(left0) + PairSums(left1)), y != 0u, cx != 0u, 3u);
                 const uint left_sample = Byte(cr < 4u ? left0 : left1, cr & 3u);
-                const uint4 value0 = AddResidual(PredictBig(chroma_mode, left_sample, top0, corner, dc), chroma.xy,
-                                                 chroma_info);
-                const uint4 value1 = AddResidual(PredictBig(chroma_mode, left_sample, top1, corner, dc), chroma.zw,
-                                                 chroma_info);
-                const uint address = (chroma_row + cx * 8u) * 4u;
-                vp8_yuv.Store4(address, value0);
-                vp8_yuv.Store4(address + 16u, value1);
-                InterlockedOr(gs_chroma_left[chroma_left_base + chroma_slot * 2u + (cr >> 2u)],
-                              value1.w << ((cr & 3u) * 8u));
-                if ((cr & 3u) == 0u) gs_chroma_left[chroma_left_base + NextSlot(chroma_slot) * 2u + (cr >> 2u)] = 0u;
-                if (cr == 7u) {
-                    gs_chroma_line[chroma_own + cx * 2u] = Pack(value0);
-                    gs_chroma_line[chroma_own + cx * 2u + 1u] = Pack(value1);
+                // The row's two words, one after the other: the same speed as side by side, and half the code.
+                uint4 value;
+                [loop] for (uint part = 0u; part < 2u; ++part) {
+                    value = AddResidual(PredictBig(chroma_mode, left_sample, part == 0u ? top0 : top1, corner, dc),
+                                        part == 0u ? chroma.xy : chroma.zw, chroma_info);
+                    vp8_yuv.Store4((chroma_row + cx * 8u + part * 4u) * 4u, value);
+                    if (cr == 7u) gs_chroma_line[chroma_own + cx * 2u + part] = Pack(value);
                 }
+                InterlockedOr(gs_chroma_left[chroma_left_base + chroma_slot * 2u + (cr >> 2u)],
+                              value.w << ((cr & 3u) * 8u));
+                if ((cr & 3u) == 0u) gs_chroma_left[chroma_left_base + NextSlot(chroma_slot) * 2u + (cr >> 2u)] = 0u;
                 ++cx;
                 chroma_slot = NextSlot(chroma_slot);
                 chroma_info = chroma_next_info;

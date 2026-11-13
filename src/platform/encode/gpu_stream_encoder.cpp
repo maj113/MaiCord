@@ -322,9 +322,10 @@ struct Slot {
     bool in_flight;    // input whose output has not come yet
 };
 
+// One plane's draw (bgra_nv12.hlsl).
 struct EncodeConstants {
-    float extent[2], luma_step[2], chroma_step[2];
-    u32 luma_taps, chroma_taps;
+    float extent[2], step[2];
+    u32 taps, chroma, reserved[2];
 };
 static_assert(sizeof(EncodeConstants) == 32);
 
@@ -346,8 +347,7 @@ struct GpuStreamEncoder {
     ID3D11Multithread* guard;
     ID3DDeviceContextState* state;
     ID3D11VertexShader* vertex;
-    ID3D11PixelShader* luma_shader;
-    ID3D11PixelShader* chroma_shader;
+    ID3D11PixelShader* pixel; // either plane: the vertex shader tells it which (bgra_nv12.hlsl)
     ID3D11SamplerState* sampler;
     ID3D11Buffer* constants;
     IMFDXGIDeviceManager* manager;
@@ -500,51 +500,50 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     EncodeConstants constants{};
     constants.extent[0] = static_cast<float>(frame.width) / static_cast<float>(desc.Width);
     constants.extent[1] = static_cast<float>(frame.height) / static_cast<float>(desc.Height);
-    constants.luma_step[0] = constants.extent[0] / width;
-    constants.luma_step[1] = constants.extent[1] / height;
-    constants.chroma_step[0] = constants.luma_step[0] * 2;
-    constants.chroma_step[1] = constants.luma_step[1] * 2;
     // Source texels per output texel along the longer reduction; each bilinear tap covers two.
     const float scale_x = static_cast<float>(frame.width) / width, scale_y = static_cast<float>(frame.height) / height;
     const float scale = scale_x > scale_y ? scale_x : scale_y;
-    constants.luma_taps = taps_for(scale * 0.5f);
-    constants.chroma_taps = taps_for(scale);
-    const D3D11_VIEWPORT luma_port{0, 0, width, height, 0, 1}, chroma_port{0, 0, width / 2, height / 2, 0, 1};
     e->guard->Enter();
     ID3DDeviceContextState* previous = nullptr;
     e->context1->SwapDeviceContextState(e->state, &previous);
     ID3D11DeviceContext* c = e->immediate;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const bool mapped_ok = SUCCEEDED(c->Map(e->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
-    if (mapped_ok) {
-        copy_bytes(mapped.pData, &constants, sizeof(constants));
-        c->Unmap(e->constants, 0);
-        c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        c->VSSetShader(e->vertex, nullptr, 0);
-        c->VSSetConstantBuffers(0, 1, &e->constants);
-        c->PSSetConstantBuffers(0, 1, &e->constants);
-        c->PSSetSamplers(0, 1, &e->sampler);
-        c->PSSetShaderResources(0, 1, &view);
-        c->OMSetRenderTargets(1, &slot->luma_target, nullptr);
-        c->RSSetViewports(1, &luma_port);
-        c->PSSetShader(e->luma_shader, nullptr, 0);
-        c->Draw(3, 0);
-        c->OMSetRenderTargets(1, &slot->chroma_target, nullptr);
-        c->RSSetViewports(1, &chroma_port);
-        c->PSSetShader(e->chroma_shader, nullptr, 0);
-        c->Draw(3, 0);
-        // The state object keeps no reference to the capture's texture or the slot.
-        ID3D11ShaderResourceView* const no_view = nullptr;
-        c->PSSetShaderResources(0, 1, &no_view);
-        c->OMSetRenderTargets(0, nullptr, nullptr);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    c->VSSetShader(e->vertex, nullptr, 0);
+    c->VSSetConstantBuffers(0, 1, &e->constants);
+    c->PSSetConstantBuffers(0, 1, &e->constants);
+    c->PSSetSamplers(0, 1, &e->sampler);
+    c->PSSetShaderResources(0, 1, &view);
+    c->PSSetShader(e->pixel, nullptr, 0);
+    bool drawn = true;
+    // The luma plane, then the chroma plane at half the extent: a chroma texel spans two luma texels each way.
+    for (u32 chroma = 0; chroma < 2 && drawn; ++chroma) {
+        const float span = chroma ? 2.0f : 1.0f;
+        constants.step[0] = constants.extent[0] / width * span;
+        constants.step[1] = constants.extent[1] / height * span;
+        constants.taps = taps_for(scale * 0.5f * span);
+        constants.chroma = chroma;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        drawn = SUCCEEDED(c->Map(e->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
+        if (drawn) {
+            copy_bytes(mapped.pData, &constants, sizeof(constants));
+            c->Unmap(e->constants, 0);
+            const D3D11_VIEWPORT port{0, 0, width / span, height / span, 0, 1};
+            c->OMSetRenderTargets(1, chroma ? &slot->chroma_target : &slot->luma_target, nullptr);
+            c->RSSetViewports(1, &port);
+            c->Draw(3, 0);
+        }
     }
+    // The state object keeps no reference to the capture's texture or the slot.
+    ID3D11ShaderResourceView* const no_view = nullptr;
+    c->PSSetShaderResources(0, 1, &no_view);
+    c->OMSetRenderTargets(0, nullptr, nullptr);
     e->context1->SwapDeviceContextState(previous, nullptr);
     com_release(previous);
     // Submitted now, so the encoder (which may work on another engine) starts behind the conversion.
     c->Flush();
     e->guard->Leave();
     view->Release();
-    return mapped_ok;
+    return drawn;
 }
 
 void end(GpuStreamEncoder* e, HRESULT status) noexcept {
@@ -770,9 +769,7 @@ bool create_pipeline(GpuStreamEncoder* e) noexcept {
     if (SUCCEEDED(h))
         h = gpu_vertex_shader_create(e->device, ShaderId::encode_vertex, {}, &e->vertex, nullptr, nullptr);
     if (SUCCEEDED(h))
-        h = gpu_pixel_shader_create(e->device, ShaderId::encode_luma, &e->luma_shader);
-    if (SUCCEEDED(h))
-        h = gpu_pixel_shader_create(e->device, ShaderId::encode_chroma, &e->chroma_shader);
+        h = gpu_pixel_shader_create(e->device, ShaderId::encode_pixel, &e->pixel);
     D3D11_SAMPLER_DESC sampler{};
     sampler.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -802,8 +799,7 @@ void release(GpuStreamEncoder* e) noexcept {
     com_release(e->manager);
     com_release(e->constants);
     com_release(e->sampler);
-    com_release(e->chroma_shader);
-    com_release(e->luma_shader);
+    com_release(e->pixel);
     com_release(e->vertex);
     com_release(e->guard);
     com_release(e->context1);

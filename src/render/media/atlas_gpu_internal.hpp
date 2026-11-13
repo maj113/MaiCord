@@ -98,7 +98,8 @@ struct JpegIdctConstants {
     u32 coefficient_block_count;
     u32 component_count;
     JpegIdctComponentConstants components[kJpegComponentMaximum];
-    u32 reserved[6];
+    u32 stored_rows; // the stored-rows layout of JpegCoefficientWorkspace, else whole blocks
+    u32 reserved[5];
 };
 
 static_assert(sizeof(JpegIdctConstants) == 128);

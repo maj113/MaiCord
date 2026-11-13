@@ -273,7 +273,6 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
     video_frame_gpu_release(&gpu->video);
     gpu_release(gpu->jpeg_atlas_shader);
     gpu_release(gpu->jpeg_atlas_constants);
-    gpu_release(gpu->jpeg_idct_rows_shader);
     gpu_release(gpu->jpeg_idct_shader);
     gpu_release(gpu->jpeg_idct_constants);
     gpu_release(gpu->vp8_atlas_shader);

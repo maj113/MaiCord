@@ -9,8 +9,9 @@ without hardware H.264 cannot stream.
 - **Windows** (`gpu_stream_encoder.cpp`):
   - **Conversion:** `bgra_nv12.hlsl` scales and converts the BGRA capture into an NV12 surface (BT.709 limited range;
     a box of bilinear taps when it reduces). It draws twice (luma, chroma) on the shared immediate context, in a
-    context state of its own, so the renderer's bindings never change. Its three shaders are entries of the client's
-    shader pack (`ShaderId::encode_*`, Windows only), inflated when the encoder opens.
+    context state of its own, so the renderer's bindings never change. Its two shaders (one pixel shader serves
+    both planes) are entries of the client's shader pack (`ShaderId::encode_*`, Windows only), inflated when the
+    encoder opens.
   - **Encoding:** the GPU vendor's asynchronous hardware MFT, found with `MFTEnum2(MFT_ENUM_FLAG_HARDWARE)` on the
     capture device's adapter and fed through the DXGI device manager. The encoder thread serves its events.
   - **Settings:** CBR with low latency and no B-frames. Keyframes come on request through

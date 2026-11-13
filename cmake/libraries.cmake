@@ -362,7 +362,7 @@ maicord_library(maicord_atlas_gpu
     "windows:${MAICORD_GLYPH_COMPUTE_HEADER}"
     "windows:${MAICORD_PNG_COMPUTE_HEADER}" "windows:${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "windows:${MAICORD_VP8_FILTER_HEADER}" "windows:${MAICORD_VP8_ATLAS_HEADER}" "windows:${MAICORD_JPEG_IDCT_HEADER}"
-    "windows:${MAICORD_JPEG_IDCT_ROWS_HEADER}" "windows:${MAICORD_JPEG_ATLAS_HEADER}"
+    "windows:${MAICORD_JPEG_ATLAS_HEADER}"
     LIBS maicord_core maicord_render_core windows:maicord_text windows:maicord_gpu_d3d11 windows:d3d11
         linux:maicord_gpu_gles
     INCLUDES linux:src "${MAICORD_GENERATED_DIRECTORY}")

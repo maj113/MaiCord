@@ -163,8 +163,6 @@ maicord_shader(MAICORD_VP8_ATLAS_HEADER maicord_vp8_atlas_cs.hpp cs_5_0 vp8_to_a
     ${maicord_shaders}/vp8_atlas.hlsl PACK vp8_atlas)
 maicord_shader(MAICORD_JPEG_IDCT_HEADER maicord_jpeg_idct_cs.hpp cs_5_0 jpeg_idct g_maicord_jpeg_idct_shader
     ${maicord_shaders}/jpeg.hlsl PACK jpeg_idct)
-maicord_shader(MAICORD_JPEG_IDCT_ROWS_HEADER maicord_jpeg_idct_rows_cs.hpp cs_5_0 jpeg_idct
-    g_maicord_jpeg_idct_rows_shader ${maicord_shaders}/jpeg.hlsl PACK jpeg_idct_rows JPEG_STORED_ROWS=1)
 maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_to_atlas g_maicord_jpeg_atlas_shader
     ${maicord_shaders}/jpeg.hlsl PACK jpeg_atlas)
 maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader
@@ -187,10 +185,8 @@ maicord_shader(MAICORD_FX_COMPOSITE_PIXEL_HEADER maicord_fx_composite_ps.hpp ps_
 # it has no GLSL twin; ShaderId lists it last, on Windows alone.
 maicord_shader(MAICORD_ENCODE_VERTEX_HEADER maicord_encode_vs.hpp vs_4_0 vs_main g_maicord_encode_vertex_shader
     src/platform/encode/bgra_nv12.hlsl PACK encode_vertex)
-maicord_shader(MAICORD_ENCODE_LUMA_HEADER maicord_encode_luma_ps.hpp ps_4_0 ps_luma g_maicord_encode_luma_shader
-    src/platform/encode/bgra_nv12.hlsl PACK encode_luma)
-maicord_shader(MAICORD_ENCODE_CHROMA_HEADER maicord_encode_chroma_ps.hpp ps_4_0 ps_chroma g_maicord_encode_chroma_shader
-    src/platform/encode/bgra_nv12.hlsl PACK encode_chroma)
+maicord_shader(MAICORD_ENCODE_PIXEL_HEADER maicord_encode_ps.hpp ps_4_0 ps_plane g_maicord_encode_pixel_shader
+    src/platform/encode/bgra_nv12.hlsl PACK encode_pixel)
 set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
 set(MAICORD_SHADER_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.bin")
 add_custom_command(

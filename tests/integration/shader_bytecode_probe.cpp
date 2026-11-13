@@ -42,7 +42,7 @@ bool create(ID3D11Device* device,ShaderId id) noexcept {
         return ok;
     }
     case ShaderId::ui_pixel: case ShaderId::glyph_pixel: case ShaderId::media_pixel: case ShaderId::fx_builtin:
-    case ShaderId::fx_composite_pixel: case ShaderId::encode_luma: case ShaderId::encode_chroma:
+    case ShaderId::fx_composite_pixel: case ShaderId::encode_pixel:
         return create_pixel(device,id);
     default: return create_compute(device,id);
     }

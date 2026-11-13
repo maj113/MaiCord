@@ -153,6 +153,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     JpegIdctConstants idct_constants{};
     idct_constants.coefficient_block_count = image.coefficient_blocks;
     idct_constants.component_count = image.component_count;
+    idct_constants.stored_rows = coefficients.whole_blocks ? 0u : 1u;
     JpegAtlasConstants atlas_constants{};
     u32 sample_count = 0;
     for (u32 index = 0; index < image.component_count; ++index) {
@@ -194,9 +195,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     const u32 sample_bytes = sample_count * sizeof(u32);
 
     GpuStatus result = create_jpeg_resources(gpu, device);
-    if (SUCCEEDED(result) && !coefficients.whole_blocks && !gpu->jpeg_idct_rows_shader) {
-        result = gpu_compute_shader_create(device, ShaderId::jpeg_idct_rows, &gpu->jpeg_idct_rows_shader);
-    }
     if (SUCCEEDED(result)) {
         result = ensure_dynamic_raw_buffer(device, coefficient_bytes, &gpu->vp8_coefficient_buffer,
                                            &gpu->vp8_coefficient_view, &gpu->vp8_coefficient_capacity);
@@ -246,8 +244,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     }
 
     gpu_update_buffer(context, gpu->jpeg_idct_constants, &idct_constants, sizeof(idct_constants));
-    bind_compute_2srv(context, coefficients.whole_blocks ? gpu->jpeg_idct_shader : gpu->jpeg_idct_rows_shader,
-                      gpu->jpeg_idct_constants,
+    bind_compute_2srv(context, gpu->jpeg_idct_shader, gpu->jpeg_idct_constants,
                       gpu->vp8_coefficient_view, gpu->vp8_mode_view, gpu->vp8_yuv_uav);
     gpu_dispatch(context, image.coefficient_blocks, 1, 1);
     unbind_compute_resources(context);

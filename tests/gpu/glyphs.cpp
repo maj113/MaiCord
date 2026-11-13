@@ -1,5 +1,5 @@
-// Runs the glyph scene (glyph_scene.hpp) through the GPU API: the glyph compute shader (its plain and tile-culling
-// loops) rasterizes the scene's paths into an R8 atlas (an RGBA8 storage image on OpenGL ES, whose red channel is the
+// Runs the glyph scene (glyph_scene.hpp) through the GPU API: the glyph compute shader (with its tile culling)
+// rasterizes the scene's paths into an R8 atlas (an RGBA8 storage image on OpenGL ES, whose red channel is the
 // coverage), and the glyph vertex and pixel shaders draw quads sampling it, with the text-effect materials. Both
 // results are compared with tests/gpu/golden/glyph_atlas.png and glyph_draw.png, which the Direct3D 11 side
 // (glyphs_windows.cpp) captured on Windows. MAICORD_GPU_GLYPH_DUMP=<prefix> also writes <prefix>.atlas and

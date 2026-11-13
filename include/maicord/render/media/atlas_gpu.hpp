@@ -67,7 +67,6 @@ struct MediaAtlasGpu {
     GpuComputeShader* vp8_atlas_shader;
     GpuBuffer* jpeg_idct_constants;
     GpuComputeShader* jpeg_idct_shader;
-    GpuComputeShader* jpeg_idct_rows_shader; // stored rows (jpeg.hpp, JpegCoefficientWorkspace), made on first use
     GpuBuffer* jpeg_atlas_constants;
     GpuComputeShader* jpeg_atlas_shader;
     u64 png_uploaded_bytes;
@@ -247,6 +246,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 592);
+static_assert(sizeof(MediaAtlasGpu) == 584);
 
 } // namespace maicord

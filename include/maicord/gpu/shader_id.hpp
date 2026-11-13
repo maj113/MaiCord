@@ -10,12 +10,12 @@ namespace maicord {
 enum class ShaderId : u8 {
     ui_vertex, ui_pixel, glyph_vertex, glyph_pixel, media_vertex, media_pixel, glyph_compute,
     colr_compute, colr_wide_compute, colr_layers_compute, png_compute,
-    vp8_reconstruct, vp8_idct, vp8_filter, vp8_atlas, jpeg_idct, jpeg_idct_rows, jpeg_atlas,
+    vp8_reconstruct, vp8_idct, vp8_filter, vp8_atlas, jpeg_idct, jpeg_atlas,
     video_frame,
     fx_vertex, fx_builtin, fx_target_vertex, fx_composite_vertex, fx_composite_pixel,
 #if defined(_WIN32)
     // The Go Live encoder's BGRA to NV12 conversion (src/platform/encode); Linux converts with VA-API instead.
-    encode_vertex, encode_luma, encode_chroma,
+    encode_vertex, encode_pixel,
 #endif
     count
 };

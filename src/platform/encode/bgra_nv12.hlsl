@@ -1,7 +1,8 @@
 // The Go Live encoder's colour conversion (Windows; VA-API's video processing does it on Linux): a captured BGRA
 // picture, scaled to the encoded extent, into the two planes of the encoder's NV12 surface as BT.709 limited range.
 // One draw per plane, each a triangle covering its render target: the R8 view of the luma plane at the full extent,
-// the R8G8 view of the chroma plane at half of it.
+// the R8G8 view of the chroma plane at half of it. One pixel shader writes either (the constants say which; an R8
+// target keeps the first component).
 //
 // Scaling averages Taps x Taps bilinear samples spread over the output texel's footprint in the source (a box filter of
 // up to 2 * Taps source texels each way), so a reduced picture stays free of aliasing.
@@ -10,11 +11,10 @@ Texture2D<float4> Source : register(t0);
 SamplerState Linear : register(s0);
 
 cbuffer EncodeConstants : register(b0) {
-    float2 Extent;      // the picture's bottom-right in source UV (the texture may be larger than the picture)
-    float2 LumaStep;    // one luma texel of the output in source UV
-    float2 ChromaStep;  // one chroma texel of the output in source UV
-    uint LumaTaps;
-    uint ChromaTaps;
+    float2 Extent;  // the picture's bottom-right in source UV (the texture may be larger than the picture)
+    float2 Step;    // one texel of the plane in source UV
+    uint Taps;
+    uint Chroma;    // the chroma plane, else the luma plane
 };
 
 struct Vertex {
@@ -43,12 +43,9 @@ float luma_of(float3 rgb) {
     return dot(rgb, float3(0.2126, 0.7152, 0.0722));
 }
 
-float ps_luma(Vertex input) : SV_Target {
-    return (16.0 + 219.0 * luma_of(footprint(input.uv, LumaStep, LumaTaps))) / 255.0;
-}
-
-float2 ps_chroma(Vertex input) : SV_Target {
-    const float3 rgb = footprint(input.uv, ChromaStep, ChromaTaps);
+float2 ps_plane(Vertex input) : SV_Target {
+    const float3 rgb = footprint(input.uv, Step, Taps);
     const float y = luma_of(rgb);
-    return (128.0 + 224.0 * float2((rgb.b - y) / 1.8556, (rgb.r - y) / 1.5748)) / 255.0;
+    const float2 chroma = 128.0 + 224.0 * float2((rgb.b - y) / 1.8556, (rgb.r - y) / 1.5748);
+    return (Chroma ? chroma : 16.0 + 219.0 * y) / 255.0;
 }

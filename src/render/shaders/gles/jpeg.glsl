@@ -1,4 +1,4 @@
-// twin: src/render/shaders/jpeg.hlsl f98b8be4ecd7074e
+// twin: src/render/shaders/jpeg.hlsl c7e55b36ea4751b8
 // JPEG decode. ENTRY_jpeg_idct (STAGE_CS): the dequantizing 8x8 inverse DCT of every coefficient block.
 // ENTRY_jpeg_to_atlas (STAGE_CS): upsampling, colour conversion, ICC transform and orientation into the media atlas.
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -38,6 +38,7 @@ layout(std140, binding = 0) uniform JpegIdctConstants {
     uint c3_sample_offset;
     uint c3_sample_stride;
     uint c3_quantization_table;
+    uint coefficient_stored_rows;
 };
 
 layout(std430, binding = 0) readonly buffer Coefficients { uint jpeg_coefficients[]; }; //! t0
@@ -59,9 +60,9 @@ int load_i16(uint address) {
 }
 
 // The coefficients as the decoder stores them (jpeg.hpp, JpegCoefficientWorkspace): whole blocks in block order, or
-// with JPEG_STORED_ROWS one word per block (bits 0-3: how many of its rows are stored, from the first; bits 8-31: the
-// index of its first stored row), then the stored rows, 16 bytes each, from the first 16-byte boundary after the
-// words; a row not stored is zero.
+// with coefficient_stored_rows one word per block (bits 0-3: how many of its rows are stored, from the first; bits
+// 8-31: the index of its first stored row), then the stored rows, 16 bytes each, from the first 16-byte boundary
+// after the words; a row not stored is zero. One shader reads both: the layout is uniform.
 //
 // Two cooperative 1-D passes: one dequantization load per coefficient. Group-wide barriers are uniform; no hardware
 // wave-width assumption.
@@ -106,15 +107,14 @@ void main() {
     uint x = gl_LocalInvocationID.x;
     uint y = gl_LocalInvocationID.y;
     uint coefficient = y * 8u + x;
-#if defined(JPEG_STORED_ROWS)
-    uint header = jpeg_coefficients[block];
-    uint row_base = (coefficient_block_count * 4u + 15u) & ~15u;
-    int value = 0;
-    if (y < (header & 15u))
-        value = load_i16(row_base + ((header >> 8u) + y) * 16u + x * 2u);
-#else
-    int value = load_i16(block * 128u + coefficient * 2u);
-#endif
+    uint address = block * 128u + coefficient * 2u;
+    bool stored = true;
+    if (coefficient_stored_rows != 0u) {
+        uint header = jpeg_coefficients[block];
+        address = ((coefficient_block_count * 4u + 15u) & ~15u) + ((header >> 8u) + y) * 16u + x * 2u;
+        stored = y < (header & 15u);
+    }
+    int value = stored ? load_i16(address) : 0;
     uint quantization = load_u16((quantization_table * 64u + coefficient) * 2u);
     idct_dequantized[coefficient] = float(value * int(quantization));
     memoryBarrierShared();

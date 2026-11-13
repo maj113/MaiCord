@@ -1,7 +1,7 @@
 #pragma once
 
 // The glyph scene both glyph tests run: path commands rasterized by the glyph compute shader into an R8 atlas
-// (src/render/shaders/glyph_atlas.hlsl, its plain and its tile-culling loop), then drawn as quads with the
+// (src/render/shaders/glyph_atlas.hlsl, which culls every raster's commands by tile), then drawn as quads with the
 // glyph shaders (glyph_draw.hlsl) over a cleared target. The Windows test (glyphs_windows.cpp) renders it on Direct3D
 // 11 and captures tests/gpu/golden/glyph_atlas.png and glyph_draw.png; the Linux one (glyphs.cpp) must reproduce
 // both through the GPU API within the tolerance of png_golden.hpp.
@@ -77,7 +77,7 @@ inline constexpr Command kStroke[] = {
     {{}, kEndClosed},
 };
 
-// A large glyph (64 x 64): a heart-like cubic outline plus a diamond, for the tile-culling loop.
+// A large glyph (64 x 64): a heart-like cubic outline plus a diamond, 64 tiles for the tile culling.
 inline constexpr Command kLarge[] = {
     {{0.50f, 0.90f, 0, 0, 0, 0}, kBeginFilled},
     {{0.05f, 0.55f, 0.10f, 0.10f, 0.50f, 0.30f}, kCubic},
@@ -92,8 +92,8 @@ inline constexpr Command kLarge[] = {
 
 #define MAICORD_GLYPH_COUNT(array) static_cast<u32>(sizeof(array) / sizeof(array[0]))
 
-// The first batch (32-pixel rasters, stroked or not: the shader's plain loop) fills the top half of the atlas; the
-// second (a 64-pixel unstroked raster: its tile-culling loop) the bottom half.
+// The first batch (32-pixel rasters, stroked or not: 16 tiles each) fills the top half of the atlas; the second (a
+// 64-pixel unstroked raster) the bottom half.
 inline constexpr Job kPlainJobs[] = {
     {0, 0, 32, 32, 1, 30.0f, false, 0.0f, kLetter, MAICORD_GLYPH_COUNT(kLetter)},
     {32, 0, 32, 32, 1, 30.0f, true, 0.0f, kRing, MAICORD_GLYPH_COUNT(kRing)},

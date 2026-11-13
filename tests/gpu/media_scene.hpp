@@ -47,7 +47,7 @@ inline constexpr u32 kVp8Samples = kVp8LumaSamples + 2 * kVp8ChromaSamples; // o
 struct JpegIdctConstants {
     u32 coefficient_block_count, component_count;
     u32 component[4][6]; // block offset, block count, block columns, sample offset, sample stride, quantization table
-    u32 reserved[6];
+    u32 stored_rows, reserved[5];
 };
 static_assert(sizeof(JpegIdctConstants) == 128);
 
@@ -169,6 +169,7 @@ inline JpegIdctConstants jpeg_idct_constants() noexcept {
     JpegIdctConstants constants{};
     constants.coefficient_block_count = kJpegBlocks;
     constants.component_count = 3;
+    constants.stored_rows = 1;
     const u32 luma[6] = {0, 4, 2, 0, 16, 0}, cb[6] = {4, 1, 1, kJpegLumaSamples, 8, 1}, cr[6] = {5, 1, 1, kJpegLumaSamples + 64, 8, 1};
     for (u32 i = 0; i < 6; ++i) {
         constants.component[0][i] = luma[i];

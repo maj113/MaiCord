@@ -25,7 +25,7 @@ cbuffer JpegIdctConstants : register(b0) {
     uint c3_sample_offset;
     uint c3_sample_stride;
     uint c3_quantization_table;
-    uint idct_reserved0;
+    uint coefficient_stored_rows;
     uint idct_reserved1;
     uint idct_reserved2;
     uint idct_reserved3;
@@ -62,9 +62,10 @@ uint load_u16(ByteAddressBuffer source, uint address) {
 }
 
 // The coefficients as the decoder stores them (jpeg.hpp, JpegCoefficientWorkspace): whole blocks in block order,
-// or with JPEG_STORED_ROWS one word per block (bits 0-3: how many of its rows are stored, from the first; bits
-// 8-31: the index of its first stored row), then the stored rows, 16 bytes each, from the first 16-byte boundary
-// after the words; a row not stored is zero.
+// or with coefficient_stored_rows one word per block (bits 0-3: how many of its rows are stored, from the first;
+// bits 8-31: the index of its first stored row), then the stored rows, 16 bytes each, from the first 16-byte
+// boundary after the words; a row not stored is zero. One shader reads both: the layout is uniform, so its
+// branch costs a whole-block image 2 % of this pass and saves the second shader.
 //
 // Two cooperative 1-D passes: one dequantization load per coefficient.
 // Group-wide barriers are uniform; no hardware wave-width assumption.
@@ -110,16 +111,14 @@ groupshared float idct_horizontal[64];
     const uint x = group_thread.x;
     const uint y = group_thread.y;
     const uint coefficient = y * 8u + x;
-#if defined(JPEG_STORED_ROWS)
-    const uint header = jpeg_coefficients.Load(block * 4u);
-    const uint row_base = (coefficient_block_count * 4u + 15u) & ~15u;
-    int value = 0;
-    if (y < (header & 15u)) {
-        value = load_i16(jpeg_coefficients, row_base + ((header >> 8u) + y) * 16u + x * 2u);
+    uint address = block * 128u + coefficient * 2u;
+    bool stored = true;
+    [branch] if (coefficient_stored_rows != 0u) {
+        const uint header = jpeg_coefficients.Load(block * 4u);
+        address = ((coefficient_block_count * 4u + 15u) & ~15u) + ((header >> 8u) + y) * 16u + x * 2u;
+        stored = y < (header & 15u);
     }
-#else
-    const int value = load_i16(jpeg_coefficients, block * 128u + coefficient * 2u);
-#endif
+    const int value = stored ? load_i16(jpeg_coefficients, address) : 0;
     const uint quantization =
         load_u16(jpeg_auxiliary, (quantization_table * 64u + coefficient) * 2u);
     idct_dequantized[coefficient] = float(value * int(quantization));

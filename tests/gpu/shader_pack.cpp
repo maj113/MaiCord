@@ -69,7 +69,7 @@ void run() noexcept {
     const ShaderId compute[] = {ShaderId::glyph_compute, ShaderId::colr_compute,
                                 ShaderId::colr_wide_compute, ShaderId::colr_layers_compute, ShaderId::png_compute,
                                 ShaderId::vp8_reconstruct, ShaderId::vp8_idct, ShaderId::vp8_filter,
-                                ShaderId::vp8_atlas, ShaderId::jpeg_idct, ShaderId::jpeg_idct_rows, ShaderId::jpeg_atlas,
+                                ShaderId::vp8_atlas, ShaderId::jpeg_idct, ShaderId::jpeg_atlas,
                                 ShaderId::video_frame};
     for (const ShaderId id : compute) {
         GpuComputeShader* shader = nullptr;

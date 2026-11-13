@@ -16,11 +16,9 @@ RWTexture2D<unorm float> coverage_atlas : register(u0);
 #define GLYPH_JOBS 16
 #endif
 
-// Unstroked rasters that are large or have a long command chain take the tile-culling
-// loop, which skips every command that cannot reach any sample of a thread group's
-// tile; it pays for rasters at least 64 pixels wide or tall and for any of at least
-// 32 commands. Other rasters run the plain loop, whose per-command cost is lower.
-// The choice is per raster, so uniform across each thread group.
+// Every raster is culled by tile: a thread group skips each command that cannot
+// reach any sample of its 8 x 8 tile, and takes only the winding of one that lies
+// right of it. Measured on the UI's own rasters, that pays at every size.
 // A crossing right of the sample without a division: the side test's sign
 // against the edge direction replaces the crossing abscissa (as colr_paint does).
 // Across the sample row the end and start comparisons differ, and their
@@ -72,16 +70,16 @@ static const float4 cubic_weights[12] = {
     asfloat(uint4(0x00000000u, 0x00000000u, 0x00000000u, 0x3f800000u))
 };
 
-// Per-thread state shared by the helpers below and both loops.
+// Per-thread state shared by the helpers below and the command loop.
 static float2 sample_position, tile_low, tile_high;
 static float reach, minimum_distance_squared, stroke_distance_squared;
 static int winding;
 
 // What a segment or curve whose control points span [low, high] can change for
 // any sample of this group's tile: 0 nothing, 1 only the winding, 2 the
-// distance too. A distance beyond `reach` (one pixel, in em) saturates the
-// coverage whatever its value, and a crossing needs the box to overlap the
-// sample rows and reach the sample or lie to its right.
+// distance too. A distance beyond `reach` (one pixel past the stroke's half
+// width, in em) saturates the coverage whatever its value, and a crossing needs
+// the box to overlap the sample rows and reach the sample or lie to its right.
 uint relevance(float2 low, float2 high) {
     if (tile_low.y - high.y > reach || low.y - tile_high.y > reach || tile_low.x - high.x > reach) {
         return 0;
@@ -89,74 +87,12 @@ uint relevance(float2 low, float2 high) {
     return low.x - tile_high.x > reach ? 1u : 2u;
 }
 
-// The relevance is uniform across the group, so the branch skips the distance
-// work coherently instead of computing it and selecting it away.
-void accumulate_segment(float2 segment_start, float2 segment_end, uint relevant) {
-    [branch] if (relevant == 2) {
-        accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
-    }
-    accumulate_crossing(sample_position, segment_start, segment_end, winding);
-}
-
-// `distance` is a literal at each call site: a winding-only curve keeps no
-// distance arithmetic in its loop.
-void accumulate_cubic(float2 start, GlyphPathCommand command, bool distance) {
-    float2 segment_start = start;
-    // Three copies keep loop overhead bounded without twelve copies
-    // of projection, distance and winding arithmetic in the shader.
-    [loop]
-    for (uint first_segment = 0; first_segment < 12; first_segment += 3) {
-        [unroll]
-        for (uint local_segment = 0; local_segment < 3; ++local_segment) {
-            const float4 weights = cubic_weights[first_segment + local_segment];
-            const float2 segment_end = weights.x * start + weights.y * command.point1 +
-                                       weights.z * command.point2 + weights.w * command.point3;
-            if (distance) {
-                accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
-            }
-            accumulate_crossing(sample_position, segment_start, segment_end, winding);
-            segment_start = segment_end;
-        }
-    }
-}
-
-// Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a line
-// back to its contour's first point, and end markers draw nothing.
-void trace_commands(uint first_command, uint command_count) {
-    float2 current = 0.0f;
-    bool contour_filled = false;
-    [loop]
-    for (uint index = 0; index < command_count; ++index) {
-        const uint at=28*(first_command+index);
-        const uint4 first=raster_data.Load4(at);
-        const uint3 last=raster_data.Load3(at+16);
-        GlyphPathCommand command;
-        command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
-        command.point3=asfloat(last.xy);command.kind=last.z;
-        // Most frequent kind first, as in the plain loop of glyph_coverage.
-        if (command.kind == 3) {
-            const uint relevant =
-                contour_filled ? relevance(min(min(current, command.point1), min(command.point2, command.point3)),
-                                           max(max(current, command.point1), max(command.point2, command.point3)))
-                               : 0;
-            [branch] if (relevant == 2) {
-                accumulate_cubic(current, command, true);
-            } else if (relevant) {
-                accumulate_cubic(current, command, false);
-            }
-            current = command.point3;
-        } else if (command.kind == 2) {
-            const float2 end = command.point1;
-            const uint relevant = contour_filled ? relevance(min(current, end), max(current, end)) : 0;
-            if (relevant) {
-                accumulate_segment(current, end, relevant);
-            }
-            current = end;
-        } else if (command.kind <= 1) {
-            current = command.point1;
-            contour_filled = command.kind == 0;
-        }
-    }
+// The winding of a filled segment or curve from `start` to `end` that lies right
+// of every sample of the tile: each of its segments that spans a sample's row
+// crosses it right of the sample, so the crossings add up to the two ends' sides
+// of the row (the last cubic weight is exactly the end point).
+void accumulate_right(float2 start, float2 end) {
+    winding += int(end.y > sample_position.y) - int(start.y > sample_position.y);
 }
 
 [numthreads(8, 8, 1)]
@@ -189,58 +125,65 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
     // Infinity keeps the reduction valid even when sample coordinates are large.
     minimum_distance_squared = asfloat(0x7f800000u);
     stroke_distance_squared = asfloat(0x7f800000u);
-    [branch] if (!stroking && (any(destination_size >= 64u) || command_count >= 32u)) {
-        // Sample positions grow monotonically with the pixel, so these bound every
-        // sample of the group; the reach absorbs rounding.
-        const int2 first_pixel = int2(group_id.xy * 8) - int(allocation_padding);
-        tile_low = outline_origin + (float2(first_pixel) + 0.5f) / pixels_per_em;
-        tile_high = outline_origin + (float2(first_pixel + 7) + 0.5f) / pixels_per_em;
-        reach = 1.0f / pixels_per_em;
-        trace_commands(GLYPH_JOBS + (raster.w & 65535), command_count);
-    } else {
-        float2 current = 0.0f;
-        bool contour_filled = false;
+    // Sample positions grow monotonically with the pixel, so these bound every
+    // sample of the group; the reach absorbs rounding. A stroke's coverage ends
+    // half a pixel past its half-width.
+    const int2 first_pixel = int2(group_id.xy * 8) - int(allocation_padding);
+    tile_low = outline_origin + (float2(first_pixel) + 0.5f) / pixels_per_em;
+    tile_high = outline_origin + (float2(first_pixel + 7) + 0.5f) / pixels_per_em;
+    reach = (1.0f + stroke_half_width) / pixels_per_em;
+    float2 current = 0.0f;
+    bool contour_filled = false;
 
-        // Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a
-        // line back to its contour's first point, and end markers draw nothing.
-        [loop]
-        for (uint index = 0; index < command_count; ++index) {
-            const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
-            const uint4 first=raster_data.Load4(at);
-            const uint3 last=raster_data.Load3(at+16);
-            GlyphPathCommand command;
-            command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
-            command.point3=asfloat(last.xy);command.kind=last.z;
-            // Most frequent kind first: AMD runs this chain about 2% faster than
-            // one that tests the contour start first.
-            if (command.kind == 3) {
-                if (contour_filled) {
-                    accumulate_cubic(current, command, true);
-                } else if (stroking) {
-                    float2 segment_start = current;
+    // Contours arrive closed: GlyphRasterBatch::add uploads each end_closed as a
+    // line back to its contour's first point, and end markers draw nothing.
+    [loop]
+    for (uint index = 0; index < command_count; ++index) {
+        const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
+        const uint4 first=raster_data.Load4(at);
+        const uint3 last=raster_data.Load3(at+16);
+        GlyphPathCommand command;
+        command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
+        command.point3=asfloat(last.xy);command.kind=last.z;
+        // Lines and curves share one path (a fifth faster on AMD than a branch of each):
+        // a line is a curve's last segment alone, whose weights give the end point exactly.
+        if (command.kind == 2 || command.kind == 3) {
+            const bool curve = command.kind == 3;
+            const float2 control = curve ? command.point2 : command.point1;
+            const float2 end = curve ? command.point3 : command.point1;
+            const uint relevant = relevance(min(min(current, command.point1), min(control, end)),
+                                            max(max(current, command.point1), max(control, end)));
+            [branch] if (relevant == 2) {
+                // Uniform per command: a loop of each (2.7 % faster than one loop that
+                // branches per segment), so a filled contour computes no stroke distance.
+                float2 segment_start = current;
+                [branch] if (contour_filled) {
                     [loop]
-                    for (uint segment = 0; segment < 12; ++segment) {
+                    for (uint segment = curve ? 0 : 11; segment < 12; ++segment) {
                         const float4 weights = cubic_weights[segment];
                         const float2 segment_end = weights.x * current + weights.y * command.point1 +
-                                                   weights.z * command.point2 + weights.w * command.point3;
+                                                   weights.z * control + weights.w * end;
+                        accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
+                        accumulate_crossing(sample_position, segment_start, segment_end, winding);
+                        segment_start = segment_end;
+                    }
+                } else if (stroking) {
+                    [loop]
+                    for (uint segment = curve ? 0 : 11; segment < 12; ++segment) {
+                        const float4 weights = cubic_weights[segment];
+                        const float2 segment_end = weights.x * current + weights.y * command.point1 +
+                                                   weights.z * control + weights.w * end;
                         accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
                         segment_start = segment_end;
                     }
                 }
-                current = command.point3;
-            } else if (command.kind == 2) {
-                // Uniform per command: a filled contour skips the stroke distance
-                // instead of computing it and selecting it away.
-                [branch] if (contour_filled) {
-                    accumulate_segment(current, command.point1, 2u);
-                } else if (stroking) {
-                    accumulate_stroke(sample_position, current, command.point1, stroke_distance_squared);
-                }
-                current = command.point1;
-            } else if (command.kind <= 1) {
-                current = command.point1;
-                contour_filled = command.kind == 0;
+            } else if (relevant && contour_filled) {
+                accumulate_right(current, end);
             }
+            current = end;
+        } else if (command.kind <= 1) {
+            current = command.point1;
+            contour_filled = command.kind == 0;
         }
     }
 

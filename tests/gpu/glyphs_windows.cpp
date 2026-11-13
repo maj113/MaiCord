@@ -1,5 +1,5 @@
-// The Direct3D 11 side of the glyph scene (glyph_scene.hpp): the glyph compute shader (its plain and tile-culling
-// loops, as GlyphAtlasGpu builds it) rasterizes the scene's paths into an R8 atlas, the draw
+// The Direct3D 11 side of the glyph scene (glyph_scene.hpp): the glyph compute shader (with its tile culling,
+// as GlyphAtlasGpu builds it) rasterizes the scene's paths into an R8 atlas, the draw
 // pipeline's glyph shaders and states draw the quads sampling it, and both results must match
 // tests/gpu/golden/glyph_atlas.png and glyph_draw.png, which the OpenGL ES test (glyphs.cpp) reproduces on Linux. To
 // renew the goldens after a shader or scene change, run with MAICORD_GPU_GLYPH_CAPTURE=<prefix> set: the atlas is

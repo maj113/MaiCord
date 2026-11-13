@@ -136,9 +136,6 @@ struct RendererPresentationStamp {
 
 static_assert(sizeof(RendererPresentationStamp) == 40);
 
-using RendererLoginStatus = LoginStatus;
-using RendererLoginView = LoginView;
-
 struct RendererLoginFormTextStorage;
 
 enum class RendererInlineMediaLayer : u8 {
@@ -222,8 +219,6 @@ struct RendererNavigationHit {
     RendererNavigationHitKind kind;
     bool selectable;
 };
-
-using RendererMessageTextPositionHit = MessagePositionHit;
 
 // Draw-time factors only: retained geometry/text/media signatures exclude them.
 struct RendererLayerOpacity {
@@ -695,7 +690,7 @@ struct D3D11Renderer {
     bool login_caret_visible;
     bool begin_frame_permit;
     u32 interaction_text_active_mask;
-    RendererLoginStatus login_status;
+    LoginStatus login_status;
     // A removal or reset was seen; recovery clears it and counts a new device.
     bool device_lost;
     u32 device_generation;
@@ -705,7 +700,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126104);
+static_assert(sizeof(D3D11Renderer) == 126096);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process
@@ -808,7 +803,7 @@ bool renderer_bind_search_message_text_presentation(D3D11Renderer*, const Messag
                                                     const UserStore*, UiTextMeasureCache*) noexcept;
 void renderer_unbind_search_message_text_presentation(D3D11Renderer*) noexcept;
 bool renderer_set_login_view(D3D11Renderer* renderer, const LoginScene* scene,
-                             const RendererLoginView& view, const Theme& theme) noexcept;
+                             const LoginView& view, const Theme& theme) noexcept;
 bool renderer_login_edit_hit_test(const D3D11Renderer& renderer, const UiRect& text_rectangle,
                                   Utf8View visible_text, i32 client_x_pixels, i32 client_y_pixels,
                                   u32* codepoint) noexcept;
@@ -963,9 +958,9 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
 bool renderer_rebuild_shell_text(D3D11Renderer* renderer, const Theme& theme) noexcept;
 MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 client_x_pixels,
                                          i32 client_y_pixels) noexcept;
-RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
-                                                                       i32 client_x_pixels,
-                                                                       i32 client_y_pixels) noexcept;
+MessagePositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
+                                                           i32 client_x_pixels,
+                                                           i32 client_y_pixels) noexcept;
 // The emoji under a DIP point in the visible message timeline's body text.
 MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept;
 // The "(edited)" label under a DIP point: its message and revision, the edit time and the visible part of its
@@ -980,7 +975,7 @@ struct RendererEditedLabelHit {
 };
 RendererEditedLabelHit renderer_edited_label_hit_test(const D3D11Renderer& renderer, float x, float y) noexcept;
 void renderer_set_message_text_selection(D3D11Renderer* renderer,
-                                         const RendererMessageTextPositionHit& command, u32 anchor,
+                                         const MessagePositionHit& command, u32 anchor,
                                          u32 caret) noexcept;
 void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept;
 void renderer_set_dpi(D3D11Renderer* renderer, u32 dpi) noexcept;

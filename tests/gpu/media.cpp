@@ -113,7 +113,7 @@ void run() noexcept {
     GpuComputeShader *png = nullptr, *vp8 = nullptr, *jpeg_idct = nullptr, *jpeg_atlas = nullptr;
     check(gpu_ok(gpu_compute_shader_create(device, ShaderId::png_compute, &png)) &&
               gpu_ok(gpu_compute_shader_create(device, ShaderId::vp8_atlas, &vp8)) &&
-              gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_idct_rows, &jpeg_idct)) &&
+              gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_idct, &jpeg_idct)) &&
               gpu_ok(gpu_compute_shader_create(device, ShaderId::jpeg_atlas, &jpeg_atlas)),
           "the decode shaders");
 
