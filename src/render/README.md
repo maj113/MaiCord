@@ -25,7 +25,9 @@ is a paged surface (`gpu_paged_texture_*`, `include/maicord/gpu/api.hpp`) under 
 virtual height of up to eight fixed pages that shelves never cross. Rows are backed as shelves open (Direct3D 11: 128 or 256-row bands
 of 64 KiB tiles of one tiled texture; OpenGL ES: a whole texture per page) and returned at idle trim, so a surface never grows,
 compacts or copies, and nothing visible is evicted or moved to make room. What the allocator keeps beyond the visible set is bounded
-(`GlyphAtlasPaging::budget_rows`): past it, the least recently used slot that is not visible takes the request. Fixed-size profile media
+(`GlyphAtlasPaging::budget_rows`): past it, the least recently used slot that is not visible takes the request. A glyph atlas that
+runs out of entry records before pixels (`kRendererAtlasEntryCapacity`, small glyphs) empties its least recently used idle shelves
+until an eighth of the records is free, so a burst of new glyphs evicts once, not once a glyph. Fixed-size profile media
 (effect layers, banners, nameplates) have pools of their own pages (`kMediaAtlasProfilePools`), reused in ring order. Every entry keeps
 `kMediaAtlasPadding` clear texels around it, so a page holds pictures up to its size less twice that. The CDN sizes what it can to the
 drawn width (profile card images); what it cannot (effect layers, some at about twice their 450x880 slot) the media worker fits at

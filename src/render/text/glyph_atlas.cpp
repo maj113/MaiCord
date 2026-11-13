@@ -179,6 +179,20 @@ u32 open_shelf(GlyphAtlasAllocator* atlas, u32 height, u8 pool, bool commit) noe
     return kNone;
 }
 
+// Evicts the entries of shelves [first, end) that are not visible: the one scan of every entry an eviction makes.
+void evict_rows(GlyphAtlasAllocator* atlas, u32 first, u32 end, bool protect) noexcept {
+    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        live -= entry.occupied;
+        if (entry.occupied && entry.row - first < end - first && !entry_visible(*atlas, entry, protect)) {
+            evict_entry(atlas, index);
+        }
+    }
+}
+
+// Deciding on more backing and choosing what gives way under pressure run once a shelf at most, trims and resets
+// rarely: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The general region may back more rows while what it keeps beyond its
 // visible shelves stays within the budget.
 bool general_commit_allowed(const GlyphAtlasAllocator& atlas, u32 height, bool protect) noexcept {
@@ -227,6 +241,47 @@ u32 find_lru_entry(const GlyphAtlasAllocator& atlas, u32 width, u32 height, u8 p
     return found;
 }
 
+// The least recently used shelves that hold nothing visible, emptied until an eighth of the entry records is free:
+// a burst of new glyphs then costs one eviction (one rebuild of the text), not one a glyph, and the shelves fill
+// again from their left. False: every shelf holds something visible.
+bool empty_lru_rows(GlyphAtlasAllocator* atlas, bool protect) noexcept {
+    // The newest use among the shelves that go, taken oldest first.
+    u64 limit = 0;
+    for (u32 held = 0; !held || held * 8u < atlas->entry_capacity;) {
+        u64 next = ~0ull;
+        u32 entries = 0;
+        for (u32 index = 0; index < atlas->row_count; ++index) {
+            const GlyphAtlasRow& row = atlas->rows[index];
+            if (row.occupied_entries && row.last_used > limit && row.last_used < next &&
+                !row_visible(*atlas, index, protect)) {
+                next = row.last_used;
+                entries = row.occupied_entries;
+            }
+        }
+        if (!entries) {
+            break;
+        }
+        limit = next;
+        held += entries;
+    }
+    if (!limit) {
+        return false;
+    }
+    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        live -= entry.occupied;
+        if (entry.occupied && atlas->rows[entry.row].last_used <= limit && !row_visible(*atlas, entry.row, protect)) {
+            evict_entry(atlas, index);
+        }
+    }
+    for (u32 index = 0; index < atlas->row_count; ++index) {
+        if (atlas->rows[index].occupied_entries == 0) {
+            atlas->rows[index].cursor_x = 0;
+        }
+    }
+    return true;
+}
+
 // The least recently used shelf of the region that holds nothing visible and
 // could take the request (general shelves at most twice as tall), emptied:
 // every entry on it is evicted and it fills again from its left.
@@ -242,17 +297,10 @@ u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 pool, bo
         found = index;
         oldest = row.last_used;
     }
-    if (found == kNone) {
-        return kNone;
+    if (found != kNone) {
+        evict_rows(atlas, found, found + 1, protect);
+        atlas->rows[found].cursor_x = 0;
     }
-    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
-        const GlyphAtlasEntry& entry = atlas->entries[index];
-        live -= entry.occupied;
-        if (entry.occupied && entry.row == found) {
-            evict_entry(atlas, index);
-        }
-    }
-    atlas->rows[found].cursor_x = 0;
     return found;
 }
 
@@ -265,8 +313,6 @@ bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
     return false;
 }
 
-// Making room under pressure and resetting run rarely: compiled for size.
-#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // A run of general shelves of one page holding nothing visible becomes one
 // shelf for the request (the least recently used run that fits, within the
 // committed rows). Handles and pixels of every other entry stay as they are.
@@ -298,13 +344,7 @@ u32 reclaim_span(GlyphAtlasAllocator* atlas, u32 height, bool protect) noexcept 
     if (best == kNone) {
         return kNone;
     }
-    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
-        const GlyphAtlasEntry& entry = atlas->entries[index];
-        live -= entry.occupied;
-        if (entry.occupied && entry.row >= best && entry.row < best_end) {
-            evict_entry(atlas, index);
-        }
-    }
+    evict_rows(atlas, best, best_end, protect);
     const u32 page = page_of(*atlas, atlas->rows[best].y);
     const bool tail = best_end == atlas->row_count || page_of(*atlas, atlas->rows[best_end].y) != page;
     const u32 y = atlas->rows[best].y;
@@ -450,13 +490,7 @@ u32 glyph_atlas_trim(GlyphAtlasAllocator* atlas) noexcept {
     }
     atlas->trim_pending = false;
     const u32 evicted_before = atlas->evicted_entries;
-    for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
-        const GlyphAtlasEntry& entry = atlas->entries[index];
-        live -= entry.occupied;
-        if (entry.occupied && !entry_visible(*atlas, entry, true)) {
-            evict_entry(atlas, index);
-        }
-    }
+    evict_rows(atlas, 0, atlas->row_count, true);
     // Empty shelves at the end of a page go; the others start over.
     for (u32 index = atlas->row_count; index-- > 0;) {
         GlyphAtlasRow& row = atlas->rows[index];
@@ -670,13 +704,16 @@ GlyphAtlasAllocation glyph_atlas_allocate_unique(GlyphAtlasAllocator* atlas, u64
     if (row_index != kNone && record == kNone) {
         record = find_empty_entry(atlas);
         if (record == kNone) {
-            // Out of entry records: the least recently used invisible entry
-            // gives up its record (its pixels stay unused until its shelf empties).
-            record = find_lru_entry(*atlas, 0, 0, 0, protect, true);
-            if (record == kNone && protect)
+            // Out of entry records. Glyphs: whole shelves give way (empty_lru_rows), those used recently only when
+            // every shelf was. Otherwise the least recently used invisible entry gives up its record alone.
+            if (!atlas->protect_allocations) {
                 record = find_lru_entry(*atlas, 0, 0, 0, false, true);
-            if (record != kNone)
-                evict_entry(atlas, record);
+                if (record != kNone) {
+                    evict_entry(atlas, record);
+                }
+            } else if (empty_lru_rows(atlas, protect) || (protect && empty_lru_rows(atlas, false))) {
+                record = find_empty_entry(atlas);
+            }
         }
     }
     if (row_index == kNone || record == kNone) {

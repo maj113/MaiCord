@@ -33,65 +33,79 @@ bool initialize(ColrPaintGpu* g, GpuContext* context, GpuDevice* device, u16 ext
 // Only an already accumulated destination followed by one shaped source may
 // use the stack-free kernel. Nested groups, masks and other composite modes
 // keep the general interpreter and its evaluation order.
-u32 layered_node_count(const ColrPaintProgram& p) noexcept {
+bool layered_program(const ColrPaintProgram& p) noexcept {
     u32 at=p.first, depth=0, clipped=0;
     for(u32 i=0;i<p.nodes;++i) {
-        if(at>p.storage.offset || sizeof(ColrPaintOp)>p.storage.offset-at)return 0;
+        if(at>p.storage.offset || sizeof(ColrPaintOp)>p.storage.offset-at)return false;
         const auto& n=*reinterpret_cast<const ColrPaintOp*>(p.storage.base+at);
         const usize bytes=n.kind==8?sizeof(ColrSolidPaintNode):
             n.kind==6?sizeof(ColrPaintOp):sizeof(ColrPaintNode);
-        if(bytes>p.storage.offset-at)return 0;
+        if(bytes>p.storage.offset-at)return false;
         if(n.kind>=8&&n.kind<=11) {
-            if(clipped||depth==2)return 0;
-            if(n.reserved>p.storage.offset || sizeof(ColrMask)>p.storage.offset-n.reserved)return 0;
+            if(clipped||depth==2)return false;
+            if(n.reserved>p.storage.offset || sizeof(ColrMask)>p.storage.offset-n.reserved)return false;
             ++depth;
         } else if(n.kind==6) {
-            if(clipped||depth!=2||n.mode!=3||n.count!=1)return 0;
+            if(clipped||depth!=2||n.mode!=3||n.count!=1)return false;
             depth=1;
         } else if(n.kind==5) {
-            if(depth!=1)return 0;
-            ++clipped;
-        } else return 0;
+            if(depth!=1)return false;
+            clipped=1;
+        } else return false;
         at=n.next;
     }
-    // Each extra source has one implicit composite; clip nodes remain in the plan.
-    return depth==1?static_cast<u32>((u64{p.nodes}+clipped+1)/2):0;
+    return depth==1;
 }
-u32 layer_plan_capacity(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 padding,u32 layer_nodes) noexcept {
-    const u32 columns=(b.width+2*padding+7)/8,rows=(b.height+2*padding+7)/8;
-    // Bound preprocessing and upload growth, including large public media paints.
-    if(columns*rows>1024 || static_cast<u64>(columns)*rows*(p.nodes+2)>131072)return 0;
-    return columns*rows*(layer_nodes+2)*4;
-}
-u32 write_layer_plan(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 padding,u8* target) noexcept {
-    const u32 columns=(b.width+2*padding+7)/8,rows=(b.height+2*padding+7)/8;
-    const u32 start=static_cast<u32>(p.storage.offset),table_bytes=columns*rows*8;
-    auto* table=reinterpret_cast<u32*>(target+start);
-    auto* indices=reinterpret_cast<u32*>(target+start+table_bytes);
-    u32 count=0;
-    for(u32 y=0;y<rows;++y)for(u32 x=0;x<columns;++x) {
-        const u32 tile=y*columns+x,first=count;
-        const i64 left=i64{b.left}-padding+x*8,top=i64{b.top}-padding+y*8;
-        u32 at=p.first;
-        for(u32 i=0;i<p.nodes;++i) {
-            const auto& n=*reinterpret_cast<const ColrPaintOp*>(p.storage.base+at);
-            bool include=n.kind==5;
-            if(n.kind>=8&&n.kind<=11) {
-                const auto& mask=*reinterpret_cast<const ColrMask*>(p.storage.base+n.reserved);
-                include=mask.left<left+8 && mask.top<top+8 &&
-                    i64{mask.left}+mask.width>left && i64{mask.top}+mask.height>top;
-            }
-            if(include)indices[count++]=at;
-            at=n.next;
+// The plan lists, for every 8x8 tile of the job's rectangle, the nodes that can paint there: a shaped source where its
+// mask's rectangle meets the tile, a root clip everywhere. Two passes over the nodes build it, each a few instructions
+// for every node a tile lists. Without a target: counts each tile's nodes and returns the plan's size in bytes (0: no
+// plan, past 1,024 tiles or 65,536 listed nodes). With the mapped program as target: writes the plan after it from
+// those counts, the tiles' lists in node order (as the kernel composes them). Bounds and mask rectangles come from
+// glyph_raster_bounds (within 65,600 pixels of the origin).
+u32 g_plan_tiles[1024];
+__attribute__((minsize))
+u32 layer_plan(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 padding,u8* target) noexcept {
+    const i32 columns=(b.width+2*padding+7)/8,rows=(b.height+2*padding+7)/8;
+    const u32 tiles=static_cast<u32>(columns*rows);
+    u32* indices=nullptr;
+    if(target) {
+        auto* table=reinterpret_cast<u32*>(target+p.storage.offset);
+        indices=table+tiles*2;
+        u32 first=0;
+        for(u32 tile=0;tile<tiles;++tile) {
+            const u32 count=g_plan_tiles[tile];
+            table[tile*2]=static_cast<u32>(p.storage.offset)+(tiles*2+first)*4;
+            table[tile*2+1]=count;
+            g_plan_tiles[tile]=first;
+            first+=count;
         }
-        table[tile*2]=start+table_bytes+first*4;
-        table[tile*2+1]=count-first;
+    } else {
+        if(tiles>1024)return 0;
+        clear_bytes(g_plan_tiles,tiles*sizeof(u32));
     }
-    return table_bytes+count*4;
+    u32 at=p.first,references=0;
+    for(u32 i=0;i<p.nodes;++i) {
+        const auto& n=*reinterpret_cast<const ColrPaintOp*>(p.storage.base+at);
+        i32 x0=0,x1=columns,y0=0,y1=n.kind==6?0:rows;
+        if(n.kind>=8) {
+            const auto& mask=*reinterpret_cast<const ColrMask*>(p.storage.base+n.reserved);
+            const i32 x=mask.left-b.left+padding,y=mask.top-b.top+padding;
+            x0=maximum(x>>3,0);x1=minimum((x+static_cast<i32>(mask.width)+7)>>3,columns);
+            y0=maximum(y>>3,0);y1=minimum((y+static_cast<i32>(mask.height)+7)>>3,rows);
+        }
+        for(i32 y=y0;y<y1;++y)for(i32 x=x0;x<x1;++x) {
+            u32& position=g_plan_tiles[y*columns+x];
+            if(indices)indices[position]=at;
+            ++position;++references;
+        }
+        // Bound preprocessing and upload growth, including large public media paints.
+        if(references>65536)return 0;
+        at=n.next;
+    }
+    return tiles*8+references*4;
 }
-// The layer plan above is a per-glyph loop and stays optimized for speed; binding,
-// resource creation, the queue and its dispatch are D3D calls: compiled for size
-// (the job-extent loop stays scalar).
+// The program check above runs per glyph and stays optimized for speed; the plan, binding, resource creation, the
+// queue and its dispatch are compiled for size (the job-extent loop stays scalar).
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void unbind_colr(GpuContext* context) noexcept {
     GpuUav* uav=nullptr;
@@ -183,9 +197,8 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
         a.y + a.height + padding > target_height || !(scale > 0.f) || scale > 1024.f ||
         (batch && batch->context != context))
         return false;
-    const u32 layer_nodes = layered_node_count(p);
-    const bool layers = layer_nodes != 0;
-    const u32 plan_capacity=layers?layer_plan_capacity(p,bounds,padding,layer_nodes):0;
+    const bool layers = layered_program(p);
+    const u32 plan_capacity=layers?layer_plan(p,bounds,padding,nullptr):0;
     const u32 bytes = static_cast<u32>(p.storage.offset)+plan_capacity;
     const bool general = !layers && p.peak_stack > 8;
     // Without a target the job writes the page of the atlas holding it, in that page's rows.
@@ -228,10 +241,12 @@ static bool rasterize_colr(ColrPaintGpu* g, GpuContext* context, const ColrPaint
         return false;
     auto* upload=static_cast<u8*>(mapped)+program_base;
     CopyMemory(upload,p.storage.base,p.storage.offset);
-    const u32 plan_bytes=plan_capacity?write_layer_plan(p,bounds,padding,upload):0;
-    if(plan_capacity)++g->spatial_jobs;
+    if(plan_capacity) {
+        layer_plan(p,bounds,padding,upload);
+        ++g->spatial_jobs;
+    }
     gpu_unmap(context, g->program);
-    g->upload_cursor = (program_base + static_cast<u32>(p.storage.offset) + plan_bytes + 15) & ~15u;
+    g->upload_cursor = (program_base + bytes + 15) & ~15u;
     job.program_base = program_base;
     ++g->dispatches;
     if (batch) {

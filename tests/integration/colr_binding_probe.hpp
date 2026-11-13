@@ -4,6 +4,7 @@
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
+#include "maicord/render/text/glyph_raster.hpp"
 namespace maicord {
 inline bool colr_compute_bindings_empty(ID3D11DeviceContext* context) noexcept {
     ID3D11Buffer* constant=nullptr;ID3D11ComputeShader* shader=nullptr;
@@ -105,6 +106,92 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         if(colr_paint_rasterize(&gpu,context,program,rectangle,invalid,16,32,32,1,&batch))return fail(5);
     }
     if(!colr_compute_bindings_empty(context))return fail(6);
+    // A compiled layered program over several tiles: three opaque half-em squares, red at the left, blue at the right
+    // and green across the middle over both. Its plan must give every tile exactly the layers that reach it, in order.
+    {
+        struct Squares {u32 layer;bool entered,stacked;} squares{};
+        static constexpr ColrColor kSquareColors[]{{1,0,0,1},{0,0,1,1},{0,1,0,1}};
+        const ColrPaintSource callbacks{&squares,
+            +[](void* opaque,ColrPaintElement* output) noexcept {
+                auto& s=*static_cast<Squares*>(opaque);
+                if(!s.entered){s.entered=true;s.layer=0;}
+                *output={};output->kind=ColrPaintKind::solid_glyph;output->paint.solidGlyph={7,{kSquareColors[s.layer]}};
+                return true;
+            },
+            +[](void* opaque,ColrPaintElement* output) noexcept {
+                auto& s=*static_cast<Squares*>(opaque);
+                *output={};++s.layer;
+                if(s.stacked){
+                    output->kind=ColrPaintKind::solid_glyph;output->paint.solidGlyph={7,{kSquareColors[s.layer%3]}};
+                } else {
+                    output->kind=ColrPaintKind::transform;output->paint.transform={1,0,0,1,s.layer==1?.5f:.25f,0};
+                }
+                return true;
+            },
+            +[](void*) noexcept {return true;},
+            +[](void*,Slice<ColrGradientStop>) noexcept {return false;},
+            +[](void*,u16,GlyphOutline* output) noexcept {
+                if(output->capacity<5)return false;
+                output->commands[0]={0,0,0,0,0,0,GlyphPathCommandKind::begin_filled,{}};
+                output->commands[1]={.5f,0,0,0,0,0,GlyphPathCommandKind::line,{}};
+                output->commands[2]={.5f,.5f,0,0,0,0,GlyphPathCommandKind::line,{}};
+                output->commands[3]={0,.5f,0,0,0,0,GlyphPathCommandKind::line,{}};
+                output->commands[4]={0,0,0,0,0,0,GlyphPathCommandKind::end_closed,{}};
+                output->count=5;output->fill_rule=GlyphFillRule::winding;return true;
+            }};
+        ColrPaintGpu planned{};ColrPaintProgram built{};ID3D11Texture2D* copy=nullptr;
+        struct ReleasePlanned {ColrPaintGpu& g;ColrPaintProgram& p;ID3D11Texture2D*& s;
+            ~ReleasePlanned() noexcept {com_release(s);colr_paint_gpu_release(&g);arena_release(&p.storage);}} release_planned{planned,built,copy};
+        ColrPaintElement root{};root.kind=ColrPaintKind::layers;root.paint.layers.childCount=3;
+        GlyphRasterBounds bounds{};
+        if(!colr_program_build(&built,callbacks,root,{},32)||built.nodes!=5||built.peak_stack!=2||
+           !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,32,1,&bounds)||
+           bounds.width!=34||bounds.height!=18)return fail(30);
+        GlyphAtlasAllocation allocation{};allocation.x=allocation.y=1;allocation.width=bounds.width;allocation.height=bounds.height;
+        if(!colr_paint_rasterize(&planned,context,built,bounds,allocation,32,64,64,1)||planned.spatial_jobs!=1||
+           !colr_compute_bindings_empty(context))return fail(31);
+        D3D11_TEXTURE2D_DESC description{};planned.surface->texture->GetDesc(&description);
+        description.Usage=D3D11_USAGE_STAGING;description.BindFlags=description.MiscFlags=0;
+        description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        if(FAILED(device->CreateTexture2D(&description,nullptr,&copy)))return fail(32);
+        context->CopyResource(copy,planned.surface->texture);D3D11_MAPPED_SUBRESOURCE mapped{};
+        if(FAILED(context->Map(copy,0,D3D11_MAP_READ,0,&mapped)))return fail(33);
+        bool planned_exact=true;
+        for(u32 y=0;y<bounds.height;++y)for(u32 x=0;x<bounds.width;++x){
+            // The tile's first pixel is one pixel left of and above the squares.
+            const i32 px=static_cast<i32>(x)-1,py=static_cast<i32>(y)-1;
+            const bool inside=px>=0&&px<32&&py>=0&&py<16;
+            const u8 expected[4]{static_cast<u8>(inside&&px<8?255:0),static_cast<u8>(inside&&px>=8&&px<24?255:0),
+                                 static_cast<u8>(inside&&px>=24?255:0),static_cast<u8>(inside?255:0)};
+            planned_exact=planned_exact&&bytes_equal(static_cast<const u8*>(mapped.pData)+(y+1)*mapped.RowPitch+(x+1)*4,expected,4);
+        }
+        context->Unmap(copy,0);
+        if(!planned_exact)return fail(34);
+        // The plan's bounds. 64 squares stacked over all 1,024 tiles of a 256-pixel job list 65,536 nodes and are
+        // planned; one more square, or a job of 1,089 tiles, is not: the layers kernel then composes every layer at
+        // every pixel. All three paint the top square.
+        ColrPaintGpu stack{};ID3D11Texture2D* pixel=nullptr;
+        struct ReleaseStack {ColrPaintGpu& g;ID3D11Texture2D*& s;
+            ~ReleaseStack() noexcept {com_release(s);colr_paint_gpu_release(&g);}} release_stack{stack,pixel};
+        description.Width=description.Height=1;
+        if(FAILED(device->CreateTexture2D(&description,nullptr,&pixel)))return fail(35);
+        struct Stack {u32 count;float scale;u16 extent;} const stacks[]{{64,504,254},{65,504,254},{2,520,262}};
+        for(const Stack& s:stacks){
+            squares={0,false,true};root.paint.layers.childCount=s.count;
+            if(!colr_program_build(&built,callbacks,root,{},s.scale)||built.nodes!=s.count*2-1||
+               !glyph_raster_bounds(built.bounds.minimum_x,built.bounds.minimum_y,built.bounds.maximum_x,built.bounds.maximum_y,s.scale,1,&bounds)||
+               bounds.width!=s.extent||bounds.height!=s.extent)return fail(36);
+            allocation.width=bounds.width;allocation.height=bounds.height;
+            if(!colr_paint_rasterize(&stack,context,built,bounds,allocation,s.scale,512,512,1)||stack.spatial_jobs!=1)return fail(37);
+            const D3D11_BOX center{128,128,0,129,129,1};
+            context->CopySubresourceRegion(pixel,0,0,0,0,stack.surface->texture,0,&center);
+            if(FAILED(context->Map(pixel,0,D3D11_MAP_READ,0,&mapped)))return fail(38);
+            const u8 top[4]{static_cast<u8>(s.count==64?255:0),0,static_cast<u8>(s.count==64?0:255),255};
+            const bool top_painted=bytes_equal(mapped.pData,top,4);
+            context->Unmap(pixel,0);
+            if(!top_painted)return fail(39);
+        }
+    }
     D3D11_TEXTURE2D_DESC description{};gpu.surface->texture->GetDesc(&description);
     description.Usage=D3D11_USAGE_STAGING;description.BindFlags=description.MiscFlags=0;
     description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;

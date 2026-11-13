@@ -18,6 +18,7 @@ struct Builder {
     const ColrPaintSource* source;
     float scale;
     u32 mask_buckets[256]{};
+    bool composed{}; // The paint just built composed itself onto the paint below it (see children).
 };
 static_assert(offsetof(ColrPaintElement, paint.linearGradient.x0) ==
                   offsetof(ColrPaintElement, paint.linearGradient.extendMode) + 2 * sizeof(u32) &&
@@ -320,29 +321,38 @@ bool clip(Builder& b, const ColrRect& r, const ColrMatrix& m) noexcept {
     n->values[3] = r.bottom;
     return true;
 }
-bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth) noexcept;
-bool children(Builder& b, u32 count, const ColrMatrix& m, u32 depth, bool layers) noexcept {
+// `under`: the paint below is on the stack, and source-over is associative: a layer group reached through it composes
+// each of its layers onto that paint in turn (Builder::composed tells the caller), so nested groups stay one chain of
+// leaf and composite pairs (the form the stack-free kernel takes) instead of a group value composed afterwards.
+bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth, bool under = false) noexcept;
+bool children(Builder& b, u32 count, const ColrMatrix& m, u32 depth, bool layers, bool under = false) noexcept {
     ColrPaintElement child{};
     if (!count)
         return emit(b, 7) != nullptr;
     if (!b.source->first_child(b.source->context,&child))
         return false;
     for (u32 i = 0; i < count; ++i) {
-        if (!tree(b, child, m, depth + 1))
+        // A group's first layer starts its chain unless the group itself continues one; a transform hands on its own.
+        const bool below = under || (layers && i);
+        b.composed = false;
+        if (!tree(b, child, m, depth + 1, below))
             return false;
-        if (layers && i) {
-            auto* n = emit(b, 6);
-            if (!n)
-                return false;
-            n->mode = 3;
-            n->count = 1;
+        if (layers) {
+            if (below && !b.composed) {
+                auto* n = emit(b, 6);
+                if (!n)
+                    return false;
+                n->mode = 3;
+                n->count = 1;
+            }
+            b.composed = under;
         }
         if (i + 1 < count && !b.source->next_sibling(b.source->context,&child))
             return false;
     }
     return b.source->parent(b.source->context);
 }
-bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth) noexcept {
+bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth, bool under) noexcept {
     if (depth > 64)
         return false;
     b.p->paint_types |= 1u << static_cast<u32>(e.kind);
@@ -351,14 +361,14 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth)
     case ColrPaintKind::none:
         return emit(b, 7) != nullptr;
     case ColrPaintKind::layers:
-        return children(b, p.layers.childCount, m, depth, true);
+        return children(b, p.layers.childCount, m, depth, true, under);
     case ColrPaintKind::transform: {
         const auto transformed = multiply(p.transform, m);
         // Traversal only needs the singularity decision, not six inverse values.
         const float det = transformed.m11 * transformed.m22 - transformed.m12 * transformed.m21;
         if (!(det > 1e-12f || det < -1e-12f))
             return emit(b, 7) != nullptr;
-        return children(b, 1, transformed, depth, false);
+        return children(b, 1, transformed, depth, false, under);
     }
     case ColrPaintKind::glyph:
         return children(b, 1, m, depth, false) && mask(b, p.glyph.glyphIndex, m);

@@ -323,6 +323,119 @@ bool outline_capacity_cases() noexcept {
     const bool invalid_rows=!colr_test::equal(candidate,candidate);job->height=height;
     return changed_edge&&truncated_mask&&invalid_rows&&colr_test::equal(candidate,reference);
 }
+// Paint trees for the layer group cases: a node's children are its `count` nodes from `first`.
+struct TreeNode { ColrPaintKind kind; u32 first,count,mode; ColrColor color; };
+struct TreeSource { Source outlines; const TreeNode* nodes; u32 current,depth,stack[16]; };
+void tree_element(const TreeNode& n,ColrPaintElement* output) noexcept {
+    *output={};output->kind=n.kind;
+    if(n.kind==ColrPaintKind::layers)output->paint.layers.childCount=n.count;
+    else if(n.kind==ColrPaintKind::transform)output->paint.transform={1,0,0,1,.25f,0};
+    else if(n.kind==ColrPaintKind::composite)output->paint.composite.mode=n.mode;
+    else if(n.kind==ColrPaintKind::glyph)output->paint.glyph.glyphIndex=7;
+    else if(n.kind==ColrPaintKind::color_glyph)output->paint.colorGlyph={7,{0,0,1,1}};
+    else output->paint.solid.value=n.color;
+}
+constexpr ColrPaintSource kTreeCallbacks{nullptr,
+    +[](void* context,ColrPaintElement* output) noexcept {
+        auto& s=*static_cast<TreeSource*>(context);if(s.depth==16)return false;
+        s.stack[s.depth++]=s.current;s.current=s.nodes[s.current].first;tree_element(s.nodes[s.current],output);return true;
+    },
+    +[](void* context,ColrPaintElement* output) noexcept {
+        auto& s=*static_cast<TreeSource*>(context);tree_element(s.nodes[++s.current],output);return true;
+    },
+    +[](void* context) noexcept {auto& s=*static_cast<TreeSource*>(context);s.current=s.stack[--s.depth];return true;},
+    stops,outline};
+// What a tree and a program paint under a pixel every shape covers, premultiplied: the tree by its meaning (a layer
+// group is its layers composed source-over, first lowest, then used as one paint), the program by the kernel's stack rules.
+struct Rgba { float v[4]; };
+Rgba tree_composite(const Rgba& s,const Rgba& d,u32 mode) noexcept {
+    Rgba r{};
+    for(u32 i=0;i<4;++i)r.v[i]=mode==3?s.v[i]+d.v[i]*(1-s.v[3]):mode==5?s.v[i]*d.v[3]:s.v[i]*(1-d.v[3]);
+    return r;
+}
+Rgba premultiplied(const float* c) noexcept {return {{c[0]*c[3],c[1]*c[3],c[2]*c[3],c[3]}};}
+Rgba tree_value(const TreeNode* nodes,u32 at) noexcept {
+    const auto& n=nodes[at];Rgba r{};
+    if(n.kind==ColrPaintKind::solid)return premultiplied(&n.color.r);
+    if(n.kind==ColrPaintKind::transform)return tree_value(nodes,n.first);
+    if(n.kind==ColrPaintKind::composite)return tree_composite(tree_value(nodes,n.first),tree_value(nodes,n.first+1),n.mode);
+    for(u32 i=0;i<n.count;++i){const Rgba layer=tree_value(nodes,n.first+i);r=i?tree_composite(layer,r,3):layer;}
+    return r;
+}
+bool program_value(const ColrPaintProgram& p,Rgba* output) noexcept {
+    Rgba stack[16];u32 top=0,at=p.first;
+    for(u32 i=0;i<p.nodes;++i){
+        const auto& n=*reinterpret_cast<const ColrSolidPaintNode*>(p.storage.base+at);
+        if((n.kind==0||n.kind==7)&&top<16)stack[top++]=n.kind?Rgba{}:premultiplied(n.values);
+        else if(n.kind==6&&top>=2){const Rgba upper=stack[--top],lower=stack[top-1];
+            stack[top-1]=tree_composite(n.count?upper:lower,n.count?lower:upper,n.mode);}
+        else return false;
+        at=n.next;
+    }
+    if(top!=1)return false;
+    *output=stack[0];return true;
+}
+// A layer group inside a layer chain joins the chain (source-over is associative), directly or through transforms;
+// a group that is one operand of a composite, the paint of a mask or the content of a clip box stays a group.
+bool layer_group_cases() noexcept {
+    using K=ColrPaintKind;
+    constexpr ColrColor a{1,0,0,.5f},b{0,1,0,.25f},c{0,0,1,.75f},d{1,1,0,.5f};
+    ColrPaintProgram program{};
+    struct Release {ColrPaintProgram& p;~Release() noexcept {arena_release(&p.storage);}} release{program};
+    // `kinds`: the program's node kinds in order; `peak`: its stack depth; `exact`: its value is checked against the tree's.
+    const auto built=[&](const TreeNode* nodes,const char* kinds,u32 peak,bool exact=true) noexcept {
+        TreeSource source{};source.nodes=nodes;
+        ColrPaintSource callbacks=kTreeCallbacks;callbacks.context=&source;
+        ColrPaintElement root{};tree_element(nodes[0],&root);
+        if(!colr_program_build(&program,callbacks,root,{},32)||program.stack!=1||(kinds&&program.peak_stack!=peak))return false;
+        u32 at=program.first;
+        for(u32 i=0;kinds&&i<program.nodes;++i){
+            const auto& n=*reinterpret_cast<const ColrPaintOp*>(program.storage.base+at);
+            if(!kinds[i]||n.kind!=static_cast<u32>(kinds[i]-'0'))return false;
+            at=n.next;
+        }
+        if(kinds&&kinds[program.nodes])return false;
+        if(!exact)return true;
+        Rgba actual{};const Rgba expected=tree_value(nodes,0);
+        if(!program_value(program,&actual))return false;
+        for(u32 i=0;i<4;++i){const float difference=actual.v[i]-expected.v[i];
+            if(!(difference<1e-5f&&difference>-1e-5f))return false;}
+        return true;
+    };
+    const TreeNode nested[]{{K::layers,1,3},{K::solid,0,0,0,a},{K::layers,4,2},{K::solid,0,0,0,b},{K::solid,0,0,0,c},{K::solid,0,0,0,d}};
+    const TreeNode transformed[]{{K::layers,1,2},{K::solid,0,0,0,a},{K::transform,3,1},{K::layers,4,2},{K::solid,0,0,0,b},{K::solid,0,0,0,c}};
+    const TreeNode leading[]{{K::layers,1,2},{K::layers,3,2},{K::solid,0,0,0,a},{K::solid,0,0,0,b},{K::solid,0,0,0,c}};
+    const TreeNode empty[]{{K::layers,1,2},{K::solid,0,0,0,a},{K::layers,0,0}};
+    TreeNode composed[]{{K::layers,1,2},{K::solid,0,0,0,a},{K::composite,3,2,5},{K::layers,5,2},{K::solid,0,0,0,b},{K::solid,0,0,0,c},{K::solid,0,0,0,d}};
+    const TreeNode masked[]{{K::layers,1,2},{K::solid,0,0,0,a},{K::glyph,3,1},{K::layers,4,2},{K::solid,0,0,0,b},{K::solid,0,0,0,c}};
+    const TreeNode clipped[]{{K::layers,1,2},{K::solid,0,0,0,a},{K::color_glyph,3,1},{K::layers,4,2},{K::solid,0,0,0,b},{K::solid,0,0,0,c}};
+    bool ok=built(nested,"0060606",2)&&built(transformed,"00606",2)&&built(leading,"00606",2)&&built(empty,"076",2);
+    // Not joined: the group is a composite's operand (whatever the mode, source-over included), a mask's paint or a clip's content.
+    const u32 composite_modes[]{5,7,3};
+    for(const u32 mode:composite_modes){composed[2].mode=mode;ok=ok&&built(composed,"0006066",3);}
+    ok=ok&&built(masked,"000646",3,false)&&built(clipped,"000656",3,false);
+    // Any nesting of groups, transforms and composites means what the tree means.
+    u32 random=0x51ed270b;
+    const auto draw=[&](u32 range) noexcept {random^=random<<13;random^=random>>17;random^=random<<5;return random%range;};
+    for(u32 trial=0;ok&&trial<400;++trial){
+        TreeNode nodes[64]{};u8 depth[64]{};u32 count=1;
+        nodes[0].kind=K::layers;
+        for(u32 i=0;i<count;++i){
+            auto& n=nodes[i];
+            if(i){const u32 pick=depth[i]>=4?9:draw(10);
+                n.kind=pick<4?K::layers:pick<5?K::transform:pick<7?K::composite:K::solid;}
+            const u32 children=n.kind==K::layers?draw(4):n.kind==K::transform?1:n.kind==K::composite?2:0;
+            if(count+children>64){n.kind=K::solid;}
+            else if(n.kind!=K::solid){n.first=count;n.count=children;
+                for(u32 child=0;child<children;++child)depth[count+child]=static_cast<u8>(depth[i]+1);
+                count+=children;}
+            if(n.kind==K::composite){const u32 modes[]{3,5,7};n.mode=modes[draw(3)];}
+            if(n.kind==K::solid)n.color={draw(5)*.25f,draw(5)*.25f,draw(5)*.25f,draw(5)*.25f};
+        }
+        ok=built(nodes,nullptr,0);
+    }
+    return ok;
+}
 }
 bool colr_program_tests() noexcept {
     constexpr auto vector=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"ks":{"o":{"k":100}},"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]},"r":{"k":12}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}},{"ty":"tr","o":{"k":100}}]}]}]})");
@@ -434,7 +547,7 @@ bool colr_program_tests() noexcept {
     root.paint.linearGradient.gradientStopCount=0;
     ok=ok && !colr_program_build(&program,callbacks,root,{},32);
     callbacks.stops=nullptr;ok=ok && !colr_program_build(&program,callbacks,root,{},32);
-    arena_release(&program.storage);return vector_ok && ok && segment_capacity_cases() && row_bin_cases() && outline_capacity_cases() && packed_bounds_cases() && matrix_validation_cases() && gradient_value_cases() && closing_edge_cases();
+    arena_release(&program.storage);return vector_ok && ok && segment_capacity_cases() && row_bin_cases() && outline_capacity_cases() && packed_bounds_cases() && matrix_validation_cases() && gradient_value_cases() && closing_edge_cases() && layer_group_cases();
 }
 bool colr_source_tests() noexcept;
 } // namespace maicord

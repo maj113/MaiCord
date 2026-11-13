@@ -290,6 +290,59 @@ void test_commit_accounting(void (*check)(bool, const char*) noexcept) noexcept 
     check(glyph_ok && glyphs.row_count == 4 && burst.ok() && burst.evicted_entries == 4 && burst.y == 0 &&
               !burst.atlas_reset && glyphs.full_resets == 0 && glyph_atlas_find(&glyphs, 5).ok(),
           "atlas_glyph_mode_full_surface_empties_the_oldest_shelf");
+
+    // Glyph mode, out of entry records with pixels to spare: the least recently used shelf that holds nothing used
+    // recently is emptied (here more than an eighth of the records), so the glyphs that follow need no eviction each;
+    // a shelf with an entry a lookup marked used stays whole.
+    GlyphAtlasEntry record_entries[8]{};
+    GlyphAtlasRow record_rows[8]{};
+    GlyphAtlasAllocator records{};
+    bool records_ok = glyph_atlas_initialize(&records, 64, 64, 0, {record_entries, 8}, {record_rows, 8}) &&
+                      glyph_atlas_configure_paging(&records, {64, 1, true, 0, 0, 2'000, true, {}});
+    GlyphAtlasHandle held[8]{};
+    for (u64 key = 1; records_ok && key <= 8; ++key) {
+        const auto allocation = glyph_atlas_allocate_unique(&records, key, 16, 16);
+        records_ok = allocation.ok();
+        held[key - 1] = allocation.handle;
+    }
+    glyph_atlas_observe_time(&records, 10'000);
+    records_ok = records_ok && glyph_atlas_find(&records, 2).ok();
+    const auto ninth = glyph_atlas_allocate_unique(&records, 9, 16, 16);
+    const auto tenth = glyph_atlas_allocate_unique(&records, 10, 16, 16);
+    check(records_ok && ninth.ok() && ninth.evicted_entries == 4 && !ninth.atlas_reset && ninth.y == 32 &&
+              tenth.ok() && tenth.evicted_entries == 0 && records.full_resets == 0 && records.entry_count == 6 &&
+              glyph_atlas_validate(records, held[0]) && glyph_atlas_validate(records, held[1]) &&
+              glyph_atlas_validate(records, held[3]) && !glyph_atlas_validate(records, held[4]) &&
+              !glyph_atlas_validate(records, held[7]),
+          "atlas_glyph_mode_record_pressure_empties_the_oldest_idle_shelf");
+    // With every shelf recently used the protection gives way: the least recently used shelf goes whole, and fills
+    // again from its left. (The tenth glyph took the shelf the ninth emptied, so the next two go beside it.)
+    const auto eleventh = glyph_atlas_allocate_unique(&records, 11, 16, 16);
+    const auto twelfth = glyph_atlas_allocate_unique(&records, 12, 16, 16);
+    const auto thirteenth = glyph_atlas_allocate_unique(&records, 13, 16, 16);
+    const auto fourteenth = glyph_atlas_allocate_unique(&records, 14, 16, 16);
+    check(tenth.x == 0 && tenth.y == 16 && eleventh.ok() && eleventh.evicted_entries == 0 && eleventh.x == 16 &&
+              eleventh.y == 16 && twelfth.ok() && twelfth.evicted_entries == 0 && thirteenth.ok() &&
+              thirteenth.evicted_entries == 4 && thirteenth.x == 48 && thirteenth.y == 16 && fourteenth.ok() &&
+              fourteenth.evicted_entries == 0 && fourteenth.x == 0 && fourteenth.y == 0 &&
+              records.entry_count == 6 && records.full_resets == 0 &&
+              !glyph_atlas_validate(records, held[1]) && glyph_atlas_validate(records, ninth.handle),
+          "atlas_glyph_mode_record_pressure_with_all_recent_empties_the_oldest_shelf");
+    // A shelf that holds less than an eighth of the records: the next least recently used shelves follow until an
+    // eighth is free (two glyphs a shelf, 32 records: two shelves).
+    GlyphAtlasEntry narrow_entries[32]{};
+    GlyphAtlasRow narrow_rows[32]{};
+    GlyphAtlasAllocator narrow{};
+    bool narrow_ok = glyph_atlas_initialize(&narrow, 32, 512, 0, {narrow_entries, 32}, {narrow_rows, 32}) &&
+                     glyph_atlas_configure_paging(&narrow, {64, 8, true, 0, 0, 2'000, true, {}});
+    for (u64 key = 1; narrow_ok && key <= 32; ++key)
+        narrow_ok = glyph_atlas_allocate_unique(&narrow, key, 16, 16).ok();
+    glyph_atlas_observe_time(&narrow, 10'000);
+    const auto thirty_third = glyph_atlas_allocate_unique(&narrow, 33, 16, 16);
+    check(narrow_ok && narrow.row_count == 17 && thirty_third.ok() && thirty_third.evicted_entries == 4 &&
+              !thirty_third.atlas_reset && narrow.entry_count == 29 && !glyph_atlas_find(&narrow, 4).ok() &&
+              glyph_atlas_find(&narrow, 5).ok(),
+          "atlas_glyph_mode_record_pressure_frees_an_eighth_of_the_records");
 }
 
 // Out of virtual space: every page full of visible pictures. The request is refused, logged by the caller, and
