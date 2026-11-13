@@ -1,6 +1,7 @@
 // Media pages end to end over the real page store, viewer page mode and input routing: open, limit, show and
 // hide (zoom and pan kept), pointer routing beside the sidebar and member list, the request through the page's
-// own {url, key}, the forced signature refresh, and the unavailable state that no pump asks again until Retry.
+// own {url, key}, the forced signature refresh, the unavailable state that no pump asks again until Retry, and an
+// animated picture that keeps playing while its page shows.
 #include "../../../src/app/media/media_page.cpp"
 #include "../../support/test_output.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
@@ -62,6 +63,81 @@ u32 pump_once() noexcept {
 }
 bool dispatch(const WindowEvent& event) noexcept {
     return application_media_page_window_event(event);
+}
+// An animated picture (a GIF here; a GIF embed's looping video and an animated WebP go the same way) plays on its page
+// as on its card: the page asks for its own tier while the card's tier shows (and plays) meanwhile, every visibility
+// scan observes its timeline so its frames come due while the chat under the page is hidden, a resident frame whose
+// timeline went is asked again, and with GIFs set never to play the page holds its first frame without asking.
+MediaAtlasEntry atlas_entries[8];
+u32 atlas_buckets[16];
+GlyphAtlasEntry atlas_allocations[8];
+GlyphAtlasRow atlas_rows[8];
+AnimationTimelineEntry timeline_entries[4];
+u32 timeline_buckets[8];
+// The page pump in a visibility scan (as the frame's scan runs it), committed at `now_us`; the requests it made.
+u32 visibility_scan(u64 now_us) noexcept {
+    const u32 before = requests;
+    animation_timeline_begin_visibility(&g_app.animations.timeline);
+    ApplicationMediaPump pump{g_app};
+    pump.pass(1000, 2000, now_us, nullptr);
+    pump.visibility_only = true;
+    bool stop = false;
+    check(application_media_page_pump(pump, &stop), "animation: a visibility scan never fails the pump");
+    animation_timeline_end_visibility(&g_app.animations.timeline, now_us);
+    return requests - before;
+}
+// One frame advance comes due by `now_us`.
+bool frame_due(u64 now_us) noexcept {
+    AnimationFrameAdvance advance{};
+    const auto due = animation_timeline_collect_due(&g_app.animations.timeline, now_us, {&advance, 1});
+    return due.ok() && due.advances == 1;
+}
+bool publish(const MediaAssetKey& key, bool visible) noexcept {
+    animation_timeline_reset(&g_app.animations.timeline);
+    return animation_timeline_publish(&g_app.animations.timeline, {key, 1000, 1, 3, 0, visible}, 100).ok();
+}
+void animation_tests(u8 slot) noexcept {
+    MediaAtlas atlas{};
+    MediaPageSource gif = image_source(970);
+    gif.title = utf8_literal("wave.gif");
+    gif.key = media_asset_attachment(970, MediaAttachmentFormat::gif, MediaResolutionTier::px2048);
+    gif.fallback = media_asset_attachment(970, MediaAttachmentFormat::gif, MediaResolutionTier::px512);
+    application_media_page_close(slot);
+    check(media_atlas_initialize(&atlas, 256, 256, 1, {atlas_entries, 8}, {atlas_buckets, 16},
+                                 {atlas_allocations, 8}, {atlas_rows, 8}) &&
+              animation_timeline_initialize(&g_app.animations.timeline, {timeline_entries, 4}, {timeline_buckets, 8}) &&
+              application_media_page_open(gif) == slot && application_media_page_show(slot) &&
+              (gif.key.flags & media_asset_flag_animated),
+          "animation: a GIF page shows, its key marked animated");
+    g_app.renderer.preview_media_atlas = &atlas;
+    // The card's tier is resident and plays while the page's own tier loads.
+    check(media_atlas_allocate(&atlas, gif.fallback, 16, 16).ok() && application_media_page_synchronize() &&
+              application_media_page_viewer()->media == UiImageViewerMedia::ready && pump_once() == 1,
+          "animation: the card's tier shows meanwhile and the page still asks for its own tier");
+    check(publish(gif.fallback, false) && visibility_scan(3000) == 0 && frame_due(5000),
+          "animation: the card's tier the page shows meanwhile plays");
+    // The page's own tier: resident, observed in every visibility scan, so its frames come due.
+    check(media_atlas_allocate(&atlas, gif.key, 16, 16).ok() && publish(gif.key, false) && visibility_scan(3000) == 0 &&
+              frame_due(5000),
+          "animation: the page's own tier plays while the page shows (its timeline observed by the scan)");
+    check(publish(gif.key, false) && pump_once() == 0, "animation: a resident playing picture asks nothing");
+    application_media_page_hide();
+    check(publish(gif.key, true) && visibility_scan(3000) == 0 && !frame_due(5000),
+          "animation: a hidden page's picture pauses");
+    // Its timeline went while hidden: the resident first frame is asked again, which publishes it anew.
+    animation_timeline_reset(&g_app.animations.timeline);
+    check(application_media_page_show(slot) && pump_once() == 1,
+          "animation: a resident frame without its timeline is asked again to play");
+    MessageRichDisplay display = message_rich_display();
+    display.gifs = MessageMediaAnimation::never;
+    message_rich_set_display(display);
+    check(pump_once() == 0 && publish(gif.key, false) && visibility_scan(3000) == 0 && !frame_due(5000),
+          "animation: with GIFs never playing the page holds its first frame and asks nothing");
+    display.gifs = MessageMediaAnimation::always;
+    message_rich_set_display(display);
+    animation_timeline_reset(&g_app.animations.timeline);
+    g_app.renderer.preview_media_atlas = nullptr;
+    application_media_page_close(slot);
 }
 
 void run() noexcept {
@@ -207,6 +283,7 @@ void run() noexcept {
               application_media_page_missing(first) && pump_once() == 0,
           "pump: a request that cannot load ends in the unavailable state");
     answer = AccountMediaRequestState::queued;
+    animation_tests(last);
 
     // A playlist page hosts the player: a play button until it starts, the queue (rows of thumbnail, title over
     // artist and duration as the playlist knows them), row jumps, the wheel, full screen; closing it closes its

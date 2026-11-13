@@ -2,6 +2,7 @@
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/platform/window/win32_clipboard.hpp"
 #include "maicord/ui/media/zoom_lens.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "../../fixtures/png_growth_fixture.hpp"
 #include "maicord/media/image/png.hpp"
@@ -558,6 +559,42 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
     check(same_text, "page: a track change changes no queue text");
     paint_stream_release(&before);
     paint_stream_release(&after);
+    // On a background theme the page is the message pane's canvas (the gradient at the pane's tier), its queue a card
+    // on a lower tier and its current row the channel list's glass; a flat theme paints their plain fills.
+    Theme gradient = kDefaultTheme;
+    gradient.background = background_theme_defaults();
+    PaintStream themed{};
+    const auto quad_at = [&](const UiRect& r) noexcept -> const PaintQuad* {
+        for (u32 i = 0; i < themed.count; ++i)
+            if (ui_rect_equal({themed.quads[i].left, themed.quads[i].top, themed.quads[i].right, themed.quads[i].bottom},
+                              r))
+                return &themed.quads[i];
+        return nullptr;
+    };
+    const auto surfaces = [&](const Theme& theme) noexcept {
+        if (!paint_stream_reset(&themed, 1000, 700) || !ui_image_viewer_paint(player, theme, &themed))
+            return false;
+        const auto* page = quad_at(player.viewport);
+        const auto* card = quad_at(regions.queue);
+        const auto* row = quad_at(ui_image_viewer_queue_row(player, queue.current - 1u - queue.first));
+        if (!page || !card || !row || !ui_background_canvas_quad(*page))
+            return false;
+        if (!ui_background_active(theme))
+            return page->border_width == 0 && approx(page->fill.red, theme.tokens.background.primary.red) &&
+                   card->border_width != -7 && approx(card->fill.red, theme.tokens.background.secondary.red) &&
+                   approx(row->fill.alpha, theme.tokens.state.row_selected.alpha);
+        return page->border_width == -8 &&
+               approx(page->reserved_y, 1 - ui_background_tier_opacity(theme, UiBackgroundTier::chat), .001f) &&
+               card->border_width == -7 &&
+               approx(card->reserved_y, (1 - ui_background_tier_opacity(theme, UiBackgroundTier::lower)) * .9f, .001f) &&
+               approx(row->fill.alpha, theme.interactive.alpha * .28f, .001f);
+    };
+    check(paint_stream_initialize(&themed) && surfaces(kDefaultTheme),
+          "page: a flat theme paints the page, its queue and its current row in their plain fills");
+    check(ui_background_active(gradient) && surfaces(gradient),
+          "page: a background theme paints the page on the pane's gradient tier, its queue as a lower-tier card and "
+          "its current row as the channel list's glass");
+    paint_stream_release(&themed);
     const bool to_player = ui_image_viewer_key_command(player, UiImageViewerKey::f, {}) == UiImageViewerCommand::video;
     ui_image_viewer_set_fullscreen(&player, true);
     const bool all_player =

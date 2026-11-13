@@ -15,6 +15,8 @@
 #include "thread_browser_ui_probe.hpp"
 #include "message_header_clip_ui_probe.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
 
 namespace maicord {
 namespace ui_probe_detail {
@@ -6228,6 +6230,25 @@ bool probe_media_page() noexcept {
         renderer.interaction_text_media_page_revision != page.revision || !probe_exact_pixels({&picture, 1}) ||
         !probe_text_pixels({&title, 1}) || !probe_capture_frame(L"media-page-image.bmp"))
         return false;
+    // The page under a background theme (Aurora): its frame and header are the message pane's gradient canvas, so
+    // two corners of its frame differ as the gradient does, where a flat fill paints them alike. Captured for review.
+    g_probe.failure_stage = 149;
+    auto preferences = client_preferences_defaults();
+    preferences.theme = ClientTheme::aurora;
+    const Theme aurora = client_theme_projection(preferences);
+    const UiPoint corners[2]{{content.left + 6, content.top + 60}, {content.right - 6, content.bottom - 6}};
+    u8 framed[2][4]{};
+    renderer.retained_presentation.valid = false;
+    if (!ui_background_active(aurora) || !probe_present(&renderer, aurora) ||
+        !probe_capture_frame(L"media-page-image-aurora.bmp", aurora) || !probe_read_pixels(aurora, {corners, 2}, framed))
+        return false;
+    u32 apart = 0;
+    for (u32 c = 0; c < 3; ++c)
+        apart += framed[0][c] > framed[1][c] ? framed[0][c] - framed[1][c] : framed[1][c] - framed[0][c];
+    log_u64(LogLevel::info, "probe", "media_page_gradient_frame_rgb_delta", apart);
+    if (apart < 6)
+        return false;
+    renderer.retained_presentation.valid = false;
     g_probe.failure_stage = 142;
     if (!ui_image_viewer_set_media(&page, UiImageViewerMedia::failed) || !rebuild_probe_content_text() ||
         !probe_present(&renderer, kDefaultTheme) || !probe_capture_frame(L"media-page-unavailable.bmp"))
@@ -6311,7 +6332,8 @@ bool probe_media_page() noexcept {
     }
     UiImageViewer player{};
     UiVideoScene controls{};
-    const auto capture_player = [&](float dips, bool playlist, const wchar_t* name) noexcept {
+    const auto capture_player = [&](float dips, bool playlist, const wchar_t* name,
+                                    const Theme& theme = kDefaultTheme) noexcept {
         if (!probe_resize_surface(static_cast<u32>(dips * renderer.dpi / 96.0f + .5f), height))
             return false;
         const UiRect column = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
@@ -6336,7 +6358,7 @@ bool probe_media_page() noexcept {
             return false;
         player.queue = playlist ? &queue : nullptr;
         const auto layout = ui_image_viewer_page_layout(player);
-        if (!ui_video_scene_project(&controls, playback, layout.player, layout.player, metrics, visual, kDefaultTheme))
+        if (!ui_video_scene_project(&controls, playback, layout.player, layout.player, metrics, visual, theme))
             return false;
         ui_video_scene_hover(&controls, {(layout.player.left + layout.player.right) * .5f,
                                          (layout.player.top + layout.player.bottom) * .5f});
@@ -6350,13 +6372,13 @@ bool probe_media_page() noexcept {
         const UiRect first_row{layout.queue.left + 64, layout.queue.top + 40, layout.queue.right - 16,
                                layout.queue.top + 96};
         const auto& bar = controls.projection.controls;
-        return rebuild_probe_content_text() && probe_present(&renderer, kDefaultTheme) &&
+        return rebuild_probe_content_text() && probe_present(&renderer, theme) &&
                (d3d11_renderer_surfaces(renderer) & d3d11_surface_page_video) &&
                (!playlist || (ui_rect_has_area(layout.queue) && probe_text_pixels({&first_row, 1}) && bar[9].hidden &&
                               !bar[7].hidden && bar[7].bounds.top == bar[0].bounds.top &&
                               bar[7].bounds.right < bar[0].bounds.left && bar[8].bounds.left > bar[0].bounds.right &&
                               bar[8].bounds.right < bar[2].bounds.left)) &&
-               probe_capture_frame(name);
+               probe_capture_frame(name, theme);
     };
     g_probe.failure_stage = 148;
     if (!capture_player(1000, false, L"media-player-video-1000.bmp") ||
@@ -6370,6 +6392,11 @@ bool probe_media_page() noexcept {
     queue.hovered = 9;
     if (!capture_player(1920, true, L"media-player-playlist-hover-1920.bmp"))
         return false;
+    // The playlist page under Aurora: the page and its queue card on the gradient, the current and hovered rows the
+    // channel list's glass. Captured for review.
+    if (!capture_player(1920, true, L"media-player-playlist-hover-aurora-1920.bmp", aurora))
+        return false;
+    renderer.retained_presentation.valid = false;
     renderer.video_scene_page = false;
     g_probe.failure_stage = 145;
     renderer.media_page = nullptr;

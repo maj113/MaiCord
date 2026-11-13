@@ -119,8 +119,10 @@ bool application_media_page_pump(ApplicationMediaPump&, bool* stop) noexcept {
     *stop = false;
     return true;
 }
-bool application_media_page_key_current(const MediaAssetKey&) noexcept {
-    return false;
+// The picture of the media page that shows (none unless a test sets one).
+MediaAssetKey fixture_page_key{};
+bool application_media_page_key_current(const MediaAssetKey& key) noexcept {
+    return media_asset_key_valid(fixture_page_key) && media_asset_key_equal(key, fixture_page_key);
 }
 // The fixture does not select native video or submit a frame to the GPU.
 bool application_video_ordinary(const MediaAssetKey&) noexcept {
@@ -371,6 +373,20 @@ void run_animation_owner_test(
     rejected = rejected && !pump.animation_frame_is_current(advance, frame, visual);
     fixture.rich_records[1].attachment_count = attachment_count;
     check(rejected, "media owner: channel, opaque root and removed attachment reject cold completion");
+    // A media page keeps its own copy of what it shows: its animation goes on in another channel, and after its
+    // attachment left the message, until the page hides; an opaque root still stops it.
+    fixture_page_key = key;
+    ui.active_channel_id = 8;
+    fixture.rich_records[1].attachment_count = 0;
+    bool owned = pump.animation_frame_is_current(advance, frame, visual);
+    g_app.login.visible = true;
+    owned = owned && !pump.animation_frame_is_current(advance, frame, visual);
+    g_app.login.visible = false;
+    fixture_page_key = {};
+    owned = owned && !pump.animation_frame_is_current(advance, frame, visual);
+    fixture.rich_records[1].attachment_count = attachment_count;
+    ui.active_channel_id = 7;
+    check(owned, "media owner: a shown media page's picture keeps playing outside its channel and message");
     const bool edited = message_store_upsert(&g_app.message_view.store,
                                              {fixture.records[1].id, 7, 9, 0, 0, utf8_literal("edited"), 0})
                             .ok();

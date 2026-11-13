@@ -90,7 +90,7 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept;
 UiImageViewer* application_media_page_spinner() noexcept;
 // The media pump: requests the shown image page's picture through its own {url, key} (signed URLs refreshed by
 // media_url_resolve). A refresh that fails, or a request that cannot load, marks the page unavailable, and it is
-// not asked again until Retry.
+// not asked again until Retry. An animated picture plays as on its card: every visibility scan observes it.
 bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcept;
 bool application_media_page_key_current(const MediaAssetKey& key) noexcept;
 } // namespace maicord::app_detail

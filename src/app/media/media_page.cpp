@@ -26,6 +26,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -33,6 +34,7 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/ui/voice/video_controls.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
+#include "maicord/ui/chat/messages/rich_layout.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -124,12 +126,37 @@ UiImageViewerPage page_info(const MediaPage& page) noexcept {
             // A playlist keeps the queue column from the start; another collection gets it once it is known.
             (page.flags & media_page_playlist) != 0 || g_pages.queue.count != 0};
 }
+// The page shows its picture: its large tier, else the card's tier it opened from.
 bool image_resident(const MediaPage& page) noexcept {
     auto* preview = g_app.renderer.preview_media_atlas;
     auto* primary = g_app.renderer.media_atlas;
     const MediaAssetKey& key = picture_key(page);
     return (preview && (media_atlas_peek(preview, key).ok() || media_atlas_peek(preview, page.fallback).ok())) ||
            (primary && media_atlas_peek(primary, key).ok());
+}
+// The page's picture needs no request: its own tier is resident (the card's tier it shows meanwhile does not count)
+// and, when it animates (a GIF, APNG or animated WebP, a GIF embed's looping video: hinted by its key or proven by
+// its decoder), it plays as on its card unless GIFs never play. Its timeline is observed in every visibility scan, so
+// it keeps playing while the chat under the page is hidden; a resident frame whose timeline went (the page was hidden)
+// is asked again, which publishes it anew. Until then the card's tier plays in its place.
+bool picture_settled(ApplicationMediaPump& pump, const MediaPage& page) noexcept {
+    auto& renderer = pump.application.renderer;
+    auto& timeline = pump.application.animations.timeline;
+    const MediaAssetKey& key = picture_key(page);
+    MediaAtlasResult large{};
+    large.error = MediaAtlasError::not_found;
+    if (renderer.preview_media_atlas)
+        large = media_atlas_find(renderer.preview_media_atlas, key);
+    const bool resident = large.ok() || (renderer.media_atlas && media_atlas_find(renderer.media_atlas, key).ok());
+    const bool animated = (key.flags & media_asset_flag_animated) || animation_timeline_find(&timeline, key).ok() ||
+                          (large.ok() && media_atlas_decoded_animation(*renderer.preview_media_atlas, large.handle));
+    if (!animated || !message_media_animates(message_rich_display().gifs, true))
+        return resident;
+    if (animation_timeline_observe_visible(&timeline, key, pump.now_us) && resident)
+        return true;
+    if (!resident)
+        animation_timeline_observe_visible(&timeline, page.fallback, pump.now_us);
+    return false;
 }
 void keep_view() noexcept {
     auto* page = shown_page();
@@ -787,12 +814,13 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
 bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcept {
     *stop = false;
     auto* page = application_media_page_shown() ? shown_page() : nullptr;
-    if (!page || pump.visibility_only)
+    if (!page)
         return true;
     // The queue's thumbnails in view and a row either side; the atlas keeps them, so scrolling back or a track change
     // fetches nothing again.
     const auto& scene = g_pages.scene;
-    for (u32 n = 0, rows = scene.queue ? ui_image_viewer_queue_rows(scene) : 0; n < rows; ++n) {
+    for (u32 n = 0, rows = scene.queue && !pump.visibility_only ? ui_image_viewer_queue_rows(scene) : 0; n < rows;
+         ++n) {
         if (!g_pages.videos[n][0])
             continue;
         ProfileMedia media{};
@@ -807,8 +835,9 @@ bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcep
             return true;
     }
     // Video pages play through the session (video.cpp) and an audio page's picture is its artwork; a page that cannot
-    // load waits for Retry.
-    if (!has_picture(*page) || page->missing || image_resident(*page) || pump.asset_backed_off(picture_key(*page)))
+    // load waits for Retry. A visibility scan only keeps the picture playing.
+    if (!has_picture(*page) || page->missing || picture_settled(pump, *page) || pump.visibility_only ||
+        pump.asset_backed_off(picture_key(*page)))
         return true;
     auto& application = pump.application;
     const MediaAssetKey& key = picture_key(*page);

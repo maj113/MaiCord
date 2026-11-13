@@ -302,6 +302,10 @@ bool ApplicationMediaPump::message_image_source_is_current(const MediaAssetKey& 
                                                            u32 source_message_revision) noexcept {
     if (!media_key_is_current(key))
         return false;
+    // A shown media page keeps its own copy of what it shows: its picture (and the card's tier it shows meanwhile)
+    // stays current, and keeps playing, whatever became of its message and channel.
+    if (application_media_page_key_current(key))
+        return true;
     // Forum thumbnails come from a post page, not the message store.
     if (forum_thumbnail_key_current(*this, key))
         return true;

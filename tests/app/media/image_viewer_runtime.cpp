@@ -318,22 +318,32 @@ bool seed_items() noexcept {
     files.id = 820;
     files.fields = gateway_message_field_attachments;
     files.attachments = {attachments, 4};
-    GatewayMessageEmbed gif{};
-    gif.type = GatewayMessageEmbedType::gifv;
-    gif.url = utf8_literal("https://tenor.com/view/wave");
-    gif.title = utf8_literal("Wave");
-    gif.thumbnail.url = utf8_literal("https://media.tenor.com/wave.png");
-    gif.thumbnail.content_type = utf8_literal("image/png");
-    gif.video.url = utf8_literal("https://media.tenor.com/wave.mp4");
-    gif.video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/wave.mp4");
-    gif.video.content_type = utf8_literal("video/mp4");
-    gif.thumbnail.width = gif.video.width = 498;
-    gif.thumbnail.height = gif.video.height = 280;
-    gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
+    GatewayMessageEmbed gif[2]{};
+    gif[0].type = GatewayMessageEmbedType::gifv;
+    gif[0].url = utf8_literal("https://tenor.com/view/wave");
+    gif[0].title = utf8_literal("Wave");
+    gif[0].thumbnail.url = utf8_literal("https://media.tenor.com/wave.png");
+    gif[0].thumbnail.content_type = utf8_literal("image/png");
+    gif[0].video.url = utf8_literal("https://media.tenor.com/wave.mp4");
+    gif[0].video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/wave.mp4");
+    gif[0].video.content_type = utf8_literal("video/mp4");
+    gif[0].thumbnail.width = gif[0].video.width = 498;
+    gif[0].thumbnail.height = gif[0].video.height = 280;
+    gif[0].thumbnail.has_width = gif[0].thumbnail.has_height = gif[0].video.has_width = gif[0].video.has_height = true;
+    // A post whose "GIF" is an animated WebP image (an fxtwitter-style embed), flagged animated by the server.
+    gif[1].type = GatewayMessageEmbedType::rich;
+    gif[1].url = utf8_literal("https://x.com/example/status/1");
+    gif[1].image.url = utf8_literal("https://gif.fxtwitter.com/tweet_video/HQASuXQa4AEbQle.webp");
+    gif[1].image.proxy_url = utf8_literal(
+        "https://images-ext-2.discordapp.net/external/e5F6_g7-H8/https/gif.fxtwitter.com/tweet_video/HQASuXQa4AEbQle.webp");
+    gif[1].image.flags = 32;
+    gif[1].image.width = 1138;
+    gif[1].image.height = 640;
+    gif[1].image.has_width = gif[1].image.has_height = true;
     GatewayMessageEvent gifv{};
     gifv.id = 821;
     gifv.fields = gateway_message_field_embeds;
-    gifv.embeds = {&gif, 1};
+    gifv.embeds = {gif, 2};
     GatewayMessageEmbed provider[3]{};
     provider[0].type = GatewayMessageEmbedType::video;
     provider[0].url = provider[0].video.url = utf8_literal("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc123");
@@ -410,9 +420,19 @@ void item_page_source_tests() noexcept {
     check(application_image_viewer_item_page_source(821, live_revision(821), false, true, 0, &page) &&
               page.kind == MediaPageKind::image && (page.flags & media_page_embed) && !(page.flags & media_page_provider) &&
               page.key.kind == MediaAssetKind::embed && media_asset_embed_index(page.key) == 0 &&
-              media_asset_embed_format(page.key) == MediaAttachmentFormat::mp4 && utf8_equal(page.title, utf8_literal("Wave")) &&
-              page.url.bytes,
-          "Item pages: a GIF embed is an image page of its looping video");
+              media_asset_embed_format(page.key) == MediaAttachmentFormat::mp4 &&
+              (page.key.flags & media_asset_flag_animated) && (page.fallback.flags & media_asset_flag_animated) &&
+              utf8_equal(page.url, utf8_literal("https://images-ext-1.discordapp.net/external/wave.mp4")) &&
+              utf8_equal(page.title, utf8_literal("Wave")),
+          "Item pages: a GIF embed is an image page of its looping video, not its still thumbnail");
+    check(application_image_viewer_item_page_source(821, live_revision(821), false, true, 1, &page) &&
+              page.kind == MediaPageKind::image && page.key.kind == MediaAssetKind::embed &&
+              media_asset_embed_index(page.key) == 1 && media_asset_embed_format(page.key) == MediaAttachmentFormat::webp &&
+              (page.key.flags & media_asset_flag_animated) && (page.fallback.flags & media_asset_flag_animated) &&
+              utf8_starts_with(page.url, utf8_literal("https://images-ext-2.discordapp.net/external/")) &&
+              page.pixels.width == 1138 && page.pixels.height == 640,
+          "Item pages: an animated WebP embed image is an image page of the animation (its key animated, so the proxy "
+          "serves every frame)");
     check(application_image_viewer_item_page_source(822, live_revision(822), false, true, 0, &page) &&
               page.kind == MediaPageKind::video && (page.flags & media_page_embed) && (page.flags & media_page_provider) &&
               (page.flags & media_page_playlist) && media_asset_embed_index(page.key) == 0 &&

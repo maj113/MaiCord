@@ -1,6 +1,7 @@
 #include "maicord/ui/shell/tab_strip.hpp"
 
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 
 namespace maicord {
 namespace {
@@ -285,6 +286,15 @@ bool ui_tab_strip_paint(PaintStream* paint, const Theme& theme, const UiTabStrip
         color.alpha *= amount;
         return !(color.alpha > 0) || paint_stream_push_rounded(paint, r, color, corner);
     };
+    // The content's own surface under the tab joined to it: its fill, or on a background theme the gradient at the
+    // message pane's tier, as the pane (and a media page) below it shows.
+    const auto join = [&](const UiRect& r, float amount) noexcept {
+        Color color = tokens.tab_active;
+        color.alpha *= amount;
+        return !(color.alpha > 0) ||
+               ui_background_paint_surface(paint, r, theme, color, color, radius, 0, 1,
+                                           UiBackgroundSurfaceMode::gradient, UiBackgroundTier::chat);
+    };
     const auto icon = [&](UiIcon glyph, const UiRect& box, const Color& color) noexcept {
         return !ui_rect_has_area(box) || ui_icon_paint(paint, glyph, snapped(box, pixel_scale), color);
     };
@@ -302,7 +312,7 @@ bool ui_tab_strip_paint(PaintStream* paint, const Theme& theme, const UiTabStrip
         // that joins the content can be mistaken for.
         const UiRect pill{body.left, body.top, body.right, body.bottom - kStep};
         if (!fill(pill, tokens.hover, (pressed ? 1.0f : item.hover) * (1 - item.select) * fade, radius) ||
-            !fill(shape, tokens.tab_active, ((item.flags & kUiTabDragging) ? 1.0f : item.select) * fade, radius) ||
+            !join(shape, ((item.flags & kUiTabDragging) ? 1.0f : item.select) * fade) ||
             !icon(item.icon, ui_tab_strip_icon(layout, i), ink))
             return false;
         // Unread: a dot on the icon's upper right, in the lit ink.

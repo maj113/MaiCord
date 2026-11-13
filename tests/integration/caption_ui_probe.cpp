@@ -16,6 +16,8 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/ui/theme/presets.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/page_registry.hpp"
@@ -748,6 +750,38 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                 return fail(165);
             if (!probe_write_capture(drag_shot, kVariantFiles[v][1]))
                 return fail(166);
+        }
+        // A background theme (Aurora): the active tab is the message pane's surface, the gradient at the pane's tier,
+        // so its foot takes the gradient's hue rather than the flat fill; an idle tab's foot stays the bar's backdrop.
+        // Captured for review.
+        {
+            auto preferences = client_preferences_defaults();
+            preferences.theme = ClientTheme::aurora;
+            const Theme aurora = client_theme_projection(preferences);
+            reset_value(&tabs);
+            tabs.count = 5;
+            tabs.plus_enabled = true;
+            for (u32 i = 0; i < 5; ++i) {
+                tabs.items[i].label = {kNames[i], c_string_length(kNames[i])};
+                tabs.items[i].icon = i == 2 ? UiIcon::image : UiIcon::channel;
+                tabs.items[i].flags = i == 2 ? kUiTabActive : u8{0};
+                tabs.items[i].select = i == 2 ? 1.0f : 0.0f;
+            }
+            UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+            state.tabs = &tabs;
+            const UiCaptionBarLayout bar = ui_caption_bar_layout(aurora, 1000, state, height, scale);
+            ProbeTargetReadback shot{};
+            if (!ui_background_active(aurora) || !renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) ||
+                !draw(renderer, aurora) || probe_target_readback(renderer, &shot) ||
+                !probe_write_capture(shot, L"titlebar_tabs_aurora.bmp"))
+                return fail(180);
+            const Pixel joined = read(shot, px(ui_tab_strip_tab(bar.tabs, 2).left) + 2, px(bar.height) - 2);
+            const Pixel idle = read(shot, px(ui_tab_strip_tab(bar.tabs, 4).left) + 2, px(bar.height) - 2);
+            const u8 high = maximum(joined.r, maximum(joined.g, joined.b)), low = minimum(joined.r, minimum(joined.g, joined.b));
+            log_u64(LogLevel::info, "probe", "caption_tab_gradient_rgb",
+                    (u64{joined.r} << 16) | (u64{joined.g} << 8) | joined.b);
+            if (matches(joined, aurora.tokens.caption.tab_active, 4) || equal(joined, idle) || high - low < 12)
+                return fail(181);
         }
         // Labels with more glyphs than a tab's 16 quads (17, 26 and 60 glyphs, one with emoji, one right-to-left)
         // end inside their tab without resetting the glyph atlas: the active tab's label and the content draw exactly

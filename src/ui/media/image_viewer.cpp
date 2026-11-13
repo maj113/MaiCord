@@ -7,6 +7,7 @@
 #include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/text/style.hpp"
 namespace maicord {
 namespace {
@@ -685,21 +686,26 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     UiPaint p{paint, theme};
     if (!p.clip(v.viewport))
         return false;
-    // A page sits in the content column in the application's colours. The viewer's media scrim is always black,
-    // so its toolbar uses light foregrounds independently of the application's selected appearance.
+    // A page sits in the content column in the application's colours: the message pane's own canvas (the gradient
+    // at its tier on a background theme). The viewer's media scrim is always black, so its toolbar uses light
+    // foregrounds independently of the application's selected appearance.
     const Theme& toolbar_theme = v.page ? theme : kDefaultTheme;
     if (v.page) {
         const auto layout = page_layout(v);
         const bool audio = v.page_info.kind == UiImageViewerPageKind::audio;
-        p.fill(v.viewport, v.fullscreen ? theme.tokens.overlay.media : theme.tokens.background.primary);
-        if (!v.fullscreen) {
+        if (v.fullscreen) {
+            p.fill(v.viewport, theme.tokens.overlay.media);
+        } else {
+            p.use<ui_background_paint_canvas>(v.viewport, theme, theme.tokens.background.primary,
+                                              UiBackgroundTier::chat);
             const float glyph_top = layout.header.top + (kPageHeader - kPageGlyph) * .5f;
             p.rule_below(layout.header)
                 .icon(v.page_info.glyph,
                       {layout.header.left + kPageInset, glyph_top, layout.header.left + kPageInset + kPageGlyph,
                        glyph_top + kPageGlyph},
                       theme.text_secondary);
-            // Pictures play on a dark stage; the audio card sits on the page itself.
+            // Pictures play on the dark stage the viewer and full screen show them on (the stage's spinner, notice
+            // and player controls keep light ink); the audio card sits on the page itself.
             if (!audio)
                 p.rounded(layout.player, theme.tokens.overlay.media, theme.scale.radius_md);
         }
@@ -715,18 +721,27 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
                    {c.x - kPageStageGlyph * .5f, c.y - kPageStageGlyph * .5f, c.x + kPageStageGlyph * .5f,
                     c.y + kPageStageGlyph * .5f},
                    audio ? theme.text_secondary : kDefaultTheme.text_secondary);
-        // The queue's list, clipped under its heading: the current track on the selected fill, the row under the
-        // pointer on the hover fill, a thin rule between rows, and each row's thumbnail well (its picture draws over
-        // it; the equaliser over the current one is overlay).
+        // The queue's list, clipped under its heading: a card on the page (the gradient at a lower tier on a
+        // background theme), the current track on the selected fill, the row under the pointer on the hover fill (the
+        // channel list's glass over a gradient), a thin rule between rows, and each row's thumbnail well (its picture
+        // draws over it; the equaliser over the current one is overlay).
         if (v.queue && ui_rect_has_area(layout.queue)) {
             const auto& queue = *v.queue;
-            p.rounded(layout.queue, theme.tokens.background.secondary, theme.scale.radius_md).clip(queue_body(layout));
+            const bool glass = ui_background_active(theme);
+            p.use<ui_background_paint_card>(layout.queue, theme, theme.tokens.background.secondary,
+                                            theme.scale.radius_md, UiBackgroundTier::lower)
+                .clip(queue_body(layout));
             for (u32 n = 0, rows = ui_image_viewer_queue_rows(v); n < rows && queue.first + n < queue.count; ++n) {
                 const u32 track = queue.first + n + 1;
                 const auto row = queue_row(v, layout, n);
                 const auto tile = queue_thumb(row);
-                if (track == queue.current || track == queue.hovered)
-                    p.rounded(row, track == queue.current ? theme.tokens.state.row_selected : theme.tokens.state.row_hover,
+                const bool current = track == queue.current;
+                if (current || track == queue.hovered)
+                    p.rounded(row,
+                              glass     ? ui_background_hover_color(theme, current ? theme.interactive : theme.surface_high,
+                                                                    current ? .28f : .20f)
+                              : current ? theme.tokens.state.row_selected
+                                        : theme.tokens.state.row_hover,
                               theme.scale.radius_sm);
                 else if (track < queue.count)
                     p.separator({tile.left, row.bottom - 1, row.right - kQueuePad, row.bottom});

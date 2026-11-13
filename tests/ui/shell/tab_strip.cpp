@@ -5,6 +5,7 @@
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/ui/theme/presets.hpp"
 #include "maicord/ui/shell/tab_strip.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::tab_strip_test {
@@ -391,6 +392,31 @@ void painting() noexcept {
                         near(paint.quads[i].fill.red, theme.tokens.caption.tab_active.red) &&
                         near(paint.quads[i].fill.alpha, 1));
     check(kept, "a dragged tab is filled with the active tab's surface");
+    // On a background theme the active tab is the message pane's surface: the gradient at the pane's tier, as the
+    // pane (and a media page) below it; a hovered tab stays the bar's glass. Flat themes paint the plain fill.
+    Theme gradient = kDefaultTheme;
+    gradient.background = background_theme_defaults();
+    const auto active_tab = [&](const Theme& painted, const PaintQuad** found) noexcept {
+        *found = nullptr;
+        if (!paint_stream_reset(&paint, 1000, kBottom) || !ui_tab_strip_paint(&paint, painted, l, v, true, 1))
+            return false;
+        for (u32 i = 0; i < paint.count; ++i)
+            if (near(paint.quads[i].left, body.left) && near(paint.quads[i].right, body.right) &&
+                near(paint.quads[i].bottom, kBottom + painted.scale.radius_md))
+                *found = &paint.quads[i];
+        return *found != nullptr;
+    };
+    const PaintQuad* joined = nullptr;
+    check(active_tab(theme, &joined) && joined->border_width != -7 && near(joined->fill.red, theme.tokens.caption.tab_active.red),
+          "a flat theme's active tab is its plain fill");
+    check(ui_background_active(gradient) && active_tab(gradient, &joined) && joined->border_width == -7 &&
+              near(joined->reserved_y, 1 - ui_background_tier_opacity(gradient, UiBackgroundTier::chat)),
+          "a background theme's active tab samples the gradient at the message pane's tier");
+    bool glass = false;
+    for (u32 i = 0; i < paint.count; ++i)
+        glass = glass || (near(paint.quads[i].left, hovered_body.left) && near(paint.quads[i].bottom, kBottom - 4.f) &&
+                          paint.quads[i].border_width != -7);
+    check(glass, "a background theme's hovered tab keeps the bar's glass");
     check(paint_stream_reset(&paint, 1000, kBottom) && ui_tab_strip_paint(&paint, theme, l, v, true, 1),
           "the strip paints again");
     const Color idle = ui_tab_strip_ink(theme, v, l, 0, true), active = ui_tab_strip_ink(theme, v, l, 2, true);
