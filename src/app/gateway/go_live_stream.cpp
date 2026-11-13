@@ -10,14 +10,14 @@
 
 namespace maicord {
 namespace {
-constexpr u32 kSlots = 4;          // Encoded units waiting for the worker.
+constexpr u32 kSlots = kGoLiveUnitQueue; // Encoded units waiting for the worker.
 constexpr u32 kAudioPackets = 8;   // Opus packets waiting for the worker (160 ms).
 constexpr u32 kStageBytes = kGoLiveFrameBytes + kGoLiveFrameBytes / 4 + 4;
 constexpr u32 kSoundshare = 2;     // Speaking flag of stream audio.
 }
 
 struct GoLiveSlot {
-    u32 bytes, rtp_timestamp;
+    u32 offset, bytes, rtp_timestamp; // offset: in GoLiveMedia::units
     GpuStreamCodec codec;
     bool keyframe;
 };
@@ -30,7 +30,7 @@ struct GoLiveMedia {
     SrwLock lock;
     void (*wake)(void* context) noexcept;
     void* wake_context;
-    u8* units; // kSlots * kGoLiveFrameBytes
+    u8* units; // kGoLiveUnitRingBytes (go_live_unit_place)
     GoLiveSlot slots[kSlots];
     u32 slot_head, slot_count, dropped;
     GoLiveEnd ended;
@@ -74,7 +74,7 @@ StreamBitrate bounds(const GoLiveSettings& settings) noexcept {
 // Once per stream (buffers, teardown, end reasons), compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GoLiveMedia* media_create(GatewayGoLive& live) noexcept {
-    auto* block = static_cast<u8*>(pages_allocate(sizeof(GoLiveMedia) + u64{kSlots} * kGoLiveFrameBytes));
+    auto* block = static_cast<u8*>(pages_allocate(sizeof(GoLiveMedia) + kGoLiveUnitRingBytes));
     if (!block)
         return nullptr;
     auto* media = reinterpret_cast<GoLiveMedia*>(block);
@@ -152,7 +152,7 @@ void apply_pause(GatewayGoLive& live) noexcept {
     live.paused = paused;
     gateway_stream_set_paused(&live.control, paused);
     if (!paused)
-        live.awaiting_keyframe = live.keyframe_wanted = true;
+        live.awaiting_keyframe = live.keyframes.wanted = true;
 }
 // The process stream audio follows: the shared window's, none for a screen (every process).
 u32 sound_process(const CaptureSource& source) noexcept {
@@ -276,7 +276,9 @@ void media_events(GatewayGoLive& live) noexcept {
         return;
     }
     if (dropped) {
-        live.keyframe_wanted = live.awaiting_keyframe = true;
+        // The dropped unit may have been the answer to the last request.
+        live.keyframes.wanted = live.awaiting_keyframe = true;
+        live.keyframes.pending = false;
     }
     if (minimized_changed) {
         live.minimized = minimized;
@@ -302,13 +304,15 @@ void drain_video(GatewayGoLive& live, u64 now_ms) noexcept {
         ReleaseSRWLockExclusive(m.lock.native());
         if (!any)
             return;
-        const ConstSlice<u8> unit{m.units + u64{index} * kGoLiveFrameBytes, slot.bytes};
+        const ConstSlice<u8> unit{m.units + slot.offset, slot.bytes};
+        if (slot.keyframe)
+            live.keyframes.pending = false;
         // Nothing goes out paused, before DAVE allows it, in another codec,
         // or (after a gap) until a keyframe.
         bool send = !live.paused && live.dave_ready && live.encoding && slot.codec == live.codec;
         if (send && live.awaiting_keyframe && !slot.keyframe) {
             send = false;
-            live.keyframe_wanted = true;
+            live.keyframes.wanted = true;
         }
         if (send) {
             const auto sealed = voice_connection_dave_encrypt_video(
@@ -321,7 +325,7 @@ void drain_video(GatewayGoLive& live, u64 now_ms) noexcept {
                     live.last_keyframe_ms = now_ms;
                 }
             } else
-                live.awaiting_keyframe = live.keyframe_wanted = true;
+                live.awaiting_keyframe = live.keyframes.wanted = true;
         }
         AcquireSRWLockExclusive(m.lock.native());
         m.slot_head = (m.slot_head + 1) % kSlots;
@@ -362,7 +366,7 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
     const u64 now_us = microseconds();
     const bool ready = voice_connection_dave_ready(live.connection) && !live.connection.dave_recovering;
     if (ready && !live.dave_ready)
-        live.awaiting_keyframe = live.keyframe_wanted = true; // Viewers decrypt from here on.
+        live.awaiting_keyframe = live.keyframes.wanted = true; // Viewers decrypt from here on.
     live.dave_ready = ready;
     if (!ensure_encoder(live)) {
         stop_session(live, GoLiveEnd::encoder_failed);
@@ -372,17 +376,14 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
     drain_audio(live);
     drain_video(live, now_ms);
     if (go_live_sender_take_keyframe(&live.sender))
-        live.keyframe_wanted = true;
+        live.keyframes.wanted = true;
     const u32 interval = live.connection.media.keyframe_interval_ms;
     if (interval && live.last_keyframe_ms && now_ms - live.last_keyframe_ms >= interval)
-        live.keyframe_wanted = true;
-    if (live.awaiting_keyframe && now_ms - live.keyframe_request_ms >= kGoLiveKeyframeRetryMs)
-        live.keyframe_wanted = true;
-    if (live.keyframe_wanted && live.encoding && !live.paused) {
+        live.keyframes.wanted = true;
+    if (live.awaiting_keyframe && now_ms - live.keyframes.requested_ms >= kGoLiveKeyframeIntervalMs)
+        live.keyframes.wanted = true;
+    if (live.encoding && !live.paused && go_live_keyframe_due(&live.keyframes, now_ms))
         go_live_producer_keyframe(live.backend_context);
-        live.keyframe_request_ms = now_ms;
-        live.keyframe_wanted = false;
-    }
     const u32 target = live.sender.bandwidth.target;
     if (live.encoding && (target > live.bitrate_applied + live.bitrate_applied / 20 ||
                           target + live.bitrate_applied / 20 < live.bitrate_applied)) {
@@ -396,16 +397,21 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
 
 void go_live_media_unit(GoLiveMedia* media, const GpuStreamAccessUnit& unit) noexcept {
     AcquireSRWLockExclusive(media->lock.native());
-    const bool room = media->slot_count != kSlots && unit.data.count && unit.data.count <= kGoLiveFrameBytes;
     const u32 index = (media->slot_head + media->slot_count) % kSlots;
-    if (!room)
+    const GoLiveSlot& newest = media->slots[(index + kSlots - 1) % kSlots];
+    const u32 bytes = static_cast<u32>(unit.data.count);
+    const u32 offset = bytes && bytes <= kGoLiveFrameBytes
+                           ? go_live_unit_place(media->slots[media->slot_head].offset, newest.offset + newest.bytes,
+                                                media->slot_count, bytes)
+                           : kGoLiveNoRoom;
+    if (offset == kGoLiveNoRoom)
         ++media->dropped;
     ReleaseSRWLockExclusive(media->lock.native());
-    if (room) {
-        // Only this producer writes the slot after the queue's tail.
-        copy_bytes(media->units + u64{index} * kGoLiveFrameBytes, unit.data.data, unit.data.count);
+    if (offset != kGoLiveNoRoom) {
+        // Only this producer writes the ring outside the queued units, which the worker only ever frees.
+        copy_bytes(media->units + offset, unit.data.data, bytes);
         AcquireSRWLockExclusive(media->lock.native());
-        media->slots[index] = {unit.data.count, unit.rtp_timestamp, unit.codec, unit.keyframe};
+        media->slots[index] = {offset, bytes, unit.rtp_timestamp, unit.codec, unit.keyframe};
         ++media->slot_count;
         ReleaseSRWLockExclusive(media->lock.native());
     }
@@ -482,7 +488,8 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
         live->media_revision = 0;
         live->capture_width = command.system_picker ? 0 : command.source.width;
         live->capture_height = command.system_picker ? 0 : command.source.height;
-        live->keyframe_wanted = live->dave_ready = false;
+        live->keyframes = {};
+        live->dave_ready = false;
         live->awaiting_keyframe = true;
         live->state = GoLiveState::ended;
         if (!(live->encodable & gpu_stream_codec_bit(GpuStreamCodec::h264))) {
@@ -565,7 +572,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
             start_sound(*live);
         live->minimized = false;
         apply_pause(*live);
-        live->awaiting_keyframe = live->keyframe_wanted = true;
+        live->awaiting_keyframe = live->keyframes.wanted = true;
         return true;
     case GoLiveCommandKind::pause:
     case GoLiveCommandKind::resume:
@@ -636,8 +643,8 @@ bool gateway_go_live_busy(const GatewayGoLive& live) noexcept {
 u64 gateway_go_live_deadline(const GatewayGoLive& live) noexcept {
     u64 deadline = earliest_deadline(gateway_stream_deadline(live.control), voice_connection_deadline(live.connection));
     deadline = earliest_deadline(deadline, live.pump_due_ms);
-    if (active(live) && live.awaiting_keyframe && live.encoding)
-        deadline = earliest_deadline(deadline, live.keyframe_request_ms + kGoLiveKeyframeRetryMs);
+    if (active(live) && live.encoding && !live.paused && (live.awaiting_keyframe || live.keyframes.wanted))
+        deadline = earliest_deadline(deadline, go_live_keyframe_deadline(live.keyframes));
     return deadline;
 }
 

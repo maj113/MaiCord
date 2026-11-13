@@ -41,8 +41,10 @@ void go_live_producer_encoder_stop(void* context) noexcept;
 // The newest picture, and the sequence it carries (it changes with every new picture).
 bool go_live_producer_preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept;
 
-// Producer side, any thread. A unit that finds no free slot is dropped and
-// a keyframe is asked for.
+// Producer side, any thread. Units queue (up to 16, in 8 MiB) while the
+// sender paces out a large one, as libwebrtc's pacer queues: a keyframe takes
+// several frame intervals on the wire. A unit that finds no room is dropped
+// and a keyframe is asked for.
 void go_live_media_unit(GoLiveMedia* media, const GpuStreamAccessUnit& unit) noexcept;
 // 48 kHz stereo PCM16 of any length, framed into 20 ms Opus packets here
 // (one producer thread).
@@ -53,7 +55,6 @@ void go_live_media_minimized(GoLiveMedia* media, bool minimized) noexcept;
 void go_live_media_capture_size(GoLiveMedia* media, u32 width, u32 height) noexcept;
 
 inline constexpr u32 kGoLiveAudioBitrate = 128'000;
-inline constexpr u64 kGoLiveKeyframeRetryMs = 300; // A wanted keyframe is asked for again this often.
 struct GatewayGoLive {
     GatewayStreamControl control;
     VoiceConnection connection;
@@ -67,7 +68,8 @@ struct GatewayGoLive {
     GoLiveSettings settings;
     u32 sound_process; // The shared window's process, which stream audio follows (0: every process).
     GoLiveSnapshot published; // Last snapshot; its generation bumps on change.
-    u64 media_revision, last_keyframe_ms, keyframe_request_ms, pump_due_ms;
+    u64 media_revision, last_keyframe_ms, pump_due_ms;
+    GoLiveKeyframePacer keyframes;
     u32 encodable, decodable; // gpu_stream_codec_bit encoders; voice_video_codec_bit decoders (offered too).
     u32 capture_width, capture_height, bitrate_applied, video_timestamp_offset, audio_timestamp_base;
     VoiceVideoSendStream announced; // Last op 12 sent (ssrc 0: none yet).
@@ -76,7 +78,7 @@ struct GatewayGoLive {
     GoLiveState state;
     GoLiveEnd end;
     bool capturing, sounding, encoding, user_paused, minimized, paused;
-    bool keyframe_wanted, awaiting_keyframe, dave_ready;
+    bool awaiting_keyframe, dave_ready;
     u8 receive_buffer[kVoiceUdpMediaReceiveSlots * 2048];
     u8 send_buffer[2048];
 };

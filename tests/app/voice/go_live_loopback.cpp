@@ -29,7 +29,7 @@ constexpr u64 kStreamServer = 500000000000000001;
 constexpr u32 kWantedFrames = 24, kExpected = 512, kUnitBytes = 128 * 1024;
 constexpr u32 kPreparedBytes = kUnitBytes + kUnitBytes / 4 + 4, kStoreSlots = 32;
 // 160x96 by default: the I_PCM keyframe (23 KB) stays within what a real encoder's rate control would make at the
-// stream's bitrate, so the pacer sends it before the sender's four-unit queue overflows. 1440p and 4K keyframes are
+// stream's bitrate, so the pacer sends it before the sender's unit queue overflows. 1440p and 4K keyframes are
 // compact (each slice one I_PCM macroblock that the rest repeat: 14 and 32 KB), the size of a flat picture, in three
 // slices of whole macroblock rows (90 and 135 rows), so no slice predicts from a row another slice began.
 u16 g_width = 160, g_height = 96;

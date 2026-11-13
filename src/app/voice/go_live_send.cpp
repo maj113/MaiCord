@@ -270,6 +270,29 @@ bool go_live_sender_take_keyframe(GoLiveSender* sender) noexcept {
     return wanted;
 }
 
+u64 go_live_keyframe_deadline(const GoLiveKeyframePacer& pacer) noexcept {
+    return pacer.requested_ms + (pacer.pending ? kGoLiveKeyframeAnswerMs : kGoLiveKeyframeIntervalMs);
+}
+
+bool go_live_keyframe_due(GoLiveKeyframePacer* pacer, u64 now_ms) noexcept {
+    if (!pacer->wanted || now_ms < go_live_keyframe_deadline(*pacer))
+        return false;
+    pacer->requested_ms = now_ms;
+    pacer->wanted = false;
+    pacer->pending = true;
+    return true;
+}
+
+u32 go_live_unit_place(u32 head, u32 tail, u32 count, u32 bytes) noexcept {
+    if (!count)
+        return bytes <= kGoLiveUnitRingBytes ? 0 : kGoLiveNoRoom;
+    if (count >= kGoLiveUnitQueue)
+        return kGoLiveNoRoom;
+    if (tail > head) // Not wrapped: after the newest, else from the start up to the oldest.
+        return bytes <= kGoLiveUnitRingBytes - tail ? tail : bytes <= head ? 0 : kGoLiveNoRoom;
+    return bytes <= head - tail ? tail : kGoLiveNoRoom; // Wrapped: the gap before the oldest.
+}
+
 // From here on: once per RTCP packet (the stream server sends a few dozen a second at most), per sender report (one
 // a second) or per stream.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)

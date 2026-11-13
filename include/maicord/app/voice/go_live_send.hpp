@@ -128,4 +128,30 @@ void go_live_sender_rtcp(GoLiveSender* sender, ConstSlice<u8> compound, u64 now_
 u64 go_live_sender_pump(GoLiveSender* sender, const GoLiveSendLink& link, u64 now_us) noexcept;
 // True once since the last call when a receiver asked for a keyframe.
 bool go_live_sender_take_keyframe(GoLiveSender* sender) noexcept;
+
+// Forced keyframes, paced as libwebrtc paces them: at most one request per kGoLiveKeyframeIntervalMs, and none while
+// the encoder has yet to answer the last one with a keyframe (at most kGoLiveKeyframeAnswerMs, for a request a still
+// capture left unanswered). A keyframe costs the encoder and the wire several delta frames; a request per unit seen
+// while one is awaited would be answered by every picture already in the encoder.
+inline constexpr u64 kGoLiveKeyframeIntervalMs = 300;
+inline constexpr u64 kGoLiveKeyframeAnswerMs = 1'000;
+struct GoLiveKeyframePacer {
+    u64 requested_ms; // Of the last request.
+    bool wanted;      // A keyframe is needed.
+    bool pending;     // The last request has not been answered yet.
+};
+// True when the encoder is to be asked for a keyframe now, which then counts as requested.
+bool go_live_keyframe_due(GoLiveKeyframePacer* pacer, u64 now_ms) noexcept;
+// The earliest time a wanted keyframe can be due.
+u64 go_live_keyframe_deadline(const GoLiveKeyframePacer& pacer) noexcept;
+
+// The encoded units waiting for the sender share one byte ring of kGoLiveUnitRingBytes, up to kGoLiveUnitQueue of
+// them, so they queue while the pacer sends a large one, as libwebrtc's pacer queue does: a keyframe takes several
+// frame intervals on the wire, and a unit dropped for want of room would cost another keyframe.
+inline constexpr u32 kGoLiveUnitQueue = 16;
+inline constexpr u32 kGoLiveUnitRingBytes = 4 * kGoLiveFrameBytes;
+inline constexpr u32 kGoLiveNoRoom = 0xFFFF'FFFFu;
+// The ring offset of the next unit of `bytes` after `count` queued units, the oldest at `head` and the newest ending
+// at `tail`: after the newest, else (wrapping) at the start, short of the oldest; kGoLiveNoRoom when neither fits.
+u32 go_live_unit_place(u32 head, u32 tail, u32 count, u32 bytes) noexcept;
 } // namespace maicord

@@ -514,6 +514,70 @@ void own_stream(Check check) noexcept {
           "Go Live control: a pause then resume not yet sent collapses to the latest; stop sends STREAM_DELETE");
     gateway_stream_release(&control);
 }
+
+// The keyframe storm: while a keyframe is awaited, every delta unit and every PLI wants one, and each keyframe is
+// followed by a lost unit that re-arms the wait (a queue overflowing behind it). The encoder answers three pictures
+// after a request (the pictures already in it). Before the pacer, each of those units asked again: a request per
+// picture, and keyframes as often. Paced, requests are one per 300 ms at most and each is answered before the next.
+void keyframe_pacing(Check check) noexcept {
+    constexpr u32 kFrames = 180, kLatency = 3, kIntervalMs = 16;
+    GoLiveKeyframePacer pacer{};
+    bool in_encoder[kLatency]{}, requested = false, awaiting = true;
+    u32 requests = 0, keyframes = 0;
+    for (u32 frame = 0; frame < kFrames; ++frame) {
+        const u64 now = 10'000 + u64{frame} * kIntervalMs;
+        if (in_encoder[frame % kLatency]) {
+            ++keyframes;
+            pacer.pending = false;
+            // The unit after it overflows the queue: the stream waits for a keyframe again.
+            pacer.wanted = awaiting = true;
+        } else if (awaiting) {
+            pacer.wanted = true;
+        }
+        pacer.wanted = true; // A PLI with every picture.
+        if (go_live_keyframe_due(&pacer, now)) {
+            ++requests;
+            requested = true;
+        }
+        in_encoder[frame % kLatency] = requested; // Requests before a picture collapse into its keyframe.
+        requested = false;
+    }
+    const u32 most = kFrames * kIntervalMs / static_cast<u32>(kGoLiveKeyframeIntervalMs) + 1;
+    check(requests >= most - 2 && requests <= most && keyframes <= requests,
+          "Go Live keyframes: a sustained want asks the encoder at most once per 300 ms, not once per picture");
+    // An unanswered request (a capture gone still) holds the next one back for kGoLiveKeyframeAnswerMs only.
+    GoLiveKeyframePacer still{};
+    still.wanted = true;
+    const bool first = go_live_keyframe_due(&still, 5'000);
+    still.wanted = true;
+    check(first && go_live_keyframe_deadline(still) == 5'000 + kGoLiveKeyframeAnswerMs &&
+              !go_live_keyframe_due(&still, 5'000 + kGoLiveKeyframeAnswerMs - 1) &&
+              go_live_keyframe_due(&still, 5'000 + kGoLiveKeyframeAnswerMs),
+          "Go Live keyframes: an unanswered request is asked again after a second");
+}
+
+// A keyframe of the largest size and the delta units behind it queue together while the pacer sends it; the ring
+// wraps around the units still queued and never overlaps them.
+void unit_queue(Check check) noexcept {
+    u32 head = 0, tail = 0, count = 0;
+    bool placed = true;
+    for (u32 i = 0; i < kGoLiveUnitQueue && placed; ++i) {
+        const u32 bytes = i == 0 ? kGoLiveFrameBytes : 200 * 1024;
+        const u32 at = go_live_unit_place(head, tail, count, bytes);
+        placed = at == tail;
+        tail = at + bytes;
+        ++count;
+    }
+    check(placed && go_live_unit_place(head, tail, count, 1) == kGoLiveNoRoom,
+          "Go Live unit queue: a largest keyframe and 15 delta units queue behind it; a 17th finds no room");
+    constexpr u32 kMiB = 1u << 20;
+    check(go_live_unit_place(6 * kMiB, 7 * kMiB + kMiB / 2, 3, kMiB) == 0 &&
+              go_live_unit_place(6 * kMiB, kMiB, 4, 5 * kMiB) == kMiB &&
+              go_live_unit_place(6 * kMiB, kMiB, 4, 5 * kMiB + 1) == kGoLiveNoRoom &&
+              go_live_unit_place(6 * kMiB, 6 * kMiB, 5, 1) == kGoLiveNoRoom &&
+              go_live_unit_place(0, 8 * kMiB, 2, 1) == kGoLiveNoRoom,
+          "Go Live unit queue: a unit that does not fit after the newest wraps to the start, short of the oldest");
+}
 } // namespace
 
 void test_go_live_send(Check check) noexcept {
@@ -524,5 +588,7 @@ void test_go_live_send(Check check) noexcept {
     bandwidth(check);
     signaling(check);
     own_stream(check);
+    keyframe_pacing(check);
+    unit_queue(check);
 }
 } // namespace maicord
