@@ -437,14 +437,15 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     // quads, plus a circle and a glyph for each visible Message/More icon button
     // (144 or 145 rows).
     const bool tall_painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 8192) &&
-                              ui_friends_scene_paint(scene, kDefaultTheme, &paint);
+                              ui_friends_scene_paint(scene, kDefaultTheme, &paint) &&
+                              ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint);
     const u32 icon_quads = paint.count - 292;
     check(tall_painted && (icon_quads == 4 * 144 || icon_quads == 4 * 145) && paint.clip_count == 5 &&
               paint.clip_depth == 1 && paint.rejected == 0,
           "friends_maximum_native_viewport_exact_bounded_paint");
     ui_friends_scene_set_focus_visible(&scene, true);
     check(paint_stream_reset(&paint, 800, 8192) && ui_friends_scene_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 293 + icon_quads,
+              ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) && paint.count == 293 + icon_quads,
           "friends_tall_viewport_preserves_focused_row_outline");
     ui_friends_scene_set_focus_visible(&scene, false);
     fixture.presence = UiPresence::idle;
@@ -452,15 +453,10 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     // Idle/offline/unknown/busy each use two presence primitives. The full
     // native viewport needs145 avatars+2*144 badges+3 chrome=436 quads.
     check(ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall) &&
-              paint_stream_reset(&paint, 800, 8192) &&
-              ui_friends_scene_paint(scene, kDefaultTheme, &paint) && paint.count == 436 + icon_quads &&
-              paint.rejected == 0,
-          "friends_tall_viewport_two_primitive_presence_fits_native_budget");
-    check(paint_stream_reset(&paint, 800, 8192) &&
-              ui_friends_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96, false) &&
+              paint_stream_reset(&paint, 800, 8192) && ui_friends_scene_paint(scene, kDefaultTheme, &paint) &&
               paint.count == 148 + icon_quads && ui_friends_scene_presence_paint(scene, kDefaultTheme, &paint) &&
-              paint.count == 436 + icon_quads && paint.clip_depth == 1,
-          "friends_avatar_base_and_presence_overlay_preserve_complete_paint_budget");
+              paint.count == 436 + icon_quads && paint.clip_depth == 1 && paint.rejected == 0,
+          "friends_tall_viewport_two_primitive_presence_fits_native_budget");
     UiFriendsScene tall_search{};
     UiFriendsContent tall_content{{utf8_literal("borrow"), 0, 6, true, true, true}, 16384, 1};
     check(ui_friends_scene_update(&tall_search, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall,
@@ -478,6 +474,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
                        tall_edit.text.bottom};
     check(paint_stream_reset(&paint, 800, 8192) &&
               ui_friends_scene_paint(tall_search, kDefaultTheme, &paint, &tall_edit) &&
+              ui_friends_scene_presence_paint(tall_search, kDefaultTheme, &paint) &&
               paint.count < kMaxPaintQuads && paint.clip_count < 12 && paint.rejected == 0,
           "friends_tall_search_and_maximum_selection_geometry_fit_shared_native_paint_budget");
     // Text-only changes (the search text here, Active Now timers alike) repaint without
@@ -775,6 +772,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
                        tall_edit.text.bottom};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 8192) &&
               ui_friends_scene_paint(sectional, kDefaultTheme, &paint, &tall_edit) &&
+              ui_friends_scene_presence_paint(sectional, kDefaultTheme, &paint) &&
               sectional.count <= kUiFriendsMaximumVisibleRows && paint.count < kMaxPaintQuads &&
               paint.clip_count < 64 && paint.rejected == 0,
           "friends_sections_tall_editor_presence_and_focus_respect_global_paint_budget");

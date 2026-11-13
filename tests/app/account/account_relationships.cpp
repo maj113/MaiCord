@@ -233,14 +233,14 @@ void test_login_host_quarantine() noexcept {
     g_account_fake.login_notification_handle = quarantine_login_notification;
     g_account_fake.login_pump = quarantine_login_pump;
     HANDLE handles[kAccountHostNotificationHandleCapacity]{};
-    check(account_host_notification_handles(&host, handles, kAccountHostNotificationHandleCapacity) == 1 &&
+    check(account_host_notification_handles(&host, handles) == 1 &&
               handles[0] == login_host_quarantine.event && WaitForSingleObject(handles[0], 0) == WAIT_OBJECT_0 &&
               account_host_login_pump(&host).ok() && login_host_quarantine.notifications == 1 &&
               login_host_quarantine.pumps == 1,
           "login_host_live_notification_and_pump_admitted");
     host.stop_failed = true;
     handles[0] = reinterpret_cast<HANDLE>(3);
-    check(account_host_notification_handles(&host, handles, kAccountHostNotificationHandleCapacity) == 0 &&
+    check(account_host_notification_handles(&host, handles) == 0 &&
               handles[0] == reinterpret_cast<HANDLE>(3) &&
               account_host_login_pump(&host).error == AccountLoginError::invalid_input &&
               login_host_quarantine.notifications == 1 && login_host_quarantine.pumps == 1,

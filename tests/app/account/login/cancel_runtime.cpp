@@ -773,7 +773,7 @@ void run() noexcept {
         audit.challenge.bytes != 0,
         "failed stop retains worker/challenge ownership and Back retry while local credentials are wiped");
     HANDLE handles[kAccountHostNotificationHandleCapacity]{};
-    check(account_host_notification_handles(&g_app.account, handles, kAccountHostNotificationHandleCapacity) == 0 &&
+    check(account_host_notification_handles(&g_app.account, handles) == 0 &&
         !audit.notifications && application_login_pump() && !audit.pumps && !audit.attachments,
         "failed stop quarantines already-signaled notification and queued login success");
     g_app.login.webauthn_attempted = true;

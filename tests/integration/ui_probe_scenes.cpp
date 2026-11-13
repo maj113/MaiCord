@@ -2322,7 +2322,9 @@ bool probe_friends_requests_scene() noexcept {
                                  {}, tall, nullptr, &hidden_sections) ||
         ui_friends_scene_visible_count(main) < 140 || !paint_stream_reset(&budget) ||
         !ui_friends_scene_paint(main, kDefaultTheme, &budget) ||
-        !ui_friends_scene_paint(requests, kDefaultTheme, &budget) || budget.count > kMaxPaintQuads ||
+        !ui_friends_scene_presence_paint(main, kDefaultTheme, &budget) ||
+        !ui_friends_scene_paint(requests, kDefaultTheme, &budget) ||
+        !ui_friends_scene_presence_paint(requests, kDefaultTheme, &budget) || budget.count > kMaxPaintQuads ||
         budget.clip_count > kMaxPaintClips || budget.rejected)
         return false;
     main_fixture.count = main_source.count = 8;

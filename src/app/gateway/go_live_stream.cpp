@@ -126,6 +126,11 @@ void end_session(GatewayGoLive& live, GoLiveEnd end) noexcept {
     live.end = end;
     live.pump_due_ms = 0;
 }
+// Leaves the stream (the server hears of it) and ends the session.
+void stop_session(GatewayGoLive& live, GoLiveEnd end) noexcept {
+    gateway_stream_stop(&live.control, GatewayStreamEnd::stopped);
+    end_session(live, end);
+}
 GoLiveEnd end_of(const GatewayStreamControl& control) noexcept {
     switch (control.end) {
     case GatewayStreamEnd::stopped:
@@ -275,8 +280,7 @@ void media_events(GatewayGoLive& live) noexcept {
     m.dropped = 0;
     ReleaseSRWLockExclusive(m.lock.native());
     if (ended != GoLiveEnd::none) {
-        gateway_stream_stop(&live.control, GatewayStreamEnd::stopped);
-        end_session(live, ended);
+        stop_session(live, ended);
         return;
     }
     if (dropped) {
@@ -369,8 +373,7 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
         live.awaiting_keyframe = live.keyframe_wanted = true; // Viewers decrypt from here on.
     live.dave_ready = ready;
     if (!ensure_encoder(live)) {
-        gateway_stream_stop(&live.control, GatewayStreamEnd::stopped);
-        end_session(live, GoLiveEnd::encoder_failed);
+        stop_session(live, GoLiveEnd::encoder_failed);
         return;
     }
     signal(live, now_ms);
@@ -477,10 +480,8 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
                              Utf8View session, u64 now_ms) noexcept {
     switch (command.kind) {
     case GoLiveCommandKind::start: {
-        if (active(*live)) {
-            gateway_stream_stop(&live->control, GatewayStreamEnd::stopped);
-            end_session(*live, GoLiveEnd::stopped);
-        }
+        if (active(*live))
+            stop_session(*live, GoLiveEnd::stopped);
         const auto key = gateway_stream_key_for(command.guild_id, command.channel_id, self_user_id);
         if (!gateway_stream_key_valid(key) || !command.settings.fps)
             return false;
@@ -533,8 +534,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
     case GoLiveCommandKind::stop:
         if (!active(*live))
             return false;
-        gateway_stream_stop(&live->control, GatewayStreamEnd::stopped);
-        end_session(*live, GoLiveEnd::stopped);
+        stop_session(*live, GoLiveEnd::stopped);
         return true;
     case GoLiveCommandKind::update: {
         if (!active(*live) || !command.settings.fps)
@@ -570,8 +570,7 @@ bool gateway_go_live_command(GatewayGoLive* live, const GoLiveCommand& command, 
                           go_live_producer_capture(live->backend_context, live->media, command.source,
                                                    command.system_picker, live->settings.fps);
         if (!live->capturing) {
-            gateway_stream_stop(&live->control, GatewayStreamEnd::stopped);
-            end_session(*live, GoLiveEnd::capture_unavailable);
+            stop_session(*live, GoLiveEnd::capture_unavailable);
             return true;
         }
         if (live->settings.sound)
@@ -612,8 +611,7 @@ void gateway_go_live_drive(GatewayGoLive* live, const GatewayVoiceControl& voice
         live->media_revision = 0;
     }
     if (!live->media_revision && connection.media.has_description && !attach(*live, microseconds())) {
-        gateway_stream_stop(&control, GatewayStreamEnd::stopped);
-        end_session(*live, GoLiveEnd::connection_failed);
+        stop_session(*live, GoLiveEnd::connection_failed);
         return;
     }
     const bool attached = live->media_revision && live->media_revision == connection.ready_revision;

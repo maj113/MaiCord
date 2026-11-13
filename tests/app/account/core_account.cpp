@@ -506,8 +506,7 @@ void test_account_host_contract() noexcept {
         account_host_attach(&unattached, nullptr).error == AccountHostError::invalid_input && !unattached.module;
     HANDLE handles[kAccountHostNotificationHandleCapacity] = {
         reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), reinterpret_cast<HANDLE>(3)};
-    const u32 empty_handles =
-        account_host_notification_handles(&host, handles, kAccountHostNotificationHandleCapacity);
+    const u32 empty_handles = account_host_notification_handles(&host, handles);
 
     AccountModuleStatus observed{};
     observed.coordinator_phase = 4;

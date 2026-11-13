@@ -28,6 +28,6 @@ struct VoiceLogLimiter {
     u64 next_ms, suppressed;
 };
 inline constexpr u64 kVoiceLogLimitIntervalMs = 5'000;
-// True when a record may be written now; *suppressed receives the skipped count.
+// True when a record may be written now; only then *suppressed receives the skipped count.
 bool voice_log_limit(VoiceLogLimiter* limiter, u64 now_ms, u64* suppressed) noexcept;
 } // namespace maicord

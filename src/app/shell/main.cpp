@@ -459,8 +459,7 @@ int application_run() noexcept {
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
-                : account_host_notification_handles(&g_app.account, wait_handles,
-                                                    kAccountHostNotificationHandleCapacity);
+                : account_host_notification_handles(&g_app.account, wait_handles);
         u32 wait_handle_count = account_handle_count;
         const auto push_handle = [&](Waitable handle) noexcept {
             if (handle)

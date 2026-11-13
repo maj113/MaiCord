@@ -250,8 +250,9 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
     return result;
 }
 
-u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u32 capacity) noexcept {
-    if (!output || capacity == 0 || capacity > kAccountHostNotificationHandleCapacity || !host->module) {
+u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) noexcept {
+    constexpr u32 capacity = kAccountHostNotificationHandleCapacity;
+    if (!host->module) {
         return 0;
     }
     HANDLE staged[kAccountHostNotificationHandleCapacity]{};

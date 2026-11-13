@@ -387,7 +387,7 @@ DaveMediaResult voice_connection_dave_decrypt(VoiceConnection* connection,
                                               const VoiceReceivedPacket& packet, ConstSlice<u8> frame,
                                               Slice<u8> scratch, Slice<u8> output, u64 now_ms) noexcept {
     DaveMediaResult result{};
-    if (!connection || packet.transport.layout.kind != MediaPacketKind::rtp ||
+    if (packet.transport.layout.kind != MediaPacketKind::rtp ||
         !voice_connection_media_current(*connection, packet)) {
         result.error = DaveMediaError::invalid_input;
         return result;

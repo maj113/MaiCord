@@ -78,25 +78,22 @@ void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept {
 }
 
 bool voice_framer_pop(VoiceFramer* framer, u64 now_us, Slice<i16> frame, u64* index, u64* wake_us) noexcept {
-    if (wake_us)
-        *wake_us = 0;
-    if (!frame.data || frame.count < kVoiceFrameSamples || framer->count < kVoiceFrameSamples)
+    *wake_us = 0;
+    if (framer->count < kVoiceFrameSamples)
         return false;
     const u32 waiting = framer->count / kVoiceFrameSamples;
     // Re-anchor after a pause so a stale schedule cannot release a burst.
     if (!framer->next_due_us || now_us > framer->next_due_us + kVoiceFramerBacklog * kVoiceFrameUs)
         framer->next_due_us = now_us;
     if (waiting <= kVoiceFramerBacklog && now_us + kVoicePacingToleranceUs < framer->next_due_us) {
-        if (wake_us)
-            *wake_us = framer->next_due_us;
+        *wake_us = framer->next_due_us;
         return false;
     }
     // Frames sit on 960-sample boundaries of the ring (read only ever advances by one frame), so one never wraps.
     copy_bytes(frame.data, framer->samples + framer->read, kVoiceFrameSamples * static_cast<u32>(sizeof(i16)));
     framer->read = (framer->read + kVoiceFrameSamples) % kFramerSamples;
     framer->count -= kVoiceFrameSamples;
-    if (index)
-        *index = framer->index;
+    *index = framer->index;
     ++framer->index;
     framer->next_due_us += kVoiceFrameUs;
     return true;
@@ -167,8 +164,7 @@ VoiceTransmitAction voice_transmit_next(VoiceTransmitter* transmitter, bool want
 }
 
 void voice_transmit_reset(VoiceTransmitter* transmitter) noexcept {
-    if (transmitter)
-        reset_value(transmitter);
+    reset_value(transmitter);
 }
 
 u32 voice_rtp_header(Slice<u8> output, u16 sequence, u32 timestamp, u32 ssrc) noexcept {

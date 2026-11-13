@@ -18,14 +18,11 @@ void voice_log(VoiceLogLevel level, const char* event, const char* k1, u64 v1, c
     voice_log_fields(level, event, {fields, 3});
 }
 bool voice_log_limit(VoiceLogLimiter* limiter, u64 now_ms, u64* suppressed) noexcept {
-    if (suppressed)
-        *suppressed = 0;
     if (limiter->next_ms && now_ms < limiter->next_ms) {
         ++limiter->suppressed;
         return false;
     }
-    if (suppressed)
-        *suppressed = limiter->suppressed;
+    *suppressed = limiter->suppressed;
     limiter->suppressed = 0;
     limiter->next_ms = now_ms + kVoiceLogLimitIntervalMs;
     return true;

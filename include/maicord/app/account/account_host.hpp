@@ -89,7 +89,8 @@ AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept;
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept;
 AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 monotonic_now_ms,
                                         u64 unix_now_ms) noexcept;
-u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u32 capacity) noexcept;
+// Writes at most kAccountHostNotificationHandleCapacity handles.
+u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) noexcept;
 u32 account_host_wait_timeout(const AccountHost* host, u64 now_ms) noexcept;
 bool account_host_wake_due(const AccountHost* host, u64 now_ms) noexcept;
 

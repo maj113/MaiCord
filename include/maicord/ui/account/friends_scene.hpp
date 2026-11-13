@@ -207,7 +207,7 @@ UiFriendsEditField ui_friends_scene_edit_field(const UiFriendsScene&) noexcept;
 u32 ui_friends_scene_visible_count(const UiFriendsScene&) noexcept;
 bool ui_friends_scene_visible_row(const UiFriendsScene&,u32 slot,UiFriendsVisibleRow*) noexcept;
 bool ui_friends_scene_presence_paint(const UiFriendsScene&,const Theme&,PaintStream*) noexcept;
-bool ui_friends_scene_paint(const UiFriendsScene&,const Theme&,PaintStream*,const UiEditGeometry* edit=nullptr,u32 dpi=96,bool include_presence=true) noexcept;
+bool ui_friends_scene_paint(const UiFriendsScene&,const Theme&,PaintStream*,const UiEditGeometry* edit=nullptr,u32 dpi=96) noexcept;
 // Round icon action (Message, More, Accept, Ignore, Cancel, Unblock) under the point, or the focused one for
 // keyboard; its widget anchors the tooltip.
 bool ui_friends_scene_icon_action(const UiFriendsScene&, bool keyboard, float x, float y, UiWidgetHandle* widget,

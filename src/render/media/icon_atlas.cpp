@@ -121,7 +121,6 @@ bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* 
         if (!atlas->ready || data.icon >= static_cast<u32>(UiIcon::count) ||
             !place_bounds(pack, data.icon, {quad.left, quad.top, quad.right, quad.bottom}, scale,
                           quad_weight, &place)) {
-            ++atlas->unresolved;
             destination[i] = quad;
             continue;
         }
@@ -143,11 +142,8 @@ bool icon_atlas_resolve(IconAtlas* atlas, GpuContext* context, const PaintQuad* 
                 memmove(destination + i, source + i, static_cast<usize>(count - i) * sizeof(PaintQuad));
                 return false;
             }
-            if (cell.ok())
-                ++atlas->rasterized;
         }
         if (!cell.ok() || !glyph_atlas_pin(&atlas->allocator, cell.handle)) {
-            ++atlas->unresolved;
             destination[i] = quad;
             continue;
         }

@@ -609,29 +609,23 @@ NetworkWorkerStep fail_send(GatewayClient* client, GatewayClientRuntime* runtime
     return reconnect_or_fail(client, runtime, GatewayClientError::send, native_error, now_ms);
 }
 
+// Delivers a completion the connection owns. Inlined so the test stays the plain ownership call per connection.
+__forceinline bool voice_completion(VoiceConnection* connection, const VoiceConnectionSetup& setup, NetworkLoop* loop,
+                                    const NetworkWorkerEvent& event) noexcept {
+    if (!voice_connection_owns(*connection, event.poll.completion))
+        return false;
+    voice_connection_completion(connection, setup, loop, event.poll.completion, event.now_ms);
+    return true;
+}
+
 NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                                     const NetworkWorkerEvent& event) noexcept {
     const NetworkCompletion& completion = event.poll.completion;
-    if (voice_connection_owns(runtime->voice_connection, completion)) {
-        voice_connection_completion(&runtime->voice_connection, runtime->voice.setup, loop, completion,
-                                    event.now_ms);
-        return {next_worker_wait(client, runtime, event.now_ms),
-                runtime->stopping && shutdown_drained(runtime)};
-    }
-    if (voice_connection_owns(runtime->stream.connection, completion)) {
-        voice_connection_completion(&runtime->stream.connection, runtime->stream.control.setup, loop, completion,
-                                    event.now_ms);
-        return {next_worker_wait(client, runtime, event.now_ms),
-                runtime->stopping && shutdown_drained(runtime)};
-    }
-    if (voice_connection_owns(runtime->go_live.connection, completion)) {
-        voice_connection_completion(&runtime->go_live.connection, runtime->go_live.control.setup, loop, completion,
-                                    event.now_ms);
-        return {next_worker_wait(client, runtime, event.now_ms),
-                runtime->stopping && shutdown_drained(runtime)};
-    }
-    // Capture wake-ups only need the voice drive that follows every event.
-    if (completion.kind == NetworkOperationKind::signal && completion.signal == &runtime->voice_send_signal)
+    // Voice, stream and Go Live completions and capture wake-ups only need the voice drive that follows every event.
+    if (voice_completion(&runtime->voice_connection, runtime->voice.setup, loop, event) ||
+        voice_completion(&runtime->stream.connection, runtime->stream.control.setup, loop, event) ||
+        voice_completion(&runtime->go_live.connection, runtime->go_live.control.setup, loop, event) ||
+        (completion.kind == NetworkOperationKind::signal && completion.signal == &runtime->voice_send_signal))
         return {next_worker_wait(client, runtime, event.now_ms), runtime->stopping && shutdown_drained(runtime)};
     if (((completion.kind == NetworkOperationKind::connect ||
           completion.kind == NetworkOperationKind::receive ||

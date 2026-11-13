@@ -23,8 +23,6 @@ struct IconAtlas {
     GlyphPathCommand commands[kIconMaximumOutlineCommands];
     u32 resolved_dpi;
     float resolved_weight;
-    u32 rasterized;
-    u32 unresolved;
     bool ready;
 };
 

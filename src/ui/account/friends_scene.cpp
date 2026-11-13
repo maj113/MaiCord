@@ -1193,7 +1193,7 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
     return p.end();
 }
 bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintStream* paint,
-                            const UiEditGeometry* edit, u32 dpi, bool include_presence) noexcept {
+                            const UiEditGeometry* edit, u32 dpi) noexcept {
     if (edit && edit->selection_count > 48)
         return false;
     if (!s.active)
@@ -1376,8 +1376,6 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                              theme.scale.radius_sm, focused ? 2.f : 0.f);
         }
     }
-    if (p && include_presence && !ui_friends_scene_presence_paint(s, theme, paint))
-        p.fail();
     if (p && s.active_visible) {
         const auto& r = s.active_rect;
         // A hairline divides the column from the list.
