@@ -32,7 +32,7 @@ AT-SPI host).
 ## Shared code on Linux
 
 `cmake/linux_libraries.cmake` globs `src/app` into `maicord_app_client`, so a new unit builds on Linux by default and must use the
-seams (see AGENTS.md, "Where things live"): `os/process.hpp`, `os/text.hpp`, `os/thread.hpp`, `os/local_time.hpp`, `core/data_path.hpp`,
+seams (see CONTRIBUTING.md, "Per-system seams"): `os/process.hpp`, `os/text.hpp`, `os/thread.hpp`, `os/local_time.hpp`, `core/data_path.hpp`,
 `core/module.hpp`, `core/resource.hpp`, `core/virtual_memory.hpp`, `platform/desktop/shell_open.hpp`, and a `Window` wherever a window is
 passed, never an `HWND`. A Windows-only part keeps `#if defined(_WIN32)` in its file with the Linux alternative beside it:
 `notifications/desktop.cpp`, `platform/desktop/taskbar_attention.cpp`, `platform/desktop/linux/notifications.cpp`,

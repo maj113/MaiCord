@@ -1,447 +1,142 @@
 # Contributing to MaiCord
 
-MaiCord is a small, opinionated codebase. These notes keep changes easy to
-review and the client small and fast.
+MaiCord is a small, opinionated codebase; these notes keep changes easy to review and the client small and fast.
+[AGENTS.md](AGENTS.md) is the one-page rule sheet: read it first. This guide has the procedures behind it, and each area's
+design notes are in the `README.md` beside its code ([Per-system seams](#per-system-seams) lists them).
 
 ## Before you start
 
-- For anything larger than a bug fix, open an issue first so the approach can
-  be agreed before you write the code. The issue forms cover bugs, missing
-  Discord features and performance problems.
-- Contributions must not include Discord-owned assets (images, sounds, fonts)
-  or copied client code or bundles; see the [disclaimer](README.md#disclaimer).
-- Research notes, captures and client bundles stay on your machine.
-  `Analysis/` and `docs/` are git-ignored for this reason.
+- For anything larger than a bug fix, open an issue first so the approach can be agreed before you write the code. The issue
+  forms cover bugs, missing Discord features and performance problems.
+- Contributions must not include Discord-owned assets (images, sounds, fonts) or copied client code or bundles; see the
+  [disclaimer](README.md#disclaimer). Research notes, captures and client bundles stay on your machine: `Analysis/` and
+  `docs/` are git-ignored for this reason.
 
 ## Building and testing
 
-[Building from source](README.md#building-from-source) has the short version. You need:
-
-- **Windows**: the MaiCord LLVM toolchain (clang-cl, lld-link and llvm-lib from a
-  [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release, which the build fetches on first use; see
-  below), the **Windows SDK** and the **MSVC x64 toolset** of the Visual Studio 2026 Build Tools (import `.vsconfig` in the
-  Visual Studio Installer: the build takes MASM, `ml64`, and the C and C++ library headers from the toolset; no Visual
-  Studio IDE and no developer shell), **CMake 3.28+** and **Ninja** on `PATH` (for example `winget install Kitware.CMake
-  Ninja-build.Ninja`), **Python 3.10+** on `PATH` and **Windows PowerShell 5.1** (included with Windows). `tools\build.ps1`
-  finds the Build Tools, the SDK and the toolchain, builds `MaiCord.exe` into the sibling directory `..\MaiCord-build\Release`
-  and audits it. Close MaiCord before rebuilding.
-- **Linux**: Ubuntu 24.04+, Debian 13+ or a similar system with glibc 2.38 or newer (WSL2 works), with CMake 3.28 or newer, Ninja,
-  Python 3, git and rsync. The compiler is the Linux asset of the same [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases)
-  release as on Windows (clang, ld.lld and llvm-ar of LLVM 24), which the build fetches on first use; `tools/install_linux_toolchain.sh`
-  fetches it and installs the rest on Debian and Ubuntu. Ubuntu 22.04 and Debian 12 build with a stock LLVM instead (see "Toolchain"
-  below). The shaders are hand-written GLSL that the build packs
-  with Python, so the build fetches no shader compiler (only a plugin effect's GLSL section needs DXC and SPIRV-Cross,
-  which `maicord-plugin effect build --glsl` fetches and builds into `~/.cache/maicord-toolchain` on first use). The
-  script builds in `~/mc-build` on a Linux file system (a checkout on a Windows or network mount is copied there first),
-  audits the images with `tools/audit_image.py` and leaves `~/mc-build/MaiCord` with its `fonts/` and `licenses/`. From
-  Windows, run it in WSL: `wsl -d Ubuntu-Preview --cd <checkout> -- bash -l tools/build_linux.sh --test`. A build with
-  `--test` is not a shipping build.
-
-In short, on Windows:
+One script per system builds the client, audits it and, with `-Test` / `--test`, builds and runs the test suite:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1         # client only
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   # client + whole test suite
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test
 ```
-
-and on Linux (or WSL):
 
 ```sh
-tools/build_linux.sh          # client only
-tools/build_linux.sh --test   # client + the Linux test suite
+tools/build_linux.sh --test
 ```
 
-Both scripts take the same options, `-PascalCase` on Windows and `--kebab-case` on Linux:
+Both take the same options, `-PascalCase` on Windows and `--kebab-case` on Linux: [AGENTS.md](AGENTS.md#build-and-test) has
+the table and the rules of a run. `build.ps1`'s parameter block and `build_linux.sh`'s header document every option
+(`-NoUpdater`, `-TestHooks`, the [`tools/perf`](tools/perf/README.md) probes, CI's shards and deadlines), and
+[tools/README.md](tools/README.md#images-size-and-memory) lists the audit, comparison, size and memory tools.
 
-| Windows | Linux | |
-| --- | --- | --- |
-| `-Test` | `--test` | also build and run the test suite |
-| `-TestNames a,b` | `--test-names a,b` | only these tests (with `-Test`) |
-| `-SkipClient` | `--skip-client` | tests use the client already in the build directory instead of building it |
-| `-KeepIntermediates` | `--keep-intermediates` | keep objects, ninja state and `compile_commands.json` for incremental builds |
-| `-SizeReport` | `--size-report` | print the client's sections and largest code (`tools/report_binary_size.py`; Linux keeps the symbol table) |
-| `-LlvmBin DIR` | `--llvm-bin DIR` | another LLVM bin directory (default `MAICORD_LLVM_BIN`, else the pinned release) |
-| `-TestTimeoutScale N` | `--test-timeout-scale N` | multiply every test timeout by N (slow hosted runners) |
-
-The Windows script also takes `-NoUpdater`, `-TestHooks`, `-PerfProbe` and `-StartupProbe` (below and `tools/perf/README.md`) and
-CI's `-TestShard app|core`, `-ExcludeTestLabels`, `-TestDeadlineSeconds`, `-ClientWaitSeconds` (with `-SkipClient`: wait for a
-client copied in while the tests build), `-ProbeCaptureDirectory` and `-AudioPlaybackProbe`; `tools/build.ps1`'s parameter block
-documents each.
+The suite must finish within **20 seconds**: shrink a slow test's input but keep the coverage that matters, and assert
+outputs and counts, never wall-clock times.
 
 ### Windows
 
-- A local build numbers itself from git as CI numbers master builds (see
-  [tools/release/README.md](tools/release/README.md#client-configuration)), so
-  the updater never offers it an older build, and nothing is installed until
-  you choose **Restart to update**. Add `-NoUpdater` to test the local client
-  against your normal profile without it checking for or downloading releases.
-- There is one build directory, the sibling `..\MaiCord-build\Release`. Don't
-  add other build trees, staging copies or archives. `build.ps1` removes test
-  executables, profiles and logs after every run.
-- The whole test suite must finish within **20 seconds** of execution. If a
-  new test is slow, shrink its input but keep the coverage that matters.
-  Assert outputs and counts, never wall-clock times, so tests stay stable on
-  slower machines.
-- If MaiCord is running from the build directory, add `-SkipClient` to a
-  `-Test` run; otherwise the script refuses to rebuild over it.
-- `.\tools\build.ps1 -Test -TestNames name1,name2`, run from a PowerShell
-  prompt, runs only the named CTest cases while you iterate.
-- `.\tools\build.ps1 -TestHooks` builds the client alone with the test-only environment switches
-  (`include/maicord/core/test_hook.hpp`); it replaces the shipping client in the build directory, so rebuild without it before
-  measuring or shipping (`tools/audit_image.py --no-test-hooks` rejects the image). Two switches point it at
-  `tools/fake_discord_server.py`, the Windows counterpart of the Linux harness's private hosts file and `SSL_CERT_FILE`
-  (`include/maicord/platform/net/test_server.hpp`): `MAICORD_TEST_SERVER=127.0.0.1:PORT` answers every name lookup (API,
-  gateway, CDN, catalog) with that address and port, and `MAICORD_TEST_CA_FILE=cert.pem` replaces Schannel's validation with
-  a chain check against only the certificates in that file (a private chain engine over an in-memory store: no change to the
-  system or user store). The server's certificate must cover the names (`discord.com`, `gateway.discord.gg`,
-  `cdn.discordapp.com`, `media.discordapp.net`, ...). A hooks client given only one of the two switches, a value that does not
-  parse or a CA file it cannot use exits at startup (status 3, reason in the log, component `test_hooks`) instead of reaching
-  the real network. `tools\run_fake_server_client.ps1 [-Executable PATH] [-World DIR]` does it all: refuses a client without
-  hooks, copies it with its assets, makes the certificate, starts `tools/fake_discord_server.py` (`MAICORD_FAKE_WORLD=DIR` for
-  the made-up world), launches the client with a private `LOCALAPPDATA` and returns once the server has logged the client's first
-  request (`-Stop` ends both; run it with its output redirected to a file, not a pipe, as the processes it starts keep the
-  pipe open). Sign in with any e-mail and password.
-- MaiCord builds with the LLVM fork at
-  [maj113/llvm-pe](https://github.com/maj113/llvm-pe): clang-cl, lld-link and
-  llvm-lib from `-LlvmBin`, else `MAICORD_LLVM_BIN`, else the release pinned
-  in `tools/llvm_toolchain.json`, which `tools/resolve_llvm_toolchain.ps1`
-  downloads once, checks against the pinned SHA-256 and keeps in
-  `%LOCALAPPDATA%\MaiCord-toolchain\<tag>`. Another toolchain directory
-  reconfigures the build directory from scratch. The fork's code generation
-  options (the internal call contract, IPRA on register masks, 1-byte function
-  alignment and lld-link's `/OPT:LLDBRANCHRELAX`, together about 240 KB off the
-  client) are added only where the configure step finds the toolchain takes
-  them (`cmake/build_contract.cmake`), so a toolchain without them, a stock
-  LLVM, gets none of them instead of failing.
-- No developer shell: `tools/enter_build_environment.ps1` (which `build.ps1`
-  dot-sources) finds the `.vsconfig` components where VsDevCmd would. It puts
-  the MSVC toolset's `bin\Hostx64\x64` (MASM, `ml64`) and the newest Windows
-  SDK's `bin\<version>\x64` (`rc`, `mt`, `fxc`) on `PATH`, and sets `LIB` to the
-  SDK's import libraries and `INCLUDE` to its headers and the toolset's C and
-  C++ library headers, for the units compiled against the SDK
-  (`MAICORD_SDK_INCLUDES`). `llvm-ml` is not an option: it encodes about 40
-  register-to-register instructions the other valid way, so the client would
-  not be byte-identical.
+- [Building from source](README.md#building-from-source) lists what to install: two Build Tools components (import
+  `.vsconfig`; no IDE and no developer shell), CMake and Ninja (`winget install Kitware.CMake Ninja-build.Ninja`), Python.
+- Close MaiCord before rebuilding. If it is running from the build directory (`..\MaiCord-build\Release`), add `-SkipClient`
+  to a `-Test` run; otherwise the script refuses to rebuild over it.
+- A local build numbers itself from git as CI numbers master builds
+  ([client configuration](tools/release/README.md#client-configuration)), so the updater never offers it an older build, and
+  nothing is installed until you choose **Restart to update**. `-NoUpdater` builds a client that never checks for or downloads
+  releases, to test against your normal profile.
 
 ### Linux
 
-The Linux port builds the client (`MaiCord`), the libraries behind it and their tests: one freestanding PIE with its own `_start`,
-raw syscalls and no CRT, needing only libc.so.6 (a generated stub pins the oldest symbol versions glibc 2.34 exports: dlopen and the
-pthread functions live in libc since 2.34, so glibc 2.34 is the floor), everything else
-opened with `dlopen`. The same bytes run on glibc and, with the interpreter changed by `tools/retarget_libc.py --libc musl`, on musl
-(`tools/audit_image.py [--libc musl]` audits either form). The target is Linux 6.1 or newer; the code uses the 6.1 kernel interface
-unconditionally, with no version probes and no fallbacks for older kernels, and the network loop needs io_uring. Optional user-space
-libraries (VA-API drivers, libfido2, speech-dispatcher, libpulse, ...) degrade to "unavailable".
+- [Building from source](README.md#building-from-source) lists what to install; `tools/install_linux_toolchain.sh` does it
+  on Debian and Ubuntu (`--tests` adds what the suite uses, `--integration` what the integration scripts use).
+- Older hosts (Ubuntu 22.04, Debian 12) build with a stock LLVM, as distribution packages do:
+  `MAICORD_LLVM_MAJOR=23 tools/build_linux.sh --llvm-bin /usr/lib/llvm-23/bin` (apt.llvm.org's clang 23).
+- The build directory is `~/mc-build` (`MAICORD_LINUX_BUILD`); a checkout on a Windows or network mount is rsynced to `~/mc`
+  (`MAICORD_LINUX_SOURCE`) first. From Windows, run the script in WSL:
+  `wsl -d Ubuntu-Preview --cd <checkout> -- bash -l tools/build_linux.sh --test`.
 
-**Build.** `tools/build_linux.sh --test` (from Windows: `wsl -d Ubuntu-Preview --cd <checkout> -- bash -l tools/build_linux.sh --test`)
-rsyncs the tree to ext4 when it sits on a Windows or network mount, builds with clang and ld.lld 24 of the pinned release into
-`~/mc-build`, audits the images with `tools/audit_image.py`, runs the Linux tests, and empties the build directory afterwards but for
-the client and its runtime assets (`--keep-intermediates` keeps it all). The options are `tools/build.ps1`'s (table above); the
-script's header documents the layout and the variables (`MAICORD_LINUX_SOURCE`, `MAICORD_LINUX_BUILD`, `MAICORD_LLVM_BIN`,
-`MAICORD_LLVM_MAJOR`). `tools/install_linux_toolchain.sh` fetches the toolchain and installs the build and test packages on Debian
-and Ubuntu.
+### Toolchain
 
-**Toolchain.** `tools/resolve_llvm_toolchain.sh`, the twin of `tools/resolve_llvm_toolchain.ps1`, fetches the Linux asset of the
-release pinned in `tools/llvm_toolchain.json` once, checks it against its SHA-256 and keeps it in `~/.cache/maicord-toolchain/<tag>`
-(`MAICORD_TOOLCHAIN_CACHE`, else `$XDG_CACHE_HOME/maicord-toolchain`); `tools/build_linux.sh` puts its `bin` first on `PATH` and
-refuses any clang major but 24. Its binaries need glibc 2.38. `--llvm-bin` or `MAICORD_LLVM_BIN` names another LLVM's `bin` directory
-instead and `MAICORD_LLVM_MAJOR` its major: `MAICORD_LLVM_MAJOR=23 tools/build_linux.sh --llvm-bin /usr/lib/llvm-23/bin` builds with
-apt.llvm.org's stock clang 23 (on any host, older ones included), as the distribution packages that build from source do with their
-own LLVM. The contract checks each fork option and leaves out those the compiler lacks (`maicord_llvm_options` in
-`cmake/build_contract.cmake`), so such a build is only bigger. Linux takes IPRA from any LLVM (stock LLVM's is sound on SysV), with
-the fork kept to register masks, and the fork's 1-byte function alignment: about 120 KB off the client, 100 KB of it from IPRA alone.
+Both systems build with LLVM 24 from the [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release pinned in
+`tools/llvm_toolchain.json`. The build downloads it on first use, checks its SHA-256 and keeps it in
+`%LOCALAPPDATA%\MaiCord-toolchain\<tag>` or `~/.cache/maicord-toolchain/<tag>`; CI fetches the same pin.
 
-**A build with tests is not a shipping build.** `--test` (`-DMAICORD_BUILD_TESTS=ON`) defines `MAICORD_TEST_HOOKS`, which turns on the
-environment switches that only tests use (`include/maicord/core/test_hook.hpp`: `MAICORD_GLES_*` driver limits, the `MAICORD_*_LIBRARY` sonames,
-`MAICORD_WAYLAND_NO_FRACTIONAL`, `MAICORD_INSTANCE_BACKEND`, ...). Such an image carries a marker string; `tools/audit_image.py
---no-test-hooks` (run when a client without tests links, on both systems, and by `packaging/build_tarball.py`) rejects it. Anything
-shipped, packaged or measured for size comes from a build without `--test`. A new test-only knob calls `test_hook()`, never
-`environment_get()`.
+- Another LLVM: `-LlvmBin DIR` / `--llvm-bin DIR` or `MAICORD_LLVM_BIN`, and on Linux `MAICORD_LLVM_MAJOR` for a major other
+  than 24. The fork's code generation options are added only where the configure step finds the toolchain takes them, so a
+  stock LLVM builds a bigger client instead of failing.
+- MASM is the Build Tools' `ml64`, never `llvm-ml`, which would change `MaiCord.exe`.
+- A new pin sets `tag`, `sha256` and `linux.sha256` in that file. [tools/README.md](tools/README.md#the-llvm-toolchain) says
+  what a toolchain release must contain and how the build finds the Build Tools.
 
-**The account module is called by name; tests link a fake.** The client calls the account module through plain functions
-(`account_module_*`, declared in `include/maicord/app/account/account_module_api.hpp`, defined by
-`src/app/account/account_module*.cpp`), which the whole-program link makes direct calls. A test that links application
-code lists `tests/support/account_module_fake.cpp` in its `SOURCES`: it defines every entry, answering as the module does
-without an instance (invalid input) unless the test sets the hook of the entry in `g_account_fake`
-(`g_account_fake.message_ack = fake`; restore it when the case ends). A test of the module itself links the module.
+### Test hooks and the fake Discord
 
-**One implementation in the shipped client means no function table.** A table of function pointers, a hook or a callback
-struct (`void* context` and entries) with a single shipped implementation costs an indirect call, a load and a null check
-per use, and keeps both sides from inlining; the shipped client is one image, so call the implementation by name. What a
-test needs to fake it defines itself, and the link takes the test's definition over the library's: the Go Live producers
-(`go_live_producer_*`, `go_live_stream.hpp`), the voice log (`voice_log_fields`: `tests/support/voice_log_sink.cpp`), the
-REST trace (`rest_trace`) and the application half of the Windows window procedure (`win32_caption_*`,
-`win32_shell_message`, `win32_input_blocked`, `platform/window/win32.hpp`). A fake replaces a whole source file of the
-library, so the replaced function sits in a file of its own (`log_record.cpp`, `rest_client_trace.cpp`), and the test lists
-its fake in `SOURCES`, as it lists `account_host.cpp` when it fakes the module. Seams with several implementations (text
-input targets, upload sources, settings pages, video sinks, the Linux decoder tiers) or whose implementation differs per
-system stay tables, and so do the `dlopen`/`GetProcAddress` tables, COM vtables and the plugin SDK ABI.
+- A test-only environment switch calls `test_hook()` (`include/maicord/core/test_hook.hpp`), never `environment_get()`: a
+  shipped client compiles it away. `--test` on Linux and `-TestHooks` on Windows define `MAICORD_TEST_HOOKS`; such an image
+  carries a marker string that `tools/audit_image.py --no-test-hooks` rejects (run when a client without hooks links, and by
+  `packaging/build_tarball.py`). Ship, package and measure size only from a build without them.
+- `.\tools\build.ps1 -TestHooks` builds the Windows client alone with the hooks, in place of the shipping client.
+  `tools\run_fake_server_client.ps1 [-Executable PATH] [-World DIR]` runs it against `tools/fake_discord_server.py` with a
+  private profile and no account (sign in with any e-mail and password; `-Stop` ends both; redirect its output to a file, not
+  a pipe). On Linux `tools/test_discord_wayland.sh --binary <client> STEP...` does the same on headless sway.
+  [tools/README.md](tools/README.md#the-fake-discord-server) has the server's variables and the two Windows switches.
 
-**Environment overrides for users and operators** (documented, shipped):
+### Environment overrides
 
-| Variable | Effect |
-| --- | --- |
-| `MAICORD_LIBRARY_PATH` | Directories searched before the loader's own for every `dlopen`ed library (unusual installs, NixOS). |
-| `MAICORD_VAAPI=off` / `MAICORD_VAAPI_DEVICE=/dev/dri/renderD128` | Disable VA-API hardware decode / pick the render node. |
-| `MAICORD_SECRET_SERVICE=off` | Keep the master key in the 0600 key file instead of the Secret Service. |
-| `MAICORD_NOTIFICATION_BACKEND=portal\|direct` | Force the notification route. |
-| `MAICORD_SPELLCHECK_BACKEND=hunspell\|enchant` | Force the spell-check library. |
-| `MAICORD_PLUGIN_DEV`, `MAICORD_EFFECT_DEV` | Developer Mode folders (both systems). |
-| `MAICORD_FPS_TITLE=1` | Frame rate in the window title (both systems). |
+Overrides a user or an operator may want are not hooks: every build reads them, and they are documented here.
 
-**Size.** The Linux client is held to the Windows client's size (6,500,000 bytes stripped) without slowing hot paths. It follows
-`cmake/size_policy.cmake` (the one list of size-compiled sources, Windows and Linux paths side by side: a new `src/app` unit is
-size-compiled by default on Linux, and any other new `src` unit compiles `-Os` instead of `-O2` unless that file's list of hot code
-names it; a unit goes on that list only for a measurement, instructions and best-of-five wall time at both levels, that shows `-Os`
-more than 2% slower, whose method and numbers the file records), links with the machine outliner, `--icf=all` and `--gc-sections`,
-packs its relative relocations as RELR under the Android tags (no glibc knows them, so `src/core/linux/start.cpp` applies them) and is
-linked `--strip-all`. `tools/build_linux.sh --size-report` prints its largest symbols and leaves it with its symbol table for `llvm-nm -S --size-sort`;
-`tools/linux_memory_report.py PID` splits a running client's resident memory by mapping (at the login screen the client is about 165 MB resident; in one run under WSL2 with Mesa's d3d12 driver the program's image was 5.4 MB and its heap 7.5 MB,
-and the rest was the GPU driver's). The GLES backend returns freed driver memory after it builds a shader (`heap_trim()`).
-`tools/audit_linux_reachability.sh` links the client without LTO and lists the code no path from `_start` reaches, by source file, to
-find a feature that a stub or an `#if` cut off on Linux. Report a size change in either client.
+| Variable | System | Effect |
+| --- | --- | --- |
+| `MAICORD_LIBRARY_PATH` | Linux | Directories searched before the loader's own for every `dlopen`ed library (unusual installs, NixOS) |
+| `MAICORD_VAAPI=off`, `MAICORD_VAAPI_DEVICE=/dev/dri/renderD128` | Linux | Disable VA-API hardware decode; pick the render node |
+| `MAICORD_SECRET_SERVICE=off` | Linux | Keep the master key in the 0600 key file instead of the Secret Service |
+| `MAICORD_NOTIFICATION_BACKEND=portal\|direct` | Linux | Force the notification route |
+| `MAICORD_SPELLCHECK_BACKEND=hunspell\|enchant` | Linux | Force the spell-check library |
+| `MAICORD_PLUGIN_DEV`, `MAICORD_EFFECT_DEV` | both | Developer Mode folders |
+| `MAICORD_FPS_TITLE=1` | both | Frame rate in the window title |
 
-**Platform layers.** Platform code lives in `src/core/linux` and `include/maicord/sys/linux`; shared headers choose between the
-systems with `#if defined(_WIN32)` and the Windows branch stays the code it was (`python tools/compare_image.py OLD NEW` compares
-two builds, PE or ELF, section by section). Shared code uses the portable wrappers in `include/maicord/core` (`intrinsics.hpp`,
-`virtual_memory.hpp`, `interlocked.hpp`). The Win32 value vocabulary stays in shared code (`Interlocked*`, SRW locks, `LONG`/`DWORD`/
-`HANDLE`, `WAIT_*`, `ERROR_*`, `SecureZeroMemory`); the `win32_*.hpp` headers give Linux its twins from `include/maicord/os/linux`.
-Operations that mean different things on the two systems have neutral names in `include/maicord/os`: events, waitable timers and waits
-(`wait.hpp`: `Waitable`, `wait_any`, `wait_many`), threads, sleep and the processor count (`thread.hpp`), files (`file.hpp`), paths
-(`path.hpp`: `path_root`, `path_leaf_start`, `path_plain`), processes, text, local time and date formats. They are inline forwarders to
-the Win32 call on Windows (`os/windows/*.inl`) and out-of-line bodies in `src/os/linux`; a forwarder must compile to the same code.
-Page-granular memory is `pages_*` (`core/virtual_memory.hpp`) and heap blocks `heap_allocate`/`heap_free` (`core/heap.hpp`), never
-`VirtualAlloc` and `HeapAlloc` in shared code. The millisecond tick is `CLOCK_BOOTTIME` and `clock_now` is `CLOCK_MONOTONIC`.
+### Linux integration runs
 
-**Files and sockets.** `include/maicord/os/file.hpp` is the file seam: `file_open` with a `FileOpen` (access, creation, share, flags),
-reads and writes at the position or at an offset, `file_replace` for atomic replacement, `file_stat`, `dir_open`/`dir_next`,
-`file_map`, `dir_watch_*`, `file_duplicate_sealed`; failures leave a Win32 code in `thread_last_error()`. On Linux sharing is an advisory
-`flock` (taken only when the opener denies write sharing; a test written for both systems states what it asserts about sharing under
-`#if defined(_WIN32)`), files are created `0600`, and a directory watch is inotify with a short polling scan on filesystems that do not
-report changes (9p, NFS, FUSE, CIFS). Caches and logs live under `cache_path` and `state_path` (`$XDG_CACHE_HOME`/`$XDG_STATE_HOME`,
-`data_path` on Windows); each Linux test gets private ones. Consumers pass a `NetworkAddress` to the net layer and read errors with
-`network_last_error()`, which keeps the Winsock values on both systems; `include/maicord/platform/net/socket.hpp` holds the few places
-that still need a socket of their own. The Linux net layer (`src/platform/net/linux`, see its README) is the IOCP model on io_uring
-(Linux 6.1; one ring per loop; no other backend), with name resolution on a small getaddrinfo pool; without io_uring (`kernel.io_uring_disabled`,
-a seccomp filter such as Docker's or Podman's default profile) the client exits at startup naming the cause. `maicord_network_loop` tests it on
-local sockets and `maicord_tls_stream_smoke` runs `tls_stream` over it against a local `openssl s_server`. A worker's entry is
-`u32 f(void*)`, never `DWORD WINAPI`.
+Tests that need an environment the suite cannot assume (a compositor, a sound server, namespaces) are registered disabled and
+run through their script, which sets the opt-in variable at configure time (`MAICORD_WAYLAND_INTEGRATION`,
+`MAICORD_PULSE_INTEGRATION`, `MAICORD_SPEECHD_INTEGRATION`, `MAICORD_FAKE_DISCORD_INTEGRATION`); status 77 is a skip.
+`tools/test_linux_integration.sh` runs the CI set; [tools/README.md](tools/README.md#linux-qa-scripts) lists every script.
 
-**GPU.** The backend is chosen at compile time behind `include/maicord/gpu/api.hpp` (D3D11-shaped free functions over the `Gpu*` handles of
-`gpu.hpp`). On Windows the same functions are the Direct3D 11 backend: those marked `MAICORD_GPU_INLINE` are force-inlined one-call
-wrappers in `include/maicord/gpu/d3d11/api.inl` (the `Gpu*` handles alias the `ID3D11*` interfaces, `GpuStatus` is `HRESULT`), and
-device, surface, shader and video-frame code that is not a single call lives in `src/gpu/d3d11`. Shared code (`src/render`, `src/app`,
-`src/ui`) calls `gpu_*` only, never `ID3D11*` methods or `D3D11_*` descriptors; the Windows decoders, Windows-only tests and tools, and
-the DXGI error codes `account_media.cpp` maps are the documented exceptions. A new GPU operation is declared in `api.hpp`, defined inline
-in `api.inl` and out of line in `src/gpu/gles`; a wrapper must compile to the call it replaces (compare per object with the previous
-commit, not whole executables, since LTO moves code). The enumerators of `GpuFormat`, `GpuUsage`, `GpuBind`, `GpuBlendFactor`,
-`GpuFilter` and `GpuAddress` carry Direct3D 11's values and buffer views carry their element count. On Linux the backend is OpenGL
-ES 3.1 over EGL, both opened with `dlopen`
-(`src/gpu/gles`, tests `tests/gpu`; see its README). The client's own GLES shaders are hand-written GLSL ES 3.10, one twin per HLSL file in
-`src/render/shaders/gles` (rules in its README); the HLSL stays the Windows source and the reference of every number.
-`tools/build_gles_shader_pack.py` prunes the twins for the packed shaders of `cmake/generated_sources.cmake`, strips them and deflate-packs
-them with python alone: a client or test build needs no shader compiler. **A change to an HLSL shader changes its GLSL twin in the same
-commit:** the first line of a twin records the SHA-256 of the HLSL it was written against, `tools/check_shader_twins.py` (part of every
-build, `tools/check_source_rules.py`) fails naming the twin when the HLSL changed alone, and `--stamp <twin>` records the new hash once the pair was
-read side by side. A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under `tests/gpu/golden` from Direct3D 11
-with `tools/update_gpu_goldens.py`, and a change to a shader needs `tools/deflate_cache.txt` to carry the new pack's stream
-(`MAICORD_UPDATE_DEFLATE_CACHE=1 python3 tools/build_gles_shader_pack.py`; CI is strict); the Linux renders must match the goldens within the
-tolerances of the scene headers (`tests/gpu/*_scene.hpp`, `png_golden.hpp`). DXC, SPIRV-Cross and `tools/shadertool/mc_shadertool.cpp`
-(`tools/linux_shader_toolchain.json`, fetched and built into `~/.cache/maicord-toolchain` (`MAICORD_TOOLCHAIN_CACHE`) by
-`tools/fetch_linux_shader_toolchain.py`) are for plugin effects only: `tools/glsl_translate.py` and `maicord-plugin effect build --glsl` turn an
-effect's HLSL into the GLSL section of its package, and rebuilding `tests/gpu/effects/*.mcfx` needs them. HLSL constant buffers keep their HLSL
-layout and Linux reads them as std140 (see Code guidelines).
+### CI
 
-**Where the details are.** Each area keeps its current design and test notes in a README beside its code:
+`.github/workflows/ci.yml` builds, audits and tests the client on Windows (`client`, `tests`) and Linux (`linux-client`,
+`linux-tests`). The Linux jobs also run the ABI checks against the installed headers (`tools/check_*_abi.py`),
+`packaging/check.sh` and `tools/test_linux_integration.sh` (reported, not failing, until the repository variable
+`MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`); `distros` runs the portable tests in glibc and musl distribution containers
+(`tools/test_linux_distros.sh --list`).
 
-| Area | Notes |
-| --- | --- |
-| Wayland window, input, clipboard, IME | `src/platform/window/wayland/README.md`, `third_party/wayland/README.md` |
-| GLES backend, EGL surface, shader pack | `src/gpu/gles/README.md`, `src/render/shaders/gles/README.md` (the GLSL twins) |
-| Renderer, effects (`.mcfx` GLSL), Lottie geometry | `src/render/README.md` |
-| Video (VA-API, software tier, MP4) | `src/platform/decode/README.md` |
-| Audio (PulseAudio, speech-dispatcher, AAC) | `src/platform/audio/README.md` |
-| Screen, window and stream audio capture (Go Live; both systems) | `src/platform/capture/README.md` |
-| D-Bus, portals, tray, single instance, secrets | `src/platform/dbus/README.md` |
-| AT-SPI accessibility | `src/platform/atspi/README.md` |
-| Spell checker, security keys, desktop integration | `src/platform/desktop/README.md` |
-| System fonts, line boxes | `src/platform/font/README.md` |
-| Time zones, dates | `src/platform/time/README.md` |
-| Plugin loader, catalog | `src/app/plugins/README.md` |
-| The client: entry, identity, updater, OS text | `src/app/linux/README.md` |
-| Kernel I/O, runtime, libc stubs, musl | `src/os/linux/README.md`, `src/platform/net/linux/README.md`, `src/core/linux/README.md` |
-| Packaging and release | `packaging/README.md` |
+- To reproduce a distribution in WSL: build with `tools/build_linux.sh --test --keep-intermediates`, install podman, run
+  `sudo mount --make-rshared /`, then `tools/test_linux_distros.sh --build ~/mc-build debian-12`.
+- A test that belongs in the portable set is added to `tools/linux_portable_tests.txt`. It must hold on any host: no
+  installed-package assumptions, no `MAICORD_TEST_FONT_SET` or `MAICORD_TEST_SPELL_SET`, skips return 77.
+- Validate workflow changes with `actionlint` and `zizmor`; keep actions pinned by SHA, permissions minimal and concurrency
+  as it is.
 
-**Tests.** Both systems register their tests in `cmake/test_registry.cmake`; a test keeps one name, labels and sources everywhere it
-runs, and a platform difference inside one is an `#if` in the test. Shared tests call a few Win32 file, console
-and process functions that `tests/support/win32_test_compat.hpp` (with `linux_test_app.hpp` and `linux_test_process.hpp`) supplies on
-Linux: they are test code only, used by about a hundred test sources that also build on Windows, so they stay until those tests use the
-neutral `os/` seams. A fixture that calls other Windows API directly (BCrypt, Winsock, GDI, UI Automation, the registry, a real window) is
-`ONLY WINDOWS`. Application and UI fixtures that need no Win32 window run on Linux over `maicord_window_null`
-(`maicord_linux_app_test_libs`). Tests that need an environment the suite cannot assume are opt-in through an environment variable at
-configure time (`MAICORD_WAYLAND_INTEGRATION`, `MAICORD_PULSE_INTEGRATION`, `MAICORD_SPEECHD_INTEGRATION`) and run through their script.
-
-**Linux QA scripts.** All run on headless sway (or nested sway; WSLg's Weston has no screencopy) with private buses, profiles and
-servers, and report instead of touching the user's session. `tools/test_linux_integration.sh` runs the CI set: the Wayland window tests
-(`tools/test_wayland_window.sh`, `--scale`, `--integer`), the GPU surface (`test_gpu_surface.sh`), the client on its signed-out screen
-(`test_client_wayland.sh`: screenshot, idle CPU, wakeups, memory), AT-SPI (`test_atspi.sh`), the D-Bus mocks (`test_dbus.sh`),
-PulseAudio (`test_pulse_audio.sh`) and speech-dispatcher (`test_speechd.sh`). `tools/client_flow.py` drives the client through clicks,
-typing (`wtype`), scroll, output scale and window commands with screenshots (`tools/wayland_pointer.py` is its virtual pointer); a
-signed-in window that headless sway scans out directly stays unrepainted in grim until some input repaints the output, so `shot:` first
-re-applies the output scale; never judge a screenshot from a bare `grim`. Signed-in screens need no account:
-`tools/test_discord_wayland.sh --binary <client> [--site <site>] [--root] [--dbus] STEP...` runs the client against
-`tools/fake_discord_server.py`, a fake Discord (REST and the user gateway in ETF with one zstd frame per message, over TLS in a private
-user, network and mount namespace) serving one account (its profile lists Steam, GitHub and Spotify connections, their logos files of
-`discord.com/assets`), a guild with two channels, messages with markdown, emoji, reactions, an embed, a
-picture, an MP4 and a file (`MAICORD_FAKE_MENTION_AFTER=N` adds a mention of the account, `MAICORD_FAKE_EXTRA_MESSAGES=FILE` more
-messages; `MAICORD_FAKE_WORLD=DIR` replaces the QA guild with a fuller made-up world: several guilds, people with avatars, banners and
-profiles, roles, presences, server tags, display-name styles, the member list, direct messages and scripted live events, and a
-made-up YouTube video whose embed plays when `www.youtube.com` and the world's video host point at the server too, described in
-`tools/fake_discord_world.py`).
-Sign in with any e-mail and password. `--site` serves a catalog site on the catalog host too (Plugins and Themes stores,
-consent dialog, install; `--root` makes the namespace with sudo so the plugin loader's ownership check sees real root); `--dbus` starts the
-desktop mocks and a swaybar hosting the tray and prints the notifications and portal calls (`desktop-calls.txt`). The fake answers only what
-the client reads (an unknown request is 404 and logged), and its READY must stay faithful to what the client's decoders require (the
-user's settings proto and the guild's `user_guild_settings` entry decide whether a mention raises a notification).
-`tools/test_signin_wayland.sh --binary <client>` is the sign-in regression run (without and with `--bar`, a swaybar that reserves the top
-23 pixels); `tools/test_voice_wayland.sh --binary <client>` joins the fake guild's stage (a voice channel needs DAVE, which the fake does
-not serve) with `--audio` giving the client a private PulseAudio server. The fake does serve Go Live: the stream commands (ops 18-22) and
-a stream server (`us-qa-stream.discord.media`; its UDP port, like the voice server's, is ephemeral) that runs DAVE as
-Discord's does (external sender, proposals, commit and welcome relay) and forwards the media between the sender and its
-viewers; `MAICORD_FAKE_STREAM_CODEC` picks the codec and `MAICORD_FAKE_STREAM_VIEWER_AFTER` when the other user starts
-watching. `maicord_go_live_loopback` (`tools/test_go_live_loopback.py`) streams from MaiCord's sender to MaiCord's
-receive path through it for each codec and checks the frames;
-`tools/test_catalog_wayland.sh --binary <client> --site <site>
---expect index-4.json ...` runs the client against a catalog site built with the catalog scripts and a throwaway key
-(`MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=<hex> tools/build_linux.sh` in a fresh build directory makes the matching client).
-`tools/test_server_settings_wayland.sh --binary <client> --page "<sidebar label>" [--expect REGEX]... STEP...` is the Server Settings
-probe: a test build (`--test`) opens Server Settings on the fake's QA guild at that page (the `MAICORD_TEST_GUILD_SETTINGS` hook),
-runs the steps and checks the fake's request log, which also holds the bodies of the profile, `/users/@me/clan`, webhook,
-command permission, AutoMod, guild, role, membership form and template writes (`MAICORD_FAKE_GUILD_FEATURES` sets the
-guild's features, `GUILD_TAGS` by default); `tools/test_server_tag_wayland.sh` is the Server Tag page's run,
-`tools/test_server_apps_wayland.sh` the Integrations and AutoMod pages' (the fake serves one app with two commands, one
-webhook, one followed channel and the mention spam rule, pushes the Gateway events Discord pushes for each write, and
-with `MAICORD_FAKE_AUTOMATION_EXTERNAL=1` changes each list as another moderator would) and
-`tools/test_server_access_wayland.sh` the Server Template, Access and Enable Community pages' (no membership form, template
-or Community at first; Discovery requirements met, one search tag set and two applications waiting), and
-`tools/test_server_profile_wayland.sh` the Server Profile page's (the fake serves three games on `/games` and
-`/games/autocomplete`, two of them as the guild's `/top-games`, with flat cover pictures), and
-`tools/test_game_mentions_wayland.sh` the game mentions' (chips, tooltip, the game profile with
-`MAICORD_FAKE_GAME_FRIEND=1`'s friend playing, and the composer's @game search). CTest registers these
-as opt-in (`MAICORD_FAKE_DISCORD_INTEGRATION=1` at configure time; status 77 where the namespaces or sway are missing).
-`tools/test_user_settings_wayland.sh --binary <client> --page <catalog key> [--expect REGEX]... STEP...` is the User Settings
-probe: a test build opens Settings at that page (the `MAICORD_TEST_USER_SETTINGS` hook) once the account is ready, and the fake's
-account routes (password `hunter2`, authenticator code `123456`, verification code `424242`) log each write's body;
-`tools/test_account_settings_wayland.sh` is My Account's, Data & Privacy's and Connected Apps' run, and
-`tools/test_app_settings_wayland.sh` the app-behaviour pages' (each switch checked by the field its decoded settings-proto PATCH
-carries; the fake answers `/activities/{id}/test-mode` and `/applications/public` for Application Test Mode), and
-`tools/test_profile_editor_wayland.sh` Profiles' (`MAICORD_FAKE_NITRO=1` makes the account Nitro; the name style dropdowns by
-mouse and keyboard, the colour picker and the saved PATCH body, Try It Out without Nitro, the owned nameplate on the
-preview's member row, and the same picker on a role's Custom colour through `MAICORD_FAKE_ROLE=1`'s "QA Role"), opt-in like
-the others.
-`client_flow.py`'s `keys:A,B,...` sends several keys from one virtual keyboard: each new one moves keyboard focus, which closes
-an open menu.
-`tools/test_dbus_real.sh` (real xdg-desktop-portal and gnome-keyring) and `tools/test_dbus_tray.sh` (swaybar's tray) need a graphical
-session and stay manual. A client run that opens Settings and closes (`python3 tools/client_flow.py wait:4 click:1139,16 wait:1.5 close`)
-must exit 0.
-
-**CI.** Linux CI is the `linux` and `distros` jobs of `.github/workflows/ci.yml` on `ubuntu-24.04`: set up with the shared
-`.github/actions/setup-toolchain` (the pinned toolchain from the cache, and `tools/install_linux_toolchain.sh --integration`), build
-and test with `tools/build_linux.sh --test --keep-intermediates --test-timeout-scale 3`, check the
-`dlopen` tables and the libc pins against the installed headers (`tools/check_{libc,openssl,pulse,speechd,fido2,video}_abi.py`), run
-`packaging/check.sh`, run `tools/test_linux_integration.sh` (reported, not failing, until the repository variable
-`MAICORD_LINUX_INTEGRATION_BLOCKING` is `true`) and pack the portable cases for the `distros` job, which runs them in Ubuntu 22.04,
-Debian 12, AlmaLinux 9, Fedora, Arch Linux, NixOS, Alpine, Void (musl) and Chimera containers (`tools/test_linux_distros.sh`; its header lists each
-distribution's packages; containers run with `--security-opt seccomp=unconfined` because the runtime needs io_uring). The tarball for
-the preview feed is built in a second build without tests.
-To reproduce a distribution locally in WSL: build with `tools/build_linux.sh --test --keep-intermediates`, install podman, run
-`sudo mount --make-rshared /`, then `tools/test_linux_distros.sh --build ~/mc-build debian-12`. A test that belongs in the portable set
-is added to `tools/linux_portable_tests.txt` (it must hold on any host: no installed-package assumptions, no `MAICORD_TEST_FONT_SET`/
-`MAICORD_TEST_SPELL_SET`, skips return 77). The `dlopen` ABI checkers compare each library's function, constant and struct tables with the
-installed `-dev` headers; a new `dlopen`ed function needs its table entry and no more (an unused entry is dead weight). Validate workflow
-changes with `actionlint` and `zizmor`; keep actions pinned by SHA, permissions minimal and concurrency as it is.
-
-**Packaging** lives in `packaging/` (its README is the reference, with the layout and the steps only the owner can take): the release
-tarball (`build_tarball.py`), the AppImage, the one-line installer, nfpm `.deb`/`.rpm`/Arch package, signed apt/dnf/pacman repositories, a PPA, COPR/OBS,
-AUR, Alpine, Void, Gentoo and a Nix flake. `bash packaging/check.sh` (needs squashfs-tools, zsync, openssl, desktop-file-utils,
-appstream; nfpm optional through `packaging/nfpm/install_nfpm.sh`) is the gate without a client. Shipped binaries are built without
-`--test`. The `linux` job of `release.yml` attaches the tarballs (glibc and musl), the AppImages, the `.deb`, `.rpm` and Arch package, `install.sh` and the checksums to the draft release when the repository variable `MAICORD_LINUX_RELEASES`
-is `true`. Only the tarball install (which carries `.maicord-portable`) and the glibc AppImage (`$APPIMAGE`, in a writable directory; it has
-manifests of its own, `maicord_release.py linux --appimage`) may self-update.
-
-### The toolchain release
-
-Local builds and CI (`.github/actions/setup-toolchain`, used by every
-workflow that builds, on Windows and Linux) fetch the same pinned release
-through `tools/resolve_llvm_toolchain.ps1` / `.sh`; CI puts its `bin` on
-`PATH` and in `MAICORD_LLVM_BIN` and caches the extracted toolchain per
-system with `actions/cache`, keyed by the hash of `tools/llvm_toolchain.json`,
-so a new pin fetches anew. Where the Build Tools are missing, the action
-installs exactly the components in `.vsconfig`; CMake and Ninja come from the
-runner's `PATH`.
-
-Each toolchain release of `maj113/llvm-pe` must provide:
-
-- a tag `toolchain-YYYY.MM.DD`;
-- the asset `llvm-pe-x86_64-windows.zip`, whose root is the toolchain
-  directory: `bin\clang-cl.exe`, `bin\lld-link.exe` and `bin\llvm-lib.exe`
-  (MASM is the Build Tools' `ml64`; `rc`, `mt` and `fxc` are the SDK's) and
-  clang's core, x86 and Windows resource headers in
-  `lib\clang\<major>\include`, which clang-cl finds relative to `bin`. The
-  executables link the static MSVC runtime, so no redistributable is needed;
-- the asset `llvm-pe-x86_64-linux.tar.xz`, whose root is the toolchain
-  directory as well: `bin/clang`, `bin/clang++`, `bin/ld.lld`, `bin/llvm-ar`
-  and `bin/llvm-ranlib` and clang's core resource headers in
-  `lib/clang/<major>/include` (the ABI checks compile the system's headers
-  with them);
-- each asset's `.sha256`, the archive's hex SHA-256.
-
-To move to a new release, set `tag` in `tools/llvm_toolchain.json` to the tag,
-and `sha256` and `linux.sha256` to the two `.sha256` values.
-
-### Build files
+## Build files
 
 `CMakeLists.txt` includes the modules in `cmake/`:
 
 | Module | Contents |
 | --- | --- |
-| `build_contract.cmake` | The compiler/linker contract of both systems (one policy, spelled per driver; the image formats and runtimes differ), `maicord_library()` (an entry prefixed `windows:` or `linux:` belongs to that system only, in place), `maicord_program()` |
-| `packed_data.cmake` | Packed UI data both clients embed (the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the icon pack, regional flags, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`) |
-| `generated_sources.cmake` | Both builds' generated inputs: the packed data; on Windows the shaders (`maicord_shader()`), icon and sounds; on Linux the GLSL shader pack, the Wayland protocol bindings and the desktop entry |
-| `libraries.cmake` | The static libraries both clients link, one list with per-system entries; `windows_libraries.cmake` and `linux_libraries.cmake` hold the libraries only one system builds |
-| `client.cmake` | The client of both systems (`MaiCord.exe` with the account module, the Linux `MaiCord`), its updater identity, the image audit (`tools/audit_image.py` after every link) and the source rules (`tools/check_source_rules.py`, rerun only when a file it reads changes) |
-| `runtime_assets.cmake` | The licenses and bundled fonts both clients carry beside the executable (`maicord_copy_fonts()`) |
-| `size_policy.cmake` | The cold-code size policy of both clients (`MaiCord.exe` and the Linux `MaiCord`): the sources compiled `-Oz` (the only code the machine outliner touches), the ones that also fold helpers (`/Ob2`, `-finline-functions`) and, on Linux only, the `-Os` tier for what is left at `-O2` that is not a byte or sample loop; one list names Windows and Linux files side by side |
-| `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
-| `test_registry.cmake` | Every test executable and CTest case |
-| `perf_probe.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools: the performance probe, the live-network probes and the Opus conformance run, the DirectWrite oracles |
+| `build_contract.cmake` | The compiler and linker contract, `maicord_library()`, `maicord_program()` |
+| `packed_data.cmake`, `generated_sources.cmake` | Generated inputs: the packed UI data (`tools/pack_*.py`), the Windows shaders (`maicord_shader()`), icon and sounds, the Linux GLSL shader pack, Wayland bindings and desktop entry |
+| `libraries.cmake`, `windows_libraries.cmake`, `linux_libraries.cmake` | The static libraries both clients link (a source prefixed `windows:` or `linux:` belongs to that system only) and those one system builds |
+| `client.cmake`, `update_config.cmake`, `runtime_assets.cmake` | The client, its updater identity, the image audit, the source rules (`tools/check_source_rules.py`), and the licenses and fonts beside the executable |
+| `size_policy.cmake` | The one list of size-compiled sources, Windows and Linux paths side by side |
+| `tests.cmake`, `test_support.cmake`, `test_registry.cmake` | The test configuration, its helpers, and every test executable and CTest case |
+| `perf_probe.cmake`, `integration.cmake`, `reference_tools.cmake`, `build_outputs.cmake` | Windows only: the perf probe, the live-network probes and the Opus conformance run, the DirectWrite oracles, the cleanup's list of build products |
 
-A test is one `maicord_test()` call; more cases on the same executable use
-`maicord_add_tests()`. Both register on Windows and Linux unless `ONLY WINDOWS` or
-`ONLY LINUX` names one system; after `WINDOWS` or `LINUX` the arguments belong to
-that system until the next `WINDOWS`, `LINUX` or `BOTH` (or the test properties),
-and the Windows import libraries (`kernel32`, `user32`, ...) in `LIBS` are dropped on
-Linux. Tests link non-LTO copies of the shipping libraries on both systems
-automatically (a test that needs a library lists it in `LIBS`, never in `DEPENDS`, which
-would build the shipping one too), and on Windows compile their own `tests/` sources at
-`/Od` (code from `src/` stays `/O2`); a test that needs the optimizer is listed in
-`cmake/tests.cmake`.
-Small tests share an executable with `BUNDLE <name>` on their
-`maicord_test()`, which needs no `LIBS`: the executable's libraries and include
-directories are declared once by `maicord_test_bundle()` at the top of
-`test_registry.cmake` (add what a new member needs there). Each case runs its own
-entry symbol (`MAICORD_TEST_ENTRY`), so a bundled test must not define symbols
-another member or library defines. `STANDALONE` also builds the test's own
-executable on Windows (with its own `LIBS`), which the offline tools in `tools/`
-run directly (no CTest case uses it).
+- Source order in the library files is the archive member order: append new files instead of re-sorting the lists.
+- **Size.** `size_policy.cmake` sets the optimisation level per source: on Linux a new `src/app` unit is size-compiled by
+  default, and any other new `src` unit compiles `-Os` instead of `-O2` unless that file's list of hot code names it. A unit
+  goes on that list only for a measurement (instructions and best-of-five wall time at both levels) that shows `-Os` more than
+  2% slower; record the method and the numbers in the file.
+- A generated input listed as a source (or `OBJECT_DEPENDS`) of `MaiCord` holds back every object of the client until its
+  generator has run: link such inputs through an object library, like `maicord_client_resources`.
 
-In a `-Test` build the test targets' compiles wait for the client's (the stamp in
-`maicord_order_tests_after_client()`): Ninja starts ready edges by the length of the
-chain behind them and counts the client's one-thread LTO link as a single edge, so
-with every test compile ready the link would start only after all of them. A
-generated input listed as (or `OBJECT_DEPENDS` of) a source of `MaiCord` holds back
-every object of the client until its generator has run; link such inputs through an
-object library, like `maicord_client_resources`.
+### Registering tests
 
 ```cmake
 maicord_test(MaiCordFooTests ENTRY maicord_foo_tests_entry
@@ -451,237 +146,173 @@ maicord_test(MaiCordFooTests ENTRY maicord_foo_tests_entry
     TEST maicord_foo)
 ```
 
-Source order in `libraries.cmake` (and the two system files) is the archive member order, so append new
-files instead of re-sorting the lists.
-
-### The log
-
-The client writes `maicord.log` (Windows `%LOCALAPPDATA%\MaiCord\logs`, Linux `$XDG_STATE_HOME/maicord/logs`; 16 MiB,
-then it moves to `maicord.previous.log`). A line is `YYYY-MM-DD HH:MM:SS.mmm [L] [component] event key=value ...`, `L`
-one of `T I W E`. An event and its details are one line: build it with `LogEvent` (`core/log_event.hpp`) —
-`.field`, `.hex`, `.quoted` for values with spaces, `.fields` for a group of numbers, `.error` for a Win32 error,
-HRESULT or Linux native error (named when common: `hr=0x887A0005 DXGI_ERROR_DEVICE_REMOVED`) — and `write` it once,
-never one `log_u64` per value. Each line is one copy into the log's buffer under one lock; warning and error lines reach
-the file before the call returns (so they survive a crash), others within milliseconds.
-
-Each session starts with its record under `[start]` (a Linux run under WSL; the display, GPU and install lines follow
-once the window, the device and the updater exist):
-
-```
-[I] [start] ==== MaiCord 0.6.6 start ====
-[I] [start] build version=0.6.6 commit=unknown flavour=release test_hooks=1
-[I] [start] system os=Linux kernel=6.18.58.1-microsoft-standard-WSL2 distro="Ubuntu 24.04.5 LTS" libc=glibc glibc=2.39 runtime=native
-[I] [start] machine cpu="AMD Ryzen 7 5800X 8-Core Processor" cores=16 ram_mib=15947 locale=en-US pid=24931
-[I] [start] display count=1 dpi=96 scale_percent=100
-[I] [start] gpu backend=gles description="Microsoft Corporation | D3D12 (AMD Radeon RX 9070 XT) | OpenGL ES 3.1 Mesa 25.2.8-0ubuntu0.24.04.4"
-[I] [start] install kind=package channel=stable updates=off
-```
-
-On Windows the system line has the Windows build and the GPU line the adapter, PCI ids, driver and D3D11 feature
-level. The record never holds user names, paths, tokens or account ids.
-
-`[memory] summary` is one line at the first frame, every ten minutes and when the system runs short of memory (at most
-once a minute): the arenas' totals and the four largest tags as `tag:committed_kib/peak_kib`, then the GPU atlases.
-Arenas count under the `ArenaTag` their owner passes to `arena_initialize` (`other` when none):
-
-```
-[I] [memory] summary reason=startup arenas=57 committed_kib=624 reserved_kib=113764 top=storage:236/236,other:188/188,ui:84/84,text:64/64 gpu_atlas_kib=1024
-```
+- A test is one `maicord_test()` call in `cmake/test_registry.cmake`; more cases on the same executable use
+  `maicord_add_tests()`. A test keeps one name, labels and sources everywhere it runs; a platform difference inside one is an
+  `#if` in the test.
+- Both systems register it unless `ONLY WINDOWS` or `ONLY LINUX` names one: a test of code one system builds, or a fixture
+  that calls Windows API directly (BCrypt, Winsock, GDI, UI Automation, the registry, a real window). After `WINDOWS` or
+  `LINUX` the arguments belong to that system until the next `WINDOWS`, `LINUX` or `BOTH` (or the test properties); the
+  Windows import libraries (`kernel32`, `user32`, ...) in `LIBS` are dropped on Linux.
+- Tests link non-LTO copies of the shipping libraries: list a library in `LIBS`, never in `DEPENDS`, which would build the
+  shipping one too. On Windows `tests/` sources compile at `/Od` (code from `src/` stays `/O2`); a test that needs the
+  optimizer is listed in `cmake/tests.cmake`.
+- Small tests share an executable with `BUNDLE <name>`, which needs no `LIBS`: `maicord_test_bundle()` at the top of
+  `test_registry.cmake` declares the executable's libraries and include directories (add what a new member needs there). Each
+  case runs its own entry symbol (`MAICORD_TEST_ENTRY`), so a bundled test must not define symbols another member or library
+  defines. `STANDALONE` also builds the test's own executable on Windows, for the offline tools that run it directly.
+- Application and UI fixtures that need no Win32 window run on Linux over the headless window
+  (`maicord_linux_app_test_libs`); `tests/support/win32_test_compat.hpp` supplies the few Win32 file, console and process
+  calls shared tests make, for tests only.
+- Tests live in `tests/<module>/<folder>/`, mirroring the code under test, with shared helpers in `tests/support/` and data in
+  `tests/fixtures/`. A test or probe too large for one file is split beside itself into `<stem>_<part>.cpp` files that share a
+  private `<stem>_internal.hpp`; the core suite's cases live in the `core_*.cpp` parts listed in
+  `tests/core_test_cases.inc`, with the expectation sink in `tests/test_main.cpp`.
 
 ## Project layout
 
 ```
-include/maicord/   public headers; each module's folders mirror its src/ folders
-                   (sdk/ holds the plugin API, sys/ the Win32 and Linux system
-                   declarations, os/ and gpu/ the per-system seams)
-src/app/           the client: shell (window, input, startup), chat (messages,
-                   composer, threads, polls, search), voice (calls, streams,
-                   DAVE/MLS), account (login), guild, media, settings,
-                   notifications, gateway, net, plugins, store (catalog
-                   pages), packages (theme/effect/link install), effects,
-                   update, accessibility
-src/core/          freestanding runtime: memory, strings, JSON, containers
+include/maicord/   public headers; each module's folders mirror its src/ folders (sdk/: the plugin API, sys/: the Win32
+                   and Linux system declarations, os/ and gpu/: the per-system seams)
+src/app/           the client by feature: shell (window, input, startup), chat, voice, account, guild, media, settings,
+                   gateway, net, plugins, store, packages (theme, effect and link install), update, ..., and each
+                   system's entry (windows, linux)
+src/core/          freestanding runtime: memory, strings, JSON, containers, the log
 src/model/         chat state: chat, guild, user, voice, notifications
-src/protocol/      Discord wire formats: gateway, http, auth, encoding,
-                   messages, guild, user, media, voice
-src/ui/            framework (core, layout, kit, widgets, controls, theme,
-                   text) and scenes by feature (chat, voice, account, store, ...)
+src/protocol/      Discord wire formats: gateway, http, auth, encoding, messages, voice, ...
+src/ui/            framework (core, layout, kit, widgets, controls, theme, text) and scenes by feature
 src/render/        renderer: d3d11, text, media atlases, effects, shaders
-src/gpu/           GPU backends: d3d11 (Windows), gles (Linux, OpenGL ES over EGL)
+src/gpu/           GPU backends: d3d11 (Windows), gles (Linux)
 src/os/            Linux system layer behind include/maicord/os
-src/text/          text engine: unicode, opentype, fonts, shaping, scripts,
-                   layout
+src/text/          text engine: unicode, opentype, fonts, shaping, scripts, layout
 src/media/         decoders: image, video, audio, containers, compression
-src/platform/      per-system services: desktop, net (TLS), crypto, audio,
-                   decode (GPU), window (Win32, Wayland), uia and atspi
-                   (accessibility), dbus, font, time
-tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
-                   support/, fixtures/, generated/ data and integration/ probes
-samples/           example plugins (plugins/) and background effects (effects/)
-cmake/             build modules included by CMakeLists.txt
-config/            application manifest and resource scripts
-tools/             build (Windows and Linux), PE and ELF audits, perf harness,
-                   release scripts and the maicord-plugin tool
+src/platform/      per-system services (table below)
+tests/             unit tests mirroring src/, shared support/, fixtures/, generated/ data and integration/ probes
+samples/           example plugins and background effects
+cmake/, config/    build modules; application manifest and resource scripts
+tools/             build scripts, PE and ELF audits, QA scripts, perf harness, release scripts, the maicord-plugin tool
 packaging/         Linux packages, AppImage, installer and repositories
 third_party/       Opus, Lucide icons, Wayland protocol XML
-assets/            fonts, icons, flags, sounds, the example theme and license
-                   notices
+assets/            fonts, icons, flags, sounds, the example theme and license notices
 ```
+
+### Per-system seams
+
+Shared code reaches the system only through these. Interfaces are under `include/maicord`; a linked directory has a README
+with the area's design and test notes.
+
+| Seam | Interface | Windows | Linux |
+| --- | --- | --- | --- |
+| Files, threads, waits, processes, text, paths, local time | `os/*.hpp` | inline forwarders, `os/windows/*.inl` | [`src/os/linux`](src/os/linux/README.md) |
+| Memory, app paths, environment, images, resources, clock, libraries | `core/{virtual_memory,heap,data_path,module,resource,time,shared_library}.hpp` | | [`src/core/linux`](src/core/linux/README.md): runtime, libc and ELF contract |
+| Sockets, I/O loop | `platform/net` | completion ports | io_uring, [`src/platform/net/linux`](src/platform/net/linux/README.md) |
+| Window service | `platform/window/{window,event,key,pump}.hpp` | `src/platform/window/win32`; glue `src/app/windows` | [`src/platform/window/wayland`](src/platform/window/wayland/README.md) ([`third_party/wayland`](third_party/wayland/README.md)); glue `src/app/linux` |
+| GPU | `gpu/api.hpp` | Direct3D 11, `src/gpu/d3d11` | OpenGL ES 3.1 over EGL, [`src/gpu/gles`](src/gpu/gles/README.md) |
+| Client shaders | | HLSL, `src/render/shaders` | GLSL ES 3.10 twins packed with Python, [`src/render/shaders/gles`](src/render/shaders/gles/README.md); only plugin effects use DXC and SPIRV-Cross |
+| Renderer, effects, Lottie geometry | [`src/render`](src/render/README.md), shared | | |
+| Text input | `ui/text/secure_text_store.hpp` | TSF | text-input-v3, `src/ui/text/linux` |
+| Audio, speech | `platform/audio` | WASAPI, SAPI | [`src/platform/audio`](src/platform/audio/README.md): `pulse`, `speechd`, in-house AAC |
+| Video decode | `platform/decode/gpu_stream_decoder.hpp` | DXVA, Media Foundation | [`src/platform/decode`](src/platform/decode/README.md): `vaapi`, `software`, `linux` |
+| Go Live encode | `platform/encode/gpu_stream_encoder.hpp` | Media Foundation hardware transforms | VA-API, [`src/platform/encode`](src/platform/encode/README.md) |
+| Go Live capture | `platform/capture/screen_capture.hpp`, `platform/audio/stream_audio.hpp` | Windows.Graphics.Capture, DXGI Desktop Duplication, WASAPI process loopback | ScreenCast portal and PipeWire, [`src/platform/capture`](src/platform/capture/README.md) |
+| Crypto, TLS | `platform/crypto`, `platform/net` | CNG, SChannel | system OpenSSL 3 or 4, `src/platform/crypto/openssl` |
+| Desktop: shell open, notifications, spell checker, security keys | `platform/desktop` | | [`src/platform/desktop`](src/platform/desktop/README.md) over the in-house D-Bus client, [`src/platform/dbus`](src/platform/dbus/README.md) |
+| Accessibility | | UI Automation, `src/platform/uia` | AT-SPI, [`src/platform/atspi`](src/platform/atspi/README.md) |
+| System fonts | `platform/font` | GDI | fontconfig, [`src/platform/font`](src/platform/font/README.md) |
+| Time zones, dates | `os/local_time.hpp` | | [`src/platform/time`](src/platform/time/README.md) |
+| Plugin loader, catalog | [`src/app/plugins`](src/app/plugins/README.md) | PE | ELF |
+| Client entry, identity, updater, OS text | `src/app/shell`, `src/app/update` | `src/app/windows` | [`src/app/linux`](src/app/linux/README.md), `src/app/update/linux` |
+| Packaging, release | | [`tools/release`](tools/release/README.md) | [`packaging`](packaging/README.md) |
+
+- A Windows forwarder must compile to the same code as the Win32 call it replaces.
+- Shared code never calls `VirtualAlloc` or `HeapAlloc`: page-granular memory is `pages_*`, heap blocks are
+  `heap_allocate`/`heap_free`. A worker's entry is `u32 f(void*)`, never `DWORD WINAPI`.
+- A failed `os/` call leaves a Win32 code in `thread_last_error()`; `network_last_error()` keeps the Winsock values. File
+  sharing is an advisory `flock` on Linux: a test for both systems asserts sharing under `#if defined(_WIN32)`.
 
 ## Themes, effects and plugins
 
-**Themes** are JSON files (up to 64 KiB). A theme starts from the Dark, Light or AMOLED base and can override any design
-token; an optional `background` member can name an installed effect and its knob values. See
-[`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json). A theme can change with the
-time of day: `variants` holds up to four phases (`night`, `dawn`, `day`, `dusk`), each with a `base`, core `colors` and
-an optional `months` list of twelve colour sets (each turning toward the next month's from the 5th to the 30th, as the
-Silk Waves sky does). MaiCord holds each phase around its hours (night 23–01, dawn 05–07, day 11–13, dusk 17–19, the
-Silk Waves schedule), mixes the colours across the hours between, shows the nearer phase whole where the base changes
-(gliding there, at once with reduced motion), and lets the theme alone decide an effect's day and night. A phase starts
-from its base's built-in colours, so it is light or dark on its own (the root's `semantic` overrides don't apply to it;
-its colours may name the root's `palette`); the root's typography, metrics, scale, motion, components and background
-apply to every phase. MaiCord before 0.6.4 skips `variants` as an unknown member and shows the root look. Such a theme
-can follow knobs of its effect (`background.follow`: a month knob and a phase knob with the phase each option holds), so
-a month or a day or night picked on the effect's knob page holds the theme there too while that effect is the
-background; see [`samples/effects/README.md`](samples/effects/README.md#time-of-day-and-appearance).
+[README.md](README.md#themes-effects-and-plugins) says what each kind is. Formats and tools:
 
-**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode (or, for a pass graph, up to six passes of
-pixel and vertex shaders over host-made geometry and small float targets), up to four textures, the source and a
-preview. Linux runs the GLSL ES that a package of interface 4 carries next to the bytecode, so one file serves both
-systems. They are data, not code: MaiCord checks the container and asks Direct3D (Windows) or the OpenGL ES driver
-(Linux) to build the shaders, and caps the GPU time an effect may use. Themes and effects come from the catalog, from a
-link (`https://…`), from a file or from a drop onto the install dialog. Anything that is not from the catalog is shown
-as *not reviewed* with a live preview before you install it, and never updates on its own.
-
-`maicord://install/<theme|effect|plugin>/<slug>` links open the catalog entry in MaiCord. Registering MaiCord for these
-links is optional: it is asked once, when you first open the catalog, and only writes
-`HKEY_CURRENT_USER\Software\Classes\maicord` on Windows, and a desktop entry and the default for the scheme in
-`mimeapps.list` on Linux.
-
-**Plugins** are native code from the catalog, built by its CI from reviewed source and listed in a signed index: a DLL
-on Windows and a freestanding shared object (`.so`) on Linux, built from the same source. MaiCord checks each
-download's size and SHA-256 against the index and its declared permissions and network hosts against its listing, asks
-you to approve them, and loads it without running any of its code until you agree. Updates that need nothing new apply
-on their own; the previous version is kept for one-click rollback, and a plugin the catalog revokes is turned off at
-once. Loading your own DLL or `.so` needs Developer Mode.
-
-**Catalog.** At v0.6.7 it lists 27 plugins, 9 themes and 8 effects, browsable in Settings and on
-[maicord.com/plugins](https://maicord.com/plugins/), [/themes](https://maicord.com/themes/) and
-[/effects](https://maicord.com/effects/). Entries come from the
-[MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository. A plugin version published before Linux
-support has no shared object and is listed for Windows only until its plugin is next released.
-
-**Writing your own.** The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp) over the C ABI in
-[`maicord_plugin.h`](include/maicord/sdk/maicord_plugin.h); see
-[`include/maicord/sdk/README.md`](include/maicord/sdk/README.md). Samples: [`samples/plugins`](samples/plugins) and
-[`samples/effects`](samples/effects). [`tools/maicord-plugin`](tools/maicord-plugin) creates, builds, checks and packs
-plugins (Python 3.9+; on Windows it needs no Visual Studio, on Linux clang and ld.lld) and builds effects (on Windows;
-see the effects guide for Linux), and with Developer Mode on, MaiCord reloads them each time you rebuild. Guides:
-[maicord.com/plugins/develop](https://maicord.com/plugins/develop/) and
-[maicord.com/effects/develop](https://maicord.com/effects/develop/).
+- **Themes**: [`assets/themes/README.md`](assets/themes/README.md).
+- **Background effects**: [`samples/effects/README.md`](samples/effects/README.md); the runtime is in
+  [`src/render/README.md`](src/render/README.md#background-effects).
+- **Plugins**: the SDK in [`include/maicord/sdk/README.md`](include/maicord/sdk/README.md), examples in
+  [`samples/plugins`](samples/plugins), the loader in [`src/app/plugins/README.md`](src/app/plugins/README.md).
+- [`tools/maicord-plugin`](tools/maicord-plugin) creates, builds, checks and packs plugins and builds effects (Python 3.9+;
+  no Visual Studio on Windows, clang and ld.lld on Linux). The catalog is the
+  [MaiCord-plugins](https://github.com/maj113/MaiCord-plugins) repository; its index is described in
+  [`tools/release/README.md`](tools/release/README.md#plugin-catalog).
 
 ## Code guidelines
 
-- For Discord API, authentication and Gateway work, use
-  [Discord Userdoccers](https://docs.discord.food/) alongside Discord's official
-  documentation when adding features and checking existing behavior. Cross-check
-  uncertain details against local client research, and cover request metadata,
-  session lifetimes, rate limits and challenge handling with regression tests.
-  Its [MCP endpoint](https://docs.discord.food/mcp) provides `search_docs` and
-  `fetch_page`; use the sitemap/navigation for complete page and section coverage.
-- **Freestanding C++23.** Don't use the STL, the CRT, exceptions or RTTI. Use
-  the types in `include/maicord/core`. New Win32 imports need a reason. Every
-  link of either client runs `tools/audit_image.py`: the PE audit on Windows, the ELF audit on Linux.
-- **No SDK or compiler headers.** Targets (maiopus included) compile with
-  `-nostdinc`, so `<Windows.h>`, the C library and the compiler's intrinsic
-  headers are not found. Declare the SDK functions, types and constants you use
-  in `include/maicord/sys` (or `core/win32_*.hpp`) exactly as the SDK does, and
-  intrinsics in `include/maicord/sys/simd.hpp` as clang defines them; the
-  conformance unit generated from the declarations fails the build on any
-  difference. Only the reference oracles and the Opus conformance run use the SDK
-  headers (`MAICORD_SDK_INCLUDES`).
-- **No unwind tables.** Every unit (maiopus included) compiles without
-  `.pdata`/`.xdata`, so nothing may rely on unwinding MaiCord frames:
-  no SEH, no unhandled-exception filters (frame-based dispatch stops at the
-  first MaiCord frame; the tests report crashes from a vectored handler), and
-  crash-dump stacks through MaiCord code are heuristic. Only the perf probe,
-  which walks stacks in-process, configures with `MAICORD_UNWIND_TABLES`.
-  Without them the build also turns on shrink wrapping, which Windows targets
-  otherwise skip for their unwind codes: early exits leave before the
-  prologue. The perf probe's image keeps the entry-block prologues.
-- **Structs default to zero without initializers.** A struct with any default
-  member initializer, even `= {}`, makes each `T x{}` store its fields one by
-  one; without them it is a single fill. Leave zero-valued members bare and
-  value-initialise (`T x{}`, `T{}`), and encode a nonzero default so that zero
-  is the default (`hidden` rather than `visible = true`, a minus-one count)
-  instead of initialising it; `T x;` leaves members unset.
-- Format with the repository `.clang-format` and match the file you are editing.
-- Mention any EXE, DLL or Linux image size change in the PR description, and back performance
-  changes with before/after numbers from [`tools/perf`](tools/perf/README.md).
-- UI colors, radii and spacing come from theme tokens;
-  `tools/check_theme_literals.py` (part of every build) rejects new literals.
-- HLSL constant buffers keep the layout their C++ struct has under HLSL packing, and the Linux build reads the same
-  buffers as std140 uniform blocks (a `float3` or `uint2` that straddles a register, or a `packoffset` gap, differs).
-  Wherever the two differ, name the bytes with scalars and the gaps with `_unused_` members inside
-  `#if defined(__spirv__)` (the reference spelling the GLSL twin's block copies, which no client compiler reads, and what
-  plugin effects compile with);
-  `tools/check_cbuffer_layout.py` (part of every build) rejects a divergent cbuffer or a twin block whose members are elsewhere.
-- Public headers in `include/maicord/` document ownership and failure
-  behavior; keep those comments accurate when behavior changes.
-- **Source layout.** Each module (`app`, `ui`, `render`, `gpu`, `protocol`, `model`,
-  `text`, `media`, `platform`) is split into topic folders, and
-  `include/maicord/<module>/<folder>/` mirrors `src/<module>/<folder>/`. Put a
-  new file in the folder of its feature; a header private to a module stays
-  beside its sources. File names drop a prefix the folder already states
-  (`src/app/chat/messages/send.cpp`, not `application_message_send.cpp`) and,
-  in `src/app`, the `application_` prefix of the client-side glue, unless the
-  shorter name would collide with another file in the folder; `account_` (the
-  account module's side of a feature) is kept. Symbol names are unaffected.
-- **Windows, input and tests.** Shared app and UI code never sees a window message: the backend turns every message
-  into a `WindowEvent` (`platform/window/event.hpp`; `win32_translate` on Windows) and hands it to one sink, and the
-  app acts on the window through the service in `platform/window/window.hpp` (`window_set_cursor`,
-  `window_capture_pointer`, `window_key_down`, `window_focus`, ...), never through `HWND` calls. Pointer, wheel,
-  cursor and context-menu events reach handlers in content pixels (the dispatcher takes the caption's rows off the
-  client point once, `window_dispatch.cpp`); `app/shell/window_events.hpp` has the predicates handlers use
-  (`input_press`, `input_release`, `input_double`, `input_pointer_step`, `input_side_button`, ...) and `input.hpp`
-  the DIP conversions. What stays Windows-only (UI Automation, tray and single instance) is a function of
-  `src/app/windows/platform_window.cpp` (`win32_shell_message`; the non-client frame forwards to the portable caption
-  controller through `win32_caption_*`), not a case in the dispatcher; the window state observer is the dispatcher's own. Handler
-  tests build
-  events with `tests/support/window_fixture.hpp` (`window_test::pointer_down(x, y)`, `key_down`, `wheel`, ...) and
-  drive them against the headless backend (`window_test::open()`), which keeps capture, focus, key state and the
-  cursor shape in memory and reports a lost capture synchronously, as Windows does
-  (`tests/platform/window/win32_behaviour.cpp` captures that behaviour on a real window). A test that uses the
-  headless backend lists `maicord_window_null` before `maicord_platform` in its `LIBS`, sets modifiers with
-  `null_window_set_key` (`window_test::hold`, `null_window_release_keys`) and reads the cursor, focus, close requests
-  and fatal messages with `null_window_probe()`; the handler runtimes (friends, forward, search, picker, video, ...)
-  all do. Tests of the Windows backend itself (`win32_*`) create real windows; so do the UI probes that need a swap
-  chain and the few handler tests that need real window state (attachments, pane resize, content navigation, the
-  resize runtime, surface motion host); they read capture and focus through the service (`window_pointer_captured`,
-  `window_focus`).
-- Add or update tests in `tests/<module>/<folder>/`, mirroring the code under
-  test, for every behavior change, and register them in
-  `cmake/test_registry.cmake` (see [Build files](#build-files)). Helpers shared
-  across folders live in `tests/support/`, data in `tests/fixtures/`.
-  A test or probe too large for one file is split beside itself into
-  `<stem>_<part>.cpp` files that share a private `<stem>_internal.hpp`; the
-  core suite's own cases live in the `core_*.cpp` parts listed in
-  `tests/core_test_cases.inc`, with the expectation sink in `tests/test_main.cpp`.
+[AGENTS.md](AGENTS.md#code-rules) states every rule in a line; these need more.
+
+- **System declarations.** Everything (maiopus included) compiles with `-nostdinc` and without unwind tables. Intrinsics go
+  in `include/maicord/sys/simd.hpp` as clang defines them; only the reference oracles and the Opus conformance run use the SDK
+  headers (`MAICORD_SDK_INCLUDES`). New Win32 imports need a reason.
+- **No unwind tables.** Frame-based exception dispatch stops at the first MaiCord frame, so the tests report crashes from a
+  vectored handler and crash-dump stacks through MaiCord code are heuristic. Only the perf probe, which walks stacks
+  in-process, configures with `MAICORD_UNWIND_TABLES`.
+- **Structs default to zero without initializers.** A struct with any default member initializer, even `= {}`, makes each
+  `T x{}` store its fields one by one; without them it is a single fill. Leave zero-valued members bare and value-initialise
+  (`T x{}`, `T{}`), and encode a nonzero default so that zero is the default (`hidden` rather than `visible = true`, a
+  minus-one count); `T x;` leaves members unset.
+- **One implementation means no function table.** A table of function pointers, a hook or a callback struct with one shipped
+  implementation costs an indirect call, a load and a null check per use and blocks inlining: call the implementation by
+  name. Seams with several implementations (text input targets, upload sources, settings pages, video sinks, the Linux
+  decoder tiers) or one per system stay tables, as do the `dlopen`/`GetProcAddress` tables, COM vtables and the plugin ABI.
+- **Tests fake at link time.** A test defines the function it fakes and the link takes that definition over the library's. A
+  fake replaces a whole source file, so a replaceable function sits in a file of its own and the test lists its fake in
+  `SOURCES` (`tests/support/voice_log_sink.cpp` for `src/app/voice/log_record.cpp`). A test that links application code lists
+  `tests/support/account_module_fake.cpp` for the account module (`account_module_*`, `app/account/account_module_api.hpp`):
+  it answers as the module does without an instance unless the test sets the entry's hook
+  (`g_account_fake.message_ack = fake`; restore it when the case ends). A test of the module itself links the module.
+- **Window events.** Shared app and UI code never sees a window message or an `HWND`: the backend hands `WindowEvent`s
+  (`platform/window/event.hpp`) to one sink, and the app acts on the window through the `window_*` calls of
+  `platform/window/window.hpp`. Pointer, wheel, cursor and context-menu events reach handlers in content pixels; handlers use
+  the predicates of `src/app/shell/window_events.hpp` (`input_press`, `input_release`, `input_double`, ...) and the DIP
+  conversions of `input.hpp`. What stays Windows-only (UI Automation, tray, single instance) is a function of
+  `src/app/windows/platform_window.cpp`, not a case in the dispatcher. Handler tests drive the headless backend through
+  `tests/support/window_fixture.hpp` (`maicord_window_null` before `maicord_platform` in `LIBS`); only tests of the Windows
+  backend itself and the few that need real window state or a swap chain create windows.
+- **GPU.** Shared code never touches `ID3D11*` or `D3D11_*`; the Windows decoders, Windows-only tests and tools, and the DXGI
+  error codes `account_media.cpp` maps are the exceptions. A new GPU operation is declared in
+  `include/maicord/gpu/api.hpp`, defined inline in `gpu/d3d11/api.inl` and out of line in `src/gpu/gles`; the Windows wrapper
+  must compile to the call it replaces (compare per object with the previous commit, not whole executables: LTO moves code).
+- **Shaders.** [The twins' README](src/render/shaders/gles/README.md#keeping-a-twin-in-step) has the steps for changing an
+  HLSL shader with its GLSL twin. A change to a shader or to the ui quads, glyph or media scenes renews the PNGs under
+  `tests/gpu/golden` from Direct3D 11 with `tools/update_gpu_goldens.py`; the Linux renders must match them within the
+  tolerances of the scene headers (`tests/gpu/*_scene.hpp`, `png_golden.hpp`).
+- **Constant buffers.** An HLSL cbuffer keeps the layout its C++ struct has under HLSL packing, and Linux reads the same
+  buffer as a std140 uniform block (a `float3` or `uint2` that straddles a register, or a `packoffset` gap, differs). Where
+  the two differ, name the bytes with scalars and the gaps with `_unused_` members inside `#if defined(__spirv__)` (the
+  spelling the GLSL twin's block copies and plugin effects compile with); `tools/check_cbuffer_layout.py` (every build)
+  rejects a divergent cbuffer or a twin block whose members are elsewhere.
+- **Logging.** One event is one line: build it with `LogEvent` (`core/log_event.hpp`) and `write` it once, never one
+  `log_u64` per value, and keep user names, paths and account ids out of it. The log is `maicord.log` in
+  `%LOCALAPPDATA%\MaiCord\logs` or `$XDG_STATE_HOME/maicord/logs` (at 16 MiB it moves to `maicord.previous.log`);
+  `core/log.hpp` documents the line format, `src/app/shell/startup_record.hpp` each session's `[start]` record and
+  `memory_summary.hpp` the `[memory] summary` line.
+- **Source layout.** Each module (`app`, `ui`, `render`, `gpu`, `protocol`, `model`, `text`, `media`, `platform`) is split
+  into topic folders, and `include/maicord/<module>/<folder>/` mirrors `src/<module>/<folder>/`. Put a new file in the folder
+  of its feature; a header private to a module stays beside its sources. File names drop a prefix the folder already states
+  (`src/app/chat/messages/send.cpp`, not `application_message_send.cpp`) and, in `src/app`, the `application_` prefix of the
+  client-side glue, unless the shorter name would collide in the folder; `account_` (the account module's side of a feature)
+  is kept. Symbol names are unaffected.
+- Public headers in `include/maicord/` document ownership and failure behavior: keep those comments accurate. Format with the
+  repository `.clang-format` and match the file you are editing.
 
 ## Pull requests
 
-- Keep each PR to one topic and use imperative commit subjects, for example
-  `ui: fix member list scroll clamp`. Labels are added from the changed paths.
-- CI must pass. It builds the Release client, runs the PE audits and runs the
-  whole test suite on Windows, and builds the Linux client, audits it, runs the Linux suite and the portable
-  tests in the distribution containers.
-- Describe what you checked by hand. Include screenshots for UI changes, with
-  personal data and server content redacted.
-- Don't edit `.github/workflows/release.yml` and the signing tools in the same
-  PR as unrelated changes.
+- Keep each PR to one topic and use imperative commit subjects, for example `ui: fix member list scroll clamp`. Labels are
+  added from the changed paths.
+- CI must pass ([CI](#ci)).
+- Describe what you checked by hand. Mention any EXE, DLL or Linux image size change, and back performance changes with
+  before/after numbers from [`tools/perf`](tools/perf/README.md). Include screenshots for UI changes, with personal data and
+  server content redacted.
+- Don't edit `.github/workflows/release.yml` and the signing tools in the same PR as unrelated changes.
 
 ## Licensing
 
-MaiCord is licensed under the [Mozilla Public License 2.0](LICENSE).
-Contributions are accepted under the same license. Third-party code must come
-with its license under `third_party/` or `assets/licenses/`.
+MaiCord is licensed under the [Mozilla Public License 2.0](LICENSE). Contributions are accepted under the same license.
+Third-party code must come with its license under `third_party/` or `assets/licenses/`.

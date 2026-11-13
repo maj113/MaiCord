@@ -39,7 +39,7 @@ completion-port model (an operation is started on a caller-owned object, finishe
   (`tools/test_linux_distros.sh`); Flatpak's seccomp blocklist does not list io_uring.
 - Tests: `maicord_network_loop` (the model, large sends, more requests than ring entries),
   `maicord_network_loop_ring_refused` / `_ring_hidden` (a seccomp filter returns EPERM / ENOSYS for
-  `io_uring_setup`).
+  `io_uring_setup`), `maicord_tls_stream_smoke` (`tls_stream` over the loop against a local `openssl s_server`).
 
 ## Measured (WSL2 Ubuntu 24.04, kernel 6.18, Ryzen 7 5800X, median of 5 interleaved runs, loopback; epoll emulation -> ring)
 

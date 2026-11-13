@@ -39,14 +39,16 @@ draw or dispatch happens.
   import uses `eglCreateImageKHR`, which `EGL_EXT_image_dma_buf_import` requires. Without `EGL_MESA_platform_surfaceless`
   the windowless device takes the default display (`eglGetDisplay`): NVIDIA offers only `EGL_EXT_platform_device` there.
 - Compute group limits are capability data (`GpuCaps`): `colr_layers` has a 2-slice variant for devices under 512
-  invocations. The GPU VP8 path needs one group of 512 invocations (`vp8_predict.glsl`), above the ES 3.1 floor of 128,
-  and 29696 bytes of shared memory (`vp8_filter.glsl`), above the floor of 16384 that v3d has:
+  invocations. The GPU VP8 path needs one group of 512 invocations (`vp8_predict.glsl`, `vp8_filter.glsl`), above the
+  ES 3.1 floor of 128, and 30208 bytes of shared memory (`vp8_filter.glsl`), above the floor of 16384 that v3d has:
   `media_atlas_gpu_vp8_supported` (`render/media/atlas_gpu.hpp`, through `renderer_vp8_gpu`) tests
   `max_compute_invocations` and `max_shared_bytes`, the media pump tells the account module (`media_vp8_cpu`), and on a
   smaller device lossy WebP stills and animation frames decode on the CPU into RGBA8
   (`src/app/media/cdn_media_pipeline.cpp`) without a VP8 shader ever being compiled (`maicord_vp8_cpu_route`).
 - The window config is the one without alpha (the compositor reads the buffers as XRGB); a driver with only alpha configs gets
   `EGL_EXT_present_opaque` on the surface instead.
+- A shader compile or program link leaves freed memory in the C library's heap; the next present hands it back to the system
+  (`trim_pending`, `heap_trim()`).
 - Test hooks (`test_hook`, test builds only): `MAICORD_GLES_MAX_COMPUTE_INVOCATIONS` and `_NO_TIMER_QUERY`.
 - Tests: `maicord_gpu_*` (goldens captured from Direct3D 11 in `tests/gpu/golden`, renewed by `tools/update_gpu_goldens.py`) run on
   llvmpipe anywhere and with `GALLIUM_DRIVER=d3d12` on WSL; `tools/test_gpu_surface.sh` shows the EGL window path on headless sway.

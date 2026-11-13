@@ -43,6 +43,6 @@ The official catalog (MaiCord-plugins) lists each effect's interface 4 package f
 reader level 4, the effect item's source member `universal`, `check_source`, `check_universal`). `maicord_catalog_effects` takes a
 signed catalog of `tests/gpu/effects` packages through verify, list, download, parse, install and removal; with
 `MAICORD_CATALOG_E2E_DIR` and `MAICORD_CATALOG_E2E_KEY` set it takes the effects of a site the catalog scripts built.
-`tools/test_catalog_wayland.sh` runs the whole client against such a site over real TLS (see CONTRIBUTING.md, "Linux QA").
+`tools/test_catalog_wayland.sh` runs the whole client against such a site over real TLS (see `tools/README.md`, "Linux QA scripts").
 `application_catalog_browse` restores the catalog itself when the account session has not; the Themes page is signed-in only
 (`page_allowed`).

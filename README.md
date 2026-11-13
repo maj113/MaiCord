@@ -215,8 +215,9 @@ with entries from the [MaiCord-plugins](https://github.com/maj113/MaiCord-plugin
 **Make your own:** the [plugin SDK](include/maicord/sdk/README.md), [sample plugins](samples/plugins) and
 [sample effects](samples/effects), the [`maicord-plugin`](tools/maicord-plugin) tool (create, build, check and pack;
 Developer Mode hot-reloads as you rebuild), and the guides at [maicord.com/plugins/develop](https://maicord.com/plugins/develop/)
-and [maicord.com/effects/develop](https://maicord.com/effects/develop/). The theme and effect formats are described in
-[CONTRIBUTING.md](CONTRIBUTING.md#themes-effects-and-plugins).
+and [maicord.com/effects/develop](https://maicord.com/effects/develop/). The theme format is described in
+[assets/themes/README.md](assets/themes/README.md) and the effect format in
+[samples/effects/README.md](samples/effects/README.md#the-mcfx-package).
 
 ## Install
 
