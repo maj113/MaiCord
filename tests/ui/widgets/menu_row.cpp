@@ -2,6 +2,8 @@
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/layout_validation.hpp"
 #include "maicord/ui/widgets/menu_row.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
+#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/chat/messages/context_menu.hpp"
@@ -567,6 +569,65 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                 .ok() &&
             !header.scene.anchored_below && header.scene.rectangle.top < 124;
         check(below && unrelated, "popup placement: follow-up menus keep the header placement, others do not");
+    }
+    {
+        // Content fitting (the Go Live Options menu): the menu grows to its widest label or second line, up to the
+        // maximum, and a second line still longer wraps onto the lines below, each one line of the row's two.
+        struct FitFixture {
+            PopupItem items[3]{};
+            PopupRowWidget rows[3]{};
+            UiWidget widgets[8]{};
+            UiLayoutNode nodes[8]{};
+            PopupScene scene{};
+            ~FitFixture() noexcept {
+                popup_scene_release(&scene);
+            }
+        } fit{};
+        // Six DIPs a byte; wrapped, as many 20-DIP lines as the width needs.
+        const auto backend = +[](void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
+            const float width = 6.f * static_cast<float>(request.text.bytes);
+            u32 lines = 1;
+            while (!request.no_wrap && static_cast<float>(lines) * request.constraint.width < width)
+                ++lines;
+            *value = {{request.no_wrap ? width : minimum(width, request.constraint.width), 20.f * lines}, lines};
+            return true;
+        };
+        UiTextMeasureRecord records[16]{};
+        UiTextMeasureCache measure{};
+        PopupItem rows[3]{};
+        popup_item_set(&rows[0], utf8_literal("Gaming"), 1, static_cast<u16>(popup_item_enabled | popup_item_checked));
+        rows[0].detail = utf8_literal("Smoother video (1440p, 60fps)");
+        popup_item_set(&rows[1], utf8_literal("Hide stream preview"), 2, popup_item_enabled);
+        rows[1].detail = utf8_literal("Users will not be able to see a preview of your stream before joining.");
+        rows[0].presentation.secondary_line = rows[1].presentation.secondary_line = 1;
+        popup_item_set(&rows[2], utf8_literal("Custom"), 3, popup_item_enabled);
+        const UiRect viewport{0, 0, 800, 600}, anchor{400, 500, 420, 520};
+        const auto open = [&]() noexcept {
+            return popup_scene_open(&fit.scene, PopupKind::context_menu, 9, {rows, 3}, anchor, viewport, 160, true)
+                .ok();
+        };
+        bool fitted = ui_text_measure_cache_initialize(&measure, {records, 16}, backend, nullptr) &&
+                      popup_scene_initialize(&fit.scene, {fit.items, 3}, {fit.rows, 3}, {fit.widgets, 8},
+                                             {fit.nodes, 8}) &&
+                      open() && popup_scene_fit_content(&fit.scene, nullptr, 320) &&
+                      ui_rect_width(fit.scene.rectangle) == 160;
+        const float opened_height = ui_rect_height(fit.scene.rectangle);
+        const float line = (kUiMenuDetailRowHeight - 2.f * (kUiThemeMetricsDefault.menu_padding - 1.f)) * .5f;
+        fitted = fitted && popup_scene_fit_content(&fit.scene, &measure, 320) &&
+                 ui_rect_width(fit.scene.rectangle) == 320 && fit.scene.items[0].presentation.extra_detail_lines == 0 &&
+                 fit.scene.items[1].presentation.extra_detail_lines == 1 &&
+                 fit.scene.items[2].presentation.extra_detail_lines == 0 &&
+                 ui_rect_height(fit.scene.rectangle) == opened_height + line;
+        UiMenuRowGeometry gaming{}, preview{};
+        const auto* row = popup_scene_layout_node(fit.scene, fit.scene.rows[1].widget);
+        fitted = fitted && row && ui_rect_height(row->rectangle) == kUiMenuDetailRowHeight + line &&
+                 popup_scene_menu_row_geometry(fit.scene, 0, &gaming) &&
+                 popup_scene_menu_row_geometry(fit.scene, 1, &preview) &&
+                 ui_rect_width(gaming.detail) >= 6.f * rows[0].detail.bytes &&
+                 ui_rect_height(preview.primary) == line && ui_rect_height(preview.detail) == 2 * line &&
+                 2 * ui_rect_width(preview.detail) >= 6.f * rows[1].detail.bytes;
+        check(fitted, "popup fit: a menu grows to its rows' text up to its maximum and wraps the second line still "
+                      "longer onto a taller row");
     }
 }
 } // namespace maicord

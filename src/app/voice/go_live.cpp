@@ -379,10 +379,12 @@ Utf8View preset_detail(char (&buffer)[64], const Utf8View& lead, StreamQuality q
     t.add("fps)");
     return t.view();
 }
+// The menus open at 248 DIPs and grow to their rows' text up to 320, the official client's menu width; a longer
+// second line ("Hide stream preview") wraps below its label.
 bool show_menu(Menu menu, const UiRect& anchor, ConstSlice<PopupItem> items, bool above) noexcept {
     const auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, kMenuOwner, items, anchor,
                                          application_viewport_dips(), 248.0f, above);
-    if (!opened.ok()) {
+    if (!opened.ok() || !popup_scene_fit_content(&g_app.popup_scene, g_app.renderer.message_measure_cache, 320.0f)) {
         log_u64(LogLevel::warning, "go_live", "menu_popup_error", static_cast<u64>(opened.error));
         return false;
     }

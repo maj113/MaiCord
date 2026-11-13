@@ -627,16 +627,16 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                 detail.left = detail.right - minimum(180.0f, ui_rect_width(label_rectangle) * .42f);
                 label_rectangle.right = maximum(label_rectangle.left, detail.left - 12);
             }
+            const auto presentation = popup_item_menu_presentation(item);
             text.emit({detail_text,
                        {&scene.widgets, row.label},
                        detail,
                        shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
                        detail_color,
                        text_style_none,
-                       shared_row && popup_item_menu_presentation(item).secondary_line ? UiTextAlignment::start
-                                                                                       : UiTextAlignment::end,
+                       shared_row && presentation.secondary_line ? UiTextAlignment::start : UiTextAlignment::end,
                        UiTextAlignment::center,
-                       TextWrapping::no_wrap,
+                       shared_row && presentation.extra_detail_lines ? TextWrapping::wrap : TextWrapping::no_wrap,
                        TextOverflow::ellipsis});
         }
         if (hint.bytes) {

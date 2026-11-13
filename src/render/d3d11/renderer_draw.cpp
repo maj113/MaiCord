@@ -1323,19 +1323,28 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         maximum(menu_text, minimum(renderer->theme_editor_text_first_batch, form_text));
     const u32 editor_text_end =
         maximum(editor_text_first, minimum(renderer->theme_editor_text_end_batch, form_text));
-    // A server tag popout with a banner picture splits the popup layer:
+    // The popup menu (then the reaction viewer) draws after the popup layer's other surfaces, their media and text
+    // included: a menu opened over the Go Live dialog covers its thumbnails, over a popout its pictures.
+    const u32 menu_scene_paint =
+        maximum(menu_paint, minimum(renderer->popup_menu_paint_first_batch, editor_paint_first));
+    const u32 menu_scene_media =
+        maximum(menu_media, minimum(renderer->popup_menu_media_first_batch, ordinary_media_end));
+    const u32 menu_scene_text =
+        maximum(menu_text, minimum(renderer->popup_menu_text_first_batch, editor_text_first));
+    // A server tag popout with a banner picture splits the surfaces' range:
     // paint up to its foreground, the banner media, then the rest.
     const bool card_split = !settings_active && (shown & d3d11_surface_guild_card) &&
                             renderer->guild_card_foreground_first_batch >= menu_paint &&
-                            renderer->guild_card_foreground_first_batch <= editor_paint_first &&
+                            renderer->guild_card_foreground_first_batch <= menu_scene_paint &&
                             renderer->guild_card_banner_media_end_batch >= menu_media &&
-                            renderer->guild_card_banner_media_end_batch <= ordinary_media_end;
-    const u32 card_paint = card_split ? renderer->guild_card_foreground_first_batch : editor_paint_first;
-    const u32 card_media = card_split ? renderer->guild_card_banner_media_end_batch : menu_media;
-    // Its overlay (busy-game markers) draws over the popup media.
+                            renderer->guild_card_banner_media_end_batch <= menu_scene_media;
+    const u32 card_paint = card_split ? renderer->guild_card_foreground_first_batch : menu_scene_paint;
+    const u32 card_media = card_split ? renderer->guild_card_banner_media_end_batch : menu_scene_media;
+    // Its overlay (busy-game markers) draws over the surfaces' media, under the menu.
     const u32 overlay_paint =
-        card_split ? maximum(card_paint, minimum(renderer->popup_overlay_paint_first_batch, editor_paint_first))
-                   : editor_paint_first;
+        card_split
+            ? maximum(menu_scene_paint, minimum(renderer->popup_overlay_paint_first_batch, editor_paint_first))
+            : editor_paint_first;
     // Each surface's ranges carry its opacity and its entrance/exit pose (scale popouts grow from their anchor edge,
     // popouts slide toward it, the profile modal scales about its centre).
     const bool editor_current = (shown & d3d11_surface_theme_editor) != 0;
@@ -1591,10 +1600,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                !media(profile_effect_media, menu_media, false) ||
                !paint(minimum(profile_controls, menu_paint), menu_paint) ||
                !paint(menu_paint, card_paint) || !media(menu_media, card_media, false) ||
-               !paint(card_paint, overlay_paint) || !media(card_media, ordinary_media_end, false) ||
-               !paint(overlay_paint, editor_paint_first) ||
+               !paint(card_paint, menu_scene_paint) || !media(card_media, menu_scene_media, false) ||
+               !paint(overlay_paint, editor_paint_first) || !text(menu_text, menu_scene_text, false) ||
+               !paint(menu_scene_paint, overlay_paint) || !media(menu_scene_media, ordinary_media_end, false) ||
                !inline_media(RendererInlineMediaLayer::popup) ||
-               !text(menu_text, editor_text_first, false) ||
+               !text(menu_scene_text, editor_text_first, false) ||
                !paint(editor_paint_first, editor_paint_end) ||
                !inline_media(RendererInlineMediaLayer::theme_editor) ||
                !text(editor_text_first, editor_text_end, false) || !paint(editor_paint_end, form_paint) ||

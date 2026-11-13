@@ -568,6 +568,10 @@ struct D3D11Renderer {
     u32 popup_paint_first_batch, popup_paint_end_batch;
     u32 popup_scene_media_first_batch, popup_scene_media_end_batch;
     u32 popup_text_first_batch, popup_text_end_batch;
+    // The popup menu's own paint, media and text inside those ranges (the reaction viewer follows it). It draws
+    // after the popup layer's other surfaces, their media and text included: a menu over the Go Live dialog or a
+    // popout covers their pictures.
+    u32 popup_menu_paint_first_batch, popup_menu_media_first_batch, popup_menu_text_first_batch;
     // Server tag popout with a banner picture: its card and banner paint, the
     // banner media, then its foreground (icon ring, chips) under the icon.
     u32 guild_card_foreground_first_batch, guild_card_banner_media_end_batch;
@@ -697,7 +701,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 126088);
+static_assert(sizeof(D3D11Renderer) == 126096);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process

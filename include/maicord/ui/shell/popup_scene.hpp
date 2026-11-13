@@ -8,6 +8,7 @@
 #include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
+struct UiTextMeasureCache;
 
 inline constexpr float kPopupRowHeight = kUiMenuCompactRowHeight;
 inline constexpr float kPopupAvatarRowHeight = 44.0f;
@@ -281,6 +282,11 @@ PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_i
 PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 owner_id,
                                         ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                         float preferred_width) noexcept;
+// Sizes an open menu to its content, as the official client's menus are: wider (from its preferred width up to
+// maximum_width) until each row's label and second line fit on one line, then a second line still too long wraps
+// onto up to kUiMenuDetailLinesMaximum lines. Without a measure or for an autocomplete, the command picker or a
+// reaction strip it leaves the menu as opened. False when the menu cannot be laid out again.
+bool popup_scene_fit_content(PopupScene* scene, UiTextMeasureCache* measure, float maximum_width) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
 // The command picker's scrolling body column, after the rail card and its gap
 // (empty for any other popup), and its rail card (empty without a rail).

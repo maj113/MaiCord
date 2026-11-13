@@ -204,6 +204,7 @@ void reset_motion_text_ranges(D3D11Renderer* renderer, u32 batch) noexcept {
     renderer->profile_text_first_batch = renderer->profile_text_end_batch = batch;
     renderer->theme_editor_text_first_batch = renderer->theme_editor_text_end_batch = batch;
     renderer->popup_text_first_batch = renderer->popup_text_end_batch = batch;
+    renderer->popup_menu_text_first_batch = batch;
     renderer->settings_choice_text_first_batch = renderer->settings_choice_text_end_batch = batch;
     renderer->settings_preview_text_first_batch = renderer->settings_preview_text_end_batch = batch;
     renderer->settings_dialog_text_first_batch = renderer->settings_dialog_text_end_batch = batch;
@@ -342,7 +343,7 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
         if (guild && guild->active && !ui_guild_card_text_output(*guild, theme, &output))
             return false;
         boundaries->settings_preview_end = emitter->count;
-        boundaries->popup_start = boundaries->popup_end = emitter->count;
+        boundaries->popup_start = boundaries->popup_end = boundaries->popup_menu_start = emitter->count;
         boundaries->settings_choice_start = emitter->count;
         const auto* popup = d3d11_renderer_settings_popup(*renderer);
         if (popup && !popup_text_presentation_build_output(*popup, theme, &output,
@@ -512,6 +513,7 @@ bool project_overlay_text(D3D11Renderer* renderer, u32 shown, const Theme& theme
     if ((shown & d3d11_surface_shortcuts) &&
         !ui_shortcuts_scene_text_output(*renderer->shortcuts_scene, theme, &output))
         return false;
+    boundaries->popup_menu_start = emitter->count;
     if (d3d11_renderer_active(renderer->popup_scene) &&
         !popup_text_presentation_build_output(*renderer->popup_scene, theme, &output,
                                                renderer->message_measure_cache))

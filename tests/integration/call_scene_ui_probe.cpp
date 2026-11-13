@@ -5,6 +5,9 @@
 #include "maicord/model/voice/stage_policy.hpp"
 #include "maicord/ui/voice/stream_card_scene.hpp"
 #include "maicord/ui/voice/go_live_scene.hpp"
+#include "../support/ui_scene_fixtures.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
+#include "maicord/core/hash.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
 #include "nv12_test_picture.hpp"
 
@@ -71,6 +74,127 @@ UiCallParticipant person(u64 id, Utf8View name) noexcept {
     p.user_id = id;
     p.name = name;
     return p;
+}
+// One line's width of a menu row's text (no_wrap), or its line count wrapped to width.
+bool measure_menu_text(D3D11Renderer& r, Utf8View text, float width, bool wrap, UiTextMeasureValue* value) noexcept {
+    return r.message_measure_cache &&
+           ui_text_measure_cache_measure(r.message_measure_cache,
+                                         {{0x474c'4956'4d45'4e55ull, hash64_bytes(kHash64Seed, text.data, text.bytes),
+                                           0, static_cast<u16>(wrap ? 0x5057 : 0x504c), 0},
+                                          text, {}, {width, wrap ? 1024.f : 56.f}, !wrap},
+                                         value)
+               .ok();
+}
+// The Go Live dialog with six live thumbnails and its Options menu open above the gear, the menu's rows as the app
+// builds them (Gaming, Mute stream audio and Unlock all qualities checked). The menu draws over every thumbnail it
+// overlaps (its paint follows the dialog's media), and each row's text fits: the menu grows to 320 DIPs and wraps
+// the second lines still longer.
+bool go_live_options_menu(D3D11Renderer& renderer, UiGoLiveScene& dialog, const MediaAssetKey& thumbnail,
+                          const UiRect& window, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
+    static PopupItem storage[16];
+    static PopupRowWidget rows[16];
+    static UiWidget widgets[2 + 16 * kPopupWidgetsPerItem];
+    static UiLayoutNode nodes[2 + 16 * kPopupWidgetsPerItem];
+    static PopupScene menu;
+    struct Restore {
+        D3D11Renderer& renderer;
+        const PopupScene* previous;
+        ~Restore() noexcept {
+            renderer_bind_popup_scene(&renderer, previous);
+            popup_scene_release(&menu);
+            renderer.retained_presentation.valid = false;
+        }
+    } restore{renderer, renderer.popup_scene};
+    static constexpr Utf8View kNames[]{utf8_literal("ChatGPT"), utf8_literal("New Tab - Browser"),
+                                       utf8_literal("Terminal"), utf8_literal("Release - File Explorer"),
+                                       utf8_literal("Notes - Untitled"), utf8_literal("Snipping Tool")};
+    UiGoLiveSource sources[6]{};
+    for (u32 i = 0; i < 6; ++i)
+        sources[i] = {20 + i, kNames[i], thumbnail, 160, 90, false};
+    UiGoLiveContent content{};
+    content.summary = utf8_literal("Gaming");
+    content.detail = utf8_literal("Smoother video \xE2\x80\xA2 1440p 60fps \xE2\x80\xA2 Stream audio muted");
+    content.sources = {sources, 6};
+    content.mode = UiGoLiveMode::picker;
+    content.revision = 3;
+    if (!popup_scene_initialize(&menu, {storage, 16}, {rows, 16}, {widgets, 2 + 16 * kPopupWidgetsPerItem},
+                                {nodes, 2 + 16 * kPopupWidgetsPerItem}) ||
+        !ui_go_live_scene_update(&dialog, content, window))
+        return false;
+    renderer.go_live_scene = &dialog;
+    const auto row = [](Utf8View label, u32 action, u16 flags, Utf8View detail = {}) noexcept {
+        PopupItem item{};
+        popup_item_set(&item, label, action, flags);
+        item.detail = detail;
+        item.presentation.secondary_line = detail.bytes != 0;
+        return item;
+    };
+    constexpr u16 on = static_cast<u16>(popup_item_enabled | popup_item_checked);
+    PopupItem items[]{
+        row(utf8_literal("Stream Mode"), 1, popup_item_none),
+        row(utf8_literal("Gaming"), 2, on, utf8_literal("Smoother video (1440p, 60fps)")),
+        row(utf8_literal("Screenshare"), 3, popup_item_enabled, utf8_literal("Clearer text (Source, 15fps)")),
+        row(utf8_literal("Custom"), 4, popup_item_enabled),
+        row(utf8_literal("Mute stream audio"), 5, static_cast<u16>(on | popup_item_separator_before)),
+        row(utf8_literal("Hide stream preview"), 6, popup_item_enabled,
+            utf8_literal("Users will not be able to see a preview of your stream before joining.")),
+        row(utf8_literal("Unlock all qualities"), 7, on,
+            utf8_literal("Every resolution and frame rate, without Nitro or server boosts."))};
+    if (!popup_scene_open(&menu, PopupKind::context_menu, 0x474c'4956'4d45'4e55ull, {items, 7},
+                          dialog.options_rectangle, window, 248.f, true)
+             .ok() ||
+        !popup_scene_fit_content(&menu, renderer.message_measure_cache, 320.f) ||
+        !renderer_bind_popup_scene(&renderer, &menu))
+        return false;
+    renderer.retained_presentation.valid = false;
+    if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
+        (capture && !capture(L"go-live-options-menu.bmp", kDefaultTheme)))
+        return false;
+    // Inside the menu (clear of its rounded corners) no thumbnail shows through: the green picture would.
+    const UiRect inside{menu.rectangle.left + 12, menu.rectangle.top + 12, menu.rectangle.right - 12,
+                        menu.rectangle.bottom - 12};
+    u32 covered = 0;
+    for (u32 i = 0; i < dialog.source_count; ++i) {
+        UiRect picture{}, clip{};
+        bool dim = false;
+        if (!ui_go_live_scene_thumbnail(dialog, i, &picture, &clip, &dim))
+            continue;
+        const UiRect under = ui_rect_intersection(ui_rect_intersection(picture, clip), inside);
+        if (!ui_rect_has_area(under))
+            continue;
+        u8 rgb[3]{};
+        if (!sample(renderer, kDefaultTheme, center(under).x, center(under).y, rgb))
+            return false;
+        if (rgb[1] > rgb[0] + 80 && rgb[1] > rgb[2] + 60) {
+            log_u64(LogLevel::error, "probe", "go_live_menu_under_thumbnail", i);
+            return false;
+        }
+        ++covered;
+    }
+    if (!covered) {
+        log_write(LogLevel::error, "probe", "go_live_menu_overlaps_no_thumbnail");
+        return false;
+    }
+    // Every label fits its line; a second line fits on one line or within the lines it wrapped onto.
+    u32 wrapped = 0;
+    for (u32 i = 0; i < menu.item_count; ++i) {
+        const PopupItem& item = menu.items[i];
+        UiMenuRowGeometry geometry{};
+        UiTextMeasureValue label{}, detail{};
+        const u32 extra = item.presentation.extra_detail_lines;
+        if (!popup_scene_menu_row_geometry(menu, i, &geometry) ||
+            !measure_menu_text(renderer, item.label, 4096.f, false, &label) ||
+            label.size.width > ui_rect_width(geometry.primary) + .5f ||
+            (item.detail.bytes &&
+             (!measure_menu_text(renderer, item.detail, extra ? ui_rect_width(geometry.detail) : 4096.f, extra != 0,
+                                 &detail) ||
+              (extra ? detail.line_count > extra + 1 : detail.size.width > ui_rect_width(geometry.detail) + .5f)))) {
+            log_u64(LogLevel::error, "probe", "go_live_menu_row_truncated", i);
+            return false;
+        }
+        wrapped += extra != 0;
+    }
+    return wrapped != 0 && ui_rect_width(menu.rectangle) > 248.f;
 }
 } // namespace
 
@@ -514,6 +638,8 @@ bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*
         valid = valid && sample(renderer, theme, center(picture).x, center(picture).y, rgb) && rgb[1] > rgb[0] + 80 &&
                 rgb[1] > rgb[2] + 60;
     }
+    stage = valid ? __LINE__ : stage;
+    valid = valid && go_live_options_menu(renderer, dialog, thumbnail, window, capture);
     renderer.go_live_scene = nullptr;
     theme = kDefaultTheme;
     {

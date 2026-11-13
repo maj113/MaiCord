@@ -43,7 +43,7 @@ No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
 | | Windows | Linux |
 | --- | --- | --- |
 | Download | 5.2 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
-| Executable | one 6.45 MB EXE | one 6.46 MB program |
+| Executable | one 6.45 MB EXE | one 6.47 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |

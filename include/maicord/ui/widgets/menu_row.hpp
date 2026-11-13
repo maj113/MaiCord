@@ -10,14 +10,18 @@ enum class UiMenuIconPlacement : u8 {
     trailing
 };
 
-// One optional icon and two placement bits. Zero preserves a plain row.
+// One optional icon and placement bits. Zero preserves a plain row.
 // Popup descriptors store this in two bytes of their existing padding.
 struct UiMenuRowPresentation {
     u8 icon_plus_one; // zero: no icon; kUiMenuIconInvalid: rejected identity
     u8 secondary_line : 1;
     u8 trailing_icon : 1;
+    // Lines a wrapped secondary line takes beyond its first (popup_scene_fit_content sets them).
+    u8 extra_detail_lines : 2;
 };
 static_assert(sizeof(UiMenuRowPresentation) == 2 && alignof(UiMenuRowPresentation) == 1);
+// The most lines a wrapped secondary line takes; longer text ends in an ellipsis.
+inline constexpr u32 kUiMenuDetailLinesMaximum = 3;
 // Every manifest icon can lead a menu row; icon + 1 fills a whole byte.
 inline constexpr u8 kUiMenuIconInvalid = 0xFF;
 static_assert(static_cast<u32>(UiIcon::count) < kUiMenuIconInvalid);
@@ -28,7 +32,7 @@ constexpr UiMenuRowPresentation ui_menu_row_presentation(
     return {static_cast<u8>(icon < UiIcon::count && placement <= UiMenuIconPlacement::trailing
                                 ? static_cast<u8>(icon) + 1
                                 : kUiMenuIconInvalid),
-            static_cast<u8>(secondary_line), static_cast<u8>(placement == UiMenuIconPlacement::trailing)};
+            static_cast<u8>(secondary_line), static_cast<u8>(placement == UiMenuIconPlacement::trailing), 0};
 }
 
 constexpr bool ui_menu_row_presentation_valid(UiMenuRowPresentation presentation) noexcept {

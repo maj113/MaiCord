@@ -47,10 +47,12 @@ struct TextOverlayBoundaries {
     u32 settings_preview_start{~0u}, settings_preview_end{~0u}, settings_dialog_start{~0u}, settings_dialog_end{~0u};
     // The toast's text closes the stream (~0u: none this frame).
     u32 toast_start{~0u};
+    // The popup menu's text, after the popup layer surfaces' text it covers.
+    u32 popup_menu_start{};
     u32 search_rich_start{}, search_rich_end{};
 };
 constexpr u32 kComparedOverlayBoundaryBytes = offsetof(TextOverlayBoundaries, search_rich_start);
-static_assert(kComparedOverlayBoundaryBytes == 25 * sizeof(u32) &&
+static_assert(kComparedOverlayBoundaryBytes == 26 * sizeof(u32) &&
               sizeof(TextOverlayBoundaries) == kComparedOverlayBoundaryBytes + 2 * sizeof(u32));
 
 // Where a boundary publishes: the renderer's text batch at that ordinal. The
@@ -81,6 +83,7 @@ inline constexpr OverlayBatchBoundary kOverlayBatchBoundaries[]{
      offsetof(D3D11Renderer, settings_dialog_text_first_batch)},
     {offsetof(TextOverlayBoundaries, settings_dialog_end), offsetof(D3D11Renderer, settings_dialog_text_end_batch)},
     {offsetof(TextOverlayBoundaries, toast_start), offsetof(D3D11Renderer, toast_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, popup_menu_start), offsetof(D3D11Renderer, popup_menu_text_first_batch)},
     {offsetof(TextOverlayBoundaries, menu_start), offsetof(D3D11Renderer, menu_text_first_batch)},
 };
 constexpr u32 kOverlayEndBoundaryCount = sizeof(kOverlayBatchBoundaries) / sizeof(kOverlayBatchBoundaries[0]) - 1;

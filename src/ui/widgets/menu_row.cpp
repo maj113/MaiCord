@@ -38,9 +38,10 @@ bool ui_menu_row_project(UiRect content, UiRect clip, UiMenuRowPresentation pres
     }
     geometry.primary = content;
     if (has_detail && presentation.secondary_line) {
-        const float middle = (content.top + content.bottom) * .5f;
-        geometry.primary.bottom = middle;
-        geometry.detail = {content.left, middle, content.right, content.bottom};
+        // The label takes the first line; the detail the line or wrapped lines below it.
+        const float line = ui_rect_height(content) / static_cast<float>(2 + presentation.extra_detail_lines);
+        geometry.primary.bottom = content.top + line;
+        geometry.detail = {content.left, geometry.primary.bottom, content.right, content.bottom};
     } else if (has_detail) {
         const float width =
             minimum(kUiMenuDetailMaximumWidth, ui_rect_width(content) * kUiMenuDetailWidthFraction);

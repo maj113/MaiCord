@@ -1103,6 +1103,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->settings_modal_paint_first_batch = renderer->settings_modal_paint_end_batch = 0;
     renderer->popup_paint_first_batch = renderer->popup_paint_end_batch = 0;
     renderer->popup_scene_media_first_batch = renderer->popup_scene_media_end_batch = 0;
+    renderer->popup_menu_paint_first_batch = renderer->popup_menu_media_first_batch = 0;
     renderer->settings_choice_paint_first_batch = renderer->settings_choice_paint_end_batch = 0;
     renderer->settings_choice_media_first_batch = renderer->settings_choice_media_end_batch = 0;
     renderer->settings_page_media_first_batch = renderer->settings_page_media_end_batch = 0;
@@ -1917,7 +1918,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->menu_media_first_batch = renderer->media_batch_count;
     renderer->popup_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->popup_scene_media_first_batch = renderer->popup_scene_media_end_batch =
-        renderer->media_batch_count;
+        renderer->popup_menu_media_first_batch = renderer->media_batch_count;
     if (shown & d3d11_surface_download) {
         const UnfilteredPaint scope(&renderer->paint_stream);
         if (!ui_download_scene_paint(*renderer->download_scene, theme, &renderer->paint_stream))
@@ -1984,6 +1985,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (!ui_shortcuts_scene_paint(*renderer->shortcuts_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
+    // The popup menu (then the reaction viewer) draws over every surface above.
+    renderer->popup_menu_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     if (d3d11_renderer_active(renderer->popup_scene) &&
         !popup_presentation_build(*renderer->popup_scene, theme, &renderer->paint_stream,
                                   renderer->message_measure_cache))
@@ -2177,6 +2180,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             first_interaction_media = first_interaction_media && renderer->media_quad_count == before;
         }
     }
+    // The menu's media start a batch of their own, drawn over the surfaces' media and text.
+    first_interaction_media = true;
+    renderer->popup_menu_media_first_batch = renderer->media_batch_count;
     if (d3d11_renderer_active(renderer->popup_scene) &&
         renderer->media_atlas && renderer->media_gpu.texture_view) {
         const PopupScene& popup = *renderer->popup_scene;

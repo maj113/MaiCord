@@ -2,6 +2,8 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
+#include "maicord/core/hash.hpp"
 
 #include "maicord/ui/text/style.hpp"
 #include "maicord/core/utf.hpp"
@@ -447,47 +449,9 @@ UiListRowBounds page_bounds(void* context, u32 index) noexcept {
             static_cast<u64>(last * kUiExtentUnitsPerDip + .5)};
 }
 
-} // namespace
-
-bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<UiWidget> widgets,
-                                  Slice<UiLayoutNode> layout_nodes) noexcept {
-    usize reserve_bytes = 0;
-    if (!scene || scene->owned_storage.base || !widgets.data || widgets.count < 2 || !layout_nodes.data ||
-        layout_nodes.count < widgets.count || !storage_bytes(item_capacity, &reserve_bytes)) {
-        return false;
-    }
-    reset_value<PopupScene>(scene);
-    scene->selected_index = ~0u;
-    if (!ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes) ||
-        !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024, ArenaTag::ui)) {
-        reset_value<PopupScene>(scene);
-        return false;
-    }
-    scene->owned_capacity = item_capacity;
-    return true;
-}
-
-void popup_scene_release(PopupScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
-    arena_release(&scene->owned_storage);
-    reset_value<PopupScene>(scene);
-}
-
-bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyles* styles) noexcept {
-    if (!scene || (styles && !styles->ready))
-        return false;
-    const u32 revision = styles ? styles->geometry_revision : 0;
-    if (scene->theme_styles == styles && scene->theme_geometry_revision == revision)
-        return false;
-    if (!scene->active || !scene->themed_menu) {
-        scene->theme_styles = styles;
-        scene->theme_geometry_revision = revision;
-        return true;
-    }
-    // Reuse the retained rows directly. Reopening would reset input authority,
-    // selection, edit state and a descriptor slice which may alias scene.items.
+// Lays the retained rows of an active ordinary menu out again at its preferred width, keeping input authority,
+// selection, edit state and a descriptor slice which may alias scene.items (reopening would reset them).
+bool reflow(PopupScene* scene, const UiResolvedThemeStyles* styles, u32 revision) noexcept {
     const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
     const auto layout = [&](UiWidgetHandle handle) noexcept {
         return ui_widget_manager_layout_node(&scene->widgets, handle);
@@ -527,6 +491,111 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     scene->theme_geometry_revision = revision;
     saturating_increment(scene->revision);
     return true;
+}
+
+// Content fitting measures each row's label and second line on one line (in a box wider than any menu), then the
+// second lines wrapped to their slot; the tags keep the three measurements apart in the cache.
+inline constexpr float kPopupFitMeasureWidth = 4096.f, kPopupFitMeasureHeight = 1024.f;
+inline constexpr u16 kPopupFitLabelTag = 0x4d4c, kPopupFitDetailTag = 0x4d44, kPopupFitWrapTag = 0x4d57;
+// A menu row text's width on one line, or its line count wrapped to width; false without a measurement.
+bool measure_row_text(UiTextMeasureCache* measure, const PopupScene& scene, Utf8View text, u16 tag, float width,
+                      bool wrap, UiTextMeasureValue* value) noexcept {
+    return text.bytes &&
+           ui_text_measure_cache_measure(
+               measure,
+               {{scene.owner_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, tag, 0}, text, {},
+                {maximum(1.f, width), wrap ? kPopupFitMeasureHeight : kUiMenuDetailRowHeight}, !wrap},
+               value)
+               .ok();
+}
+
+} // namespace
+
+bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<UiWidget> widgets,
+                                  Slice<UiLayoutNode> layout_nodes) noexcept {
+    usize reserve_bytes = 0;
+    if (!scene || scene->owned_storage.base || !widgets.data || widgets.count < 2 || !layout_nodes.data ||
+        layout_nodes.count < widgets.count || !storage_bytes(item_capacity, &reserve_bytes)) {
+        return false;
+    }
+    reset_value<PopupScene>(scene);
+    scene->selected_index = ~0u;
+    if (!ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes) ||
+        !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024, ArenaTag::ui)) {
+        reset_value<PopupScene>(scene);
+        return false;
+    }
+    scene->owned_capacity = item_capacity;
+    return true;
+}
+
+void popup_scene_release(PopupScene* scene) noexcept {
+    if (!scene) {
+        return;
+    }
+    arena_release(&scene->owned_storage);
+    reset_value<PopupScene>(scene);
+}
+
+bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyles* styles) noexcept {
+    if (!scene || (styles && !styles->ready))
+        return false;
+    const u32 revision = styles ? styles->geometry_revision : 0;
+    if (scene->theme_styles == styles && scene->theme_geometry_revision == revision)
+        return false;
+    if (!scene->active || !scene->themed_menu) {
+        scene->theme_styles = styles;
+        scene->theme_geometry_revision = revision;
+        return true;
+    }
+    return reflow(scene, styles, revision);
+}
+
+bool popup_scene_fit_content(PopupScene* scene, UiTextMeasureCache* measure, float maximum_width) noexcept {
+    if (!scene || !scene->active || !ui_coordinate_valid(maximum_width))
+        return false;
+    const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
+    if (!measure || scene->kind == PopupKind::autocomplete || popup_items_command_picker(items) ||
+        quick_reaction_strip(items))
+        return true;
+    // How much wider the widest row's label or second line wants the menu, measured in the slots it has now.
+    float grow = 0;
+    for (u32 i = 0; i < items.count; ++i) {
+        const PopupItem& item = items[i];
+        UiMenuRowGeometry geometry{};
+        UiTextMeasureValue label{}, detail{};
+        if (!popup_item_menu_row(item) || popup_item_placeholder(item) ||
+            !popup_scene_menu_row_geometry(*scene, i, &geometry))
+            continue;
+        if (measure_row_text(measure, *scene, item.label, kPopupFitLabelTag, kPopupFitMeasureWidth, false, &label))
+            grow = maximum(grow, label.size.width - ui_rect_width(geometry.primary));
+        if (item.presentation.secondary_line &&
+            measure_row_text(measure, *scene, item.detail, kPopupFitDetailTag, kPopupFitMeasureWidth, false, &detail))
+            grow = maximum(grow, detail.size.width - ui_rect_width(geometry.detail));
+    }
+    // One DIP over the measured width absorbs the shaper's sub-pixel rounding.
+    const float width = minimum(maximum_width, ui_rect_width(scene->rectangle) + grow + 1.f);
+    if (grow > 0 && width > scene->preferred_width) {
+        scene->preferred_width = width;
+        if (!reflow(scene, scene->theme_styles, scene->theme_geometry_revision))
+            return false;
+    }
+    // A second line still wider than its slot wraps onto the lines below it, as the official client's menus do.
+    bool wrapped = false;
+    for (u32 i = 0; i < items.count; ++i) {
+        PopupItem& item = scene->items[i];
+        UiMenuRowGeometry geometry{};
+        UiTextMeasureValue detail{};
+        if (!popup_item_menu_row(item) || !item.presentation.secondary_line || popup_item_placeholder(item) ||
+            !popup_scene_menu_row_geometry(*scene, i, &geometry) ||
+            !measure_row_text(measure, *scene, item.detail, kPopupFitWrapTag, ui_rect_width(geometry.detail), true,
+                              &detail))
+            continue;
+        const u8 extra = static_cast<u8>(minimum<u32>(kUiMenuDetailLinesMaximum, maximum(1u, detail.line_count)) - 1);
+        wrapped = wrapped || extra != item.presentation.extra_detail_lines;
+        item.presentation.extra_detail_lines = extra;
+    }
+    return !wrapped || reflow(scene, scene->theme_styles, scene->theme_geometry_revision);
 }
 
 namespace {
@@ -1161,15 +1230,17 @@ float popup_item_menu_row_height(const PopupItem& item, bool compact,
     // A trailing submenu chevron keeps the row's rhythm; only a leading icon
     // column makes menu rows taller.
     const bool leading_icon = item.presentation.icon_plus_one && !item.presentation.trailing_icon;
+    if (item.presentation.secondary_line || (item.flags & popup_item_command_row)) {
+        // Each wrapped line of the detail adds a line of the two its label and detail share inside the row's padding.
+        const float height = styles && styles->ready ? styles->metrics.menu_detail_height : kUiMenuDetailRowHeight;
+        const float line = (height - 2.f * (menu_metrics(styles).menu_padding - 1.f)) * .5f;
+        return height + static_cast<float>(item.presentation.extra_detail_lines) * line;
+    }
     if (styles && styles->ready) {
-        if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
-            return styles->metrics.menu_detail_height;
         if (leading_icon || !compact)
             return styles->metrics.menu_row_height;
         return styles->metrics.menu_compact_height;
     }
-    if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
-        return kUiMenuDetailRowHeight;
     if (leading_icon)
         return kUiMenuRowHeight;
     return compact ? kUiMenuCompactRowHeight : kUiMenuRowHeight;
