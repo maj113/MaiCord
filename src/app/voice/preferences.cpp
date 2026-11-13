@@ -12,8 +12,8 @@ namespace {
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'V', 'O', 'I', 'C', 'E'};
 constexpr u32 kHeaderBytes = 40, kChecksumOffset = 32, kUserBytes = 11;
 constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16, kStreamMuted = 32,
-             kStreamHidePreview = 64;
-constexpr u8 kKnownFlags = 127, kVersion2Flags = 31;
+             kStreamHidePreview = 64, kStreamUnlocked = 128;
+constexpr u8 kKnownFlags = 255, kVersion2Flags = 31;
 // Byte 27 (v3): the stream preset in bits 0-1, the resolution's index in kStreamResolutions in bits 2-4 and the frame
 // rate's index in kStreamFrameRates in bits 5-6.
 template <class T, usize N> u32 index_of(const T (&values)[N], T value) noexcept {
@@ -117,7 +117,8 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
     r[25] = static_cast<u8>((a.auto_sensitivity ? kAutomatic : 0) | (a.voice_processing ? kProcessing : 0) |
                             (p.self_mute ? kSelfMute : 0) | (p.self_deaf ? kSelfDeaf : 0) |
                             (p.soundboard_muted ? kSoundboardMuted : 0) | (p.stream_muted ? kStreamMuted : 0) |
-                            (p.stream_hide_preview ? kStreamHidePreview : 0));
+                            (p.stream_hide_preview ? kStreamHidePreview : 0) |
+                            (p.stream_unlocked ? kStreamUnlocked : 0));
     r[26] = p.soundboard_volume;
     r[27] = static_cast<u8>(p.stream_preset | (index_of(kStreamResolutions, p.stream_resolution) << 2) |
                             (index_of(kStreamFrameRates, p.stream_fps) << 5));
@@ -176,6 +177,7 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
         decoded.stream_fps = kStreamFrameRates[fps];
         decoded.stream_muted = (r[25] & kStreamMuted) != 0;
         decoded.stream_hide_preview = (r[25] & kStreamHidePreview) != 0;
+        decoded.stream_unlocked = (r[25] & kStreamUnlocked) != 0;
     }
     u32 at = kHeaderBytes;
     for (u32 i = 0; i < input; ++i, at += 2)

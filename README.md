@@ -149,8 +149,9 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 - Push-to-talk, per-user volume, soundboard and stage channels
 - Watch Go Live streams and cameras, decoded on the GPU
 - Go Live: share a screen or window (with its sound), encoded on the GPU and end-to-end encrypted, at Discord's
-  resolutions and frame rates up to your Nitro's or the server's boost tier; stream mode and quality settings, your
-  own tile with its viewers. On Linux the desktop's share dialog picks the source (PipeWire and xdg-desktop-portal)
+  resolutions and frame rates up to your Nitro's or the server's boost tier, or at any of them with "Unlock all
+  qualities" (off by default); stream mode and quality settings, your own tile with its viewers. On Linux the
+  desktop's share dialog picks the source (PipeWire and xdg-desktop-portal)
 
 **Servers**
 - Server settings: profile with banner upload, Server Tag, roles and permissions, members, bans, audit log, emoji,

@@ -27,6 +27,7 @@ struct VoicePreferences {
     u16 stream_resolution; // 0 source, else 480, 720, 1080 or 1440 (custom).
     bool stream_muted;     // "Mute stream audio".
     bool stream_hide_preview;
+    bool stream_unlocked; // Every quality without Nitro or the server's boosts, which only clients check.
     u32 user_count;
     VoiceUserVolume users[kVoicePreferenceUsers];
 };

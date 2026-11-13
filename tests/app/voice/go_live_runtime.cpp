@@ -37,6 +37,24 @@ void run() noexcept {
         return;
     g_app.account.instance = &instance;
     g_account_fake.go_live_snapshot = snapshot;
+    // Without Nitro or boosts the smoother preset stops at 720p 30fps and a custom 1440p 60fps falls back; unlocked,
+    // every quality is offered.
+    auto& p = prefs();
+    const VoicePreferences saved = p;
+    p.stream_preset = static_cast<u8>(StreamPreset::video);
+    const StreamQuality locked = resolved();
+    p.stream_unlocked = true;
+    const StreamQuality unlocked = resolved();
+    p.stream_preset = static_cast<u8>(StreamPreset::custom);
+    p.stream_resolution = 1440;
+    p.stream_fps = 60;
+    const StreamQuality custom_unlocked = resolved();
+    p.stream_unlocked = false;
+    const StreamQuality custom_locked = resolved();
+    p = saved;
+    check(locked.resolution == 720 && locked.fps == 30 && unlocked.resolution == 1440 && unlocked.fps == 60 &&
+              custom_unlocked.resolution == 1440 && custom_unlocked.fps == 60 && custom_locked.resolution != 1440,
+          "go live: unlocking all qualities offers 1440p 60fps without Nitro or boosts");
 
     application_go_live_pump();
     check(!ui.snapshot_valid && application_go_live_next_wake() == 0,

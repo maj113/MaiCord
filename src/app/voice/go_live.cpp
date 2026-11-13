@@ -50,6 +50,7 @@ enum : u32 {
     kFpsFirst = kActionBase + 0x20,        // + index in kStreamFrameRates
     kMuteAudio = kActionBase + 0x30,
     kHidePreview,
+    kUnlockQuality,
     kStop = kActionBase + 0x40,
     kChangeSource,
     kShareAudio,
@@ -111,10 +112,16 @@ bool streaming(const GoLiveSnapshot& s) noexcept {
 bool live() noexcept {
     return ui.snapshot_valid && streaming(ui.snapshot);
 }
+// With "Unlock all qualities" every quality counts as allowed, as with Nitro and a level 3 server: Discord checks the
+// account's perks only in its client.
 u8 premium_type() noexcept {
+    if (application_voice_preferences().stream_unlocked)
+        return 2;
     return g_app.account_ui ? g_app.account_ui->chat_state.self_premium_type : 0;
 }
 u8 guild_tier() noexcept {
+    if (application_voice_preferences().stream_unlocked)
+        return 3;
     const auto* c = application_voice_call();
     const auto* record = c && c->guild_id && g_app.account_ui
                              ? guild_detail_store_find(g_app.account_ui->guild_details, c->guild_id)
@@ -415,6 +422,8 @@ bool open_options(const UiRect& anchor) noexcept {
     items[n++] = mute;
     items[n++] = row(utf8_literal("Hide stream preview"), kHidePreview, checked(prefs().stream_hide_preview),
                      utf8_literal("Users will not be able to see a preview of your stream before joining."));
+    items[n++] = row(utf8_literal("Unlock all qualities"), kUnlockQuality, checked(prefs().stream_unlocked),
+                     utf8_literal("Every resolution and frame rate, without Nitro or server boosts."));
     return show_menu(Menu::options, anchor, {items, n}, true);
 }
 // While live: stop, change the source, stream audio and the quality, as the official client's stream menu.
@@ -729,6 +738,9 @@ bool application_go_live_menu_activate(u32 action) noexcept {
         persist = true;
     } else if (action == kHidePreview) {
         p.stream_hide_preview = !p.stream_hide_preview;
+        persist = true;
+    } else if (action == kUnlockQuality) {
+        p.stream_unlocked = !p.stream_unlocked;
         persist = true;
     } else if (action == kStop) {
         application_go_live_stop();

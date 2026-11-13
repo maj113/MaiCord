@@ -53,17 +53,18 @@ void test_record(Check check) noexcept {
         static u8 stream_record[kVoicePreferencesMaximumBytes];
         stream = voice_preferences_defaults();
         const bool defaults = stream.stream_preset == 1 && stream.stream_resolution == 720 && stream.stream_fps == 30 &&
-                              !stream.stream_muted && !stream.stream_hide_preview;
+                              !stream.stream_muted && !stream.stream_hide_preview && !stream.stream_unlocked;
         stream.stream_preset = 3;
         stream.stream_resolution = 0;
         stream.stream_fps = 60;
         stream.stream_muted = true;
         stream.stream_hide_preview = true;
+        stream.stream_unlocked = true;
         const u32 n = voice_preferences_encode(stream, {stream_record, sizeof(stream_record)});
         back = voice_preferences_defaults();
         const bool kept = n && voice_preferences_decode({stream_record, n}, &back) && back.stream_preset == 3 &&
                           back.stream_resolution == 0 && back.stream_fps == 60 && back.stream_muted &&
-                          back.stream_hide_preview;
+                          back.stream_hide_preview && back.stream_unlocked;
         check(defaults && kept, "Voice preferences: the Go Live stream settings survive a round trip (v3)");
         stream.stream_fps = 5;
         const bool five = !voice_preferences_valid(stream);
