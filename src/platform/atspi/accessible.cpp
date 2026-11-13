@@ -195,8 +195,6 @@ bool editable(const UiAccessNode& node) noexcept {
     return (interfaces_for(node) & interface_editable_text) != 0;
 }
 
-// Property tables --------------------------------------------------------------------------------------------------
-
 #define ATSPI_PROPERTIES(M)                                                                                          \
     M(Name) M(Description) M(Parent) M(ChildCount) M(Locale) M(AccessibleId) M(HelpText)                              \
     M(ToolkitName) M(Version) M(AtspiVersion) M(Id)                                                                    \

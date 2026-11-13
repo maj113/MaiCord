@@ -1,7 +1,7 @@
 // First-party compiler support for Linux images: the memory functions the compiler emits calls to (the Linux
 // counterpart of runtime_x64.asm). Built with -fno-builtin so the bodies are not turned back into calls of
 // themselves. Loads precede stores on the small paths, so memcpy and memmove share the overlap-safe code without
-// reading beyond the caller's range; AVX1 only, matching the -mavx contract. Above 128 bytes a forward copy and a
+// reading beyond the caller's range; AVX1 only, matching the Sandy Bridge contract. Above 128 bytes a forward copy and a
 // fill run 4x32-byte AVX loops into a 32-byte aligned destination, and from kStreamingBytes on they stream (non-
 // temporal stores): `rep movsb` and `rep stosb` take the fast-string path only for write-back memory and crawl
 // (a byte at a time) into the write-combined mappings of GPU buffers (glMapBufferRange), where these loops and the
@@ -73,7 +73,7 @@ inline void stream32(u8* address, V32 value) noexcept {
 }
 
 // From this many bytes a copy or fill bypasses the caches: past the last-level cache's reach the write-allocate reads
-// of ordinary stores cost half the bandwidth, which the string instructions used to save and streaming stores save too.
+// of ordinary stores cost half the bandwidth, which streaming stores save.
 constexpr usize kStreamingBytes = 1u << 20;
 
 // More than 128 bytes, the destination not overlapping the source from above (below it, or past its end): the first 32

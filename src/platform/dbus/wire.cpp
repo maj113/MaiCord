@@ -29,8 +29,6 @@ u32 alignment_of(char type) noexcept {
     }
 }
 
-// Signatures ---------------------------------------------------------------------------------------------------------
-
 u32 type_length(const char* s, u32 depth) noexcept {
     if (depth > 32)
         return 0;
@@ -67,8 +65,6 @@ u32 type_length(const char* s, u32 depth) noexcept {
         return 0;
     }
 }
-
-// Builder ------------------------------------------------------------------------------------------------------------
 
 bool ensure(Builder* b, u32 extra) noexcept {
     if (b->failed)
@@ -130,8 +126,6 @@ bool pop(Builder* b, u8 kind) noexcept {
     --b->depth;
     return true;
 }
-
-// Reader -------------------------------------------------------------------------------------------------------------
 
 bool reader_fail(Reader* r) noexcept {
     r->failed = true;
@@ -215,8 +209,6 @@ bool buffer_reserve(u8** data, u32 used, u32* capacity, u32 needed, u32 initial)
     *capacity = grown_capacity;
     return true;
 }
-
-// Builder ------------------------------------------------------------------------------------------------------------
 
 void builder_init(Builder* builder) noexcept {
     clear_bytes(builder, static_cast<u32>(sizeof(*builder)));
@@ -448,8 +440,6 @@ void builder_dict_bool(Builder* builder, const char* key, bool value) noexcept {
     builder_bool(builder, value);
     builder_close_dict_entry(builder);
 }
-
-// Reader -------------------------------------------------------------------------------------------------------------
 
 void reader_init(Reader* reader, const u8* body, u32 size, const char* signature, const int* fds, u32 fd_count) noexcept {
     clear_bytes(reader, static_cast<u32>(sizeof(*reader)));
@@ -711,8 +701,6 @@ bool reader_byte_array(Reader* reader, const u8** bytes, u32* count) noexcept {
     reader->position = frame.end;
     return reader_leave(reader);
 }
-
-// Messages -----------------------------------------------------------------------------------------------------------
 
 namespace {
 

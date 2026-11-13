@@ -772,7 +772,7 @@ def _check_descriptor(image: _Image, rva: int, report: Inspection) -> None:
         info["state_bytes"], info["state_layout"] = state_bytes, state_layout
         settings, setting_count, hook_count, hooks = struct.unpack_from("<QIIQ", raw, 144)
         commands, command_count, menu_count = struct.unpack_from("<QII", raw, 168)
-        buttons, button_count = struct.unpack_from("<QI", raw, 192)
+        button_count = struct.unpack_from("<I", raw, 200)[0]
         if setting_count > 64 or hook_count > HOOK_LAST or command_count > 16 or menu_count > 32 or button_count > 16:
             raise ToolError("a descriptor table is longer than its maximum")
         keys = set()

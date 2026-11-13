@@ -12,23 +12,14 @@ namespace maicord::dbus {
 namespace {
 
 // Linux x86-64 system calls and constants beyond sys/linux/calls.hpp.
-constexpr long kCallSocket = 41;
-constexpr long kCallConnect = 42;
 constexpr long kCallSendmsg = 46;
 constexpr long kCallRecvmsg = 47;
-constexpr long kCallGeteuid = 107;
 constexpr int kAfUnix = 1;
-constexpr int kSockStream = 1;
-constexpr int kSockNonblock = 0x800;
-constexpr int kSockCloexec = 0x80000;
-constexpr int kSolSocket = 1;
 constexpr int kScmRights = 1;
 constexpr int kMsgPeek = 0x2;
 constexpr int kMsgDontwait = 0x40;
-constexpr int kMsgNosignal = 0x4000;
 constexpr int kMsgCmsgCloexec = 0x40000000;
 constexpr i16 kPollOut = 4;
-constexpr int kErrorInProgress = 115;
 
 struct IoVec {
     void* base;
@@ -151,7 +142,7 @@ long send_some(int fd, const u8* bytes, u32 count, const int* fds, u32 fd_count)
         header.control = control;
         header.control_length = sizeof(CmsgHdr) + ((fd_count * 4 + 7) & ~7u);
     }
-    return syscall3(kCallSendmsg, fd, reinterpret_cast<long>(&header), kMsgNosignal | kMsgDontwait);
+    return syscall3(kCallSendmsg, fd, reinterpret_cast<long>(&header), kMessageNoSignal | kMsgDontwait);
 }
 
 } // namespace
@@ -223,7 +214,7 @@ bool starts_with(const char* text, const char* prefix) noexcept {
 bool authenticate(int fd, bool* fds_ok) noexcept {
     const u64 deadline = clock_monotonic_milliseconds() + kHandshakeTimeoutMs;
     char decimal[10];
-    const u32 digits = decimal_write(decimal, static_cast<u32>(syscall1(kCallGeteuid, 0)));
+    const u32 digits = decimal_write(decimal, static_cast<u32>(sys_geteuid()));
     char request[64];
     u32 length = 0;
     request[length++] = 0;  // the credentials byte
@@ -561,8 +552,6 @@ void expire_calls(Connection* c, u64 now) noexcept {
     }
 }
 
-// Sync call plumbing ---------------------------------------------------------------------------------------------------
-
 struct SyncCall {
     bool done;
     Status status;
@@ -586,8 +575,6 @@ void log_failed_reply(void*, Status status, const Message* reply) noexcept {
     if (status == Status::error_reply && reply && reply->error_name)
         log_write(LogLevel::warning, "dbus", reply->error_name);
 }
-
-// Addresses ----------------------------------------------------------------------------------------------------------
 
 // Decodes the %hh escapes of an address value into `out`; the length, or ~0 when it does not fit.
 u32 unescape(const char* text, u32 length, char* out, u32 capacity) noexcept {
@@ -613,13 +600,13 @@ u32 unescape(const char* text, u32 length, char* out, u32 capacity) noexcept {
 }
 
 bool open_socket(const SocketAddress& address, int* out) noexcept {
-    const long created = syscall3(kCallSocket, kAfUnix, kSockStream | kSockNonblock | kSockCloexec, 0);
+    const long created = sys_socket(kAfUnix, kSockStream | kSockNonBlock | kSockCloseOnExec, 0);
     if (syscall_failed(created))
         return false;
     const int fd = static_cast<int>(created);
-    long connected = syscall3(kCallConnect, fd, reinterpret_cast<long>(address.data), address.length);
+    long connected = sys_connect(fd, address.data, address.length);
     while (connected == -kErrorInterrupted)
-        connected = syscall3(kCallConnect, fd, reinterpret_cast<long>(address.data), address.length);
+        connected = sys_connect(fd, address.data, address.length);
     if (connected == -kErrorAgain || connected == -kErrorInProgress) {
         // A full listen backlog: wait for the socket to take us.
         if (!poll_until(fd, kPollOut, clock_monotonic_milliseconds() + kHandshakeTimeoutMs)) {
@@ -764,7 +751,7 @@ Connection* connection_open_session() noexcept {
         const char run[] = "/run/user/";
         copy_bytes(fallback + length, run, sizeof(run) - 1);
         length += sizeof(run) - 1;
-        length += decimal_write(fallback + length, static_cast<u32>(syscall1(kCallGeteuid, 0)));
+        length += decimal_write(fallback + length, static_cast<u32>(sys_geteuid()));
     }
     const char tail[] = "/bus";
     copy_bytes(fallback + length, tail, sizeof(tail));

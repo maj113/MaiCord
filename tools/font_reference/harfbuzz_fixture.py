@@ -1027,8 +1027,6 @@ def participation():
     print('nominal_participation_fixture regenerated')
 
 
-# Known divergence classes of the lookup plan corpus (MCPLN04): the config's expectations are the engine's.
-PLAN_DIVERGENCES = {1: 'direction features'}
 DIRECTION_OFF = {'ltra': False, 'ltrm': False, 'rtla': False, 'rtlm': False}
 
 
@@ -1038,8 +1036,8 @@ def plan():
     and kern), the glyph and placement HarfBuzz gives 'a', whether 'a' keeps its nominal glyph (no default or required
     feature of any language system covers it) and the application's result. The selected script and language are
     kept. A font with a direction feature, which the engine's direction-independent plan leaves out, is known
-    divergent (class 1, PLAN_DIVERGENCES): its glyph and placement are HarfBuzz's without the direction features, as
-    the engine shapes it. Reads MCPLN03 (the recorded corpus) or MCPLN04."""
+    divergent (class 1): its glyph and placement are HarfBuzz's without the direction features, as the engine shapes
+    it. Reads MCPLN03 (the recorded corpus) or MCPLN04."""
     data = (GENERATED / 'lookup_plan_fixture.bin').read_bytes()
     assert data[:8] in (b'MCPLN03\0', b'MCPLN04\0')
     config = 48 if data[:8] == b'MCPLN03\0' else 52

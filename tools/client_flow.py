@@ -173,9 +173,9 @@ class Flow:
 
     def step_shot(self, argument):
         # Headless sway (wlroots 0.17) scans a window that covers the output out directly, and grim then captures the
-        # composited frame from before the client's last commits, until something makes the output repaint (a pointer
-        # move, which is why a screenshot used to show the previous screen). Applying the output's own scale again
-        # repaints it, changes nothing for the client and costs a few milliseconds.
+        # composited frame from before the client's last commits, until something (a pointer move) makes the output
+        # repaint. Applying the output's own scale again repaints it, changes nothing for the client and costs a few
+        # milliseconds.
         subprocess.run(["swaymsg", "output", "*", "scale", f"{self.options.scale:g}"], env=self.env, capture_output=True)
         time.sleep(0.3)
         self.step_grab(argument)

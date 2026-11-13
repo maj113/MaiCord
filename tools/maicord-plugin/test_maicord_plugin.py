@@ -52,7 +52,7 @@ needs_linux_toolchain = unittest.skipUnless(LINUX_TOOLCHAIN, "no clang and ld.ll
 needs_windows = unittest.skipUnless(os.name == "nt", "the effect compiler is d3dcompiler_47.dll")
 
 
-def run(*arguments, expect=0):
+def run(*arguments):
     """The command line in this process: (exit code, stdout, stderr)."""
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

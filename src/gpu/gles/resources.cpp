@@ -344,8 +344,6 @@ GpuStatus gpu_raster_create(GpuDevice* device, GpuRaster** raster) {
     return kGpuOk;
 }
 
-// ---- Release ---------------------------------------------------------------------------------------------
-
 namespace {
 
 // A buffer or texture is owned by its handle, by every view made of it and by every gpu_retain; the last owner to
@@ -589,8 +587,6 @@ void gpu_release(GpuInputLayout*& handle) noexcept {
         c.applied_vertex_array = kUnknown;
     d.layouts.release(layout);
 }
-
-// ---- Commands --------------------------------------------------------------------------------------------
 
 void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]) {
     gl::Api& gl = api();

@@ -33,7 +33,7 @@ RESOLVER = os.path.join(ROOT, "src", "platform", "net", "linux", "resolver.cpp")
 ERRNO = {
     "Permission": "EPERM", "NoEntry": "ENOENT", "Interrupted": "EINTR", "BadDescriptor": "EBADF", "Again": "EAGAIN",
     "NoMemory": "ENOMEM", "Access": "EACCES", "Exists": "EEXIST", "NotDirectory": "ENOTDIR", "IsDirectory": "EISDIR",
-    "Invalid": "EINVAL", "TimedOut": "ETIMEDOUT", "NoSpace": "ENOSPC", "Pipe": "EPIPE", "MessageSize": "EMSGSIZE",
+    "Invalid": "EINVAL", "TimedOut": "ETIMEDOUT", "Pipe": "EPIPE", "MessageSize": "EMSGSIZE",
     "AddressFamily": "EAFNOSUPPORT", "AddressInUse": "EADDRINUSE", "AddressNotAvailable": "EADDRNOTAVAIL",
     "NetworkUnreachable": "ENETUNREACH", "ConnectionAborted": "ECONNABORTED", "ConnectionReset": "ECONNRESET",
     "NotConnected": "ENOTCONN", "ConnectionRefused": "ECONNREFUSED", "HostUnreachable": "EHOSTUNREACH",

@@ -10,7 +10,6 @@
 #include "maicord/platform/window/wayland/settings_map.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
 #include "maicord/sys/linux/calls.hpp"
-#include "maicord/sys/linux/process.hpp"
 #include "backend.hpp"
 
 namespace maicord::wayland {
@@ -25,8 +24,8 @@ constexpr u32 kSeatVersion = 8;
 constexpr u32 kWmBaseVersion = 6;
 constexpr u32 kCreateTimeoutMs = 10000;
 constexpr u32 kDefaultDpi = 96;
-
-// Registry ------------------------------------------------------------------------------------------------------------
+constexpr u32 kTiledStates = (1u << xdg_toplevel_state_tiled_left) | (1u << xdg_toplevel_state_tiled_right) |
+                             (1u << xdg_toplevel_state_tiled_top) | (1u << xdg_toplevel_state_tiled_bottom);
 
 void on_seat_capabilities(void*, wl_seat* seat, u32 capabilities) noexcept {
     if (capabilities & wl_seat_capability_pointer)
@@ -131,8 +130,6 @@ void on_global_remove(void*, wl_registry*, u32) noexcept {}
 
 const wl_registry_listener kRegistryListener = {on_global, on_global_remove};
 
-// Window state --------------------------------------------------------------------------------------------------------
-
 u32 scale_to_dpi(u32 scale_120) noexcept {
     return (kDefaultDpi * scale_120 + 60) / 120;
 }
@@ -142,8 +139,6 @@ u32 to_pixels(u32 logical) noexcept {
 }
 
 u32 state_bits_of(u32 states) noexcept {
-    constexpr u32 tiled = (1u << xdg_toplevel_state_tiled_left) | (1u << xdg_toplevel_state_tiled_right) |
-                          (1u << xdg_toplevel_state_tiled_top) | (1u << xdg_toplevel_state_tiled_bottom);
     u32 bits = 0;
     if (states & (1u << xdg_toplevel_state_maximized))
         bits |= state_maximized;
@@ -151,7 +146,7 @@ u32 state_bits_of(u32 states) noexcept {
         bits |= state_fullscreen;
     if (states & (1u << xdg_toplevel_state_suspended))
         bits |= state_suspended;
-    if (states & tiled)
+    if (states & kTiledStates)
         bits |= state_tiled;
     if (!g.caps.csd)
         bits |= state_decorated;
@@ -233,9 +228,8 @@ const xdg_toplevel_listener kToplevelListener = {on_toplevel_configure, on_tople
 // everything, acknowledge, then report what changed.
 void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
     WindowState& window = g.window;
-    constexpr u32 sized_states = (1u << xdg_toplevel_state_maximized) | (1u << xdg_toplevel_state_fullscreen) |
-                                 (1u << xdg_toplevel_state_tiled_left) | (1u << xdg_toplevel_state_tiled_right) |
-                                 (1u << xdg_toplevel_state_tiled_top) | (1u << xdg_toplevel_state_tiled_bottom);
+    constexpr u32 sized_states =
+        (1u << xdg_toplevel_state_maximized) | (1u << xdg_toplevel_state_fullscreen) | kTiledStates;
     const u32 states = window.pending_states;
     const bool floating = (states & sized_states) == 0;
     u32 width = window.pending_width;
@@ -327,7 +321,7 @@ void destroy_window_objects() noexcept {
         wl_surface_destroy(window.surface);
 }
 
-bool configured_and_scaled() noexcept {
+bool window_configured() noexcept {
     return g.window.configured;
 }
 
@@ -385,8 +379,6 @@ u32 latest_input_serial() noexcept {
 }
 
 } // namespace
-
-// Shared with the other files -----------------------------------------------------------------------------------------
 
 float pixel_scale() noexcept {
     return static_cast<float>(g.window.dpi) / static_cast<float>(kDefaultDpi);
@@ -562,8 +554,6 @@ void begin_resize(FrameHit edge) noexcept {
         xdg_toplevel_resize(g.window.toplevel, g.seat, serial, resize_edge(edge));
 }
 
-// The window service ---------------------------------------------------------------------------------------------------
-
 } // namespace maicord::wayland
 
 namespace maicord {
@@ -692,7 +682,7 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     // The initial commit asks for the first configure. The window is ready once that has arrived and what the bound
     // globals announce (the preferred scale, the selection) has been answered.
     wl_surface_commit(window.surface);
-    if (!dispatch_until(configured_and_scaled, kCreateTimeoutMs) || g_client.display_roundtrip(g.display) < 0) {
+    if (!dispatch_until(window_configured, kCreateTimeoutMs) || g_client.display_roundtrip(g.display) < 0) {
         log_write(LogLevel::error, "wayland", "the compositor never configured the window");
         destroy_window_objects();
         disconnect();

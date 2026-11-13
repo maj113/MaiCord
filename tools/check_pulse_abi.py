@@ -44,8 +44,7 @@ STRUCTS = {
 
 
 def kind(type_text):
-    text = re.sub(r"\b(const|volatile|struct|enum)\b", " ", type_text)
-    text = " ".join(text.split())
+    text = shared.plain(type_text)
     # An opaque struct (pa_context*), a callback typedef (pa_context_notify_cb_t, ContextNotifyCb) or a pointer.
     if "*" in text or re.fullmatch(r"\w+_cb_t|\w+Cb", text):
         return "pointer"
@@ -55,35 +54,5 @@ def kind(type_text):
     return shared.kind(text)
 
 
-def read_header():
-    text = open(HEADER, encoding="utf-8").read()
-    table = text[text.index("#define MAICORD_PULSE_FUNCTIONS"):text.index("struct Api")]
-    functions = []
-    for match in re.finditer(r"^\s*F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)\s*\\?\s*$", table, re.M):
-        functions.append((match["name"], match["ret"].strip(), shared.split_arguments(match["args"])))
-    constants = []
-    for match in re.finditer(
-            r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>PA_[A-Z0-9_]+)", text):
-        constants.append((match["macro"], match["value"].strip()))
-    layouts = []
-    for match in re.finditer(r"sizeof\((?P<type>\w+)\) == (?P<size>\d+)", text):
-        layouts.append("sizeof(%s) == %s" % (STRUCTS[match["type"]], match["size"]))
-    for match in re.finditer(r"__builtin_offsetof\((?P<type>\w+), (?P<field>\w+)\) == (?P<offset>\d+)", text):
-        layouts.append("offsetof(%s, %s) == %s" % (STRUCTS[match["type"]], match["field"], match["offset"]))
-    return functions, constants, layouts
-
-
-def main():
-    compiler, includes = shared.command_line(__doc__, ["/usr/include"])
-    functions, constants, layouts = read_header()
-    if not functions or not constants or not layouts:
-        raise SystemExit("found no table in " + HEADER)
-
-    failures = shared.check_constants(compiler, includes, INCLUDES, constants, layouts)
-    failures += shared.check_functions(shared.preprocess(compiler, includes, INCLUDES), functions, kind)
-    return shared.summary("%d functions, %d constants and %d layouts" % (len(functions), len(constants), len(layouts)),
-                          includes, failures)
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(shared.check_library(__doc__, HEADER, "MAICORD_PULSE_FUNCTIONS", "PA_", INCLUDES, kind, structs=STRUCTS))

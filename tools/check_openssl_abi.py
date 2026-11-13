@@ -38,10 +38,14 @@ SCALARS = {
 }
 
 
+def plain(type_text):
+    """A C type without qualifiers, tags and deprecation macros, single-spaced."""
+    return " ".join(re.sub(r"\b(const|volatile|struct|enum|OSSL_DEPRECATEDIN_[0-9_]+\w*)\b", " ", type_text).split())
+
+
 def kind(type_text):
     """'void', 'pointer' or the size in bytes of a C type as written in a declaration or in the table."""
-    text = re.sub(r"\b(const|volatile|struct|enum|OSSL_DEPRECATEDIN_[0-9_]+\w*)\b", " ", type_text)
-    text = " ".join(text.split())
+    text = plain(type_text)
     # A callback typedef (SSL_verify_cb) is a function pointer.
     if "*" in text or text.endswith("]") or re.fullmatch(r"\w+_cb", text):
         return "pointer"
@@ -103,18 +107,6 @@ def command_line(description, default_includes):
     parser.add_argument("--compiler", default=os.environ.get("CC", "cc"))
     arguments = parser.parse_args()
     return arguments.compiler, arguments.include or default_includes
-
-
-def read_dlsym_table(path, table, macro_prefix):
-    """(functions, constants) of an abi.hpp whose `#define <table>` lists F(ret, name, (arguments)) rows and whose
-    constants carry a comment naming a `<macro_prefix>...` macro or enumerator."""
-    text = open(path, encoding="utf-8").read()
-    rows = text[text.index("#define " + table):text.index("struct Api")].replace("\\\n", " ")
-    functions = [(match["name"], match["ret"].strip(), [parameter_type(p) for p in split_arguments(match["args"])])
-                 for match in re.finditer(r"F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)", rows, re.S)]
-    constants = [(match["macro"], match["value"].strip()) for match in re.finditer(
-        r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>%s[A-Z0-9_]+)" % macro_prefix, text)]
-    return functions, constants
 
 
 def preprocess(compiler, includes, headers, defines=()):
@@ -204,6 +196,34 @@ def check_functions(text, functions, kind_of):
 def summary(what, includes, failures):
     print("%s checked against %s: %s" % (what, ", ".join(includes), "FAILED" if failures else "ok"))
     return 1 if failures else 0
+
+
+def check_library(description, path, table, macro_prefix, headers, kind_of, default_includes=("/usr/include",),
+                  structs=None):
+    """The whole check of an abi.hpp whose `#define <table>` lists F(ret, name, (arguments)) rows, whose constants carry
+    a comment naming a `<macro_prefix>...` macro or enumerator and, with `structs` (its type name -> the C one), whose
+    static_asserts pin sizeof and offsetof numbers; the exit status."""
+    compiler, includes = command_line(description, list(default_includes))
+    text = open(path, encoding="utf-8").read()
+    rows = text[text.index("#define " + table):text.index("struct Api")].replace("\\\n", " ")
+    functions = [(match["name"], match["ret"].strip(), [parameter_type(p) for p in split_arguments(match["args"])])
+                 for match in re.finditer(r"F\((?P<ret>[^,]+),\s*(?P<name>\w+),\s*\((?P<args>.*?)\)\)", rows, re.S)]
+    constants = [(match["macro"], match["value"].strip()) for match in re.finditer(
+        r"inline constexpr (?P<type>[\w ]+?) k\w+ = (?P<value>[^;]+);\s*//\s*(?P<macro>%s[A-Za-z0-9_]+)" % macro_prefix,
+        text)]
+    layouts = []
+    if structs:
+        layouts = ["sizeof(%s) == %s" % (structs[match["type"]], match["size"])
+                   for match in re.finditer(r"sizeof\((?P<type>\w+)\) == (?P<size>\d+)", text)]
+        layouts += ["offsetof(%s, %s) == %s" % (structs[match["type"]], match["field"], match["offset"]) for match in
+                    re.finditer(r"__builtin_offsetof\((?P<type>\w+), (?P<field>\w+)\) == (?P<offset>\d+)", text)]
+    if not functions or not constants or (structs and not layouts):
+        raise SystemExit("found no table in " + path)
+    failures = check_constants(compiler, includes, headers, constants, layouts)
+    failures += check_functions(preprocess(compiler, includes, headers), functions, kind_of)
+    what = "%d functions, %d constants and %d layouts" % (len(functions), len(constants), len(layouts)) if structs else \
+        "%d functions and %d constants" % (len(functions), len(constants))
+    return summary(what, includes, failures)
 
 
 def main():

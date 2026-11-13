@@ -33,9 +33,8 @@ draw or dispatch happens.
   optional (a full blit and a full-damage swap: Mesa's software Wayland path has neither in 22.3, Debian 12), and swap with
   damage is looked up under both names (Mesa 22.3's Wayland platform has the EXT one, NVIDIA's egl-wayland the KHR one).
 - EGL 1.5 on every display: the context is made current without a surface (`EGL_KHR_surfaceless_context`; a window
-  display has always needed it, because its window surface comes later). A windowless display's config asks for
-  `EGL_SURFACE_TYPE` 0: the default is `EGL_WINDOW_BIT`, which Mesa's surfaceless platform has no config for (that is why
-  the 1x1 pbuffer used to be what ran there; it is gone, checked on llvmpipe, d3d12 and headless sway). dma-buf
+  display needs it too, because its window surface comes later). A windowless display's config asks for
+  `EGL_SURFACE_TYPE` 0: the default is `EGL_WINDOW_BIT`, which Mesa's surfaceless platform has no config for. dma-buf
   import uses `eglCreateImageKHR`, which `EGL_EXT_image_dma_buf_import` requires. Without `EGL_MESA_platform_surfaceless`
   the windowless device takes the default display (`eglGetDisplay`): NVIDIA offers only `EGL_EXT_platform_device` there.
 - Compute group limits are capability data (`GpuCaps`): `colr_layers` has a 2-slice variant for devices under 512
@@ -56,7 +55,7 @@ draw or dispatch happens.
 ## Measured decisions (Mesa 25.2.8; llvmpipe, and d3d12 on WSLg with an RX 9070 XT)
 
 Adopted: the warm-up fix and shared compute programs (first-frame CPU, cold caches: llvmpipe 2.2 s to 1.0 s, d3d12 0.7 s to
-0.4 s); `EGL_EXT_present_opaque` as the fallback for alpha-only window configs; swap with damage and buffer age (already in).
+0.4 s); `EGL_EXT_present_opaque` as the fallback for alpha-only window configs; swap with damage and buffer age.
 
 Not adopted, and why:
 
@@ -67,7 +66,7 @@ Not adopted, and why:
   state, JIT), which the extension does not move.
 - Persistent-mapped rings (`GL_EXT_buffer_storage`): 100 times cheaper than a discard-map per megabyte on d3d12, but the renderer
   uploads 50-250 KB a frame: map and unmap together are 0.7% of the client's samples. The 60% `memmove` the d3d12 profile showed
-  was `rep movsb` into write-combined memory, fixed in `src/core/linux/runtime.cpp` (the copy is a vector loop now).
+  was `rep movsb` into write-combined memory, which the vector loops of `src/core/linux/runtime.cpp` avoid.
 - Rendering straight into the window (no frame texture, no blit): the blit is 6 us of CPU on d3d12 and 1.6 ms of a 25 ms frame on
   llvmpipe; direct rendering would need a Y flip in every vertex shader and a repaint of what a buffer of age 2-3 misses, which
   costs more than the blit it saves.

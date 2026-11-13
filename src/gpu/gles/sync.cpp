@@ -8,8 +8,6 @@ void gpu_release(GpuContext*& handle) noexcept {
     handle = nullptr; // the context goes with gpu_device_destroy; the signalling interface is the context itself
 }
 
-// ---- Shared references ---------------------------------------------------------------------------------------
-
 void gpu_retain(GpuTexture* handle) noexcept {
     if (gles::video_plane_retain(handle))
         return;
@@ -32,8 +30,6 @@ void gpu_release(GpuDevice*& handle) noexcept {
     if (device && device->refs)
         --device->refs; // the device itself is destroyed by gpu_device_destroy
 }
-
-// ---- Timers --------------------------------------------------------------------------------------------------
 
 void gpu_release(GpuQuery*& handle) noexcept {
     GpuQuery* query = handle;
@@ -104,8 +100,6 @@ GpuPoll gpu_timer_poll(GpuContext*, GpuTimer* timer, bool flush, double* millise
     *milliseconds = static_cast<double>(end - begin) / 1.0e6;
     return GpuPoll::ready;
 }
-
-// ---- Fences --------------------------------------------------------------------------------------------------
 
 namespace gles {
 

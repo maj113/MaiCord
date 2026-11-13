@@ -12,20 +12,9 @@
 namespace maicord::dbus {
 namespace {
 
-constexpr long kCallSocket = 41;
-constexpr long kCallConnect = 42;
-constexpr long kCallBind = 49;
-constexpr long kCallListen = 50;
 constexpr long kCallGetsockopt = 55;
-constexpr long kCallAccept4 = 288;
-constexpr long kCallGeteuid = 107;
 constexpr int kAfUnix = 1;
-constexpr int kSockStream = 1;
-constexpr int kSockNonblock = 0x800;
-constexpr int kSockCloexec = 0x80000;
-constexpr int kSolSocket = 1;
 constexpr int kSoPeercred = 17;
-constexpr int kErrorInProgress = 115;
 constexpr i16 kPollOut = 4;
 constexpr const char kApplicationInterface[] = "org.freedesktop.Application";
 constexpr u32 kSocketMagic = 0x3149434Du;  // "MCI1"
@@ -83,8 +72,6 @@ void deliver(const LaunchRequest& request) noexcept {
     g.pending = true;
     g.pending_request = request;
 }
-
-// org.freedesktop.Application ---------------------------------------------------------------------------------------------
 
 // The activation token of a platform-data dictionary, at the reader's `a{sv}`.
 void read_platform_data(Reader* r, char (&token)[kLaunchTokenCapacity]) noexcept {
@@ -202,8 +189,6 @@ InstanceResult forward_over_bus(Connection* c, const LaunchRequest& request, u32
     return status == Status::ok ? InstanceResult::forwarded : InstanceResult::refused;
 }
 
-// The socket backend ------------------------------------------------------------------------------------------------------
-
 SocketAddress socket_address(const char* application_id, const char* profile_key) noexcept {
     SocketAddress address{};
     address.data[0] = kAfUnix;
@@ -211,7 +196,7 @@ SocketAddress socket_address(const char* application_id, const char* profile_key
     u32 length = 3;  // family, then the abstract name's leading NUL
     copy_bytes(address.data + length, prefix, sizeof(prefix) - 1);
     length += sizeof(prefix) - 1;
-    length += decimal_write(reinterpret_cast<char*>(address.data + length), static_cast<u32>(syscall1(kCallGeteuid, 0)));
+    length += decimal_write(reinterpret_cast<char*>(address.data + length), static_cast<u32>(sys_geteuid()));
     address.data[length++] = '.';
     char hex[16];
     hex16(hash_of(application_id, profile_key), hex);
@@ -273,7 +258,7 @@ bool peer_is_us(int fd) noexcept {
     u32 size = sizeof(credentials);
     const long result = syscall5(kCallGetsockopt, fd, kSolSocket, kSoPeercred, reinterpret_cast<long>(&credentials),
                                  reinterpret_cast<long>(&size));
-    return !syscall_failed(result) && credentials.uid == static_cast<u32>(syscall1(kCallGeteuid, 0));
+    return !syscall_failed(result) && credentials.uid == static_cast<u32>(sys_geteuid());
 }
 
 void serve_connection(int fd) noexcept {
@@ -306,17 +291,17 @@ void serve_connection(int fd) noexcept {
 // Binds the abstract name: true when this process now owns it; false with *in_use when another process does.
 bool listen_socket(const SocketAddress& address, bool* in_use) noexcept {
     *in_use = false;
-    const long created = syscall3(kCallSocket, kAfUnix, kSockStream | kSockNonblock | kSockCloexec, 0);
+    const long created = sys_socket(kAfUnix, kSockStream | kSockNonBlock | kSockCloseOnExec, 0);
     if (syscall_failed(created))
         return false;
     const int fd = static_cast<int>(created);
-    const long bound = syscall3(kCallBind, fd, reinterpret_cast<long>(address.data), address.length);
+    const long bound = sys_bind(fd, address.data, address.length);
     if (syscall_failed(bound)) {
         *in_use = -bound == kErrorAddressInUse;
         sys_close(fd);
         return false;
     }
-    if (syscall_failed(syscall2(kCallListen, fd, 8))) {
+    if (syscall_failed(sys_listen(fd, 8))) {
         sys_close(fd);
         return false;
     }
@@ -326,11 +311,11 @@ bool listen_socket(const SocketAddress& address, bool* in_use) noexcept {
 }
 
 InstanceResult forward_to_socket_owner(const SocketAddress& address, const LaunchRequest& request, u32 timeout_ms) noexcept {
-    const long created = syscall3(kCallSocket, kAfUnix, kSockStream | kSockNonblock | kSockCloexec, 0);
+    const long created = sys_socket(kAfUnix, kSockStream | kSockNonBlock | kSockCloseOnExec, 0);
     if (syscall_failed(created))
         return InstanceResult::refused;
     const int fd = static_cast<int>(created);
-    long connected = syscall3(kCallConnect, fd, reinterpret_cast<long>(address.data), address.length);
+    long connected = sys_connect(fd, address.data, address.length);
     if (connected == -kErrorAgain || connected == -kErrorInProgress) {
         connected = poll_until(fd, kPollOut, clock_monotonic_milliseconds() + timeout_ms) ? 0 : -kErrorTimedOut;
     }
@@ -459,7 +444,7 @@ void instance_process() noexcept {
     if (!g.listening)
         return;
     for (u32 i = 0; i < 4; ++i) {
-        const long accepted = syscall4(kCallAccept4, g.listen_fd, 0, 0, kSockNonblock | kSockCloexec);
+        const long accepted = sys_accept(g.listen_fd, nullptr, nullptr, kSockNonBlock | kSockCloseOnExec);
         if (syscall_failed(accepted))
             return;
         const int fd = static_cast<int>(accepted);

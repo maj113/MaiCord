@@ -11,8 +11,6 @@ constexpr const char* kBusPath = "/org/freedesktop/DBus";
 constexpr const char* kPortalName = "org.freedesktop.portal.Desktop";
 constexpr u32 kMaxWatches = 8;
 
-// Name watching -------------------------------------------------------------------------------------------------------
-
 struct Watch {
     bool used;
     Connection* connection;
@@ -59,8 +57,6 @@ void on_owner_reply(void* context, Status status, const Message*) noexcept {
     watch->handler(watch->context, watch->name, status == Status::ok);
 }
 
-// Properties ------------------------------------------------------------------------------------------------------------
-
 // The position of the property `name` of `interface` in the object's list, or ~0u when it has none such.
 u32 property_index(const ExportedObject& object, const char* interface, const char* name) noexcept {
     if (!object.properties || !c_string_equal(object.interface, interface))
@@ -71,8 +67,6 @@ u32 property_index(const ExportedObject& object, const char* interface, const ch
             return index;
     return ~0u;
 }
-
-// Portal requests ---------------------------------------------------------------------------------------------------------
 
 u32 g_request_counter;
 

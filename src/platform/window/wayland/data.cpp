@@ -78,8 +78,6 @@ void ignore_sigpipe() noexcept {
     syscall4(kSysRtSigaction, kSigPipe, reinterpret_cast<long>(&action), 0, 8);
 }
 
-// Pipes ---------------------------------------------------------------------------------------------------------------
-
 bool make_pipe(int fds[2]) noexcept {
     return !syscall_failed(syscall2(kSysPipe2, reinterpret_cast<long>(fds), kOpenCloseOnExec));
 }
@@ -150,8 +148,6 @@ void write_pipe(int fd, const u8* data, u32 bytes) noexcept {
             written += static_cast<u32>(count);
     }
 }
-
-// Offers -------------------------------------------------------------------------------------------------------------
 
 OfferSlot* slot_of(wl_data_offer* offer) noexcept {
     if (!offer)
@@ -281,8 +277,6 @@ void on_drop(void*, wl_data_device*) noexcept {
 
 const wl_data_device_listener kDeviceListener = {on_data_offer, on_drag_enter, on_drag_leave,
                                                  on_drag_motion, on_drop,       on_selection};
-
-// Selections we own ----------------------------------------------------------------------------------------------------
 
 void free_payload(Payload* payload) noexcept {
     if (!payload)

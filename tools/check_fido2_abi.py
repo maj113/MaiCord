@@ -32,24 +32,12 @@ shared.SCALARS.update({"i32": 4, "u8": 1, "signed int": 4, "signed": 4, "bool": 
 
 
 def kind(type_text):
-    text = re.sub(r"\b(const|volatile|struct|enum)\b", " ", type_text)
-    text = " ".join(text.split())
+    text = shared.plain(type_text)
     # fido_opt_t is an int-sized enumeration; the structs are only ever passed by pointer.
     if "*" not in text and re.fullmatch(r"fido_\w+_t", text):
         return 4
     return shared.kind(text)
 
 
-def main():
-    compiler, includes = shared.command_line(__doc__, ["/usr/include"])
-    functions, constants = shared.read_dlsym_table(HEADER, "MAICORD_FIDO2_FUNCTIONS", "(?:FIDO_|COSE_)")
-    if not functions or not constants:
-        raise SystemExit("found no table in " + HEADER)
-
-    failures = shared.check_constants(compiler, includes, INCLUDES, constants)
-    failures += shared.check_functions(shared.preprocess(compiler, includes, INCLUDES), functions, kind)
-    return shared.summary("%d functions and %d constants" % (len(functions), len(constants)), includes, failures)
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(shared.check_library(__doc__, HEADER, "MAICORD_FIDO2_FUNCTIONS", "(?:FIDO_|COSE_)", INCLUDES, kind))

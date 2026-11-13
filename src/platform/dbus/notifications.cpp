@@ -93,8 +93,6 @@ NotificationBackend choose_backend() noexcept {
     return portal_sandboxed() ? NotificationBackend::portal : NotificationBackend::direct;
 }
 
-// Direct backend signals ---------------------------------------------------------------------------------------------
-
 void on_action_invoked(void*, const Message& signal) noexcept {
     Reader r;
     message_reader(signal, &r);
@@ -188,8 +186,6 @@ bool ensure_backend() noexcept {
     }
     return session_bus() != nullptr;
 }
-
-// Replies -------------------------------------------------------------------------------------------------------------
 
 // The call failed: the entry is dropped, the reason logged and the owner told.
 void fail_entry(Entry* entry, Status status, const Message* reply, const char* fallback) noexcept {

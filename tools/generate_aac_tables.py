@@ -96,7 +96,7 @@ def canonical(bits, codes):
     order = sorted(range(len(bits)), key=lambda symbol: (bits[symbol], codes[symbol]))
     counts = [sum(1 for length in bits if length == n) for n in range(1, 20)]
     assert max(bits) <= 19 and max(counts) < 256
-    expected, first, at = [], 0, 0
+    expected, first = [], 0
     for n in range(1, 20):
         for i in range(counts[n - 1]):
             expected.append(first + i)

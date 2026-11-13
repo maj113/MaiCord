@@ -36,7 +36,7 @@ def retarget(source, destination, libc):
     found = False
     for index in range(program_count):
         header = program_offset + index * program_size
-        kind, _, offset, address, _, file_size, memory_size, _ = struct.unpack_from("<IIQQQQQQ", data, header)
+        kind, _, offset, address, _, file_size, _, _ = struct.unpack_from("<IIQQQQQQ", data, header)
         if kind != PT_INTERP:
             continue
         if len(interpreter) > file_size:

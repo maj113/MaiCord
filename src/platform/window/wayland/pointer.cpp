@@ -213,8 +213,6 @@ const wl_pointer_listener kPointerListener = {
     on_frame,       on_axis_source,     on_axis_stop,    on_axis_discrete,
     on_axis_value120, on_axis_relative_direction};
 
-// Cursor --------------------------------------------------------------------------------------------------------------
-
 // A UiCursor value, or kFrameCursorBase + a FrameHit (the resize cursors of the window's edges): the wp_cursor_shape
 // shape of each, and the XCursor names (the CSS-style one first, the classic X11 ones after) tried without it, three
 // to a row in kCursorNames, in the order of the rows. Any other code is the first row.

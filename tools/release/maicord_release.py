@@ -507,11 +507,9 @@ def validate_linux_tarball(package: bytes, name: str) -> list[str]:
 
 @dataclass(frozen=True)
 class Flavor:
-    """What differs between the system's update packages: the manifests' architecture and artifact, where their
-    files sit on the site and in a publish directory, and how a package is checked."""
-    name: str
+    """What differs between the system's update packages: the manifests' architecture and artifact, their file names
+    in a publish directory, and how a package is checked."""
     arch: str
-    site_directory: str
     publish_stem: str
     artifact_name: object
     validate_package: object
@@ -524,26 +522,23 @@ def windows_package_number(name: str) -> int | None:
     return int(found[1]) if found else None
 
 
-def appimage_package_number(name: str) -> int | None:
-    found = re.fullmatch(r"MaiCord-(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?-x86_64\.AppImage", name)
-    if not found:
-        return None
-    return version_number(int(found[1]), int(found[2]), int(found[3]), int(found[4]) if found[4] else STABLE_SEQUENCE)
+def release_package_number(prefix: str, suffix: str):
+    """The package_number of packages named <prefix>MAJOR.MINOR.PATCH[-dev.N]<suffix>."""
+    pattern = re.compile(re.escape(prefix) + r"(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?" + re.escape(suffix))
+
+    def number(name: str) -> int | None:
+        found = pattern.fullmatch(name)
+        if not found:
+            return None
+        return version_number(int(found[1]), int(found[2]), int(found[3]), int(found[4]) if found[4] else STABLE_SEQUENCE)
+    return number
 
 
-def linux_package_number(name: str) -> int | None:
-    found = re.fullmatch(r"maicord-(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?-linux-x86_64\.tar\.gz", name)
-    if not found:
-        return None
-    return version_number(int(found[1]), int(found[2]), int(found[3]), int(found[4]) if found[4] else STABLE_SEQUENCE)
-
-
-WINDOWS = Flavor("windows", "x64", SITE_DIRECTORY, "maicord", lambda number: artifact_name(number),
-                 lambda package, name: validate_update_zip(package), windows_package_number)
-LINUX = Flavor("linux", LINUX_ARCH, LINUX_SITE_DIRECTORY, "maicord-linux", linux_artifact_name, validate_linux_tarball,
-               linux_package_number)
-APPIMAGE = Flavor("appimage", APPIMAGE_ARCH, APPIMAGE_SITE_DIRECTORY, "maicord-appimage", appimage_artifact_name,
-                  validate_appimage, appimage_package_number)
+WINDOWS = Flavor("x64", "maicord", artifact_name, lambda package, name: validate_update_zip(package), windows_package_number)
+LINUX = Flavor(LINUX_ARCH, "maicord-linux", linux_artifact_name, validate_linux_tarball,
+               release_package_number("maicord-", "-linux-x86_64.tar.gz"))
+APPIMAGE = Flavor(APPIMAGE_ARCH, "maicord-appimage", appimage_artifact_name, validate_appimage,
+                  release_package_number("MaiCord-", "-x86_64.AppImage"))
 
 
 # --------------------------------------------------------------------------- manifest

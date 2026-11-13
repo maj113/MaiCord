@@ -21,7 +21,8 @@ void connection_unwatch_name(Connection* connection, u32 id) noexcept;
 
 // Properties and introspection -----------------------------------------------------------------------------------------
 
-// Writes the variant (open_variant, the value, close_variant) of the property at `index` of the object's list to `body`.
+// Writes the variant (builder_open_variant, the value, builder_close_variant) of the property at `index` of the object's
+// list to `body`.
 using PropertyWriter = void (*)(u32 index, Builder* body) noexcept;
 
 // `properties` names those of `interface`, NUL-terminated end to end with an empty name after the last (the string literal

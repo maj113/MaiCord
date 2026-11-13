@@ -52,7 +52,7 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 
 | Protocol | Use |
 |---|---|
-| xdg-shell 7, xdg-decoration | window, client-side frame (our caption bar), `suspended` state |
+| xdg-shell 6, xdg-decoration | window, client-side frame (our caption bar), `suspended` state |
 | fractional-scale-v1 + viewporter | scale in 1/120; falls back to wl_surface buffer scale |
 | cursor-shape-v1 | cursors; `wl_cursor` theme fallback |
 | text-input-v3, wl_data_device | IME, clipboard, drag and drop |

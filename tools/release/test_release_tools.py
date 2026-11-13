@@ -666,10 +666,11 @@ class ReleaseToolTests(unittest.TestCase):
         for bad in (1002003000, 1000000000999):
             with self.assertRaises(release.ReleaseError):
                 release.appimage_artifact_name(bad)
-        self.assertEqual(release.appimage_package_number("MaiCord-1.2.3-x86_64.AppImage"), 1002003999)
-        self.assertEqual(release.appimage_package_number("MaiCord-1.2.3-dev.5-x86_64.AppImage"), 1002003005)
-        self.assertIsNone(release.appimage_package_number("MaiCord-1.2.3-x86_64-musl.AppImage"))
-        self.assertIsNone(release.appimage_package_number("maicord-1.2.3-linux-x86_64.tar.gz"))
+        number = release.APPIMAGE.package_number
+        self.assertEqual(number("MaiCord-1.2.3-x86_64.AppImage"), 1002003999)
+        self.assertEqual(number("MaiCord-1.2.3-dev.5-x86_64.AppImage"), 1002003005)
+        self.assertIsNone(number("MaiCord-1.2.3-x86_64-musl.AppImage"))
+        self.assertIsNone(number("maicord-1.2.3-linux-x86_64.tar.gz"))
         digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         document = release.render_manifest(6, "stable", 90, 200, 4096, digest, release.appimage_artifact_name(6), release.APPIMAGE)
         self.assertEqual(document, CLIENT_FIXTURE_DOCUMENT.replace(b'"x64"', b'"linux-x64-appimage"').replace(

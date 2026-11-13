@@ -484,8 +484,6 @@ bool menu_call(void*, Connection* c, const Message& call) noexcept {
     return true;
 }
 
-// Registration ----------------------------------------------------------------------------------------------------------
-
 void on_register_reply(void*, Status status, const Message* reply) noexcept {
     g.registered = status == Status::ok;
     if (!g.registered)
