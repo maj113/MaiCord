@@ -102,6 +102,9 @@ void gpu_stream_encoder_set_bitrate(GpuStreamEncoder* encoder, u32 bitrate) noex
 // Any thread (PLI, FIR): the next unit is a keyframe. When the capture has sent nothing for 100 ms (or a frame
 // interval, whichever is longer: a still screen), the newest picture is encoded again as that keyframe at once.
 void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* encoder) noexcept;
+// Any thread. While held, pictures are still taken and converted (the self-preview stays current) but none is encoded:
+// a stream nobody watches costs the video engine nothing. Releasing encodes the newest picture as a keyframe.
+void gpu_stream_encoder_hold(GpuStreamEncoder* encoder, bool hold) noexcept;
 // The renderer's thread, for the self-preview: the newest converted picture at the encoded extent (NV12, limited
 // range; BT.709, or BT.601 below 720 lines on Linux, as the frame's bt709 says), its texture and both plane views each
 // carrying one reference the caller releases. That picture is not

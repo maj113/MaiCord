@@ -108,6 +108,7 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept;
 
 bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
+bool go_live_ui_gpu_probe(D3D11Renderer& renderer, u32 count) noexcept;
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
 // Glyph placement: settings and caption titles across one-pixel width steps, and
@@ -2140,6 +2141,11 @@ int run_probe() noexcept {
         // Atlas growth/trim pixels and GPU memory of synthetic media workloads.
         const bool valid = initialize_fixture(true) && media_memory_probe(g_probe.renderer);
         return finish_probe(valid ? 0 : 156);
+    }
+    if (probe_option_enabled(L"MAICORD_UI_GO_LIVE_GPU_PROBE")) {
+        // Run by hand: the self-preview's conversion and repaint at 1440p, ten seconds a layout (go_live_ui_gpu_probe.cpp).
+        const bool valid = initialize_fixture(true) && go_live_ui_gpu_probe(g_probe.renderer, 600);
+        return finish_probe(valid ? 0 : 399);
     }
     if (probe_option_enabled(L"MAICORD_UI_CALL_PROBE")) {
         const bool valid = initialize_fixture(true) &&

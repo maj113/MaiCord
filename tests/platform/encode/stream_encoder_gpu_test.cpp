@@ -286,6 +286,21 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
         picture_of_unit[expected_units++] = kFrames - 1;
         test_check(&failures, wait_units(expected_units), "a keyframe request with a still capture is answered");
     }
+    // Held (nobody watches): a picture is still taken and converted, but nothing is encoded until the release, which
+    // encodes it as a keyframe at once.
+    u32 released_unit = kUnits;
+    if (encoder && full && unit_count()) {
+        gpu_stream_encoder_hold(encoder, true);
+        timestamp = next_timestamp(g_collector.units[unit_count() - 1].timestamp_us);
+        test_check(&failures, gpu_stream_encoder_submit(encoder, {source, kWidth, kHeight, timestamp, false}),
+                   "a held encoder still takes pictures");
+        Sleep(30);
+        test_check(&failures, unit_count() == expected_units, "a held encoder encodes nothing");
+        gpu_stream_encoder_hold(encoder, false);
+        released_unit = expected_units;
+        picture_of_unit[expected_units++] = kFrames - 1;
+        test_check(&failures, wait_units(expected_units), "the release encodes the held picture");
+    }
     GpuVideoFrame preview{};
     u32 preview_sequence = 0;
     if (encoder && gpu_stream_encoder_preview(encoder, &preview, &preview_sequence)) {
@@ -330,7 +345,8 @@ int run_codec(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCodec
     for (u32 i = 0; i < c.count; ++i) {
         const Unit& unit = c.units[i];
         const bool reconfigured = i >= before_reconfiguration;
-        const bool must_key = i == 0 || i == kKeyframeAt || (full && i == kFrames) || i == before_reconfiguration;
+        const bool must_key = i == 0 || i == kKeyframeAt || (full && i == kFrames) || i == released_unit ||
+                              i == before_reconfiguration;
         test_check(&failures, !must_key || unit.keyframe, "keyframes where they were asked for");
         test_check(&failures, unit.width == (reconfigured ? kResizedWidth : kWidth) &&
                                   unit.height == (reconfigured ? kResizedHeight : kHeight),

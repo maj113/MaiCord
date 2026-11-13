@@ -36,11 +36,13 @@ constexpr GUID kLowLatency{0x9c27891a, 0xed7a, 0x40e1, {0x88, 0xe8, 0xb2, 0x27, 
 constexpr GUID kGopSize{0x95f31b26, 0x95a4, 0x41aa, {0x93, 0x03, 0x24, 0x6a, 0x7f, 0xc6, 0xee, 0xf1}};
 constexpr GUID kBPictures{0x8d390aac, 0xdc5c, 0x4200, {0xb5, 0x7f, 0x81, 0x4d, 0x04, 0xba, 0xba, 0xb2}};
 constexpr GUID kForceKeyframe{0x398c1b98, 0x8353, 0x475a, {0x9e, 0xf2, 0x8f, 0x26, 0x5d, 0x26, 0x03, 0x45}};
+constexpr GUID kQualityVsSpeed{0x98332df8, 0x03cd, 0x476b, {0x89, 0xfa, 0x3f, 0x9e, 0x44, 0x2d, 0xec, 0x9f}};
 
 constexpr u32 kEnumHardware = 0x4, kEnumSortAndFilter = 0x40;
 constexpr MediaEventType kNeedInput = 601, kHaveOutput = 602;
 constexpr u32 kProgressive = 2, kMatrixBt709 = 1, kRange16To235 = 2, kPrimariesBt709 = 2, kTransfer709 = 5;
 constexpr u32 kRateControlCbr = 0;
+constexpr u32 kVendorAmd = 0x1002;
 // H.264 profiles tried in order: constrained baseline is what Discord's video negotiation names (profile-level-id
 // 42e01f); an encoder without it gets baseline, then main. H.265 Main and AV1 Main (the default) are 8-bit 4:2:0.
 constexpr u32 kH264Profiles[]{256, 66, 77};
@@ -110,15 +112,20 @@ void ensure_mta() noexcept {
     }
 }
 
-bool adapter_luid(ID3D11Device* device, LUID* luid) noexcept {
+// The adapter the device runs on: its LUID selects the hardware transforms, its PCI vendor their settings.
+struct Adapter {
+    LUID luid;
+    u32 vendor;
+};
+bool adapter_of(ID3D11Device* device, Adapter* adapter) noexcept {
     IDXGIDevice* dxgi = nullptr;
-    IDXGIAdapter* adapter = nullptr;
+    IDXGIAdapter* found = nullptr;
     DXGI_ADAPTER_DESC desc{};
     const bool ok = SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi))) &&
-                    SUCCEEDED(dxgi->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&desc));
-    com_release(adapter);
+                    SUCCEEDED(dxgi->GetAdapter(&found)) && SUCCEEDED(found->GetDesc(&desc));
+    com_release(found);
     com_release(dxgi);
-    *luid = desc.AdapterLuid;
+    *adapter = {desc.AdapterLuid, desc.VendorId};
     return ok;
 }
 
@@ -235,11 +242,11 @@ HRESULT output_type(const Api& api, Transform* t, GpuStreamCodec codec, u32 widt
     return h;
 }
 
-HRESULT transform_open(const Api& api, IMFDXGIDeviceManager* manager, const LUID& luid, GpuStreamCodec codec,
+HRESULT transform_open(const Api& api, IMFDXGIDeviceManager* manager, const Adapter& adapter, GpuStreamCodec codec,
                        const GpuStreamEncoderSettings& settings, Transform* t) noexcept {
     IMFActivate** activates = nullptr;
     UINT32 count = 0;
-    HRESULT h = enumerate(api, luid, codec, &activates, &count);
+    HRESULT h = enumerate(api, adapter.luid, codec, &activates, &count);
     if (SUCCEEDED(h) && !count)
         h = MF_E_INVALIDMEDIATYPE;
     if (SUCCEEDED(h)) {
@@ -271,6 +278,11 @@ HRESULT transform_open(const Api& api, IMFDXGIDeviceManager* manager, const LUID
         set_value(t->codec_api, kGopSize, kGopFrames);
         set_value(t->codec_api, kMeanBitrate, settings.bitrate);
         h = output_type(api, t, codec, settings.width, settings.height, settings.max_fps, settings.bitrate);
+        // AMD's AV1 transform defaults to its quality preset (70). Its speed preset makes the same stream (equal PSNR
+        // and size, maicord_go_live_gpu_probe) in under half the video engine's time; the other codecs' faster presets
+        // cost picture quality and keep their defaults. Set once the output type is.
+        if (SUCCEEDED(h) && codec == GpuStreamCodec::av1 && adapter.vendor == kVendorAmd)
+            set_value(t->codec_api, kQualityVsSpeed, 0);
     }
     IMFMediaType* input = nullptr;
     if (SUCCEEDED(h))
@@ -340,7 +352,7 @@ struct GpuStreamEncoder {
     GpuStreamEncoderOptions options; // settings under lock
     SRWLOCK lock;
     Api api;
-    LUID luid;
+    Adapter adapter;
     ID3D11Device* device;
     ID3D11DeviceContext* immediate;
     ID3D11DeviceContext1* context1;
@@ -358,7 +370,7 @@ struct GpuStreamEncoder {
     u32 need_input;
     u64 last_accepted_us;
     u32 serial; // pictures made the newest, for the preview's sequence
-    bool accepted, keyframe_requested, stop, reopen, ended, opened_once;
+    bool accepted, keyframe_requested, holding, stop, reopen, ended, opened_once;
     HANDLE thread, opened;
     HRESULT open_status;
     GpuStreamEncoderStats stats;
@@ -374,10 +386,10 @@ u64 now_us() noexcept {
     return clock_microseconds(clock_initialize(), 0, clock_now());
 }
 
-// Under the lock: the pending picture into the transform when it asked for input.
+// Under the lock: the pending picture into the transform when it asked for input (never while held).
 void feed(GpuStreamEncoder* e) noexcept {
     Transform& t = e->mft;
-    if (!t.transform || !e->need_input || e->pending == kNone)
+    if (!t.transform || !e->need_input || e->pending == kNone || e->holding)
         return;
     // A picture of the new extent waits for the transform reopened at it (its first NeedInput feeds it).
     if (e->slot_width != t.width || e->slot_height != t.height)
@@ -668,7 +680,7 @@ DWORD WINAPI encoder_main(void* parameter) noexcept {
         if (open) {
             transform_release(&old);
             Transform fresh{};
-            const HRESULT h = transform_open(e->api, e->manager, e->luid, e->options.codec, settings, &fresh);
+            const HRESULT h = transform_open(e->api, e->manager, e->adapter, e->options.codec, settings, &fresh);
             AcquireSRWLockExclusive(&e->lock);
             if (SUCCEEDED(h)) {
                 e->mft = fresh;
@@ -822,9 +834,10 @@ u32 g_probe_count;
 } // namespace
 
 u32 gpu_stream_encoder_codecs(GpuDevice* device) noexcept {
-    LUID luid{};
-    if (!device || !adapter_luid(device, &luid))
+    Adapter adapter{};
+    if (!device || !adapter_of(device, &adapter))
         return 0;
+    const LUID& luid = adapter.luid;
     AcquireSRWLockExclusive(&g_probe_lock);
     for (u32 i = 0; i < g_probe_count; ++i)
         if (g_probes[i].luid.LowPart == luid.LowPart && g_probes[i].luid.HighPart == luid.HighPart) {
@@ -842,7 +855,7 @@ u32 gpu_stream_encoder_codecs(GpuDevice* device) noexcept {
             for (u8 codec = 0; codec <= static_cast<u8>(GpuStreamCodec::av1); ++codec) {
                 // A transform that opens for 1080p60 at a stream's bitrate encodes this codec.
                 Transform t{};
-                if (SUCCEEDED(transform_open(api, manager, luid, static_cast<GpuStreamCodec>(codec),
+                if (SUCCEEDED(transform_open(api, manager, adapter, static_cast<GpuStreamCodec>(codec),
                                              {1920, 1080, 60, 6'000'000}, &t)))
                     codecs |= 1u << codec;
                 transform_release(&t);
@@ -871,7 +884,7 @@ GpuStreamEncoder* gpu_stream_encoder_create(const GpuStreamEncoderOptions& optio
     e->device = options.device;
     e->device->AddRef();
     e->device->GetImmediateContext(&e->immediate);
-    if (!adapter_luid(e->device, &e->luid) || !api_open(&e->api) || !create_pipeline(e)) {
+    if (!adapter_of(e->device, &e->adapter) || !api_open(&e->api) || !create_pipeline(e)) {
         release(e);
         return nullptr;
     }

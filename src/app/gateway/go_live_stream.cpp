@@ -206,6 +206,7 @@ bool ensure_encoder(GatewayGoLive& live) noexcept {
     if (!live.encoding)
         return false;
     live.codec = codec;
+    live.encoder_held = false; // A new encoder encodes until live_media holds it.
     live.bitrate_applied = encoder_settings(live).bitrate;
     const u8 payload = voice_connection_video_payload_type(live.connection, voice_codec(codec));
     live.sender.streams.codec = static_cast<RtpVideoPacketCodec>(codec);
@@ -372,6 +373,17 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
         stop_session(live, GoLiveEnd::encoder_failed);
         return;
     }
+    // Nobody watches: the encoder holds (the self-preview keeps its pictures). The first viewer's keyframe is asked for
+    // by the release itself, as Discord starts encoding when a viewer arrives.
+    const bool hold = live.control.viewer_count == 0;
+    if (live.encoding && hold != live.encoder_held) {
+        go_live_producer_hold(live.backend_context, hold);
+        live.encoder_held = hold;
+        if (!hold) {
+            live.awaiting_keyframe = live.keyframes.pending = true;
+            live.keyframes.requested_ms = now_ms;
+        }
+    }
     signal(live, now_ms);
     drain_audio(live);
     drain_video(live, now_ms);
@@ -382,7 +394,7 @@ void live_media(GatewayGoLive& live, u64 now_ms) noexcept {
         live.keyframes.wanted = true;
     if (live.awaiting_keyframe && now_ms - live.keyframes.requested_ms >= kGoLiveKeyframeIntervalMs)
         live.keyframes.wanted = true;
-    if (live.encoding && !live.paused && go_live_keyframe_due(&live.keyframes, now_ms))
+    if (live.encoding && !live.paused && !live.encoder_held && go_live_keyframe_due(&live.keyframes, now_ms))
         go_live_producer_keyframe(live.backend_context);
     const u32 target = live.sender.bandwidth.target;
     if (live.encoding && (target > live.bitrate_applied + live.bitrate_applied / 20 ||
@@ -643,7 +655,8 @@ bool gateway_go_live_busy(const GatewayGoLive& live) noexcept {
 u64 gateway_go_live_deadline(const GatewayGoLive& live) noexcept {
     u64 deadline = earliest_deadline(gateway_stream_deadline(live.control), voice_connection_deadline(live.connection));
     deadline = earliest_deadline(deadline, live.pump_due_ms);
-    if (active(live) && live.encoding && !live.paused && (live.awaiting_keyframe || live.keyframes.wanted))
+    if (active(live) && live.encoding && !live.paused && !live.encoder_held &&
+        (live.awaiting_keyframe || live.keyframes.wanted))
         deadline = earliest_deadline(deadline, go_live_keyframe_deadline(live.keyframes));
     return deadline;
 }

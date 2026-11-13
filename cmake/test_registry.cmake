@@ -1659,6 +1659,20 @@ maicord_test(MaiCordGoLivePipelineProbe ONLY WINDOWS ENTRY maicord_go_live_pipel
     SOURCES tests/platform/encode/go_live_pipeline_probe.cpp src/core/log.cpp
     LIBS maicord_capture maicord_video_encode maicord_gpu_d3d11 maicord_core d3d11 dxgi ole32 user32 gdi32 kernel32
     TIMEOUT 120 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_go_live_pipeline_probe)
+# Go Live's GPU work per picture on the hardware device (opt-in: MAICORD_GO_LIVE_GPU_PROBE=<seconds>; 77 without):
+# the conversion and self-preview timed with timestamp queries, the encoder's unit latency and sizes, from a
+# synthetic scrolling desktop or (with MAICORD_CAPTURE_PROBE=1) the real screen; MAICORD_GO_LIVE_GPU_PSNR=1 decodes
+# the stream with MaiCord's own decoder and prints its PSNR against the synthetic source.
+maicord_test(MaiCordGoLiveGpuProbe ONLY WINDOWS ENTRY maicord_go_live_gpu_probe_entry
+    SOURCES tests/platform/encode/go_live_gpu_probe.cpp src/core/log.cpp src/gpu/d3d11/video_frame.cpp
+        ${MAICORD_VIDEO_FRAME_HEADER} src/platform/decode/gpu_stream_decoder.cpp
+        src/platform/decode/h264_gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
+        src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
+        src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_dxva.cpp
+    LIBS maicord_capture maicord_video_encode maicord_media_codec maicord_gpu_d3d11 maicord_core d3d11 dxgi dxguid
+        ole32 user32 gdi32 kernel32
+    INCLUDES ${MAICORD_GENERATED_DIRECTORY}
+    TIMEOUT 600 SKIP_RETURN_CODE 77 LABELS integration TEST maicord_go_live_gpu_probe)
 maicord_test(MaiCordCapturePortalTests ONLY LINUX ENTRY maicord_capture_portal_entry
     SOURCES tests/platform/capture/capture_portal.cpp
     LIBS maicord_capture maicord_dbus maicord_core
@@ -3008,7 +3022,8 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         src/app/store/store_dialogs.cpp src/app/store/store_act.cpp src/app/store/store_preview_decode.cpp
         src/app/settings/catalog.cpp src/app/update/updates.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
-        tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
+        tests/integration/call_scene_ui_probe.cpp tests/integration/go_live_ui_gpu_probe.cpp
+        tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/shell/app_icon.cpp config/maicord.rc
         tests/integration/showcase_probe.cpp tests/integration/showcase_probe_art.cpp
         tests/integration/login_recovery_ui_probe.cpp

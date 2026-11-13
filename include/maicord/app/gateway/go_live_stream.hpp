@@ -37,6 +37,8 @@ bool go_live_producer_encoder(void* context, GoLiveMedia* media, GpuStreamCodec 
 void go_live_producer_configure(void* context, const GpuStreamEncoderSettings& settings) noexcept;
 void go_live_producer_bitrate(void* context, u32 bits_per_second) noexcept;
 void go_live_producer_keyframe(void* context) noexcept;
+// While nobody watches the stream the encoder holds (gpu_stream_encoder_hold): pictures still feed the self-preview.
+void go_live_producer_hold(void* context, bool hold) noexcept;
 void go_live_producer_encoder_stop(void* context) noexcept;
 // The newest picture, and the sequence it carries (it changes with every new picture).
 bool go_live_producer_preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept;
@@ -78,6 +80,7 @@ struct GatewayGoLive {
     GoLiveState state;
     GoLiveEnd end;
     bool capturing, sounding, encoding, user_paused, minimized, paused;
+    bool encoder_held; // The encoder holds: the stream has no viewers.
     bool awaiting_keyframe, dave_ready;
     u8 receive_buffer[kVoiceUdpMediaReceiveSlots * 2048];
     u8 send_buffer[2048];

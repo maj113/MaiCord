@@ -8,9 +8,10 @@ namespace {
 // How long the capture must have sent nothing before a keyframe request encodes its newest picture again.
 constexpr u64 kStillUs = 100'000;
 
-// Under the lock: a converted picture becomes the newest and the pending one (the newest pending wins).
+// Under the lock: a converted picture becomes the newest and the pending one (the newest pending wins; one replaced
+// while the encoder holds was never meant to be encoded).
 void enqueue(GpuStreamEncoder* e, u8 index, u64 timestamp_us) noexcept {
-    if (e->pending != kNone && e->pending != index)
+    if (e->pending != kNone && e->pending != index && !e->holding)
         saturating_increment(e->stats.dropped);
     e->slots[index].timestamp_us = timestamp_us;
     e->newest = e->pending = index;
@@ -59,6 +60,27 @@ void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* e) noexcept {
     AcquireSRWLockExclusive(&e->lock);
     e->keyframe_requested = true;
     repeat_newest(e);
+    ReleaseSRWLockExclusive(&e->lock);
+}
+
+void gpu_stream_encoder_hold(GpuStreamEncoder* e, bool hold) noexcept {
+    if (!e)
+        return;
+    AcquireSRWLockExclusive(&e->lock);
+    if (e->holding != hold) {
+        e->holding = hold;
+        // Released: the newest picture as a keyframe, at once. One the capture sent long ago (a still screen) is
+        // stamped now, as a still capture's keyframe is.
+        if (!hold) {
+            e->keyframe_requested = true;
+            if (e->pending != kNone && now_us() < e->slots[e->pending].timestamp_us + kStillUs) {
+                feed(e);
+            } else {
+                e->pending = kNone;
+                repeat_newest(e);
+            }
+        }
+    }
     ReleaseSRWLockExclusive(&e->lock);
 }
 

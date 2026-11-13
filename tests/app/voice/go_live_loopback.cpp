@@ -47,8 +47,8 @@ void check(bool value, const char* label) noexcept {
 struct Producer {
     GoLiveMedia* media;
     GpuStreamCodec codec;
-    bool encoding, keyframe, capturing, sounding;
-    u32 encoders, keyframe_requests, units, since_key, idr_pattern;
+    bool encoding, keyframe, capturing, sounding, held;
+    u32 encoders, keyframe_requests, units, since_key, idr_pattern, holds, held_pictures;
 };
 struct Expected {
     u32 rtp_timestamp, bytes, pattern;
@@ -126,6 +126,14 @@ void go_live_producer_keyframe(void* context) noexcept {
     p.keyframe = true;
     ++p.keyframe_requests;
 }
+void go_live_producer_hold(void* context, bool hold) noexcept {
+    auto& p = *static_cast<Producer*>(context);
+    p.held = hold;
+    if (hold)
+        ++p.holds;
+    else
+        p.keyframe = true; // A released encoder starts with a keyframe.
+}
 void go_live_producer_encoder_stop(void* context) noexcept {
     static_cast<Producer*>(context)->encoding = false;
 }
@@ -165,6 +173,10 @@ void produce(u32 index) noexcept {
     auto& p = g->producer;
     if (!p.encoding || !p.media || g->expected_count == kExpected)
         return;
+    if (p.held) {
+        ++p.held_pictures;
+        return;
+    }
     const bool key = p.keyframe || p.codec == GpuStreamCodec::h265;
     p.keyframe = false;
     u32 pattern = 0;
@@ -351,6 +363,15 @@ void stream_ready(GatewayStreamControl* control) noexcept {
     server.endpoint = {utf8_literal("us-qa-stream.discord.media"), 0, false};
     gateway_stream_server(control, server);
 }
+// The viewer's arrival as the sender's Gateway reports it (STREAM_CREATE/UPDATE viewer_ids).
+void viewer_joins(GatewayStreamControl* control) noexcept {
+    GatewayStreamCreate created{};
+    created.key = stream_key();
+    created.rtc_server_id = kStreamServer;
+    created.viewer_count = 1;
+    created.viewer_ids[0] = kViewer;
+    gateway_stream_create(control, created, clock_monotonic_milliseconds());
+}
 VoiceVideoCodec codec_from_environment() noexcept {
     wchar_t text[8]{};
     const DWORD length = GetEnvironmentVariableW(L"MAICORD_LOOPBACK_CODEC", text, 8);
@@ -427,6 +448,7 @@ int run() noexcept {
     check(gateway_stream_watch(&g->viewer_control, stream_key(), begin), "Go Live loopback: the viewer watches");
     stream_ready(&g->viewer_control);
     u32 unit_index = 0, audio_index = 0;
+    bool viewer_announced = false;
     u64 next_unit = begin, next_audio = begin;
     const u64 deadline = begin + 20'000;
     u64 now = begin;
@@ -441,6 +463,11 @@ int run() noexcept {
         drive_viewer(now);
         for (; now >= next_unit; next_unit += 33)
             produce(unit_index++);
+        // The stream starts unwatched (the encoder holds); the viewer is announced once pictures were held.
+        if (!viewer_announced && g->producer.held_pictures >= 10) {
+            viewer_joins(&live.control);
+            viewer_announced = true;
+        }
         for (; now >= next_audio; next_audio += 20)
             produce_audio(audio_index++);
         if (g->received.frames >= kWantedFrames && g->received.keyframes && g->received.audio_frames >= 10 &&
@@ -461,6 +488,8 @@ int run() noexcept {
           "with a keyframe");
     if (g->codec != VoiceVideoCodec::h265) // The H.265 fixture has keyframes only.
         check(r.keyframes * 2 < r.frames, "Go Live loopback: delta frames follow the keyframe (no keyframe storm)");
+    check(g->producer.holds >= 1 && g->producer.held_pictures >= 10 && viewer_announced && !g->producer.held,
+          "Go Live loopback: the encoder holds while nobody watches and encodes once the viewer arrives");
     check(r.audio_frames >= 10 && !r.audio_failures,
           "Go Live loopback: stream audio arrives DAVE-encrypted and opens for the viewer");
     check(!r.video_failures, "Go Live loopback: no video frame fails DAVE decryption, across the epoch change");

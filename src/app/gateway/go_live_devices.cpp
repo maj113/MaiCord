@@ -21,9 +21,11 @@ void frame(void* context, const CaptureFrame& picture) noexcept {
     }
     // The shared lock keeps the encoder alive through the submit.
     AcquireSRWLockShared(d.lock.native());
-    if (d.encoder)
-        gpu_stream_encoder_submit(d.encoder, picture);
+    const bool taken = d.encoder && gpu_stream_encoder_submit(d.encoder, picture);
     ReleaseSRWLockShared(d.lock.native());
+    // A new self-preview picture, whether or not it is encoded (an unwatched stream's encoder holds).
+    if (taken && d.picture_event)
+        event_set(d.picture_event);
 }
 void capture_ended(void* context, CaptureEnd reason) noexcept {
     auto& d = of(context);
@@ -46,10 +48,7 @@ void minimized(void* context, bool value) noexcept {
 }
 // Encoder thread.
 void unit(void* context, const GpuStreamAccessUnit& encoded) noexcept {
-    auto& d = of(context);
-    go_live_media_unit(d.media, encoded);
-    if (d.picture_event)
-        event_set(d.picture_event);
+    go_live_media_unit(of(context).media, encoded);
 }
 void encoder_ended(void* context, GpuStreamEncoderEnd) noexcept {
     go_live_media_ended(of(context).media, GoLiveEnd::encoder_failed);
@@ -160,6 +159,13 @@ void go_live_producer_keyframe(void* context) noexcept {
     AcquireSRWLockShared(d.lock.native());
     if (d.encoder)
         gpu_stream_encoder_request_keyframe(d.encoder);
+    ReleaseSRWLockShared(d.lock.native());
+}
+void go_live_producer_hold(void* context, bool hold) noexcept {
+    auto& d = of(context);
+    AcquireSRWLockShared(d.lock.native());
+    if (d.encoder)
+        gpu_stream_encoder_hold(d.encoder, hold);
     ReleaseSRWLockShared(d.lock.native());
 }
 void go_live_producer_encoder_stop(void* context) noexcept {

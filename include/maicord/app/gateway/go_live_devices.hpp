@@ -19,8 +19,8 @@ struct GoLiveDevices {
     GoLiveMedia* media;
     u32 width, height; // The last picture size reported.
     u32 frames;        // Pictures the capture delivered since it started (capture thread).
-    // Borrowed, set by the owner: signaled for every unit the encoder delivers, so the self-preview shows the new
-    // picture at once (the call view's video notification).
+    // Borrowed, set by the owner: signaled for every picture the encoder takes (encoded or, while it holds, only
+    // converted), so the self-preview shows the new picture at once (the call view's video notification).
     HANDLE picture_event;
     bool audio_running;
 };

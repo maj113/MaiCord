@@ -189,7 +189,7 @@ struct GpuStreamEncoder {
     u8 newest, held, pending;
     u64 last_accepted_us;
     u32 serial; // pictures made the newest, for the preview's sequence
-    bool accepted, keyframe_requested, stop, ended;
+    bool accepted, keyframe_requested, holding, stop, ended;
     Waitable wake;
     Thread* thread;
     GpuStreamEncoderStats stats;
@@ -742,7 +742,7 @@ u32 encoder_main(void* parameter) noexcept {
             ReleaseSRWLockExclusive(&e->lock);
             return 0;
         }
-        const u8 index = e->pending;
+        const u8 index = e->holding ? kNone : e->pending; // A held encoder leaves the picture pending.
         const GpuStreamEncoderSettings settings = e->options.settings;
         const bool idr = e->keyframe_requested || e->frames_since_idr >= kIdrPeriod;
         if (index != kNone) {

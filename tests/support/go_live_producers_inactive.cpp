@@ -22,6 +22,7 @@ bool go_live_producer_encoder(void*, GoLiveMedia*, GpuStreamCodec, const GpuStre
 void go_live_producer_configure(void*, const GpuStreamEncoderSettings&) noexcept {}
 void go_live_producer_bitrate(void*, u32) noexcept {}
 void go_live_producer_keyframe(void*) noexcept {}
+void go_live_producer_hold(void*, bool) noexcept {}
 void go_live_producer_encoder_stop(void*) noexcept {}
 bool go_live_producer_preview(void*, GpuVideoFrame*, u32*) noexcept {
     return false;

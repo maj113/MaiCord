@@ -15,7 +15,10 @@ without hardware H.264 cannot stream.
   - **Encoding:** the GPU vendor's asynchronous hardware MFT, found with `MFTEnum2(MFT_ENUM_FLAG_HARDWARE)` on the
     capture device's adapter and fed through the DXGI device manager. The encoder thread serves its events.
   - **Settings:** CBR with low latency and no B-frames. Keyframes come on request through
-    `CODECAPI_AVEncVideoForceKeyFrame`. A new extent reopens the transform.
+    `CODECAPI_AVEncVideoForceKeyFrame`. A new extent reopens the transform. AMD's AV1 transform runs at its speed
+    preset (`CODECAPI_AVEncCommonQualityVsSpeed` 0; its default is 70): at 1440p60 and 9 Mb/s it uses the video
+    engine 14 % of the time instead of 36 %, at the same PSNR and size (`maicord_go_live_gpu_probe`, desktop and
+    panning content). The H.265 and H.264 transforms keep their defaults: their faster presets lose picture quality.
 - **Linux** (`linux/gpu_stream_encoder.cpp`):
   - **Display:** the hardware decoders' VA display (`src/platform/decode/vaapi`).
   - **Conversion:** the capture's dma-buf is imported as an RGB surface, and the driver's video processing scales and
@@ -35,6 +38,9 @@ without hardware H.264 cannot stream.
   after 100 ms (or a frame interval) without a picture encodes the newest picture again. This, the pending-picture
   queue, the settings check and the bitrate, keyframe and statistics calls are `gpu_stream_encoder_shared.inc`, which
   both systems' encoders include.
+- **Unwatched streams:** `gpu_stream_encoder_hold` keeps taking and converting pictures (the self-preview stays
+  current) but encodes none. The stream session holds the encoder while the stream has no viewers, as Discord encodes
+  only while someone watches; the release encodes the newest picture as a keyframe at once.
 - **Self-preview:** `gpu_stream_encoder_preview` returns the newest converted picture with a sequence that changes with
   every new picture. The call view presents a preview only when its sequence differs from the one it showed (as for a
   remote stream), so a preview without a changing sequence freezes on its first picture.
@@ -44,9 +50,17 @@ without hardware H.264 cannot stream.
     VA-API encoder) decode the output with MaiCord's own decoders and require 40 dB PSNR on every picture. Each
     `maicord_stream_encoder_gpu_*` also runs a continuous stream (24 pictures, one per frame interval, submitted
     while earlier ones are still in the encoder, in four segments) and requires units, and new preview pictures,
-    throughout.
+    throughout. The first codec the GPU encodes also checks a held encoder: it takes a picture but encodes nothing,
+    and the release encodes that picture as a keyframe.
   - `maicord_go_live_pipeline_probe` (Windows, opt-in `MAICORD_CAPTURE_PROBE=1`): the real primary screen into the real
     encoder for six seconds, printing counts per second only (capture pictures, encoder submissions and drops, units,
     preview sequence).
+  - `maicord_go_live_gpu_probe` (Windows, opt-in `MAICORD_GO_LIVE_GPU_PROBE=<seconds>`): the encoder's GPU cost per
+    picture from a synthetic 1440p60 desktop or panning texture (or, with `MAICORD_CAPTURE_PROBE=1`, the real screen):
+    the conversion and self-preview conversion timed with D3D11 timestamp queries, the units' latency and sizes, and
+    with `MAICORD_GO_LIVE_GPU_PSNR=1` the stream's PSNR through MaiCord's own decoder. The video engine's share is read
+    beside it from the process's GPU Engine counters. The UI probe's `MAICORD_UI_GO_LIVE_GPU_PROBE=1` times the call
+    view's side: a new 1440p self-preview picture converted into the preview atlas and the damage repainted, 60 times a
+    second.
   - `maicord_stream_encoder_units` covers the presets, extents, tiers and unit rewriting, and parses the AV1 headers
     of many configurations with MaiCord's own AV1 parser (every field and patch position must round-trip).
