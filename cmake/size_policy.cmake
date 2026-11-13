@@ -211,7 +211,7 @@ maicord_compact_sources(
         src/platform/window/win32/create_icon.cpp src/platform/window/win32/drop.cpp src/platform/window/win32/keys.cpp
         src/platform/audio/speech.cpp src/platform/net/datagram.cpp src/platform/net/tls_stream.cpp
         src/platform/decode/aac_decoder.cpp src/platform/decode/av1_dxva_parameters.cpp
-        src/platform/decode/av1_gpu_stream.cpp src/platform/decode/gpu_stream_decoder.cpp
+        src/platform/decode/av1_gpu_stream.cpp src/platform/decode/gpu_stream_decoder.cpp src/platform/decode/gpu_stream_dxva.cpp
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/h264_gpu_stream_decoder.cpp
         src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
         src/platform/decode/mp4_decoder.cpp)

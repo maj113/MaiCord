@@ -1885,7 +1885,7 @@ maicord_test(MaiCordH264StreamGpuTests ONLY WINDOWS ENTRY maicord_h264_stream_gp
         tests/media/video/av1_stream_gpu_test.cpp src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
         src/app/voice/video_stream_decoders.cpp tests/platform/decode/h264_attachment_gpu_test.cpp src/platform/decode/mp4_decoder.cpp
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
-        src/platform/decode/gpu_decoder_surfaces.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+        src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_dxva.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
     LIBS maicord_core maicord_media_codec maicord_gpu_d3d11 kernel32 d3d11 dxguid
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu_c TEST maicord_h264_stream_gpu)
@@ -1898,7 +1898,7 @@ maicord_test(MaiCordStreamEncoderGpuTests ONLY WINDOWS ENTRY maicord_stream_enco
     SOURCES tests/platform/encode/stream_encoder_gpu_test.cpp src/platform/decode/gpu_stream_decoder.cpp
         src/platform/decode/h264_gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
         src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
-        src/platform/decode/gpu_decoder_surfaces.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+        src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_dxva.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
     LIBS maicord_video_encode maicord_core maicord_media_codec maicord_gpu_d3d11 kernel32 d3d11 dxguid ole32
     INCLUDES ${MAICORD_GENERATED_DIRECTORY})
 foreach(maicord_encoder_codec IN ITEMS h264 h265 av1)

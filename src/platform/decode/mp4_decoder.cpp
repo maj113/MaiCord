@@ -10,7 +10,7 @@
 #endif
 // Decoder plumbing, once per frame: compiled for size. Both systems: on Linux the decoders below are
 // linux/h264_file_decoder.cpp (VA-API, or libopenh264 when the machine has no H.264 decoder for the stream) and
-// linux/hevc_file_decoder.cpp (VA-API), which take no device context and never report device backpressure.
+// hevc_gpu_decoder.cpp (VA-API), which take no device context and never report device backpressure.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {

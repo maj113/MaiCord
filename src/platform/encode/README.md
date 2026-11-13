@@ -31,7 +31,9 @@ without hardware H.264 cannot stream.
     sets, repeated from the encoder's configuration when the hardware leaves them out.
   - **AV1:** every OBU has `obu_size`, with no temporal delimiters or padding. Keyframes lead with the sequence header.
 - **Still screens:** a capture sends no pictures while its screen is still. A keyframe request (PLI/FIR) that comes
-  after 100 ms (or a frame interval) without a picture encodes the newest picture again.
+  after 100 ms (or a frame interval) without a picture encodes the newest picture again. This, the pending-picture
+  queue, the settings check and the bitrate, keyframe and statistics calls are `gpu_stream_encoder_shared.inc`, which
+  both systems' encoders include.
 - **Self-preview:** `gpu_stream_encoder_preview` returns the newest converted picture with a sequence that changes with
   every new picture. The call view presents a preview only when its sequence differs from the one it showed (as for a
   remote stream), so a preview without a changing sequence freezes on its first picture.

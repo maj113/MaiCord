@@ -36,7 +36,6 @@ constexpr u32 kSlots = 6;
 constexpr u8 kNone = 255;
 constexpr u32 kParameterBytes = 1024;
 constexpr u32 kScratchBytes = 4096;
-constexpr u64 kStillUs = 100'000;
 constexpr u32 kStackBytes = 256u * 1024u;
 // Keyframes come from requests (PLI/FIR); the period only bounds how long a lost request can go unanswered.
 constexpr u32 kIdrPeriod = 3000;
@@ -210,6 +209,17 @@ inline u64 now_us() noexcept {
     return clock_microseconds(clock_initialize(), 0, clock_now());
 }
 
+// Under the lock: wakes the encoder thread for the pending picture.
+inline void feed(GpuStreamEncoder* e) noexcept {
+    event_set(e->wake);
+}
+
+} // namespace
+
+#include "../gpu_stream_encoder_shared.inc"
+
+namespace {
+
 inline u32 fps_of(const GpuStreamEncoderSettings& s) noexcept {
     return s.max_fps ? s.max_fps : 60;
 }
@@ -374,30 +384,6 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     }
     d->api.vaDestroySurfaces(d->display, &source, 1);
     return ok;
-}
-
-// Under the lock: a converted picture becomes the newest and the pending one (the newest pending wins).
-void enqueue(GpuStreamEncoder* e, u8 index, u64 timestamp_us) noexcept {
-    if (e->pending != kNone && e->pending != index)
-        saturating_increment(e->stats.dropped);
-    e->slots[index].timestamp_us = timestamp_us;
-    e->newest = e->pending = index;
-    e->last_accepted_us = timestamp_us;
-    e->accepted = true;
-    ++e->serial;
-    event_set(e->wake);
-}
-
-// Under the lock: as on Windows, a keyframe request with a capture that has sent nothing for kStillUs (or a frame
-// interval, whichever is longer) encodes the newest picture again, now.
-void repeat_newest(GpuStreamEncoder* e) noexcept {
-    if (!e->keyframe_requested || e->pending != kNone || e->newest == kNone || e->ended ||
-        e->slots[e->newest].in_flight)
-        return;
-    const u64 interval = 1'000'000u / fps_of(e->options.settings);
-    const u64 now = now_us();
-    if (now >= e->last_accepted_us + (interval > kStillUs ? interval : kStillUs))
-        enqueue(e, e->newest, now);
 }
 
 bool render(GpuStreamEncoder* e, i32 type, const void* data, u32 bytes) noexcept {
@@ -786,11 +772,6 @@ u32 encoder_main(void* parameter) noexcept {
 
 // Probe, create and teardown run once per encoder: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool settings_valid(const GpuStreamEncoderSettings& s) noexcept {
-    return s.width >= 16 && s.height >= 16 && !((s.width | s.height) & 1) && s.width <= 4096 && s.height <= 4096 &&
-           u64{s.width} * s.height <= kGpuVideoVisiblePixels && s.bitrate;
-}
-
 void release(GpuStreamEncoder* e) noexcept {
     const Driver* d = e->driver;
     if (d) {
@@ -906,23 +887,6 @@ void gpu_stream_encoder_configure(GpuStreamEncoder* e, const GpuStreamEncoderSet
     ReleaseSRWLockExclusive(&e->lock);
 }
 
-void gpu_stream_encoder_set_bitrate(GpuStreamEncoder* e, u32 bitrate) noexcept {
-    if (!e || !bitrate)
-        return;
-    AcquireSRWLockExclusive(&e->lock);
-    e->options.settings.bitrate = bitrate;
-    ReleaseSRWLockExclusive(&e->lock);
-}
-
-void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return;
-    AcquireSRWLockExclusive(&e->lock);
-    e->keyframe_requested = true;
-    repeat_newest(e);
-    ReleaseSRWLockExclusive(&e->lock);
-}
-
 bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* sequence) noexcept {
     if (!e || !frame || !sequence)
         return false;
@@ -962,16 +926,6 @@ bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* 
     }
     ReleaseSRWLockExclusive(&e->lock);
     return ok;
-}
-
-GpuStreamEncoderStats gpu_stream_encoder_stats(const GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return {};
-    auto* lock = const_cast<SRWLOCK*>(&e->lock);
-    AcquireSRWLockShared(lock);
-    const GpuStreamEncoderStats stats = e->stats;
-    ReleaseSRWLockShared(lock);
-    return stats;
 }
 
 void gpu_stream_encoder_destroy(GpuStreamEncoder* e) noexcept {

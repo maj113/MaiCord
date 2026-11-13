@@ -7,13 +7,28 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "hevc_gpu_geometry.hpp"
+#if defined(_WIN32)
 #include "hevc_dxva_parameters.hpp"
 #include "gpu_decoder_fence.hpp"
 #include "gpu_decoder_surfaces.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
-// DXVA submission, once per frame: the slice copy is one memcpy per slice. Compiled for size.
+#else
+#include "maicord/core/win32_error.hpp"
+#include "linux/stream.hpp"
+#include "vaapi/va.hpp"
+#include "vaapi/va_file.hpp"
+#endif
+
+// The HEVC movie decoder of both systems (hevc_gpu_decoder.hpp, driven by mp4_decoder.cpp): the container side, the
+// reference tracking and the output queue are shared, and the picture and slice buffers come from the same in-house
+// parsers. The decoder is DXVA on Windows and VA-API on Linux, where it writes a VASurface and a picture that is output
+// is exported as two dma-buf planes and imported as the planes the renderer converts from. There is no software HEVC
+// decoder: a machine whose driver has no HEVC Main decoder (or refuses the movie's first picture) refuses the movie, as
+// a GPU without the codec does on Windows.
+// Submission, once per frame: the slice copy is one memcpy per slice. Compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
@@ -23,20 +38,28 @@ struct State {
     Mp4Demuxer demux;
     HevcReferenceState references;
     H264OutputQueue output;
+#if defined(_WIN32)
     ID3D11VideoDevice* device;
     ID3D11VideoContext* context;
     ID3D11Multithread* guard;
     ID3D11VideoDecoder* decoder;
     GpuDecoderSurfaces surfaces;
     GpuDecoderFence wait;
+    u32 feedback;
+#else
+    GpuDevice* device;
+    vaapi::Session* session;
+    StreamSurface slot[kStreamSurfaceLimit];
+    u32 slots;
+#endif
     GpuVideoFrame frame;
     VideoDisplayExtent display;
-    u32 feedback;
 };
 static_assert(sizeof(State) <= 16384);
 H264Error mapped(HevcError error) noexcept {
     return static_cast<H264Error>(static_cast<u8>(error));
 }
+#if defined(_WIN32)
 HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
                const HevcReferencePlan& plan, u8 surface) noexcept {
     const auto& a = s.config.sps;
@@ -110,6 +133,47 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
         result = s.context->SubmitDecoderBuffers(s.decoder, buffer_count, buffers);
     return result;
 }
+// One picture into surface, between Begin/EndFrame.
+inline HRESULT decode_picture(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
+                              const HevcReferencePlan& plan, u8 surface) noexcept {
+    s.guard->Enter();
+    HRESULT result = s.context->DecoderBeginFrame(s.decoder, s.surfaces.views[surface], 0, nullptr);
+    if (SUCCEEDED(result)) {
+        result = submit(s, unit, picture, plan, surface);
+        const HRESULT end = s.context->DecoderEndFrame(s.decoder);
+        if (SUCCEEDED(result))
+            result = end;
+    }
+    s.guard->Leave();
+    if (SUCCEEDED(result) && ++s.feedback == 0)
+        ++s.feedback;
+    return result;
+}
+Mp4DecodedFrame output_frame(State& s) noexcept {
+    return gpu_decoder_output_frame(&s.output, &s.frame, s.surfaces, s.display);
+}
+#else
+HRESULT decode_picture(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture, const HevcReferencePlan& plan,
+                       u8 surface) noexcept {
+    return vaapi::submit_hevc_sample(s.session, s.config, picture, unit.bytes, s.references, plan, surface) ? S_OK
+                                                                                                           : E_FAIL;
+}
+// One real picture (the first IRAP) through the driver: decode, export, import. Whatever it learns is discarded.
+bool probe_hardware(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture) noexcept {
+    HevcReferencePlan plan{};
+    if (hevc_reference_plan(s.references, s.config.sps, picture, 0, &plan) != HevcError::none ||
+        FAILED(decode_picture(s, unit, picture, plan, 0)))
+        return false;
+    StreamSurface exported{};
+    if (!stream_slot_export(s.device, s.session, 0, &exported))
+        return false;
+    stream_slot_release(&exported);
+    return true;
+}
+Mp4DecodedFrame output_frame(State& s) noexcept {
+    return stream_movie_frame(&s.output, s.device, s.session, s.slot, &s.frame, s.display);
+}
+#endif
 bool reset(H264GpuDecoder& handle) noexcept {
     auto& s = *static_cast<State*>(handle.state);
     auto cursor = s.demux;
@@ -121,15 +185,16 @@ bool reset(H264GpuDecoder& handle) noexcept {
     reset_value(&s.output);
     return true;
 }
-Mp4DecodedFrame output_frame(State& s) noexcept {
-    return gpu_decoder_output_frame(&s.output, &s.frame, s.surfaces, s.display);
-}
 } // namespace
 
-bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded, ID3D11Device* device,
-                                 ID3D11DeviceContext* context, Mp4SourceAvailability availability) noexcept {
-    if (!handle || !device || !context || !encoded.data || !encoded.count)
+bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded, GpuDevice* device,
+                                 [[maybe_unused]] GpuContext* context, Mp4SourceAvailability availability) noexcept {
+    if (!handle || !device || !encoded.data || !encoded.count)
         return false;
+#if defined(_WIN32)
+    if (!context)
+        return false;
+#endif
     hevc_gpu_decoder_release(handle);
     // A progressive source is borrowed in place; its owner outlives release.
     const bool borrowed = availability.available != nullptr;
@@ -155,15 +220,16 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     }
     handle->demux_error = hevc_demux_initialize(&s->demux, {owned, encoded.count}, availability);
     HRESULT result = handle->demux_error == Mp4DemuxError::none ? S_OK : E_INVALIDARG;
+    Mp4AccessUnit unit{};
+    HevcPicture picture;
     if (SUCCEEDED(result)) {
         Mp4Demuxer cursor; copy_value(&cursor, s->demux);
-        const auto unit = mp4_demux_next_ready(&cursor);
+        unit = mp4_demux_next_ready(&cursor);
         u8 pps{};
         auto error = unit.ok() ? hevc_picture_parameter_id(unit.bytes, s->demux.nal_length_bytes, &pps)
                                : HevcError::malformed;
         if (error == HevcError::none)
             error = hevc_select_parameters(hevc_demux_hvcc(s->demux), pps, &s->config);
-        HevcPicture picture;
         if (error == HevcError::none)
             error = hevc_parse_picture(unit.bytes, s->config, &picture);
         if (error == HevcError::none && !picture.irap)
@@ -188,6 +254,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         handle->parse_error = H264Error::unsupported;
         result = E_INVALIDARG;
     }
+#if defined(_WIN32)
     if (SUCCEEDED(result))
         result = device->QueryInterface(__uuidof(ID3D11VideoDevice), reinterpret_cast<void**>(&s->device));
     if (SUCCEEDED(result))
@@ -214,6 +281,24 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         result = gpu_decoder_surfaces_create(&s->surfaces, device, s->device, desc.Guid,
                                              surface_extent.width, surface_extent.height, count);
     }
+#else
+    if (SUCCEEDED(result)) {
+        const vaapi::Driver* driver = vaapi::driver(device);
+        const u32 count = maximum<u32>(a.max_buffering, 1) + 2u;
+        if (!driver || !(driver->codecs & gpu_stream_codec_bit(GpuStreamCodec::h265)) ||
+            surface_extent.width > driver->max_width[1] || surface_extent.height > driver->max_height[1] ||
+            count > vaapi::kSurfaceLimit) {
+            result = DXGI_ERROR_UNSUPPORTED;
+        } else {
+            s->device = device;
+            s->session = vaapi::session_create(driver, vaapi::kProfileHevcMain, surface_extent.width,
+                                               surface_extent.height, count);
+            s->slots = s->session ? count : 0;
+            if (!s->session || !probe_hardware(*s, unit, picture))
+                result = DXGI_ERROR_UNSUPPORTED;
+        }
+    }
+#endif
     handle->status = result;
     if (FAILED(result)) {
         const auto parse = handle->parse_error;
@@ -224,8 +309,11 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         handle->demux_error = demux;
         return false;
     }
-    s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height,
-                video_matrix_bt709(a.matrix, a.height), a.full_range, s->demux.rotation, {}};
+    s->frame = {nullptr, 0, a.crop_x, a.crop_y, a.width, a.height, video_matrix_bt709(a.matrix, a.height),
+                a.full_range, s->demux.rotation, {}};
+#if defined(_WIN32)
+    s->frame.texture = s->surfaces.texture;
+#endif
     return true;
 }
 
@@ -274,9 +362,13 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexce
             else
                 return output_frame(s);
         }
+#if defined(_WIN32)
+        const u8 slots = s.surfaces.count;
+#else
+        const u8 slots = static_cast<u8>(s.slots);
+#endif
         const u8 surface =
-            h264_free_surface(s.output, picture.idr ? 0 : hevc_reference_surfaces(s.references),
-                              s.surfaces.count);
+            h264_free_surface(s.output, picture.idr ? 0 : hevc_reference_surfaces(s.references), slots);
         HevcReferencePlan plan{};
         handle->parse_error =
             mapped(hevc_reference_plan(s.references, s.config.sps, picture, surface, &plan));
@@ -285,15 +377,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexce
             frame.error = Mp4DecodeError::stream;
             return frame;
         }
-        s.guard->Enter();
-        HRESULT result = s.context->DecoderBeginFrame(s.decoder, s.surfaces.views[surface], 0, nullptr);
-        if (SUCCEEDED(result)) {
-            result = submit(s, unit, picture, plan, surface);
-            const HRESULT end = s.context->DecoderEndFrame(s.decoder);
-            if (SUCCEEDED(result))
-                result = end;
-        }
-        s.guard->Leave();
+        const HRESULT result = decode_picture(s, unit, picture, plan, surface);
         handle->status = result;
         if (FAILED(result)) {
             frame.error = Mp4DecodeError::sample;
@@ -301,8 +385,6 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexce
         }
         copy_value(&s.demux, next);
         s.references = plan.after;
-        if (++s.feedback == 0)
-            ++s.feedback;
         ++submissions;
         if (picture.output && !h264_output_push(&s.output, {unit.duration_us, plan.poc, surface,
                                                             unit.presentation_time_us_signed})) {
@@ -377,16 +459,22 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
     if (!handle)
         return;
     if (auto* s = static_cast<State*>(handle->state)) {
+#if defined(_WIN32)
         gpu_decoder_surfaces_release(&s->surfaces);
         com_release(s->decoder);
         gpu_decoder_fence_release(&s->wait);
         com_release(s->guard);
         com_release(s->context);
         com_release(s->device);
+#else
+        vaapi::session_destroy(s->session);
+        stream_slots_release(s->slot, &s->slots);
+#endif
         pages_release(s);
     }
     reset_value(handle);
 }
+#if defined(_WIN32)
 bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
     if (!handle || !handle->state || !timeout || timeout > 16)
         return false;
@@ -396,5 +484,11 @@ bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
         handle->status = result;
     return SUCCEEDED(result);
 }
+#else
+// The decoder runs on the calling thread: there is no device backpressure to wait for.
+bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32) noexcept {
+    return handle && handle->state;
+}
+#endif
 } // namespace maicord
 #pragma clang attribute pop

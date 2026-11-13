@@ -370,6 +370,41 @@ struct GpuStreamEncoder {
 
 namespace {
 
+u64 now_us() noexcept {
+    return clock_microseconds(clock_initialize(), 0, clock_now());
+}
+
+// Under the lock: the pending picture into the transform when it asked for input.
+void feed(GpuStreamEncoder* e) noexcept {
+    Transform& t = e->mft;
+    if (!t.transform || !e->need_input || e->pending == kNone)
+        return;
+    // A picture of the new extent waits for the transform reopened at it (its first NeedInput feeds it).
+    if (e->slot_width != t.width || e->slot_height != t.height)
+        return;
+    Slot& slot = e->slots[e->pending];
+    e->pending = kNone;
+    if (e->options.settings.bitrate != t.bitrate &&
+        SUCCEEDED(set_value(t.codec_api, kMeanBitrate, e->options.settings.bitrate)))
+        t.bitrate = e->options.settings.bitrate;
+    if (e->keyframe_requested && SUCCEEDED(set_value(t.codec_api, kForceKeyframe, 1)))
+        e->keyframe_requested = false;
+    slot.sample->SetSampleTime(static_cast<LONGLONG>(slot.timestamp_us * 10));
+    const u32 fps = e->options.settings.max_fps ? e->options.settings.max_fps : 60;
+    slot.sample->SetSampleDuration(static_cast<LONGLONG>(10'000'000 / fps));
+    if (SUCCEEDED(t.transform->ProcessInput(t.input_id, slot.sample, 0))) {
+        --e->need_input;
+        slot.in_flight = true;
+        slot.submitted_us = slot.timestamp_us;
+    }
+}
+
+} // namespace
+
+#include "gpu_stream_encoder_shared.inc"
+
+namespace {
+
 void slot_release(Slot* slot) noexcept {
     com_release(slot->sample);
     com_release(slot->chroma);
@@ -510,64 +545,6 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     e->guard->Leave();
     view->Release();
     return mapped_ok;
-}
-
-// Under the lock: the pending picture into the transform when it asked for input.
-void feed(GpuStreamEncoder* e) noexcept {
-    Transform& t = e->mft;
-    if (!t.transform || !e->need_input || e->pending == kNone)
-        return;
-    // A picture of the new extent waits for the transform reopened at it (its first NeedInput feeds it).
-    if (e->slot_width != t.width || e->slot_height != t.height)
-        return;
-    Slot& slot = e->slots[e->pending];
-    e->pending = kNone;
-    if (e->options.settings.bitrate != t.bitrate &&
-        SUCCEEDED(set_value(t.codec_api, kMeanBitrate, e->options.settings.bitrate)))
-        t.bitrate = e->options.settings.bitrate;
-    if (e->keyframe_requested && SUCCEEDED(set_value(t.codec_api, kForceKeyframe, 1)))
-        e->keyframe_requested = false;
-    slot.sample->SetSampleTime(static_cast<LONGLONG>(slot.timestamp_us * 10));
-    const u32 fps = e->options.settings.max_fps ? e->options.settings.max_fps : 60;
-    slot.sample->SetSampleDuration(static_cast<LONGLONG>(10'000'000 / fps));
-    if (SUCCEEDED(t.transform->ProcessInput(t.input_id, slot.sample, 0))) {
-        --e->need_input;
-        slot.in_flight = true;
-        slot.submitted_us = slot.timestamp_us;
-    }
-}
-
-// Under the lock: a converted picture becomes the newest and the pending one (the newest pending wins).
-void enqueue(GpuStreamEncoder* e, u8 index, u64 timestamp_us) noexcept {
-    if (e->pending != kNone && e->pending != index)
-        saturating_increment(e->stats.dropped);
-    e->slots[index].timestamp_us = timestamp_us;
-    e->newest = e->pending = index;
-    e->last_accepted_us = timestamp_us;
-    e->accepted = true;
-    ++e->serial;
-    feed(e);
-}
-
-u64 now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
-}
-// How long the capture must have sent nothing before a keyframe request encodes its newest picture again.
-constexpr u64 kStillUs = 100'000;
-
-// Under the lock: a keyframe was asked for and the capture has sent nothing for kStillUs or a frame interval, whichever
-// is longer (a still screen sends no pictures): the newest picture again, now, once the transform no longer holds its
-// sample. While the capture runs, its next picture is the keyframe instead (a request that meets a capture going
-// still just then waits for the receiver's next one).
-void repeat_newest(GpuStreamEncoder* e) noexcept {
-    if (!e->keyframe_requested || e->pending != kNone || e->newest == kNone || e->ended ||
-        e->slots[e->newest].in_flight)
-        return;
-    const u32 fps = e->options.settings.max_fps ? e->options.settings.max_fps : 60;
-    const u64 interval = 1'000'000u / fps;
-    const u64 now = now_us();
-    if (now >= e->last_accepted_us + (interval > kStillUs ? interval : kStillUs))
-        enqueue(e, e->newest, now);
 }
 
 void end(GpuStreamEncoder* e, HRESULT status) noexcept {
@@ -837,11 +814,6 @@ void release(GpuStreamEncoder* e) noexcept {
     pages_release(e);
 }
 
-bool settings_valid(const GpuStreamEncoderSettings& s) noexcept {
-    return s.width >= 16 && s.height >= 16 && !((s.width | s.height) & 1) && u64{s.width} * s.height <= kGpuVideoVisiblePixels &&
-           s.width <= 4096 && s.height <= 4096 && s.bitrate;
-}
-
 // The probe's cache: codecs by adapter.
 struct ProbeEntry {
     LUID luid;
@@ -964,23 +936,6 @@ void gpu_stream_encoder_configure(GpuStreamEncoder* e, const GpuStreamEncoderSet
         wake(e);
 }
 
-void gpu_stream_encoder_set_bitrate(GpuStreamEncoder* e, u32 bitrate) noexcept {
-    if (!e || !bitrate)
-        return;
-    AcquireSRWLockExclusive(&e->lock);
-    e->options.settings.bitrate = bitrate;
-    ReleaseSRWLockExclusive(&e->lock);
-}
-
-void gpu_stream_encoder_request_keyframe(GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return;
-    AcquireSRWLockExclusive(&e->lock);
-    e->keyframe_requested = true;
-    repeat_newest(e);
-    ReleaseSRWLockExclusive(&e->lock);
-}
-
 bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* sequence) noexcept {
     if (!e || !frame || !sequence)
         return false;
@@ -1003,16 +958,6 @@ bool gpu_stream_encoder_preview(GpuStreamEncoder* e, GpuVideoFrame* frame, u32* 
     }
     ReleaseSRWLockExclusive(&e->lock);
     return ok;
-}
-
-GpuStreamEncoderStats gpu_stream_encoder_stats(const GpuStreamEncoder* e) noexcept {
-    if (!e)
-        return {};
-    auto* lock = const_cast<SRWLOCK*>(&e->lock);
-    AcquireSRWLockShared(lock);
-    const GpuStreamEncoderStats stats = e->stats;
-    ReleaseSRWLockShared(lock);
-    return stats;
 }
 
 void gpu_stream_encoder_destroy(GpuStreamEncoder* e) noexcept {

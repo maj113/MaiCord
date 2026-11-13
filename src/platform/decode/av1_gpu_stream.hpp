@@ -29,8 +29,7 @@ struct Av1GpuStreamState {
     bool have_sequence, sequence_changed, frame_open, waiting, unsupported;
 };
 
-// The codec-state halves of the AV1 backends that the Windows (av1_gpu_stream.cpp) and Linux (vaapi/va_stream.cpp)
-// stream decoders share. Once per frame: compiled for size.
+// The codec-state halves of the AV1 backend (av1_gpu_stream.cpp, both systems). Once per frame: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 inline constexpr u8 kAv1NoSurface = 255;
 
@@ -112,5 +111,10 @@ void av1_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_time
                            bool resynchronize) noexcept;
 void av1_gpu_stream_drain(GpuStream* stream) noexcept;
 void av1_gpu_stream_stats(const GpuStream& stream, GpuStreamDecoderStats* stats) noexcept;
+// The system half (gpu_stream_dxva.cpp, vaapi/va_stream.cpp), as for H.264 and HEVC in gpu_stream_decoder_backend.hpp:
+// whether this GPU decodes the sequence, (re)creating the decoder for it, and one frame into surface.
+bool av1_gpu_stream_decodable(const GpuStream& stream, const Av1SequenceHeader& sequence) noexcept;
+bool av1_gpu_stream_create(GpuStream* stream) noexcept;
+bool av1_gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> unit) noexcept;
 
 } // namespace maicord

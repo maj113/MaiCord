@@ -215,7 +215,7 @@ maicord_library(maicord_account_media
     src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
     src/platform/decode/h264_gpu_stream_decoder.cpp src/app/voice/video_stream_decoders.cpp
     src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
-    src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
+    src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp src/platform/decode/gpu_stream_dxva.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
