@@ -241,10 +241,28 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept;
 // Releases one surface's disposal backup (idle trim when unused).
 void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept;
 // maximum_extent > 0 reduces the frame on the GPU so its longer side fits
-// (composer posters); zero presents the native visible extent.
+// (composer posters); zero presents the native visible extent. A picture a
+// page cannot hold with its padding (a portrait 1440p source, a wide 4K one)
+// is reduced further, by media_atlas_video_step, rather than refused.
 MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas* atlas,
     GpuDevice* device, GpuContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
+// The integer reduction media_atlas_gpu_present_video converts `frame` at:
+// gpu_video_frame_reduction's for maximum_extent, or the smallest step whose
+// picture fits one of the atlas's pages with its padding when that is larger.
+inline u32 media_atlas_video_step(const MediaAtlas& atlas, const GpuVideoFrame& frame, u32 maximum_extent) noexcept {
+    const GlyphAtlasAllocator& a = atlas.allocations;
+    u32 step = gpu_video_frame_reduction(frame.width, frame.height, maximum_extent);
+    const u32 width = gpu_video_frame_output_width(frame, 1), height = gpu_video_frame_output_height(frame, 1);
+    // A native picture a page holds (every stream up to 2560 wide in the preview atlas) costs two comparisons.
+    if ((width + a.padding * 2u > a.width || height + a.padding * 2u > a.page_rows) && a.width > a.padding * 2u &&
+        a.page_rows > a.padding * 2u) {
+        const u32 room_width = a.width - a.padding * 2u, room_height = a.page_rows - a.padding * 2u;
+        const u32 across = (width + room_width - 1) / room_width, down = (height + room_height - 1) / room_height;
+        step = maximum(step, maximum(across, down));
+    }
+    return minimum(step, kGpuVideoReductionMaximum);
+}
 
 static_assert(sizeof(MediaAtlasGpu) == 584);
 

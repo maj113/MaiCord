@@ -46,13 +46,14 @@ inline constexpr u32 kMediaAtlasIdleTrimMs = 10'000;
 // The two media surfaces. Identity media (avatars, emoji, stickers, icons,
 // profile pictures): 2048 x 8 pages of 1024 rows (8 MiB a page), 8 MiB of
 // rows kept beyond the visible ones, and the profile pools below. Large
-// previews and call video: 2064 x 4 pages of 2176 rows (17 MiB a page: the
-// px2048 tier with its padding, in whole 128-row tile bands), one page kept
-// beyond the visible ones.
+// previews and call video: 2576 x 4 pages of 2176 rows (21 MiB a page: a
+// 2560-wide picture, a 1440p stream at its own size, and the px2048 tier, each
+// with its padding, in whole 128-row tile bands), one page kept beyond the
+// visible ones.
 enum class MediaAtlasSurface : u8 { identity, preview };
 inline constexpr u16 kMediaAtlasExtent = 2'048;
 inline constexpr u16 kMediaAtlasPageRows = 1'024;
-inline constexpr u16 kPreviewMediaAtlasExtent = 2'064;
+inline constexpr u16 kPreviewMediaAtlasExtent = 2'576;
 inline constexpr u16 kPreviewMediaAtlasPageRows = 2'176;
 // Every entry keeps this gutter of clear texels on each side, so bilinear
 // sampling never reads a neighbour: a page holds images up to its size less

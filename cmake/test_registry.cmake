@@ -391,8 +391,9 @@ maicord_test(MaiCordTestServerTests ONLY WINDOWS ENTRY maicord_test_server_entry
 # Go Live end to end (tests/app/voice/go_live_loopback.cpp): MaiCord's sender session streams H.264, H.265 and AV1
 # with stream audio and DAVE to MaiCord's receive path through tools/fake_discord_server.py's stream server, which
 # tools/test_go_live_loopback.py starts (the test hooks point the connections at it); the H.264 frames are decoded on
-# the GPU and checked. The three codecs run side by side (each has its own server and client, paced by the clock), and
-# the case holds no GPU chain (it renders no window). Skipped (77) without openssl or a hardware video device.
+# the GPU and checked, at 160x96, at 1440p and at 4K Source. The cases run side by side (each has its own server and
+# client, paced by the clock), and the case holds no GPU chain (it renders no window). Skipped (77) without openssl or
+# a hardware video device.
 maicord_test(MaiCordGoLiveLoopbackTests ONLY WINDOWS ENTRY maicord_go_live_loopback_entry
     SOURCES tests/app/voice/go_live_loopback.cpp tests/support/voice_log_sink.cpp src/platform/net/test_server.cpp
         src/platform/net/network.cpp src/platform/net/tls_client.cpp

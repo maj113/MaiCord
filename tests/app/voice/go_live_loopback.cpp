@@ -4,7 +4,8 @@
 // access units to MaiCord's receive path (a viewer's stream connection, the RTP core, DAVE, the decoders' sink) over
 // TLS and UDP, with DAVE on: the fake server runs the MLS group of the two. Every frame the viewer assembles must be
 // the sender's access unit, byte for byte after DAVE; with MAICORD_LOOPBACK_CODEC=h264 (the default) the H.264
-// frames are also decoded on the GPU and their pixels checked. Exit 77: no hardware D3D11 video device.
+// frames are also decoded on the GPU and their pixels checked. MAICORD_LOOPBACK_SIZE=1440 streams Go Live at 1440p
+// 60 fps from a 2560x1440 window, 2160 at Source from a 3840x2160 one. Exit 77: no hardware D3D11 video device.
 #include "maicord/app/gateway/go_live_stream.hpp"
 #include "maicord/app/voice/video_sink.hpp"
 #include "maicord/core/memory.hpp"
@@ -27,10 +28,15 @@ constexpr u64 kGuild = 200000000000000001, kChannel = 300000000000000004;
 constexpr u64 kStreamServer = 500000000000000001;
 constexpr u32 kWantedFrames = 24, kExpected = 512, kUnitBytes = 128 * 1024;
 constexpr u32 kPreparedBytes = kUnitBytes + kUnitBytes / 4 + 4, kStoreSlots = 32;
-// 160x96: the I_PCM keyframe (23 KB) stays within what a real encoder's rate control would make at the stream's
-// bitrate, so the pacer sends it before the sender's four-unit queue overflows.
-constexpr u32 kWidth = 160, kHeight = 96;
-const h264_fixture::Sps kSps{0, 66, kWidth / 16, kHeight / 16, 2, 1, false, 0, 0, 0};
+// 160x96 by default: the I_PCM keyframe (23 KB) stays within what a real encoder's rate control would make at the
+// stream's bitrate, so the pacer sends it before the sender's four-unit queue overflows. 1440p and 4K keyframes are
+// compact (each slice one I_PCM macroblock that the rest repeat: 14 and 32 KB), the size of a flat picture, in three
+// slices of whole macroblock rows (90 and 135 rows), so no slice predicts from a row another slice began.
+u16 g_width = 160, g_height = 96;
+u16 g_resolution;
+u8 g_fps = 30;
+bool g_compact;
+h264_fixture::Sps g_sps{0, 66, 160 / 16, 96 / 16, 2, 1, false, 0, 0, 0};
 
 u32 g_failures;
 void check(bool value, const char* label) noexcept {
@@ -108,7 +114,7 @@ bool go_live_producer_encoder(void* context, GoLiveMedia*, GpuStreamCodec codec,
                               const GpuStreamEncoderSettings& settings) noexcept {
     auto& p = *static_cast<Producer*>(context);
     p.codec = codec;
-    p.encoding = settings.width == kWidth && settings.height == kHeight;
+    p.encoding = settings.width == g_width && settings.height == g_height;
     p.keyframe = true;
     ++p.encoders;
     return p.encoding;
@@ -146,10 +152,11 @@ u32 make_unit(bool key, u32 index, u32* pattern) noexcept {
     if (p.codec == GpuStreamCodec::h265)
         hevc_fixture::write_idr(&out, &bits, {0, 64, 64, 0, 4, 8, 2}, {0, 0}, p.idr_pattern);
     else if (key)
-        h264_fixture::write_idr(&out, &bits, kSps, {0, 0}, p.idr_pattern, static_cast<u16>(index & 0xffff), 2);
+        h264_fixture::write_idr(&out, &bits, g_sps, {0, 0}, p.idr_pattern, static_cast<u16>(index & 0xffff),
+                                g_compact ? 3 : 2, true, g_compact);
     else {
         ++p.since_key;
-        h264_fixture::write_p(&out, &bits, kSps, {0, 0}, static_cast<u16>(p.since_key & 15),
+        h264_fixture::write_p(&out, &bits, g_sps, {0, 0}, static_cast<u16>(p.since_key & 15),
                               static_cast<u16>((p.since_key * 2) & 255));
     }
     return out.ok ? out.count : 0;
@@ -171,7 +178,7 @@ void produce(u32 index) noexcept {
     copy_bytes(g->prepared_store[slot], g->prepared, plan.bytes);
     g->prepared_bytes[slot] = plan.bytes;
     g->expected[g->expected_count++] = {rtp, plan.bytes, pattern, key};
-    go_live_media_unit(p.media, {{g->unit, bytes}, 0, rtp, kWidth, kHeight, p.codec, key});
+    go_live_media_unit(p.media, {{g->unit, bytes}, 0, rtp, g_width, g_height, p.codec, key});
 }
 void produce_audio(u32 index) noexcept {
     i16 stereo[960 * 2];
@@ -208,12 +215,27 @@ void verify_picture(const GpuStreamFrame& frame) noexcept {
         return;
     }
     const auto* luma = static_cast<const u8*>(mapped.pData);
-    bool ok = gpu.width == kWidth && gpu.height == kHeight;
-    for (u32 m = 0; ok && m != kSps.width_mbs * kSps.height_mbs; ++m) {
-        const u32 x = m % kSps.width_mbs, y = m / kSps.width_mbs;
-        ok = luma[u64{y * 16u + 8u} * mapped.RowPitch + x * 16u + 3u] == h264_fixture::pcm_luma(m, d.pattern);
+    // A compact keyframe's slices repeat their first macroblocks: a flat picture, never black.
+    const u32 total = g_sps.width_mbs * g_sps.height_mbs, per = (total + 2) / 3;
+    bool ok = gpu.width == g_width && gpu.height == g_height;
+    u32 m = 0;
+    for (; ok && m != total; ++m) {
+        const u32 x = m % g_sps.width_mbs, y = m / g_sps.width_mbs;
+        const u8 expected = h264_fixture::pcm_luma(g_compact ? m / per * per : m, d.pattern);
+        ok = luma[u64{y * 16u + 8u} * mapped.RowPitch + x * 16u + 3u] == expected && (!g_compact || expected > 16);
     }
     d.context->Unmap(d.staging, 0);
+    if (!ok && !d.mismatches) {
+        test_write_text("first differing picture: ");
+        test_write_u64(gpu.width);
+        test_write_text("x");
+        test_write_u64(gpu.height);
+        test_write_text(" macroblock ");
+        test_write_u64(m ? m - 1 : 0);
+        test_write_text(" after ");
+        test_write_u64(d.frames);
+        test_write_line(" pictures");
+    }
     d.mismatches += ok ? 0 : 1;
     ++d.frames;
 }
@@ -338,6 +360,20 @@ VoiceVideoCodec codec_from_environment() noexcept {
         return VoiceVideoCodec::av1;
     return VoiceVideoCodec::h264;
 }
+// MAICORD_LOOPBACK_SIZE: 1440 (Go Live 1440p 60 fps) or 2160 (Source from a 4K window), H.264 level 5.1 in both.
+void size_from_environment() noexcept {
+    wchar_t text[8]{};
+    const DWORD length = GetEnvironmentVariableW(L"MAICORD_LOOPBACK_SIZE", text, 8);
+    if (length != 4 || (text[0] != L'1' && text[0] != L'2'))
+        return;
+    const bool uhd = text[0] == L'2';
+    g_width = uhd ? 3840 : 2560;
+    g_height = uhd ? 2160 : 1440;
+    g_resolution = uhd ? 0 : 1440;
+    g_fps = uhd ? 30 : 60;
+    g_compact = true;
+    g_sps = {0, 66, g_width / 16u, g_height / 16u, 2, 1, false, 0, 0, 51};
+}
 
 void route(const NetworkCompletion& completion, u64 now_ms) noexcept {
     if (voice_connection_owns(g->live.connection, completion))
@@ -360,6 +396,7 @@ void drive_viewer(u64 now_ms) noexcept {
 
 int run() noexcept {
     g->codec = codec_from_environment();
+    size_from_environment();
     if (!network_loop_initialize(&g->loop).ok())
         return 1;
     auto& live = g->live;
@@ -376,10 +413,10 @@ int run() noexcept {
     start.kind = GoLiveCommandKind::start;
     start.guild_id = kGuild;
     start.channel_id = kChannel;
-    start.settings = {0, 30, StreamPreset::video, true, false, {}};
+    start.settings = {g_resolution, g_fps, StreamPreset::video, true, false, {}};
     start.source.kind = CaptureSourceKind::window;
-    start.source.width = kWidth;
-    start.source.height = kHeight;
+    start.source.width = g_width;
+    start.source.height = g_height;
     start.source.process_id = 1234;
     const u64 begin = clock_monotonic_milliseconds();
     check(gateway_go_live_command(&live, start, kSender, {sender_session, sizeof(sender_session) - 1}, begin) &&
@@ -432,8 +469,17 @@ int run() noexcept {
     check(live.sender.bandwidth.acked_since_us != 0, "Go Live loopback: the viewer's transport feedback reaches the sender");
     if (g->decoder) {
         // Decoding is synchronous: every pushed H.264 frame produced a picture.
-        check(g->decoded.frames >= kWantedFrames && !g->decoded.mismatches,
-              "Go Live loopback: the GPU decoder shows the sender's pictures (I_PCM samples exact)");
+        const bool shown = g->decoded.frames >= kWantedFrames && !g->decoded.mismatches;
+        if (!shown) {
+            test_write_text("decoded pictures ");
+            test_write_u64(g->decoded.frames);
+            test_write_text(" of ");
+            test_write_u64(r.frames);
+            test_write_text(" frames, differing ");
+            test_write_u64(g->decoded.mismatches);
+            test_write_line("");
+        }
+        check(shown, "Go Live loopback: the GPU decoder shows the sender's pictures (I_PCM samples exact)");
     }
     // Stop: STREAM_DELETE is queued and both connections drain.
     GoLiveCommand stop{};

@@ -1,12 +1,13 @@
 """Go Live loopback: MaiCord's sender streams to MaiCord's receive path through tools/fake_discord_server.py's stream server.
 
-    tools/test_go_live_loopback.py LOOPBACK_EXE WORK_DIR [CODEC,...]
+    tools/test_go_live_loopback.py LOOPBACK_EXE WORK_DIR [CASE,...]
 
-Each codec (H.264, H.265, AV1) has its own fake server (its UDP ports are ephemeral) with a throwaway certificate for its
-stream server's name (made once with openssl, Git's on Windows) and its own LOOPBACK_EXE process (tests/app/voice/
-go_live_loopback.cpp) pointed at it with the test hooks (MAICORD_TEST_SERVER, MAICORD_TEST_CA_FILE); the three run side
-by side, as each is paced by the wall clock. It checks the server saw the DAVE group of the two and media both ways.
-Exit 77 (skipped) without openssl or a hardware video device.
+A case is a codec (h264, h265, av1), optionally with a picture height (h264-1440: Go Live at 1440p 60 fps from a
+2560x1440 window; h264-2160: Source from a 3840x2160 one; MAICORD_LOOPBACK_SIZE). Each case has its own fake server (its
+UDP ports are ephemeral) with a throwaway certificate for its stream server's name (made once with openssl, Git's on
+Windows) and its own LOOPBACK_EXE process (tests/app/voice/go_live_loopback.cpp) pointed at it with the test hooks
+(MAICORD_TEST_SERVER, MAICORD_TEST_CA_FILE); they run side by side, as each is paced by the wall clock. It checks the
+server saw the DAVE group of the two and media both ways. Exit 77 (skipped) without openssl or a hardware video device.
 """
 import concurrent.futures
 import os
@@ -43,9 +44,10 @@ def certificate(work, tool):
     return cert, key
 
 
-def run(exe, work, cert, key, codec):
-    """(exit status, the lines to show) of one codec's server and client."""
-    log = os.path.join(work, f"server-{codec}.log")
+def run(exe, work, cert, key, case):
+    """(exit status, the lines to show) of one case's server and client."""
+    codec, _, size = case.partition("-")
+    log = os.path.join(work, f"server-{case}.log")
     open(log, "w").close()
     port = free_port()
     environment = dict(os.environ, MAICORD_FAKE_STREAM_CODEC={"h264": "H264", "h265": "H265", "av1": "AV1"}[codec])
@@ -56,11 +58,12 @@ def run(exe, work, cert, key, codec):
         first = server.stdout.readline().strip()
         if first != "ready":
             # Not "ready" means it exited (most often another fake server holds its UDP ports): show why.
-            return 1, [f"{codec}: the fake server did not start\n{first}\n{server.stdout.read()}"]
+            return 1, [f"{case}: the fake server did not start\n{first}\n{server.stdout.read()}"]
         client = subprocess.run([exe], env=dict(os.environ, MAICORD_TEST_SERVER=f"127.0.0.1:{port}",
-                                                MAICORD_TEST_CA_FILE=cert, MAICORD_LOOPBACK_CODEC=codec),
+                                                MAICORD_TEST_CA_FILE=cert, MAICORD_LOOPBACK_CODEC=codec,
+                                                MAICORD_LOOPBACK_SIZE=size),
                                 capture_output=True, text=True, timeout=45)
-        shown = [f"{codec}: " + (client.stdout + client.stderr).strip()]
+        shown = [f"{case}: " + (client.stdout + client.stderr).strip()]
         if client.returncode == 77:
             return 77, shown
         with open(log, encoding="utf-8") as handle:
@@ -69,7 +72,7 @@ def run(exe, work, cert, key, codec):
                   "go live rtp audio packets 10", "go live rtcp packets 10", "go live video ssrc"]
         missing = [line for line in wanted if line not in lines]
         if missing:
-            shown.append(f"{codec}: the stream server never logged: {missing}")
+            shown.append(f"{case}: the stream server never logged: {missing}")
         return client.returncode or (1 if missing else 0), shown
     finally:
         server.terminate()
@@ -84,10 +87,10 @@ def main():
         print("go live loopback: no openssl; skipped")
         return 77
     started = time.time()
-    codecs = sys.argv[3].split(",") if len(sys.argv) > 3 else ("h264", "h265", "av1")
+    cases = sys.argv[3].split(",") if len(sys.argv) > 3 else ("h264", "h265", "av1", "h264-1440", "h264-2160")
     cert, key = certificate(work, tool)
-    with concurrent.futures.ThreadPoolExecutor(len(codecs)) as pool:
-        runs = list(pool.map(lambda codec: run(exe, work, cert, key, codec), codecs))
+    with concurrent.futures.ThreadPoolExecutor(len(cases)) as pool:
+        runs = list(pool.map(lambda case: run(exe, work, cert, key, case), cases))
     for _, shown in runs:
         print("\n".join(shown))
     results = [result for result, _ in runs]

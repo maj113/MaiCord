@@ -9,9 +9,11 @@ namespace maicord {
 namespace {
 bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu& gpu) noexcept {
     constexpr u32 width = 2560, height = 16, luma_bytes = width * height;
+    // The 4096-wide picture below shares the buffer.
+    constexpr u32 wide_width = 4096, wide_luma_bytes = wide_width * height;
     auto* pixels = static_cast<u8*>(
-        VirtualAlloc(nullptr, luma_bytes * 3u / 2u, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    Nv12TestPicture picture{};
+        VirtualAlloc(nullptr, wide_luma_bytes * 3u / 2u, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    Nv12TestPicture picture{}, wide_picture{};
     ID3D11Texture2D* readback = nullptr;
     ID3D11Query* ready = nullptr;
     bool ok = pixels != nullptr;
@@ -104,21 +106,27 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
         invalid.width = 4097;
         const auto rejected = media_atlas_gpu_present_video(&gpu, &atlas, r.graphics.device,
                                                             r.graphics.context1, key, invalid, true);
-        // A4096-wide visible shape cannot fit the existing one-pixel padding.
-        invalid.width = 4096;
-        const auto padded = media_atlas_gpu_present_video(
-            &gpu, &atlas, r.graphics.device, r.graphics.context1,
-            media_asset_attachment(987656, MediaAttachmentFormat::mp4), invalid, true);
+        // A 4096-wide picture is wider than a page: it is halved to fit, not refused.
+        for (u32 i = 0; i < wide_luma_bytes * 3u / 2u; ++i)
+            pixels[i] = i < wide_luma_bytes ? 144 : 128;
         ok = rejected.error == MediaAtlasGpuError::invalid_input &&
-             padded.error == MediaAtlasGpuError::atlas_failure &&
-             padded.allocation.error == MediaAtlasError::too_large && gpu.video.frames == conversions + 2 &&
-             atlas.entry_count == entries + 1 && media_atlas_validate(atlas, first.handle);
+             wide_picture.create(r.graphics.device, wide_width, height, pixels);
+        GpuVideoFrame wide = wide_picture.frame(wide_width, height);
+        wide.bt709 = wide.full_range = true;
+        const auto fitted = ok ? media_atlas_gpu_present_video(
+                                     &gpu, &atlas, r.graphics.device, r.graphics.context1,
+                                     media_asset_attachment(987656, MediaAttachmentFormat::mp4), wide, true)
+                               : MediaAtlasGpuResult{};
+        ok = ok && fitted.ok() && fitted.allocation.width == wide_width / 2 &&
+             fitted.allocation.height == height / 2 && gpu.video.frames == conversions + 3 &&
+             atlas.entry_count == entries + 2 && media_atlas_validate(atlas, first.handle);
     }
     if (ready)
         ready->Release();
     if (readback)
         readback->Release();
     picture.release();
+    wide_picture.release();
     if (pixels)
         VirtualFree(pixels, 0, MEM_RELEASE);
     log_write(ok ? LogLevel::info : LogLevel::error, "probe",
@@ -136,7 +144,7 @@ bool png_preview_probe(D3D11Renderer& r) noexcept {
     PngImage image{};
     bool ok =
         png_image_configure(&image, 2048, 16, 8, 6) &&
-        media_atlas_initialize(&atlas, 4096, 64, 1, {entries, 4}, {buckets, 8}, {allocations, 4},
+        media_atlas_initialize(&atlas, kPreviewMediaAtlasExtent, 64, 1, {entries, 4}, {buckets, 8}, {allocations, 4},
                                {rows, 4}) &&
         media_atlas_gpu_initialize(&gpu, r.graphics.device, atlas).ok() &&
         media_atlas_gpu_initialize_preview(&gpu, r.graphics.device, atlas).ok();

@@ -199,7 +199,7 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
                        : key.kind == MediaAssetKind::embed || key.kind == MediaAssetKind::attachment
                            ? media_resolution_tier_extent(media_asset_resolution_tier(key)) : 0;
     if (gpu_video_frame_visible_valid(frame.width, frame.height)) {
-        const u32 step = gpu_video_frame_reduction(frame.width, frame.height, extent);
+        const u32 step = media_atlas_video_step(*atlas, frame, extent);
         // A tile resize or new stream resolution changes the extent under the
         // same key; retire the old allocation, which cannot hold the new size.
         const MediaAtlasResult resident = media_atlas_peek(atlas, key);

@@ -1,4 +1,6 @@
 #include "maicord/render/media/atlas.hpp"
+#include "maicord/render/media/atlas_gpu.hpp"
+#include "maicord/app/voice/call_video_presenter.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord {
@@ -364,6 +366,40 @@ void test_out_of_virtual_space(void (*check)(bool, const char*) noexcept) noexce
           "atlas_out_of_virtual_space_refuses_without_touching_the_visible_set");
 }
 
+// Call video in the client's preview surface, as the call view presents it: a 1440p stream (Go Live at 1440p, or
+// Source on a 2560x1440 display) keeps its own size in a focused tile; 4K, ultrawide and portrait sources are reduced
+// until they fit a page. Every picture is placed (a refused one is a black tile).
+void test_call_video_fits_preview(void (*check)(bool, const char*) noexcept) noexcept {
+    MediaAtlas atlas{};
+    MediaAtlasEntry entries[4]{};
+    u32 buckets[8]{};
+    GlyphAtlasEntry allocations[4]{};
+    GlyphAtlasRow rows[4]{};
+    bool ok = media_atlas_initialize(&atlas, kPreviewMediaAtlasExtent, kPreviewMediaAtlasPageRows, kMediaAtlasPadding,
+                                     {entries, 4}, {buckets, 8}, {allocations, 4}, {rows, 4}) &&
+              media_atlas_configure_surface(&atlas, MediaAtlasSurface::preview);
+    struct Case {
+        u32 width, height, tile, shown_width, shown_height;
+    };
+    constexpr Case cases[] = {
+        {1280, 720, 2400, 1280, 720},   {1920, 1080, 2400, 1920, 1080}, {2560, 1440, 2400, 2560, 1440},
+        {2560, 1440, 1600, 2560, 1440}, {2560, 1600, 2400, 2560, 1600}, {3840, 2160, 2400, 1920, 1080},
+        {3440, 1440, 3000, 1720, 720},  {1440, 2560, 2400, 720, 1280},  {2560, 1440, 1000, 1280, 720},
+    };
+    for (u32 i = 0; ok && i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        const Case& c = cases[i];
+        GpuVideoFrame frame{};
+        frame.width = c.width;
+        frame.height = c.height;
+        const u32 step = media_atlas_video_step(atlas, frame, call_video_reduction_extent(c.width, c.height, c.tile));
+        const u32 width = gpu_video_frame_output_width(frame, step), height = gpu_video_frame_output_height(frame, step);
+        const MediaAssetKey key = media_asset_call_video(7, 100 + i);
+        const auto placed = media_atlas_allocate(&atlas, key, static_cast<u16>(width), static_cast<u16>(height));
+        ok = width == c.shown_width && height == c.shown_height && placed.ok() && media_atlas_forget(&atlas, key);
+    }
+    check(ok, "atlas_call_video_1440p_keeps_its_size_and_every_stream_fits_a_preview_page");
+}
+
 } // namespace
 
 void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
@@ -461,5 +497,6 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     test_profile_sequence(check);
     test_commit_accounting(check);
     test_out_of_virtual_space(check);
+    test_call_video_fits_preview(check);
 }
 }

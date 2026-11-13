@@ -326,6 +326,9 @@ void set_chat(bool open) noexcept {
     view.chat_open = open;
     relayout();
 }
+// A 1440p stream (or a 2560-wide source) is presented at its own size: its picture fits a preview atlas page.
+static_assert(kCallVideoMaximumExtent + 2u * kMediaAtlasPadding <= kPreviewMediaAtlasExtent &&
+              1440u + 2u * kMediaAtlasPadding <= kPreviewMediaAtlasPageRows);
 // One pass of wants (and pictures when poll is set) against the current tiles.
 CallVideoPumpResult synchronize_video(bool poll) noexcept {
     auto& host = g_app.account;

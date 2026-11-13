@@ -31,7 +31,9 @@ until an eighth of the records is free, so a burst of new glyphs evicts once, no
 (effect layers, banners, nameplates) have pools of their own pages (`kMediaAtlasProfilePools`), reused in ring order. Every entry keeps
 `kMediaAtlasPadding` clear texels around it, so a page holds pictures up to its size less twice that. The CDN sizes what it can to the
 drawn width (profile card images); what it cannot (effect layers, some at about twice their 450x880 slot) the media worker fits at
-decode, every animation frame included, with an area-average filter (`media_fit_*`, `app/media/local_preview_thumbnail.hpp`). Uploads
+decode, every animation frame included, with an area-average filter (`media_fit_*`, `app/media/local_preview_thumbnail.hpp`). A video
+picture is converted at the integer GPU reduction that fits a page (`media_atlas_video_step`): the preview pages are 2576 wide so a
+1440p stream keeps its own size, and a wider or portrait one is reduced rather than refused (a refused call picture is a black tile). Uploads
 validate sizes before any device call; a refused upload fails its asset alone, which backs off (`media_asset_failures.hpp`), never the
 session. Out of virtual space (every page full of visible pictures) an upload is refused and logged (`media_atlas_out_of_virtual_space`).
 

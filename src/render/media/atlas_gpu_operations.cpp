@@ -18,7 +18,7 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     }
     // A poster entry holds only the reduced picture, never the native frame,
     // already turned upright for a rotated container track.
-    const u32 step = gpu_video_frame_reduction(frame.width, frame.height, maximum_extent);
+    const u32 step = media_atlas_video_step(*atlas, frame, maximum_extent);
     MediaAtlasResult local{};
     const MediaAtlasResult allocation = allocate_and_clear_surface(gpu, atlas, context, preview, key,
         static_cast<u16>(gpu_video_frame_output_width(frame, step)),
