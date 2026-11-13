@@ -19,11 +19,19 @@ void check(bool valid, const char* label) noexcept {
     test_check(&g_failures, valid, label);
 }
 
-u32 return_argument(void* argument) noexcept {
-    return static_cast<u32>(reinterpret_cast<usize>(argument));
+// What a procedure did: it copies `input` to `output`.
+struct Cell {
+    volatile Atomic32 input;
+    volatile Atomic32 output;
+};
+
+u32 copy_input(void* argument) noexcept {
+    auto* cell = static_cast<Cell*>(argument);
+    write_release(&cell->output, read_acquire(&cell->input));
+    return 0;
 }
 
-// Waits for `release`, then raises `finished` (when given) and returns 42.
+// Waits for `release`, then raises `ran` and `finished` (when given).
 struct Blocked {
     Waitable release;
     Waitable finished;
@@ -37,22 +45,23 @@ u32 block_until_released(void* argument) noexcept {
     if (blocked->finished != nullptr) {
         event_set(blocked->finished);
     }
-    return 42;
+    return 0;
 }
 
 void test_start_and_wait() noexcept {
     u32 error = 0xFFFFFFFFu;
-    Thread* thread = thread_start(return_argument, reinterpret_cast<void*>(usize{7}), 64 * 1024, &error);
+    Cell cell{7, 0};
+    Thread* thread = thread_start(copy_input, &cell, 64 * 1024, &error);
     check(thread != nullptr, "start");
     if (thread == nullptr) {
         return;
     }
     check(thread_wait(thread, kLimit), "wait returns once the thread returned");
-    u32 code = 0;
-    check(thread_exit_code(thread, &code) && code == 7, "exit code");
+    check(read_acquire(&cell.output) == 7, "the procedure ran with its argument");
     check(thread_wait(thread, 0), "a finished thread stays waited for");
     thread_close(thread);
-    Thread* plain = thread_start(return_argument, nullptr, 0, nullptr);
+    Cell plain_cell{1, 0};
+    Thread* plain = thread_start(copy_input, &plain_cell, 0, nullptr);
     check(plain != nullptr && thread_wait(plain, kLimit), "start without an error out or a stack size");
     if (plain != nullptr) {
         thread_close(plain);
@@ -65,11 +74,9 @@ void test_wait_times_out_while_running() noexcept {
     check(thread != nullptr, "blocked: start");
     if (thread != nullptr) {
         check(!thread_wait(thread, 20), "blocked: a running thread times out");
-        u32 code = 0;
-        check(!thread_exit_code(thread, &code), "blocked: no exit code yet");
+        check(read_acquire(&blocked.ran) == 0, "blocked: it has not passed its wait");
         event_set(blocked.release);
         check(thread_wait(thread, kLimit) && read_acquire(&blocked.ran) == 1, "blocked: released thread returns");
-        check(thread_exit_code(thread, &code) && code == 42, "blocked: its code");
         thread_close(thread);
     }
     waitable_close(blocked.release);
@@ -122,10 +129,10 @@ void test_many_threads() noexcept {
     u32 total = 0;
     bool all = true;
     for (u32 index = 0; index < 200; ++index) {
-        Thread* thread = thread_start(return_argument, reinterpret_cast<void*>(usize{index}), 64 * 1024, nullptr);
-        u32 code = 0;
-        all = all && thread != nullptr && thread_wait(thread, kLimit) && thread_exit_code(thread, &code) && code == index;
-        total += code;
+        Cell cell{static_cast<Atomic32>(index), -1};
+        Thread* thread = thread_start(copy_input, &cell, 64 * 1024, nullptr);
+        all = all && thread != nullptr && thread_wait(thread, kLimit) && read_acquire(&cell.output) == static_cast<Atomic32>(index);
+        total += static_cast<u32>(read_acquire(&cell.output));
         if (thread != nullptr) {
             thread_close(thread);
         }
@@ -138,11 +145,12 @@ void test_helpers() noexcept {
     check(current_thread_id() != 0, "thread id");
 }
 
-u32 enter_and_leave(void*) noexcept {
+u32 enter_and_leave(void* argument) noexcept {
     const bool entered = thread_com_enter();
     if (entered)
         thread_com_leave();
-    return entered ? 1 : 0;
+    write_release(static_cast<volatile Atomic32*>(argument), entered ? 1 : 0);
+    return 0;
 }
 
 // thread_waitable is signaled by the thread's end, so a wait set can hold a thread beside events; the COM and
@@ -159,12 +167,12 @@ void test_thread_waitable() noexcept {
     thread_cancel_synchronous_io(thread);
     event_set(blocked.release);
     check(wait_one(thread_waitable(thread), kLimit) == WAIT_OBJECT_0, "thread_waitable is signaled when it ends");
-    u32 code = 0;
-    check(thread_exit_code(thread, &code) && code == 42, "thread_waitable does not disturb the exit code");
+    check(read_acquire(&blocked.ran) == 1, "thread_waitable is signaled after the procedure's work");
     thread_close(thread);
     waitable_close(blocked.release);
-    Thread* com = thread_start(enter_and_leave, nullptr, 64 * 1024, nullptr);
-    check(com != nullptr && thread_wait(com, kLimit) && thread_exit_code(com, &code) && code == 1,
+    volatile Atomic32 entered = 0;
+    Thread* com = thread_start(enter_and_leave, const_cast<Atomic32*>(&entered), 64 * 1024, nullptr);
+    check(com != nullptr && thread_wait(com, kLimit) && read_acquire(&entered) == 1,
           "thread_com_enter and thread_com_leave");
     if (com != nullptr)
         thread_close(com);

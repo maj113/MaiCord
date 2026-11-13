@@ -143,43 +143,6 @@ void weak_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,bool ta
         if(type==B::l || type==B::r)previous=type;
     }
 }
-u32 canonical_bracket(u32 scalar) noexcept {return scalar==0x232a?0x3009:scalar;}
-void brackets(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,B,B embedding_direction) noexcept {
-    struct Open {u32 paired,position;};Open stack[63];u32 depth=0;
-    for(u32 i=0;i<order.count;++i) {
-        auto& cell=cells[order[i]];if(cell.resolved!=B::on)continue;
-        cell.link=none;const auto bracket=unicode_bidi_bracket(cell.scalar);
-        if(bracket.type==UnicodeBracketType::open) {
-            // BD16 returns an empty list for the entire sequence on overflow.
-            if(depth==63)return;
-            stack[depth++]={canonical_bracket(bracket.paired),i};
-        } else if(bracket.type==UnicodeBracketType::close) {
-            const u32 scalar=canonical_bracket(cell.scalar);
-            for(u32 j=depth;j>0;--j)if(stack[j-1].paired==scalar) {
-                cells[order[stack[j-1].position]].link=i;depth=j-1;break;
-            }
-        }
-    }
-    B previous=sos;
-    for(u32 i=0;i<order.count;++i) {
-        auto& cell=cells[order[i]];
-        if(cell.resolved==B::on && cell.link!=none) {
-            const u32 close=cell.link;bool same=false,opposite=false;
-            for(u32 j=i+1;j<close;++j) {
-                const B type=strong(cells[order[j]].resolved);
-                if(type==embedding_direction){same=true;break;}
-                if(type==B::l || type==B::r)opposite=true;
-            }
-            if(same || opposite) {
-                const B value=same?embedding_direction:previous;
-                cell.resolved=value;cells[order[close]].resolved=value;
-                for(u32 j=i+1;j<order.count && cells[order[j]].original==B::nsm;++j)cells[order[j]].resolved=value;
-                for(u32 j=close+1;j<order.count && cells[order[j]].original==B::nsm;++j)cells[order[j]].resolved=value;
-            }
-        }
-        const B type=strong(cell.resolved);if(type==B::l || type==B::r)previous=type;
-    }
-}
 void neutral_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,B eos,B embedding_direction) noexcept {
     B previous=sos;
     for(u32 i=0;i<order.count;) {
@@ -233,9 +196,6 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
         }
     }
     *paragraph={cells.count,base};return UnicodeBidiStatus::ok;
-}
-UnicodeBidiStatus unicode_bidi_resolve(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,Slice<u32> scratch,UnicodeBidiParagraph* paragraph) noexcept {
-    return bidi_resolve_with_brackets(cells,policy,scratch,paragraph,brackets);
 }
 UnicodeBidiStatus unicode_bidi_line(ConstSlice<UnicodeBidiCell> cells,u8 base,u32 first,u32 end,Slice<u8> levels,Slice<u32> visual,u32* visual_count) noexcept {
     if(!visual_count)return UnicodeBidiStatus::invalid_input;*visual_count=0;

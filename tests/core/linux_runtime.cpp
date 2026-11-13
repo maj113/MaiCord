@@ -76,9 +76,9 @@ void test_libraries() noexcept {
     SharedLibrary library{};
     expect(shared_library_open(&library, "libc.so.6"), "dlopen_libc");
     using GetProcessId = int (*)();
-    const auto get_process_id = reinterpret_cast<GetProcessId>(shared_library_symbol(library, "getpid"));
+    const auto get_process_id = reinterpret_cast<GetProcessId>(dlsym(library.handle, "getpid"));
     expect(get_process_id && static_cast<u32>(get_process_id()) == process_id(), "dlsym_getpid");
-    expect(shared_library_symbol(library, "maicord_no_such_symbol") == nullptr, "dlsym_missing_symbol");
+    expect(dlsym(library.handle, "maicord_no_such_symbol") == nullptr, "dlsym_missing_symbol");
     shared_library_close(&library);
     expect(library.handle == nullptr, "dlclose");
 
@@ -135,7 +135,7 @@ void test_c_library() noexcept {
     }
     SharedLibrary libc{};
     expect(shared_library_open(&libc, "libc.so.6"), "c_library_opens_by_its_glibc_name");
-    const auto* name = static_cast<char* const*>(shared_library_symbol(libc, "program_invocation_name"));
+    const auto* name = static_cast<char* const*>(dlsym(libc.handle, "program_invocation_name"));
     expect(name && *name && **name, "c_library_program_name_is_set");
     shared_library_close(&libc);
 }

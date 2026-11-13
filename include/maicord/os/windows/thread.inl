@@ -22,17 +22,6 @@ __forceinline bool threads_wait_all(Thread* const* threads, u32 count, u32 timeo
     return WaitForMultipleObjects(count, reinterpret_cast<const HANDLE*>(threads), TRUE, timeout_ms) == WAIT_OBJECT_0;
 }
 
-__forceinline bool thread_exit_code(Thread* thread, u32* code) noexcept {
-    // A running thread reports the exit code 259 (STILL_ACTIVE), which a thread may return too: ask whether it ended.
-    DWORD value = 0;
-    if (WaitForSingleObject(reinterpret_cast<HANDLE>(thread), 0) != WAIT_OBJECT_0 ||
-        !GetExitCodeThread(reinterpret_cast<HANDLE>(thread), &value)) {
-        return false;
-    }
-    *code = value;
-    return true;
-}
-
 __forceinline void thread_close(Thread* thread) noexcept {
     CloseHandle(reinterpret_cast<HANDLE>(thread));
 }

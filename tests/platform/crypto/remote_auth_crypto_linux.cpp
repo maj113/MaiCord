@@ -28,7 +28,7 @@ struct Sender {
     bool open() noexcept {
         if (!shared_library_open(&library, "libcrypto.so.4") && !shared_library_open(&library, "libcrypto.so.3"))
             return false;
-#define BIND(name) name = reinterpret_cast<decltype(name)>(shared_library_symbol(library, #name))
+#define BIND(name) name = reinterpret_cast<decltype(name)>(dlsym(library.handle, #name))
         BIND(d2i_PUBKEY);
         BIND(EVP_PKEY_CTX_new);
         BIND(EVP_PKEY_encrypt_init);

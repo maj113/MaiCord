@@ -317,11 +317,6 @@ __forceinline void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const floa
     context->ClearRenderTargetView(target, rgba);
 }
 
-__forceinline void gpu_clear_rtv_rect(GpuContext1* context, GpuRtv* target, const float rgba[4],
-                                      const GpuRect& rectangle) {
-    context->ClearView(target, rgba, reinterpret_cast<const D3D11_RECT*>(&rectangle), 1);
-}
-
 __forceinline void gpu_clear_uav_rect(GpuContext1* context, GpuUav* target, const float rgba[4],
                                       const GpuRect& rectangle) {
     context->ClearView(target, rgba, reinterpret_cast<const D3D11_RECT*>(&rectangle), 1);

@@ -12,7 +12,25 @@ using Check = void (*)(bool, const char*) noexcept;
 bool filled(const void* data, u32 count, u8 value = 0xa5) noexcept {
     return test_filled(static_cast<const u8*>(data), count, value);
 }
-void exercise_tbs(Check, const MlsGroupContextView&, u8*) noexcept {
+// A corpus GroupContext as the client meets one, at the head of a GroupInfo: the context's n bytes, then an empty
+// extension list and confirmation tag, signer 0 and an empty signature. Every truncation fails atomically and the
+// context view covers exactly the n bytes.
+MlsGroupContextView group_context(Check check, u8* data, u32 n) noexcept {
+    constexpr u8 trailer[]{0, 0, 0, 0, 0, 0, 0};
+    copy_bytes(data + n, trailer, sizeof(trailer));
+    const u32 bytes = n + sizeof(trailer);
+    MlsGroupInfoView view{};
+    check(mls_group_info_decode({data, bytes}, &view).ok() && view.context.serialized.data == data &&
+              view.context.serialized.count == n && !view.extensions.count && !view.signer,
+          "MLS published/independent group context decodes at the head of a GroupInfo");
+    MlsGroupInfoView unchanged;
+    memset(&unchanged, 0xa5, sizeof(unchanged));
+    for (u32 cut = 0; cut != bytes; ++cut) {
+        const auto failed = mls_group_info_decode({data, cut}, &unchanged);
+        check(!failed.ok() && !failed.bytes && failed.error_offset <= cut && filled(&unchanged, sizeof(unchanged)),
+              "MLS every group context truncation preserves output and bounded error offset");
+    }
+    return view.context;
 }
 template <typename T> void exercise_tbs(Check check, T view, u8* encoded) noexcept {
     view.signature = {nullptr, 1}; // Excluded outer signature must not be read.
@@ -145,7 +163,7 @@ void corpus(Check check, u8* buffer) noexcept {
         } else if (v.kind == 2)
             d.leaf(exercise<MlsLeafView, mls_leaf_decode_prefix>(check, buffer, n));
         else
-            d.group(exercise<MlsGroupContextView, mls_group_context_decode_prefix>(check, buffer, n));
+            d.group(group_context(check, buffer, n));
     }
     u8 actual[32], expected[32];
     test_unhex(mls_object_digest, expected);

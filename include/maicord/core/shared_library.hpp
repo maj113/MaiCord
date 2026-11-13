@@ -19,9 +19,6 @@ struct SharedLibrary {
 // lib64 directories. False when none loads it; shared_library_error() then describes the last failure.
 bool shared_library_open(SharedLibrary* library, const char* name) noexcept;
 
-// The address of `name` in the library, or null.
-void* shared_library_symbol(const SharedLibrary& library, const char* name) noexcept;
-
 void shared_library_close(SharedLibrary* library) noexcept;
 
 // Fills a table of function pointers from `library`: `table` is a struct of nothing but function pointers

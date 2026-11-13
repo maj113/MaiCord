@@ -8,6 +8,7 @@
 #include "maicord/platform/net/socket.hpp"
 #include "maicord/platform/net/worker.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/udp_peer.hpp"
 #if !defined(_WIN32)
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -260,7 +261,7 @@ void test_refused(NetworkLoop* loop) noexcept {
 // The peer of a connected datagram: a bound UDP socket with a watch, and the address a datagram came from.
 bool receive_datagram(Socket* peer, SocketWatch* watch, void* data, u32 bytes, i32* count, NetworkAddress* from) noexcept {
     for (u32 attempt = 0; attempt < 50; ++attempt) {
-        *count = socket_receive_from(*peer, data, bytes, from);
+        *count = udp_peer_receive_from(*peer, data, bytes, from);
         if (*count >= 0) {
             return true;
         }
@@ -278,7 +279,7 @@ void test_datagrams(NetworkLoop* loop) noexcept {
     SocketWatch watch;
     u16 port = 0;
     i32 error = 0;
-    check(socket_bind_datagram_loopback(&peer, &port, &error) && socket_watch_open(&watch) &&
+    check(udp_peer_bind(&peer, &port, &error) && socket_watch_open(&watch) &&
               socket_watch_attach(&watch, &peer, kSocketRead),
           "a UDP peer");
     NetworkDatagram datagram{};
@@ -312,8 +313,8 @@ void test_datagrams(NetworkLoop* loop) noexcept {
           "the peer hears the datagram and its sender");
 
     // The reads are served in the order they were posted, an empty datagram being a datagram too.
-    check(socket_send_to(peer, "one", 3, from) == 3 && socket_send_to(peer, "two!", 4, from) == 4 &&
-              socket_send_to(peer, "", 0, from) == 0,
+    check(udp_peer_send_to(peer, "one", 3, from) == 3 && udp_peer_send_to(peer, "two!", 4, from) == 4 &&
+              udp_peer_send_to(peer, "", 0, from) == 0,
           "the peer answers three times");
     NetworkCompletion reads[3]{};
     for (u32 index = 0; index < 3; ++index) {
@@ -330,7 +331,7 @@ void test_datagrams(NetworkLoop* loop) noexcept {
     // A datagram larger than the buffer fails the read with the bytes that fit; the voice code drops it.
     u8 small[4]{};
     check(network_datagram_receive(&datagram, {small, sizeof(small)}).ok(), "post a small read");
-    check(socket_send_to(peer, "too long for it", 15, from) == 15, "send a long datagram");
+    check(udp_peer_send_to(peer, "too long for it", 15, from) == 15, "send a long datagram");
     check(next(loop, NetworkOperationKind::datagram_receive, &done) && !done.succeeded && !done.stale &&
               (done.native_error == ERROR_MORE_DATA || done.native_error == WSAEMSGSIZE) && done.transferred <= 4,
           "a truncated read fails with the truncation error");

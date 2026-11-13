@@ -94,12 +94,4 @@ bool socket_watch_poll(SocketWatch* watch, const Socket& socket, u32* events) no
 void socket_watch_reset(SocketWatch* watch) noexcept;
 void socket_watch_close(SocketWatch* watch) noexcept;
 
-// A UDP socket bound to 127.0.0.1 and a port the system picks, for the peer a connected NetworkDatagram talks to.
-// Attach it to a watch before reading: its calls do not block.
-bool socket_bind_datagram_loopback(Socket* socket, u16* port, i32* native_error) noexcept;
-// Receives one datagram and says where it came from (0 bytes is an empty datagram), or sends one to `to`; -1 with
-// network_last_error() set on failure, WSAEWOULDBLOCK when there is nothing to read.
-i32 socket_receive_from(const Socket& socket, void* data, u32 bytes, NetworkAddress* from) noexcept;
-i32 socket_send_to(const Socket& socket, const void* data, u32 bytes, const NetworkAddress& to) noexcept;
-
 } // namespace maicord

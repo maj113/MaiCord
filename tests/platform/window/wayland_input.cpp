@@ -471,7 +471,7 @@ void test_protocol_tables() noexcept {
             for (; *part && length + 1 < sizeof(symbol); ++part)
                 symbol[length++] = *part;
         symbol[length] = 0;
-        const Interface* theirs = static_cast<const Interface*>(shared_library_symbol(library, symbol));
+        const Interface* theirs = static_cast<const Interface*>(dlsym(library.handle, symbol));
         if (!theirs)
             continue;
         ++compared;

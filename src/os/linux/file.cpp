@@ -429,17 +429,6 @@ bool file_remove(const wchar_t* path) noexcept {
     return !syscall_failed(result) || fail(result);
 }
 
-bool file_set_last_write(const wchar_t* path, u64 last_write) noexcept {
-    char text[kPathCapacity];
-    if (!utf8_path(path, text)) {
-        return false;
-    }
-    const u64 whole = last_write / 10'000'000;
-    const i64 seconds = static_cast<i64>(whole) - kUnixEpochSeconds;
-    const long result = sys_set_modification_time(text, seconds, static_cast<i64>(last_write % 10'000'000) * 100);
-    return !syscall_failed(result) || fail(result);
-}
-
 bool dir_create(const wchar_t* path) noexcept {
     char text[kPathCapacity];
     if (!utf8_path(path, text)) {

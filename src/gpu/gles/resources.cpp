@@ -600,29 +600,17 @@ void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]) {
     gl.glEnable(gl::kScissorTest);
 }
 
-namespace {
-
-// A rectangle of `texture` cleared through its framebuffer, ignoring the scissor.
-void clear_rect(GpuContext* context, GpuTexture* texture, const float rgba[4], const GpuRect& rectangle) noexcept {
+// Clears a rectangle of the texture through its framebuffer, ignoring the scissor.
+void gpu_clear_uav_rect(GpuContext* context, GpuUav* target, const float rgba[4], const GpuRect& rectangle) {
     gl::Api& gl = api();
     flush_barriers();
-    const u32 framebuffer = texture_framebuffer(texture);
+    const u32 framebuffer = texture_framebuffer(target->texture);
     if (!framebuffer || rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
         return;
     bind_framebuffer(*context, framebuffer);
     gl.glScissor(rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top);
     gl.glClearBufferfv(gl::kColor, 0, rgba);
     context->applied_scissor_valid = false;
-}
-
-} // namespace
-
-void gpu_clear_rtv_rect(GpuContext* context, GpuRtv* target, const float rgba[4], const GpuRect& rectangle) {
-    clear_rect(context, target->texture, rgba, rectangle);
-}
-
-void gpu_clear_uav_rect(GpuContext* context, GpuUav* target, const float rgba[4], const GpuRect& rectangle) {
-    clear_rect(context, target->texture, rgba, rectangle);
 }
 
 void gpu_update_buffer(GpuContext*, GpuBuffer* buffer, const void* data, u32 bytes) {

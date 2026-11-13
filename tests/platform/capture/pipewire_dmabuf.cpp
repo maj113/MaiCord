@@ -246,9 +246,9 @@ MAICORD_TEST_ENTRY(maicord_capture_pipewire_entry) {
         test_process_exit(77);
     }
     SharedLibrary library{};
-    shared_library_open(&library, "libpipewire-0.3.so.0");
+    const bool opened = shared_library_open(&library, "libpipewire-0.3.so.0");
     g_producer.api = api;
-    g_producer.trigger = reinterpret_cast<int (*)(Stream*)>(shared_library_symbol(library, "pw_stream_trigger_process"));
+    g_producer.trigger = opened ? reinterpret_cast<int (*)(Stream*)>(dlsym(library.handle, "pw_stream_trigger_process")) : nullptr;
     check(g_producer.trigger != nullptr, "pipewire: the driver's trigger");
     check(producer_start(&g_producer, drm), "pipewire: the synthetic source connects to the daemon");
 

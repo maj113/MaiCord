@@ -17,7 +17,7 @@ namespace maicord {
 
 struct Thread;
 
-// The thread procedure. Windows threads return a DWORD, which thread_exit_code reads.
+// The thread procedure. Its result becomes a Windows thread's exit code.
 using ThreadProc = u32 (*)(void*) noexcept;
 
 // Starts a thread running procedure(argument) with a stack of at least stack_reserve_bytes (a reservation: the
@@ -27,8 +27,6 @@ Thread* thread_start(ThreadProc procedure, void* argument, u32 stack_reserve_byt
 bool thread_wait(Thread* thread, u32 timeout_ms) noexcept;
 // True once every one of the `count` threads (1 to 64) has returned within timeout_ms; false for none.
 bool threads_wait_all(Thread* const* threads, u32 count, u32 timeout_ms) noexcept;
-// What the procedure of a finished thread returned; false while it runs.
-bool thread_exit_code(Thread* thread, u32* code) noexcept;
 // Releases the handle (CloseHandle). A thread that is still running keeps running and cleans up after itself.
 void thread_close(Thread* thread) noexcept;
 

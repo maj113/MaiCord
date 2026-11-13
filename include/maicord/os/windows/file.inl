@@ -186,20 +186,6 @@ __forceinline bool file_remove(const wchar_t* path) noexcept {
     return DeleteFileW(path) != 0;
 }
 
-inline bool file_set_last_write(const wchar_t* path, u64 last_write) noexcept {
-    const HANDLE file = CreateFileW(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-    const FILETIME time{static_cast<DWORD>(last_write), static_cast<DWORD>(last_write >> 32)};
-    const bool ok = SetFileTime(file, nullptr, nullptr, &time) != 0;
-    const u32 error = ok ? 0 : thread_last_error();
-    CloseHandle(file);
-    if (!ok)
-        SetLastError(error);
-    return ok;
-}
-
 __forceinline bool dir_create(const wchar_t* path) noexcept {
     return CreateDirectoryW(path, nullptr) != 0;
 }

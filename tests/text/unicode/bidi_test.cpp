@@ -1,6 +1,7 @@
 #include "maicord/text/unicode/bidi.hpp"
 #include "maicord/text/unicode/detail/bidi_internal.hpp"
 #include "../../support/text_seams.hpp"
+#include "../../support/bidi_conformance.hpp"
 #include "maicord/text/unicode/bidi_ltr.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../../support/text_test_support.hpp"

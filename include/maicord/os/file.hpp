@@ -190,8 +190,6 @@ bool file_replace(const wchar_t* from, const wchar_t* to, bool durable) noexcept
 // Moves `from` to `to` durably (as file_replace with `durable`) and fails with ERROR_ALREADY_EXISTS when `to` exists.
 bool file_rename_noreplace(const wchar_t* from, const wchar_t* to) noexcept;
 bool file_remove(const wchar_t* path) noexcept;
-// Sets the last write time (a FILETIME) of the file at `path`; the access and change times follow the system.
-bool file_set_last_write(const wchar_t* path, u64 last_write) noexcept;
 // Fails with ERROR_ALREADY_EXISTS when the directory exists.
 bool dir_create(const wchar_t* path) noexcept;
 bool dir_remove(const wchar_t* path) noexcept;

@@ -79,10 +79,6 @@ bool shared_library_open(SharedLibrary* library, const char* name) noexcept {
     return library->handle != nullptr;
 }
 
-void* shared_library_symbol(const SharedLibrary& library, const char* name) noexcept {
-    return library.handle && name ? dlsym(library.handle, name) : nullptr;
-}
-
 const char* shared_library_resolve(const SharedLibrary& library, void* table, usize table_bytes,
                                    const char* names) noexcept {
     for (usize offset = 0; offset < table_bytes; offset += sizeof(void*)) {

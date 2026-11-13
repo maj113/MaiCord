@@ -403,15 +403,6 @@ bool track_drain(Track* track) noexcept {
     return track->drain_operation != nullptr;
 }
 
-bool track_buffer_attributes(Track* track, BufferAttr* granted) noexcept {
-    Lock lock(*track->session);
-    const BufferAttr* attributes = g_api.pa_stream_get_buffer_attr(track->stream);
-    if (!attributes)
-        return false;
-    *granted = *attributes;
-    return true;
-}
-
 namespace {
 
 struct ListState {

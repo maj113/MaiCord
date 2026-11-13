@@ -115,9 +115,6 @@ bool track_set_volume(Track* track, float linear) noexcept;
 // Asks the server to play out everything written so far; track.drained becomes 1 when it has. Some sinks (a PulseAudio
 // null sink) never answer, so a caller that must finish gives it a grace period (timing.hpp: kDrainGraceMs).
 bool track_drain(Track* track) noexcept;
-// The buffer attributes the server granted the stream (it may adjust the requested ones); false before the stream is
-// ready.
-bool track_buffer_attributes(Track* track, BufferAttr* granted) noexcept;
 
 // One entry of the server's device list: a sink for AudioFlow::render, a source for capture.
 struct DeviceInfo {

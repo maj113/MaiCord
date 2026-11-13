@@ -628,7 +628,7 @@ int spawn_self(const char* const* arguments) noexcept {
     using Spawn = int (*)(int*, const char*, const void*, const void*, char* const*, char* const*);
     static Spawn spawn;
     if (!spawn && shared_library_open(&libc, "libc.so.6"))
-        spawn = reinterpret_cast<Spawn>(shared_library_symbol(libc, "posix_spawn"));
+        spawn = reinterpret_cast<Spawn>(dlsym(libc.handle, "posix_spawn"));
     if (!spawn)
         return -1;
     int pid = 0;

@@ -15,8 +15,7 @@ has no `RENAME_NOREPLACE`, and `sync_parent` accepts a file system that cannot s
 ## Rules
 
 - A `Thread` is a glibc pthread over a fixed table of 64 records (Mesa, libEGL and libwayland need a real thread control
-  block). `thread_main` signals the record's `done` event just before it publishes the state, so `thread_exit_code` waits
-  out that window when the event is already set.
+  block). `thread_main` signals the record's `done` event (`thread_waitable`) just before it publishes the state.
 - A wait is one `ppoll` over eventfds, timerfds and borrowed descriptors (`wait.cpp`); there is no futex wait on several
   words, which is why `futex_waitv` has no use here. Every futex user (`srwlock.cpp`, which the page table and the log
   lock with, the thread table, the OpenSSL/TLS locks) waits on one word.

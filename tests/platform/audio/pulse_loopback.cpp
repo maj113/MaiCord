@@ -214,7 +214,7 @@ using UnloadModule = pulse::Operation* (*)(pulse::Context*, u32, pulse::ContextS
 
 template <typename Function> Function pulse_function(const char* name) noexcept {
     SharedLibrary library{};
-    void* address = shared_library_open(&library, "libpulse.so.0") ? shared_library_symbol(library, name) : nullptr;
+    void* address = shared_library_open(&library, "libpulse.so.0") ? dlsym(library.handle, name) : nullptr;
     shared_library_close(&library);
     return reinterpret_cast<Function>(address);
 }
@@ -335,15 +335,25 @@ void buffers(pulse::Session& session) noexcept {
     pulse::Track render{}, capture{};
     u32 error = 0;
     pulse::BufferAttr rendered{}, captured{};
+    // What the server granted (it may adjust the requested attributes), read under the session's lock.
+    using GetBufferAttr = const pulse::BufferAttr* (*)(pulse::Stream*);
+    const auto get_buffer_attr = pulse_function<GetBufferAttr>("pa_stream_get_buffer_attr");
+    const auto granted = [&](pulse::Track& track, pulse::BufferAttr* out) noexcept {
+        pulse::Lock lock(session);
+        const pulse::BufferAttr* attributes = get_buffer_attr ? get_buffer_attr(track.stream) : nullptr;
+        if (attributes)
+            *out = *attributes;
+        return attributes != nullptr;
+    };
     const pulse::TrackConfig playback{"MaiCord test render", "phone", {pulse::kSampleS16LE, kRate, 2}, kSink, render_plan,
                                       flags, -1.0f};
     const pulse::TrackConfig record{"MaiCord test capture", "phone", {pulse::kSampleS16LE, kRate, 1}, kMonitor,
                                     capture_plan, flags & ~pulse::kStreamStartCorked, -1.0f};
     check(pulse::track_open_playback(&session, &render, playback, &error) &&
-              pulse::track_wait_ready(&render, nullptr, 3000, &error) && pulse::track_buffer_attributes(&render, &rendered),
+              pulse::track_wait_ready(&render, nullptr, 3000, &error) && granted(render, &rendered),
           "buffers: the render stream opens with the voice render plan");
     check(pulse::track_open_record(&session, &capture, record, &error) &&
-              pulse::track_wait_ready(&capture, nullptr, 3000, &error) && pulse::track_buffer_attributes(&capture, &captured),
+              pulse::track_wait_ready(&capture, nullptr, 3000, &error) && granted(capture, &captured),
           "buffers: the capture stream opens with the voice capture plan");
     show_attributes("render (asked 3840/1920)", rendered);
     show_attributes("capture (asked fragsize 960, max 3840)", captured);

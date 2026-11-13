@@ -19,7 +19,6 @@ struct Thread {
     ThreadProc procedure;
     void* argument;
     volatile u32 state;
-    u32 result;
     Waitable done;
     volatile u32 in_use;
 };
@@ -61,7 +60,7 @@ void release_record(Thread* record) noexcept {
 
 void* thread_main(void* argument) noexcept {
     auto* record = static_cast<Thread*>(argument);
-    record->result = record->procedure(record->argument);
+    record->procedure(record->argument);
     event_set(record->done);
     u32 expected = kRunning;
     if (__atomic_compare_exchange_n(&record->state, &expected, kFinished, false, __ATOMIC_ACQ_REL,
@@ -117,7 +116,6 @@ __attribute__((minsize)) Thread* thread_start(ThreadProc procedure, void* argume
     record->procedure = procedure;
     record->argument = argument;
     record->state = kRunning;
-    record->result = 0;
     record->done = event_create(true, false);
     const u32 stack = stack_reserve_bytes < kMinimumStackBytes ? kMinimumStackBytes : stack_reserve_bytes;
     PthreadAttribute attribute;
@@ -153,19 +151,6 @@ bool threads_wait_all(Thread* const* threads, u32 count, u32 timeout_ms) noexcep
             return false;
         }
     }
-    return true;
-}
-
-bool thread_exit_code(Thread* thread, u32* code) noexcept {
-    // thread_main signals `done` just before it publishes the end: a caller that the event woke waits out the few
-    // instructions in between instead of reporting a thread that has returned as running.
-    if (!finished(thread) && wait_one(thread->done, 0) != WAIT_OBJECT_0) {
-        return false;
-    }
-    while (!finished(thread)) {
-        sys_sched_yield();
-    }
-    *code = thread->result;
     return true;
 }
 

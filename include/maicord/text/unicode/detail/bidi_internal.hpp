@@ -4,9 +4,16 @@
 
 namespace maicord {
 // Internal analysis boundary: a bracket policy receives one fully weak-resolved
-// isolating run sequence. The public resolver always uses Unicode 17 N0.
+// isolating run sequence. The client's policy is bidi_tailored_brackets; the tests
+// check the shared core with Unicode's N0 (tests/support/bidi_conformance.hpp).
 using BidiBracketResolver=void (*)(Slice<UnicodeBidiCell>,ConstSlice<u32>,UnicodeBidiClass,
                                  UnicodeBidiClass,UnicodeBidiClass) noexcept;
+// UAX #9 rev 51, P2 through I2, on one paragraph. A B is allowed only at the
+// end; the caller splits paragraphs (P1). FSI always uses P2/P3's LTR
+// fallback; auto_rtl is an explicit higher-level paragraph fallback.
+// Needs one u32 scratch slot per cell; no allocation. Buffers must not overlap
+// and must stay exclusively owned during resolution. On failure, working
+// outputs are unusable and paragraph is cleared.
 UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell>,UnicodeParagraphDirection,
                                             Slice<u32>,UnicodeBidiParagraph*,BidiBracketResolver,bool tailored=false) noexcept;
 // Bracket pairs matched by scalar (at most 61 open), resolved by the context

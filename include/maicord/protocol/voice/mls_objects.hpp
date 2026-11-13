@@ -90,7 +90,6 @@ struct MlsGroupSecretsView {
 // beyond the supplied input and MLS's 30-bit vector lengths.
 MlsDecodeResult mls_leaf_decode_prefix(ConstSlice<u8> input, MlsLeafView* output) noexcept;
 MlsDecodeResult mls_key_package_decode_prefix(ConstSlice<u8> input, MlsKeyPackageView* output) noexcept;
-MlsDecodeResult mls_group_context_decode_prefix(ConstSlice<u8> input, MlsGroupContextView* output) noexcept;
 MlsDecodeResult mls_key_package_decode(ConstSlice<u8> input, MlsKeyPackageView* output) noexcept;
 MlsDecodeResult mls_encrypted_group_secrets_decode_prefix(ConstSlice<u8> input,
                                                           MlsEncryptedGroupSecretsView* output) noexcept;

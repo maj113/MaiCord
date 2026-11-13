@@ -30,6 +30,23 @@ bool retained(const wchar_t* path) noexcept {
         bytes[0] == 1 && bytes[1] == 2 && bytes[2] == 3 && bytes[3] == 4;
     file_close(file); return ok;
 }
+// Moves the file's last write time (a FILETIME) without touching its bytes, as another program editing it would.
+bool set_last_write(const wchar_t* path, u64 last_write) noexcept {
+#if defined(_WIN32)
+    const HANDLE file = CreateFileW(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    const FILETIME time{static_cast<DWORD>(last_write), static_cast<DWORD>(last_write >> 32)};
+    const bool ok = SetFileTime(file, nullptr, nullptr, &time) != 0;
+    CloseHandle(file); return ok;
+#else
+    constexpr i64 kUnixEpochSeconds = 11'644'473'600; // 1601-01-01 to 1970-01-01
+    char text[4096];
+    return path_to_utf8(path, text, sizeof(text)) &&
+        !syscall_failed(sys_set_modification_time(text, static_cast<i64>(last_write / 10'000'000) - kUnixEpochSeconds,
+                                                  static_cast<i64>(last_write % 10'000'000) * 100));
+#endif
+}
 }
 void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcept {
     // A connection error after the last byte is written still commits; one
@@ -68,7 +85,7 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
         "download refuses an existing destination without explicit overwrite authorization");
     request.overwrite_authorized = true;
     const u64 changed_time = selected.identity.last_write + 10000000;
-    const bool timestamp_changed = file_set_last_write(path, changed_time);
+    const bool timestamp_changed = set_last_write(path, changed_time);
     check(timestamp_changed && https_file_download_start(&owner, request) == HttpsFileDownloadError::none,
         "zero-byte attachment admission owns its request without requiring a body allocation");
     if (owner.runtime) {

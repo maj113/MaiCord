@@ -61,24 +61,6 @@ void test_clear_and_rectangles(GpuDevice* device, GpuContext* context) noexcept 
         uniform = uniform && pixel_is(pixel, {64, 128, 191, 255});
     check(uniform, "clear fills every pixel");
 
-    // A rectangle near the top: row 4 is its first row, so the origin is top-left in the readback too.
-    const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
-    gpu_clear_rtv_rect(context, view, red, {8, 4, 24, 20});
-    check(gpu_ok(gpu_readback(device, context, texture, {0, 0, kWidth, kHeight}, g_pixels, kWidth * 4)),
-          "readback after a rectangle clear");
-    bool inside = true, outside = true;
-    for (u32 y = 0; y < kHeight; ++y)
-        for (u32 x = 0; x < kWidth; ++x) {
-            const bool in = x >= 8 && x < 24 && y >= 4 && y < 20;
-            const Rgba& pixel = g_pixels[y * kWidth + x];
-            if (in)
-                inside = inside && pixel_is(pixel, {255, 0, 0, 255});
-            else
-                outside = outside && pixel_is(pixel, {64, 128, 191, 255});
-        }
-    check(inside, "the rectangle clear fills its rectangle");
-    check(outside, "the rectangle clear leaves the rest");
-
     // A scissor left behind by drawing does not limit a clear.
     gpu_set_scissor(context, {0, 0, 1, 1});
     const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};

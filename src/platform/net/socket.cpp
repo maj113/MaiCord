@@ -138,48 +138,4 @@ void socket_watch_close(SocketWatch* watch) noexcept {
     *watch = {};
 }
 
-bool socket_bind_datagram_loopback(Socket* result, u16* port, i32* native_error) noexcept {
-    *result = {};
-    const SOCKET value = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (value == INVALID_SOCKET) {
-        *native_error = WSAGetLastError();
-        return false;
-    }
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    int address_bytes = sizeof(address);
-    if (bind(value, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR ||
-        getsockname(value, reinterpret_cast<sockaddr*>(&address), &address_bytes) == SOCKET_ERROR) {
-        *native_error = WSAGetLastError();
-        closesocket(value);
-        return false;
-    }
-    *port = ntohs(address.sin_port);
-    *result = wrap(value);
-    return true;
-}
-
-i32 socket_receive_from(const Socket& socket_value, void* data, u32 bytes, NetworkAddress* from) noexcept {
-    sockaddr_storage peer;
-    int peer_bytes = sizeof(peer);
-    const int received = recvfrom(raw(socket_value), static_cast<char*>(data), static_cast<int>(bytes), 0,
-                                  reinterpret_cast<sockaddr*>(&peer), &peer_bytes);
-    if (received >= 0 && from) {
-        network_address_from_socket(reinterpret_cast<const sockaddr*>(&peer), static_cast<usize>(peer_bytes), from);
-    }
-    return received;
-}
-
-i32 socket_send_to(const Socket& socket_value, const void* data, u32 bytes, const NetworkAddress& to) noexcept {
-    sockaddr_storage target;
-    const i32 target_bytes = socket_address(to, &target);
-    if (target_bytes == 0) {
-        WSASetLastError(WSAEINVAL);
-        return -1;
-    }
-    return sendto(raw(socket_value), static_cast<const char*>(data), static_cast<int>(bytes), 0,
-                  reinterpret_cast<const sockaddr*>(&target), target_bytes);
-}
-
 } // namespace maicord

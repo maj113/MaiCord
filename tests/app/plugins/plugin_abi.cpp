@@ -526,7 +526,7 @@ void check_shape(HMODULE, const wchar_t* leaf, const char* label) noexcept {
           label);
 }
 void* module_symbol(HMODULE module, const char* name) noexcept {
-    return shared_library_symbol(SharedLibrary{module}, name);
+    return dlsym(module, name);
 }
 void close_module(HMODULE module) noexcept {
     SharedLibrary library{module};

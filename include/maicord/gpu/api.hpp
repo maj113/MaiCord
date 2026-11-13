@@ -273,8 +273,6 @@ MAICORD_GPU_INLINE void gpu_draw_instanced(GpuContext* context, u32 vertices, u3
 MAICORD_GPU_INLINE void gpu_dispatch(GpuContext* context, u32 x, u32 y, u32 z);
 MAICORD_GPU_INLINE void gpu_clear_rtv(GpuContext* context, GpuRtv* target, const float rgba[4]);
 // Clears only `rectangle` (D3D11 ClearView), ignoring the scissor.
-MAICORD_GPU_INLINE void gpu_clear_rtv_rect(GpuContext1* context, GpuRtv* target, const float rgba[4],
-                                           const GpuRect& rectangle);
 MAICORD_GPU_INLINE void gpu_clear_uav_rect(GpuContext1* context, GpuUav* target, const float rgba[4],
                                            const GpuRect& rectangle);
 // Replaces the whole contents of a default-usage constant buffer from `bytes` bytes.

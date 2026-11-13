@@ -398,8 +398,8 @@ void connect_case(u16 port, const wchar_t* name, const char* protocol) noexcept 
     for (const char* soname : sonames) {
         SharedLibrary ssl{};
         if (library && !alpn_selected && shared_library_open(&ssl, soname) &&
-            shared_library_symbol(ssl, "SSL_new") == reinterpret_cast<void*>(library->SSL_new))
-            alpn_selected = reinterpret_cast<AlpnSelected>(shared_library_symbol(ssl, "SSL_get0_alpn_selected"));
+            dlsym(ssl.handle, "SSL_new") == reinterpret_cast<void*>(library->SSL_new))
+            alpn_selected = reinterpret_cast<AlpnSelected>(dlsym(ssl.handle, "SSL_get0_alpn_selected"));
         shared_library_close(&ssl);
     }
     const u8* selected = nullptr;

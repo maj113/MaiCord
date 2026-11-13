@@ -246,8 +246,16 @@ void composite_scene(GpuDevice* device, GpuContext* context, D3D11EffectOwner* o
     GpuRtv* view = nullptr;
     GpuBuffer* frame = nullptr;
     const UiFrame constants{2.0f / kWidth, -2.0f / kHeight, -1.0f, 1.0f, 1.0f, {}};
+    // The six canvases' backgrounds, written as the target's initial texels.
+    static constexpr float kBackgrounds[6][4]{{0.55f, 0.20f, 0.20f, 1}, {0.20f, 0.50f, 0.25f, 1}, {0.20f, 0.30f, 0.60f, 1},
+                                              {0.85f, 0.80f, 0.70f, 1}, {0.75f, 0.80f, 0.85f, 1}, {0.30f, 0.30f, 0.35f, 1}};
+    for (u32 y = 0; y < kHeight; ++y)
+        for (u32 x = 0; x < kWidth; ++x)
+            for (u32 c = 0; c < 4; ++c)
+                g_pixels[(y * kWidth + x) * 4 + c] = static_cast<u8>(kBackgrounds[y / 54 * 3 + x / 64][c] * 255.0f + 0.5f);
+    const GpuInitialData backgrounds{g_pixels, kWidth * 4};
     check(gpu_ok(gpu_texture_create(device, {kWidth, kHeight, GpuFormat::rgba8, GpuUsage::default_, gpu_bind_srv | gpu_bind_rtv},
-                                    nullptr, &texture)) &&
+                                    &backgrounds, &texture)) &&
               gpu_ok(gpu_rtv_create(device, texture, &view)) &&
               gpu_ok(gpu_buffer_create(device, {sizeof(constants), GpuUsage::default_, gpu_bind_constant, false}, &constants,
                                        &frame)),
@@ -258,20 +266,9 @@ void composite_scene(GpuDevice* device, GpuContext* context, D3D11EffectOwner* o
         gpu_release(texture);
         return;
     }
-    const float clear[4]{0.10f, 0.12f, 0.16f, 1.0f};
-    gpu_clear_rtv(context, view, clear);
-    static constexpr float kBackgrounds[6][4]{{0.55f, 0.20f, 0.20f, 1}, {0.20f, 0.50f, 0.25f, 1}, {0.20f, 0.30f, 0.60f, 1},
-                                              {0.85f, 0.80f, 0.70f, 1}, {0.75f, 0.80f, 0.85f, 1}, {0.30f, 0.30f, 0.35f, 1}};
     static constexpr EffectBlend kBlends[6]{EffectBlend::normal, EffectBlend::screen, EffectBlend::add,
                                             EffectBlend::normal, EffectBlend::screen, EffectBlend::add};
     static constexpr float kLight[6]{0, 0, 0, 0.6f, 0.5f, 1.0f};
-    GpuContext1* extended = gpu_context_1(context);
-    for (u32 k = 0; k < 6; ++k) {
-        const u32 column = k % 3, row = k / 3;
-        const GpuRect rectangle{static_cast<i32>(column * 64), static_cast<i32>(row * 54), static_cast<i32>(column * 64 + 64),
-                                static_cast<i32>(row * 54 + 54)};
-        gpu_clear_rtv_rect(extended, view, kBackgrounds[k], rectangle);
-    }
     gpu_set_render_target(context, view);
     gpu_set_viewport(context, 0, 0, static_cast<float>(kWidth), static_cast<float>(kHeight));
     gpu_set_scissor(context, {0, 0, static_cast<i32>(kWidth), static_cast<i32>(kHeight)});

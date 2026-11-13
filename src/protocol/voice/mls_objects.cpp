@@ -184,10 +184,6 @@ MlsDecodeResult mls_leaf_decode_prefix(ConstSlice<u8> input, MlsLeafView* output
 MlsDecodeResult mls_key_package_decode_prefix(ConstSlice<u8> input, MlsKeyPackageView* output) noexcept {
     return decode<MlsKeyPackageView, package>(input, output, false);
 }
-MlsDecodeResult mls_group_context_decode_prefix(ConstSlice<u8> input,
-                                                MlsGroupContextView* output) noexcept {
-    return decode<MlsGroupContextView, group>(input, output, false);
-}
 MlsDecodeResult mls_key_package_decode(ConstSlice<u8> input, MlsKeyPackageView* output) noexcept {
     return decode<MlsKeyPackageView, package>(input, output, true);
 }

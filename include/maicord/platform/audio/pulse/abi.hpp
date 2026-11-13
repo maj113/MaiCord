@@ -181,7 +181,6 @@ using FreeCb = void (*)(void*) noexcept;
     F(Operation*, pa_stream_drain, (Stream*, StreamSuccessCb, void*))                                                  \
     F(i32, pa_stream_get_time, (Stream*, u64*))                                                                        \
     F(u32, pa_stream_get_index, (const Stream*))                                                                       \
-    F(const BufferAttr*, pa_stream_get_buffer_attr, (Stream*))                                                         \
     F(u32, pa_sw_volume_from_linear, (double))                                                                         \
     F(CVolume*, pa_cvolume_set, (CVolume*, u32, u32))
 
