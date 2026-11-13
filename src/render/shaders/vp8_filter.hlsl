@@ -32,32 +32,26 @@ RWByteAddressBuffer vp8_yuv : register(u0);
 // disjoint samples, and every sample still sees raster order: the horizontal pass of (x, y) comes a
 // step after the vertical pass of (x + 1, y - 1), which rewrote the right three columns of the
 // macroblock above. A lane filters one line of a pass, all its edges in order, in registers.
-// Thread row t holds macroblock rows t and t + 16 (slots); the lines of a slot cross between its
-// passes, and to the slot below, in group memory (29696 bytes in all), four samples to a word:
+// Thread row y holds macroblock row y: a step is the vertical pass of a diagonal's macroblocks or
+// their horizontal pass, so each thread runs one pass a step. The lines cross between a
+// macroblock's passes, and to the row below, in group memory (30208 bytes in all), four samples to
+// a word:
 // tile:   the macroblock after its vertical pass, by rows (luma 16 x 4 words, U and V 8 x 2);
 // left:   its right four columns after its horizontal pass, by columns (luma 4 x 4, U and V 4 x 2);
 // top:    its bottom four rows after its horizontal pass, a word per column (luma 16, U and V 8),
-//         by diagonal parity;
+//         by diagonal parity (the row below reads a diagonal's while the row writes the next);
 // corner: the bottom four rows of the left neighbour's right four columns after this macroblock's
-//         vertical pass (luma 4 words, U and V 4), by diagonal parity.
+//         vertical pass (luma 4 words, U and V 4), read in the same diagonal's horizontal pass.
 // Each sample is written to vp8_yuv once, by the last pass that can change it, and a pass reads the
 // planes only where nothing has written yet, so group barriers suffice.
-// The DXBC stays under the shader pack's 32 KiB entries, and the step loop holds no other loop:
-// WARP stalls for minutes on one there.
-groupshared uint filter_bytes[256];
-groupshared uint neighbour_bytes[256];
+// What a thread carries from one step to the next it carries unconditionally: WARP stalls for
+// minutes on a value that only some steps assign (a macroblock's limits kept from its vertical to
+// its horizontal pass), so each pass reads them again.
+groupshared uint macroblock_info[1024];
 groupshared uint tile[32 * 96];
 groupshared uint left_band[32 * 32];
 groupshared uint top_band[2 * 32 * 32];
-groupshared uint corner[2 * 32 * 12];
-
-uint load_mode_byte(uint address) {
-    return (vp8_modes.Load(address & ~3u) >> ((address & 3u) * 8u)) & 255u;
-}
-
-uint load_coefficient_byte(uint address) {
-    return (vp8_coefficients.Load(address & ~3u) >> ((address & 3u) * 8u)) & 255u;
-}
+groupshared uint corner[32 * 12];
 
 int signed_clip1(int value) {
     return clamp(value, -128, 127);
@@ -96,11 +90,10 @@ void store_four(uint address, uint pitch, int4 values) {
     vp8_yuv.Store(address + 3u * pitch, uint(values.w));
 }
 
-// Filters one line across the edge between p0 and q0 (RFC 6386 section 15) in place. An
+// Filters one line across the inner edge between p0 and q0 (RFC 6386 section 15) in place. An
 // edge_limit of -1 leaves the line as it is.
-void filter_line(int p3, inout int p2, inout int p1, inout int p0, inout int q0, inout int q1,
-                 inout int q2, int q3, int edge_limit, int interior_limit, int hev_threshold,
-                 bool macroblock_edge, bool simple) {
+void filter_line(int p3, int p2, inout int p1, inout int p0, inout int q0, inout int q1, int q2, int q3,
+                 int edge_limit, int interior_limit, int hev_threshold, bool simple) {
     bool apply = 4 * abs(p0 - q0) + abs(p1 - q1) <= 2 * edge_limit + 1;
     bool hev = true;
     if (!simple) {
@@ -109,38 +102,23 @@ void filter_line(int p3, inout int p2, inout int p1, inout int p0, inout int q0,
         apply = apply && interior <= interior_limit;
         hev = max(abs(p1 - p0), abs(q1 - q0)) > hev_threshold;
     }
-    // The common adjustment (the simple filter, and edges of high variance) moves p0 and q0;
-    // a macroblock edge of low variance moves three samples a side, a subblock edge two.
-    const bool strong = macroblock_edge && !hev;
-    const int base = 3 * (q0 - p0) + (hev || macroblock_edge ? signed_clip1(p1 - q1) : 0);
+    // The common adjustment (the simple filter, and edges of high variance) moves p0 and q0; an
+    // edge of low variance moves two samples a side.
+    const int base = 3 * (q0 - p0) + (hev ? signed_clip1(p1 - q1) : 0);
     const int adjustment1 = signed_clip2((base + 4) >> 3);
     const int adjustment2 = signed_clip2((base + 3) >> 3);
-    const int weight = signed_clip1(base);
-    const int strong0 = (27 * weight + 63) >> 7;
-    int p0_change = strong ? strong0 : adjustment2;
-    int q0_change = strong ? strong0 : adjustment1;
-    int change1 = strong ? (18 * weight + 63) >> 7 : hev ? 0 : (adjustment1 + 1) >> 1;
-    int change2 = strong ? (9 * weight + 63) >> 7 : 0;
-    if (!apply) {
-        p0_change = 0;
-        q0_change = 0;
-        change1 = 0;
-        change2 = 0;
-    }
-    p0 = clamp(p0 + p0_change, 0, 255);
-    q0 = clamp(q0 - q0_change, 0, 255);
+    p0 = clamp(p0 + (apply ? adjustment2 : 0), 0, 255);
+    q0 = clamp(q0 - (apply ? adjustment1 : 0), 0, 255);
     if (!simple) {
+        const int change1 = apply && !hev ? (adjustment1 + 1) >> 1 : 0;
         p1 = clamp(p1 + change1, 0, 255);
         q1 = clamp(q1 - change1, 0, 255);
-        if (macroblock_edge) {
-            p2 = clamp(p2 + change2, 0, 255);
-            q2 = clamp(q2 - change2, 0, 255);
-        }
     }
 }
 
-// filter_line on a luma line (x) and a chroma line (y) at once: lp and cp hold p3..p0, lq and cq
-// q0..q3. The simple filter sets the chroma limit to -1.
+// A luma line (x) and a chroma line (y) at once across a macroblock edge or an inner one: lp and cp
+// hold p3..p0, lq and cq q0..q3. A macroblock edge of low variance moves three samples a side. The
+// simple filter sets the chroma limit to -1.
 void filter_pair(inout int4 lp, inout int4 lq, inout int4 cp, inout int4 cq, int2 edge_limit,
                  int interior_limit, int hev_threshold, bool macroblock_edge, bool simple) {
     const int2 p3 = int2(lp.x, cp.x), q3 = int2(lq.w, cq.w);
@@ -191,12 +169,14 @@ int segment_filter(uint segment) {
                          : segment_filter3;
 }
 
-// A macroblock's filter level (bits 0-5) and whether it filters its inner edges (bit 6).
-uint macroblock_filter_byte(uint macroblock) {
-    const uint luma_mode = load_mode_byte(macroblock * mode_record_bytes + 16u);
+// A macroblock's filter level (0-63) and luma mode from its mode record.
+int macroblock_level(uint macroblock, out uint luma_mode) {
+    // Mode and coefficient records are word multiples: luma mode in byte 16, segment in byte 18.
+    const uint modes = vp8_modes.Load(macroblock * mode_record_bytes + 16u);
+    luma_mode = modes & 255u;
     int level = int(filter_level);
     if (segmentation_enabled != 0u) {
-        const int strength = segment_filter(load_mode_byte(macroblock * mode_record_bytes + 18u));
+        const int strength = segment_filter((modes >> 16) & 255u);
         level = segment_absolute_delta != 0u ? strength : level + strength;
     }
     if (use_filter_delta != 0u) {
@@ -205,62 +185,73 @@ uint macroblock_filter_byte(uint macroblock) {
             level += mode_delta0;
         }
     }
-    const bool inner = luma_mode == 10u ||
-                       load_coefficient_byte(macroblock * coefficient_record_bytes + 768u) != 0u;
-    return uint(clamp(level, 0, 63)) | (inner ? 64u : 0u);
+    return clamp(level, 0, 63);
 }
 
-uint filter_byte(uint x, uint y) {
-    const uint macroblock = y * macroblock_columns + x;
-    return (filter_bytes[macroblock >> 2] >> ((macroblock & 3u) * 8u)) & 255u;
+// What a pass needs of its macroblock, a word of macroblock_info: the macroblock edges' limit + 1
+// (bits 0-7; 0 when the macroblock is not filtered), the inner edges' limit + 1 (bits 8-15; 0
+// without them), the interior limit (bits 16-21), the high edge variance threshold (bits 22-23),
+// and which neighbours filter, and so rewrite samples of this macroblock or its left neighbour:
+// bit 24 (x + 1, y) its right three columns, bit 25 (x, y + 1) its bottom three rows, bit 26
+// (x - 1, y + 1) the left neighbour's bottom three rows.
+uint macroblock_word(uint macroblock) {
+    const uint x = macroblock % macroblock_columns, y = macroblock / macroblock_columns;
+    uint word = 0u;
+    [loop] for (uint which = 0u; which < 4u; ++which) {
+        // Itself, then the neighbours of bits 24, 25 and 26; x - 1 wraps past the picture.
+        const uint other_x = x + (which == 1u ? 1u : which == 3u ? ~0u : 0u), other_y = y + (which >> 1);
+        uint luma_mode;
+        const int level = macroblock_level(other_y * macroblock_columns + other_x, luma_mode);
+        if (other_x < macroblock_columns && other_y < macroblock_rows && level != 0) {
+            if (which == 0u) {
+                int interior_limit = level;
+                if (sharpness != 0u) {
+                    interior_limit >>= sharpness > 4u ? 2 : 1;
+                    interior_limit = min(interior_limit, 9 - int(sharpness));
+                }
+                interior_limit = max(interior_limit, 1);
+                const bool inner =
+                    luma_mode == 10u ||
+                    (vp8_coefficients.Load(macroblock * coefficient_record_bytes + 768u) & 255u) != 0u;
+                const uint limit = uint(2 * level + interior_limit) + 1u;
+                word = (limit + 4u) | (inner ? limit << 8 : 0u) | (uint(interior_limit) << 16) |
+                       (level >= 40 ? 2u << 22 : level >= 15 ? 1u << 22 : 0u);
+            } else {
+                word |= 1u << (23u + which);
+            }
+        }
+    }
+    return word;
 }
 
 struct Slot {
     uint x;
     uint y;
-    bool present;
-    int edge_limit;         // the macroblock edges' limit
+    int edge_limit;         // the macroblock edges' limit, -1 when the macroblock is not filtered
     int subblock_limit;     // the inner edges' limit, -1 without them
     int interior_limit;
     int hev_threshold;
-    // Which neighbours filter, and so rewrite samples of this macroblock or its left neighbour:
-    // bit 0 (x + 1, y) its right three columns, bit 1 (x, y + 1) its bottom three rows, bit 2
-    // (x - 1, y + 1) the left neighbour's bottom three rows.
-    uint neighbours;
+    uint neighbours;        // bits 0-2: macroblock_info's bits 24-26
 };
 
-bool macroblock_filters(uint x, uint y) {
-    return (filter_byte(x, y) & 63u) != 0u;
-}
-
-Slot macroblock_slot(uint diagonal, uint y) {
+Slot macroblock_slot(uint x, uint y) {
+    const uint word = macroblock_info[y * macroblock_columns + x];
     Slot slot;
-    const uint x = diagonal - y;
-    slot.present = y < macroblock_rows && y <= diagonal && x < macroblock_columns;
-    slot.x = slot.present ? x : 0u;
-    slot.y = slot.present ? y : 0u;
-    const uint bits = filter_byte(slot.x, slot.y);
-    const int level = int(bits & 63u);
-    int interior_limit = level;
-    if (sharpness != 0u) {
-        interior_limit >>= sharpness > 4u ? 2 : 1;
-        interior_limit = min(interior_limit, 9 - int(sharpness));
-    }
-    interior_limit = max(interior_limit, 1);
-    slot.subblock_limit = level != 0 && (bits & 64u) != 0u ? 2 * level + interior_limit : -1;
-    slot.edge_limit = level != 0 ? 2 * level + interior_limit + 4 : -1;
-    slot.interior_limit = interior_limit;
-    slot.hev_threshold = level >= 40 ? 2 : level >= 15 ? 1 : 0;
-    const uint macroblock = slot.y * macroblock_columns + slot.x;
-    slot.neighbours = (neighbour_bytes[macroblock >> 2] >> ((macroblock & 3u) * 8u)) & 255u;
+    slot.x = x;
+    slot.y = y;
+    slot.edge_limit = int(word & 255u) - 1;
+    slot.subblock_limit = int((word >> 8) & 255u) - 1;
+    slot.interior_limit = int((word >> 16) & 63u);
+    slot.hev_threshold = int((word >> 22) & 3u);
+    slot.neighbours = word >> 24;
     return slot;
 }
 
-// One pass over a slot's macroblock. Lane i filters luma line i and (outside the simple filter,
+// One pass over a macroblock. Lane i filters luma line i and (outside the simple filter,
 // which leaves chroma alone) line i & 7 of U (lanes 0-7) or V (lanes 8-15): rows for the vertical
 // edges (across), columns for the horizontal ones. A line is the neighbour's four samples (a, ca)
 // and the macroblock's sixteen (b..e) or eight (cb, cc).
-void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool simple) {
+void filter_pass(Slot slot, bool across, uint parity, uint lane, bool simple) {
     const uint plane = lane >> 3;
     const uint chroma_line = lane & 7u;
     const bool outer = across ? slot.x != 0u : slot.y != 0u;
@@ -272,10 +263,10 @@ void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool si
                         (across ? (slot.y * 8u + chroma_line) * chroma_stride + slot.x * 8u
                                 : slot.y * 8u * chroma_stride + slot.x * 8u + chroma_line);
     const uint chroma_step = across ? 1u : chroma_stride;
-    const uint luma_band = q * 32u;
-    const uint chroma_band = q * 32u + 16u + plane * 8u;
-    const uint luma_tile = q * 96u;
-    const uint chroma_tile = q * 96u + 64u + plane * 16u;
+    const uint luma_band = slot.y * 32u;
+    const uint chroma_band = slot.y * 32u + 16u + plane * 8u;
+    const uint luma_tile = slot.y * 96u;
+    const uint chroma_tile = slot.y * 96u + 64u + plane * 16u;
     int4 a, b, c, d, e, ca, cb, cc;
     if (across) {
         // The macroblock's rows are untouched until now; the left neighbour's columns come from
@@ -293,14 +284,14 @@ void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool si
         ca = bytes_at(left_band[chroma_word], left_band[chroma_word + 2u], left_band[chroma_word + 4u],
                       left_band[chroma_word + 6u], chroma_line & 3u);
     } else {
-        // The rows above come from the slot above: its last horizontal pass, and in the right four
+        // The rows above come from the row above: its last horizontal pass, and in the right four
         // columns its vertical pass just now, when it had a macroblock to the right.
         a = 0;
         ca = 0;
         if (outer) {
             const bool fresh_corner = slot.x + 1u < macroblock_columns;
-            const uint above = (parity * 32u + q - 1u) * 12u;
-            const uint above_top = (parity ^ 1u) * 1024u + (q - 1u) * 32u;
+            const uint above = (slot.y - 1u) * 12u;
+            const uint above_top = (parity ^ 1u) * 1024u + (slot.y - 1u) * 32u;
             a = lane >= 12u && fresh_corner
                     ? bytes_at(corner[above], corner[above + 1u], corner[above + 2u], corner[above + 3u], lane - 12u)
                     : unpack4(top_band[above_top + lane]);
@@ -324,15 +315,27 @@ void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool si
                       tile[chroma_word + 14u], chroma_shift);
     }
 
-    // The macroblock edge and the first inner edge, luma and chroma together, then luma's other two.
-    filter_pair(a, b, ca, cb, int2(edge_limit, simple ? -1 : edge_limit), slot.interior_limit,
-                slot.hev_threshold, true, simple);
-    filter_pair(b, c, cb, cc, int2(slot.subblock_limit, simple ? -1 : slot.subblock_limit),
-                slot.interior_limit, slot.hev_threshold, false, simple);
-    filter_line(c.x, c.y, c.z, c.w, d.x, d.y, d.z, d.w, slot.subblock_limit, slot.interior_limit,
-                slot.hev_threshold, false, simple);
-    filter_line(d.x, d.y, d.z, d.w, e.x, e.y, e.z, e.w, slot.subblock_limit, slot.interior_limit,
-                slot.hev_threshold, false, simple);
+    // The edges in order along the line. The pair filtered slides a group of four samples an edge, the groups
+    // behind it turning through the registers ahead: the macroblock edge and the first inner edge, luma and
+    // chroma together, leave c a b in a b c and cc ca cb in ca cb cc; then luma's other two.
+    [loop] for (uint paired = 0u; paired < 2u; ++paired) {
+        const int limit = paired == 0u ? edge_limit : slot.subblock_limit;
+        filter_pair(a, b, ca, cb, int2(limit, simple ? -1 : limit), slot.interior_limit, slot.hev_threshold,
+                    paired == 0u, simple);
+        const int4 luma_done = a, chroma_done = ca;
+        a = b; b = c; c = luma_done;
+        ca = cb; cb = cc; cc = chroma_done;
+    }
+    int4 before = a, after = d, ahead = e;
+    [loop] for (uint single = 0u; single < 2u; ++single) {
+        filter_line(before.x, before.y, before.z, before.w, after.x, after.y, after.z, after.w, slot.subblock_limit,
+                    slot.interior_limit, slot.hev_threshold, simple);
+        const int4 done = before;
+        before = after; after = ahead; ahead = done;
+    }
+    a = b; b = c; c = after; d = ahead; e = before;
+    const int4 chroma_first = cb;
+    cb = cc; cc = ca; ca = chroma_first;
 
     if (across) {
         tile[luma_tile + lane * 4u] = pack4(b);
@@ -342,13 +345,13 @@ void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool si
         tile[chroma_tile + chroma_line * 2u] = pack4(cb);
         tile[chroma_tile + chroma_line * 2u + 1u] = pack4(cc);
         if (lane >= 12u) {
-            corner[(parity * 32u + q) * 12u + lane - 12u] = pack4(a);
+            corner[slot.y * 12u + lane - 12u] = pack4(a);
         }
         if (chroma_line >= 4u) {
-            corner[(parity * 32u + q) * 12u + 4u + plane * 4u + chroma_line - 4u] = pack4(ca);
+            corner[slot.y * 12u + 4u + plane * 4u + chroma_line - 4u] = pack4(ca);
         }
     } else {
-        const uint top = parity * 1024u + q * 32u;
+        const uint top = parity * 1024u + slot.y * 32u;
         top_band[top + lane] = pack4(e);
         top_band[top + 16u + plane * 8u + chroma_line] = pack4(cc);
         if (lane >= 12u) {
@@ -397,54 +400,30 @@ void filter_pass(uint q, Slot slot, bool across, uint parity, uint lane, bool si
     }
 }
 
-[numthreads(16, 16, 1)]
+// fxc's register budget assumes many resident groups; this is the dispatch's only group, so its registers
+// cost no occupancy.
+#pragma warning(disable : 4714)
+[numthreads(16, 32, 1)]
 void vp8_filter(uint3 group_thread_id : SV_GroupThreadID, uint thread_index : SV_GroupIndex) {
-    // Filter levels and inner-edge flags, a byte per macroblock (1024 at most).
-    const uint macroblocks = macroblock_columns * macroblock_rows;
-    uint bits = 0u;
-    [loop] for (uint k = 0u; k < 4u; ++k) {
-        const uint macroblock = thread_index * 4u + k;
-        if (macroblock < macroblocks) {
-            bits |= macroblock_filter_byte(macroblock) << (k * 8u);
+    [loop] for (uint k = 0u; k < 2u; ++k) {
+        const uint macroblock = thread_index * 2u + k;
+        if (macroblock < macroblock_columns * macroblock_rows) {
+            macroblock_info[macroblock] = macroblock_word(macroblock);
         }
     }
-    filter_bytes[thread_index] = bits;
-    GroupMemoryBarrierWithGroupSync();
-    // Which neighbours filter (Slot::neighbours), a byte per macroblock.
-    uint neighbours = 0u;
-    [loop] for (uint n = 0u; n < 4u; ++n) {
-        const uint macroblock = thread_index * 4u + n;
-        const uint x = macroblock % macroblock_columns, y = macroblock / macroblock_columns;
-        const bool below = y + 1u < macroblock_rows;
-        if (macroblock < macroblocks) {
-            neighbours |= ((x + 1u < macroblock_columns && macroblock_filters(x + 1u, y) ? 1u : 0u) |
-                           (below && macroblock_filters(x, y + 1u) ? 2u : 0u) |
-                           (below && x != 0u && macroblock_filters(x - 1u, y + 1u) ? 4u : 0u)) << (n * 8u);
-        }
-    }
-    neighbour_bytes[thread_index] = neighbours;
     GroupMemoryBarrierWithGroupSync();
 
-    const uint lane = group_thread_id.x;
+    const uint lane = group_thread_id.x, row = group_thread_id.y;
     const bool simple = simple_filter != 0u;
-    const uint diagonals = macroblock_columns + macroblock_rows - 1u;
-    // The vertical pass of slot j on diagonal d runs at step 2d + j and its horizontal pass at the
-    // next step, on the same macroblock. With 17 macroblock rows or more, the second slot's vertical
-    // pass shares a step with the first slot's horizontal pass: other rows of the planes, other
-    // group memory but the corner, which diagonal parity keeps apart.
-    const uint steps = 2u * diagonals + (macroblock_rows > 16u ? 1u : 0u);
-    Slot behind = (Slot)0; // no macroblock before the first step
+    // Thread row y owns macroblock row y. Step 2d is the vertical pass of diagonal d and step 2d + 1 its
+    // horizontal pass, on the same macroblocks.
+    const uint steps = 2u * (macroblock_columns + macroblock_rows - 1u);
     for (uint step_index = 0u; step_index < steps; ++step_index) {
-        if (behind.present) {
-            filter_pass(group_thread_id.y + ((step_index - 1u) & 1u) * 16u, behind, false,
-                        ((step_index - 1u) >> 1) & 1u, lane, simple);
+        const uint x = (step_index >> 1) - row;
+        // A thread row above its diagonal wraps to a column past the picture.
+        [branch] if (row < macroblock_rows && x < macroblock_columns) {
+            filter_pass(macroblock_slot(x, row), (step_index & 1u) == 0u, (step_index >> 1) & 1u, lane, simple);
         }
-        const uint row = group_thread_id.y + (step_index & 1u) * 16u;
-        const Slot slot = macroblock_slot(step_index >> 1, row);
-        if (slot.present) {
-            filter_pass(row, slot, true, (step_index >> 1) & 1u, lane, simple);
-        }
-        behind = slot;
         GroupMemoryBarrierWithGroupSync();
     }
 }

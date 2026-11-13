@@ -183,6 +183,8 @@ struct Vp8MacroblockCoefficients {
     i16 values[24][16];
     u8 has_coefficients;
     u8 reserved;
+    // A record is a multiple of four bytes: the shaders load its rows and its flag as whole words.
+    u16 word_padding;
 };
 
 struct Vp8CoefficientWorkspace {
@@ -281,7 +283,7 @@ static_assert(sizeof(Vp8ControlHeader) == 280);
 static_assert(sizeof(Vp8MacroblockMode) == 20);
 static_assert(sizeof(Vp8ModeWorkspace) == 20'488);
 static_assert(sizeof(Vp8TokenContext) == 9);
-static_assert(sizeof(Vp8MacroblockCoefficients) == 770);
-static_assert(sizeof(Vp8CoefficientWorkspace) == 788'488);
+static_assert(sizeof(Vp8MacroblockCoefficients) == 772);
+static_assert(sizeof(Vp8CoefficientWorkspace) == 790'536);
 
 } // namespace maicord

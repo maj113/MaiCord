@@ -19,22 +19,9 @@ cbuffer Vp8ReconstructionConstants : register(b0) {
 ByteAddressBuffer vp8_coefficients : register(t1);
 RWByteAddressBuffer vp8_yuv : register(u0);
 
-uint load_byte(ByteAddressBuffer source, uint address) {
-    const uint packed = source.Load(address & ~3u);
-    return (packed >> ((address & 3u) * 8u)) & 255u;
-}
-
-// Vp8MacroblockCoefficients is 770 bytes, NOT dword aligned. Odd records
-// need a three-dword load and a halfword splice; never assume Load2(src).
+// Vp8MacroblockCoefficients is a multiple of four bytes, so a row of four coefficients is two words.
 int4 load_coefficient_row(uint address) {
-    uint2 packed;
-    if ((address & 2u) == 0u) {
-        packed = vp8_coefficients.Load2(address);
-    } else {
-        const uint3 words = vp8_coefficients.Load3(address & ~3u);
-        packed = uint2((words.x >> 16u) | (words.y << 16u),
-                       (words.y >> 16u) | (words.z << 16u));
-    }
+    const uint2 packed = vp8_coefficients.Load2(address);
     return int4(asint(packed.x << 16u) >> 16, asint(packed.x) >> 16,
                 asint(packed.y << 16u) >> 16, asint(packed.y) >> 16);
 }
@@ -81,7 +68,7 @@ void vp8_inverse_dct(uint3 dispatch_id : SV_DispatchThreadID) {
     if (macroblock >= macroblock_columns * macroblock_rows) return;
     // Prediction checks the same flag: stale residuals are left untouched and
     // never consumed.
-    if (load_byte(vp8_coefficients, macroblock * coefficient_record_bytes + 768u) == 0u) return;
+    if ((vp8_coefficients.Load(macroblock * coefficient_record_bytes + 768u) & 255u) == 0u) return;
 
     const uint source = macroblock * coefficient_record_bytes + block * 32u;
     const int4 v0 = load_coefficient_row(source);

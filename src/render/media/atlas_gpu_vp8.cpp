@@ -162,8 +162,8 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
         sizeof(Vp8MacroblockMode),
         sizeof(Vp8MacroblockCoefficients),
     };
-    // vp8_filter.hlsl filters macroblock rows t and t + 16 on thread row t (32 rows at most) and keeps a level
-    // byte per macroblock (1024 at most).
+    // vp8_filter.hlsl filters macroblock row y on thread row y (32 rows at most) and keeps a word per macroblock
+    // (1024 at most).
     static_assert((kWebpDimensionMaximum + 15u) / 16u <= 32u, "VP8 filter covers 32 macroblock rows");
     gpu_update_buffer(context, gpu->vp8_filter_constants, &constants, sizeof(constants));
     bind_compute_2srv(context, gpu->vp8_filter_shader, gpu->vp8_filter_constants,

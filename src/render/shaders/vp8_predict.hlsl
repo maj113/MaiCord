@@ -1,13 +1,14 @@
 // VP8 intra prediction (RFC 6386 12.2-12.3) of a whole keyframe in one group, after vp8_reconstruct.hlsl's
 // inverse transforms. Thread row y owns macroblock row y as four sub-rows of 4x4 subblocks, four lanes each
 // (one sample row per lane). A sub-row takes its next subblock (all four at once in a 16x16 macroblock) in a
-// level once its left, top and top-right neighbours exist, so the sub-rows of a row and the rows below run as
-// a staggered pipeline of about 4 * columns + 8 * rows levels; chroma takes one macroblock per level. Edges
+// level once its left and top neighbours exist, and its top-right where its mode reads it, so the sub-rows of
+// a row and the rows below run as a staggered pipeline of at most about 4 * columns + 8 * rows levels (half the
+// rows' share where no mode reads the top-right); chroma takes one macroblock per level. Edges
 // stay in shared memory and each lane keeps its position, modes and residuals (loaded a macroblock ahead) in
 // registers: a level is one round of shared reads, the arithmetic, and one barrier.
 #define VP8_ROWS 32
 // Every level but the last advances some sub-row or chroma row, so 16 * 32 * 32 + 32 * 32 + 1 levels bound
-// the loop; a frame takes about 4 * columns + 8 * rows.
+// the loop; a frame takes at most about 4 * columns + 8 * rows.
 #define VP8_LEVELS 17409u
 // fxc's register budget assumes many resident groups; this is the dispatch's only group, so its registers
 // cost no occupancy.
@@ -56,10 +57,9 @@ groupshared uint gs_info[VP8_ROWS * 8];
 groupshared uint gs_codes[32];
 
 uint Byte(uint word, uint index) { return (word >> (index * 8u)) & 255u; }
-uint SumBytes(uint word) {
-    const uint pairs = (word & 0x00FF00FFu) + ((word >> 8u) & 0x00FF00FFu);
-    return (pairs & 0xFFFFu) + (pairs >> 16u);
-}
+// The sum of the bytes of words: PairSums of each added up (of 128 words at most), then folded.
+uint PairSums(uint word) { return (word & 0x00FF00FFu) + ((word >> 8u) & 0x00FF00FFu); }
+uint SumBytes(uint pair_sums) { return (pair_sums & 0xFFFFu) + (pair_sums >> 16u); }
 uint Pack(uint4 v) { return v.x | (v.y << 8u) | (v.z << 16u) | (v.w << 24u); }
 
 // Four bytes at once: floor((a + b) / 2) and (a + b + 1) / 2 per byte.
@@ -81,7 +81,7 @@ static const uint kSubblockCodes[32] = {
 
 // Row y of a 4x4 subblock in `mode` from its left column, corner, top row and top-right.
 uint4 PredictSubblockRow(uint mode, uint y, uint left, uint corner, uint top, uint top_right) {
-    if (mode == 0u) return (SumBytes(top) + SumBytes(left) + 4u) >> 3u;
+    if (mode == 0u) return (SumBytes(PairSums(top) + PairSums(left)) + 4u) >> 3u;
     if (mode == 1u) {
         const int4 top_samples = int4(Byte(top, 0u), Byte(top, 1u), Byte(top, 2u), Byte(top, 3u));
         return uint4(clamp(top_samples + (int(Byte(left, y)) - int(corner)), 0, 255));
@@ -127,8 +127,8 @@ uint DCValue(uint top_sum, uint left_sum, bool has_top, bool has_left, uint shif
 
 uint MacroblockInfo(uint x, uint y) { return x < macroblock_columns ? Byte(gs_info[y * 8u + (x >> 2u)], x & 3u) : 0u; }
 // Residuals (vp8_reconstruct.hlsl) follow the planes: per macroblock 192 words of raster rows, two signed
-// 16-bit samples to a word. Loads are unconditional, of a macroblock clamped into the image (a skipped load
-// would be waited for right away); a macroblock without coefficients masks its stale residuals at use.
+// 16-bit samples to a word. A lane loads them a macroblock ahead, whether or not that one has coefficients,
+// clamped into the image; a macroblock without coefficients masks its stale residuals at use.
 uint ResidualAddress(uint x, uint y) {
     const uint mb = min(y, macroblock_rows - 1u) * macroblock_columns + min(x, macroblock_columns - 1u);
     return (v_plane_offset + chroma_stride * chroma_rows + mb * 192u) * 4u;
@@ -157,9 +157,8 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                 const uint mb = y * columns + x;
                 // Mode records are word multiples: luma mode in byte 16, chroma mode in byte 17.
                 const uint modes = vp8_modes.Load(mb * mode_record_bytes + 16u);
-                const uint coefficient_address = mb * coefficient_record_bytes + 768u;
-                const uint has_coefficients = Byte(vp8_coefficients.Load(coefficient_address & ~3u),
-                                                   coefficient_address & 3u);
+                // Coefficient records are word multiples too: the flag is the low byte of word 192.
+                const uint has_coefficients = vp8_coefficients.Load(mb * coefficient_record_bytes + 768u) & 255u;
                 packed |= ((modes & 15u) | ((Byte(modes, 1u) & 7u) << 4u) | (has_coefficients != 0u ? 128u : 0u))
                           << (column * 8u);
             }
@@ -214,6 +213,7 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
             const uint previous = by == 0u ? above : gs_progress[read + y * 4u + by - 1u];
             const uint next = by == 3u ? end + 8u : gs_progress[read + y * 4u + by + 1u];
             const uint left_done = gs_progress[read + y * 4u + 3u];
+            const uint first_done = gs_progress[read + y * 4u], second_done = gs_progress[read + y * 4u + 1u];
             const uint left = s == 0u ? 0x81818181u : gs_left[left_base + PreviousSlot(slot)];
             // A 16x16 sub-row reads the macroblock's top row and corner; a 4x4 one its own top, top-right and
             // corner (the right column's top-right is the macroblock's, from the row above).
@@ -229,9 +229,17 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
 
             uint advance = 0u, right = 0u;
             if (!big) {
-                // Left, top and top-right done; the sub-row below may lag at most six subblocks (its edge ring).
-                if (previous >= min(s + (by != 0u && bx == 3u ? 1u : 2u), end) && s + 1u <= next + 7u) {
-                    const uint4 value = AddResidual(PredictSubblockRow(Byte(modes, bx), py, left, corner, top, top_right),
+                // Left and top done, and the top-right where the mode reads it (2, 6 and 7: vertical, and the two
+                // that run down to the left); the right column's top-right is the macroblock's, from the row above.
+                // A sub-row that writes the line stays two subblocks behind the row above, which reads the same
+                // line as its top; the sub-row below may lag at most six subblocks (its edge ring).
+                const uint mode = Byte(modes, bx);
+                const bool reads_top_right = mode == 2u || mode == 6u || mode == 7u;
+                const bool line_top_right = by != 0u && bx == 3u;
+                if (previous >= min(s + (reads_top_right && !line_top_right ? 2u : 1u), end) &&
+                    ((by != 3u && !(reads_top_right && line_top_right)) || above >= min(s + 2u, end)) &&
+                    s + 1u <= next + 7u) {
+                    const uint4 value = AddResidual(PredictSubblockRow(mode, py, left, corner, top, top_right),
                                                     Residual(low, high, bx), info);
                     vp8_yuv.Store4((luma_row + s * 4u) * 4u, value);
                     right = value.w;
@@ -241,27 +249,29 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                     }
                     advance = 1u;
                 }
-            } else if ((by == 0u ? above >= min(s + 5u, end) : previous >= s + 4u) &&
-                       (luma_mode != 0u || left_done >= s) && s + 4u <= next + 7u) {
+            } else if ((first_done > s || (first_done == s && above >= min(s + 5u, end) && s <= second_done + 3u)) &&
+                       previous >= s && (luma_mode != 0u || left_done >= s) && s + 4u <= next + 7u) {
                 // A 16x16 sub-row needs only the macroblock's edges, DC every sub-row of the left macroblock.
-                // Sub-rows keep their order (the row below reuses the row above's line), and the first waits
-                // for the top-right macroblock's first subblock like a 4x4 one, which keeps the corner alive.
+                // The first sub-row waits for the top-right macroblock's first subblock like a 4x4 one, which
+                // keeps the corner alive, and for its edge ring; the others go in the level it goes (each
+                // repeats its test on the same progress) when they stand beside it, else once it has gone,
+                // never ahead of the sub-row above (the row below reuses the row above's line).
                 uint top_words[4];
                 top_words[0] = top;
                 [unroll] for (uint word = 1u; word < 4u; ++word)
                     top_words[word] = y == 0u ? 0x7F7F7F7Fu : gs_edges[line_above + s + word];
                 // The DC sum: the top row and the left macroblock's right column (each sub-row's left slot
-                // still holds it). Sub-row 0 computes it, the others reuse it.
+                // still holds it while the first sub-row is here). A sub-row that follows later reuses the first's.
                 uint dc = 128u;
                 if (luma_mode == 0u) {
-                    if (by == 0u) {
-                        uint left_sum = 0u;
+                    if (first_done == s) {
+                        uint left_sums = 0u;
                         [unroll] for (uint sub_row = 0u; sub_row < 4u; ++sub_row)
-                            left_sum += SumBytes(gs_left[y * 12u + sub_row * 3u + PreviousSlot(slot)]);
-                        const uint top_sum = SumBytes(top_words[0]) + SumBytes(top_words[1]) +
-                                             SumBytes(top_words[2]) + SumBytes(top_words[3]);
-                        dc = DCValue(top_sum, left_sum, y != 0u, x != 0u, 4u);
-                        if (py == 0u) gs_dc[y] = dc;
+                            left_sums += PairSums(gs_left[y * 12u + sub_row * 3u + PreviousSlot(slot)]);
+                        const uint top_sums = PairSums(top_words[0]) + PairSums(top_words[1]) +
+                                              PairSums(top_words[2]) + PairSums(top_words[3]);
+                        dc = DCValue(SumBytes(top_sums), SumBytes(left_sums), y != 0u, x != 0u, 4u);
+                        if (lane == 0u) gs_dc[y] = dc;
                     } else {
                         dc = gs_dc[y];
                     }
@@ -286,25 +296,25 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                 s += advance;
                 slot = NextSlot(slot);
             }
-            // Entering a macroblock takes the data loaded for it a level or more ago; the next macroblock's is
-            // loaded every level, unconditionally, so no load is waited for inside a branch.
-            const bool entered = advance != 0u && (s & 3u) == 0u;
-            const uint next_x = min((s >> 2u) + 1u, columns - 1u);
-            info = entered ? next_info : info;
-            modes = entered ? next_modes : modes;
-            low = entered ? next_low : low;
-            high = entered ? next_high : high;
-            next_info = MacroblockInfo((s >> 2u) + 1u, y);
-            next_modes = vp8_modes.Load((min(y, last) * columns + next_x) * mode_record_bytes + by * 4u);
-            next_low = vp8_yuv.Load4(ResidualAddress(next_x, y) + luma_offset);
-            next_high = vp8_yuv.Load4(ResidualAddress(next_x, y) + luma_offset + 16u);
+            // Entering a macroblock takes the data loaded for it a level or more ago and loads the next
+            // macroblock's, so no load is waited for where it is used.
+            [branch] if (advance != 0u && (s & 3u) == 0u) {
+                const uint next_x = min((s >> 2u) + 1u, columns - 1u);
+                info = next_info;
+                modes = next_modes;
+                low = next_low;
+                high = next_high;
+                next_info = MacroblockInfo((s >> 2u) + 1u, y);
+                next_modes = vp8_modes.Load((min(y, last) * columns + next_x) * mode_record_bytes + by * 4u);
+                next_low = vp8_yuv.Load4(ResidualAddress(next_x, y) + luma_offset);
+                next_high = vp8_yuv.Load4(ResidualAddress(next_x, y) + luma_offset + 16u);
+            }
         }
         if (py == 0u) gs_progress[write + y * 4u + by] = s;
 
         // Chroma: one macroblock per level once the row above is two macroblocks ahead (its top and the
         // corner of the next one stay in the line until then).
         if (cx < columns) {
-            bool chroma_entered = false;
             if (y == 0u || gs_chroma_progress[chroma_read + y - 1u] >= min(cx + 2u, columns)) {
                 const uint chroma_mode = (chroma_info >> 4u) & 7u;
                 const uint top0 = y == 0u ? 0x7F7F7F7Fu : gs_chroma_line[chroma_above + cx * 2u];
@@ -314,8 +324,8 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                 const uint left_word = chroma_left_base + PreviousSlot(chroma_slot) * 2u;
                 const uint left0 = cx == 0u ? 0x81818181u : gs_chroma_left[left_word];
                 const uint left1 = cx == 0u ? 0x81818181u : gs_chroma_left[left_word + 1u];
-                const uint dc = DCValue(SumBytes(top0) + SumBytes(top1), SumBytes(left0) + SumBytes(left1),
-                                        y != 0u, cx != 0u, 3u);
+                const uint dc = DCValue(SumBytes(PairSums(top0) + PairSums(top1)),
+                                        SumBytes(PairSums(left0) + PairSums(left1)), y != 0u, cx != 0u, 3u);
                 const uint left_sample = Byte(cr < 4u ? left0 : left1, cr & 3u);
                 const uint4 value0 = AddResidual(PredictBig(chroma_mode, left_sample, top0, corner, dc), chroma.xy,
                                                  chroma_info);
@@ -333,12 +343,11 @@ void vp8_reconstruct(uint3 tid : SV_GroupThreadID) {
                 }
                 ++cx;
                 chroma_slot = NextSlot(chroma_slot);
-                chroma_entered = true;
+                chroma_info = chroma_next_info;
+                chroma = next_chroma;
+                chroma_next_info = MacroblockInfo(cx + 1u, y);
+                next_chroma = vp8_yuv.Load4(ResidualAddress(cx + 1u, y) + chroma_offset);
             }
-            chroma_info = chroma_entered ? chroma_next_info : chroma_info;
-            chroma = chroma_entered ? next_chroma : chroma;
-            chroma_next_info = MacroblockInfo(cx + 1u, y);
-            next_chroma = vp8_yuv.Load4(ResidualAddress(cx + 1u, y) + chroma_offset);
         }
         if (lane == 0u) gs_chroma_progress[chroma_write + y] = cx;
         // The state before this level (no thread writes that copy now), acted on after the barrier: a level

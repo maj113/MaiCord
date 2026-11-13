@@ -1,4 +1,4 @@
-// twin: src/render/shaders/vp8_reconstruct.hlsl e84a78a1d65e292f
+// twin: src/render/shaders/vp8_reconstruct.hlsl a875fab014663f36
 // vp8_inverse_dct (STAGE_CS): the residual inverse DCT pass for vp8_predict.glsl. Residuals are stored per
 // macroblock in raster order, two 16-bit samples to a word: luma rows of 16 (8 words), then the U and the V rows of 8
 // (4 words); 192 words a macroblock.
@@ -19,17 +19,10 @@ layout(std140, binding = 0) uniform Vp8ReconstructionConstants {
 layout(std430, binding = 0) readonly buffer Coefficients { uint vp8_coefficients[]; }; //! t1
 layout(std430, binding = 1) buffer Yuv { uint vp8_yuv[]; }; //! u0
 
-// Vp8MacroblockCoefficients is 770 bytes, NOT dword aligned. Odd records need a three-dword load and a halfword
-// splice.
+// Vp8MacroblockCoefficients is a multiple of four bytes, so a row of four coefficients is two words.
 ivec4 load_coefficient_row(uint address) {
     uint at = address >> 2u;
-    uvec2 halves;
-    if ((address & 2u) == 0u) {
-        halves = uvec2(vp8_coefficients[at], vp8_coefficients[at + 1u]);
-    } else {
-        uint w0 = vp8_coefficients[at], w1 = vp8_coefficients[at + 1u], w2 = vp8_coefficients[at + 2u];
-        halves = uvec2((w0 >> 16u) | (w1 << 16u), (w1 >> 16u) | (w2 << 16u));
-    }
+    uvec2 halves = uvec2(vp8_coefficients[at], vp8_coefficients[at + 1u]);
     return ivec4(int(halves.x << 16u) >> 16, int(halves.x) >> 16, int(halves.y << 16u) >> 16, int(halves.y) >> 16);
 }
 
@@ -71,8 +64,7 @@ void main() {
     if (macroblock >= macroblock_columns * macroblock_rows)
         return;
     // Prediction checks the same flag: stale residuals are left untouched and never consumed.
-    uint flag = macroblock * coefficient_record_bytes + 768u;
-    if (((vp8_coefficients[flag >> 2u] >> ((flag & 3u) * 8u)) & 255u) == 0u)
+    if ((vp8_coefficients[(macroblock * coefficient_record_bytes + 768u) >> 2u] & 255u) == 0u)
         return;
 
     uint source = macroblock * coefficient_record_bytes + block * 32u;

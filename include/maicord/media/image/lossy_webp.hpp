@@ -60,6 +60,6 @@ LossyWebpDecodeResult lossy_webp_decode_frame_keyframe(
     Slice<u8> alpha_output) noexcept;
 
 static_assert(sizeof(LossyWebpDecodeResult) == 44);
-static_assert(sizeof(LossyWebpWorkspace) == 810'032);
+static_assert(sizeof(LossyWebpWorkspace) == 812'080);
 
 } // namespace maicord

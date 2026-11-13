@@ -19,11 +19,11 @@ struct GifPalette;
 struct JpegCoefficientWorkspace;
 struct JpegImage;
 
-// What the VP8 decode shaders need of a GPU (every Direct3D 11 device has it): vp8_predict.hlsl runs one group of
-// 16 x 32 invocations, the most of the VP8 shaders, and vp8_filter.hlsl holds 29696 bytes of shared memory, the most
-// of them (src/gpu/gles/README.md).
+// What the VP8 decode shaders need of a GPU (every Direct3D 11 device has it): vp8_predict.hlsl and vp8_filter.hlsl
+// each run one group of 16 x 32 invocations, and vp8_filter.hlsl holds 30208 bytes of shared memory, the most of the
+// VP8 shaders (src/gpu/gles/README.md).
 inline constexpr u32 kVp8GpuInvocations = 512;
-inline constexpr u32 kVp8GpuSharedBytes = 29696;
+inline constexpr u32 kVp8GpuSharedBytes = 30208;
 constexpr bool media_atlas_gpu_vp8_supported(const GpuCaps& caps) noexcept {
     return caps.max_compute_invocations >= kVp8GpuInvocations && caps.max_shared_bytes >= kVp8GpuSharedBytes;
 }
