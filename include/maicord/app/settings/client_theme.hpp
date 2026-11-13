@@ -58,8 +58,9 @@ __declspec(noinline) inline Theme client_theme_projection(const ClientPreference
         theme.text_secondary = background_color_mix(theme.text_secondary, text, anchors.text_percent);
     }
     ui_theme_tokens_resolve(&theme, nullptr);
-    // Accent treatment follows the gradient; flat themes return above unchanged.
-    ui_theme_resolve_emphasis(&theme);
+    // Accent treatment follows the gradient; flat themes return above unchanged. A gradient without a hue to take
+    // an accent from keeps MaiCord's brand marks instead of the flat palette's default accent.
+    theme.brand_marks = !ui_theme_resolve_emphasis(&theme);
     return theme;
 }
 } // namespace maicord

@@ -10,7 +10,7 @@
 
 namespace maicord::app_detail {
 // The tray, taskbar and notification mark: MaiCord's brand violet in the built-in flat themes (Theme::brand_marks),
-// the current theme's colours in every other one.
+// else the theme's accent, which a gradient theme derives from its colours (its emphasis fill and label).
 inline TrayIconPalette application_tray_palette() noexcept {
     const auto argb = [](const Color& color) noexcept {
         const auto byte = [](float v) noexcept { return static_cast<u32>((v < 0 ? 0 : v > 1 ? 1 : v) * 255.f + .5f); };
@@ -18,11 +18,12 @@ inline TrayIconPalette application_tray_palette() noexcept {
     };
     const Theme& theme = application_theme();
     const auto& tokens = theme.tokens;
-    const auto& brand = tokens.accent.brand;
-    // The lower edge of the tile is the brand colour at 78% brightness.
+    const bool gradient = theme.background.color_count != 0;
+    const auto& brand = gradient ? tokens.emphasis.fill : tokens.accent.brand;
+    // The lower edge of the tile is the accent at 78% brightness.
     const Color shade{brand.red * .78f, brand.green * .78f, brand.blue * .78f, 1};
     const TrayIconPalette themed{argb(brand), argb(shade), argb(tokens.accent.success), argb(tokens.accent.danger),
-                                 argb(tokens.text.on_accent)};
+                                 argb(gradient ? tokens.emphasis.text : tokens.text.on_accent)};
     return theme.brand_marks ? tray_icon_brand_palette(themed) : themed;
 }
 

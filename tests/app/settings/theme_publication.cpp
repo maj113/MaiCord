@@ -173,7 +173,8 @@ void glide_looks() noexcept {
 bool brand_palette(const TrayIconPalette& palette) noexcept {
     return palette.brand == 0xFF8B5CF6u && palette.brand_shade == 0xFFC026D3u && palette.glyph == 0xFFFFFFFFu;
 }
-// The built-in flat themes show the brand violet; a gradient theme and a custom or catalog theme keep the accent tint.
+// The built-in flat themes show the brand violet; a gradient theme takes the accent it derives from its colours (never
+// the default blurple of the flat palette), and a custom or catalog theme its own accent.
 void brand_marks() noexcept {
     constexpr ClientTheme flat[]{ClientTheme::dark, ClientTheme::amoled, ClientTheme::light};
     constexpr ClientTheme tinted[]{ClientTheme::aurora, ClientTheme::sunset, ClientTheme::ocean,
@@ -182,12 +183,24 @@ void brand_marks() noexcept {
     for (const ClientTheme theme : flat)
         flat_brand = flat_brand && switch_builtin(theme) && application_theme().brand_marks &&
                      brand_palette(application_tray_palette());
-    for (const ClientTheme theme : tinted)
-        tinted_accent = tinted_accent && switch_builtin(theme) && !application_theme().brand_marks &&
-                        !brand_palette(application_tray_palette());
+    for (const ClientTheme theme : tinted) {
+        const bool switched = switch_builtin(theme);
+        const Color fill = application_theme().tokens.emphasis.fill;
+        const u32 argb = 0xFF000000u | static_cast<u32>(fill.red * 255.f + .5f) << 16 |
+                         static_cast<u32>(fill.green * 255.f + .5f) << 8 | static_cast<u32>(fill.blue * 255.f + .5f);
+        tinted_accent = tinted_accent && switched && !application_theme().brand_marks &&
+                        !brand_palette(application_tray_palette()) && application_tray_palette().brand == argb &&
+                        argb != 0xFF5865F2u;
+    }
     check(flat_brand && tinted_accent,
           "brand marks: Dark, Light and AMOLED draw the tray and window mark in the brand violet; the gradient themes "
-          "keep their accent");
+          "draw it in their own accent");
+    const BackgroundTheme chosen = g_app.preferences.gradient;
+    g_app.preferences.gradient = {{0x202428, 0x2a2f35, 0x30353b, 0, 0}, 120, 3, 40, BackgroundEffect::none, 50, 25, 35};
+    const bool grey = switch_builtin(ClientTheme::custom_gradient) && application_theme().brand_marks &&
+                      brand_palette(application_tray_palette());
+    g_app.preferences.gradient = chosen;
+    check(grey, "brand marks: a grey gradient has no accent of its own and draws the brand violet");
     // A custom theme on the Dark base takes the accent, whatever its base, and leaving it restores the brand.
     const auto source = utf8_literal("{\"version\":\"2.0\",\"name\":\"Plain\"}");
     check(switch_builtin(ClientTheme::dark) &&
