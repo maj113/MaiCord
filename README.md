@@ -3,7 +3,7 @@
 <img src=".github/assets/banner.svg" alt="MaiCord, a native Discord client for Windows and Linux" width="100%">
 
 **Written from scratch in C++ and drawn on the GPU.**<br>
-No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
+No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
 
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/maj113/MaiCord/total)](https://github.com/maj113/MaiCord/releases)
@@ -43,7 +43,7 @@ No Electron, no browser engine: one ~6.3 MB program on Windows and on Linux.
 | | Windows | Linux |
 | --- | --- | --- |
 | Download | 5.2 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
-| Executable | one 6.49 MB EXE | one 6.48 MB program |
+| Executable | one 6.44 MB EXE | one 6.46 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
 | First frame | ~0.1 s | ~0.6 s (Mesa d3d12) to ~0.9 s (llvmpipe, software) |
@@ -99,9 +99,11 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
       <b>Plugins.</b> Native plugins from a signed, reviewed catalog; permissions you approve.
     </td>
     <td width="50%" valign="top">
+      <b>Tabs.</b> Pin channels and DMs in the title bar, and open pictures, videos and audio as pages of their own that keep playing in the background.
+      <br><br>
       <b>Voice.</b> End-to-end encrypted voice (DAVE), push-to-talk, soundboard, Go Live screen sharing, and watching streams and cameras.
       <br><br>
-      <b>Accounts.</b> Two-factor and QR sign-in, up to five saved accounts.
+      <b>Accounts.</b> Two-factor and QR sign-in, up to five saved accounts, and account settings as in Discord.
       <br><br>
       <b>Desktop.</b> Notifications, tray, spellcheck and screen readers on both systems.
       <br><br>
@@ -146,11 +148,14 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 - Voice channels with Discord's end-to-end encryption (DAVE)
 - Push-to-talk, per-user volume, soundboard and stage channels
 - Watch Go Live streams and cameras, decoded on the GPU
-- Go Live: share a screen or window (with its sound), encoded on the GPU, at Discord's qualities up to your Nitro's
+- Go Live: share a screen or window (with its sound), encoded on the GPU and end-to-end encrypted, at Discord's
+  resolutions and frame rates up to your Nitro's or the server's boost tier; stream mode and quality settings, your
+  own tile with its viewers. On Linux the desktop's share dialog picks the source (PipeWire and xdg-desktop-portal)
 
 **Servers**
-- Server settings: roles and permissions, members, bans, audit log, emoji, stickers, soundboard and invites; join
-  access (rules screening, join applications, Server Discovery), Community setup and overview, and server templates
+- Server settings: profile with banner upload, Server Tag, roles and permissions, members, bans, audit log, emoji,
+  stickers, soundboard and invites; join access (rules screening, join applications, Server Discovery), Community setup
+  and overview, server templates, and integrations (command permissions, AutoMod, webhooks)
 - Scheduled events, community onboarding, per-server profiles and privacy
 - Server folders: opening one closes the others
 - Hidden channels are listed with a lock and a summary of who can see them; nothing is fetched from them
@@ -160,10 +165,14 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
   codes, SMS), QR login and CAPTCHA support
 - Up to five saved accounts with quick switching
 - Full profile editor: avatar cropping, banner, decorations, effects and profile colors
-- Friends: Online, All and Pending (with its badge) in the header with search, activity lines and usernames on hover,
-  Add Friend by username with an optional note, friend nicknames that name your DMs, a voice call from a friend's
-  menu, and Active Now with your friends' games and voice channels; a Message Requests page (Requests and Spam) to
-  accept or ignore DMs from people you may not know; blocked and ignored accounts are in settings
+- Profiles laid out like Discord's: Board, Activity, Mutual Friends and Mutual Servers, connected accounts and one
+  activity card everywhere
+- Account settings: username, e-mail, phone, password, authenticator app, SMS, security keys and backup codes,
+  disable and delete; Devices, Data and Privacy, Connected Apps, and blocked and ignored lists
+- Home: a "Find or start a conversation" bar; Friends: Online, All and Pending (with its badge) in the header with
+  search, activity lines and usernames on hover, Add Friend by username with an optional note, friend nicknames that
+  name your DMs, a voice call from a friend's menu, and Active Now with your friends' games and voice channels; a
+  Message Requests page (Requests and Spam) to accept or ignore DMs from people you may not know
 
 **System integration**
 - Native notifications, a tray icon and an unread badge: Windows toasts, the taskbar and the Win32 tray; on Linux the
@@ -176,8 +185,9 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
   (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>), saturation, role colour styles, always-underlined links,
   reduced motion that can follow the system, image descriptions (ALT) and the text-to-speech rate; `/tts` messages
   and "Speak all messages out loud" read through the system voice
-- Streamer Mode: hides invite links, silences sounds and notifications, can turn itself on while OBS or XSplit runs
-  (opt-in), and on Windows keeps the window out of screen captures
+- Streamer Mode: hides invite links and personal information, silences sounds and notifications, has its own keybind,
+  can turn itself on while OBS or XSplit runs (opt-in), and on Windows keeps the window out of screen captures
+- Custom keybinds in Settings > Keybinds
 - Signed automatic updates from GitHub releases (see [Install](#install) for what updates itself on Linux)
 
 </details>
@@ -379,7 +389,7 @@ Release builds include their notices in the `licenses` and `fonts` folders.
 
 | Component | License | Notice |
 | --- | --- | --- |
-| [Opus](https://opus-codec.org/) 1.6.1 decoder and encoder subsets | BSD-3-Clause | [`third_party/opus/COPYING`](third_party/opus/COPYING) |
+| [Opus](https://opus-codec.org/) specification tables and libopus 1.6.1 encoder tuning data | BSD-3-Clause | [`assets/licenses/Opus-BSD.txt`](assets/licenses/Opus-BSD.txt) |
 | [Lucide](https://lucide.dev/) icons | ISC | [`third_party/lucide/LICENSE`](third_party/lucide/LICENSE) |
 | [Twemoji](https://github.com/jdecked/twemoji) flag artwork | CC BY 4.0 | [`assets/licenses/Twemoji-graphics.txt`](assets/licenses/Twemoji-graphics.txt) |
 | Unicode data | Unicode License v3 | [`assets/licenses/Unicode-3.0.txt`](assets/licenses/Unicode-3.0.txt) |
