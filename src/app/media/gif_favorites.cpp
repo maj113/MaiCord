@@ -5,6 +5,7 @@
 #include "../settings/account_broker.hpp"
 #include "../net/rest_rate_retry.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "maicord/protocol/media/media_catalog.hpp"
 
@@ -12,6 +13,8 @@
 namespace maicord::app_detail {
 namespace {
 constexpr u32 kQueueCapacity = 8, kUrlBytes = kMediaCatalogMaximumUrlBytes;
+// After a failed load, how long a GIF hover alone waits before asking again.
+constexpr u64 kHoverRetryHoldMs = 5'000;
 struct FavoriteBank {
     u32 bytes, group_bytes, record_count, index_words, data_version, entry_count;
     u8* group;
@@ -75,7 +78,7 @@ FavoriteBank* decode_response(Utf8View body, bool* conflict) noexcept {
 struct ApplicationGifFavorites : AccountBroker {
     FavoriteBank* bank;
     FavoriteAction* queue;
-    u64 due_at, revision, data_revision;
+    u64 due_at, hover_retry_at, revision, data_revision;
     u64 hover_scope, hover_channel, hover_epoch;
     u32 queue_count, data_version;
     bool visible, hovered, failed;
@@ -153,7 +156,7 @@ void clear_scope(ApplicationGifFavorites& p) noexcept {
     p.hovered = false;
     p.hover_scope = p.hover_channel = p.hover_epoch = 0;
     p.fetch_wanted = false;
-    p.due_at = 0;
+    p.due_at = p.hover_retry_at = 0;
     dispose(p.queue, kQueueCapacity * sizeof(FavoriteAction));
     p.queue = nullptr;
     p.queue_count = 0;
@@ -173,17 +176,18 @@ void cancel_fetch(ApplicationGifFavorites& p) noexcept {
     if (g_app.account.instance)
         account_module_gif_favorites(g_app.account.instance, AccountGifFavoritesOperation::cancel, {}, p.request_id);
 }
+// Without interest nothing new is asked for, but an admitted fetch completes: its snapshot serves the
+// next hover or opening, and cancelling it would only send it again on the next pointer entry.
 void withdraw_unused_interest(ApplicationGifFavorites& p) noexcept {
-    if (interested(p))
+    if (interested(p) || p.queue_count)
         return;
-    if (p.operation == AccountGifFavoritesOperation::fetch && p.request_id && !p.queue_count) {
-        p.generation = next_generation(p.generation);
-        cancel_fetch(p);
-    }
-    if (!p.queue_count) {
-        p.fetch_wanted = false;
-        p.due_at = 0;
-    }
+    p.fetch_wanted = false;
+    p.due_at = 0;
+}
+// When the next request may go. A fetch only a GIF hover wants waits out a failed load's hold, so a
+// pointer crossing GIFs does not resubmit it on every entry; the picker and queued changes do not wait.
+u64 submit_at(const ApplicationGifFavorites& p) noexcept {
+    return p.due_at && !p.visible && !p.queue_count ? maximum(p.due_at, p.hover_retry_at) : p.due_at;
 }
 void schedule(ApplicationGifFavorites& p) noexcept {
     if (p.request_id)
@@ -294,6 +298,13 @@ void application_gif_favorites_synchronize() noexcept {
     if (p->hovered && !hover_current(*p)) {
         p->hovered = false;
         p->hover_scope = p->hover_channel = p->hover_epoch = 0;
+        // The hover's source is gone (another account scope, channel or visit): a fetch only it
+        // wanted is cancelled and its snapshot not admitted.
+        if (!interested(*p) && !p->queue_count && p->request_id &&
+            p->operation == AccountGifFavoritesOperation::fetch) {
+            p->generation = next_generation(p->generation);
+            cancel_fetch(*p);
+        }
         withdraw_unused_interest(*p);
         changed(*p);
     }
@@ -417,8 +428,8 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
 bool application_gif_favorites_pending(u64 now_ms) noexcept {
     application_gif_favorites_synchronize();
     const auto* p = g_app.gif_favorites;
-    return p && broker_scope(*p) && account_online() && !p->request_id && !p->response_body && p->due_at &&
-           p->due_at <= now_ms;
+    return p && broker_scope(*p) && account_online() && !p->request_id && !p->response_body && submit_at(*p) &&
+           submit_at(*p) <= now_ms;
 }
 bool application_gif_favorites_submit(u64 id, u64 now_ms) noexcept {
     if (!id || !application_gif_favorites_pending(now_ms))
@@ -515,6 +526,8 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
         p.authoritative = false;
         p.fetch_wanted = false;
         p.due_at = 0;
+        if (operation == AccountGifFavoritesOperation::fetch)
+            p.hover_retry_at = clock_monotonic_milliseconds() + kHoverRetryHoldMs;
         if (operation == AccountGifFavoritesOperation::update && p.queue_count)
             schedule(p);
     };
@@ -540,6 +553,7 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
                                      url(p.queue[0])) != nullptr) == p.queue[0].desired);
             replace_bank(p, bank);
             p.fetch_wanted = false;
+            p.hover_retry_at = 0;
             if (operation == AccountGifFavoritesOperation::update && (conflict || !target_ok))
                 mark_failure(
                     p,
@@ -577,7 +591,7 @@ u64 application_gif_favorites_next_wake() noexcept {
     const auto* p = g_app.gif_favorites;
     return p && broker_scope(*p) && account_online() && !p->request_id && !p->response_body && !p->admission_busy &&
                    g_app.message_history_request_owner == MessageHistoryRequestOwner::none
-               ? p->due_at
+               ? submit_at(*p)
                : 0;
 }
 } // namespace maicord::app_detail

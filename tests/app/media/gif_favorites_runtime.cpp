@@ -300,14 +300,49 @@ void hover_interest() noexcept {
               application_gif_favorites_response_buffer().data == held.data &&
               callbacks == reused_callbacks && application_gif_favorites_view().revision == reused_revision,
           "hover interest: picker close preserves message hover and 8 repeated source refreshes reuse the exact fetch");
+    // A pointer crossing GIFs leaves and re-enters hover many times while the load is in flight.
+    const u32 crossing_submits = submits;
+    bool quiet = true;
+    for (u32 crossing = 0; crossing < 8; ++crossing) {
+        application_gif_favorites_set_hovered(false);
+        quiet = quiet && !application_gif_favorites_pending(~u64{0});
+        application_gif_favorites_set_hovered(true);
+        quiet = quiet && !application_gif_favorites_pending(~u64{0});
+    }
     application_gif_favorites_set_hovered(false);
-    check(cancels == before_close + 1 && cancelled_id == 303 &&
-              application_gif_favorites_response_buffer().data == held.data,
-          "hover interest: last hover exit cancels only the exact unneeded GET while retaining its take buffer");
-    auto cancelled = response(303);
-    cancelled.error = RestClientError::cancelled;
-    check(complete(cancelled, {}) && is_free(held.data) && !application_gif_favorites_next_wake(),
-          "hover interest: cancelled hover receipt drains without publishing or scheduling another fetch");
+    check(quiet && cancels == before_close && submits == crossing_submits &&
+              g_app.gif_favorites->request_id == 303 && application_gif_favorites_response_buffer().data == held.data,
+          "hover interest: leaving and re-entering hover keeps the one admitted GET without a cancel or a resubmit");
+    check(complete(response(303), envelope(authority.view())) && is_free(held.data) &&
+              application_gif_favorites_view().authoritative && application_gif_favorites_state(saved).confirmed &&
+              !application_gif_favorites_next_wake(),
+          "hover interest: the GET completes after the hover left and publishes its snapshot");
+    for (u32 crossing = 0; crossing < 8; ++crossing) {
+        application_gif_favorites_set_hovered(true);
+        application_gif_favorites_set_hovered(false);
+    }
+    application_gif_favorites_set_hovered(true);
+    check(submits == crossing_submits && !application_gif_favorites_pending(~u64{0}),
+          "hover interest: later hovers reuse the snapshot without another request");
+    // A failed load: a GIF hover asks again only after a hold, the picker at once.
+    ++g_app.account.status.frecency_settings_revision;
+    application_gif_favorites_synchronize();
+    check(application_gif_favorites_submit(400, 1) && complete(response(400, 500), {}) &&
+              application_gif_favorites_view().failed,
+          "hover interest: the hovered reload of a newer snapshot fails");
+    const u32 failed_submits = submits;
+    for (u32 crossing = 0; crossing < 8; ++crossing) {
+        application_gif_favorites_set_hovered(false);
+        application_gif_favorites_set_hovered(true);
+    }
+    const u64 now = clock_monotonic_milliseconds(), wake = application_gif_favorites_next_wake();
+    check(submits == failed_submits && wake > now && !application_gif_favorites_pending(wake - 1) &&
+              application_gif_favorites_pending(wake),
+          "hover interest: re-entering hover retries a failed load only after its hold");
+    check(application_gif_favorites_open() && application_gif_favorites_pending(now) &&
+              application_gif_favorites_submit(401, now) && complete(response(401), envelope(authority.view())) &&
+              application_gif_favorites_view().authoritative,
+          "hover interest: opening the picker retries the failed load at once");
     application_gif_favorites_release();
 
     // A star on an animated WebP embed/attachment saves its proxy src as IMAGE (the
@@ -586,16 +621,18 @@ void run() noexcept {
           "hidden Gateway settings update performs no idle network poll");
     check(application_gif_favorites_open() && application_gif_favorites_submit(108, 1),
           "visible invalidated cache lazily reloads");
-    const auto cancelled_buffer = application_gif_favorites_response_buffer();
+    const auto closed_buffer = application_gif_favorites_response_buffer();
     application_gif_favorites_set_visible(false);
-    check(cancels == 1 && cancelled_id == 108 &&
-              application_gif_favorites_response_buffer().data == cancelled_buffer.data,
-          "closing fetch retires admission and cancels exact ticket retaining output until drain");
-    auto cancelled = response(108);
-    cancelled.error = RestClientError::cancelled;
-    check(complete(cancelled, {}) && !application_gif_favorites_pending(~u64{0}) &&
-              is_free(cancelled_buffer.data),
-          "cancelled closed fetch drains without publishing stale snapshot or restarting admission");
+    check(!cancels && g_app.gif_favorites->request_id == 108 &&
+              application_gif_favorites_response_buffer().data == closed_buffer.data,
+          "closing keeps the admitted fetch in flight instead of cancelling it");
+    const auto closed_snapshot = proto(25);
+    check(complete(response(108), envelope(closed_snapshot.view())) && application_gif_favorites_view().authoritative &&
+              !application_gif_favorites_pending(~u64{0}) && !application_gif_favorites_next_wake() &&
+              is_free(closed_buffer.data),
+          "the closed fetch publishes its snapshot and starts nothing more");
+    ++g_app.account.status.frecency_settings_revision;
+    application_gif_favorites_synchronize();
     load(109, 30, true, false);
     check(application_gif_favorites_toggle(another, source, 160, 90, GifFavoriteFormat::image) &&
               application_gif_favorites_submit(110, 1),

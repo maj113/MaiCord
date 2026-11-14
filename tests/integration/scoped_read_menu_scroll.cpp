@@ -146,5 +146,6 @@ UiRect application_thread_browser_viewport() noexcept { return {}; }
 bool pump_message_history() noexcept { return true; }
 bool refresh_account_scroll(bool) noexcept { return refresh_account_text(true); }
 bool refresh_reaction_viewer_presentation() noexcept { return true; }
+bool request_older_history_if_near_start() noexcept { return true; }
 bool scroll_message_view_by(i64, bool) noexcept { return false; }
 } // namespace maicord::app_detail

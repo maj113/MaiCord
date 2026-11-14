@@ -206,15 +206,19 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
 
     // A full reset can reproduce IDs, revisions and store counters. It must
     // still invalidate widths/heights retained from a previous channel load.
+    // An empty window asks for no older history; one row that leaves the pane
+    // unfilled does, as nothing can scroll toward its start.
     const u32 generation = f.timeline.reset_generation;
-    const bool reset = message_timeline_reset(&f.timeline) && f.timeline.reset_generation != generation &&
+    const bool reset = message_timeline_reset(&f.timeline) && f.timeline.reset_generation != generation;
+    const bool empty_prefetch = message_history_older_prefetch_needed(f.timeline);
+    const bool refilled = reset &&
         message_store_upsert(&f.store, MessageInput{1000, 7, 20, 0, 0, utf8_literal("replacement"), 0}).ok() &&
         ui_variable_list_insert(&f.list, 0, 1, ui_extent_units(57)) &&
         message_scene_update(&f.scene, viewport).ok();
     row = message_scene_find_row(f.scene, 0);
-    check(reset && row && !row->text_measured && f.heights[0] == ui_extent_units(57) &&
-          !message_history_older_prefetch_needed(f.timeline),
-          "message_preparation_reset_invalidates_measurements_no_empty_history_prefetch");
+    check(refilled && row && !row->text_measured && f.heights[0] == ui_extent_units(57) && !empty_prefetch &&
+          f.list.total_units < f.timeline.viewport_units && message_history_older_prefetch_needed(f.timeline),
+          "message_preparation_reset_invalidates_measurements_unfilled_pane_prefetches_older");
     message_scene_release(&f.scene);
     check(!f.scene.owned_measurements.arena.base && !f.scene.owned_rows.arena.base,
           "message_preparation_storage_released");

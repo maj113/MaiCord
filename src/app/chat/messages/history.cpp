@@ -1229,17 +1229,20 @@ static bool pump_message_history_main(bool admit) noexcept {
                     if (!refresh_account_text(true)) {
                         return false;
                     }
-                    // A small page may leave the reader inside the lookahead band.
-                    // Refill now, without waiting for another wheel event at the edge.
-                    // This only queues work; the single-flight/rate-limit
-                    // scheduler below still submits the request.
+                    // Older pages follow, without waiting for a wheel event at an edge the
+                    // reader may be unable to scroll to, until the messages fill the pane
+                    // and the lookahead band or the channel start is reached. An older page
+                    // continues only when it grew the window (otherwise the same page would
+                    // be asked for again); a catch-up when it completes, even on the empty
+                    // last page that follows a full latest page. This only queues work; the
+                    // single-flight/rate-limit scheduler below still submits the request.
                     const MessageTimeline& timeline = g_app.message_view.timeline;
                     const ChannelRecord* channel = chat_state_store_find_channel(
                         g_app.account_ui->chat_state, g_app.account_ui->active_channel_id);
-                    if ((owner == MessageHistoryRequestOwner::older ||
-                         owner == MessageHistoryRequestOwner::catchup) &&
-                        accepted.apply.inserted != 0 &&
-                        catchup.state == MessageHistoryCatchupState::complete &&
+                    const bool fill = owner == MessageHistoryRequestOwner::older
+                                          ? accepted.apply.inserted != 0
+                                          : owner == MessageHistoryRequestOwner::catchup;
+                    if (fill && catchup.state == MessageHistoryCatchupState::complete &&
                         message_history_older_prefetch_needed(timeline) && channel &&
                         (channel->actions & channel_action_read_history) != 0 &&
                         !message_history_older_demand(&older, &timeline, channel->id,

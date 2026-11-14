@@ -1,6 +1,8 @@
 #include "maicord/app/chat/messages/history_sync.hpp"
 #include "../../../src/app/shell/state.hpp"
 #include "../../../src/app/shell/scrolling.hpp"
+#include "../../../src/app/account/account_ui_runtime.hpp"
+#include "maicord/core/scratch_pages.hpp"
 namespace maicord::app_detail {
 extern u32 history_pump_calls;
 bool synchronize_navigation_view() noexcept { return true; }
@@ -85,6 +87,62 @@ void test_history_scrollback(void (*check)(bool, const char*) noexcept) noexcept
         "explicit End immediately requests the live tail and overrides paused forward paging");
     g_app.message_view.timeline = saved_timeline; g_app.message_scene.timeline = saved_scene_timeline;
     g_app.message_scene.dirty = saved_dirty; g_app.account_ui = saved_ui; g_app.message_catchup = saved_catchup;
+
+    // A wheel turned toward older messages over a pane its messages don't fill
+    // (the timeline has nowhere to scroll) still asks for older history.
+    MessageRecord short_records[4]{}; u32 short_order[4]{}, short_heights[4]{}; u64 short_sums[4]{}; u8 short_text[64]{};
+    MessageStore short_store{}; UiVariableList short_list{};
+    const u32 line = ui_extent_units(24.0f);
+    auto* ui = commit_pages<AccountUiRuntime>();
+    const bool short_ready = ui &&
+        message_store_initialize(&short_store, {short_records, 4}, {short_order, 4}, {short_text, 64}) &&
+        ui_variable_list_initialize(&short_list, {short_heights, 4}, {short_sums, 4}, 0, line) &&
+        message_timeline_initialize(&g_app.message_view.timeline, &short_store, &short_list, line,
+                                    ui_extent_units(900.0f), true) &&
+        message_timeline_apply_history_page(&g_app.message_view.timeline, {initial, 2}, MessageHistoryDirection::newer,
+                                            MessageContentAvailability::available).ok() &&
+        chat_state_store_initialize(&ui->chat_state, {ui->guild_record_storage, 2}, {ui->guild_order_storage, 2},
+                                    {ui->channel_record_storage, 2}, {ui->channel_order_storage, 2},
+                                    {ui->chat_state_name_storage, 256}) &&
+        chat_state_store_upsert_channel(&ui->chat_state, {7, 0, 0, utf8_literal("chat"), 0, 0, 1}).ok();
+    check(short_ready, "unfilled pane fixture");
+    if (short_ready) {
+        ui->channel_record_storage[0].actions = channel_action_view | channel_action_read_history;
+        ui->chat_state.selected_channel_id = 7;
+        g_app.account_ui = ui;
+        g_app.message_catchup.state = MessageHistoryCatchupState::complete;
+        g_app.message_older = {};
+        history_pump_calls = 0;
+        check(short_list.total_units < g_app.message_view.timeline.viewport_units &&
+                  request_older_history_if_near_start() &&
+                  g_app.message_older.state == MessageHistoryOlderState::request_required &&
+                  g_app.message_older.cursor_before == 11 && history_pump_calls == 1,
+              "a wheel toward older messages over an unfilled pane demands the page before its first message");
+        check(request_older_history_if_near_start() &&
+                  g_app.message_older.state == MessageHistoryOlderState::request_required && history_pump_calls == 2,
+              "repeated wheel events over an unfilled pane keep one older demand");
+        // A window restored scrolled up, away from its newest rows: its catch-up waits paused for the
+        // reader to near them, and paging toward older messages is open at once.
+        auto& restored = g_app.message_view.timeline;
+        MessageEventPump selection{};
+        selection.timeline = &restored;
+        selection.catchup_required = restored.newer_refetch_required = true;
+        g_app.message_catchup = {};
+        g_app.message_older = {};
+        check(ui_variable_list_set_height(&short_list, 0, ui_extent_units(400.0f)) &&
+                  ui_variable_list_set_height(&short_list, 1, ui_extent_units(400.0f)) &&
+                  message_timeline_set_viewport(&restored, ui_extent_units(200.0f)) &&
+                  message_timeline_set_scroll(&restored, 0, false) &&
+                  !message_history_catchup_begin(&g_app.message_catchup, &selection, 7, 25) &&
+                  g_app.message_catchup.state == MessageHistoryCatchupState::paused &&
+                  g_app.message_catchup.channel_id == 7 && request_older_history_if_near_start() &&
+                  g_app.message_older.state == MessageHistoryOlderState::request_required,
+              "a window restored away from its newest rows pages older history before catching up");
+    }
+    if (ui)
+        pages_release(ui, sizeof(AccountUiRuntime));
+    g_app.message_view.timeline = saved_timeline; g_app.account_ui = saved_ui;
+    g_app.message_catchup = saved_catchup; g_app.message_older = {};
 
     // A short latest page already contains the beginning; a short 'after' page
     // only proves the newest edge. Exercise both through real catchup applies.

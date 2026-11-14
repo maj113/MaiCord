@@ -21,6 +21,7 @@
 #include "../../support/application_action_captcha_stubs.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord::reaction_history_test {
 using namespace app_detail;
@@ -821,6 +822,105 @@ void startup_shell_page(AccountUiRuntime& ui) noexcept {
     check(chat_state_store_upsert_channel(&ui.chat_state, {7, 0, 0, utf8_literal("chat"), 0, 0, 1}).ok(),
           "startup shell page: conversation restored for teardown");
 }
+// A channel of one-line join messages in a tall pane: older pages load without
+// any scroll, one request at a time, until the messages fill the pane with the
+// 500 DIP lookahead to spare, or until the channel start.
+MessageRecord fill_records[128];
+u32 fill_order[128], fill_heights[128];
+u64 fill_fenwick[128];
+u8 fill_text[4096], fill_page[8192];
+// `count` join messages, newest first from `newest`.
+Utf8View join_page(u64 newest, u32 count) noexcept {
+    ProtocolWriter writer{{fill_page, sizeof(fill_page)}, 0};
+    bool ok = protocol_writer_append_literal(&writer, "[");
+    for (u32 i = 0; i < count; ++i) {
+        ok = ok && (!i || protocol_writer_append_literal(&writer, ",")) &&
+             protocol_writer_append_literal(&writer, "{\"id\":") &&
+             protocol_writer_append_snowflake(&writer, newest - i) &&
+             protocol_writer_append_literal(
+                 &writer, R"(,"channel_id":"7","type":7,"author":{"id":"11","username":"self"},"content":"",)"
+                          R"("timestamp":"2024-08-30T12:00:00Z"})");
+    }
+    ok = ok && protocol_writer_append_literal(&writer, "]");
+    return ok ? Utf8View{reinterpret_cast<const char*>(fill_page), writer.used} : Utf8View{};
+}
+void older_fill(AccountUiRuntime& ui) noexcept {
+    auto& view = g_app.message_view;
+    auto* channel = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 7));
+    check(channel != nullptr, "older fill: the conversation is listed");
+    if (!channel)
+        return;
+    channel->actions |= channel_action_view | channel_action_read_history;
+    const u32 row = ui_extent_units(24.0f), pane = ui_extent_units(1300.0f);
+    view.timeline.rich_store = nullptr;
+    check(message_store_initialize(&view.store, {fill_records, 128}, {fill_order, 128},
+                                   {fill_text, sizeof(fill_text)}) &&
+              ui_variable_list_initialize(&view.list, {fill_heights, 128}, {fill_fenwick, 128}, 0, row) &&
+              message_timeline_initialize(&view.timeline, &view.store, &view.list, row, pane, true),
+          "older fill: a tall pane over compact one-line rows");
+    // A window repaints after each page; the refill decision runs with it.
+    g_app.window = reinterpret_cast<Window>(1);
+    queued_reactions = 0;
+    receipt_ready = false;
+    g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
+    g_app.primary_request_id = 0;
+    // Opens channel 7 cold: its latest page, then anything newer than that.
+    const auto open = [&](u64 newest, u32 latest) noexcept {
+        if (!settle_restoration(ui, 7))
+            return false;
+        g_app.message_pump.resync_required = false;
+        const u32 before = history_admissions;
+        if (!pump_message_history() || history_admissions != before + 1 ||
+            last_history_query.position != MessageHistoryPosition::latest)
+            return false;
+        receipt(last_history_id, 200, join_page(newest, latest));
+        if (!pump_message_history() || history_admissions != before + 2 || view.store.count != latest ||
+            last_history_query.position != MessageHistoryPosition::after || last_history_query.cursor != newest)
+            return false;
+        receipt(last_history_id, 200, utf8_literal("[]"));
+        return pump_message_history() && g_app.message_catchup.state == MessageHistoryCatchupState::complete;
+    };
+    u32 admissions = history_admissions;
+    check(open(1200, kMessageHistoryRequestLimit) && view.list.total_units < view.timeline.viewport_units &&
+              history_admissions == admissions + 3 && is_primary(MessageHistoryRequestOwner::older, last_history_id) &&
+              last_history_query.position == MessageHistoryPosition::before && last_history_query.cursor == 1176,
+          "older fill: a full latest page that leaves the pane unfilled asks for older messages without a scroll");
+    for (u32 pass = 0; pass < 3; ++pass)
+        pump_message_history();
+    check(history_admissions == admissions + 3, "older fill: one older page is in flight at a time");
+    receipt(last_history_id, 200, join_page(1175, kMessageHistoryRequestLimit));
+    check(pump_message_history() && view.store.count == 50 && history_admissions == admissions + 4 &&
+              is_primary(MessageHistoryRequestOwner::older, last_history_id) && last_history_query.cursor == 1151,
+          "older fill: an older page that still leaves the pane unfilled asks for the next one");
+    receipt(last_history_id, 200, join_page(1150, kMessageHistoryRequestLimit));
+    check(pump_message_history() && view.store.count == 75 && view.list.total_units > view.timeline.viewport_units &&
+              view.timeline.scroll_units == ui_extent_units(500.0f) && history_admissions == admissions + 5 &&
+              is_primary(MessageHistoryRequestOwner::older, last_history_id) && last_history_query.cursor == 1126,
+          "older fill: a page that fills the pane but leaves its start within 500 DIPs asks for one more");
+    receipt(last_history_id, 200, join_page(1125, kMessageHistoryRequestLimit));
+    for (u32 pass = 0; pass < 4; ++pass)
+        pump_message_history();
+    check(view.store.count == 100 && history_admissions == admissions + 5 &&
+              view.timeline.scroll_units > ui_extent_units(500.0f) &&
+              g_app.message_older.state == MessageHistoryOlderState::idle &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "older fill: paging stops once the messages fill the pane and its lookahead band");
+
+    // Thirty messages in all: the second page is short and holds the first one.
+    admissions = history_admissions;
+    check(open(1030, kMessageHistoryRequestLimit) && history_admissions == admissions + 3 &&
+              last_history_query.cursor == 1006,
+          "older fill: a short channel asks for older messages too");
+    receipt(last_history_id, 200, join_page(1005, 5));
+    for (u32 pass = 0; pass < 4; ++pass)
+        pump_message_history();
+    check(view.store.count == 30 && view.list.total_units < view.timeline.viewport_units &&
+              history_admissions == admissions + 3 &&
+              g_app.message_older.state == MessageHistoryOlderState::exhausted &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "older fill: the channel start ends paging though the pane stays unfilled");
+    g_app.window = nullptr;
+}
 void run() noexcept {
     auto* ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -959,6 +1059,7 @@ void run() noexcept {
     startup_history(*ui);
     channel_press_preload(*ui);
     startup_shell_page(*ui);
+    older_fill(*ui);
     application_message_history_reset_reaction_turn();
     application_history_decode_storage_release(*ui);
     message_poll_store_release(&ui->message_poll_store);

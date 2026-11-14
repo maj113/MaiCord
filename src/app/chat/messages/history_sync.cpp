@@ -941,20 +941,25 @@ bool message_history_catchup_begin(MessageHistoryCatchup* catchup, MessageEventP
                                    u32 request_limit) noexcept {
     if (!catchup || !pump || !pump->timeline || !pump->timeline->store || channel_id == 0 ||
         request_limit == 0 || request_limit > kMessageHistoryMaximumMessages ||
-        (!pump->timeline->follow_bottom && !message_history_newer_prefetch_needed(*pump->timeline)) ||
         (!pump->catchup_required && !pump->timeline->newer_refetch_required)) {
         return false;
     }
     reset_value<MessageHistoryCatchup>(catchup);
-    catchup->incremental = !pump->timeline->follow_bottom;
     catchup->channel_id = channel_id;
-    catchup->deferred_mark = pump->timeline->deferred;
     const MessageStore& store = *pump->timeline->store;
     const u32 resident_capacity = minimum(store.capacity, pump->timeline->list->capacity);
     if (resident_capacity == 0) {
         return false;
     }
     catchup->request_limit = minimum(request_limit, resident_capacity);
+    // A window shown away from its newest rows (a restored reading position) waits paused, as a jump's
+    // does, until the reader nears them; paging toward older messages stays open meanwhile.
+    if (!pump->timeline->follow_bottom && !message_history_newer_prefetch_needed(*pump->timeline)) {
+        catchup->state = MessageHistoryCatchupState::paused;
+        return false;
+    }
+    catchup->incremental = !pump->timeline->follow_bottom;
+    catchup->deferred_mark = pump->timeline->deferred;
     for (u32 i = store.count; i != 0; --i) {
         const MessageRecord* last = ordered_record(store, i - 1);
         if (!last || last->channel_id != channel_id) {
@@ -1043,9 +1048,10 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
 }
 
 bool message_history_older_prefetch_needed(const MessageTimeline& timeline) noexcept {
+    // A pane its messages don't fill has nothing to scroll toward the start, so it is always near it.
     return timeline.list && timeline.viewport_units != 0 && timeline.list->count != 0 &&
-           timeline.list->total_units > timeline.viewport_units &&
-           timeline.scroll_units <= ui_extent_units(500.0f);
+           (timeline.list->total_units <= timeline.viewport_units ||
+            timeline.scroll_units <= ui_extent_units(500.0f));
 }
 
 bool message_history_newer_prefetch_needed(const MessageTimeline& timeline) noexcept {

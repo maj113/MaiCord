@@ -447,6 +447,10 @@ bool handle_scroll_wheel(const WindowEvent& event) noexcept {
     for (const auto surface : order) {
         const auto result = wheel(surface);
         if (result != UiScrollDispatch::unhandled) {
+            // A wheel toward older messages asks for them itself: at the start, or in a pane its
+            // messages don't fill, the timeline cannot move, so no scroll step reaches that check.
+            if (surface == messages && delta > 0 && result == UiScrollDispatch::handled)
+                request_older_history_if_near_start();
             finish(result, "virtual_scroll_dispatch_failed",
                    g_app.message_view.timeline.scroll_units != message_scroll_before);
             return true;

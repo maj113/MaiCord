@@ -152,8 +152,9 @@ inline void message_history_older_observe_catchup(
     }
 }
 
-// Prefetch trigger for older/newer history, measured outside the loading
-// placeholder. There is no synthetic placeholder here.
+// Prefetch trigger for older/newer history: the reader is within 500 DIPs of
+// that edge. Older also holds while the messages don't fill the pane, which
+// nothing can scroll. There is no synthetic loading placeholder.
 bool message_history_older_prefetch_needed(const MessageTimeline& timeline) noexcept;
 bool message_history_newer_prefetch_needed(const MessageTimeline& timeline) noexcept;
 constexpr bool message_history_browsing_ready(MessageHistoryCatchupState state) noexcept {
