@@ -471,10 +471,11 @@ AacLcError read_spectrum(AacLc& d, Bits& b, Channel& c) noexcept {
         }
         window += ics.group_length[g];
     }
-    // Pulses add to the quantized values, away from zero.
+    // A pulse adds to a positive quantized value. It subtracts from a negative value and from zero (ISO/IEC 14496-3
+    // 4.6.3.3).
     for (u32 i = 0; i < c.pulse_count; ++i) {
         i32& value = d.quantized[c.pulse_position[i]];
-        value += value < 0 ? -static_cast<i32>(c.pulse_amplitude[i]) : static_cast<i32>(c.pulse_amplitude[i]);
+        value += value > 0 ? static_cast<i32>(c.pulse_amplitude[i]) : -static_cast<i32>(c.pulse_amplitude[i]);
     }
     return AacLcError::none;
 }

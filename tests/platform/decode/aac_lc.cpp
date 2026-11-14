@@ -293,7 +293,8 @@ double power_of_two(double exponent) noexcept {
 
 void pulse_data() noexcept {
     // One single-channel element, one long block, one band of codebook 1 holding the all-zero quad, global gain 110,
-    // and a pulse of amplitude 5 at line 2: the spectrum is a single line, 5^(4/3) * 2^(10/4).
+    // and a pulse of amplitude 5 at line 2. The standard subtracts a pulse from a zero value, so the spectrum is a
+    // single line of -(5^(4/3) * 2^(10/4)). The ISO vector al04_44 has such pulses in 160 of its 355 frames.
     BitWriter w{};
     w.put(0, 3);          // SCE
     w.put(0, 4);          // tag
@@ -328,13 +329,14 @@ void pulse_data() noexcept {
         double worst = 0, peak = 0;
         for (u32 n = 0; n < 1024; ++n) {
             const double kernel = cosine(kPi / 1024.0 * (n + 0.5 + 512.0) * 2.5);
-            const double expected = magnitude * kernel / (1024.0 * 32768.0) * sine(kPi * (n + 0.5) / 2048.0);
+            const double expected = -magnitude * kernel / (1024.0 * 32768.0) * sine(kPi * (n + 0.5) / 2048.0);
             const double error = pcm[n] - expected;
             worst = maximum(worst, error < 0 ? -error : error);
             peak = maximum(peak, expected < 0 ? -expected : expected);
         }
         check(peak > 1e-7 && worst <= peak * 2e-4,
-              "AAC pulse data: the output is the windowed IMDCT of the single dequantized line, as the standard's formula");
+              "AAC pulse data: the output is the windowed IMDCT of the single dequantized line, as the standard's formula, "
+              "with the sign the standard gives a pulse on a zero value");
     }
     if (memory)
         pages_release(memory, bytes);
