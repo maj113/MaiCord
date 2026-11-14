@@ -56,7 +56,8 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                     scene, *row, MessageSceneRichItemKind::attachment, i);
                 float width = 0, height = 0;
                 if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
-                    message_rich_attachment_format(store, attachment) != MediaAttachmentFormat::gif ||
+                    !message_rich_attachment_gif_favorite(message_rich_attachment_format(store, attachment),
+                                                          attachment) ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), rich->message_id,
                         message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, i,
@@ -84,8 +85,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
                     message_rich_embed_gallery_place(store, *rich, i, &place) ||
                     !message_rich_embed_media_select(store, embed, &selected) || !selected.media ||
-                    (embed.type != GatewayMessageEmbedType::gifv &&
-                     selected.format != MediaAttachmentFormat::gif) ||
+                    !message_rich_embed_gif_favorite(embed, selected) ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), message->id,
                         message_media_reveal_key(message->id, MessageMediaSource::embed, i,

@@ -216,6 +216,7 @@ bool probe_profile_card() noexcept;
 bool probe_profile_activity_card() noexcept;
 bool probe_rich_composer() noexcept;
 bool probe_attachment_save_affordances() noexcept;
+bool probe_gif_favorite_star() noexcept;
 bool probe_image_viewer() noexcept;
 bool probe_media_page() noexcept;
 bool probe_voice_message_bar() noexcept;

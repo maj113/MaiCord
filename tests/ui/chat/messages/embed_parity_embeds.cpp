@@ -301,6 +301,71 @@ void test_thumbnail_rules(Check check) noexcept {
               "preview label selection maps to displayed text instead of raw provider metadata");
     }
 }
+
+// The favourite-GIF star: GIFs and IS_ANIMATED (1 << 5) images, as attachments
+// or embed media (an fxtwitter post's animated WebP), never stills or videos.
+void test_gif_favorite_targets(Check check) noexcept {
+    static MessageRichRecord records[1];
+    static u16 order[1];
+    static u8 text[4096];
+    MessageRichStore store{};
+    GatewayMessageEmbed embeds[1]{};
+    GatewayMessageAttachment attachments[4]{};
+    const Utf8View names[4]{utf8_literal("cat.webp"), utf8_literal("still.webp"), utf8_literal("still.png"),
+                            utf8_literal("cat.gif")};
+    const u32 flags[4]{32u, 0u, 0u, 0u};
+    for (u32 i = 0; i < 4; ++i) {
+        attachments[i].id = 70 + i;
+        attachments[i].filename = names[i];
+        attachments[i].url = utf8_literal("https://cdn.discordapp.com/attachments/1/2/a.webp");
+        attachments[i].width = attachments[i].height = 64;
+        attachments[i].has_width = attachments[i].has_height = true;
+        attachments[i].flags = flags[i];
+    }
+    GatewayMessageEvent event{};
+    event.id = 5;
+    event.fields = gateway_message_field_embeds | gateway_message_field_attachments;
+    event.embeds = {embeds, 1};
+    event.attachments = {attachments, 4};
+    const auto embed_star = [&](GatewayMessageEmbedType type, Utf8View url, u32 media_flags, bool video) noexcept {
+        embeds[0] = {};
+        embeds[0].type = type;
+        embeds[0].url = utf8_literal("https://cunnyx.com/GiFShitpost/status/1");
+        embeds[0].author_name = utf8_literal("GIFs Shitpost");
+        embeds[0].has_author = true;
+        embeds[0].image.url = url;
+        embeds[0].image.proxy_url = url;
+        embeds[0].image.width = embeds[0].image.height = 64;
+        embeds[0].image.has_width = embeds[0].image.has_height = true;
+        embeds[0].image.flags = media_flags;
+        if (video) {
+            embeds[0].video.url = utf8_literal("https://e.test/v.mp4");
+            embeds[0].video.width = embeds[0].video.height = 64;
+        }
+        MessageRichEmbedMediaSelection selected{};
+        if (!message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)}) ||
+            !message_rich_store_apply(&store, 5, 1, event).ok())
+            return false;
+        const MessageRichRecord* rich = message_rich_store_find(store, 5);
+        return rich && message_rich_embed_media_select(store, rich->embeds[0], &selected) &&
+               message_rich_embed_gif_favorite(rich->embeds[0], selected);
+    };
+    const Utf8View webp = utf8_literal("https://images-ext-1.discordapp.net/external/s/https/e.test/a.webp");
+    check(embed_star(GatewayMessageEmbedType::rich, webp, 32u, false) &&
+              !embed_star(GatewayMessageEmbedType::rich, webp, 0u, false) &&
+              !embed_star(GatewayMessageEmbedType::image, utf8_literal("https://e.test/a.png"), 0u, false) &&
+              embed_star(GatewayMessageEmbedType::image, utf8_literal("https://e.test/a.gif"), 0u, false) &&
+              !embed_star(GatewayMessageEmbedType::video, webp, 0u, true),
+          "gif_star_on_animated_webp_and_gif_embeds_not_stills_or_video");
+    const MessageRichRecord* rich = message_rich_store_find(store, 5);
+    bool attachment_stars[4]{};
+    for (u32 i = 0; rich && i < rich->attachment_count && i < 4; ++i)
+        attachment_stars[i] = message_rich_attachment_gif_favorite(
+            message_rich_attachment_format(store, rich->attachments[i]), rich->attachments[i]);
+    check(rich && rich->attachment_count == 4 && attachment_stars[0] && !attachment_stars[1] &&
+              !attachment_stars[2] && attachment_stars[3],
+          "gif_star_on_animated_webp_and_gif_attachments_not_stills");
+}
 // As in the official client, embeds sharing a url fold into the first, whose
 // media becomes a gallery of their images (a video wins over the images).
 void test_embed_gallery(Check check) noexcept {

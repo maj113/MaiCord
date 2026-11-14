@@ -310,6 +310,17 @@ void hover_interest() noexcept {
           "hover interest: cancelled hover receipt drains without publishing or scheduling another fetch");
     application_gif_favorites_release();
 
+    // A star on an animated WebP embed/attachment saves its proxy src as IMAGE (the
+    // picker shows an <img>); only an MP4/WebM src is VIDEO.
+    check(application_gif_favorites_format(utf8_literal(
+              "https://images-ext-1.discordapp.net/external/sig/https/pbs.twimg.com/media/a.webp?format=webp")) ==
+                  GifFavoriteFormat::image &&
+              application_gif_favorites_format(utf8_literal(
+                  "https://cdn.discordapp.com/attachments/1/2/cat.WEBP?ex=ff&is=1&hm=ab#x")) ==
+                  GifFavoriteFormat::image &&
+              application_gif_favorites_format(utf8_literal("https://media.discordapp.net/a/b/c.mp4?x=1")) ==
+                  GifFavoriteFormat::video,
+          "animated WebP favourites store IMAGE, MP4 stays VIDEO");
     application_gif_favorites_set_hovered(true);
     check(application_gif_favorites_toggle(another, source, 160, 90, GifFavoriteFormat::image) &&
               application_gif_favorites_submit(305, 1),

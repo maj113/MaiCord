@@ -6051,6 +6051,95 @@ bool probe_attachment_save_affordances() noexcept {
     return true;
 }
 
+// An fxtwitter post whose image is an animated WebP (IS_ANIMATED, 1 << 5) and an
+// animated WebP attachment both carry the favourite-GIF star; a still PNG does not.
+// The hovered embed is captured with the star drawn over its media.
+bool probe_gif_favorite_star() noexcept {
+    if (!g_probe.message_scene.count) return false;
+    const auto* record = message_store_resolve(g_probe.message_view.store, g_probe.message_scene.rows[0].message);
+    if (!record) return false;
+    GatewayMessageAttachment attachments[2]{};
+    const Utf8View names[]{utf8_literal("cat.webp"), utf8_literal("still.png")};
+    const Utf8View types[]{utf8_literal("image/webp"), utf8_literal("image/png")};
+    for (u32 i = 0; i < 2; ++i) {
+        attachments[i].id = 812001 + i; attachments[i].filename = names[i];
+        attachments[i].content_type = types[i]; attachments[i].size = 1024;
+        attachments[i].url = utf8_literal("https://cdn.discordapp.com/attachments/111/812001/cat.webp?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        attachments[i].width = 192; attachments[i].height = 108;
+        attachments[i].has_width = attachments[i].has_height = true;
+        attachments[i].flags = i == 0 ? 32u : 0u;
+    }
+    GatewayMessageEmbed embed{};
+    embed.type = GatewayMessageEmbedType::rich;
+    embed.url = utf8_literal("https://cunnyx.com/GiFShitpost/status/2120321107173482987");
+    embed.author_name = utf8_literal("GIFs Shitpost (@GiFShitpost)");
+    embed.has_author = true;
+    embed.color = 0x6464ff; embed.has_color = true;
+    embed.image.url = utf8_literal("https://pbs.twimg.com/media/cat.webp");
+    embed.image.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/sig/https/pbs.twimg.com/media/cat.webp");
+    embed.image.width = 480; embed.image.height = 270;
+    embed.image.has_width = embed.image.has_height = true;
+    embed.image.flags = 32u;
+    GatewayMessageEvent event{}; event.id = record->id;
+    event.fields = gateway_message_field_attachments | gateway_message_field_embeds;
+    event.attachments = {attachments, 2}; event.embeds = {&embed, 1};
+    if (!message_rich_store_apply(&g_probe.rich_store, record->id, record->revision, event).ok() ||
+        !rebuild_probe_content_text()) return false;
+    const auto* rich = message_rich_store_find(g_probe.rich_store, record->id);
+    MessageRichEmbedMediaSelection selected{};
+    if (!rich || rich->embed_count != 1 ||
+        !message_rich_embed_media_select(g_probe.rich_store, rich->embeds[0], &selected) || !selected.animated)
+        return false;
+    u8 pixels[48 * 27 * 4]{};
+    for (u32 i = 0; i < 48 * 27; ++i) {
+        pixels[i * 4] = static_cast<u8>(60 + i % 48 * 3);
+        pixels[i * 4 + 1] = static_cast<u8>(90 + i / 48 * 4); pixels[i * 4 + 2] = 160; pixels[i * 4 + 3] = 255;
+    }
+    const auto& row = g_probe.message_scene.rows[0];
+    const auto tier = g_probe.renderer.preview_media_atlas
+        ? media_resolution_tier_for_display(row.rich_item_layout.embed_media_widths[0],
+              row.rich_item_layout.embed_media_heights[0], g_probe.renderer.dpi,
+              media_preview_extent_cap(selected.format))
+        : MediaResolutionTier::original;
+    if (!renderer_upload_media_straight_rgba8(&g_probe.renderer,
+            media_asset_embed(rich->message_id, rich->message_revision, 0, selected.resource, selected.format,
+                              selected.animated, tier), 48, 27, 192, {pixels, sizeof(pixels)}).ok())
+        return false;
+    PaintStream paint{};
+    struct ReleasePaint {
+        PaintStream& paint;
+        ~ReleasePaint() noexcept { paint_stream_release(&paint); }
+    } release_paint{paint};
+    MessageMediaCommand commands[8]{};
+    MessageMediaCommandStream stream{};
+    MessagePresentationResult presentation{};
+    if (!paint_stream_initialize(&paint) || !paint_stream_reset(&paint) ||
+        !message_media_command_stream_initialize(&stream, {commands, 8}) ||
+        !message_presentation_build(g_probe.message_scene, kDefaultTheme, &paint, &stream, &presentation))
+        return false;
+    bool embed_star = false, webp_star = false, png_star = true;
+    for (u32 i = 0; i < stream.count; ++i) {
+        if (commands[i].kind == MessageMediaCommandKind::embed) embed_star = commands[i].gif;
+        if (commands[i].kind == MessageMediaCommandKind::attachment && commands[i].id == 812001)
+            webp_star = commands[i].gif;
+        if (commands[i].kind == MessageMediaCommandKind::attachment && commands[i].id == 812002)
+            png_star = commands[i].gif;
+    }
+    if (!embed_star || !webp_star || png_star) return false;
+    const auto owner = message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, 0);
+    if (!ui_widget_manager_focus(&g_probe.message_scene.widgets, owner)) return false;
+    renderer_bind_focus_owner(&g_probe.renderer, &g_probe.message_scene.widgets);
+    g_probe.renderer.gif_favorite_owner = owner;
+    g_probe.renderer.gif_favorite = false;
+    g_probe.renderer.gif_favorite_pending = false;
+    const bool captured = rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+                          probe_capture_frame(L"gif-favorite-star-animated-webp-embed.bmp");
+    g_probe.renderer.gif_favorite_owner = {};
+    if (!captured) return false;
+    log_write(LogLevel::info, "probe", "gif_favorite_star_animated_webp_embed_and_attachment_passed");
+    return true;
+}
+
 bool probe_image_viewer() noexcept {
     const float scale = 96.0f / g_probe.renderer.dpi;
     const UiRect viewport{0, 0, g_probe.renderer.width * scale, g_probe.renderer.height * scale};

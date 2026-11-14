@@ -2165,7 +2165,7 @@ int run_probe() noexcept {
             return probe_capture_frame(filename,theme);
         };
         const bool valid = initialize_fixture(true) && probe_attachment_save_affordances() &&
-                           download_ui_probe(g_probe.renderer, capture_download);
+                           download_ui_probe(g_probe.renderer, capture_download) && probe_gif_favorite_star();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "downloads_native_ui_passed" : "downloads_native_ui_failed");
         return finish_probe(valid ? 0 : 291);

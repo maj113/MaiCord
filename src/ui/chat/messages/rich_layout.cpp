@@ -222,6 +222,20 @@ MediaAttachmentFormat message_rich_attachment_format(const MessageRichStore& sto
     return MediaAttachmentFormat::unknown;
 }
 
+bool message_rich_attachment_gif_favorite(MediaAttachmentFormat format,
+                                          const MessageRichAttachment& attachment) noexcept {
+    return format == MediaAttachmentFormat::gif ||
+           ((format == MediaAttachmentFormat::webp || format == MediaAttachmentFormat::png) &&
+            (attachment.flags & 32u) != 0);
+}
+
+bool message_rich_embed_gif_favorite(const MessageRichEmbed& embed,
+                                     const MessageRichEmbedMediaSelection& selected) noexcept {
+    return embed.type == GatewayMessageEmbedType::gifv ||
+           (selected.resource != MediaEmbedResource::video && selected.format != MediaAttachmentFormat::mp4 &&
+            selected.animated);
+}
+
 bool message_rich_attachment_preview_extent(const MessageRichStore& store,
                                             const MessageRichAttachment& attachment, float available_width,
                                             float* width, float* height) noexcept {

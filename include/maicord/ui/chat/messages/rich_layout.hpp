@@ -240,6 +240,13 @@ bool message_rich_item_slot(MessageRichItemKind kind, u32 index, u32* slot) noex
 
 MediaAttachmentFormat message_rich_attachment_format(const MessageRichStore& store,
                                                      const MessageRichAttachment& attachment) noexcept;
+// Media the official client offers to save as a favourite GIF (its star): a GIF, or
+// an image Discord flags IS_ANIMATED (1 << 5; animated WebP/AVIF/APNG). Embeds:
+// a gifv, or a selected image that is a GIF or flagged animated; never a video.
+bool message_rich_attachment_gif_favorite(MediaAttachmentFormat format,
+                                          const MessageRichAttachment& attachment) noexcept;
+bool message_rich_embed_gif_favorite(const MessageRichEmbed& embed,
+                                     const MessageRichEmbedMediaSelection& selected) noexcept;
 bool message_rich_attachment_preview_extent(const MessageRichStore& store,
                                             const MessageRichAttachment& attachment, float available_width,
                                             float* width, float* height) noexcept;

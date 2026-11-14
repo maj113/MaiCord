@@ -103,6 +103,8 @@ void test_fxtwitter_embed(Check check) noexcept;
 
 void test_thumbnail_rules(Check check) noexcept;
 
+void test_gif_favorite_targets(Check check) noexcept;
+
 void test_embed_gallery(Check check) noexcept;
 
 void test_text_sizes(Check check) noexcept;

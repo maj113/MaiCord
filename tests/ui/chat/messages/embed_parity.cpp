@@ -1326,6 +1326,7 @@ void test_embed_parity(Check check) noexcept {
     test_link_hits(check);
     test_calendar(check);
     test_thumbnail_rules(check);
+    test_gif_favorite_targets(check);
     test_embed_gallery(check);
     test_fxtwitter_embed(check);
     test_text_sizes(check);
