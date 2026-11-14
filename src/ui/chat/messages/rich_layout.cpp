@@ -222,18 +222,32 @@ MediaAttachmentFormat message_rich_attachment_format(const MessageRichStore& sto
     return MediaAttachmentFormat::unknown;
 }
 
-bool message_rich_attachment_gif_favorite(MediaAttachmentFormat format,
-                                          const MessageRichAttachment& attachment) noexcept {
-    return format == MediaAttachmentFormat::gif ||
-           ((format == MediaAttachmentFormat::webp || format == MediaAttachmentFormat::png) &&
-            (attachment.flags & 32u) != 0);
+// The official client's animated-image URL test: a .gif, or an IS_ANIMATED
+// (1 << 5) .webp/.avif; the extension ends the path.
+static bool gif_favorite_url(Utf8View url, u32 flags) noexcept {
+    u32 end = 0;
+    while (end < url.bytes && url.data[end] != '?' && url.data[end] != '#')
+        ++end;
+    const Utf8View path{url.data, end};
+    return ascii_ends_with_case(path, ".gif") ||
+           ((flags & 32u) != 0 && (ascii_ends_with_case(path, ".webp") || ascii_ends_with_case(path, ".avif")));
 }
 
-bool message_rich_embed_gif_favorite(const MessageRichEmbed& embed,
+bool message_rich_attachment_gif_favorite(const MessageRichStore& store,
+                                          const MessageRichAttachment& attachment) noexcept {
+    return attachment.width && attachment.height &&
+           gif_favorite_url(message_rich_store_string(store, attachment.url), attachment.flags);
+}
+
+bool message_rich_embed_gif_favorite(const MessageRichStore& store, const MessageRichEmbed& embed,
                                      const MessageRichEmbedMediaSelection& selected) noexcept {
-    return embed.type == GatewayMessageEmbedType::gifv ||
-           (selected.resource != MediaEmbedResource::video && selected.format != MediaAttachmentFormat::mp4 &&
-            selected.animated);
+    if (embed.type == GatewayMessageEmbedType::gifv)
+        return true;
+    if (selected.media != &embed.image)
+        return false;
+    const Utf8View url = message_rich_store_string(store, embed.image.url);
+    return gif_favorite_url(url.bytes ? url : message_rich_store_string(store, embed.image.proxy_url),
+                            embed.image.flags);
 }
 
 bool message_rich_attachment_preview_extent(const MessageRichStore& store,

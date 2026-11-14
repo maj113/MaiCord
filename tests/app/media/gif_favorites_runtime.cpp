@@ -403,6 +403,47 @@ void hover_interest() noexcept {
           "hover interest: unreadable containing channel cannot retain or reestablish message interest");
     application_gif_favorites_release();
 }
+// A FavoriteGIF the official client saved (key without the attachment
+// signature) reads as favourited from the signed URL a message carries, and a
+// save from MaiCord writes the same normalised key and an animated src.
+void discord_form() noexcept {
+    const auto saved_key = utf8_literal("https://cdn.discordapp.com/attachments/1/2/cat.gif");
+    const auto signed_url = utf8_literal("https://cdn.discordapp.com/attachments/1/2/cat.gif?ex=ff&is=1&hm=ab");
+    Binary versions{}, group{}, root{};
+    versions.scalar(1, 1);
+    versions.scalar(2, 1);
+    versions.scalar(3, 90);
+    root.message(1, versions.view());
+    add(group, saved_key, 1);
+    root.message(2, group.view());
+    check(application_gif_favorites_open() && application_gif_favorites_pending(1) &&
+              application_gif_favorites_submit(400, 1) && complete(response(400), envelope(root.view())) &&
+              application_gif_favorites_state(signed_url).confirmed &&
+              application_gif_favorites_state(saved_key).confirmed,
+          "Discord form: a favourite saved without the attachment signature reads as favourited from the signed URL");
+    const auto webp = utf8_literal("https://cdn.discordapp.com/attachments/1/3/dog.webp?ex=ff&is=1&hm=ab");
+    const auto webp_src = utf8_literal("https://media.discordapp.net/attachments/1/3/dog.webp?ex=ff&is=1&hm=ab");
+    check(application_gif_favorites_toggle(webp, webp_src, 320, 180, GifFavoriteFormat::video) &&
+              application_gif_favorites_state(webp).pending && application_gif_favorites_submit(401, 1),
+          "Discord form: saving an animated WebP attachment queues one update");
+    u32 required{};
+    const auto patch = patch_proto(&required);
+    const auto bytes = [](Utf8View text) noexcept {
+        return ConstSlice<u8>{reinterpret_cast<const u8*>(text.data), text.bytes};
+    };
+    const u8 video[]{0x08, 0x02};
+    check(contains(patch.view(), bytes(utf8_literal("https://cdn.discordapp.com/attachments/1/3/dog.webp"))) &&
+              !contains(patch.view(), bytes(utf8_literal("cdn.discordapp.com/attachments/1/3/dog.webp?"))) &&
+              contains(patch.view(),
+                       bytes(utf8_literal("https://media.discordapp.net/attachments/1/3/dog.webp?ex=ff&is=1&hm=ab&"
+                                          "animated=true"))) &&
+              !contains(patch.view(), {video, 2}),
+          "Discord form: the key drops ex/is/hm, the src gains animated=true, and a WebP saves as IMAGE");
+    check(complete(response(401), reply_patch(91)) &&
+              application_gif_favorites_state(webp).confirmed,
+          "Discord form: the saved WebP reads as favourited from its signed URL");
+    application_gif_favorites_release();
+}
 void run() noexcept {
     configure();
     if (!g_app.account_ui)
@@ -709,6 +750,7 @@ void run() noexcept {
           "closed queued mutation confirms once and returns to dormant scheduling");
     application_gif_favorites_release();
     hover_interest();
+    discord_form();
     check(bank_owned,
           "authoritative cache owns a measured record group and index commitment");
     dispose(g_app.account_ui, sizeof(AccountUiRuntime));

@@ -27,16 +27,24 @@ ApplicationGifFavoritesView application_gif_favorites_view() noexcept;
 ApplicationGifFavoriteState application_gif_favorites_state(Utf8View url) noexcept;
 bool application_gif_favorites_toggle(Utf8View url, Utf8View src, u32 width, u32 height,
                                       GifFavoriteFormat format) noexcept;
-// FavoriteGIF.format as the official client stores it: VIDEO for an MP4/WebM
-// source (its picker plays a <video>), IMAGE for everything else.
-inline GifFavoriteFormat application_gif_favorites_format(Utf8View src) noexcept {
+inline bool application_gif_favorites_src_ends(Utf8View src, const char* suffix, u32 bytes) noexcept {
     u32 end = 0;
     while (end < src.bytes && src.data[end] != '?' && src.data[end] != '#')
         ++end;
-    const auto ends = [&](const char* suffix, u32 bytes) noexcept {
-        return end >= bytes && ascii_equal_ignore_case({src.data + end - bytes, bytes}, {suffix, bytes});
-    };
-    return ends(".mp4", 4) || ends(".webm", 5) ? GifFavoriteFormat::video : GifFavoriteFormat::image;
+    return end >= bytes && ascii_equal_ignore_case({src.data + end - bytes, bytes}, {suffix, bytes});
+}
+// FavoriteGIF.format as the official client stores it: VIDEO for an MP4/WebM
+// source (its picker plays a <video>), IMAGE for everything else.
+inline GifFavoriteFormat application_gif_favorites_format(Utf8View src) noexcept {
+    return application_gif_favorites_src_ends(src, ".mp4", 4) || application_gif_favorites_src_ends(src, ".webm", 5)
+               ? GifFavoriteFormat::video
+               : GifFavoriteFormat::image;
+}
+// The official client saves any .webp/.avif/.gif source as IMAGE, whatever the
+// media it came from.
+inline bool application_gif_favorites_image_src(Utf8View src) noexcept {
+    return application_gif_favorites_src_ends(src, ".webp", 5) || application_gif_favorites_src_ends(src, ".avif", 5) ||
+           application_gif_favorites_src_ends(src, ".gif", 4);
 }
 void application_gif_favorites_synchronize() noexcept;
 bool application_gif_favorites_pending(u64 now_ms) noexcept;

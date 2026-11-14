@@ -95,4 +95,13 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed_group,
 // Accepts only the conditional envelope written above: one favoriteGifs group2,
 // no versions/frecency/other root writes.
 GifFavoritesError gif_favorites_validate_patch_json(Utf8View) noexcept;
+// FavoriteGIF key and src as the official client saves them. The key of a
+// Discord attachment URL (CDN or media proxy host, /attachments/ or
+// /ephemeral-attachments/) drops its ex/is/hm signature parameters. A .webp,
+// .avif or .gif src on such a URL or on the external image proxy
+// (images-ext-N/external/) gains animated=true, and avif/gif also format=webp,
+// so the picker plays it. Anything else is copied unchanged. Returns the bytes
+// written, 0 when output is too small.
+u32 gif_favorites_key(Utf8View url, Slice<char> output) noexcept;
+u32 gif_favorites_src(Utf8View src, Slice<char> output) noexcept;
 } // namespace maicord

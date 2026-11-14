@@ -2,6 +2,7 @@
 #include "../support/model_store_fixtures.hpp"
 #include "probe_capture.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
+#include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
@@ -6053,7 +6054,8 @@ bool probe_attachment_save_affordances() noexcept {
 
 // An fxtwitter post whose image is an animated WebP (IS_ANIMATED, 1 << 5) and an
 // animated WebP attachment both carry the favourite-GIF star; a still PNG does not.
-// The hovered embed is captured with the star drawn over its media.
+// Each hovered media is captured with the star drawn top left, 6 DIPs in, as the
+// official client places it, clear of the attachment's Save at top right.
 bool probe_gif_favorite_star() noexcept {
     if (!g_probe.message_scene.count) return false;
     const auto* record = message_store_resolve(g_probe.message_view.store, g_probe.message_scene.rows[0].message);
@@ -6061,10 +6063,13 @@ bool probe_gif_favorite_star() noexcept {
     GatewayMessageAttachment attachments[2]{};
     const Utf8View names[]{utf8_literal("cat.webp"), utf8_literal("still.png")};
     const Utf8View types[]{utf8_literal("image/webp"), utf8_literal("image/png")};
+    const Utf8View urls[]{
+        utf8_literal("https://cdn.discordapp.com/attachments/111/812001/cat.webp?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+        utf8_literal("https://cdn.discordapp.com/attachments/111/812002/still.png?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")};
     for (u32 i = 0; i < 2; ++i) {
         attachments[i].id = 812001 + i; attachments[i].filename = names[i];
         attachments[i].content_type = types[i]; attachments[i].size = 1024;
-        attachments[i].url = utf8_literal("https://cdn.discordapp.com/attachments/111/812001/cat.webp?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        attachments[i].url = urls[i];
         attachments[i].width = 192; attachments[i].height = 108;
         attachments[i].has_width = attachments[i].has_height = true;
         attachments[i].flags = i == 0 ? 32u : 0u;
@@ -6118,24 +6123,47 @@ bool probe_gif_favorite_star() noexcept {
         !message_presentation_build(g_probe.message_scene, kDefaultTheme, &paint, &stream, &presentation))
         return false;
     bool embed_star = false, webp_star = false, png_star = true;
+    UiRect embed_media{}, webp_media{};
     for (u32 i = 0; i < stream.count; ++i) {
-        if (commands[i].kind == MessageMediaCommandKind::embed) embed_star = commands[i].gif;
-        if (commands[i].kind == MessageMediaCommandKind::attachment && commands[i].id == 812001)
+        if (commands[i].kind == MessageMediaCommandKind::embed) {
+            embed_star = commands[i].gif;
+            embed_media = commands[i].rectangle;
+        }
+        if (commands[i].kind == MessageMediaCommandKind::attachment && commands[i].id == 812001) {
             webp_star = commands[i].gif;
+            webp_media = commands[i].rectangle;
+        }
         if (commands[i].kind == MessageMediaCommandKind::attachment && commands[i].id == 812002)
             png_star = commands[i].gif;
     }
     if (!embed_star || !webp_star || png_star) return false;
-    const auto owner = message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, 0);
-    if (!ui_widget_manager_focus(&g_probe.message_scene.widgets, owner)) return false;
-    renderer_bind_focus_owner(&g_probe.renderer, &g_probe.message_scene.widgets);
-    g_probe.renderer.gif_favorite_owner = owner;
-    g_probe.renderer.gif_favorite = false;
-    g_probe.renderer.gif_favorite_pending = false;
-    const bool captured = rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-                          probe_capture_frame(L"gif-favorite-star-animated-webp-embed.bmp");
-    g_probe.renderer.gif_favorite_owner = {};
-    if (!captured) return false;
+    // The star paints exactly its top-left rectangle, 6 DIPs in, left of Save.
+    const auto capture = [&](MessageSceneRichItemKind kind, UiRect media, const wchar_t* file) noexcept {
+        const UiRect star = ui_gif_favorite_rectangle(media, kDefaultTheme);
+        const UiRect save = ui_attachment_save_rectangle(media, false);
+        if (!ui_rect_has_area(star) || star.left != media.left + 6 || star.top != media.top + 6 ||
+            (ui_rect_has_area(save) && star.right >= save.left))
+            return false;
+        const auto owner = message_scene_rich_item_widget(row, kind, 0);
+        if (!ui_widget_manager_focus(&g_probe.message_scene.widgets, owner)) return false;
+        renderer_bind_focus_owner(&g_probe.renderer, &g_probe.message_scene.widgets);
+        g_probe.renderer.gif_favorite_owner = owner;
+        g_probe.renderer.gif_favorite = false;
+        g_probe.renderer.gif_favorite_pending = false;
+        bool painted = false;
+        const bool presented = rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme);
+        for (u32 i = 0; presented && i < g_probe.renderer.paint_stream.count; ++i) {
+            const auto& q = g_probe.renderer.paint_stream.quads[i];
+            painted |= ui_rect_equal({q.left, q.top, q.right, q.bottom}, star);
+        }
+        const bool captured = presented && painted && probe_capture_frame(file);
+        g_probe.renderer.gif_favorite_owner = {};
+        return captured;
+    };
+    if (!capture(MessageSceneRichItemKind::embed, embed_media, L"gif-favorite-star-animated-webp-embed.bmp") ||
+        !capture(MessageSceneRichItemKind::attachment, webp_media,
+                 L"gif-favorite-star-animated-webp-attachment.bmp"))
+        return false;
     log_write(LogLevel::info, "probe", "gif_favorite_star_animated_webp_embed_and_attachment_passed");
     return true;
 }

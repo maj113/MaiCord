@@ -710,8 +710,7 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
                 command.owner.handle.generation == star_owner.generation &&
                 !ui_gif_favorite_paint(
                     &renderer->paint_stream, command.owner,
-                    ui_gif_favorite_rectangle(command.rectangle,
-                                              command.kind == MessageMediaCommandKind::attachment),
+                    ui_gif_favorite_rectangle(command.rectangle, theme),
                     command.clip, theme, renderer->gif_favorite, renderer->gif_favorite_pending))
                 return layout_step_failed(__LINE__);
             if (!command.ordinary_video ||

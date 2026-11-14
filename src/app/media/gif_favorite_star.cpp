@@ -1,6 +1,7 @@
 #include "gif_favorites.hpp"
 #include "../chat/channel_authority.hpp"
 #include "../shell/state.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
@@ -8,13 +9,29 @@
 
 namespace maicord::app_detail {
 namespace {
-// A GIF on screen and the FavoriteGIF it saves: the URL people send (its
-// key), the media source the picker shows, and the media size.
+// A GIF on screen and the FavoriteGIF it saves, as the official client fills
+// it: the URL people send (its key), the media source the picker shows, the
+// media size and format.
 struct GifStar {
     UiWidgetHandle owner;
     Utf8View url, src;
     u32 width, height;
+    GifFavoriteFormat format;
+    char proxy[2048];
 };
+
+// An attachment's media-proxy URL (its proxy_url): the CDN URL on
+// media.discordapp.net. Other URLs are their own source.
+Utf8View attachment_proxy(Utf8View url, GifStar* out) noexcept {
+    constexpr Utf8View cdn = utf8_literal("https://cdn.discordapp.com/");
+    constexpr Utf8View proxy = utf8_literal("https://media.discordapp.net/");
+    if (url.bytes < cdn.bytes || !utf8_equal({url.data, cdn.bytes}, cdn) ||
+        url.bytes - cdn.bytes + proxy.bytes > sizeof(out->proxy))
+        return url;
+    copy_bytes(out->proxy, proxy.data, proxy.bytes);
+    copy_bytes(out->proxy + proxy.bytes, url.data + cdn.bytes, url.bytes - cdn.bytes);
+    return {out->proxy, url.bytes - cdn.bytes + proxy.bytes};
+}
 
 bool available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
@@ -56,8 +73,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                     scene, *row, MessageSceneRichItemKind::attachment, i);
                 float width = 0, height = 0;
                 if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
-                    !message_rich_attachment_gif_favorite(message_rich_attachment_format(store, attachment),
-                                                          attachment) ||
+                    !message_rich_attachment_gif_favorite(store, attachment) ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), rich->message_id,
                         message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, i,
@@ -69,11 +85,16 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                     continue;
                 const UiRect preview{node->rectangle.left, node->rectangle.top, node->rectangle.left + width,
                                      node->rectangle.top + height};
-                const UiRect star = ui_gif_favorite_rectangle(preview, true);
+                const UiRect star = ui_gif_favorite_rectangle(preview, application_theme());
                 const Utf8View url = message_rich_store_string(store, attachment.url);
                 if (!ui_rect_has_area(star) || !url.bytes || !hit(widget, *node, star))
                     continue;
-                *out = {widget, url, url, attachment.width, attachment.height};
+                out->owner = widget;
+                out->url = url;
+                out->src = attachment_proxy(url, out);
+                out->width = attachment.width;
+                out->height = attachment.height;
+                out->format = GifFavoriteFormat::image;
                 return true;
             }
             for (u32 i = 0; i < rich->embed_count; ++i) {
@@ -85,7 +106,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
                     message_rich_embed_gallery_place(store, *rich, i, &place) ||
                     !message_rich_embed_media_select(store, embed, &selected) || !selected.media ||
-                    !message_rich_embed_gif_favorite(embed, selected) ||
+                    !message_rich_embed_gif_favorite(store, embed, selected) ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), message->id,
                         message_media_reveal_key(message->id, MessageMediaSource::embed, i,
@@ -94,13 +115,31 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                     continue;
                 const UiRect preview = message_rich_embed_media_rect(row->rich_item_layout, i, node->content_rectangle,
                                                                      message_rich_embed_media_only(embed));
-                const UiRect star = ui_gif_favorite_rectangle(preview, false);
-                Utf8View url = message_rich_store_string(store, embed.url);
+                const UiRect star = ui_gif_favorite_rectangle(preview, application_theme());
+                // The image, else the video; the key is the embed URL only for a gifv,
+                // else the media's own URL.
+                const auto present = [&](const MessageRichEmbedMedia& media) noexcept {
+                    return message_rich_store_string(store, media.url).bytes ||
+                           message_rich_store_string(store, media.proxy_url).bytes;
+                };
+                const bool video = present(embed.video);
+                const MessageRichEmbedMedia& media = present(embed.image) ? embed.image : embed.video;
+                const Utf8View media_url = message_rich_store_string(store, media.url);
+                const Utf8View media_proxy = message_rich_store_string(store, media.proxy_url);
+                const Utf8View src = media_proxy.bytes ? media_proxy : media_url;
+                Utf8View url = embed.type == GatewayMessageEmbedType::gifv
+                                   ? message_rich_store_string(store, embed.url)
+                                   : media_url;
                 if (!url.bytes)
-                    url = selected.source;
-                if (!ui_rect_has_area(star) || !url.bytes || !selected.source.bytes || !hit(widget, *node, star))
+                    url = src;
+                if (!ui_rect_has_area(star) || !url.bytes || !src.bytes || !hit(widget, *node, star))
                     continue;
-                *out = {widget, url, selected.source, selected.media->width, selected.media->height};
+                out->owner = widget;
+                out->url = url;
+                out->src = src;
+                out->width = media.width;
+                out->height = media.height;
+                out->format = video ? GifFavoriteFormat::video : GifFavoriteFormat::image;
                 return true;
             }
         }
@@ -135,8 +174,7 @@ bool application_gif_favorite_star_press(float x, float y) noexcept {
         return false;
     const auto state = application_gif_favorites_state(gif.url);
     if (state.available && !state.pending)
-        application_gif_favorites_toggle(gif.url, gif.src, gif.width, gif.height,
-                                         application_gif_favorites_format(gif.src));
+        application_gif_favorites_toggle(gif.url, gif.src, gif.width, gif.height, gif.format);
     application_gif_favorite_star_synchronize();
     application_request_frame();
     return true;

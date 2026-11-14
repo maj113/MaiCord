@@ -1,4 +1,5 @@
 #include "maicord/protocol/user/gif_favorites.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/encoding/base64.hpp"
 #include "../encoding/json_fields.hpp"
 #include "../encoding/proto_wire.hpp"
@@ -623,5 +624,166 @@ GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
         return E::capacity;
     GifFavoritesResult group{};
     return favorites(w, p, stop, group);
+}
+
+namespace {
+// An absolute URL's host, path, query (without '?') and fragment (with '#').
+struct UrlParts {
+    Utf8View head, host, path, query, fragment;
+    bool has_query;
+};
+bool url_parts(Utf8View url, UrlParts* out) noexcept {
+    u32 at = 0;
+    while (at + 2 < url.bytes && !(url.data[at] == ':' && url.data[at + 1] == '/' && url.data[at + 2] == '/'))
+        ++at;
+    if (at + 2 >= url.bytes)
+        return false;
+    const u32 host_begin = at + 3;
+    u32 host_end = host_begin;
+    while (host_end < url.bytes && url.data[host_end] != '/' && url.data[host_end] != '?' &&
+           url.data[host_end] != '#' && url.data[host_end] != ':')
+        ++host_end;
+    u32 path_begin = host_end;
+    while (path_begin < url.bytes && url.data[path_begin] != '/' && url.data[path_begin] != '?' &&
+           url.data[path_begin] != '#')
+        ++path_begin;
+    u32 path_end = path_begin;
+    while (path_end < url.bytes && url.data[path_end] != '?' && url.data[path_end] != '#')
+        ++path_end;
+    u32 query_end = path_end;
+    while (query_end < url.bytes && url.data[query_end] != '#')
+        ++query_end;
+    const bool query = path_end < query_end;
+    *out = {{url.data, path_begin},
+            {url.data + host_begin, host_end - host_begin},
+            {url.data + path_begin, path_end - path_begin},
+            {url.data + path_end + (query ? 1 : 0), query_end - path_end - (query ? 1 : 0)},
+            {url.data + query_end, url.bytes - query_end},
+            query};
+    return true;
+}
+bool ends_with(Utf8View text, Utf8View suffix) noexcept {
+    return text.bytes >= suffix.bytes &&
+           ascii_equal_ignore_case({text.data + text.bytes - suffix.bytes, suffix.bytes}, suffix);
+}
+bool starts_with(Utf8View text, Utf8View prefix) noexcept {
+    return text.bytes >= prefix.bytes && ascii_equal_ignore_case({text.data, prefix.bytes}, prefix);
+}
+// The official client's CDN/media-proxy host test: the host itself, a subdomain
+// of it, or a numbered sibling ("media-1.discordapp.net").
+bool discord_media_host(Utf8View host) noexcept {
+    const Utf8View bases[]{utf8_literal("cdn.discordapp.com"), utf8_literal("media.discordapp.net")};
+    for (const Utf8View base : bases) {
+        if (ascii_equal_ignore_case(host, base))
+            return true;
+        if (host.bytes > base.bytes && ends_with(host, base) && host.data[host.bytes - base.bytes - 1] == '.')
+            return true;
+        u32 dot = 0;
+        while (base.data[dot] != '.')
+            ++dot;
+        const Utf8View domain{base.data + dot, base.bytes - dot};
+        if (host.bytes <= domain.bytes || !ends_with(host, domain))
+            continue;
+        const Utf8View label{host.data, host.bytes - domain.bytes};
+        bool single = true;
+        for (u32 i = 0; i < label.bytes; ++i)
+            single = single && label.data[i] != '.';
+        if (single && label.bytes > dot + 1 && starts_with(label, {base.data, dot}) && label.data[dot] == '-')
+            return true;
+    }
+    return false;
+}
+bool discord_attachment(const UrlParts& url) noexcept {
+    return discord_media_host(url.host) &&
+           (starts_with(url.path, utf8_literal("/attachments/")) ||
+            starts_with(url.path, utf8_literal("/ephemeral-attachments/")));
+}
+bool external_proxy(const UrlParts& url) noexcept {
+    return (ascii_equal_ignore_case(url.host, utf8_literal("images-ext-1.discordapp.net")) ||
+            ascii_equal_ignore_case(url.host, utf8_literal("images-ext-2.discordapp.net"))) &&
+           starts_with(url.path, utf8_literal("/external/"));
+}
+struct UrlWriter {
+    Slice<char> output;
+    u32 used = 0;
+    bool ok = true;
+    void put(Utf8View text) noexcept {
+        if (!ok || text.bytes > output.count - used) {
+            ok = false;
+            return;
+        }
+        copy_bytes(output.data + used, text.data, text.bytes);
+        used += text.bytes;
+    }
+};
+u32 copy_url(Utf8View url, Slice<char> output) noexcept {
+    UrlWriter w{output};
+    w.put(url);
+    return w.ok ? w.used : 0;
+}
+// Rewrites the query: parameters named in `drop` vanish, each of `set` (name=value)
+// replaces its first occurrence in place (later ones vanish) or is appended.
+u32 rewrite_query(const UrlParts& url, ConstSlice<Utf8View> drop, ConstSlice<Utf8View> set,
+                  Slice<char> output) noexcept {
+    UrlWriter w{output};
+    w.put(url.head);
+    w.put(url.path);
+    bool written[2]{};
+    bool first = true;
+    const auto emit = [&](Utf8View parameter) noexcept {
+        w.put(first ? utf8_literal("?") : utf8_literal("&"));
+        w.put(parameter);
+        first = false;
+    };
+    for (u32 at = 0; at < url.query.bytes;) {
+        u32 end = at;
+        while (end < url.query.bytes && url.query.data[end] != '&')
+            ++end;
+        const Utf8View parameter{url.query.data + at, end - at};
+        u32 name_bytes = 0;
+        while (name_bytes < parameter.bytes && parameter.data[name_bytes] != '=')
+            ++name_bytes;
+        const Utf8View name{parameter.data, name_bytes};
+        bool keep = parameter.bytes != 0;
+        for (u32 i = 0; keep && i < drop.count; ++i)
+            keep = !utf8_equal(name, drop[i]);
+        for (u32 i = 0; keep && i < set.count && i < 2; ++i) {
+            const Utf8View set_name{set[i].data, name_bytes};
+            if (set[i].bytes > name_bytes && set[i].data[name_bytes] == '=' && utf8_equal(name, set_name)) {
+                if (!written[i])
+                    emit(set[i]);
+                written[i] = true;
+                keep = false;
+            }
+        }
+        if (keep)
+            emit(parameter);
+        at = end + 1;
+    }
+    for (u32 i = 0; i < set.count && i < 2; ++i)
+        if (!written[i])
+            emit(set[i]);
+    w.put(url.fragment);
+    return w.ok ? w.used : 0;
+}
+} // namespace
+
+u32 gif_favorites_key(Utf8View url, Slice<char> output) noexcept {
+    UrlParts parts{};
+    if (!url_parts(url, &parts) || !discord_attachment(parts))
+        return copy_url(url, output);
+    const Utf8View drop[]{utf8_literal("ex"), utf8_literal("is"), utf8_literal("hm")};
+    return rewrite_query(parts, {drop, 3}, {}, output);
+}
+
+u32 gif_favorites_src(Utf8View src, Slice<char> output) noexcept {
+    UrlParts parts{};
+    if (!url_parts(src, &parts) || !(discord_attachment(parts) || external_proxy(parts)))
+        return copy_url(src, output);
+    const bool webp = ends_with(parts.path, utf8_literal(".webp"));
+    if (!webp && !ends_with(parts.path, utf8_literal(".avif")) && !ends_with(parts.path, utf8_literal(".gif")))
+        return copy_url(src, output);
+    const Utf8View both[]{utf8_literal("format=webp"), utf8_literal("animated=true")};
+    return webp ? rewrite_query(parts, {}, {both + 1, 1}, output) : rewrite_query(parts, {}, {both, 2}, output);
 }
 } // namespace maicord

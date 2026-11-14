@@ -59,16 +59,20 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
         ui_icon_paint(paint,UiIcon::download,icon,ui_foreground_color(theme,theme.text_primary));
     return paint_stream_pop_clip(paint) && ok;
 }
-// A GIF preview's favourite star, top right: left of the Save action on an
-// attachment, in its place on an embed. Shared by paint and input.
-inline UiRect ui_gif_favorite_rectangle(const UiRect& media, bool beside_save) noexcept {
-    const UiRect save = ui_attachment_save_rectangle(media, false);
-    if (!ui_rect_has_area(save) || !beside_save)
-        return save;
-    const float shift = ui_rect_width(save) + 4.f;
-    if (save.left - shift < media.left + 8.f)
+// A GIF preview's favourite star, as the official client places it: top left,
+// inset 6 DIPs (space_2 + space_1) from the media's corner, the Save action's
+// size. Empty when it would not fit or would reach an attachment's Save at top
+// right. Shared by paint and input.
+inline UiRect ui_gif_favorite_rectangle(const UiRect& media, const Theme& theme) noexcept {
+    const float inset = theme.scale.space_2 + theme.scale.space_1;
+    const float size = 30.f;
+    const UiRect star{media.left + inset, media.top + inset, media.left + inset + size, media.top + inset + size};
+    if (star.right + inset > media.right || star.bottom + inset > media.bottom)
         return {};
-    return {save.left - shift, save.top, save.right - shift, save.bottom};
+    const UiRect save = ui_attachment_save_rectangle(media, false);
+    if (ui_rect_has_area(save) && star.right + theme.scale.space_2 > save.left)
+        return {};
+    return star;
 }
 // Shown while the media widget is hovered or focused. A saved GIF draws a
 // filled star; a change in flight dims it.

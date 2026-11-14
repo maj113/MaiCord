@@ -302,42 +302,51 @@ void test_thumbnail_rules(Check check) noexcept {
     }
 }
 
-// The favourite-GIF star: GIFs and IS_ANIMATED (1 << 5) images, as attachments
-// or embed media (an fxtwitter post's animated WebP), never stills or videos.
+// The favourite-GIF star, by the official client's URL test: a .gif, or an
+// IS_ANIMATED (1 << 5) .webp/.avif, as a sized attachment or the embed image
+// (an fxtwitter post's animated WebP); never a still, an APNG, a thumbnail or a
+// video.
 void test_gif_favorite_targets(Check check) noexcept {
     static MessageRichRecord records[1];
     static u16 order[1];
     static u8 text[4096];
     MessageRichStore store{};
     GatewayMessageEmbed embeds[1]{};
-    GatewayMessageAttachment attachments[4]{};
-    const Utf8View names[4]{utf8_literal("cat.webp"), utf8_literal("still.webp"), utf8_literal("still.png"),
-                            utf8_literal("cat.gif")};
-    const u32 flags[4]{32u, 0u, 0u, 0u};
-    for (u32 i = 0; i < 4; ++i) {
+    GatewayMessageAttachment attachments[7]{};
+    const Utf8View urls[7]{utf8_literal("https://cdn.discordapp.com/attachments/1/2/cat.webp?ex=1"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/still.webp"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/still.png"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/cat.gif"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/apng.png"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/cat.avif"),
+                           utf8_literal("https://cdn.discordapp.com/attachments/1/2/unsized.gif")};
+    const u32 flags[7]{32u, 0u, 0u, 0u, 32u, 32u, 0u};
+    for (u32 i = 0; i < 7; ++i) {
         attachments[i].id = 70 + i;
-        attachments[i].filename = names[i];
-        attachments[i].url = utf8_literal("https://cdn.discordapp.com/attachments/1/2/a.webp");
-        attachments[i].width = attachments[i].height = 64;
-        attachments[i].has_width = attachments[i].has_height = true;
+        attachments[i].filename = utf8_literal("media");
+        attachments[i].url = urls[i];
+        attachments[i].width = attachments[i].height = i == 6 ? 0 : 64;
+        attachments[i].has_width = attachments[i].has_height = i != 6;
         attachments[i].flags = flags[i];
     }
     GatewayMessageEvent event{};
     event.id = 5;
     event.fields = gateway_message_field_embeds | gateway_message_field_attachments;
     event.embeds = {embeds, 1};
-    event.attachments = {attachments, 4};
-    const auto embed_star = [&](GatewayMessageEmbedType type, Utf8View url, u32 media_flags, bool video) noexcept {
+    event.attachments = {attachments, 7};
+    const auto embed_star = [&](GatewayMessageEmbedType type, Utf8View url, u32 media_flags, bool video,
+                                bool thumbnail = false) noexcept {
         embeds[0] = {};
         embeds[0].type = type;
         embeds[0].url = utf8_literal("https://cunnyx.com/GiFShitpost/status/1");
         embeds[0].author_name = utf8_literal("GIFs Shitpost");
         embeds[0].has_author = true;
-        embeds[0].image.url = url;
-        embeds[0].image.proxy_url = url;
-        embeds[0].image.width = embeds[0].image.height = 64;
-        embeds[0].image.has_width = embeds[0].image.has_height = true;
-        embeds[0].image.flags = media_flags;
+        GatewayMessageEmbedMedia& media = thumbnail ? embeds[0].thumbnail : embeds[0].image;
+        media.url = url;
+        media.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/s/https/e.test/proxy");
+        media.width = media.height = 64;
+        media.has_width = media.has_height = true;
+        media.flags = media_flags;
         if (video) {
             embeds[0].video.url = utf8_literal("https://e.test/v.mp4");
             embeds[0].video.width = embeds[0].video.height = 64;
@@ -348,23 +357,23 @@ void test_gif_favorite_targets(Check check) noexcept {
             return false;
         const MessageRichRecord* rich = message_rich_store_find(store, 5);
         return rich && message_rich_embed_media_select(store, rich->embeds[0], &selected) &&
-               message_rich_embed_gif_favorite(rich->embeds[0], selected);
+               message_rich_embed_gif_favorite(store, rich->embeds[0], selected);
     };
-    const Utf8View webp = utf8_literal("https://images-ext-1.discordapp.net/external/s/https/e.test/a.webp");
+    const Utf8View webp = utf8_literal("https://pbs.twimg.com/media/cat.webp?name=orig");
     check(embed_star(GatewayMessageEmbedType::rich, webp, 32u, false) &&
               !embed_star(GatewayMessageEmbedType::rich, webp, 0u, false) &&
-              !embed_star(GatewayMessageEmbedType::image, utf8_literal("https://e.test/a.png"), 0u, false) &&
+              !embed_star(GatewayMessageEmbedType::image, utf8_literal("https://e.test/a.png"), 32u, false) &&
               embed_star(GatewayMessageEmbedType::image, utf8_literal("https://e.test/a.gif"), 0u, false) &&
-              !embed_star(GatewayMessageEmbedType::video, webp, 0u, true),
-          "gif_star_on_animated_webp_and_gif_embeds_not_stills_or_video");
+              !embed_star(GatewayMessageEmbedType::article, webp, 32u, false, true) &&
+              !embed_star(GatewayMessageEmbedType::video, webp, 32u, true, true),
+          "gif_star_on_animated_webp_and_gif_embed_images_not_stills_thumbnails_or_video");
     const MessageRichRecord* rich = message_rich_store_find(store, 5);
-    bool attachment_stars[4]{};
-    for (u32 i = 0; rich && i < rich->attachment_count && i < 4; ++i)
-        attachment_stars[i] = message_rich_attachment_gif_favorite(
-            message_rich_attachment_format(store, rich->attachments[i]), rich->attachments[i]);
-    check(rich && rich->attachment_count == 4 && attachment_stars[0] && !attachment_stars[1] &&
-              !attachment_stars[2] && attachment_stars[3],
-          "gif_star_on_animated_webp_and_gif_attachments_not_stills");
+    bool stars[7]{};
+    for (u32 i = 0; rich && i < rich->attachment_count && i < 7; ++i)
+        stars[i] = message_rich_attachment_gif_favorite(store, rich->attachments[i]);
+    check(rich && rich->attachment_count == 7 && stars[0] && !stars[1] && !stars[2] && stars[3] && !stars[4] &&
+              stars[5] && !stars[6],
+          "gif_star_on_sized_gif_and_animated_webp_avif_attachments_not_stills_or_apng");
 }
 // As in the official client, embeds sharing a url fold into the first, whose
 // media becomes a gallery of their images (a video wins over the images).

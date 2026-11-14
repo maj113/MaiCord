@@ -325,10 +325,21 @@ ApplicationGifFavoritesView application_gif_favorites_view() noexcept {
             p->failed,
             p->status};
 }
+// The saved key for `key`: itself when an entry already uses it (an older
+// save), else the official client's normalised form (signature parameters
+// dropped from a Discord attachment URL).
+static Utf8View saved_key(const ApplicationGifFavorites& p, Utf8View key, Slice<char> buffer) noexcept {
+    if (!usable_text(key) || favorite(p, key))
+        return key;
+    const u32 bytes = gif_favorites_key(key, buffer);
+    return bytes ? Utf8View{buffer.data, bytes} : key;
+}
 ApplicationGifFavoriteState application_gif_favorites_state(Utf8View key) noexcept {
     const auto* p = g_app.gif_favorites;
     if (!p || !broker_scope(*p))
         return {false, false, false, account_online()};
+    char normal[kUrlBytes];
+    key = saved_key(*p, key, {normal, kUrlBytes});
     bool pending = false;
     for (u32 i = 0; i < p->queue_count; ++i)
         if (utf8_equal(url(p->queue[i]), key)) {
@@ -352,6 +363,16 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
     application_gif_favorites_synchronize();
     if (!broker_scope(p))
         return false;
+    char normal[kUrlBytes], source[kUrlBytes];
+    key = saved_key(p, key, {normal, kUrlBytes});
+    if (src.bytes) {
+        const u32 source_bytes = gif_favorites_src(src, {source, kUrlBytes});
+        if (!source_bytes)
+            return false;
+        src = {source, source_bytes};
+        if (application_gif_favorites_image_src(src))
+            format = GifFavoriteFormat::image;
+    }
     const bool desired = !favorite(p, key);
     // Opaque or older saved entries can still be removed by their exact key.
     // Adding requires the catalog's supported source and representation.

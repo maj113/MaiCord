@@ -331,5 +331,45 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
                   {reinterpret_cast<const char*>(large_json), written.bytes}) == GifFavoritesError::none,
           "GIF favorites: complete conditional patch above ordinary REST64KiB retains opaque cloud data");
     arena_release(&arena);
+
+    // The official client's save-time normalisation.
+    char normal[512];
+    const auto key = [&](const auto& url) noexcept {
+        const u32 bytes = gif_favorites_key({url, sizeof(url) - 1}, {normal, sizeof(normal)});
+        return Utf8View{normal, bytes};
+    };
+    const auto src = [&](const auto& url) noexcept {
+        const u32 bytes = gif_favorites_src({url, sizeof(url) - 1}, {normal, sizeof(normal)});
+        return Utf8View{normal, bytes};
+    };
+    check(utf8_equal(key("https://cdn.discordapp.com/attachments/1/2/a.gif?ex=ff&is=1&hm=ab"),
+                     utf8_literal("https://cdn.discordapp.com/attachments/1/2/a.gif")) &&
+              utf8_equal(key("https://media.discordapp.net/attachments/1/2/a.gif?ex=1&width=5&hm=2#f"),
+                         utf8_literal("https://media.discordapp.net/attachments/1/2/a.gif?width=5#f")) &&
+              utf8_equal(key("https://media-1.discordapp.net/ephemeral-attachments/1/a.webp?is=2"),
+                         utf8_literal("https://media-1.discordapp.net/ephemeral-attachments/1/a.webp")) &&
+              utf8_equal(key("https://tenor.com/view/a.gif?ex=1"), utf8_literal("https://tenor.com/view/a.gif?ex=1")) &&
+              utf8_equal(key("https://cdn.discordapp.com/emojis/1.gif?ex=1"),
+                         utf8_literal("https://cdn.discordapp.com/emojis/1.gif?ex=1")) &&
+              utf8_equal(key("https://evil.test/attachments/a.gif?ex=1"),
+                         utf8_literal("https://evil.test/attachments/a.gif?ex=1")),
+          "GIF favorites: key drops ex/is/hm only from Discord attachment URLs");
+    check(utf8_equal(src("https://media.discordapp.net/attachments/1/2/a.webp?ex=ff"),
+                     utf8_literal("https://media.discordapp.net/attachments/1/2/a.webp?ex=ff&animated=true")) &&
+              utf8_equal(src("https://cdn.discordapp.com/attachments/1/2/a.GIF"),
+                         utf8_literal("https://cdn.discordapp.com/attachments/1/2/a.GIF?format=webp&animated=true")) &&
+              utf8_equal(src("https://images-ext-1.discordapp.net/external/s/https/x.test/a.avif?animated=false&format=png"),
+                         utf8_literal("https://images-ext-1.discordapp.net/external/s/https/x.test/a.avif?animated=true&"
+                                      "format=webp")) &&
+              utf8_equal(src("https://images-ext-2.discordapp.net/external/s/https/x.test/a.webp?animated=true"),
+                         utf8_literal("https://images-ext-2.discordapp.net/external/s/https/x.test/a.webp?animated=true")) &&
+              utf8_equal(src("https://media.discordapp.net/attachments/1/2/a.mp4"),
+                         utf8_literal("https://media.discordapp.net/attachments/1/2/a.mp4")) &&
+              utf8_equal(src("https://media.tenor.com/x/a.gif"), utf8_literal("https://media.tenor.com/x/a.gif")) &&
+              utf8_equal(src("https://images-ext-1.discordapp.net/a.webp"),
+                         utf8_literal("https://images-ext-1.discordapp.net/a.webp")),
+          "GIF favorites: a Discord-hosted .webp/.avif/.gif src gains animated=true (and format=webp), others stay");
+    check(!gif_favorites_src(utf8_literal("https://cdn.discordapp.com/attachments/1/2/a.webp"), {normal, 20}),
+          "GIF favorites: a normalised URL that would not fit is refused, not truncated");
 }
 } // namespace maicord

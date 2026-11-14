@@ -508,7 +508,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             command->ordinary_video = format == MediaAttachmentFormat::mp4 && visible;
             command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);
-            command->gif = message_rich_attachment_gif_favorite(format, attachment) && visible;
+            command->gif = message_rich_attachment_gif_favorite(*rich_store, attachment) && visible;
         } else {
             const UiRect card{left, top, minimum(item_layout->rectangle.right, left + 420.0f), top + 36.0f};
             const UiRect icon{left + 8.0f, top + 8.0f, left + 28.0f, top + 28.0f};
@@ -649,7 +649,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             command->open_link = command->ordinary_video && message_rich_embed_open_pill(*rich_store, embed);
             command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);
-            command->gif = message_rich_embed_gif_favorite(embed, selected) && visible;
+            command->gif = message_rich_embed_gif_favorite(*rich_store, embed, selected) && visible;
         }
     }
 
