@@ -98,9 +98,11 @@ struct ActivationParams {
 inline constexpr GUID kIidActivateCompletionHandler{
     0x41d949ab, 0x9862, 0x444a, {0x80, 0xf6, 0xc2, 0x61, 0x33, 0x4d, 0xa5, 0xeb}};
 inline constexpr u32 kGetActivateResult = 3;
-// mmdevapi.dll: ActivateAudioInterfaceAsync, resolved at run time.
+struct SignalCallback;
+// mmdevapi.dll: ActivateAudioInterfaceAsync, resolved at run time. Its completion handler is the SignalCallback
+// below, a COM object with that interface's layout, so it is declared as what MaiCord passes.
 using ActivateAudioInterfaceFunction = HRESULT(__stdcall*)(const wchar_t* path, const IID& iid, PROPVARIANT* parameters,
-                                                           IUnknown* handler, Object** operation) noexcept;
+                                                           SignalCallback* handler, Object** operation) noexcept;
 
 // A free-threaded COM callback object (an event handler or completion handler): IUnknown, IAgileObject (WinRT and
 // WASAPI call it on their own threads, unmarshalled) and the one method, which sets `event`. It owns a duplicate of

@@ -66,8 +66,7 @@ HRESULT activate_process_loopback(Runtime& r, IAudioClient** client) noexcept {
     if (!completion)
         return E_OUTOFMEMORY;
     Object* operation = nullptr;
-    HRESULT h = activate(kProcessLoopbackDevice, __uuidof(IAudioClient), &variant,
-                         reinterpret_cast<IUnknown*>(completion), &operation);
+    HRESULT h = activate(kProcessLoopbackDevice, __uuidof(IAudioClient), &variant, completion, &operation);
     if (SUCCEEDED(h)) {
         HANDLE events[]{r.stop, r.activated};
         h = WaitForMultipleObjects(2, events, FALSE, 5000) == WAIT_OBJECT_0 + 1 ? S_OK : E_ABORT;
