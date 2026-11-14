@@ -182,13 +182,15 @@ bool refresh_shell_text(bool force) noexcept {
         application_dm_profile_synchronize(true);
     if (!synchronized || (autocomplete_stale && !refresh_active_autocomplete()) ||
         !rebuild_account_text_cache()) {
-        log_write(LogLevel::error, "render", "account_text_cache_rebuild_failed");
         saturating_increment(ui.text_rebuild_failures);
         const u32 shift = minimum(ui.text_rebuild_failures > 0 ? ui.text_rebuild_failures - 1u : 0u, 4u);
         const u32 retry_ms =
             minimum(kUiRebuildRetryMaximumMilliseconds, kUiRebuildRetryMinimumMilliseconds << shift);
         ui.text_rebuild_retry_at_ms = deadline_after(now_ms, retry_ms);
-        log_u64(LogLevel::warning, "render", "account_text_retry_ms", retry_ms);
+        if (failure_log_due(ui.text_rebuild_failures)) {
+            log_write(LogLevel::error, "render", "account_text_cache_rebuild_failed");
+            log_u64(LogLevel::warning, "render", "account_text_retry_ms", retry_ms);
+        }
         // Presentation is a derived cache. A rejected frame must never stall
         // the authoritative REST/Gateway loop; stale revisions schedule retry.
         return true;

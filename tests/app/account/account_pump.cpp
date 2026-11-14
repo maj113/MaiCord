@@ -362,6 +362,63 @@ void test_frame_deadlines() noexcept {
     g_app.account = {};
 }
 
+// A frame that fails every time while a text effect is due. Only a drawn frame moves the effect's deadline, and a
+// rejected frame keeps its display slot: the loop waited zero and tried about 7,000 frames a second. The turns below
+// are the loop's: wait (zero while a frame is requested, its slot retained), request a frame for the due effect,
+// present unless the retry time holds the frame, reject.
+void test_rejected_frame_retry() noexcept {
+    g_app.account.instance = reinterpret_cast<void*>(1);
+    g_app.renderer.text_effect_animated = true;
+    g_app.renderer.text_effect_next_ms = 1;
+    g_app.frame_pending = true;
+    g_app.presentation_failures = 0;
+    g_app.presentation_retry_at_ms = 0;
+    constexpr u64 start = 1'000'000, end = start + 10'000;
+    u64 now = start;
+    u32 attempts = 0, turns = 0, first_second = 0;
+    bool waits = true;
+    for (; now < end && turns < 100'000; ++turns) {
+        const bool requested = application_visual_frame_requested(now, now * 1000);
+        const u32 timeout = requested ? 0 : application_wait_timeout(now, now * 1000, false);
+        if (application_frame_retry_waiting(now))
+            waits = waits && !requested && timeout == g_app.presentation_retry_at_ms - now &&
+                    application_wait_timeout(now, now * 1000, true) == timeout;
+        now += timeout;
+        if (application_visual_frame_requested(now, now * 1000) && application_effect_frame_due(now))
+            g_app.frame_pending = true;
+        if (!g_app.frame_pending || application_frame_retry_waiting(now))
+            continue;
+        g_app.frame_pending = false;
+        ++attempts;
+        first_second += now < start + 1'000;
+        ++g_app.presentation_failures;
+        application_frame_retry_schedule(now);
+    }
+    // Three retries at once, then after 16, 32, 64, 128 and 250 ms (11 attempts in the first second), then four a
+    // second: 48 attempts in 10 seconds.
+    check(now >= end && waits && first_second == 11 && attempts == 48 && turns <= 2 * attempts,
+          "rejected_frame_is_tried_again_at_most_four_times_a_second_and_the_loop_sleeps_between");
+    check(application_frame_retry_waiting(now) && !application_visual_frame_requested(now, now * 1000) &&
+              application_effect_frame_due(now),
+          "rejected_frame_requests_no_display_slot_before_its_retry_time");
+    fixture_logout_blocked = true;
+    check(application_wait_timeout(now, now * 1000, false) == g_app.presentation_retry_at_ms - now &&
+              !application_visual_frame_requested(now, now * 1000),
+          "rejected_frame_waits_for_its_retry_time_during_logout");
+    fixture_logout_blocked = false;
+    // A presented frame ends the wait (application_record_presentation_success).
+    g_app.presentation_failures = 0;
+    g_app.presentation_retry_at_ms = 0;
+    g_app.frame_pending = true;
+    check(!application_frame_retry_waiting(now) && application_visual_frame_requested(now, now * 1000) &&
+              application_wait_timeout(now, now * 1000, false) == 0,
+          "presented_frame_ends_the_retry_wait");
+    g_app.frame_pending = false;
+    g_app.renderer.text_effect_animated = false;
+    g_app.renderer.text_effect_next_ms = 0;
+    g_app.account = {};
+}
+
 void test_member_role_refresh() noexcept {
     auto& ui = *g_app.account_ui;
     auto& event_pump = g_app.message_pump;
@@ -1110,6 +1167,7 @@ u32 run_account_pump_tests() noexcept {
     g_app.account_ui = nullptr;
     g_app.account = {};
     test_frame_deadlines();
+    test_rejected_frame_retry();
     fixture_logout_blocked = true;
     fixture_logout_wake = 1125;
     g_app.account.status.next_wake_at_ms = 1;

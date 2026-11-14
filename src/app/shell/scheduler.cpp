@@ -167,8 +167,23 @@ u64 application_next_wake_at_ms() noexcept {
 
 } // namespace
 
+void application_frame_retry_schedule(u64 now_ms) noexcept {
+    constexpr u32 kImmediate = 3, kMinimumMilliseconds = 16, kMaximumMilliseconds = 250;
+    const u32 failures = g_app.presentation_failures;
+    g_app.presentation_retry_at_ms =
+        failures <= kImmediate
+            ? 0
+            : deadline_after(now_ms, minimum(kMaximumMilliseconds,
+                                             kMinimumMilliseconds << minimum(failures - kImmediate - 1u, 4u)));
+}
+bool application_frame_retry_waiting(u64 now_ms) noexcept {
+    return now_ms < g_app.presentation_retry_at_ms;
+}
+
 u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, bool visual_suspended) noexcept {
-    frame_clock_armed = frame_clock_armed || visual_suspended;
+    // While a frame waits for its retry time, no visual deadline wakes the loop. The retry time does.
+    const u64 frame_retry_at = application_frame_retry_waiting(now_ms) ? g_app.presentation_retry_at_ms : 0;
+    frame_clock_armed = frame_clock_armed || visual_suspended || frame_retry_at;
     if (application_account_logout_blocked()) {
         u32 timeout = INFINITE;
         limit_timeout(timeout, now_ms, application_account_logout_next_wake());
@@ -188,6 +203,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
                 timeout = minimum(timeout, 16u);
         }
         limit_frame_rate(timeout, now_us);
+        limit_timeout(timeout, now_ms, frame_retry_at);
         return timeout;
     }
     if (g_app.account_ui) {
@@ -269,6 +285,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     // A dirty frame must also run when no DXGI waitable clock is available.
     if (g_app.frame_pending && !frame_clock_armed)
         timeout = 0;
+    limit_timeout(timeout, now_ms, frame_retry_at);
     return timeout;
 }
 
@@ -291,6 +308,8 @@ bool application_effect_frame_due(u64 now_ms) noexcept {
 }
 
 bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
+    if (application_frame_retry_waiting(now_ms))
+        return false;
     if (application_account_logout_blocked())
         return g_app.frame_pending || application_effect_frame_due(now_ms) || application_theme_transition_active() ||
                deadline_due(now_ms, application_background_next_wake(now_ms)) ||

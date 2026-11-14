@@ -32,6 +32,7 @@
 #include "caption.hpp"
 #include "../update/updates.hpp"
 #include "frame_presentation.hpp"
+#include "scheduler.hpp"
 #include "../media/media.hpp"
 #include "background.hpp"
 #include "maicord/core/data_path.hpp"
@@ -474,12 +475,16 @@ void application_present_pending_frame() noexcept {
     if (!g_app.frame_pending || (gpu_frame_clock_waitable(&g_app.renderer.graphics.surface) &&
                                  !g_app.renderer.live_resize && !g_app.renderer.begin_frame_permit))
         return;
+    // A frame that keeps failing waits for its retry time. Its request stays pending.
+    if (g_app.presentation_retry_at_ms && application_frame_retry_waiting(clock_monotonic_milliseconds()))
+        return;
     // Pointer drags that move a pane follow the pointer once per frame here,
     // not once per WM_MOUSEMOVE.
     application_media_picker_drag_tick();
     g_app.frame_pending = false;
     if (!application_present_frame()) {
         application_record_presentation_failure("paint_frame_rejected");
+        application_frame_retry_schedule(clock_monotonic_milliseconds());
     } else {
         application_record_presentation_success();
     }
@@ -529,6 +534,7 @@ void application_record_presentation_failure(const char* stage) noexcept {
 
 void application_record_presentation_success() noexcept {
     g_app.presentation_failures = 0;
+    g_app.presentation_retry_at_ms = 0;
 }
 
 void application_resize_client() noexcept {

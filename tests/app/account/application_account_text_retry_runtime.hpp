@@ -221,6 +221,28 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
           "text retry: changed layout rebuilds at its new width before the previous retry deadline");
     ui.text_rebuild_retry_at_ms = 0;
     ui.text_rebuild_failures = 0;
+    // A layout that stays pending asks for its text on every frame (a settings page that rejected its frame kept
+    // the pane layout pending). A build that fails every time is built at once kUiRebuildLayoutAttempts times.
+    // After that it waits for its retry time: 1,000 frames in a row build nothing more.
+    reject = true;
+    const u32 layout_attempts = attempts;
+    bool refreshed = true;
+    for (u32 frame = 0; frame < 1'000; ++frame)
+        refreshed = refresh_account_text_for_layout() && refreshed;
+    check(refreshed && attempts - layout_attempts >= kUiRebuildLayoutAttempts &&
+              attempts - layout_attempts <= kUiRebuildLayoutAttempts + 2 &&
+              ui.text_rebuild_failures == attempts - layout_attempts &&
+              ui.text_rebuild_retry_at_ms > clock_monotonic_milliseconds(),
+          "text retry: a layout whose text build fails on every frame keeps its retry time");
+    // The log lines of such a build: a million failures in a row write each line 20 times.
+    u32 logged = 0;
+    for (u32 failure = 1; failure <= 1'000'000; ++failure)
+        logged += failure_log_due(failure);
+    check(logged == 20 && failure_log_due(1) && failure_log_due(2) && !failure_log_due(3) && failure_log_due(4),
+          "text retry: a build that keeps failing logs its 1st, 2nd, 4th, 8th... failure only");
+    reject = false;
+    ui.text_rebuild_retry_at_ms = 0;
+    ui.text_rebuild_failures = 0;
     // The scheduler wakes at the earliest typing expiry, so an expired record
     // must leave the store behind every presentation early-out (Settings,
     // Friends, unchanged text); otherwise each later wait is a zero timeout.

@@ -9,8 +9,10 @@
 namespace maicord::app_detail {
 // A new layout cannot present the previous projection's glyph positions.
 // Its first rebuild must not inherit a delay from the rejected geometry.
+// A build that keeps failing is not a first rebuild. It keeps its retry time: a layout that stays pending asks
+// for its text on every frame.
 inline bool refresh_account_text_for_layout() noexcept {
-    if (g_app.account_ui)
+    if (g_app.account_ui && g_app.account_ui->text_rebuild_failures < kUiRebuildLayoutAttempts)
         g_app.account_ui->text_rebuild_retry_at_ms = 0;
     return refresh_account_text(true);
 }

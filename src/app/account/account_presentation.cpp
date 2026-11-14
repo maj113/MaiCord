@@ -634,6 +634,12 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
             },
             &g_app.renderer, clock_unix_milliseconds() / 1'000,
             renderer_text_measure_revision(g_app.renderer), &trace, scroll_refresh, scroll_moving});
+    // The caller counts this failure after the return. A build that keeps failing writes its diagnostics at the 1st,
+    // 2nd, 4th, 8th... failure in a row. It builds the shell text every time.
+    if (!coordinated.ok() && !failure_log_due(ui.text_rebuild_failures + 1u)) {
+        static_cast<void>(renderer_rebuild_shell_text(&g_app.renderer, application_theme()));
+        return false;
+    }
     if (!coordinated.ok()) {
         const u64 failed[] = {static_cast<u64>(coordinated.error),
                               static_cast<u64>(coordinated.scene_error),

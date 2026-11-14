@@ -83,6 +83,13 @@ inline constexpr float kMinimumLoginClientWidthDips = 560.0f;
 inline constexpr float kMinimumClientHeightDips = 480.0f;
 inline constexpr u32 kUiRebuildRetryMinimumMilliseconds = 100;
 inline constexpr u32 kUiRebuildRetryMaximumMilliseconds = 1'600;
+// A new layout builds its text at once until the build failed this many times in a row. After that it waits for
+// the retry time like every other build.
+inline constexpr u32 kUiRebuildLayoutAttempts = 4;
+// A failure that repeats writes its log lines at the 1st, 2nd, 4th, 8th... time: the log file has a size limit.
+constexpr bool failure_log_due(u32 count) noexcept {
+    return (count & (count - 1u)) == 0;
+}
 inline constexpr u32 kRemoteAuthRetryMinimumMs = 1'500;
 inline constexpr u32 kRemoteAuthRetryMaximumMs = 30'000;
 inline constexpr u32 kWebAuthnStructuralCapacity = 4 * 1024;
@@ -491,6 +498,8 @@ struct Application {
     UiTextPointerSelection message_text_pointer_unit;
     u32 frame_clock_timeouts;
     u32 presentation_failures;
+    // The time of the next attempt after a rejected frame (application_frame_retry_schedule). Zero: no wait.
+    u64 presentation_retry_at_ms;
 };
 
 extern Application g_app;
