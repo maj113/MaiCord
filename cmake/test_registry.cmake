@@ -673,9 +673,9 @@ if(MAICORD_LINUX)
     endif()
     # Settings > Profiles against the fake Discord (tools/test_profile_editor_wayland.sh): the name font and effect
     # dropdowns picked by mouse and by keyboard, the colour picker (drag, typed hex, apply) and the saved PATCH body with
-    # Nitro; without it the same picks stay in Try It Out and write nothing; an owned nameplate shows on the preview's
-    # member row and saves; the same picker sets a role's custom colour in Server Settings > Roles. Opt-in like the
-    # Server Tag run.
+    # Nitro; without it the same picks stay in Try It Out and write nothing, then Prism (five colours) and 30 presses
+    # of Shuffle leave no error line in the client's log; an owned nameplate shows on the preview's member row and
+    # saves; the same picker sets a role's custom colour in Server Settings > Roles. Opt-in like the Server Tag run.
     add_test(NAME maicord_profile_editor_ui_probe
         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_profile_editor_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
             --out "${CMAKE_BINARY_DIR}/profile-editor-qa")
@@ -3148,7 +3148,8 @@ maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_P
 # rendition and present (a failed build_layout presents nothing).
 maicord_ui_probe_test(maicord_guild_rail_icon_probe UI_GUILD_RAIL_ICON_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
-# Profiles settings page, preview card, cropper and decoration picker; Ctrl+A over a multi-line Bio.
+# Profiles settings page, preview card, cropper and decoration picker; Ctrl+A over a multi-line Bio. Try It Out: every
+# name font with every effect at 100, 125 and 150 %, then 256 presses of Shuffle with a frame after each.
 maicord_ui_probe_test(maicord_profile_editor_ui_probe PROFILE_EDITOR_UI_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 # Rich presence cards in the profile popout and full profile.

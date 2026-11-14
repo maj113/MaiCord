@@ -7,7 +7,7 @@
 #include "../settings/settings.hpp"
 #include "account_ui_runtime.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/widgets/color_picker.hpp"
+#include "profile_shuffle.hpp"
 #include "maicord/media/image/dominant_color.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/ui/account/profile_media.hpp"
@@ -312,24 +312,9 @@ void open_dropdown(const UiSettingsTarget& target, ConstSlice<PopupItem> items) 
     settings_layer_open_choice(&p.layer, kProfilesPage.owner_id, items, geometry.field,
                                maximum(96.f, ui_rect_width(geometry.field)));
 }
-// Try It Out's Shuffle, as the official client's: a random theme and a random name style to preview.
 void shuffle() noexcept {
     auto& p = *owner;
-    u64 state = clock_monotonic_milliseconds() * 0x9E3779B97F4A7C15ull ^ p.lifetime;
-    const auto next = [&state](u32 bound) noexcept {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        return static_cast<u32>(state % bound);
-    };
-    const float hue = next(360) / 360.f;
-    p.draft.theme_set = true;
-    p.draft.theme_reset = false;
-    p.draft.theme[0] = color_picker_rgb({hue, .45f + next(40) / 100.f, .55f + next(40) / 100.f});
-    p.draft.theme[1] = color_picker_rgb({hue < .5f ? hue + .5f : hue - .5f, .45f + next(40) / 100.f, .3f + next(40) / 100.f});
-    p.draft.name_style_set = true;
-    p.draft.name_style = profile_name_style_with_effect({kProfileNameFontIds[next(kProfileNameFontCount)], 0, 0, {}},
-                                                        next(kProfileNameEffectCount));
+    profile_editor_shuffle(clock_monotonic_milliseconds() * 0x9E3779B97F4A7C15ull ^ p.lifetime, &p.draft);
 }
 // Leaving Try It Out returns every field the account can't save to its saved value; other edits stay.
 void stop_trying() noexcept {

@@ -4,6 +4,8 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/model/user/profile_editor.hpp"
+#include "../../../src/app/account/profile_shuffle.hpp"
 
 // Geometry of the profile editor page (the official Profiles settings layout:
 // tab bar, customization sections, captioned colour swatches, button groups
@@ -12,6 +14,7 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
+using app_detail::profile_editor_shuffle;
 bool close_to(float a, float b, float epsilon = .01f) noexcept {
     return a - b < epsilon && b - a < epsilon;
 }
@@ -27,31 +30,63 @@ struct Page {
     Utf8View tabs[2]{utf8_literal("Main Profile"), utf8_literal("Per-server Profiles")};
     Utf8View avatar[2]{utf8_literal("Change Avatar"), utf8_literal("Remove Avatar")};
     Utf8View theme[2]{utf8_literal("Primary"), utf8_literal("Accent")};
+    Utf8View trying[2]{utf8_literal("Shuffle"), utf8_literal("Stop Trying")};
+    Utf8View fonts[kProfileNameFontCount]{}, effects[kProfileNameEffectCount]{};
+    Utf8View name_colors[kProfileNameStyleColors]{};
     MessageComposer models[2]{};
     char name[64]{}, bio[256]{};
     UiSettingsEditor editors[2]{};
-    UiSettingsControl controls[8]{};
-    UiSettingsControlPresentation presentation[8]{};
+    UiSettingsControl controls[12]{};
+    UiSettingsControlPresentation presentation[12]{};
     UiSettingsPageContent content{};
 };
-void build(Page* p) noexcept {
+constexpr u64 kTryRow = 7, kFontRow = 8, kEffectRow = 9, kNameColorRow = 10;
+// With `style`, the rows Try It Out adds, as the editor projects them: Shuffle and Stop Trying, the font and effect
+// dropdowns and one captioned swatch per colour of the effect with Remove Style after them.
+void build(Page* p, const ProfileNameStyle* style = nullptr) noexcept {
+    using Kind = UiSettingsControlKind;
     message_composer_initialize(&p->models[0], {p->name, sizeof(p->name)});
     message_composer_initialize(&p->models[1], {p->bio, sizeof(p->bio)});
     p->editors[0] = {{message_composer_text(p->models[0]), 0, 0, false, false, true}, nullptr, utf8_literal("ada")};
     p->editors[1] = {{message_composer_text(p->models[1]), 0, 0, false, false, true}, nullptr, {}};
-    p->controls[0] = {1, utf8_literal("Profiles"), {}, UiSettingsControlKind::tabs, true, false, {p->tabs, 2}, 0};
-    p->controls[1] = {2, utf8_literal("Display Name"), {}, UiSettingsControlKind::edit, true, false, {}, 0, {},
-                      &p->editors[0]};
-    p->controls[2] = {3, utf8_literal("Must be 32 or fewer in length."), {}, UiSettingsControlKind::error, true, false};
-    p->controls[3] = {4, utf8_literal("Avatar"), {}, UiSettingsControlKind::buttons, true, false, {p->avatar, 2},
-                      kUiSettingsNoChoice};
-    p->controls[4] = {5, utf8_literal("Profile Theme"), {}, UiSettingsControlKind::colors, true, false, {p->theme, 2},
-                      kUiSettingsNoChoice, utf8_literal("Reset Theme")};
-    p->controls[5] = {6, utf8_literal("Bio"), utf8_literal("You can use markdown and links if you'd like."),
-                      UiSettingsControlKind::multiline, true, false, {}, 0, utf8_literal("190"), &p->editors[1]};
+    u32 n = 0;
+    auto& c = p->controls;
+    c[n++] = {1, utf8_literal("Profiles"), {}, Kind::tabs, true, false, {p->tabs, 2}, 0};
+    if (style)
+        c[n++] = {kTryRow, utf8_literal("Trying Nitro features"),
+                  utf8_literal("Changes that need Nitro show in the preview only and can't be saved."), Kind::buttons,
+                  true, false, {p->trying, 2}, kUiSettingsNoChoice};
+    c[n++] = {2, utf8_literal("Display Name"), {}, Kind::edit, true, false, {}, 0, {}, &p->editors[0]};
+    c[n++] = {3, utf8_literal("Must be 32 or fewer in length."), {}, Kind::error, true, false};
+    if (style) {
+        NameList font{kProfileNameFontNames}, effect{kProfileNameEffectNames};
+        for (auto& choice : p->fonts) {
+            choice = font.name();
+            font.next();
+        }
+        for (auto& choice : p->effects) {
+            choice = effect.name();
+            effect.next();
+        }
+        c[n++] = {kFontRow, utf8_literal("Display Name Font"), {}, Kind::choice, true, false,
+                  {p->fonts, kProfileNameFontCount}, profile_name_font_index(style->font)};
+        c[n++] = {kEffectRow, utf8_literal("Display Name Effect"), {}, Kind::choice, true, false,
+                  {p->effects, kProfileNameEffectCount}, profile_name_effect_index(style->effect)};
+        for (u32 i = 0; i < style->color_count; ++i)
+            p->name_colors[i] = style->color_count == 1   ? utf8_literal("Color")
+                                : style->color_count == 2 ? (i ? utf8_literal("End") : utf8_literal("Start"))
+                                                          : Utf8View{&"12345"[i], 1};
+        c[n++] = {kNameColorRow, utf8_literal("Display Name Color"), {}, Kind::colors, true, false,
+                  {p->name_colors, style->color_count}, kUiSettingsNoChoice, utf8_literal("Remove Style")};
+    }
+    c[n++] = {4, utf8_literal("Avatar"), {}, Kind::buttons, true, false, {p->avatar, 2}, kUiSettingsNoChoice};
+    c[n++] = {5, utf8_literal("Profile Theme"), {}, Kind::colors, true, false, {p->theme, 2}, kUiSettingsNoChoice,
+              utf8_literal("Reset Theme")};
+    c[n++] = {6, utf8_literal("Bio"), utf8_literal("You can use markdown and links if you'd like."), Kind::multiline,
+              true, false, {}, 0, utf8_literal("190"), &p->editors[1]};
     for (auto& pr : p->presentation)
         pr = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
-    p->content = {utf8_literal("Profiles"), {}, {p->controls, 6}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle};
+    p->content = {utf8_literal("Profiles"), {}, {p->controls, n}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle};
     p->content.presentation = p->presentation;
     p->content.sectioned = true;
     p->content.aside_width = 300;
@@ -169,6 +204,148 @@ void test_page(Check check) noexcept {
     }
 }
 
+bool open_page(Page* p, UiSettingsScene* scene, const UiRect& viewport) noexcept {
+    static int context;
+    ui_settings_scene_set_presentation(scene, UiSettingsPresentation::modal);
+    ui_settings_scene_bind_palette(scene, {&context, palette, 1});
+    return ui_page_registry_initialize(&p->registry, {p->pages, 2}) &&
+           ui_page_registry_register(&p->registry, {{1, 1}, utf8_literal("Profiles"), &p->content}).ok() &&
+           ui_settings_scene_update(scene, &p->registry, viewport);
+}
+// The points on one line that press option `choice` of a row: the first and the last x. The scene presses nothing
+// outside the row's clip, so an option that the row cuts gives a shorter run.
+bool pressed_run(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiRect& field, u32 choice,
+                 float* first, float* last) noexcept {
+    for (float y = field.top + 3; y < field.bottom; y += 6) {
+        const auto pressed = [&](float x) noexcept {
+            UiSettingsActivation hit{};
+            return ui_settings_scene_option_pointer(scene, target, x, y, &hit) && hit.selected_choice == choice;
+        };
+        for (float x = field.left + 4; x < field.right; x += 8) {
+            if (!pressed(x))
+                continue;
+            for (*first = x; pressed(*first - 1); --*first) {
+            }
+            for (*last = x; pressed(*last + 1); ++*last) {
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+// Every display name font with every effect, at every window size. Prism has five colours: a colours row that took
+// four refused the page, and the editor then rejected every frame.
+void test_name_styles(Check check) noexcept {
+    const UiRect viewports[] = {{0, 0, 2560, 1440}, {0, 0, 1280, 720}, {0, 0, 1093, 614}, {0, 0, 632, 480}};
+    const UiSettingsTarget row{UiSettingsTargetKind::control, {1, 1}, kNameColorRow};
+    PaintStream paint{};
+    UiTextCommand commands[256]{};
+    bool built = true, fits = true, pressed = true, drawn = paint_stream_initialize(&paint);
+    // Remove Style at its full width: one swatch before it in the widest window.
+    float button = 0;
+    for (const auto viewport : viewports)
+        for (u32 effect = 0; effect < kProfileNameEffectCount; ++effect)
+            for (u32 font = 0; font < kProfileNameFontCount; ++font) {
+                static Page p{};
+                p = {};
+                const auto style = profile_name_style_with_effect({kProfileNameFontIds[font], 0, 0, {}}, effect);
+                build(&p, &style);
+                UiSettingsScene scene{};
+                const bool ok = open_page(&p, &scene, viewport);
+                built = built && ok;
+                UiTextCommandStream text{};
+                UiTextOutput output{&text, nullptr};
+                drawn = drawn && ok && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                        ui_settings_scene_paint(scene, kDefaultTheme, &paint) && paint.rejected == 0 &&
+                        ui_text_command_stream_initialize(&text, {commands, 256}) &&
+                        ui_settings_scene_text_output(scene, kDefaultTheme, &output) && !text.rejected;
+                // The row's geometry depends on the effect's colours only.
+                UiSettingsControlGeometry g{};
+                if (ok && font == 0 && ui_rect_has_area(find(&scene, kNameColorRow)) &&
+                    ui_settings_scene_control_geometry(scene, row, &g)) {
+                    float edge = g.field.left;
+                    for (u32 i = 0; i < style.color_count; ++i) {
+                        UiRect swatch{};
+                        UiSettingsActivation hit{};
+                        fits = fits && ui_settings_scene_choice_rectangle(scene, row, i, &swatch) &&
+                               swatch.left >= edge - .5f && swatch.right <= g.field.right + .5f &&
+                               ui_rect_width(swatch) >= 32 && close_to(ui_rect_height(swatch), 50);
+                        pressed = pressed &&
+                                  ui_settings_scene_option_pointer(scene, row, (swatch.left + swatch.right) * .5f,
+                                                                   (swatch.top + swatch.bottom) * .5f, &hit) &&
+                                  hit.selected_choice == i;
+                        edge = swatch.right + 8;
+                    }
+                    float first = 0, last = 0;
+                    const bool run = pressed_run(scene, row, g.field, style.color_count, &first, &last);
+                    if (!button)
+                        button = run ? last - first : -1;
+                    pressed = pressed && run;
+                    fits = fits && run && button > 32 && last - first >= button - 1.5f &&
+                           first >= g.field.left - .5f && last <= g.field.right + .5f;
+                } else
+                    fits = fits && font != 0;
+                ui_settings_scene_release(&scene);
+                for (auto& model : p.models)
+                    message_composer_release(&model);
+            }
+    paint_stream_release(&paint);
+    check(built, "profile name styles: every font and effect pair builds the page at every window size");
+    check(fits, "profile name styles: the swatches of every effect and Remove Style lie inside their row");
+    check(pressed, "profile name styles: a press on each swatch and on Remove Style resolves it");
+    check(drawn, "profile name styles: every pair paints and emits its text");
+}
+
+// Shuffle pressed 4096 times from a fixed seed sequence, the page projected after each press as the editor does.
+void test_shuffle(Check check) noexcept {
+    static Page p{};
+    p = {};
+    build(&p);
+    UiSettingsScene scene{};
+    UiTextCommand commands[256]{};
+    ProfileEditorDraft draft{};
+    profile_editor_shuffle(0, &draft);
+    check(draft.name_style.font == kProfileNameFontIds[0] && draft.name_style.effect == kProfileNameEffects[0].id &&
+              draft.theme_set && draft.name_style_set,
+          "shuffle: a zero seed gives the first font and the first effect");
+    bool valid = true, projected = open_page(&p, &scene, {0, 0, 1280, 720});
+    u32 fonts = 0, effects = 0, most_commands = 0, revision = 1;
+    u64 seed = 0x9E3779B97F4A7C15ull;
+    for (u32 press = 0; press < 4096 && valid && projected; ++press) {
+        profile_editor_shuffle(seed, &draft);
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        const auto& style = draft.name_style;
+        const u32 font = profile_name_font_index(style.font), effect = profile_name_effect_index(style.effect);
+        valid = draft.theme_set && !draft.theme_reset && draft.name_style_set && draft.theme[0] <= 0xFFFFFF &&
+                draft.theme[1] <= 0xFFFFFF && font < kProfileNameFontCount && effect < kProfileNameEffectCount &&
+                style.color_count == kProfileNameEffects[effect].colors &&
+                style.color_count <= kProfileNameStyleColors;
+        if (!valid)
+            break;
+        fonts |= 1u << font;
+        effects |= 1u << effect;
+        for (auto& model : p.models)
+            message_composer_release(&model);
+        build(&p, &style);
+        p.content.revision = ++revision;
+        UiTextCommandStream text{};
+        UiTextOutput output{&text, nullptr};
+        projected = ui_settings_scene_update(&scene, &p.registry, {0, 0, 1280, 720}) &&
+                    ui_text_command_stream_initialize(&text, {commands, 256}) &&
+                    ui_settings_scene_text_output(scene, kDefaultTheme, &output) && !text.rejected;
+        most_commands = maximum(most_commands, text.count);
+    }
+    check(valid, "shuffle: every press gives a theme and a name style that the editor offers");
+    check(fonts == (1u << kProfileNameFontCount) - 1 && effects == (1u << kProfileNameEffectCount) - 1,
+          "shuffle: 4096 presses reach every font and every effect");
+    check(projected && most_commands && most_commands <= 64,
+          "shuffle: the page takes the style of every press and emits a bounded count of text commands");
+    ui_settings_scene_release(&scene);
+    for (auto& model : p.models)
+        message_composer_release(&model);
+}
+
 void test_dialogs(Check check) noexcept {
     static UiProfileDialogScene scene{};
     // Short windows (800 DIP tall or less) use the official 200 DIP editor.
@@ -276,6 +453,8 @@ void test_dialogs(Check check) noexcept {
 
 void test_profile_editor_layout(void (*check)(bool, const char*) noexcept) noexcept {
     test_page(check);
+    test_name_styles(check);
+    test_shuffle(check);
     test_dialogs(check);
 }
 } // namespace maicord

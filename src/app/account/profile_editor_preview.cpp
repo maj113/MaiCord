@@ -23,6 +23,8 @@ constexpr float kPreviewWidth = 300;
 constexpr u64 kPreviewIdBase = 0x5052000000000000ull;
 
 static_assert(ui_settings_style_valid(kEditorStyle));
+// The Display Name Color row shows one swatch for each colour of a name style. The scene refuses a longer row.
+static_assert(kProfileNameStyleColors <= kUiSettingsColorsMaximum);
 
 } // namespace
 namespace profile_editor_detail {

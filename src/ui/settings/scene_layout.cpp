@@ -866,7 +866,8 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         else if (c.kind == UiSettingsControlKind::buttons)
             height = m.button_small;
         else if (c.kind == UiSettingsControlKind::colors)
-            height = kColorSwatchHeight + kColorCaption;
+            height = kColorSwatchHeight + kColorCaption +
+                     (color_row(t, c, width, measure).button_below ? kColorButtonGap + m.button_small : 0);
         else if (c.kind == UiSettingsControlKind::segments && !tristate)
             height = control_height;
         const float control_top = content_top + text_height + (text_height > 0 ? m.field_gap : 0);
@@ -1183,7 +1184,7 @@ constexpr ChoiceRule kChoiceRules[]{
     {UiSettingsControlKind::slider, 2, 1024, false},  {UiSettingsControlKind::radio, 1, 16, true},
     {UiSettingsControlKind::segments, 2, 5, true},    {UiSettingsControlKind::swatches, 1, 32, true},
     {UiSettingsControlKind::tabs, 2, 8, false},       {UiSettingsControlKind::buttons, 1, 4, true},
-    {UiSettingsControlKind::colors, 1, 4, true},
+    {UiSettingsControlKind::colors, 1, kUiSettingsColorsMaximum, true},
 };
 __forceinline const ChoiceRule* choice_rule(UiSettingsControlKind kind) noexcept {
     for (const auto& rule : kChoiceRules)

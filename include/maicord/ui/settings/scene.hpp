@@ -58,6 +58,8 @@ enum class UiSettingsControlKind : u8 {
 };
 // Selection sentinel for palette and radio controls showing no current value.
 inline constexpr u32 kUiSettingsNoChoice = ~0u;
+// The most swatches a colors row takes: a display name effect has up to five colours.
+inline constexpr u32 kUiSettingsColorsMaximum = 5;
 
 // Projection only. The host owns text, selection, IME, editor scrolling and
 // geometry lifetime; publish changes through the page content revision.

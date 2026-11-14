@@ -12,7 +12,9 @@
 # PATCH /users/@me carries display_name_font_id 8, display_name_effect_id 2 and the colours [0xEC6B00, the gradient's
 # default end 0xFFC490]. On Per-server Profiles it picks the server in the server dropdown and 8Bit again by mouse and
 # saves PATCH /guilds/{g}/members/@me. Without Nitro it presses Try It Out and makes the same picks: the preview shows
-# them, Shuffle changes them, and Save writes no style. A third run picks the owned nameplate: the preview's member row
+# them and Save writes no style. Then it picks Prism by keyboard (Return, Up, Return: the last effect, with five
+# colours) and presses Shuffle 30 times. A page with five swatches once made the client reject every frame: the run
+# fails on an error line in the client's log. A third run picks the owned nameplate: the preview's member row
 # shows it and Save sends its sku. A fourth drives the same picker on a role's Custom colour (Server Settings > Roles).
 # Each wtype is a new virtual keyboard, which takes the window's focus for a moment:
 # an open menu closes on that, so a keyboard walk through one is a single keys: step; the picker stays open.
@@ -77,12 +79,15 @@ MAICORD_FAKE_NITRO=1 bash "$probe" --binary "$binary" --out "$out/nitro" --page 
 status=$?
 [ "$status" -eq 0 ] || exit "$status"
 
+presses=()
+for _ in $(seq 30); do presses+=("click:$shuffle"); done
 MAICORD_FAKE_NITRO= bash "$probe" --binary "$binary" --out "$out/try" --page profiles \
     --expect '^200 GET /api/v9/users/[0-9]+/profile' \
     --refuse 'display_name_font_id|display_name_effect_id|display_name_colors' \
     "click:$try" wait:1 "click:$try_font" wait:1 "click:$try_font_8bit" wait:1 \
     "click:$try_name" keys:Tab,Tab,Return,Down,Return wait:1 shot:try_picked "click:$save" wait:2 \
-    "click:$shuffle" wait:1 shot:shuffled
+    "click:$try_name" keys:Tab,Tab,Return,Up,Return wait:1 shot:try_prism \
+    "${presses[@]}" wait:1 shot:shuffled
 status=$?
 [ "$status" -eq 0 ] || exit "$status"
 

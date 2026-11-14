@@ -28,6 +28,9 @@ struct Entry {
 constexpr float kTabBarHeight = 37, kTabBarMargin = 16, kTabGap = 32;
 constexpr float kSectionGap = 24;
 constexpr float kColorSwatchWidth = 69, kColorSwatchHeight = 50, kColorSwatchGap = 16, kColorCaption = 20;
+// A colours row narrower than its swatches: the swatches narrow to share it. A trailing button without room after
+// them goes kColorButtonGap under the captions.
+constexpr float kColorButtonGap = 8;
 // kAsideFormMaximum: a form beside its aside stops this wide (the official Server Profile form), the aside following
 // it at kAsideGap; only a wide page has room past it.
 constexpr float kAsideGap = 36, kAsideFormMinimum = 280, kAsideFormMaximum = 525, kAsideHeadingGap = 8;
@@ -255,6 +258,13 @@ bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone,
                    UiVisitRef<UiSettingsTarget> visit) noexcept;
 UiSettingsFocusZone zone_of(const UiSettingsTarget& target) noexcept;
 UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
+                   UiTextMeasureCache* measure) noexcept;
+// How a colours row `width` wide places its swatches and its trailing button (zero wide without one).
+struct ColorRow {
+    float swatch, button;
+    bool button_below;
+};
+ColorRow color_row(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, float width,
                    UiTextMeasureCache* measure) noexcept;
 
 } // namespace maicord::settings_scene_detail

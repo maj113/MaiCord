@@ -2,12 +2,14 @@
 #include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "../../src/app/account/profile_editor.hpp"
+#include "../../src/app/account/profile_shuffle.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
 #include "maicord/media/image/dominant_color.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/model/user/profile.hpp"
+#include "maicord/model/user/profile_editor.hpp"
 #include "maicord/ui/guild/card_scene.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
@@ -64,6 +66,9 @@ struct Page {
     Utf8View theme[2]{utf8_literal("Primary"), utf8_literal("Accent")};
     Utf8View accent[1]{utf8_literal("Banner Color")};
     Utf8View guilds[3]{utf8_literal("Native test server"), utf8_literal("Second server"), utf8_literal("Third")};
+    Utf8View trying[2]{utf8_literal("Shuffle"), utf8_literal("Stop Trying")};
+    Utf8View fonts[kProfileNameFontCount]{}, effects[kProfileNameEffectCount]{};
+    Utf8View name_colors[kProfileNameStyleColors]{};
     MessageComposer models[3]{};
     char name[128]{}, pronouns[160]{}, bio[1200]{};
     UiSettingsEditor editors[3]{};
@@ -78,8 +83,9 @@ void load(MessageComposer* model, char* buffer, u32 capacity, Utf8View text) noe
     copy_bytes(buffer, text.data, text.bytes);
     message_composer_refresh_borrowed(model, text.bytes);
 }
-// The Main Profile tab as application_profile_editor projects it.
-u32 build(Page* p, bool nitro, bool guild) noexcept {
+// The Main Profile tab as application_profile_editor projects it. With `trying`, an account without Nitro in Try It
+// Out with that name style: Shuffle and Stop Trying, the font and effect dropdowns and one swatch per colour.
+u32 build(Page* p, bool nitro, bool guild, const ProfileNameStyle* trying = nullptr) noexcept {
     load(&p->models[0], p->name, sizeof(p->name), guild ? utf8_literal("Robin-san") : utf8_literal("Native Profile"));
     load(&p->models[1], p->pronouns, sizeof(p->pronouns), utf8_literal("they/them"));
     load(&p->models[2], p->bio, sizeof(p->bio),
@@ -90,12 +96,37 @@ u32 build(Page* p, bool nitro, bool guild) noexcept {
     using K = UiSettingsControlKind;
     u32 n = 0;
     p->controls[n++] = {1, utf8_literal("Profiles"), {}, K::tabs, true, false, {p->tabs, 2}, guild ? 1u : 0u};
+    if (trying)
+        p->controls[n++] = {14, utf8_literal("Trying Nitro features"),
+                            utf8_literal("Changes that need Nitro show in the preview only and can't be saved."),
+                            K::buttons, true, false, {p->trying, 2}, kUiSettingsNoChoice};
     if (guild)
         p->controls[n++] = {2, utf8_literal("Choose a Server"),
                             utf8_literal("Show who you are with different profiles for each of your servers."), K::choice,
                             true, false, {p->guilds, 3}, 0};
     p->controls[n++] = {3, guild ? utf8_literal("Server Nickname") : utf8_literal("Display Name"), {}, K::edit, true,
                         false, {}, 0, {}, &p->editors[0]};
+    if (trying) {
+        NameList font{kProfileNameFontNames}, effect{kProfileNameEffectNames};
+        for (auto& choice : p->fonts) {
+            choice = font.name();
+            font.next();
+        }
+        for (auto& choice : p->effects) {
+            choice = effect.name();
+            effect.next();
+        }
+        p->controls[n++] = {15, utf8_literal("Display Name Font"), {}, K::choice, true, false,
+                            {p->fonts, kProfileNameFontCount}, profile_name_font_index(trying->font)};
+        p->controls[n++] = {16, utf8_literal("Display Name Effect"), {}, K::choice, true, false,
+                            {p->effects, kProfileNameEffectCount}, profile_name_effect_index(trying->effect)};
+        for (u32 i = 0; i < trying->color_count; ++i)
+            p->name_colors[i] = trying->color_count == 1   ? utf8_literal("Color")
+                                : trying->color_count == 2 ? (i ? utf8_literal("End") : utf8_literal("Start"))
+                                                           : Utf8View{&"12345"[i], 1};
+        p->controls[n++] = {17, utf8_literal("Display Name Color"), {}, K::colors, true, false,
+                            {p->name_colors, trying->color_count}, kUiSettingsNoChoice, utf8_literal("Remove Style")};
+    }
     p->controls[n++] = {4, utf8_literal("Pronouns"), {}, K::edit, true, false, {}, 0, {}, &p->editors[1]};
     if (guild && !nitro)
         p->controls[n++] = {5, {},
@@ -112,13 +143,15 @@ u32 build(Page* p, bool nitro, bool guild) noexcept {
     if (!guild && !nitro)
         p->controls[n++] = {9, utf8_literal("Banner Color"), {}, K::colors, true, false, {p->accent, 1},
                             kUiSettingsNoChoice};
+    // Try It Out opens the Nitro rows. Shuffle sets a theme, so the theme row offers Reset Theme.
+    nitro = nitro || trying;
     p->controls[n++] = {10, utf8_literal("Profile Banner"),
                         nitro ? utf8_literal("Upload a PNG, JPG, or GIF under 10MB. Images should be at least 680x240.")
                               : utf8_literal("Only with Nitro."),
                         K::buttons, nitro, false, {p->banner, 2}, kUiSettingsNoChoice};
     p->controls[n++] = {11, utf8_literal("Profile Theme"), nitro ? Utf8View{} : utf8_literal("Only with Nitro."),
                         K::colors, nitro, false, {p->theme, 2}, kUiSettingsNoChoice,
-                        guild ? utf8_literal("Reset Theme") : Utf8View{}};
+                        guild || trying ? utf8_literal("Reset Theme") : Utf8View{}};
     p->controls[n++] = {12, utf8_literal("Bio"), utf8_literal("You can use markdown and links if you\xE2\x80\x99" "d like."),
                         K::multiline, !gated, false, {}, 0, utf8_literal("92"), &p->editors[2]};
     p->controls[n++] = {13, utf8_literal("Must be 190 or fewer in length."), {}, K::error, true, false};
@@ -362,12 +395,176 @@ bool profile_editor_pages(D3D11Renderer& renderer, UiTextMeasureCache* measure, 
     ui_profile_dialog_close(&dialog);
     return ok;
 }
+
+// The swatches of a drafted theme and name style, as the editor's palette source resolves them.
+bool draft_palette(void* context, u64 control, u32 choice, BackgroundTheme* out) noexcept {
+    const auto& draft = *static_cast<const ProfileEditorDraft*>(context);
+    *out = {};
+    out->colors[0] = out->colors[1] =
+        control == 17 && choice < draft.name_style.color_count ? draft.name_style.colors[choice]
+        : control == 11                                         ? draft.theme[choice ? 1 : 0]
+                                                                : 0x41434Au;
+    out->color_count = 2;
+    return true;
+}
+// Try It Out on the real renderer. The preview card draws its name in every display name font with every effect at
+// 100, 125 and 150 %. Then Shuffle is pressed 256 times, with one frame after each press. Prism has five colours: a
+// colours row that took four refused the page, and the client rejected every frame after that pick. Each frame here
+// builds its text at most once, rejects nothing and measures a bounded count of texts.
+bool profile_name_styles(D3D11Renderer& renderer, UiTextMeasureCache* measure, const ChatStateStore* state,
+                         const UserStore* users, bool (*capture)(const wchar_t*) noexcept) noexcept {
+    static Page page{};
+    static UserProfile profile{};
+    static ProfileScene preview{};
+    static UiSettingsScene scene{};
+    static ProfileEditorDraft draft{};
+    struct Restore {
+        D3D11Renderer& renderer;
+        const UiSettingsScene* settings;
+        const ProfileScene* old_preview;
+        u32 dpi;
+        ~Restore() noexcept {
+            renderer.settings_profile_preview = old_preview;
+            renderer_bind_settings_scene(&renderer, settings);
+            profile_scene_release(&preview);
+            ui_settings_scene_release(&scene);
+            release(&page);
+            renderer_set_dpi(&renderer, dpi);
+            probe_resize_surface(renderer.width, renderer.height);
+        }
+    } restore{renderer, renderer.settings_scene, renderer.settings_profile_preview, renderer.dpi};
+    u32 scratch[2048];
+    const auto json = utf8_literal(
+        R"({"user":{"id":"4242","username":"native.test","global_name":"Native Profile","avatar":"abc123"},)"
+        R"("user_profile":{"bio":"A profile card with a **wrapped** biography.","pronouns":"they/them"},)"
+        R"("premium_type":0})");
+    page = {};
+    draft = {};
+    build(&page, false, false);
+    if (!require(user_profile_decode(json, {scratch, 2048}, 4242, 0, &profile) &&
+                     ui_page_registry_initialize(&page.registry, {page.pages, 3}) &&
+                     ui_page_registry_register(&page.registry, {{1, 2}, utf8_literal("Profiles"), &page.content}).ok() &&
+                     ui_page_registry_register(&page.registry, {{1, 1}, utf8_literal("My Account"), &page.other})
+                         .ok() &&
+                     ui_page_registry_register(&page.registry, {{1, 3}, utf8_literal("Devices"), &page.other}).ok() &&
+                     ui_page_registry_select(&page.registry, {1, 2}).ok(),
+                 50))
+        return false;
+    ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal);
+    ui_settings_scene_bind_navigation(&scene, {page.navigation, 4}, 1);
+    ui_settings_scene_bind_palette(&scene, {&draft, draft_palette, 1});
+    preview.presentation = ProfilePresentation::preview;
+    preview.measure = measure;
+    preview.phase = ProfilePhase::ready;
+    preview.presence = UiPresence::online;
+    u32 revision = 1, peak_measures = 0, peak_rebuilds = 0, cards = 0;
+    bool opened = false;
+    // One projection of the draft and one frame, as the editor's repaint: the page with the style's rows, the
+    // preview card with the drafted theme and name style, the text and the present.
+    const auto frame = [&](u32 stage, const wchar_t* name) noexcept {
+        const float scale = 96.0f / renderer.dpi;
+        const UiRect view{0, 0, renderer.width * scale, renderer.height * scale};
+        const auto& style = draft.name_style;
+        profile.has_theme = draft.theme_set;
+        profile.theme_colors[0] = draft.theme[0];
+        profile.theme_colors[1] = draft.theme[1];
+        auto& drawn_name = profile.user_appearance.name;
+        drawn_name = {};
+        drawn_name.font_id = style.font;
+        drawn_name.effect_id = style.effect;
+        drawn_name.color_count = style.color_count;
+        for (u32 i = 0; i < style.color_count; ++i)
+            drawn_name.colors[i] = style.colors[i];
+        profile.user_appearance.fields |= appearance_name;
+        release(&page);
+        build(&page, false, false, &style);
+        page.content.revision = ++revision;
+        const u32 measures = measure->backend_calls, rebuilds = renderer.content_text->rebuilds,
+                  rejected = renderer.content_text->rejected;
+        // The step that failed is the stage's last digit.
+        bool ok = require(opened ? profile_scene_layout(&preview, view, true)
+                                 : profile_scene_open(&preview, &profile, state, users, 1, {0, 0, 300, 400}, view),
+                          stage * 10 + 1);
+        opened = opened || ok;
+        page.content.aside_height = preview.preview_height > 0 ? preview.preview_height : 400;
+        UiRect heading{}, card{}, clip{};
+        ok = ok && require(ui_settings_scene_update(&scene, &page.registry, view), stage * 10 + 2);
+        // A card that scrolled out of the page is not drawn, as in the editor.
+        const bool shown = ok && ui_settings_scene_aside(scene, &heading, &card, &clip);
+        if (shown) {
+            preview.anchor = card;
+            ok = require(profile_scene_layout(&preview, view, true), stage * 10 + 4);
+        }
+        renderer.settings_profile_preview = shown && ok ? &preview : nullptr;
+        cards += shown && ok;
+        renderer_bind_settings_scene(&renderer, &scene);
+        ok = ok && require(renderer_rebuild_content_text(&renderer, kDefaultTheme), stage * 10 + 5) &&
+             require(probe_present(&renderer, kDefaultTheme) && !renderer.paint_stream.rejected, stage * 10 + 6) &&
+             require(renderer.content_text->rejected == rejected, stage * 10 + 7) &&
+             require(!name || capture(name), stage * 10 + 8);
+        peak_measures = maximum(peak_measures, measure->backend_calls - measures);
+        peak_rebuilds = maximum(peak_rebuilds, renderer.content_text->rebuilds - rebuilds);
+        return ok;
+    };
+    // Another scale lays the shell out again, as the client does when its window moves to another monitor. Text
+    // outside the old viewport is not drawn without that.
+    const auto scale_to = [&](u32 dpi) noexcept {
+        renderer_set_dpi(&renderer, dpi);
+        return probe_resize_surface(renderer.width, renderer.height);
+    };
+    bool ok = true;
+    draft.theme_set = draft.name_style_set = true;
+    draft.theme[0] = 0x1D3A6E;
+    draft.theme[1] = 0x6B2FA8;
+    constexpr u32 scales[]{96, 120, 144};
+    for (const u32 dpi : scales) {
+        ok = ok && require(scale_to(dpi), 59);
+        for (u32 font = 0; ok && font < kProfileNameFontCount; ++font)
+            for (u32 effect = 0; ok && effect < kProfileNameEffectCount; ++effect) {
+                draft.name_style = profile_name_style_with_effect({kProfileNameFontIds[font], 0, 0, {}}, effect);
+                ok = frame(51, nullptr);
+            }
+    }
+    // The card with the name was on every one of those frames.
+    ok = ok && require(cards == 3 * kProfileNameFontCount * kProfileNameEffectCount, 56);
+    // The pick that froze a client at 125 %: Journal with Prism over this theme.
+    ok = ok && require(scale_to(120), 59);
+    draft.theme[0] = 0xC95A57;
+    draft.theme[1] = 0x226163;
+    draft.name_style = profile_name_style_with_effect({16, 0, 0, {}}, profile_name_effect_index(7));
+    ok = ok && require(draft.name_style.color_count == 5, 52) && frame(52, L"profile-editor-try-prism.bmp");
+    // Its five swatches and Remove Style, further down the page: beside the swatches in this window, under them
+    // at 100 %, where the form stands beside the card. Then back to the card for the presses.
+    const UiSettingsTarget colors{UiSettingsTargetKind::control, {1, 2}, 17};
+    ok = ok && require(ui_settings_scene_reveal(&scene, colors), 55) &&
+         frame(55, L"profile-editor-try-prism-colors.bmp");
+    ok = ok && require(scale_to(96), 59) && frame(58, nullptr) &&
+         require(ui_settings_scene_reveal(&scene, colors), 58) &&
+         frame(58, L"profile-editor-try-prism-colors-100.bmp") && require(scale_to(120), 59);
+    ui_settings_scene_scroll(&scene, false, -100000);
+    u64 seed = 0x9E3779B97F4A7C15ull;
+    u32 effects = 0;
+    cards = 0;
+    for (u32 press = 0; ok && press < 256; ++press) {
+        app_detail::profile_editor_shuffle(seed, &draft);
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        effects |= 1u << profile_name_effect_index(draft.name_style.effect);
+        ok = frame(53, press == 255 ? L"profile-editor-shuffled.bmp" : nullptr);
+    }
+    ok = ok && require(cards == 256, 57);
+    // Measured: one text measurement and three text builds for a frame at most, 1,721 atlas entries, no atlas reset.
+    log_u64(LogLevel::info, "probe", "profile_editor_name_style_peak_measures", peak_measures);
+    log_u64(LogLevel::info, "probe", "profile_editor_name_style_peak_rebuilds", peak_rebuilds);
+    log_u64(LogLevel::info, "probe", "profile_editor_name_style_atlas_entries", renderer.glyph_text.allocator.entry_count);
+    return ok && require(effects == (1u << kProfileNameEffectCount) - 1 && peak_measures <= 8 && peak_rebuilds <= 4, 54);
+}
 } // namespace
 
 bool profile_editor_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* measure, const ChatStateStore* state,
                              const UserStore* users, bool (*capture)(const wchar_t*) noexcept) noexcept {
     // The shell overlays run once Settings is closed again.
     const bool ok = profile_editor_pages(renderer, measure, state, users, capture) &&
+                    profile_name_styles(renderer, measure, state, users, capture) &&
                     member_overlay_capacity_probe(renderer, measure, state, users) &&
                     guild_card_ui_probe(renderer, measure, capture);
     log_write(ok ? LogLevel::info : LogLevel::error, "probe",

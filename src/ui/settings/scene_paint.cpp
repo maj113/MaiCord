@@ -137,6 +137,21 @@ __forceinline UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSe
     return {left, cy - size * .5f, left + size, cy + size * .5f};
 }
 } // namespace
+ColorRow color_row(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, float width,
+                   UiTextMeasureCache* measure) noexcept {
+    const float count = static_cast<float>(maximum(c.choices.count, 1u));
+    const float gaps = (count - 1) * kColorSwatchGap;
+    ColorRow row{};
+    // Whole DIPs keep the swatch borders on pixel edges.
+    row.swatch = static_cast<float>(
+        static_cast<i32>(maximum(1.f, minimum(kColorSwatchWidth, (width - gaps) / count))));
+    if (c.action_label.bytes) {
+        row.button = ui_settings_button_width(t, UiSettingsButtonSize::compact,
+                                              button_label_width(measure, c.action_label));
+        row.button_below = count * row.swatch + gaps + kButtonGroupGap + row.button > width;
+    }
+    return row;
+}
 // One option of a tabs, buttons or colors row inside its control rectangle;
 // colours report their trailing button as index choices.count.
 UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
@@ -155,15 +170,15 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
         return {};
     }
     if (c.kind == UiSettingsControlKind::colors) {
-        x += index * (kColorSwatchWidth + kColorSwatchGap);
+        const auto row = color_row(t, c, ui_rect_width(field), measure);
+        x += index * (row.swatch + kColorSwatchGap);
         if (index < c.choices.count)
-            return {x, field.top, x + kColorSwatchWidth, field.top + kColorSwatchHeight};
-        if (index == c.choices.count && c.action_label.bytes) {
-            const float w = ui_settings_button_width(t, UiSettingsButtonSize::compact,
-                                                     button_label_width(measure, c.action_label));
-            const float top = field.top + (kColorSwatchHeight - t.metric.button_small) * .5f;
-            return {x - kColorSwatchGap + kButtonGroupGap, top, x - kColorSwatchGap + kButtonGroupGap + w,
-                    top + t.metric.button_small};
+            return {x, field.top, x + row.swatch, field.top + kColorSwatchHeight};
+        if (index == c.choices.count && row.button) {
+            const float left = row.button_below ? field.left : x - kColorSwatchGap + kButtonGroupGap;
+            const float top = row.button_below ? field.top + kColorSwatchHeight + kColorCaption + kColorButtonGap
+                                               : field.top + (kColorSwatchHeight - t.metric.button_small) * .5f;
+            return {left, top, left + row.button, top + t.metric.button_small};
         }
     }
     return {};
