@@ -11,9 +11,9 @@
 #include "../search/search.hpp"
 #include "../channel_authority.hpp"
 #include "../../shell/state.hpp"
+#include "../../settings/theme_publication.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/protocol/messages/poll.hpp"
@@ -284,8 +284,9 @@ bool aggregates_known(const MessagePollRecord& p) noexcept {
         known &= p.answers[i].count_known;
     return known;
 }
-u64 theme_hash() noexcept {
-    return hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
+u64 theme_revision() noexcept {
+    (void)application_theme();
+    return g_theme_revision;
 }
 bool ensure_owner() noexcept {
     if (owner)
@@ -520,7 +521,7 @@ bool project_voters() noexcept {
                                  owner->voters_more && !loading,
                                  owner->controller.voters_failed && !loading && connected()};
     const auto viewport = application_viewport_dips();
-    const auto theme = theme_hash();
+    const auto theme = theme_revision();
     if (owner->scene.active && owner->scene.state.revision == owner->revision &&
         ui_rect_equal(owner->scene.geometry.viewport, viewport) && owner->projected_theme == theme &&
         owner->projected_dpi == g_app.renderer.dpi)
@@ -581,7 +582,7 @@ void project_card() noexcept {
     const auto* p = poll(owner->source);
     if (!p || !project_state(owner->source, *p, {owner->answers, kUiPollMaximumAnswers}, &state))
         return hide_card();
-    const auto theme = theme_hash();
+    const auto theme = theme_revision();
     const UiWidgetReference root{&scene->widgets, handle};
     const bool same =
         owner->card.active && owner->card.projection.state.revision == state.revision &&

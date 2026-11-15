@@ -6,9 +6,6 @@
 // Shared by pipeline.cpp (hooks, events, timers) and pipeline_api.cpp (the mc_api entries).
 namespace maicord::plugin_runtime_detail {
 
-// Write actions are limited per plugin by kind: this many per period.
-enum PluginBucket : u32 { bucket_messages, bucket_reactions, bucket_read, bucket_presence, bucket_local, bucket_count };
-
 // range-for over a hook's subscribers.
 struct SubscriberRange {
     const PluginSubscriber *first, *last;
@@ -20,26 +17,8 @@ inline SubscriberRange subscribers(PluginHook hook) noexcept {
     return {list.data, list.data + list.count};
 }
 
-struct PluginTimer {
-    u64 id, due_ms;
-    u32 interval_ms;
-    bool repeat, active;
-};
-
-// What the pipeline keeps for one enabled plugin; claimed on first use, released at disable.
-struct PluginSide {
-    PluginBinding* binding;
-    u64 cursor; // the next event (by sequence) this plugin has not seen
-    u64 window_start[bucket_count];
-    u32 window_count[bucket_count];
-    PluginTimer timers[MC_TIMERS_MAX];
-};
-
-PluginSide* plugin_side(PluginBinding*, bool create) noexcept;
 // True when the plugin may take one more action of this kind now (and counts it).
 bool plugin_take(PluginBinding*, PluginBucket) noexcept;
-// Whether the plugin subscribed to the hook (timer creation needs its TIMER hook).
-bool plugin_subscribed(const PluginBinding*, PluginHook) noexcept;
 
 // The mc_api entries of this slice (pipeline_api.cpp); api.cpp lists them in kApi.
 mc_status MC_CALL api_local_message(mc_ctx*, uint64_t channel, mc_str text, uint64_t* message_id) noexcept;

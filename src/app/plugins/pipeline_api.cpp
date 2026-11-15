@@ -182,12 +182,10 @@ mc_status MC_CALL api_timer(mc_ctx* ctx, uint64_t id, uint32_t interval_ms, uint
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
     if (interval_ms < MC_TIMER_INTERVAL_MIN || interval_ms > kTimerIntervalMax || repeat > 1 ||
-        !plugin_subscribed(binding, PluginHook::timer))
+        !plugin_binding_hook(*binding, MC_HOOK_TIMER))
         return MC_E_INVALID;
-    PluginSide* side = plugin_side(binding, true);
-    if (!side) return MC_E_BUDGET;
     PluginTimer* slot = nullptr;
-    for (auto& timer : side->timers) {
+    for (auto& timer : binding->side.timers) {
         if (timer.active && timer.id == id) {
             slot = &timer;
             break;
@@ -202,12 +200,11 @@ mc_status MC_CALL api_timer(mc_ctx* ctx, uint64_t id, uint32_t interval_ms, uint
 mc_status MC_CALL api_cancel_timer(mc_ctx* ctx, uint64_t id) noexcept {
     PluginBinding* binding = active(ctx);
     if (!binding) return MC_E_INACTIVE;
-    if (PluginSide* side = plugin_side(binding, false))
-        for (auto& timer : side->timers)
-            if (timer.active && timer.id == id) {
-                timer.active = false;
-                return MC_OK;
-            }
+    for (auto& timer : binding->side.timers)
+        if (timer.active && timer.id == id) {
+            timer.active = false;
+            return MC_OK;
+        }
     return MC_E_NOT_FOUND;
 }
 

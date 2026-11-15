@@ -587,7 +587,9 @@ bool catalog_worker_submit(const CatalogJob& job, ConstSlice<wchar_t> path) noex
 
 bool catalog_worker_take(CatalogJobResult* result) noexcept {
     Worker* w = g_worker;
-    if (!w) return false;
+    // The main loop asks on each turn. The worker adds a result under the lock and then sets the notify event,
+    // so a read that misses a new result is repaired by that wake.
+    if (!w || !*static_cast<const volatile u32*>(&w->result_count)) return false;
     AcquireSRWLockExclusive(w->lock.native());
     const bool have = w->result_count != 0;
     if (have) {

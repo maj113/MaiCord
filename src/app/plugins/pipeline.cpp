@@ -13,8 +13,6 @@ static_assert(MC_MESSAGE_OWN == 1 && MC_EVENT_KIND_COUNT <= 64);
 namespace plugin_runtime_detail {
 namespace {
 
-PluginSide g_sides[kPluginMaximumBindings];
-
 struct BucketPolicy {
     u32 capacity, period_ms;
 };
@@ -24,21 +22,8 @@ constexpr BucketPolicy kBuckets[bucket_count]{{kPluginActionsPerWindow, kPluginA
 
 } // namespace
 
-PluginSide* plugin_side(PluginBinding* binding, bool create) noexcept {
-    PluginSide* free = nullptr;
-    for (auto& side : g_sides) {
-        if (side.binding == binding) return &side;
-        if (!side.binding && !free) free = &side;
-    }
-    if (!create || !free) return nullptr;
-    reset_value(free);
-    free->binding = binding;
-    return free;
-}
-
 bool plugin_take(PluginBinding* binding, PluginBucket bucket) noexcept {
-    PluginSide* side = plugin_side(binding, true);
-    if (!side) return false;
+    PluginSide* side = &binding->side;
     const u64 now = clock_monotonic_milliseconds();
     const BucketPolicy policy = kBuckets[bucket];
     if (!side->window_start[bucket] || now - side->window_start[bucket] >= policy.period_ms) {
@@ -48,14 +33,6 @@ bool plugin_take(PluginBinding* binding, PluginBucket bucket) noexcept {
     if (side->window_count[bucket] >= policy.capacity) return false;
     ++side->window_count[bucket];
     return true;
-}
-
-// Whether the plugin declares the hook; true while it starts, before its hooks are published.
-bool plugin_subscribed(const PluginBinding* binding, PluginHook hook) noexcept {
-    const mc_descriptor& descriptor = *binding->image.descriptor;
-    for (u32 i = 0; i < descriptor.hook_count; ++i)
-        if (descriptor.hooks[i].kind == static_cast<u32>(hook)) return true;
-    return false;
 }
 
 } // namespace plugin_runtime_detail
@@ -172,8 +149,7 @@ mc_status run_events(mc_ctx* ctx, void* argument) noexcept {
 
 // Delivers up to kPluginEventCallsPerPass batches to one subscriber.
 void deliver_to(const PluginSubscriber& subscriber) noexcept {
-    PluginSide* side = plugin_side(subscriber.binding, true);
-    if (!side) return;
+    PluginSide* side = &subscriber.binding->side;
     mc_event batch[MC_EVENT_BATCH_MAX];
     for (u32 calls = 0; calls < kPluginEventCallsPerPass && !subscriber.binding->struck_out; ++calls) {
         u32 count = 0;
@@ -258,10 +234,8 @@ bool plugin_events_push(const PluginEvent& event) noexcept {
 }
 
 bool plugin_events_pending() noexcept {
-    for (const auto& subscriber : subscribers(PluginHook::events)) {
-        const PluginSide* side = plugin_side(subscriber.binding, false);
-        if (side && side->cursor < g_head && !subscriber.binding->struck_out) return true;
-    }
+    for (const auto& subscriber : subscribers(PluginHook::events))
+        if (subscriber.binding->side.cursor < g_head && !subscriber.binding->struck_out) return true;
     return false;
 }
 
@@ -273,11 +247,9 @@ bool plugin_events_deliver() noexcept {
 
 u64 plugin_timers_next_due() noexcept {
     u64 next = 0;
-    for (const auto& side : g_sides) {
-        if (!side.binding) continue;
-        for (const auto& timer : side.timers)
+    for (const auto& subscriber : subscribers(PluginHook::timer))
+        for (const auto& timer : subscriber.binding->side.timers)
             if (timer.active && (!next || timer.due_ms < next)) next = timer.due_ms;
-    }
     return next;
 }
 
@@ -296,8 +268,7 @@ mc_status run_timer(mc_ctx* ctx, void* argument) noexcept {
 u32 plugin_timers_poll(u64 now_ms) noexcept {
     u32 total = 0;
     for (const auto& subscriber : subscribers(PluginHook::timer)) {
-        PluginSide* side = plugin_side(subscriber.binding, false);
-        if (!side) continue;
+        PluginSide* side = &subscriber.binding->side;
         u32 calls = 0;
         for (u32 i = 0; i < MC_TIMERS_MAX && calls < kPluginEventCallsPerPass && !subscriber.binding->struck_out; ++i) {
             PluginTimer& timer = side->timers[i];
@@ -316,17 +287,17 @@ u32 plugin_timers_poll(u64 now_ms) noexcept {
 }
 
 void plugin_pipeline_add(PluginBinding* binding) noexcept {
-    if (plugin_subscribed(binding, PluginHook::events)) {
+    if (plugin_binding_hook(*binding, MC_HOOK_EVENTS)) {
         if (!g_ring) {
             g_ring = static_cast<EventSlot*>(commit_pages(kPluginEventSlots * sizeof(EventSlot)));
         }
-        if (PluginSide* side = plugin_side(binding, true)) side->cursor = g_head;
+        binding->side.cursor = g_head;
     }
     recompute_events();
 }
 
 void plugin_pipeline_remove(PluginBinding* binding) noexcept {
-    if (PluginSide* side = plugin_side(binding, false)) reset_value(side);
+    reset_value(&binding->side);
     recompute_events();
     // An activity the plugin set goes with it, however it stopped (disabled, struck out, crashed, reloaded).
     if (binding->permissions & MC_PERM_ACT_PRESENCE) plugin_host_set_activity(binding->owner_id, nullptr);

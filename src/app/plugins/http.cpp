@@ -116,6 +116,8 @@ struct PluginHttp {
     // The HTTPS transport a request is using, so that close can cancel it.
     UpdateHttpsTransport* volatile active;
     volatile Atomic32 stopping;
+    // Set, under the lock, when a slot becomes done. The UI thread clears it before it looks at the slots.
+    volatile Atomic32 done;
     // Guarded by lock: a worker thread is alive and will look for queued slots before it exits.
     bool worker_running;
     Slot slots[kSlots];
@@ -354,6 +356,7 @@ u32 worker_main(void* parameter) noexcept {
         else finish(*slot, MC_HTTP_E_NETWORK, 0);
         AcquireSRWLockExclusive(http->lock.native());
         slot->state = State::done;
+        write_release(&http->done, 1);
         ReleaseSRWLockExclusive(http->lock.native());
         event_set(http->notify);
     }
@@ -466,7 +469,8 @@ HANDLE plugin_http_notification(PluginRuntime* runtime) noexcept {
 
 u32 plugin_http_deliver(PluginRuntime* runtime) noexcept {
     PluginHttp* http = runtime ? runtime->http : nullptr;
-    if (!http) return 0;
+    if (!http || !read_acquire(&http->done)) return 0;
+    write_release(&http->done, 0);
     u32 delivered = 0;
     for (u32 i = 0; i < kSlots; ++i) {
         Slot& slot = http->slots[i];
@@ -522,6 +526,7 @@ void plugin_http_cancel(PluginRuntime* runtime, const PluginBinding* binding, bo
         } else if (slot.state == State::queued) {
             slot.error = MC_HTTP_E_DENIED;
             slot.state = State::done;
+            write_release(&http->done, 1);
             woke = true;
         }
     }

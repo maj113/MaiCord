@@ -736,12 +736,14 @@ void run() noexcept {
         styles.metrics.control_radius = 12.f;
         fixture_theme.styles = &styles;
         fixture_theme.style_revision = 1;
+        ++g_theme_revision; // the fixture changed the theme in place
         check(project_voters() && owner && owner->scene.active && owner->scene.style.padding == 24.f &&
                   owner->scene.style.gap == 12.f && owner->scene.style.target == 40.f &&
                   owner->scene.style.row_height == 52.f && owner->scene.style.radius == 12.f &&
                   measured_backend == 37,
               "poll app: actual voter modal consumes resolved metrics and renderer measurement backend");
         fixture_theme = kDefaultTheme;
+        ++g_theme_revision;
         check(project_voters() && owner && owner->scene.style.padding == 20.f &&
                   owner->scene.style.target == 38.f && measured_backend == 37,
               "poll app: voter modal restores defaults without borrowing an expired style bank");

@@ -896,7 +896,8 @@ void application_effects_synchronize() noexcept {
     load_state();
     open_marker();
     apply_verdict();
-    if (InterlockedExchange(&g.dirty, 0) && g.library_loaded) {
+    // A plain read first: the locked exchange runs only after a change, not for each frame.
+    if (g.dirty && InterlockedExchange(&g.dirty, 0) && g.library_loaded) {
         // A file changed: rescan, and keep the choice across an update (the file's hash changed, the slug did not).
         const Entry* before = find(g.file.selected);
         char slug[kMcfxSlugBytes + 1]{};

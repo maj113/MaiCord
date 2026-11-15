@@ -33,6 +33,25 @@ struct PluginStagedSetting {
     u32 index, offset, bytes;
 };
 
+namespace plugin_runtime_detail {
+// Write actions are limited per plugin by kind: this many per period.
+enum PluginBucket : u32 { bucket_messages, bucket_reactions, bucket_read, bucket_presence, bucket_local, bucket_count };
+
+struct PluginTimer {
+    u64 id, due_ms;
+    u32 interval_ms;
+    bool repeat, active;
+};
+
+// What the pipeline keeps for one enabled plugin (pipeline.cpp); cleared at disable.
+struct PluginSide {
+    u64 cursor; // the next event (by sequence) this plugin has not seen
+    u64 window_start[bucket_count];
+    u32 window_count[bucket_count];
+    PluginTimer timers[MC_TIMERS_MAX];
+};
+} // namespace plugin_runtime_detail
+
 // Allocated per enabled plugin and stable until disable. The first member is
 // the context handed to the plugin, so the host table finds the binding from it.
 struct PluginBinding {
@@ -46,7 +65,6 @@ struct PluginBinding {
     u8* data;
     // Where each text setting keeps its characters, within data.
     u32 text_offsets[MC_SETTING_MAX];
-    u32 text_end;
     PluginStagedSetting staged[kPluginStagedSettings];
     u32 staged_count, staged_used;
     u8* staging;
@@ -68,6 +86,7 @@ struct PluginBinding {
     // Requests started in the current rate-limit window (plugin_http_submit).
     u64 http_window_ms;
     u32 http_window_count;
+    plugin_runtime_detail::PluginSide side;
 };
 
 // Zero-initialized, caller-owned, stable address. UI thread only.
@@ -160,6 +179,9 @@ PluginCallResult plugin_binding_run_draft(PluginBinding*, u32 hook_kind, mc_draf
 using PluginInvoke = mc_status (*)(mc_ctx*, void*) noexcept;
 PluginCallResult plugin_binding_call(PluginBinding*, PluginCallKind, PluginCallClass, u32 context_flags,
                                      PluginInvoke, void* argument) noexcept;
+// The plugin's hook of a kind (MC_HOOK_*), or null. A descriptor holds each kind at most one time (the loader
+// checks it). The answer does not wait for the publication of the hooks, so it is valid while the plugin starts.
+const mc_hook* plugin_binding_hook(const PluginBinding&, u32 kind) noexcept;
 
 // Publishes or removes the binding's menus and commands (ui_registry.cpp).
 bool plugin_ui_add(PluginBinding*) noexcept;

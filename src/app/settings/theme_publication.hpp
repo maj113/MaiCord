@@ -4,6 +4,9 @@
 #include "maicord/ui/theme/styles.hpp"
 
 namespace maicord::app_detail {
+// Counts the writes of the published theme. A reader that kept the count knows when application_theme() changed
+// and does not hash the theme. application_theme() itself writes after a preference change: call it first.
+inline u32 g_theme_revision;
 // The hot accessor retains only a small zero-initialized palette and pointer.
 // Resolved numeric styles acquire one page on the first custom publication;
 // they do not initialize or expand the large Application .data aggregate.
@@ -13,6 +16,7 @@ struct ThemePublication {
     alignas(Theme) u8 theme_bytes[sizeof(Theme)];
     const Theme& theme() const noexcept { return *__builtin_launder(reinterpret_cast<const Theme*>(theme_bytes)); }
     Theme& set_theme(const Theme& value) noexcept {
+        ++g_theme_revision;
         return *::new (static_cast<void*>(theme_bytes)) Theme(value);
     }
     BackgroundTheme previous_gradient{};

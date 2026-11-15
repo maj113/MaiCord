@@ -13,6 +13,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
 #include "../polls/poll.hpp"
+#include "../../settings/theme_publication.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 
 namespace maicord::app_detail {
@@ -523,7 +524,8 @@ namespace {
 u64 search_text_signature(const ApplicationSearch& s, const MessageScene& scene) noexcept {
     const auto& state = g_app.account_ui->chat_state;
     const auto& p = s.text_owner->presentation;
-    u64 hash = hash64_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
+    (void)application_theme();
+    u64 hash = g_theme_revision;
     const u64 values[]{s.bank->publication,
                        s.source.revision,
                        scene.widgets.generation,

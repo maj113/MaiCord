@@ -497,12 +497,16 @@ mc_status invoke_completion(mc_ctx* ctx, void* argument) noexcept {
 
 } // namespace
 
-bool plugin_binding_complete(PluginBinding* binding, const PluginCompletion& completion) noexcept {
-    const mc_descriptor& descriptor = *binding->image.descriptor;
-    mc_completion_fn function = nullptr;
+const mc_hook* plugin_binding_hook(const PluginBinding& binding, u32 kind) noexcept {
+    const mc_descriptor& descriptor = *binding.image.descriptor;
     for (u32 i = 0; i < descriptor.hook_count; ++i)
-        if (descriptor.hooks[i].kind == MC_HOOK_COMPLETION) function = descriptor.hooks[i].fn.completion;
-    if (!function || binding->struck_out) return false;
+        if (descriptor.hooks[i].kind == kind) return &descriptor.hooks[i];
+    return nullptr;
+}
+
+bool plugin_binding_complete(PluginBinding* binding, const PluginCompletion& completion) noexcept {
+    const mc_hook* hook = plugin_binding_hook(*binding, MC_HOOK_COMPLETION);
+    if (!hook || binding->struck_out) return false;
     mc_completion output{};
     output.tag = completion.tag;
     switch (completion.kind) {
@@ -530,7 +534,7 @@ bool plugin_binding_complete(PluginBinding* binding, const PluginCompletion& com
     const u32 flags = completion.gesture || completion.inherited_gesture_until_ms > clock_monotonic_milliseconds()
                           ? MC_CTX_GESTURE : 0u;
     binding->inherit_gesture_until_ms = completion.gesture ? 0 : completion.inherited_gesture_until_ms;
-    CompletionArgument argument{function, &output};
+    CompletionArgument argument{hook->fn.completion, &output};
     const PluginCallResult ran = plugin_binding_call(binding, PluginCallKind::event, PluginCallClass::event, flags,
                                                      invoke_completion, &argument);
     binding->inherit_gesture_until_ms = 0;
@@ -547,13 +551,6 @@ bool plugin_dispatch_completion(u64 owner_id, const PluginCompletion& completion
 
 namespace {
 
-mc_setting_fn setting_hook(const PluginBinding& binding, u32 kind) noexcept {
-    const mc_descriptor& descriptor = *binding.image.descriptor;
-    for (u32 i = 0; i < descriptor.hook_count; ++i)
-        if (descriptor.hooks[i].kind == kind) return descriptor.hooks[i].fn.setting;
-    return nullptr;
-}
-
 struct SettingArgument {
     mc_setting_fn function;
     u32 index;
@@ -569,10 +566,10 @@ mc_status invoke_setting(mc_ctx* ctx, void* argument) noexcept {
 mc_status plugin_binding_change_setting(PluginBinding* binding, u32 index, const void* value, u32 bytes) noexcept {
     if (binding->ctx.call) return MC_E_BUSY;
     const mc_status status = plugin_binding_set_setting(binding, index, value, bytes);
-    const mc_setting_fn hook = status == MC_OK && !binding->struck_out ? setting_hook(*binding, MC_HOOK_SETTING_CHANGED)
-                                                                     : nullptr;
+    const mc_hook* hook = status == MC_OK && !binding->struck_out
+                              ? plugin_binding_hook(*binding, MC_HOOK_SETTING_CHANGED) : nullptr;
     if (hook) {
-        SettingArgument argument{hook, index};
+        SettingArgument argument{hook->fn.setting, index};
         plugin_binding_call(binding, PluginCallKind::settings, PluginCallClass::event, MC_CTX_GESTURE, invoke_setting,
                             &argument);
     }
@@ -586,14 +583,14 @@ bool plugin_dispatch_keybind(u32 key) noexcept {
     for (u32 b = 0; b < runtime->binding_count; ++b) {
         PluginBinding* binding = runtime->bindings[b];
         const mc_descriptor& descriptor = *binding->image.descriptor;
-        const mc_setting_fn hook = binding->struck_out ? nullptr : setting_hook(*binding, MC_HOOK_KEYBIND);
+        const mc_hook* hook = binding->struck_out ? nullptr : plugin_binding_hook(*binding, MC_HOOK_KEYBIND);
         if (!hook || binding->ctx.call) continue;
         for (u32 i = 0; i < descriptor.setting_count; ++i) {
             const mc_setting_def& setting = descriptor.settings[i];
             u32 bound = 0;
             if (setting.type == MC_SET_KEYBIND) copy_bytes(&bound, settings_block(*binding) + setting.offset, 4);
             if (bound != key) continue;
-            SettingArgument argument{hook, i};
+            SettingArgument argument{hook->fn.setting, i};
             plugin_binding_call(binding, PluginCallKind::keybind, PluginCallClass::gesture, MC_CTX_GESTURE,
                                 invoke_setting, &argument);
             handled = true;
