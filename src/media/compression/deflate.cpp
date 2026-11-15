@@ -8,6 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/heap.hpp"
 #include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -373,6 +374,12 @@ bool decode_slow(BitReader* reader, const u32* table, u32 table_bits, u32 maximu
     return true;
 }
 
+// Records the error. Returns false, which the caller returns.
+bool reject(InflateState* state, ZlibInflateError error) noexcept {
+    state->error = error;
+    return false;
+}
+
 // Delivers pending output, then keeps only the dictionary at the window start.
 bool slide_window(InflateState* state) noexcept {
     const u32 produced = state->output_bytes;
@@ -380,10 +387,8 @@ bool slide_window(InflateState* state) noexcept {
         const ConstSlice<u8> fresh{state->output.data + state->emitted, produced - state->emitted};
         state->adler = adler32_update(state->adler, fresh);
         state->delivered += fresh.count;
-        if (!state->sink(state->sink_context, fresh)) {
-            state->error = ZlibInflateError::stream_failed;
-            return false;
-        }
+        if (!state->sink(state->sink_context, fresh))
+            return reject(state, ZlibInflateError::stream_failed);
     }
     const u32 keep = minimum(produced, kZlibStreamWindowBytes);
     // A slide only happens past half the window, so the ranges never overlap.
@@ -402,8 +407,7 @@ bool ensure_output(InflateState* state, u32 bytes) noexcept {
         if (!slide_window(state)) return false;
         if (bytes <= state->output.count - state->output_bytes) return true;
     }
-    state->error = ZlibInflateError::output_capacity;
-    return false;
+    return reject(state, ZlibInflateError::output_capacity);
 }
 
 __forceinline u64 load_u64(const u8* source) noexcept {
@@ -465,8 +469,8 @@ __forceinline bool distance_available(const InflateState& state, u32 distance, u
     return distance <= state.window_size && distance <= position;
 }
 
-bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* distances, u32 litlen_maximum,
-                          u32 distance_maximum) noexcept {
+MAICORD_HASWELL bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* distances,
+                                          u32 litlen_maximum, u32 distance_maximum) noexcept {
     constexpr u32 kLitlenMask = (1u << kLitlenTableBits) - 1;
     constexpr u32 kDistanceMask = (1u << kDistanceTableBits) - 1;
     BitReader& reader = state->reader;
@@ -547,19 +551,14 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             state->output_bytes = position;
             if (finished)
                 return true;
-            if (error != ZlibInflateError::none) {
-                state->error = error;
-                return false;
-            }
+            if (error != ZlibInflateError::none)
+                return reject(state, error);
         }
 
         // One symbol near the end of input/output, with exact error semantics.
         u32 entry = 0;
-        ZlibInflateError error = ZlibInflateError::none;
-        if (!decode_slow(&reader, litlen, kLitlenTableBits, litlen_maximum, &entry, &error)) {
-            state->error = error;
+        if (!decode_slow(&reader, litlen, kLitlenTableBits, litlen_maximum, &entry, &state->error))
             return false;
-        }
         if (entry_kind(entry) == kEntryLiteral) {
             if (!ensure_output(state, 1))
                 return false;
@@ -568,33 +567,21 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
         }
         if (entry_kind(entry) == kEntryEnd)
             return true;
-        if (entry_kind(entry) != kEntryLength) {
-            state->error = ZlibInflateError::invalid_symbol;
-            return false;
-        }
+        if (entry_kind(entry) != kEntryLength)
+            return reject(state, ZlibInflateError::invalid_symbol);
         u32 extra = 0;
-        if (!read_bits(&reader, entry_extra(entry), &extra)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
+        if (!read_bits(&reader, entry_extra(entry), &extra))
+            return reject(state, ZlibInflateError::truncated);
         const u32 length = entry_value(entry) + extra;
-        if (!decode_slow(&reader, distances, kDistanceTableBits, distance_maximum, &entry, &error)) {
-            state->error = error;
+        if (!decode_slow(&reader, distances, kDistanceTableBits, distance_maximum, &entry, &state->error))
             return false;
-        }
-        if (entry_kind(entry) != kEntryLength) {
-            state->error = ZlibInflateError::invalid_distance;
-            return false;
-        }
-        if (!read_bits(&reader, entry_extra(entry), &extra)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
+        if (entry_kind(entry) != kEntryLength)
+            return reject(state, ZlibInflateError::invalid_distance);
+        if (!read_bits(&reader, entry_extra(entry), &extra))
+            return reject(state, ZlibInflateError::truncated);
         const u32 distance = entry_value(entry) + extra;
-        if (!distance_available(*state, distance, state->output_bytes)) {
-            state->error = ZlibInflateError::invalid_distance;
-            return false;
-        }
+        if (!distance_available(*state, distance, state->output_bytes))
+            return reject(state, ZlibInflateError::invalid_distance);
         if (!ensure_output(state, length))
             return false;
         copy_match_exact(state->output.data + state->output_bytes, distance, length);
@@ -609,82 +596,57 @@ bool build_dynamic_tables(InflateState* state) noexcept {
     BitReader* reader = &state->reader;
     DeflateTables* tables = &state->workspace->tables;
     u8* lengths = state->workspace->lengths;
-    u32 hlit_bits = 0;
-    u32 hdist_bits = 0;
-    u32 hclen_bits = 0;
-    if (!read_bits(reader, 5, &hlit_bits) || !read_bits(reader, 5, &hdist_bits) ||
-        !read_bits(reader, 4, &hclen_bits)) {
-        state->error = ZlibInflateError::truncated;
-        return false;
-    }
+    u32 hlit_bits = 0, hdist_bits = 0, hclen_bits = 0;
+    if (!read_bits(reader, 5, &hlit_bits) || !read_bits(reader, 5, &hdist_bits) || !read_bits(reader, 4, &hclen_bits))
+        return reject(state, ZlibInflateError::truncated);
     const u32 literal_count = hlit_bits + 257;
     const u32 distance_count = hdist_bits + 1;
     const u32 code_count = hclen_bits + 4;
-    if (literal_count > 286) {
-        state->error = ZlibInflateError::invalid_block;
-        return false;
-    }
+    if (literal_count > 286)
+        return reject(state, ZlibInflateError::invalid_block);
 
-    for (u32 index = 0; index < 19; ++index) {
-        lengths[index] = 0;
-    }
+    clear_bytes(lengths, 19);
     for (u32 index = 0; index < code_count; ++index) {
         u32 length = 0;
-        if (!read_bits(reader, 3, &length)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
+        if (!read_bits(reader, 3, &length))
+            return reject(state, ZlibInflateError::truncated);
         lengths[kDeflateCodeLengthOrder[index]] = static_cast<u8>(length);
     }
     if (!build_table(lengths, 19, TableKind::precode, kPrecodeTableBits, kDeflatePrecodeTableEntries, tables->precode,
-                     &tables->precode_maximum, false, false)) {
-        state->error = ZlibInflateError::invalid_huffman;
-        return false;
-    }
+                     &tables->precode_maximum, false, false))
+        return reject(state, ZlibInflateError::invalid_huffman);
 
     const u32 total = literal_count + distance_count;
     u32 cursor = 0;
     while (cursor < total) {
         u32 entry = 0;
-        if (!decode_slow(reader, tables->precode, kPrecodeTableBits, tables->precode_maximum, &entry,
-                         &state->error)) {
+        if (!decode_slow(reader, tables->precode, kPrecodeTableBits, tables->precode_maximum, &entry, &state->error))
             return false;
-        }
         const u32 symbol = entry_value(entry);
         if (symbol <= 15) {
             lengths[cursor++] = static_cast<u8>(symbol);
             continue;
         }
-        if (symbol == 16 && cursor == 0) {
-            state->error = ZlibInflateError::invalid_huffman;
-            return false;
-        }
+        if (symbol == 16 && cursor == 0)
+            return reject(state, ZlibInflateError::invalid_huffman);
         u32 extra = 0;
         const u32 extra_bits = symbol == 16 ? 2 : symbol == 17 ? 3 : 7;
-        if (!read_bits(reader, extra_bits, &extra)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
+        if (!read_bits(reader, extra_bits, &extra))
+            return reject(state, ZlibInflateError::truncated);
         const u32 repeat = extra + (symbol == 18 ? 11 : 3);
         const u8 value = symbol == 16 ? lengths[cursor - 1] : 0;
-        if (repeat > total - cursor) {
-            state->error = ZlibInflateError::invalid_huffman;
-            return false;
-        }
+        if (repeat > total - cursor)
+            return reject(state, ZlibInflateError::invalid_huffman);
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-        for (u32 index = 0; index < repeat; ++index) {
+        for (u32 index = 0; index < repeat; ++index)
             lengths[cursor++] = value;
-        }
     }
-    if (lengths[256] == 0 ||
-        !build_table(lengths, literal_count, TableKind::litlen, kLitlenTableBits, kDeflateLitlenTableEntries,
-                     tables->litlen, &tables->litlen_maximum, false, true) ||
-        !build_table(lengths + literal_count, distance_count, TableKind::distance, kDistanceTableBits,
-                     kDeflateDistanceTableEntries, tables->distance, &tables->distance_maximum, true, true)) {
-        state->error = ZlibInflateError::invalid_huffman;
-        return false;
-    }
-    return true;
+    return (lengths[256] != 0 &&
+            build_table(lengths, literal_count, TableKind::litlen, kLitlenTableBits, kDeflateLitlenTableEntries,
+                        tables->litlen, &tables->litlen_maximum, false, true) &&
+            build_table(lengths + literal_count, distance_count, TableKind::distance, kDistanceTableBits,
+                        kDeflateDistanceTableEntries, tables->distance, &tables->distance_maximum, true, true)) ||
+           reject(state, ZlibInflateError::invalid_huffman);
 }
 
 #pragma clang attribute pop
@@ -692,22 +654,16 @@ bool build_dynamic_tables(InflateState* state) noexcept {
 bool decode_stored_block(InflateState* state) noexcept {
     align_reader(&state->reader);
     u8 header[4]{};
-    if (!read_aligned_bytes(&state->reader, header, 4)) {
-        state->error = ZlibInflateError::truncated;
-        return false;
-    }
+    if (!read_aligned_bytes(&state->reader, header, 4))
+        return reject(state, ZlibInflateError::truncated);
     const u16 length = static_cast<u16>(header[0] | header[1] << 8);
     const u16 inverse = static_cast<u16>(header[2] | header[3] << 8);
-    if (static_cast<u16>(length ^ 0xFFFFu) != inverse) {
-        state->error = ZlibInflateError::invalid_block;
-        return false;
-    }
+    if (static_cast<u16>(length ^ 0xFFFFu) != inverse)
+        return reject(state, ZlibInflateError::invalid_block);
     if (!ensure_output(state, length))
         return false;
-    if (!read_aligned_bytes(&state->reader, state->output.data + state->output_bytes, length)) {
-        state->error = ZlibInflateError::truncated;
-        return false;
-    }
+    if (!read_aligned_bytes(&state->reader, state->output.data + state->output_bytes, length))
+        return reject(state, ZlibInflateError::truncated);
     state->output_bytes += length;
     return true;
 }
@@ -727,8 +683,7 @@ bool decode_block(InflateState* state, u32 type) noexcept {
                                                                    tables.litlen_maximum, tables.distance_maximum);
     }
     default:
-        state->error = ZlibInflateError::invalid_block;
-        return false;
+        return reject(state, ZlibInflateError::invalid_block);
     }
 }
 
@@ -736,10 +691,8 @@ bool decode_final_blocks(InflateState* state) noexcept {
     bool final_block = false;
     while (!final_block) {
         u32 final = 0, type = 0;
-        if (!read_bits(&state->reader, 1, &final) || !read_bits(&state->reader, 2, &type)) {
-            state->error = ZlibInflateError::truncated;
-            return false;
-        }
+        if (!read_bits(&state->reader, 1, &final) || !read_bits(&state->reader, 2, &type))
+            return reject(state, ZlibInflateError::truncated);
         final_block = final != 0;
         if (!decode_block(state, type))
             return false;
@@ -748,26 +701,18 @@ bool decode_final_blocks(InflateState* state) noexcept {
     return true;
 }
 
-bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* error) noexcept {
+bool read_zlib_header(InflateState* state) noexcept {
     u8 header[2]{};
-    if (!read_aligned_bytes(reader, header, 2)) {
-        *error = ZlibInflateError::truncated;
-        return false;
-    }
+    if (!read_aligned_bytes(&state->reader, header, 2))
+        return reject(state, ZlibInflateError::truncated);
     const u8 cmf = header[0], flags = header[1];
-    if ((cmf & 0x0Fu) != 8 || (cmf >> 4) > 7) {
-        *error = ZlibInflateError::unsupported_method;
-        return false;
-    }
-    if ((static_cast<u32>(cmf) * 256u + flags) % 31u != 0) {
-        *error = ZlibInflateError::invalid_header;
-        return false;
-    }
-    if ((flags & 0x20u) != 0) {
-        *error = ZlibInflateError::unsupported_dictionary;
-        return false;
-    }
-    *window_size = 1u << ((cmf >> 4) + 8u);
+    if ((cmf & 0x0Fu) != 8 || (cmf >> 4) > 7)
+        return reject(state, ZlibInflateError::unsupported_method);
+    if ((static_cast<u32>(cmf) * 256u + flags) % 31u != 0)
+        return reject(state, ZlibInflateError::invalid_header);
+    if ((flags & 0x20u) != 0)
+        return reject(state, ZlibInflateError::unsupported_dictionary);
+    state->window_size = 1u << ((cmf >> 4) + 8u);
     return true;
 }
 
@@ -836,12 +781,7 @@ ZlibInflateResult zlib_inflate(ConstSlice<DeflateInputSpan> input, Slice<u8> out
     if (expected_output_bytes != ~0u && expected_output_bytes > output.count) {
         return failure(state, ZlibInflateError::output_capacity);
     }
-    ZlibInflateError header_error = ZlibInflateError::none;
-    if (!read_zlib_header(&state.reader, &state.window_size, &header_error)) {
-        return failure(state, header_error);
-    }
-
-    if (!decode_final_blocks(&state))
+    if (!read_zlib_header(&state) || !decode_final_blocks(&state))
         return failure(state, state.error);
 
     u8 checksum_bytes[4]{};
@@ -873,15 +813,12 @@ ZlibInflateResult zlib_inflate_windowed(ConstSlice<DeflateInputSpan> input, Slic
     if (!workspace || !sink || !window.data || window.count < kZlibWindowedMinimumBytes ||
         !reader_initialize(&state.reader, input))
         return failure(state, ZlibInflateError::invalid_input);
-    ZlibInflateError header_error = ZlibInflateError::none;
-    if (!read_zlib_header(&state.reader, &state.window_size, &header_error))
-        return failure(state, header_error);
     const auto finish = [&](ZlibInflateError error) noexcept {
         auto value = failure(state, error);
         value.output_bytes = static_cast<u32>(minimum<u64>(state.delivered, ~0u));
         return value;
     };
-    if (!decode_final_blocks(&state) || !slide_window(&state))
+    if (!read_zlib_header(&state) || !decode_final_blocks(&state) || !slide_window(&state))
         return finish(state.error);
     u8 checksum_bytes[4]{};
     if (!read_aligned_bytes(&state.reader, checksum_bytes, 4))

@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -131,6 +132,14 @@ bool back_init(BackBits* r, const u8* data, u32 size) noexcept {
     r->bits = static_cast<i64>(size - 1) * 8 + highbit(data[size - 1]);
     return true;
 }
+// The bits from `start` (not negative) of a stream shorter than eight bytes.
+__declspec(noinline) u64 back_short(const BackBits& r, i64 start) noexcept {
+    u64 value = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (u32 byte = static_cast<u32>(start >> 3), i = 0; byte + i < r.size; ++i)
+        value |= static_cast<u64>(r.data[byte + i]) << (8 * i);
+    return value >> (start & 7);
+}
 // count <= 56.
 __forceinline u64 back_peek(const BackBits& r, i64 start, u32 count) noexcept {
     u32 shift = 0;
@@ -143,15 +152,12 @@ __forceinline u64 back_peek(const BackBits& r, i64 start, u32 count) noexcept {
     }
     const u32 byte = static_cast<u32>(start >> 3);
     u64 value;
-    if (byte + 8 <= r.size) {
-        value = byte_load_le64(r.data + byte);
-    } else {
-        value = 0;
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-        for (u32 i = 0; byte + i < r.size; ++i)
-            value |= static_cast<u64>(r.data[byte + i]) << (8 * i);
-    }
-    value >>= start & 7;
+    if (byte + 8 <= r.size)
+        value = byte_load_le64(r.data + byte) >> (start & 7);
+    else if (r.size >= 8) // the last eight bytes hold the position, and the bits past the end read as zero
+        value = byte_load_le64(r.data + r.size - 8) >> (start - (static_cast<i64>(r.size) - 8) * 8);
+    else
+        value = back_short(r, start);
     return (value & ((1ull << count) - 1)) << shift;
 }
 __forceinline u64 back_read(BackBits* r, u32 count) noexcept {
@@ -251,19 +257,32 @@ bool build_table(ZstdFseEntry* table, const i16* counts, u32 symbols, u32 log) n
             next[s] = static_cast<u16>(counts[s]);
         }
     }
+    // The symbols in the order the walk places them, each as many times as its count. Eight bytes per store:
+    // the store count seldom changes, and the walk below has no branch on a count.
+    u8 spread[(1u << kLiteralLengthMaximumLog) + 8];
+    u32 filled = 0;
+    for (u32 s = 0; s < symbols; ++s) {
+        if (counts[s] <= 0)
+            continue;
+        if (filled + counts[s] > size)
+            return false;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for (i32 i = 0; i < counts[s]; i += 8)
+            *reinterpret_cast<u64 __unaligned*>(spread + filled + i) = s * 0x0101010101010101ull;
+        filled += counts[s];
+    }
+    // `high` wraps when each cell holds a symbol of probability "less than 1". Then `filled` is 0, as high + 1.
+    if (filled != high + 1)
+        return false;
     const u32 step = (size >> 1) + (size >> 3) + 3;
     const u32 mask = size - 1;
-    u32 position = 0;
-    for (u32 s = 0; s < symbols; ++s) {
-        for (i32 i = 0; i < counts[s]; ++i) {
-            table[position].symbol = static_cast<u8>(s);
-            do
-                position = (position + step) & mask;
-            while (position > high);
-        }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for (u32 i = 0, position = 0; i < filled; ++i) {
+        table[position].symbol = spread[i];
+        do
+            position = (position + step) & mask;
+        while (position > high);
     }
-    if (position != 0)
-        return false;
     for (u32 u = 0; u < size; ++u) {
         const u32 state = next[table[u].symbol]++;
         const u32 bits = log - highbit(state);
@@ -363,9 +382,8 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
             for (u32 k = 0; k < n; k += 8)
                 _mm_storeu_si128(reinterpret_cast<__m128i*>(at + k), pair);
         } else {
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-            for (u32 k = 0; k < n; ++k)
-                at[k] = entry;
+            // One, two or four entries with no branch on the count: the four stores cover entries 0 to n - 1.
+            at[0] = at[n >> 2] = at[n >> 1] = at[n - 1] = entry;
         }
         span[w] += n;
     }
@@ -381,8 +399,8 @@ __forceinline u8 huffman_symbol(const ZstdStreamDecoder& d, BackBits* r, u32 bit
 
 // Decodes output[from, to) and reports whether the stream ended exactly there.
 // The reader is a local copy: output bytes may alias the caller's.
-__declspec(noinline) bool huffman_finish(const ZstdStreamDecoder& d, BackBits reader, u8* output, u32 from,
-                                         u32 to) noexcept {
+MAICORD_HASWELL __declspec(noinline) bool huffman_finish(const ZstdStreamDecoder& d, BackBits reader, u8* output,
+                                                         u32 from, u32 to) noexcept {
     const u32 bits = d.huffman_bits;
     for (u32 i = from; i < to; ++i)
         output[i] = huffman_symbol(d, &reader, bits);
@@ -397,8 +415,8 @@ bool huffman_stream(const ZstdStreamDecoder& d, const u8* source, u32 size, u8* 
 // The four streams of a block in lockstep: each symbol waits on its stream's
 // previous one, so interleaving keeps four lookups in flight instead of one.
 // The last stream is shorter by at most three symbols.
-bool huffman_four_streams(const ZstdStreamDecoder& d, const u8* source, const u32 sizes[4], u8* output,
-                          u32 segment, u32 last) noexcept {
+MAICORD_HASWELL bool huffman_four_streams(const ZstdStreamDecoder& d, const u8* source, const u32 sizes[4],
+                                          u8* output, u32 segment, u32 last) noexcept {
     BackBits r0, r1, r2, r3;
     if (!back_init(&r0, source, sizes[0]) || !back_init(&r1, source + sizes[0], sizes[1]) ||
         !back_init(&r2, source + sizes[0] + sizes[1], sizes[2]) ||
@@ -574,8 +592,8 @@ __forceinline void copy_match(u8* output, u32 offset, u32 length) noexcept {
 }
 
 // RFC 8878 3.1.1.3.2 and 3.1.1.4, decoding and executing each sequence in turn.
-bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u32 size, Literals literals, u8* output,
-                      u32* produced) noexcept {
+MAICORD_HASWELL bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u32 size, Literals literals,
+                                      u8* output, u32* produced) noexcept {
     if (!size)
         return false;
     u32 count = source[0], header = 1;

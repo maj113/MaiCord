@@ -268,6 +268,16 @@ bool handmade_blocks() noexcept {
     CHECK(result.ok() && output.count == 7 && bytes_equal(output.data, "abcabca", 7));
     CHECK(decoder.repeat[0] == 3 && decoder.repeat[1] == 1 && decoder.repeat[2] == 4);
 
+    // The same sequence with a literal length table that the block describes: 32 cells, and each of the
+    // symbols 0 to 31 has the probability "less than 1" (15 zero bytes). No symbol has a count to place, and
+    // symbol 3 is state 28. The reference decoder gives the same seven bytes.
+    const u8 sparse_block[]{0x18, 'a', 'b', 'c', 0x01, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0xf2};
+    block_header(blocks, true, 2, sizeof(sparse_block));
+    copy_bytes(blocks + 3, sparse_block, sizeof(sparse_block));
+    CHECK(begin(1u << 20, false));
+    result = decode(message, framed(message, blocks, 3 + sizeof(sparse_block)), &output);
+    CHECK(result.ok() && output.count == 7 && bytes_equal(output.data, "abcabca", 7));
+
     // The same sequence with offset 4 reaches before the frame.
     u8 bad[sizeof(sequence_block)];
     copy_bytes(bad, sequence_block, sizeof(bad));
