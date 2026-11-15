@@ -1,24 +1,12 @@
 #include "maicord/media/image/animated_webp.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "webp_chunks.hpp"
 
 // The chunk walk runs once per image and frame: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
-
-inline constexpr u32 kRiff = byte_fourcc_le('R', 'I', 'F', 'F');
-inline constexpr u32 kWebp = byte_fourcc_le('W', 'E', 'B', 'P');
-inline constexpr u32 kVp8 = byte_fourcc_le('V', 'P', '8', ' ');
-inline constexpr u32 kVp8l = byte_fourcc_le('V', 'P', '8', 'L');
-inline constexpr u32 kVp8x = byte_fourcc_le('V', 'P', '8', 'X');
-inline constexpr u32 kAlph = byte_fourcc_le('A', 'L', 'P', 'H');
-inline constexpr u32 kAnim = byte_fourcc_le('A', 'N', 'I', 'M');
-inline constexpr u32 kAnmf = byte_fourcc_le('A', 'N', 'M', 'F');
-inline constexpr u32 kIccp = byte_fourcc_le('I', 'C', 'C', 'P');
-inline constexpr u32 kExif = byte_fourcc_le('E', 'X', 'I', 'F');
-inline constexpr u32 kXmp = byte_fourcc_le('X', 'M', 'P', ' ');
 
 AnimatedWebpParseResult parse_failure(AnimatedWebpParseResult value, AnimatedWebpError error) noexcept {
     value.error = error;

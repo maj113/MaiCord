@@ -2,22 +2,10 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/simd.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "webp_chunks.hpp"
 
 namespace maicord {
 namespace {
-
-inline constexpr u32 kRiff = byte_fourcc_le('R', 'I', 'F', 'F');
-inline constexpr u32 kWebp = byte_fourcc_le('W', 'E', 'B', 'P');
-inline constexpr u32 kVp8 = byte_fourcc_le('V', 'P', '8', ' ');
-inline constexpr u32 kVp8l = byte_fourcc_le('V', 'P', '8', 'L');
-inline constexpr u32 kVp8x = byte_fourcc_le('V', 'P', '8', 'X');
-inline constexpr u32 kAlph = byte_fourcc_le('A', 'L', 'P', 'H');
-inline constexpr u32 kAnim = byte_fourcc_le('A', 'N', 'I', 'M');
-inline constexpr u32 kAnmf = byte_fourcc_le('A', 'N', 'M', 'F');
-inline constexpr u32 kIccp = byte_fourcc_le('I', 'C', 'C', 'P');
-inline constexpr u32 kExif = byte_fourcc_le('E', 'X', 'I', 'F');
-inline constexpr u32 kXmp = byte_fourcc_le('X', 'M', 'P', ' ');
 
 WebpParseResult parse_failure(WebpParseResult value, WebpError error) noexcept {
     value.error = error;
@@ -45,17 +33,20 @@ __declspec(noinline) u64 peek_tail(const u8* data, u64 byte, u64 count) noexcept
     return value;
 }
 
-// The bits from bit_position on, LSB first: at least 57 while eight bytes
+// The bits from `position` on, LSB first: at least 57 while eight bytes
 // remain, otherwise every remaining bit; zero past the end.
-__forceinline u64 peek_bits(const BitReader& reader) noexcept {
-    const u64 byte = reader.bit_position >> 3;
-    const u32 shift = static_cast<u32>(reader.bit_position & 7u);
+__forceinline u64 peek_bits_at(ConstSlice<u8> bytes, u64 position) noexcept {
+    const u64 byte = position >> 3;
+    const u32 shift = static_cast<u32>(position & 7u);
     const u64 value =
-        byte + 8u <= reader.bytes.count
-            ? static_cast<u64>(
-                  _mm_cvtsi128_si64(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(reader.bytes.data + byte))))
-            : peek_tail(reader.bytes.data, byte, reader.bytes.count);
+        byte + 8u <= bytes.count
+            ? static_cast<u64>(_mm_cvtsi128_si64(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(bytes.data + byte))))
+            : peek_tail(bytes.data, byte, bytes.count);
     return value >> shift;
+}
+
+__forceinline u64 peek_bits(const BitReader& reader) noexcept {
+    return peek_bits_at(reader.bytes, reader.bit_position);
 }
 
 // Reading past the end fails without consuming, like a bit-serial reader.
@@ -376,21 +367,25 @@ bool build_simple_code(Vp8lWorkspace* workspace, u32 first, u32 second, Vp8lHuff
 
 
 // The pixel loop's view of the reader: the next `available` bits of the
-// stream at bit_position, refilled from memory only when it runs low, so a
-// decode does not wait on a load. available is exact near the end.
+// stream, refilled from memory only when it runs low, so a decode does not
+// wait on a load. available is exact near the end. The window ends at bit
+// `end` of the stream, so the stream position is end - available: the loop
+// keeps it in registers and stores it to the reader only where a call reads it.
 struct BitWindow {
     u64 bits;
+    u64 end;
     u32 available;
 };
 
 __forceinline void window_fill(const BitReader& reader, BitWindow* window) noexcept {
-    window->bits = peek_bits(reader);
-    const u64 remaining = total_bits(reader) - reader.bit_position;
+    const u64 position = window->end - window->available;
+    window->bits = peek_bits_at(reader.bytes, position);
+    const u64 remaining = total_bits(reader) - position;
     window->available = remaining < 57 ? static_cast<u32>(remaining) : 57u;
+    window->end = position + window->available;
 }
 
-__forceinline void window_consume(BitReader* reader, BitWindow* window, u32 count) noexcept {
-    reader->bit_position += count;
+__forceinline void window_consume(BitWindow* window, u32 count) noexcept {
     window->bits >>= count;
     window->available -= count;
 }
@@ -405,7 +400,7 @@ __forceinline u32 window_read_bits(BitReader* reader, BitWindow* window, u32 cou
         }
     }
     const u32 value = static_cast<u32>(window->bits) & ((1u << count) - 1u);
-    window_consume(reader, window, count);
+    window_consume(window, count);
     return value;
 }
 
@@ -434,12 +429,15 @@ __forceinline bool window_decode(BitReader* reader, BitWindow* window, const Vp8
         if (length > window->available) {
             return fail_at_end(reader);
         }
-        window_consume(reader, window, length);
+        window_consume(window, length);
         *symbol = static_cast<u16>(entry & 0xFFFu);
         return true;
     }
+    reader->bit_position = window->end - window->available;
     const bool decoded = decode_canonical(reader, code.counts, code.symbol_count, code.single_symbol,
                                           workspace->symbols + code.symbol_offset, symbol);
+    window->end = reader->bit_position;
+    window->available = 0;
     window_fill(*reader, window);
     return decoded;
 }
@@ -840,9 +838,6 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
     }
 
     const u32 pixel_count = width * height;
-    // x/y track position; the group changes only at prefix-block columns,
-    // on a new row and after a backward copy.
-    const u32 block_mask = prefix_bits != 0 ? (1u << prefix_bits) - 1u : ~0u;
     u32* const color_cache = workspace->color_cache;
     const u32 cache_shift = 32u - cache_bits;
     // The color cache takes pixels in output order, lazily: output[0, cached)
@@ -853,82 +848,79 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
     u32 x = 0;
     u32 y = 0;
     const Vp8lHuffmanGroup* codes = &workspace->groups[0];
-    BitWindow window{};
+    BitWindow window{0, state->reader.bit_position, 0};
     window_fill(state->reader, &window);
     while (position < pixel_count) {
-        if ((x & block_mask) == 0 && prefix_bits != 0) {
+        // One Huffman group serves the pixels up to the next prefix-block column or the end of the row. x and
+        // y are the place of the first of them. A backward copy can pass the boundary.
+        u32 boundary = pixel_count;
+        if (prefix_bits != 0) {
             codes = &workspace->groups[workspace->subimage_pixels[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)] >> 8 & 0xFFFFu];
+            boundary = position + minimum((1u << prefix_bits) - (x & ((1u << prefix_bits) - 1u)), width - x);
         }
-        u16 green = 0;
-        if (!window_decode(&state->reader, &window, workspace, codes->codes[0], &green)) {
-            set_error(state, WebpError::huffman);
-            return false;
-        }
-        if (green < 256) {
-            u32 pixel = codes->literal_arb | static_cast<u32>(green) << 8;
-            if (!codes->trivial_literal) {
-                u16 red = 0;
-                u16 blue = 0;
-                u16 alpha = 0;
-                if (!window_decode(&state->reader, &window, workspace, codes->codes[1], &red) ||
-                    !window_decode(&state->reader, &window, workspace, codes->codes[2], &blue) ||
-                    !window_decode(&state->reader, &window, workspace, codes->codes[3], &alpha)) {
-                    set_error(state, WebpError::huffman);
-                    return false;
-                }
-                pixel = static_cast<u32>(alpha) << 24 | static_cast<u32>(red) << 16 | static_cast<u32>(green) << 8 |
-                        blue;
-            }
-            output[position++] = pixel;
-            if (++x == width) {
-                x = 0;
-                ++y;
-            }
-        } else if (green < 280) {
-            const u32 length = window_prefix_value(&state->reader, &window, green - 256);
-            u16 distance_prefix = 0;
-            if (!window_decode(&state->reader, &window, workspace, codes->codes[4], &distance_prefix)) {
+        const u32 first = position;
+        do {
+            u16 green = 0;
+            if (!window_decode(&state->reader, &window, workspace, codes->codes[0], &green)) {
                 set_error(state, WebpError::huffman);
                 return false;
             }
-            const u32 distance_code = window_prefix_value(&state->reader, &window, distance_prefix);
-            const u32 distance = distance_value(distance_code, width);
-            if (state->reader.failed || length > pixel_count - position || distance > position) {
-                set_error(state, WebpError::distance);
-                return false;
-            }
-            copy_backward(output + position, distance, length);
-            position += length;
-            x += length;
-            if (x >= width) {
-                y += x / width;
-                x %= width;
-            }
-            if (prefix_bits != 0 && position < pixel_count) {
-                codes = &workspace->groups[workspace->subimage_pixels[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)] >> 8 & 0xFFFFu];
-            }
-        } else {
-            const u32 cache_index = green - 280;
-            if (cache_index >= cache_size) {
-                set_error(state, WebpError::bitstream);
-                return false;
-            }
+            if (green < 256) {
+                u32 pixel = codes->literal_arb | static_cast<u32>(green) << 8;
+                if (!codes->trivial_literal) {
+                    u16 red = 0;
+                    u16 blue = 0;
+                    u16 alpha = 0;
+                    if (!window_decode(&state->reader, &window, workspace, codes->codes[1], &red) ||
+                        !window_decode(&state->reader, &window, workspace, codes->codes[2], &blue) ||
+                        !window_decode(&state->reader, &window, workspace, codes->codes[3], &alpha)) {
+                        set_error(state, WebpError::huffman);
+                        return false;
+                    }
+                    pixel = static_cast<u32>(alpha) << 24 | static_cast<u32>(red) << 16 |
+                            static_cast<u32>(green) << 8 | blue;
+                }
+                output[position++] = pixel;
+            } else if (green < 280) {
+                const u32 length = window_prefix_value(&state->reader, &window, green - 256);
+                u16 distance_prefix = 0;
+                if (!window_decode(&state->reader, &window, workspace, codes->codes[4], &distance_prefix)) {
+                    set_error(state, WebpError::huffman);
+                    return false;
+                }
+                const u32 distance_code = window_prefix_value(&state->reader, &window, distance_prefix);
+                const u32 distance = distance_value(distance_code, width);
+                if (state->reader.failed || length > pixel_count - position || distance > position) {
+                    set_error(state, WebpError::distance);
+                    return false;
+                }
+                copy_backward(output + position, distance, length);
+                position += length;
+            } else {
+                const u32 cache_index = green - 280;
+                if (cache_index >= cache_size) {
+                    set_error(state, WebpError::bitstream);
+                    return false;
+                }
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-            for (; cached < position; ++cached) {
-                const u32 pixel = output[cached];
-                color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
+                for (; cached < position; ++cached) {
+                    const u32 pixel = output[cached];
+                    color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
+                }
+                output[position++] = color_cache[cache_index];
             }
-            output[position++] = color_cache[cache_index];
-            if (++x == width) {
-                x = 0;
-                ++y;
-            }
+        } while (position < boundary);
+        x += position - first;
+        if (x >= width) {
+            y += x / width;
+            x %= width;
         }
     }
     if (state->reader.failed) {
         set_error(state, WebpError::truncated);
         return false;
     }
+    state->reader.bit_position = window.end - window.available;
     return true;
 }
 

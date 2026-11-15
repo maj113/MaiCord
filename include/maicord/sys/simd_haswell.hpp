@@ -155,6 +155,47 @@ MAICORD_SIMD_HASWELL __m256i _mm256_maddubs_epi16(__m256i __a, __m256i __b) {
     return (__m256i)__builtin_ia32_pmaddubsw256((__v32qi)__a, (__v32qi)__b);
 }
 
+// For the image decoders.
+#define _mm256_permute2x128_si256(V1, V2, M)                                                                           \
+    ((__m256i)__builtin_ia32_permti256((__m256i)(V1), (__m256i)(V2), (int)(M)))
+static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("lzcnt")))
+unsigned int _lzcnt_u32(unsigned int __X) { return __builtin_ia32_lzcnt_u32(__X); }
+MAICORD_SIMD_HASWELL __m128i _mm256_castsi256_si128(__m256i __a) {
+    return __builtin_shufflevector((__v4di)__a, (__v4di)__a, 0, 1);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_cvtepu8_epi16(__m128i __V) {
+    return (__m256i)__builtin_convertvector((__v16qu)__V, __v16hi);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_min_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_elementwise_min((__v16hi)__a, (__v16hi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_max_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_elementwise_max((__v16hi)__a, (__v16hi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_cmpgt_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)((__v16hi)__a > (__v16hi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_andnot_si256(__m256i __a, __m256i __b) {
+    return (__m256i)(~(__v4du)__a & (__v4du)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_slli_epi16(__m256i __a, int __n) {
+    return (__m256i)__builtin_ia32_psllwi256((__v16hi)__a, __n);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_blendv_epi8(__m256i __a, __m256i __b, __m256i __m) {
+    return (__m256i)__builtin_ia32_pblendvb256((__v32qi)__a, (__v32qi)__b, (__v32qi)__m);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_packus_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_packuswb256((__v16hi)__a, (__v16hi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_unpacklo_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_shufflevector((__v16hi)__a, (__v16hi)__b, 0, 16, 1, 17, 2, 18, 3, 19, 8, 24, 9, 25, 10,
+                                            26, 11, 27);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_unpackhi_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_shufflevector((__v16hi)__a, (__v16hi)__b, 4, 20, 5, 21, 6, 22, 7, 23, 12, 28, 13, 29,
+                                            14, 30, 15, 31);
+}
+
 #undef MAICORD_SIMD_HASWELL
 
 #endif

@@ -3,7 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/sys/intrin.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -128,10 +128,9 @@ __declspec(noinline) WindowRefill window_refill(const u8* data, u32 count, u64 v
     return WindowRefill{value, offset, bits};
 }
 
-__forceinline u32 window_read(WindowReader* reader, u32 probability) noexcept {
-    if (reader->error != Vp8BoolError::none) {
-        return 0;
-    }
+// A failed read leaves the window bits missing, so each later read fails again in the refill. The range is never
+// 0 (the split is in [1, range - 1]) and LZCNT gives the shift without a branch: 0 from 128 on.
+MAICORD_HASWELL __forceinline u32 window_read(WindowReader* reader, u32 probability) noexcept {
     if (reader->bits < 0) {
         const WindowRefill refill =
             window_refill(reader->data, reader->count, reader->value, reader->offset, reader->bits);
@@ -151,13 +150,9 @@ __forceinline u32 window_read(WindowReader* reader, u32 probability) noexcept {
         range = reader->range - split;
         reader->value -= static_cast<u64>(split) << reader->bits;
     }
-    if (range < 128) {
-        unsigned long top = 0;
-        _BitScanReverse(&top, range);
-        const u32 shift = 7u - top;
-        reader->bits -= static_cast<i32>(shift);
-        range <<= shift;
-    }
+    const u32 shift = _lzcnt_u32(range) - 24u;
+    reader->bits -= static_cast<i32>(shift);
+    range <<= shift;
     reader->range = range;
     return bit;
 }
@@ -250,33 +245,17 @@ constexpr u8 kDefaultCoefficientProbability[] = {
 
 static_assert(sizeof(kDefaultCoefficientProbability) == kVp8CoefficientProbabilityCount);
 
-constexpr u64 probability_sum(const u8* values, u32 count) noexcept {
+// The checks of the tables: the sum of the values, or with `weighted` of each value times its place from 1.
+template <typename Value>
+constexpr u64 probability_sum(const Value* values, u32 count, bool weighted = false) noexcept {
     u64 result = 0;
     for (u32 index = 0; index < count; ++index) {
-        result += values[index];
+        result += static_cast<u64>(weighted ? index + 1u : 1u) * values[index];
     }
     return result;
 }
 
-constexpr u64 probability_weighted_sum(const u8* values, u32 count) noexcept {
-    u64 result = 0;
-    for (u32 index = 0; index < count; ++index) {
-        result += static_cast<u64>(index + 1u) * values[index];
-    }
-    return result;
-}
-
-constexpr u64 update_probability_sum() noexcept {
-    u64 result = static_cast<u64>(kVp8CoefficientProbabilityCount) * 255u;
-    for (u32 index = 0; index < sizeof(kCoefficientUpdateProbabilityExceptions) /
-                                    sizeof(kCoefficientUpdateProbabilityExceptions[0]);
-         ++index) {
-        result -= 255u - kCoefficientUpdateProbabilityExceptions[index].probability;
-    }
-    return result;
-}
-
-constexpr u64 update_probability_weighted_sum() noexcept {
+constexpr u64 update_probability_sum(bool weighted = false) noexcept {
     u64 result = 0;
     u32 exception_cursor = 0;
     for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
@@ -287,16 +266,16 @@ constexpr u64 update_probability_weighted_sum() noexcept {
             probability = kCoefficientUpdateProbabilityExceptions[exception_cursor].probability;
             ++exception_cursor;
         }
-        result += static_cast<u64>(index + 1u) * probability;
+        result += static_cast<u64>(weighted ? index + 1u : 1u) * probability;
     }
     return result;
 }
 
 static_assert(probability_sum(kDefaultCoefficientProbability, kVp8CoefficientProbabilityCount) == 174'918u);
-static_assert(probability_weighted_sum(kDefaultCoefficientProbability, kVp8CoefficientProbabilityCount) ==
+static_assert(probability_sum(kDefaultCoefficientProbability, kVp8CoefficientProbabilityCount, true) ==
               92'112'737u);
 static_assert(update_probability_sum() == 268'469u);
-static_assert(update_probability_weighted_sum() == 142'003'330u);
+static_assert(update_probability_sum(true) == 142'003'330u);
 
 // RFC 6386 section 11.5: [above mode][left mode][tree node].
 constexpr u8 kSubblockModeProbability[] = {
@@ -347,7 +326,7 @@ constexpr u8 kSubblockModeProbability[] = {
 
 static_assert(sizeof(kSubblockModeProbability) == 10u * 10u * 9u);
 static_assert(probability_sum(kSubblockModeProbability, sizeof(kSubblockModeProbability)) == 77'557u);
-static_assert(probability_weighted_sum(kSubblockModeProbability, sizeof(kSubblockModeProbability)) ==
+static_assert(probability_sum(kSubblockModeProbability, sizeof(kSubblockModeProbability), true) ==
               34'036'952u);
 
 // RFC 6386 section 14.1 dequantization lookup tables.
@@ -371,8 +350,9 @@ static constexpr u16 kVp8AcQuantizer[128] = {
     221, 225, 229, 234, 239, 245, 249, 254, 259, 264, 269, 274, 279, 284,
 };
 
-static constexpr u8 kCoefficientBand[17] = {
-    0, 1, 2, 3, 6, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7, 0,
+// The band of each coefficient position (0, 1, 2, 3, 6, 4, 5, 6, ..., 6, 7), times the 33 probabilities of a band.
+constexpr u8 kCoefficientBandOffset[16] = {
+    0, 33, 66, 99, 198, 132, 165, 198, 198, 198, 198, 198, 198, 198, 198, 231,
 };
 constexpr u8 kCoefficientZigzag[16] = {
     0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15,
@@ -397,17 +377,7 @@ struct Vp8DecodedCoefficientBlock {
 };
 
 static_assert(probability_sum(kVp8DcQuantizer, sizeof(kVp8DcQuantizer)) == 8'168u);
-
-constexpr u64 quantizer_sum(const u16* values, u32 count) noexcept {
-    u64 result = 0;
-    for (u32 index = 0; index < count; ++index) {
-        result += values[index];
-    }
-    return result;
-}
-
-static_assert(quantizer_sum(kVp8AcQuantizer, sizeof(kVp8AcQuantizer) / sizeof(kVp8AcQuantizer[0])) ==
-              12'723u);
+static_assert(probability_sum(kVp8AcQuantizer, sizeof(kVp8AcQuantizer) / sizeof(kVp8AcQuantizer[0])) == 12'723u);
 
 Vp8ParseResult failure(Vp8Error error) noexcept {
     return Vp8ParseResult{error};
@@ -430,7 +400,7 @@ inline constexpr signed char kSubblockModeTree[18] = {
     0, 2, -1, 4, -2, 6, 8, 12, -3, 10, -4, -5, -6, 14, -7, 16, -8, -9,
 };
 
-__forceinline Vp8SubblockMode read_subblock_mode(WindowReader* reader, Vp8SubblockMode above,
+MAICORD_HASWELL __forceinline Vp8SubblockMode read_subblock_mode(WindowReader* reader, Vp8SubblockMode above,
                                                  Vp8SubblockMode left) noexcept {
     const u32 probability_offset = (static_cast<u32>(above) * 10u + static_cast<u32>(left)) * 9u;
     const u8* probability = kSubblockModeProbability + probability_offset;
@@ -446,6 +416,7 @@ __forceinline Vp8SubblockMode read_subblock_mode(WindowReader* reader, Vp8Subblo
 // bottom subblock modes of the macroblock above, left the left macroblock;
 // null means the frame edge (B_DC_PRED context). One out-of-line copy serves
 // the frame and row parsers; the reader lives in a local (registers) per call.
+MAICORD_HASWELL
 void parse_macroblock_mode(WindowReader* state, const Vp8ControlHeader& header, const Vp8SubblockMode* above_modes,
                            const Vp8MacroblockMode* left_mode, Vp8MacroblockMode* output) noexcept {
     WindowReader local = *state;
@@ -528,14 +499,12 @@ Vp8QuantMatrix make_quant_matrix(const Vp8ControlHeader& header, u32 segment_id)
     }};
 }
 
-__forceinline const u8* coefficient_probability(const Vp8ProbabilityWorkspace& probabilities, u32 type, u32 coefficient,
-                                  u32 context) noexcept {
-    const u32 index =
-        type * 8u * 3u * 11u + static_cast<u32>(kCoefficientBand[coefficient]) * 3u * 11u + context * 11u;
-    return probabilities.coefficient + index;
+// The probabilities of one block type: [band][context][tree node].
+__forceinline const u8* coefficient_probability(const u8* probabilities, u32 coefficient, u32 context) noexcept {
+    return probabilities + kCoefficientBandOffset[coefficient] + context * 11u;
 }
 
-__forceinline u32 read_large_coefficient(WindowReader* reader, const u8* probability) noexcept {
+MAICORD_HASWELL __forceinline u32 read_large_coefficient(WindowReader* reader, const u8* probability) noexcept {
     if (window_read(reader, probability[3]) == 0) {
         if (window_read(reader, probability[4]) == 0) {
             return 2;
@@ -566,42 +535,24 @@ __forceinline u32 read_large_coefficient(WindowReader* reader, const u8* probabi
     return value + 3u + (8u << category);
 }
 
-__forceinline Vp8DecodedCoefficientBlock finish(WindowReader* state, const WindowReader& local,
-                                                Vp8DecodedCoefficientBlock result) noexcept {
-    *state = local;
-    return result;
-}
-
-// What every block of one macroblock shares: four register arguments per block call instead of eight.
-struct BlockDecoder {
-    WindowReader* reader;
-    const Vp8ProbabilityWorkspace* probabilities;
-    Vp8QuantMatrix quantizer;
-};
-
-Vp8DecodedCoefficientBlock decode_coefficient_block(const BlockDecoder& decoder, u32 type, u32 context,
-                                                    i16* output) noexcept {
-    WindowReader* const state = decoder.reader;
-    const Vp8ProbabilityWorkspace& probabilities = *decoder.probabilities;
-    const u16* const factors = decoder.quantizer.factors[type];
-    // Local reader state stays in registers; written back once per block.
-    WindowReader local = *state;
-    WindowReader* const reader = &local;
-    u32 coefficient = type == 0 ? 1u : 0u; // luma after a Y2 block starts at its first AC coefficient
+// The tokens of one block, dequantized into `output` in raster order. `first` is 1 for luma after a Y2 block,
+// which starts at its first AC coefficient. The caller's reader stays in registers.
+MAICORD_HASWELL __forceinline Vp8DecodedCoefficientBlock decode_coefficient_block(
+    WindowReader* reader, const u8* probabilities, const u16* factors, u32 first, u32 context, i16* output) noexcept {
+    u32 coefficient = first;
     u32 coefficient_context = context;
     bool has_nonzero = false;
     while (coefficient < 16 && reader->ok()) {
-        const u8* probability =
-            coefficient_probability(probabilities, type, coefficient, coefficient_context);
+        const u8* probability = coefficient_probability(probabilities, coefficient, coefficient_context);
         if (window_read(reader, probability[0]) == 0) {
-            return finish(state, local, Vp8DecodedCoefficientBlock{coefficient, has_nonzero, false});
+            break;
         }
         while (window_read(reader, probability[1]) == 0) {
             ++coefficient;
             if (coefficient == 16) {
-                return finish(state, local, Vp8DecodedCoefficientBlock{16, has_nonzero, false});
+                return Vp8DecodedCoefficientBlock{16, has_nonzero, false};
             }
-            probability = coefficient_probability(probabilities, type, coefficient, 0);
+            probability = coefficient_probability(probabilities, coefficient, 0);
         }
         u32 magnitude = 1;
         if (window_read(reader, probability[2]) != 0) {
@@ -612,13 +563,13 @@ Vp8DecodedCoefficientBlock decode_coefficient_block(const BlockDecoder& decoder,
             window_read(reader, 128) != 0 ? -static_cast<i32>(magnitude) : static_cast<i32>(magnitude);
         const i32 dequantized = signed_value * static_cast<i32>(factors[coefficient == 0 ? 0 : 1]);
         if (dequantized < -32'768 || dequantized > 32'767) {
-            return finish(state, local, Vp8DecodedCoefficientBlock{coefficient + 1u, has_nonzero, true});
+            return Vp8DecodedCoefficientBlock{coefficient + 1u, has_nonzero, true};
         }
         output[kCoefficientZigzag[coefficient]] = static_cast<i16>(dequantized);
         has_nonzero = true;
         ++coefficient;
     }
-    return finish(state, local, Vp8DecodedCoefficientBlock{coefficient, has_nonzero, false});
+    return Vp8DecodedCoefficientBlock{coefficient, has_nonzero, false};
 }
 
 bool inverse_wht(const i16* input, Vp8MacroblockCoefficients* output) noexcept {
@@ -656,8 +607,18 @@ bool inverse_wht(const i16* input, Vp8MacroblockCoefficients* output) noexcept {
     return true;
 }
 
+// The top and left context bytes (offsets in Vp8TokenContext) of each block in decode order: Y2, 16 luma, four U
+// and four V.
+constexpr u8 kBlockContext[25][2] = {
+    {8, 8}, {0, 0}, {1, 0}, {2, 0}, {3, 0}, {0, 1}, {1, 1}, {2, 1}, {3, 1}, {0, 2}, {1, 2}, {2, 2}, {3, 2},
+    {0, 3}, {1, 3}, {2, 3}, {3, 3}, {4, 4}, {5, 4}, {4, 5}, {5, 5}, {6, 6}, {7, 6}, {6, 7}, {7, 7},
+};
+static_assert(__builtin_offsetof(Vp8TokenContext, u) == 4 && __builtin_offsetof(Vp8TokenContext, v) == 6 &&
+              __builtin_offsetof(Vp8TokenContext, y2) == 8);
+
 // Tokens of one macroblock (RFC 6386 section 13): dequantized residuals in
 // raster order, the Y2 inverse WHT folded into the luma DC positions.
+MAICORD_HASWELL
 Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, const Vp8ControlHeader& header,
                                                    const Vp8ProbabilityWorkspace& probabilities,
                                                    const Vp8MacroblockMode& mode, Vp8TokenContext* top_context,
@@ -666,11 +627,11 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
     if (mode.segment_id >= 4) {
         return {Vp8CoefficientError::invalid_input};
     }
-    WindowReader& reader = *token_reader;
     Vp8MacroblockCoefficients& output = *coefficients;
     reset_value<Vp8MacroblockCoefficients>(&output);
     Vp8TokenContext& top = *top_context;
     Vp8TokenContext& left = *left_context;
+    const bool has_y2 = mode.luma != Vp8IntraMode::subblocks;
     if (mode.skip_coefficients) {
         // I4x4 macroblocks have no Y2 block. VP8 retains the Y2
         // neighbour contexts across them; only a skipped I16 block
@@ -678,79 +639,61 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         const u8 top_y2 = top.y2, left_y2 = left.y2;
         reset_value<Vp8TokenContext>(&top);
         reset_value<Vp8TokenContext>(&left);
-        if (mode.luma == Vp8IntraMode::subblocks) {
+        if (!has_y2) {
             top.y2 = top_y2;
             left.y2 = left_y2;
         }
         return Vp8CoefficientParseResult{Vp8CoefficientError::none};
     }
 
-    const BlockDecoder decoder{&reader, &probabilities, make_quant_matrix(header, mode.segment_id)};
+    const Vp8QuantMatrix quantizer = make_quant_matrix(header, mode.segment_id);
+    u8* const top_flags = reinterpret_cast<u8*>(&top);
+    u8* const left_flags = reinterpret_cast<u8*>(&left);
+    // One loop holds the block decoder, so the reader stays in registers for the whole macroblock.
+    WindowReader reader = *token_reader;
+    Vp8CoefficientError error = Vp8CoefficientError::none;
+    i16 y2[16]{};
     u8 has_coefficients = 0;
-    Vp8DecodedCoefficientBlock result{};
-    // One block; its non-zero flag becomes both neighbour contexts.
-    const auto decode = [&](u32 type, u32 context, i16* values, u8& top_flag, u8& left_flag) noexcept {
-        result = decode_coefficient_block(decoder, type, context, values);
+    for (u32 slot = has_y2 ? 0u : 1u; slot < 25; ++slot) {
+        const u32 type = slot == 0 ? 1u : slot > 16 ? 2u : has_y2 ? 0u : 3u;
+        // The non-zero flag of a block becomes both neighbour contexts.
+        u8& top_flag = top_flags[kBlockContext[slot][0]];
+        u8& left_flag = left_flags[kBlockContext[slot][1]];
+        const Vp8DecodedCoefficientBlock result =
+            decode_coefficient_block(&reader, probabilities.coefficient + type * 8u * 3u * 11u, quantizer.factors[type],
+                                     type == 0 ? 1u : 0u, top_flag + left_flag,
+                                     slot == 0 ? y2 : output.values[slot - 1u]);
         if (!reader.ok()) {
-            return Vp8CoefficientError::boolean_stream;
+            error = Vp8CoefficientError::boolean_stream;
+            break;
         }
         if (result.range_error) {
-            return Vp8CoefficientError::coefficient_range;
+            error = Vp8CoefficientError::coefficient_range;
+            break;
         }
         top_flag = left_flag = static_cast<u8>(result.has_nonzero);
         has_coefficients |= top_flag;
-        return Vp8CoefficientError::none;
-    };
-    u32 y_type = 3;
-    if (mode.luma != Vp8IntraMode::subblocks) {
-        i16 y2[16]{};
-        if (const auto error = decode(1, top.y2 + left.y2, y2, top.y2, left.y2);
-            error != Vp8CoefficientError::none) {
-            return {error};
+        if (slot != 0) {
+            continue;
         }
         if (result.end_position > 1) {
             if (!inverse_wht(y2, &output)) {
-                return {Vp8CoefficientError::coefficient_range};
+                error = Vp8CoefficientError::coefficient_range;
+                break;
             }
         } else {
-            const i32 dc = (static_cast<i32>(y2[0]) + 3) >> 3;
-            if (dc < -32'768 || dc > 32'767) {
-                return {Vp8CoefficientError::coefficient_range};
-            }
+            // A 16-bit DC shifted right by three is in range.
+            const i16 dc = static_cast<i16>((static_cast<i32>(y2[0]) + 3) >> 3);
             for (u32 block = 0; block < 16; ++block) {
-                output.values[block][0] = static_cast<i16>(dc);
-            }
-        }
-        y_type = 0;
-    }
-
-    for (u32 block_y = 0; block_y < 4; ++block_y) {
-        for (u32 block_x = 0; block_x < 4; ++block_x) {
-            if (const auto error = decode(y_type, left.y[block_y] + top.y[block_x],
-                                          output.values[block_y * 4u + block_x], top.y[block_x], left.y[block_y]);
-                error != Vp8CoefficientError::none) {
-                return {error};
+                output.values[block][0] = dc;
             }
         }
     }
-
-    for (u32 channel = 0; channel < 2; ++channel) {
-        u8* top_chroma = channel == 0 ? top.u : top.v;
-        u8* left_chroma = channel == 0 ? left.u : left.v;
-        const u32 first_block = 16u + channel * 4u;
-        for (u32 block_y = 0; block_y < 2; ++block_y) {
-            for (u32 block_x = 0; block_x < 2; ++block_x) {
-                if (const auto error = decode(2, left_chroma[block_y] + top_chroma[block_x],
-                                              output.values[first_block + block_y * 2u + block_x],
-                                              top_chroma[block_x], left_chroma[block_y]);
-                    error != Vp8CoefficientError::none) {
-                    return {error};
-                }
-            }
-        }
+    *token_reader = reader;
+    if (error == Vp8CoefficientError::none) {
+        output.has_coefficients = has_coefficients;
     }
-    output.has_coefficients = has_coefficients;
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
+    return {error};
 }
 
 } // namespace

@@ -3,7 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/webp_alpha.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 // RFC 6386 keyframe reconstruction (sections 12, 14 and 15) on the CPU, one
 // macroblock row at a time. Intra prediction reads the unfiltered row above,
@@ -15,16 +15,6 @@ namespace {
 constexpr u32 kWork = 32; // work-buffer stride
 // Signed offsets: the row above and the left column precede dst.
 constexpr i32 kStride = static_cast<i32>(kWork);
-
-__forceinline u8 clip8(i32 v) noexcept {
-    return static_cast<u8>(v < 0 ? 0 : v > 255 ? 255 : v);
-}
-__forceinline u8 avg3(u32 a, u32 b, u32 c) noexcept {
-    return static_cast<u8>((a + 2 * b + c + 2) >> 2);
-}
-__forceinline u8 avg2(u32 a, u32 b) noexcept {
-    return static_cast<u8>((a + b + 1) >> 1);
-}
 
 // ---- Inverse transform (section 14.3) ---------------------------------------
 // 32-bit lanes, so every product wraps exactly as the scalar form's does. The
@@ -53,29 +43,21 @@ __forceinline void transform_pass(const __m128i* x, __m128i bias, __m128i* out) 
     out[2] = _mm_sub_epi32(b, c);
     out[3] = _mm_sub_epi32(a, d);
 }
-// Adds a block's residual to the prediction at dst (four rows, kWork apart).
-// An all-zero block changes nothing; a DC-only one adds (dc + 4) >> 3 everywhere.
-__declspec(noinline) void add_transform(const i16* in, u8* dst) noexcept {
-    const __m128i low = _mm_loadu_si128(reinterpret_cast<const __m128i*>(in));
-    const __m128i high = _mm_loadu_si128(reinterpret_cast<const __m128i*>(in + 8));
-    const __m128i zero = _mm_setzero_si128();
-    const __m128i acs = _mm_or_si128(_mm_blend_epi16(low, zero, 1), high);
-    const bool acs_zero = _mm_movemask_epi8(_mm_cmpeq_epi8(acs, zero)) == 0xFFFF;
-    if (acs_zero) {
-        if (in[0] == 0)
-            return;
-        const __m128i dc = _mm_set1_epi16(static_cast<short>((in[0] + 4) >> 3));
-        for (u32 row = 0; row < 4; ++row, dst += kWork) {
-            const __m128i pixels = _mm_cvtepu8_epi16(_mm_loadu_si32(dst));
-            const __m128i sum = _mm_adds_epi16(pixels, dc);
-            _mm_storeu_si32(dst, _mm_packus_epi16(sum, sum));
-        }
-        return;
+// A DC-only residual: (dc + 4) >> 3 added to the prediction at dst (four rows, kWork apart).
+__declspec(noinline) void add_dc(i32 coefficient, u8* dst) noexcept {
+    const __m128i dc = _mm_set1_epi16(static_cast<short>((coefficient + 4) >> 3));
+    for (u32 row = 0; row < 4; ++row, dst += kWork) {
+        const __m128i pixels = _mm_cvtepu8_epi16(_mm_loadu_si32(dst));
+        const __m128i sum = _mm_adds_epi16(pixels, dc);
+        _mm_storeu_si32(dst, _mm_packus_epi16(sum, sum));
     }
-    __m128i m[4], t[4];
-    for (u32 i = 0; i < 4; ++i)
-        m[i] = _mm_cvtepi16_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(in + 4 * i)));
-    transform_pass(m, zero, t);
+}
+// The inverse transform of a block (coefficients 0-7 in low, 8-15 in high), added to the prediction at dst.
+__declspec(noinline) void add_transform(__m128i low, __m128i high, u8* dst) noexcept {
+    __m128i m[4] = {_mm_cvtepi16_epi32(low), _mm_cvtepi16_epi32(_mm_srli_si128(low, 8)), _mm_cvtepi16_epi32(high),
+                    _mm_cvtepi16_epi32(_mm_srli_si128(high, 8))};
+    __m128i t[4];
+    transform_pass(m, _mm_setzero_si128(), t);
     transpose4(t);
     transform_pass(t, _mm_set1_epi32(4), m);
     transpose4(m);
@@ -92,28 +74,51 @@ __declspec(noinline) void add_transform(const i16* in, u8* dst) noexcept {
     _mm_storeu_si32(dst + 3 * kWork, _mm_srli_si128(sum, 12));
 }
 
+// Adds a block's residual to the prediction. Most blocks of a photo are all zero and change nothing, and many of
+// the others hold a DC alone: the test stays in the caller.
+__forceinline void add_residual(const i16* in, u8* dst) noexcept {
+    const __m128i low = _mm_loadu_si128(reinterpret_cast<const __m128i*>(in));
+    const __m128i high = _mm_loadu_si128(reinterpret_cast<const __m128i*>(in + 8));
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i acs = _mm_or_si128(_mm_blend_epi16(low, zero, 1), high);
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(acs, zero)) != 0xFFFF)
+        add_transform(low, high, dst);
+    else if (in[0] != 0)
+        add_dc(in[0], dst);
+}
+
 // ---- Intra prediction (section 12) ------------------------------------------
 // dst points at the block's first pixel; dst[-kWork..] is the row above
 // (including four above-right samples), dst[-1 + k * kWork] the left column.
 // size is 4, 8 or 16: one store per row.
+__forceinline void store_row(u8* row, u32 size, __m128i value) noexcept {
+    if (size == 16)
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(row), value);
+    else if (size == 8)
+        _mm_storel_epi64(reinterpret_cast<__m128i*>(row), value);
+    else
+        _mm_storeu_si32(row, value);
+}
 void fill(u8* dst, u32 size, u8 value) noexcept {
     const __m128i pattern = _mm_set1_epi8(static_cast<char>(value));
 #pragma clang loop unroll(disable)
-    for (u32 y = 0; y < size; ++y) {
-        u8* const row = dst + y * kWork;
-        if (size == 16)
-            _mm_storeu_si128(reinterpret_cast<__m128i*>(row), pattern);
-        else if (size == 8)
-            _mm_storel_epi64(reinterpret_cast<__m128i*>(row), pattern);
-        else
-            _mm_storeu_si32(row, pattern);
-    }
+    for (u32 y = 0; y < size; ++y)
+        store_row(dst + y * kWork, size, pattern);
 }
+// size is 8 or 16.
 void predict_dc(u8* dst, u32 size, bool top, bool left) noexcept {
     u32 sum = 0;
-    for (u32 i = 0; i < size; ++i) {
-        sum += top ? dst[static_cast<i32>(i) - kStride] : 0;
-        sum += left ? dst[static_cast<i32>(i) * kStride - 1] : 0;
+    if (top) {
+        const __m128i* const above = reinterpret_cast<const __m128i*>(dst - kStride);
+        const __m128i sums =
+            _mm_sad_epu8(size == 16 ? _mm_loadu_si128(above) : _mm_loadl_epi64(above), _mm_setzero_si128());
+        sum = static_cast<u32>(_mm_cvtsi128_si32(sums)) +
+              static_cast<u32>(_mm_cvtsi128_si32(_mm_unpackhi_epi64(sums, sums)));
+    }
+    if (left) {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for (u32 i = 0; i < size; ++i)
+            sum += dst[static_cast<i32>(i) * kStride - 1];
     }
     const u32 shift = size == 16 ? 4 : 3;
     const u8 value = top && left ? static_cast<u8>((sum + size) >> (shift + 1))
@@ -121,23 +126,32 @@ void predict_dc(u8* dst, u32 size, bool top, bool left) noexcept {
                                    : 128;
     fill(dst, size, value);
 }
+// Each row is the row above plus (left - corner), in 16-bit lanes. The pack clips a sum to a byte. The load
+// takes 16 bytes of the row above for every size: a work row holds them.
 void predict_true_motion(u8* dst, u32 size) noexcept {
+    const __m128i above = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dst - kStride));
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i low = _mm_unpacklo_epi8(above, zero), high = _mm_unpackhi_epi8(above, zero);
     const i32 corner = dst[-kStride - 1];
+#pragma clang loop unroll(disable)
     for (u32 y = 0; y < size; ++y) {
-        const i32 left = dst[static_cast<i32>(y) * kStride - 1];
-        for (u32 x = 0; x < size; ++x)
-            dst[y * kWork + x] = clip8(left + dst[static_cast<i32>(x) - kStride] - corner);
+        u8* const row = dst + y * kWork;
+        const __m128i step = _mm_set1_epi16(static_cast<short>(row[-1] - corner));
+        store_row(row, size, _mm_packus_epi16(_mm_add_epi16(low, step), _mm_add_epi16(high, step)));
     }
 }
 void predict_vertical(u8* dst, u32 size) noexcept {
+    const __m128i above = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dst - kStride));
+#pragma clang loop unroll(disable)
     for (u32 y = 0; y < size; ++y)
-        for (u32 x = 0; x < size; ++x)
-            dst[y * kWork + x] = dst[static_cast<i32>(x) - kStride];
+        store_row(dst + y * kWork, size, above);
 }
 void predict_horizontal(u8* dst, u32 size) noexcept {
-    for (u32 y = 0; y < size; ++y)
-        for (u32 x = 0; x < size; ++x)
-            dst[y * kWork + x] = dst[static_cast<i32>(y) * kStride - 1];
+#pragma clang loop unroll(disable)
+    for (u32 y = 0; y < size; ++y) {
+        u8* const row = dst + y * kWork;
+        store_row(row, size, _mm_set1_epi8(static_cast<char>(row[-1])));
+    }
 }
 void predict_plane(u8* dst, u32 size, Vp8IntraMode mode, bool top, bool left) noexcept {
     switch (mode) {
@@ -148,100 +162,49 @@ void predict_plane(u8* dst, u32 size, Vp8IntraMode mode, bool top, bool left) no
     }
 }
 
-#define DST(x, y) dst[(x) + (y) * kWork]
+// The 4x4 modes that average the edge samples (RFC 6386 section 12.3). The edge runs up the left column and
+// along the row above: L L L K J I X A B C D E F G H H. X is the corner, I to L the left column from the top and
+// A to H the row above. A table entry selects for one pixel, in raster order, the rounded average of three
+// successive edge samples from that index (0-15, the middle one counted twice) or of two (16-31).
+constexpr u8 kSubblockTaps[8][16] = {
+    {6, 7, 8, 9, 6, 7, 8, 9, 6, 7, 8, 9, 6, 7, 8, 9},            // vertical_edge
+    {4, 4, 4, 4, 3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1},            // horizontal_edge
+    {5, 6, 7, 8, 4, 5, 6, 7, 3, 4, 5, 6, 2, 3, 4, 5},            // right_down
+    {22, 23, 24, 25, 5, 6, 7, 8, 4, 22, 23, 24, 3, 5, 6, 7},     // vertical_right
+    {7, 8, 9, 10, 8, 9, 10, 11, 9, 10, 11, 12, 10, 11, 12, 13},  // left_down
+    {23, 24, 25, 26, 7, 8, 9, 10, 24, 25, 26, 11, 8, 9, 10, 12}, // vertical_left
+    {21, 5, 6, 7, 20, 4, 21, 5, 19, 3, 20, 4, 18, 2, 19, 3},     // horizontal_down
+    {20, 3, 19, 2, 19, 2, 18, 1, 18, 1, 16, 16, 16, 16, 16, 16}, // horizontal_up
+};
+
 void predict_subblock(u8* dst, Vp8SubblockMode mode) noexcept {
-    const u8* top = dst - kStride;
-    const u32 X = top[-1], A = top[0], B = top[1], C = top[2], D = top[3], E = top[4], F = top[5], G = top[6],
-              H = top[7];
+    const u8* const top = dst - kStride;
     const u32 I = dst[-1], J = dst[kStride - 1], K = dst[2 * kStride - 1], L = dst[3 * kStride - 1];
-    switch (mode) {
-    case Vp8SubblockMode::dc: {
-        fill(dst, 4, static_cast<u8>((A + B + C + D + I + J + K + L + 4) >> 3));
-        break;
-    }
-    case Vp8SubblockMode::true_motion:
-        predict_true_motion(dst, 4);
-        break;
-    case Vp8SubblockMode::vertical_edge: {
-        const u8 v[4]{avg3(X, A, B), avg3(A, B, C), avg3(B, C, D), avg3(C, D, E)};
-        for (u32 y = 0; y < 4; ++y)
-            for (u32 x = 0; x < 4; ++x)
-                DST(x, y) = v[x];
-        break;
-    }
-    case Vp8SubblockMode::horizontal_edge: {
-        const u8 v[4]{avg3(X, I, J), avg3(I, J, K), avg3(J, K, L), avg3(K, L, L)};
-        for (u32 y = 0; y < 4; ++y)
-            for (u32 x = 0; x < 4; ++x)
-                DST(x, y) = v[y];
-        break;
-    }
-    case Vp8SubblockMode::right_down:
-        DST(0, 3) = avg3(J, K, L);
-        DST(1, 3) = DST(0, 2) = avg3(I, J, K);
-        DST(2, 3) = DST(1, 2) = DST(0, 1) = avg3(X, I, J);
-        DST(3, 3) = DST(2, 2) = DST(1, 1) = DST(0, 0) = avg3(A, X, I);
-        DST(3, 2) = DST(2, 1) = DST(1, 0) = avg3(B, A, X);
-        DST(3, 1) = DST(2, 0) = avg3(C, B, A);
-        DST(3, 0) = avg3(D, C, B);
-        break;
-    case Vp8SubblockMode::left_down:
-        DST(0, 0) = avg3(A, B, C);
-        DST(1, 0) = DST(0, 1) = avg3(B, C, D);
-        DST(2, 0) = DST(1, 1) = DST(0, 2) = avg3(C, D, E);
-        DST(3, 0) = DST(2, 1) = DST(1, 2) = DST(0, 3) = avg3(D, E, F);
-        DST(3, 1) = DST(2, 2) = DST(1, 3) = avg3(E, F, G);
-        DST(3, 2) = DST(2, 3) = avg3(F, G, H);
-        DST(3, 3) = avg3(G, H, H);
-        break;
-    case Vp8SubblockMode::vertical_right:
-        DST(0, 0) = DST(1, 2) = avg2(X, A);
-        DST(1, 0) = DST(2, 2) = avg2(A, B);
-        DST(2, 0) = DST(3, 2) = avg2(B, C);
-        DST(3, 0) = avg2(C, D);
-        DST(0, 3) = avg3(K, J, I);
-        DST(0, 2) = avg3(J, I, X);
-        DST(0, 1) = DST(1, 3) = avg3(I, X, A);
-        DST(1, 1) = DST(2, 3) = avg3(X, A, B);
-        DST(2, 1) = DST(3, 3) = avg3(A, B, C);
-        DST(3, 1) = avg3(B, C, D);
-        break;
-    case Vp8SubblockMode::vertical_left:
-        DST(0, 0) = avg2(A, B);
-        DST(1, 0) = DST(0, 2) = avg2(B, C);
-        DST(2, 0) = DST(1, 2) = avg2(C, D);
-        DST(3, 0) = DST(2, 2) = avg2(D, E);
-        DST(0, 1) = avg3(A, B, C);
-        DST(1, 1) = DST(0, 3) = avg3(B, C, D);
-        DST(2, 1) = DST(1, 3) = avg3(C, D, E);
-        DST(3, 1) = DST(2, 3) = avg3(D, E, F);
-        DST(3, 2) = avg3(E, F, G);
-        DST(3, 3) = avg3(F, G, H);
-        break;
-    case Vp8SubblockMode::horizontal_down:
-        DST(0, 0) = DST(2, 1) = avg2(I, X);
-        DST(0, 1) = DST(2, 2) = avg2(J, I);
-        DST(0, 2) = DST(2, 3) = avg2(K, J);
-        DST(0, 3) = avg2(L, K);
-        DST(3, 0) = avg3(A, B, C);
-        DST(2, 0) = avg3(X, A, B);
-        DST(1, 0) = DST(3, 1) = avg3(I, X, A);
-        DST(1, 1) = DST(3, 2) = avg3(J, I, X);
-        DST(1, 2) = DST(3, 3) = avg3(K, J, I);
-        DST(1, 3) = avg3(L, K, J);
-        break;
-    default: // horizontal_up
-        DST(0, 0) = avg2(I, J);
-        DST(2, 0) = DST(0, 1) = avg2(J, K);
-        DST(2, 1) = DST(0, 2) = avg2(K, L);
-        DST(1, 0) = avg3(I, J, K);
-        DST(3, 0) = DST(1, 1) = avg3(J, K, L);
-        DST(3, 1) = DST(1, 2) = avg3(K, L, L);
-        DST(3, 2) = DST(2, 2) = DST(0, 3) = DST(1, 3) = DST(2, 3) = DST(3, 3) = static_cast<u8>(L);
-        break;
-    }
+    if (mode == Vp8SubblockMode::dc)
+        return fill(dst, 4, static_cast<u8>((top[0] + top[1] + top[2] + top[3] + I + J + K + L + 4) >> 3));
+    if (mode == Vp8SubblockMode::true_motion)
+        return predict_true_motion(dst, 4);
+    // Scalar loads build the edge: a 16-byte load across the corner would wait for the stores that wrote it.
+    const u64 above = byte_load_le64(top);
+    const u64 low = L * 0x010101ull | u64{K} << 24 | u64{J} << 32 | u64{I} << 40 | u64{top[-1]} << 48 | above << 56;
+    const u64 high = above >> 8 | (above & 0xFF00000000000000ull);
+    const __m128i edge = _mm_unpacklo_epi64(_mm_cvtsi64_si128(static_cast<long long>(low)),
+                                            _mm_cvtsi64_si128(static_cast<long long>(high)));
+    const __m128i next = _mm_srli_si128(edge, 1), after = _mm_srli_si128(edge, 2);
+    const __m128i pairs = _mm_avg_epu8(edge, next);
+    // pavgb rounds up: the average of the outer samples drops the carried half first.
+    const __m128i outer =
+        _mm_sub_epi8(_mm_avg_epu8(edge, after), _mm_and_si128(_mm_xor_si128(edge, after), _mm_set1_epi8(1)));
+    const __m128i triples = _mm_avg_epu8(outer, next);
+    const __m128i taps =
+        _mm_loadu_si128(reinterpret_cast<const __m128i*>(kSubblockTaps[static_cast<u32>(mode) - 2u]));
+    const __m128i pixels = _mm_blendv_epi8(_mm_shuffle_epi8(triples, taps), _mm_shuffle_epi8(pairs, taps),
+                                           _mm_slli_epi16(taps, 3));
+    _mm_storeu_si32(dst, pixels);
+    _mm_storeu_si32(dst + kWork, _mm_srli_si128(pixels, 4));
+    _mm_storeu_si32(dst + 2 * kWork, _mm_srli_si128(pixels, 8));
+    _mm_storeu_si32(dst + 3 * kWork, _mm_srli_si128(pixels, 12));
 }
-#undef DST
 
 // ---- Loop filter (section 15) ------------------------------------------------
 // Edge positions run in SIMD lanes, the eight pixels p3..p0, q0..q3 across the
@@ -250,90 +213,88 @@ void predict_subblock(u8* dst, Vp8SubblockMode mode) noexcept {
 enum class EdgeFilter { inner, macroblock, simple };
 
 struct EdgeLimits {
-    __m128i threshold, interior, hev;
+    i16 threshold, interior, hev;
 };
 EdgeLimits edge_limits(i32 threshold, i32 interior, i32 hev) noexcept {
-    return {_mm_set1_epi16(static_cast<short>(2 * threshold + 1)), _mm_set1_epi16(static_cast<short>(interior)),
-            _mm_set1_epi16(static_cast<short>(hev))};
+    return {static_cast<i16>(2 * threshold + 1), static_cast<i16>(interior), static_cast<i16>(hev)};
 }
 
-// Eight positions, widened to 16 bits; changed pixels are written back to v.
-template <EdgeFilter Filter> __forceinline void filter_lanes(__m128i* v, const EdgeLimits& limits) noexcept {
-    [[maybe_unused]] const __m128i p3 = v[0], p2 = v[1], q2 = v[6], q3 = v[7];
-    const __m128i p1 = v[2], p0 = v[3], q0 = v[4], q1 = v[5];
-    const auto distance = [](__m128i a, __m128i b) noexcept { return _mm_abs_epi16(_mm_sub_epi16(a, b)); };
-    const auto sclip1 = [](__m128i x) noexcept {
-        return _mm_max_epi16(_mm_min_epi16(x, _mm_set1_epi16(127)), _mm_set1_epi16(-128));
-    };
-    const auto sclip2 = [](__m128i x) noexcept {
-        return _mm_max_epi16(_mm_min_epi16(x, _mm_set1_epi16(15)), _mm_set1_epi16(-16));
-    };
-    const __m128i four = _mm_set1_epi16(4), three = _mm_set1_epi16(3);
-    __m128i fail = _mm_cmpgt_epi16(_mm_add_epi16(_mm_slli_epi16(distance(p0, q0), 2), distance(p1, q1)),
-                                   limits.threshold);
-    __m128i high_variance = _mm_set1_epi16(-1);
+MAICORD_HASWELL __forceinline __m256i distance(__m256i a, __m256i b) noexcept {
+    return _mm256_abs_epi16(_mm256_sub_epi16(a, b));
+}
+MAICORD_HASWELL __forceinline __m256i clamp_lanes(__m256i x, short low, short high) noexcept {
+    return _mm256_max_epi16(_mm256_min_epi16(x, _mm256_set1_epi16(high)), _mm256_set1_epi16(low));
+}
+// (x + bias) >> 3, clamped to -16..15.
+MAICORD_HASWELL __forceinline __m256i eighth(__m256i x, short bias) noexcept {
+    return clamp_lanes(_mm256_srai_epi16(_mm256_add_epi16(x, _mm256_set1_epi16(bias)), 3), -16, 15);
+}
+// (a * weight + 63) >> 7.
+MAICORD_HASWELL __forceinline __m256i tap(__m256i a, short weight) noexcept {
+    return _mm256_srai_epi16(
+        _mm256_add_epi16(_mm256_mullo_epi16(a, _mm256_set1_epi16(weight)), _mm256_set1_epi16(63)), 7);
+}
+
+// Sixteen positions, widened to 16 bits; changed pixels are written back to v.
+template <EdgeFilter Filter>
+MAICORD_HASWELL __forceinline void filter_lanes(__m256i* v, const EdgeLimits& limits) noexcept {
+    [[maybe_unused]] const __m256i p3 = v[0], p2 = v[1], q2 = v[6], q3 = v[7];
+    const __m256i p1 = v[2], p0 = v[3], q0 = v[4], q1 = v[5];
+    __m256i fail = _mm256_cmpgt_epi16(_mm256_add_epi16(_mm256_slli_epi16(distance(p0, q0), 2), distance(p1, q1)),
+                                      _mm256_set1_epi16(limits.threshold));
+    __m256i high_variance = _mm256_set1_epi16(-1);
     if constexpr (Filter != EdgeFilter::simple) {
-        const __m128i near_p = distance(p1, p0), near_q = distance(q1, q0);
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(distance(p3, p2), limits.interior));
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(distance(p2, p1), limits.interior));
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(near_p, limits.interior));
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(distance(q3, q2), limits.interior));
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(distance(q2, q1), limits.interior));
-        fail = _mm_or_si128(fail, _mm_cmpgt_epi16(near_q, limits.interior));
-        high_variance = _mm_or_si128(_mm_cmpgt_epi16(near_p, limits.hev), _mm_cmpgt_epi16(near_q, limits.hev));
+        const __m256i interior = _mm256_set1_epi16(limits.interior), hev = _mm256_set1_epi16(limits.hev);
+        const __m256i near_p = distance(p1, p0), near_q = distance(q1, q0);
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(distance(p3, p2), interior));
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(distance(p2, p1), interior));
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(near_p, interior));
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(distance(q3, q2), interior));
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(distance(q2, q1), interior));
+        fail = _mm256_or_si256(fail, _mm256_cmpgt_epi16(near_q, interior));
+        high_variance = _mm256_or_si256(_mm256_cmpgt_epi16(near_p, hev), _mm256_cmpgt_epi16(near_q, hev));
     }
-    const __m128i filtered = _mm_andnot_si128(fail, _mm_set1_epi16(-1));
-    const __m128i step = _mm_mullo_epi16(_mm_sub_epi16(q0, p0), three);
+    const __m256i step = _mm256_mullo_epi16(_mm256_sub_epi16(q0, p0), _mm256_set1_epi16(3));
     // filter2: the edge pixels only, for high-variance positions and the simple filter.
-    const __m128i a2_total = _mm_add_epi16(step, sclip1(_mm_sub_epi16(p1, q1)));
-    const __m128i edge_q = sclip2(_mm_srai_epi16(_mm_add_epi16(a2_total, four), 3));
-    const __m128i edge_p = sclip2(_mm_srai_epi16(_mm_add_epi16(a2_total, three), 3));
-    const __m128i high = _mm_and_si128(filtered, high_variance);
-    __m128i new_p0 = _mm_blendv_epi8(p0, _mm_add_epi16(p0, edge_p), high);
-    __m128i new_q0 = _mm_blendv_epi8(q0, _mm_sub_epi16(q0, edge_q), high);
+    const __m256i a2_total = _mm256_add_epi16(step, clamp_lanes(_mm256_sub_epi16(p1, q1), -128, 127));
+    const __m256i high = _mm256_andnot_si256(fail, high_variance);
+    __m256i new_p0 = _mm256_blendv_epi8(p0, _mm256_add_epi16(p0, eighth(a2_total, 3)), high);
+    __m256i new_q0 = _mm256_blendv_epi8(q0, _mm256_sub_epi16(q0, eighth(a2_total, 4)), high);
     if constexpr (Filter == EdgeFilter::inner) {
-        const __m128i low = _mm_andnot_si128(high_variance, filtered);
-        const __m128i a1 = sclip2(_mm_srai_epi16(_mm_add_epi16(step, four), 3));
-        const __m128i a2 = sclip2(_mm_srai_epi16(_mm_add_epi16(step, three), 3));
-        const __m128i a3 = _mm_srai_epi16(_mm_add_epi16(a1, _mm_set1_epi16(1)), 1);
-        v[2] = _mm_blendv_epi8(p1, _mm_add_epi16(p1, a3), low);
-        v[5] = _mm_blendv_epi8(q1, _mm_sub_epi16(q1, a3), low);
-        new_p0 = _mm_blendv_epi8(new_p0, _mm_add_epi16(p0, a2), low);
-        new_q0 = _mm_blendv_epi8(new_q0, _mm_sub_epi16(q0, a1), low);
+        const __m256i low = _mm256_andnot_si256(_mm256_or_si256(fail, high_variance), _mm256_set1_epi16(-1));
+        const __m256i a1 = eighth(step, 4);
+        const __m256i a3 = _mm256_srai_epi16(_mm256_add_epi16(a1, _mm256_set1_epi16(1)), 1);
+        v[2] = _mm256_blendv_epi8(p1, _mm256_add_epi16(p1, a3), low);
+        v[5] = _mm256_blendv_epi8(q1, _mm256_sub_epi16(q1, a3), low);
+        new_p0 = _mm256_blendv_epi8(new_p0, _mm256_add_epi16(p0, eighth(step, 3)), low);
+        new_q0 = _mm256_blendv_epi8(new_q0, _mm256_sub_epi16(q0, a1), low);
     } else if constexpr (Filter == EdgeFilter::macroblock) {
-        const __m128i low = _mm_andnot_si128(high_variance, filtered);
-        const __m128i a = sclip1(a2_total);
-        const __m128i sixty_three = _mm_set1_epi16(63);
-        const __m128i a1 = _mm_srai_epi16(_mm_add_epi16(_mm_mullo_epi16(a, _mm_set1_epi16(27)), sixty_three), 7);
-        const __m128i a2 = _mm_srai_epi16(_mm_add_epi16(_mm_mullo_epi16(a, _mm_set1_epi16(18)), sixty_three), 7);
-        const __m128i a3 = _mm_srai_epi16(_mm_add_epi16(_mm_mullo_epi16(a, _mm_set1_epi16(9)), sixty_three), 7);
-        v[1] = _mm_blendv_epi8(p2, _mm_add_epi16(p2, a3), low);
-        v[2] = _mm_blendv_epi8(p1, _mm_add_epi16(p1, a2), low);
-        v[5] = _mm_blendv_epi8(q1, _mm_sub_epi16(q1, a2), low);
-        v[6] = _mm_blendv_epi8(q2, _mm_sub_epi16(q2, a3), low);
-        new_p0 = _mm_blendv_epi8(new_p0, _mm_add_epi16(p0, a1), low);
-        new_q0 = _mm_blendv_epi8(new_q0, _mm_sub_epi16(q0, a1), low);
+        const __m256i low = _mm256_andnot_si256(_mm256_or_si256(fail, high_variance), _mm256_set1_epi16(-1));
+        const __m256i a = clamp_lanes(a2_total, -128, 127);
+        const __m256i a1 = tap(a, 27), a2 = tap(a, 18), a3 = tap(a, 9);
+        v[1] = _mm256_blendv_epi8(p2, _mm256_add_epi16(p2, a3), low);
+        v[2] = _mm256_blendv_epi8(p1, _mm256_add_epi16(p1, a2), low);
+        v[5] = _mm256_blendv_epi8(q1, _mm256_sub_epi16(q1, a2), low);
+        v[6] = _mm256_blendv_epi8(q2, _mm256_sub_epi16(q2, a3), low);
+        new_p0 = _mm256_blendv_epi8(new_p0, _mm256_add_epi16(p0, a1), low);
+        new_q0 = _mm256_blendv_epi8(new_q0, _mm256_sub_epi16(q0, a1), low);
     }
     v[3] = new_p0;
     v[4] = new_q0;
 }
 
-// Sixteen positions in byte vectors, pixels p2..q2 rewritten. The filter is
-// large, so one out-of-line body per kind serves every caller and both
-// halves of the positions.
-template <EdgeFilter Filter> __declspec(noinline) void filter_bytes(__m128i* v, const EdgeLimits& limits) noexcept {
-    __m128i filtered[2][8];
-#pragma clang loop unroll(disable)
-    for (u32 half = 0; half < 2; ++half) {
-        __m128i lanes[8];
-        for (u32 i = 0; i < 8; ++i)
-            lanes[i] = _mm_cvtepu8_epi16(half ? _mm_unpackhi_epi64(v[i], v[i]) : v[i]);
-        filter_lanes<Filter>(lanes, limits);
-        for (u32 i = 1; i < 7; ++i)
-            filtered[half][i] = lanes[i];
-    }
+// Sixteen positions in byte vectors, pixels p2..q2 rewritten: one AVX2 vector
+// holds the sixteen lanes. The filter is large, so one out-of-line body per
+// kind serves every caller.
+template <EdgeFilter Filter>
+MAICORD_HASWELL __declspec(noinline) void filter_bytes(__m128i* v, const EdgeLimits& limits) noexcept {
+    __m256i lanes[8];
+    for (u32 i = 0; i < 8; ++i)
+        lanes[i] = _mm256_cvtepu8_epi16(v[i]);
+    filter_lanes<Filter>(lanes, limits);
+    // The pack works in each 128-bit half: quadwords 0 and 2 hold the sixteen bytes.
     for (u32 i = 1; i < 7; ++i)
-        v[i] = _mm_packus_epi16(filtered[0][i], filtered[1][i]);
+        v[i] = _mm256_castsi256_si128(_mm256_permute4x64_epi64(_mm256_packus_epi16(lanes[i], lanes[i]), 0x08));
 }
 
 using FilterBytes = void (*)(__m128i*, const EdgeLimits&) noexcept;
@@ -470,8 +431,8 @@ Workspace carve(u8* base, u32 width, bool filtered_alpha) noexcept {
     w.top_y = take(w16 + 4);
     w.top_u = take(w8);
     w.top_v = take(w8);
-    w.upsampled_u = take(align16(width) + 16u);
-    w.upsampled_v = take(align16(width) + 16u);
+    w.upsampled_u = take(align16(width) + 32u);
+    w.upsampled_v = take(align16(width) + 32u);
     w.rgba = take(align16(width) * 4u);
     if (filtered_alpha) {
         w.alpha_previous = take(width);
@@ -498,9 +459,9 @@ struct Decoder {
 // samples top[k], top[k+1], current[k], current[k+1]; the first output, and
 // the last of an even width, take the nearest sample of each row. A bottom
 // luma line weights the current chroma row first, which is the top-line
-// kernel with the rows swapped. Writes up to 14 bytes past width, and reads
-// up to seven chroma bytes past the interior samples.
-void upsample_row(const u8* top, const u8* current, u32 width, bool bottom, u8* out) noexcept {
+// kernel with the rows swapped. Writes up to 30 bytes past width, and reads
+// up to 15 chroma bytes past the interior samples.
+MAICORD_HASWELL void upsample_row(const u8* top, const u8* current, u32 width, bool bottom, u8* out) noexcept {
     if (bottom) {
         const u8* swap = top;
         top = current;
@@ -508,24 +469,22 @@ void upsample_row(const u8* top, const u8* current, u32 width, bool bottom, u8* 
     }
     out[0] = static_cast<u8>((3u * top[0] + current[0] + 2u) >> 2);
     const u32 pairs = (width - 1u) >> 1;
-    const __m128i three = _mm_set1_epi16(3), nine = _mm_set1_epi16(9), rounding = _mm_set1_epi16(8);
-    for (u32 k = 0; k < pairs; k += 8) {
-        const __m128i a = _mm_cvtepu8_epi16(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(top + k)));
-        const __m128i b = _mm_cvtepu8_epi16(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(top + k + 1)));
-        const __m128i c = _mm_cvtepu8_epi16(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(current + k)));
-        const __m128i d = _mm_cvtepu8_epi16(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(current + k + 1)));
-        const __m128i odd = _mm_srli_epi16(
-            _mm_add_epi16(_mm_add_epi16(_mm_add_epi16(_mm_mullo_epi16(a, nine), _mm_mullo_epi16(b, three)),
-                                        _mm_add_epi16(_mm_mullo_epi16(c, three), d)),
-                          rounding),
-            4);
-        const __m128i even = _mm_srli_epi16(
-            _mm_add_epi16(_mm_add_epi16(_mm_add_epi16(_mm_mullo_epi16(a, three), _mm_mullo_epi16(b, nine)),
-                                        _mm_add_epi16(c, _mm_mullo_epi16(d, three))),
-                          rounding),
-            4);
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(out + 1 + 2 * k),
-                         _mm_unpacklo_epi8(_mm_packus_epi16(odd, odd), _mm_packus_epi16(even, even)));
+    const auto samples = [](const u8* row) MAICORD_HASWELL noexcept {
+        return _mm256_cvtepu8_epi16(_mm_loadu_si128(reinterpret_cast<const __m128i*>(row)));
+    };
+    for (u32 k = 0; k < pairs; k += 16) {
+        const __m256i a = samples(top + k), b = samples(top + k + 1);
+        const __m256i c = samples(current + k), d = samples(current + k + 1);
+        // 9a + 3b + 3c + d is 8a + 2(b + c) + (a + b + c + d). The even output swaps a with b and c with d.
+        const __m256i inner = _mm256_add_epi16(b, c), outer = _mm256_add_epi16(a, d);
+        const __m256i sum = _mm256_add_epi16(_mm256_add_epi16(inner, outer), _mm256_set1_epi16(8));
+        const __m256i odd = _mm256_srli_epi16(
+            _mm256_add_epi16(_mm256_add_epi16(_mm256_slli_epi16(a, 3), _mm256_slli_epi16(inner, 1)), sum), 4);
+        const __m256i even = _mm256_srli_epi16(
+            _mm256_add_epi16(_mm256_add_epi16(_mm256_slli_epi16(b, 3), _mm256_slli_epi16(outer, 1)), sum), 4);
+        // Each 16-bit lane holds an odd output and the even output after it.
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(out + 1 + 2 * k),
+                            _mm256_or_si256(odd, _mm256_slli_epi16(even, 8)));
     }
     if ((width & 1u) == 0) {
         const u32 c = (width - 1u) >> 1;
@@ -533,34 +492,21 @@ void upsample_row(const u8* top, const u8* current, u32 width, bool bottom, u8* 
     }
 }
 
-// Eight pixels of BT.601 conversion in 16-bit lanes. mulhi of a sample in
-// the high byte is (sample * constant) >> 8; the saturating adds and
-// subtracts and the shift by six clip exactly as clip(v) = v < 0 ? 0 :
-// v > 16383 ? 255 : v >> 6 does for the summed terms.
-template <bool High> __forceinline void convert_half(__m128i y, __m128i u, __m128i v, __m128i* r, __m128i* g,
-                                                      __m128i* b) noexcept {
-    const __m128i zero = _mm_setzero_si128();
-    const __m128i yw = High ? _mm_unpackhi_epi8(zero, y) : _mm_unpacklo_epi8(zero, y);
-    const __m128i uw = High ? _mm_unpackhi_epi8(zero, u) : _mm_unpacklo_epi8(zero, u);
-    const __m128i vw = High ? _mm_unpackhi_epi8(zero, v) : _mm_unpacklo_epi8(zero, v);
-    const __m128i luma = _mm_mulhi_epu16(yw, _mm_set1_epi16(19077));
-    *r = _mm_srli_epi16(
-        _mm_subs_epu16(_mm_adds_epu16(luma, _mm_mulhi_epu16(vw, _mm_set1_epi16(26149))), _mm_set1_epi16(14234)), 6);
-    *g = _mm_srli_epi16(
-        _mm_subs_epu16(_mm_subs_epu16(_mm_adds_epu16(luma, _mm_set1_epi16(8708)),
-                                      _mm_mulhi_epu16(uw, _mm_set1_epi16(6419))),
-                       _mm_mulhi_epu16(vw, _mm_set1_epi16(13320))),
-        6);
-    *b = _mm_srli_epi16(
-        _mm_subs_epu16(_mm_adds_epu16(luma, _mm_mulhi_epu16(uw, _mm_set1_epi16(static_cast<short>(33050)))),
-                       _mm_set1_epi16(17685)),
-        6);
-}
-
 // RGBA of one row from luma and upsampled chroma; reads and writes whole
 // 16-pixel groups, so every buffer is padded to a multiple of 16 pixels
-// except alpha, whose last group is staged.
-void convert_row(const u8* luma, const u8* u, const u8* v, const u8* alpha, u32 width, u8* out) noexcept {
+// except alpha, whose last group is staged. BT.601 conversion of 16 pixels
+// in the 16-bit lanes of one AVX2 vector. mulhi of a sample in the high byte
+// is (sample * constant) >> 8; the saturating adds and subtracts, the shift
+// by six and the minimum clip exactly as clip(v) = v < 0 ? 0 : v > 16383 ?
+// 255 : v >> 6 does for the summed terms.
+MAICORD_HASWELL void convert_row(const u8* luma, const u8* u, const u8* v, const u8* alpha, u32 width,
+                                 u8* out) noexcept {
+    const auto high_bytes = [](const u8* row) MAICORD_HASWELL noexcept {
+        return _mm256_slli_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128(reinterpret_cast<const __m128i*>(row))), 8);
+    };
+    const auto channel = [](__m256i sum) MAICORD_HASWELL noexcept {
+        return _mm256_min_epi16(_mm256_srli_epi16(sum, 6), _mm256_set1_epi16(255));
+    };
     for (u32 x = 0; x < width; x += 16) {
         __m128i a = _mm_set1_epi8(-1);
         if (alpha) {
@@ -572,20 +518,24 @@ void convert_row(const u8* luma, const u8* u, const u8* v, const u8* alpha, u32 
                 a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tail));
             }
         }
-        const __m128i yy = _mm_loadu_si128(reinterpret_cast<const __m128i*>(luma + x));
-        const __m128i uu = _mm_loadu_si128(reinterpret_cast<const __m128i*>(u + x));
-        const __m128i vv = _mm_loadu_si128(reinterpret_cast<const __m128i*>(v + x));
-        __m128i r0, g0, b0, r1, g1, b1;
-        convert_half<false>(yy, uu, vv, &r0, &g0, &b0);
-        convert_half<true>(yy, uu, vv, &r1, &g1, &b1);
-        const __m128i r = _mm_packus_epi16(r0, r1), g = _mm_packus_epi16(g0, g1), b = _mm_packus_epi16(b0, b1);
-        const __m128i rg_low = _mm_unpacklo_epi8(r, g), rg_high = _mm_unpackhi_epi8(r, g);
-        const __m128i ba_low = _mm_unpacklo_epi8(b, a), ba_high = _mm_unpackhi_epi8(b, a);
-        __m128i* const pixels = reinterpret_cast<__m128i*>(out + x * 4u);
-        _mm_storeu_si128(pixels, _mm_unpacklo_epi16(rg_low, ba_low));
-        _mm_storeu_si128(pixels + 1, _mm_unpackhi_epi16(rg_low, ba_low));
-        _mm_storeu_si128(pixels + 2, _mm_unpacklo_epi16(rg_high, ba_high));
-        _mm_storeu_si128(pixels + 3, _mm_unpackhi_epi16(rg_high, ba_high));
+        const __m256i uw = high_bytes(u + x), vw = high_bytes(v + x);
+        const __m256i y = _mm256_mulhi_epu16(high_bytes(luma + x), _mm256_set1_epi16(19077));
+        const __m256i r = channel(_mm256_subs_epu16(
+            _mm256_adds_epu16(y, _mm256_mulhi_epu16(vw, _mm256_set1_epi16(26149))), _mm256_set1_epi16(14234)));
+        const __m256i g = channel(_mm256_subs_epu16(
+            _mm256_subs_epu16(_mm256_adds_epu16(y, _mm256_set1_epi16(8708)),
+                              _mm256_mulhi_epu16(uw, _mm256_set1_epi16(6419))),
+            _mm256_mulhi_epu16(vw, _mm256_set1_epi16(13320))));
+        const __m256i b = channel(_mm256_subs_epu16(
+            _mm256_adds_epu16(y, _mm256_mulhi_epu16(uw, _mm256_set1_epi16(static_cast<short>(33050)))),
+            _mm256_set1_epi16(17685)));
+        const __m256i rg = _mm256_or_si256(r, _mm256_slli_epi16(g, 8));
+        const __m256i ba = _mm256_or_si256(b, _mm256_slli_epi16(_mm256_cvtepu8_epi16(a), 8));
+        // The unpacks work in each 128-bit half: pixels 0-3 and 8-11, then 4-7 and 12-15.
+        const __m256i low = _mm256_unpacklo_epi16(rg, ba), high = _mm256_unpackhi_epi16(rg, ba);
+        __m256i_u* const pixels = reinterpret_cast<__m256i_u*>(out + x * 4u);
+        _mm256_storeu_si256(pixels, _mm256_permute2x128_si256(low, high, 0x20));
+        _mm256_storeu_si256(pixels + 1, _mm256_permute2x128_si256(low, high, 0x31));
     }
 }
 
@@ -635,7 +585,6 @@ void reconstruct_macroblock(Decoder* d, u32 mb_x, u32 mb_y, u8 (*work_y)[kWork],
                             u8 (*work_v)[kWork]) noexcept {
     const auto& mode = d->w.modes[mb_x];
     const auto& residual = d->w.coefficients[mb_x];
-    const u32 last = d->columns - 1;
     // Left column: the previous macroblock's right column (unfiltered), or 129.
     if (mb_x == 0) {
         for (u32 j = 1; j <= 16; ++j)
@@ -658,38 +607,34 @@ void reconstruct_macroblock(Decoder* d, u32 mb_x, u32 mb_y, u8 (*work_y)[kWork],
         for (u32 i = 1; i <= 8; ++i)
             work_u[0][i] = work_v[0][i] = 127;
     } else {
-        const u8* top = d->w.top_y + mb_x * 16u;
-        for (u32 i = 0; i < 16; ++i)
-            work_y[0][1 + i] = top[i];
-        for (u32 i = 0; i < 4; ++i)
-            work_y[0][17 + i] = mb_x < last ? top[16 + i] : top[15];
-        for (u32 i = 0; i < 8; ++i) {
-            work_u[0][1 + i] = d->w.top_u[mb_x * 8u + i];
-            work_v[0][1 + i] = d->w.top_v[mb_x * 8u + i];
-        }
+        copy_bytes(&work_y[0][1], d->w.top_y + mb_x * 16u, 20);
+        copy_bytes(&work_u[0][1], d->w.top_u + mb_x * 8u, 8);
+        copy_bytes(&work_v[0][1], d->w.top_v + mb_x * 8u, 8);
     }
     // The right subblock column reuses the macroblock's above-right samples.
     for (u32 row = 4; row <= 12; row += 4)
-        for (u32 i = 17; i <= 20; ++i)
-            work_y[row][i] = work_y[0][i];
+        copy_bytes(&work_y[row][17], &work_y[0][17], 4);
     u8* y_origin = &work_y[1][1];
     if (mode.luma == Vp8IntraMode::subblocks) {
+#pragma clang loop unroll(disable)
         for (u32 block = 0; block < 16; ++block) {
             u8* dst = y_origin + (block >> 2) * 4u * kWork + (block & 3u) * 4u;
             predict_subblock(dst, mode.luma_subblock[block]);
-            add_transform(residual.values[block], dst);
+            add_residual(residual.values[block], dst);
         }
     } else {
         predict_plane(y_origin, 16, mode.luma, mb_y != 0, mb_x != 0);
+#pragma clang loop unroll(disable)
         for (u32 block = 0; block < 16; ++block)
-            add_transform(residual.values[block], y_origin + (block >> 2) * 4u * kWork + (block & 3u) * 4u);
+            add_residual(residual.values[block], y_origin + (block >> 2) * 4u * kWork + (block & 3u) * 4u);
     }
     u8* chroma[2]{&work_u[1][1], &work_v[1][1]};
     for (u32 plane = 0; plane < 2; ++plane) {
         predict_plane(chroma[plane], 8, mode.chroma, mb_y != 0, mb_x != 0);
+#pragma clang loop unroll(disable)
         for (u32 block = 0; block < 4; ++block) {
             const i16* coefficients = residual.values[16 + plane * 4 + block];
-            add_transform(coefficients, chroma[plane] + (block >> 1) * 4u * kWork + (block & 1u) * 4u);
+            add_residual(coefficients, chroma[plane] + (block >> 1) * 4u * kWork + (block & 1u) * 4u);
         }
     }
     u8* y_row = d->w.y + static_cast<usize>(kPendingLuma) * d->w16 + mb_x * 16u;
@@ -915,8 +860,10 @@ WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slic
             return WebpThumbnailError::vp8_syntax;
         for (u32 mb_x = 0; mb_x < d.columns; ++mb_x)
             reconstruct_macroblock(&d, mb_x, mb_y, work_y, work_u, work_v);
-        // Intra prediction of the next row reads this row before filtering.
+        // Intra prediction of the next row reads this row before filtering. The last column's above-right
+        // samples repeat the last sample.
         copy_bytes(d.w.top_y, d.w.y + (kPendingLuma + 15) * y_line, d.w16);
+        byte_store_le32(d.w.top_y + d.w16, d.w.top_y[d.w16 - 1] * 0x01010101u);
         copy_bytes(d.w.top_u, d.w.u + (kPendingChroma + 7) * c_line, d.w8);
         copy_bytes(d.w.top_v, d.w.v + (kPendingChroma + 7) * c_line, d.w8);
         if (filtered)
