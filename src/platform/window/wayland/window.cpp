@@ -57,15 +57,16 @@ constexpr u8 kPlainDestroy = 0xFF;
 
 struct Binding {
     const Interface* interface;
-    u16 slot;
+    u32 slot;  // the offset of the member in Backend, which is larger than 64 KiB
     u8 version;
     u8 oldest;
     u8 destroy;
     bool fractional;
 };
 
-#define MAICORD_BINDING(protocol, member, version, oldest, destroy, fractional) \
-    Binding{&protocol##_interface, static_cast<u16>(__builtin_offsetof(Backend, member)), version, oldest, destroy, fractional}
+#define MAICORD_BINDING(protocol, member, version, oldest, destroy, fractional)                                    \
+    Binding{&protocol##_interface, narrow_constant<u32, __builtin_offsetof(Backend, member)>(), version, oldest, \
+            destroy, fractional}
 
 constexpr Binding kBindings[] = {
     MAICORD_BINDING(wl_data_device_manager, data_manager, 3, 1, kPlainDestroy, false),

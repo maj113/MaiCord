@@ -379,7 +379,7 @@ constexpr FieldDef kBanDefs[]{
 };
 // Decoded straight into the next slot; it counts only once accepted.
 MAICORD_FIELD_TABLE(kBanSpec, kBanDefs, ban_hook, kCodes, kDepth, 1, sizeof(GuildAdminBan),
-                    static_cast<u16>(__builtin_offsetof(GuildAdminBan, user.id)), 8);
+                    narrow_constant<u16, __builtin_offsetof(GuildAdminBan, user.id)>(), 8);
 
 // Audit log ---------------------------------------------------------------
 
@@ -391,7 +391,7 @@ constexpr FieldDef kAuditEntryDefs[]{
     {"reason", MAICORD_FIELD_TEXT_OR_NULL(GuildAdminAuditEntry, reason, reason_bytes)},
 };
 MAICORD_FIELD_TABLE(kAuditEntrySpec, kAuditEntryDefs, nullptr, kCodes, kDepth, 1 | 8, sizeof(GuildAdminAuditEntry),
-                    static_cast<u16>(__builtin_offsetof(GuildAdminAuditEntry, id)), 8);
+                    narrow_constant<u16, __builtin_offsetof(GuildAdminAuditEntry, id)>(), 8);
 
 // The root: its two arrays, read into the caller's page.
 struct AuditReader : ObjectReader {
@@ -471,7 +471,7 @@ constexpr FieldDef kInviteDefs[]{
 };
 // A code is a run of letters and digits, so equal codes are equal bytes of the zero-filled array.
 MAICORD_FIELD_TABLE(kInviteSpec, kInviteDefs, invite_hook, kCodes, kDepth, 1, sizeof(GuildAdminInvite),
-                    static_cast<u16>(__builtin_offsetof(GuildAdminInvite, code)), kGuildAdminInviteCodeBytes);
+                    narrow_constant<u16, __builtin_offsetof(GuildAdminInvite, code)>(), kGuildAdminInviteCodeBytes);
 
 // Scans `body` and visits its root with `object` or `array`; the result's count is unset.
 GuildAdminResult decode_scanned(Utf8View body, Slice<u32> scratch, ReadState& p, void* opaque,

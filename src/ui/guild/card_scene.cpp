@@ -740,7 +740,7 @@ struct TextLine {
     u32 style, mode;
 };
 enum : u8 { line_strong, line_muted, line_overlay };
-#define MAICORD_CARD_AT(member) static_cast<u16>(__builtin_offsetof(UiGuildCardScene, member))
+#define MAICORD_CARD_AT(member) narrow_constant<u16, __builtin_offsetof(UiGuildCardScene, member)>()
 #define MAICORD_CARD_LINE(text, bytes, rect, color, inset, style, mode) \
     {MAICORD_CARD_AT(text), MAICORD_CARD_AT(bytes), MAICORD_CARD_AT(rect), color, inset, style, mode}
 // Before the trait chips (the first six) and after them.

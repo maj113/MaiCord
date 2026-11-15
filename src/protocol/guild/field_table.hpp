@@ -140,7 +140,7 @@ consteval FieldTable<Bytes> make_field_table(const FieldDef (&defs)[N], ObjectSp
     inline constexpr auto name = ::maicord::protocol_detail::make_field_table<::maicord::protocol_detail::field_table_bytes(defs)>( \
         defs, ::maicord::protocol_detail::ObjectSpec{__VA_ARGS__})
 
-#define MAICORD_OFFSET(S, m) static_cast<::maicord::u16>(__builtin_offsetof(S, m))
+#define MAICORD_OFFSET(S, m) ::maicord::narrow_constant<::maicord::u16, __builtin_offsetof(S, m)>()
 // The width of a member of S as info bits: log2 of its size (u8 to u64) in bits 4-5.
 #define MAICORD_WIDTH(S, m) \
     static_cast<::maicord::u8>((sizeof(S::m) == 1 ? 0 : sizeof(S::m) == 2 ? 1 : sizeof(S::m) == 4 ? 2 : 3) << 4)
@@ -161,7 +161,7 @@ consteval FieldTable<Bytes> make_field_table(const FieldDef (&defs)[N], ObjectSp
 // A text into S::m, its length into S::counter (u8 or u16); or a label.
 #define MAICORD_TEXT_ROW(kind, flags, S, m, counter) \
     ::maicord::protocol_detail::kind | MAICORD_WIDTH(S, counter) | (flags), MAICORD_OFFSET(S, m), \
-        static_cast<::maicord::u16>(sizeof(S::m)), MAICORD_OFFSET(S, counter)
+        ::maicord::narrow_constant<::maicord::u16, sizeof(S::m)>(), MAICORD_OFFSET(S, counter)
 #define MAICORD_FIELD_TEXT(S, m, counter) MAICORD_TEXT_ROW(field_text, 0, S, m, counter)
 #define MAICORD_FIELD_TEXT_OR_NULL(S, m, counter) MAICORD_TEXT_ROW(field_text, ::maicord::protocol_detail::kFieldNull, S, m, counter)
 // The same, cut to fit (see ObjectSpec::text); null is valid.

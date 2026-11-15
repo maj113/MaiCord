@@ -55,6 +55,13 @@ template <typename T> constexpr T maximum(T a, T b) noexcept {
     return a > b ? a : b;
 }
 
+// A member offset or a size that a constant table keeps in a narrower field. The build fails when the value does not
+// fit, so a struct that grows cannot make the table point at the wrong bytes.
+template <typename Field, usize Value> consteval Field narrow_constant() noexcept {
+    static_assert(Value <= static_cast<Field>(~Field{}), "the table field is too narrow for this offset or size");
+    return static_cast<Field>(Value);
+}
+
 // The generation after this one: zero is skipped so a stale handle never matches an empty slot.
 template <typename T> constexpr T next_generation(T generation) noexcept {
     ++generation;

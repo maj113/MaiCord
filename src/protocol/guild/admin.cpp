@@ -372,7 +372,7 @@ struct MemberRow {
     u16 offset;
     Json kind;
 };
-#define MAICORD_ROW(patch, bit, member, kind) {bit, static_cast<u16>(__builtin_offsetof(patch, member)), Json::kind}
+#define MAICORD_ROW(patch, bit, member, kind) {bit, narrow_constant<u16, __builtin_offsetof(patch, member)>(), Json::kind}
 void write_rows(JsonBody& b, const void* patch, u32 fields, const MemberRow* rows, const char* names) noexcept {
     for (NameList name{names}; name; name.next(), ++rows) {
         const MemberRow& r = *rows;

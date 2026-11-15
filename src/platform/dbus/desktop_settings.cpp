@@ -155,7 +155,7 @@ struct Setting {
 };
 
 #define MAICORD_SETTING(space, key, kind, field, area, low, high) \
-    Setting{key, space, Setting::kind, area, static_cast<u16>(__builtin_offsetof(DesktopSettings, field)), low, high}
+    Setting{key, space, Setting::kind, area, narrow_constant<u16, __builtin_offsetof(DesktopSettings, field)>(), low, high}
 constexpr Setting kSettings[] = {
     // reduced-motion: u, 1 for on
     MAICORD_SETTING(space_appearance, "reduced-motion", flag, reduced_motion, desktop_motion, 0, 1),

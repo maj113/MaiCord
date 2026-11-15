@@ -395,8 +395,8 @@ struct UserTextSlot {
     u16 data, bytes;
 };
 #define MAICORD_USER_TEXT_SLOT(field)                                                       \
-    {static_cast<u16>(__builtin_offsetof(GatewayUserRuntime, field.data)),                   \
-     static_cast<u16>(__builtin_offsetof(GatewayUserRuntime, field.bytes))}
+    {narrow_constant<u16, __builtin_offsetof(GatewayUserRuntime, field.data)>(),             \
+     narrow_constant<u16, __builtin_offsetof(GatewayUserRuntime, field.bytes)>()}
 constexpr UserTextSlot kUserTextSlots[]{
     MAICORD_USER_TEXT_SLOT(operating_system), MAICORD_USER_TEXT_SLOT(browser),
     MAICORD_USER_TEXT_SLOT(release_channel),  MAICORD_USER_TEXT_SLOT(client_version),
