@@ -394,6 +394,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         scene->rows = ui_virtual_row_storage_rows<GuildRailRowWidget>(*scene->row_storage);
     }
     // Rows come first: storage sized only for them leaves out the add button.
+            // Only materialize() writes layout specifications, so the measured sizes are current.
     if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count + range.tiles_top + range.tiles_bottom)) {
         range.add = false;
         range.tiles_bottom = 0;
@@ -407,7 +408,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         update_retained_rows(scene, *view, range);
         if (geometry_changed) {
             if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, scroll}) ||
-                !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
+                !ui_widget_manager_layout_rectangle(&scene->widgets, viewport, true).ok()) {
                 return scene_error(scene, GuildRailSceneError::layout);
             }
             saturating_increment(scene->layout_passes);

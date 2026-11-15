@@ -218,8 +218,9 @@ bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handl
     return changed;
 }
 
-UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept {
-    const auto result = ui_layout_engine_layout_rectangle(&manager->layout, viewport);
+UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport,
+                                                  bool arrange_only) noexcept {
+    const auto result = ui_layout_engine_layout_rectangle(&manager->layout, viewport, arrange_only);
     if (result.ok())
         ui_widget_manager_reconcile_input(manager);
     return result;

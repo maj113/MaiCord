@@ -473,6 +473,8 @@ struct UiSettingsScene {
     UiRect viewport;
     float sidebar_offset, content_offset;
     u32 capacity, prefix_capacity, registry_revision, content_revision, revision;
+    // The generation of the text cache when the scene measured its row heights.
+    u32 rows_measure_generation;
     bool active, focus_visible;
     // A widget could not be added during the last build.
     bool build_failed;

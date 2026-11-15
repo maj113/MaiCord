@@ -189,10 +189,11 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
     if (retained) {
         if (ui_rect_equal(scene->viewport, viewport) && scene->scroll_dips == scroll)
             return MemberListSceneResult{MemberListSceneError::none, range.first, range.count, scroll, false};
+        // Only the rebuild below writes layout specifications, so the measured sizes are current.
         const UiWidget* root = ui_widget_manager_resolve(scene->widgets, scene->root);
         if (!root ||
             !ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
-            !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
+            !ui_widget_manager_layout_rectangle(&scene->widgets, viewport, true).ok()) {
             return failure(scene, MemberListSceneError::layout);
         }
         scene->viewport = viewport;

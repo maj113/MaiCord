@@ -305,6 +305,8 @@ struct MessageScene {
     // so an update can tell a pure scroll from other changes.
     bool scroll_dirty;
     bool owns_rows;
+    // An update wrote layout specifications after the last layout pass.
+    bool layout_specs_stale;
     MessageResultCardStyle result_card_style;
     u32 result_card_revision;
     bool result_cards;

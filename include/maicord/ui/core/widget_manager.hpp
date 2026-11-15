@@ -149,7 +149,9 @@ UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHa
 bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, const UiRect& rectangle,
                                   const UiRect& origin, bool visible, bool enabled,
                                   bool focusable = true) noexcept;
-UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept;
+// `arrange_only`: see ui_layout_engine_layout_rectangle.
+UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport,
+                                                  bool arrange_only = false) noexcept;
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
 UiWidget* ui_widget_manager_resolve(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
 UiWidgetHandle ui_widget_manager_find(const UiWidgetManager& manager, u32 id) noexcept;

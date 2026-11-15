@@ -173,7 +173,10 @@ bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasu
 UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle parent,
                                     const UiLayoutNodeSpec& specification,
                                     UiLayoutNodeHandle* handle) noexcept;
-UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect viewport) noexcept;
+// `arrange_only` places the nodes with the sizes that the last successful layout measured. Use it only when nothing
+// but scroll offsets and the viewport changed since that layout. The result equals a full layout.
+UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect viewport,
+                                                 bool arrange_only = false) noexcept;
 bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle handle,
                                  UiPoint offset) noexcept;
 const UiLayoutNode* ui_layout_engine_resolve(const UiLayoutEngine& engine,

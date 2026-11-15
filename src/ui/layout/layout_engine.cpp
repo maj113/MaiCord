@@ -583,8 +583,8 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
     return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
 }
 
-UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
-                                                 UiRect viewport_rectangle) noexcept {
+UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect viewport_rectangle,
+                                                 bool arrange_only) noexcept {
     if (!engine || !engine->storage.data || engine->count == 0) {
         return UiLayoutResult{UiLayoutError::missing_root, 0, 0};
     }
@@ -599,7 +599,21 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
         return UiLayoutResult{UiLayoutError::missing_root, engine->count, engine->revision};
     }
     const UiSize viewport{ui_rect_width(viewport_rectangle), ui_rect_height(viewport_rectangle)};
-    for (u32 pass = 0; pass < kMaximumUiLayoutMeasurePasses; ++pass) {
+    // Places every visible subtree. False when a measure constraint changed and the sizes must be measured again.
+    const auto arrange = [&]() noexcept {
+        set_geometry(&root, viewport_rectangle, viewport_rectangle);
+        for (u32 index = 0; index < engine->count; ++index) {
+            UiLayoutNode& node = engine->storage[index];
+            if (node.visible) {
+                arrange_children(engine, node);
+            }
+        }
+        return !update_measure_constraints(engine);
+    };
+    // An arrange-only layout keeps the measured sizes in its first pass. Each visible node gets its geometry again
+    // and a hidden node is still empty: only the styles decide which nodes are visible.
+    bool stable = arrange_only && arrange();
+    for (u32 pass = arrange_only; !stable && pass < kMaximumUiLayoutMeasurePasses; ++pass) {
         const UiLayoutError measured = measure_intrinsic_content(engine, viewport);
         if (measured != UiLayoutError::none) {
             return UiLayoutResult{measured, engine->count, engine->revision};
@@ -614,19 +628,13 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
             reset_value<UiRect>(&node.clip_rectangle);
             measure_node(engine, index);
         }
-        set_geometry(&root, viewport_rectangle, viewport_rectangle);
-        for (u32 index = 0; index < engine->count; ++index) {
-            UiLayoutNode& node = engine->storage[index];
-            if (node.visible) {
-                arrange_children(engine, node);
-            }
-        }
-        if (!update_measure_constraints(engine)) {
-            ++engine->revision;
-            return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
-        }
+        stable = arrange();
     }
-    return UiLayoutResult{UiLayoutError::unstable_layout, engine->count, engine->revision};
+    if (!stable) {
+        return UiLayoutResult{UiLayoutError::unstable_layout, engine->count, engine->revision};
+    }
+    ++engine->revision;
+    return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
 }
 
 bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle handle,

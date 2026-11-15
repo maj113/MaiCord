@@ -750,14 +750,17 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
     scene->viewport = viewport;
     const bool was_dirty = scene->dirty;
     bool data_changed = false;
+    // Only the two branches below write layout specifications of this scene.
     if (retained) {
         for (u32 local = 0; local < range.count; ++local) {
             if (unchanged && !scene->rows[local].poll_content_revision)
                 continue;
+            scene->layout_specs_stale = true;
             if (!refresh_retained_row(scene, &scene->rows[local], range.first + local, &data_changed))
                 return scene_error(scene, MessageSceneError::model);
         }
     } else {
+        scene->layout_specs_stale = true;
         const u64 restore_focus = focused_message(*scene);
         rebase_retained_rows(scene, range.first, range.count);
         scene->snapshot_count = 0;
@@ -815,11 +818,12 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         return MessageSceneResult{MessageSceneError::none, range.first, range.count, paint_changed};
     }
     if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
-        !ui_widget_manager_layout_rectangle(&scene->widgets, laid_out).ok()) {
+        !ui_widget_manager_layout_rectangle(&scene->widgets, laid_out, !scene->layout_specs_stale).ok()) {
         clear_materialization(scene);
         return scene_error(scene, MessageSceneError::layout);
     }
     saturating_increment(scene->layout_passes);
+    scene->layout_specs_stale = false;
     saturating_increment_if(retained && (data_changed || paint_changed), scene->data_updates);
     scene->first = range.first;
     scene->count = range.count;

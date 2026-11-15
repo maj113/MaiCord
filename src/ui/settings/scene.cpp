@@ -524,7 +524,7 @@ bool ui_settings_scene_focus(UiSettingsScene* scene, UiSettingsTarget target) no
     }
     find_control(*scene, target, &scene->focus_row);
     if (!handle.generation)
-        return build(scene);
+        return build(scene, true);
     return true;
 }
 bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept {

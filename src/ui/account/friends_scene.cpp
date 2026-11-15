@@ -920,8 +920,9 @@ bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
     s->scroll_dips = next;
     if (!same)
         return rebuild(*s);
+    // Only rebuild writes layout specifications, so the measured sizes are current.
     if (!ui_widget_manager_set_scroll(&s->widgets, s->body, {0, next}) ||
-        !ui_widget_manager_layout_rectangle(&s->widgets, s->surface).ok())
+        !ui_widget_manager_layout_rectangle(&s->widgets, s->surface, true).ok())
         return false;
     ++s->revision;
     ++s->layout_revision;

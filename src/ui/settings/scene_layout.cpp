@@ -1,6 +1,7 @@
 #include "scene_internal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/widgets/kit.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/badge.hpp"
@@ -1463,7 +1464,7 @@ UiLayoutStyle placed(const UiRect& rect, const UiRect& origin) noexcept {
 bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHandle handle, float x,
                         float y) noexcept;
 } // namespace
-bool build(UiSettingsScene* scene) noexcept {
+bool build(UiSettingsScene* scene, bool scrolled) noexcept {
     const SceneTokens t(*scene);
     const auto& m = t.metric;
     const u32 navs = nav_count(*scene);
@@ -1477,7 +1478,10 @@ bool build(UiSettingsScene* scene) noexcept {
     const u32 prefix_required = scene->content.controls.count + 1;
     if (required > kUiSettingsMaterializedWidgetLimit)
         return false;
+    const u32 measure_generation = scene->measure ? scene->measure->generation : 0;
+    bool measured = scrolled && scene->layout_signature && scene->rows_measure_generation == measure_generation;
     if (scene->capacity < required || scene->prefix_capacity < prefix_required) {
+        measured = false;
         ui_fixed_widget_storage_release(&scene->storage);
         reset_value(&scene->widgets);
         scene->capacity = 0;
@@ -1503,7 +1507,8 @@ bool build(UiSettingsScene* scene) noexcept {
     // Stacked asides take a block (and a section gap) before their row.
     const float stacked = aside.active && !aside.beside ? aside.block + kSectionGap : 0;
     prefix[0] = scene->content.aside_row == 0 ? stacked : 0;
-    for (u32 i = 0; i < scene->content.controls.count; ++i) {
+    scene->rows_measure_generation = measure_generation;
+    for (u32 i = 0; !measured && i < scene->content.controls.count; ++i) {
         float height = 0;
         const auto place = cell_place(scene->content, i);
         if (!place.cell)
@@ -1859,10 +1864,11 @@ bool apply_scroll(UiSettingsScene* scene, bool sidebar, float previous) noexcept
     if (offset == previous)
         return true;
     if (!sidebar && first_row(*scene, previous) != first_row(*scene, offset))
-        return build(scene);
+        return build(scene, true);
     const auto scroller = sidebar ? scene->sidebar : scene->body;
+    // Only build writes layout specifications, so the measured sizes are current.
     if (!ui_widget_manager_set_scroll(&scene->widgets, scroller, {0, offset}) ||
-        !ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok())
+        !ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport, true).ok())
         return false;
     ++scene->revision;
     return true;

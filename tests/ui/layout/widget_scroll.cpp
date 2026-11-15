@@ -140,6 +140,20 @@ void test_widget_scroll(void (*check)(bool, const char*) noexcept) noexcept {
     ui_widget_manager_set_scroll(&manager, inner.handle, {});
     check(ui_widget_manager_layout_rectangle(&manager, {50, 75, 250, 275}).ok(),
           "restore inner scroll for overflow test");
+    {
+        // After a scroll and a moved viewport, a layout without the measure pass gives each node of the full layout.
+        const UiPoint offset = nodes[outer.handle.slot].scroll_offset;
+        UiLayoutNode arranged[8];
+        ui_widget_manager_set_scroll(&manager, outer.handle, {30, 45.5f});
+        const bool ok = ui_widget_manager_layout_rectangle(&manager, {40, 60.25f, 240, 260.25f}, true).ok();
+        copy_bytes(arranged, nodes, sizeof(nodes));
+        check(ok && ui_widget_manager_layout_rectangle(&manager, {40, 60.25f, 240, 260.25f}).ok() &&
+                  bytes_equal(arranged, nodes, sizeof(nodes)) && nodes[target.handle.slot].visible &&
+                  nodes[spacer.handle.slot].rectangle.top == 24.75f,
+              "arrange-only layout equals the full layout after a scroll");
+        ui_widget_manager_set_scroll(&manager, outer.handle, offset);
+        ui_widget_manager_layout_rectangle(&manager, {50, 75, 250, 275});
+    }
     nodes[inner.handle.slot].spec.style.flags &= static_cast<u16>(~ui_layout_node_clip_children);
     check(ui_widget_scroll_geometry(manager, outer.handle, &geometry) && geometry.maximum.x == 165 &&
               geometry.maximum.y == 215,

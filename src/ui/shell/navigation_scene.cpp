@@ -273,8 +273,9 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
 
     const float local_scroll = include_spacer ? scroll : maximum(0.0f, scroll - (inset + first_prefix));
     if (!source_changed && scene->active && scene->first == first && scene->count == row_count) {
+        // Only the rebuild below writes layout specifications, so the measured sizes are current.
         if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
-            !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
+            !ui_widget_manager_layout_rectangle(&scene->widgets, viewport, true).ok()) {
             return scene_error(scene, ShellNavigationSceneError::layout);
         }
         scene->viewport = viewport;

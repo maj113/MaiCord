@@ -222,7 +222,9 @@ const UiSettingsControl* find_control(const UiSettingsScene& scene, const UiSett
                                       u32* index = nullptr) noexcept;
 bool target_exists(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept;
 UiWidgetHandle target_handle(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept;
-bool build(UiSettingsScene* scene) noexcept;
+// scrolled: only the scroll offset changed since the last build. The row heights stay if nothing that they depend
+// on changed (the layout signature is set and the text cache has the same generation).
+bool build(UiSettingsScene* scene, bool scrolled = false) noexcept;
 bool row_layout_for(const UiSettingsScene& scene, const UiSettingsLayoutTokens& t, UiWidgetHandle handle, u32 source,
                     RowLayout* layout, UiRect* clip = nullptr) noexcept;
 u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& content, const UiSettingsStyle& style,
