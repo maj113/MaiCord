@@ -15,10 +15,16 @@ struct Reuse {
     u32 edge_count, curve_count, lines, stamp;
     double scale, tolerance;
 };
+// The combinations and areas of one factory may take this many steps of the overlay's quadratic loops. A step is an
+// edge pair of the crossing search, a sweep entry or a sorting move. A factory serves one compiled Lottie frame.
+// The frame of 225 official stickers with the most steps takes 846,959. A document that reaches the limit fails,
+// and that frame is not drawn.
+constexpr u64 work_limit = 8000000;
 struct Factory {
     Arena permanent, scratch, reused[2];
     Reuse reuse[2];
     u32 clock;
+    u64 work; // steps taken, see work_limit
 };
 
 inline double root(double value) noexcept {

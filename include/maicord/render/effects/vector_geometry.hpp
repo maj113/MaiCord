@@ -4,7 +4,7 @@
 // The vector geometry engine of the Lottie compiler (src/render/effects/lottie_program.cpp): figures of cubic Beziers
 // or polylines in float coordinates, transforms, the four boolean combinations of nonzero-filled outlines, their area
 // and stroke outlines. Everything is built in the arenas of one Factory and freed with it; a failure (an arena that
-// cannot grow, a coordinate that is not finite) is a null result.
+// cannot grow, a coordinate that is not finite, the factory's work limit, see work_limit) is a null result.
 //
 // Boolean results keep the original curves between the points where the outlines cross; the flattening tolerance
 // bounds how far a crossing may move. Stroke outlines are polygons, overlapping where the stroke does.

@@ -436,6 +436,21 @@ bool read_list(Arena* arena, const char* path, Corpus* corpus) noexcept {
     return true;
 }
 
+// A document that a fuzzer made: a path with a handle 65,535 units away, scaled flat, under a matte. Its frame 38
+// took 1.9 G cycles of crossing search, and then it compiled. Now the work limit of the geometry stops it (see
+// work_limit in vector_internal.hpp), and the frame fails. Frame 0 needs little work and still compiles.
+constexpr char kCrossings[] =
+    R"({"fr":30,"op":60,"w":512,"h":512,"layers":[{"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"sh","ks":{"k":{"v":[[],[],[],)"
+    R"([-53.61],[-70.49],[-64.62],[],[56.35]],"i":[[],[],[],[],[],[],[],[-65535.596666666665]],"o":[[],[],[],[],[],[],)"
+    R"([20.161666666666665],[]]}}},{"ty":"fl"},{"ty":"tr","p":{"k":[128]},"s":{"k":[100,0]},"r":{"k":[{"t":0,"e":90,"i":)"
+    R"({"x":[0.4]},"o":{"x":[0.6]}},{"t":59}]}}]}]},{"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"gr","it":[{"ty":"rc","p":)"
+    R"({"k":[95]},"s":{"k":[512,24]}},{"ty":"fl"}]}]}],"tt":1}]})";
+bool work_limit_stops() noexcept {
+    const ConstSlice<u8> json{reinterpret_cast<const u8*>(kCrossings), sizeof(kCrossings) - 1};
+    LottieTiming timing{};
+    return sizeof(kCrossings) - 1 == 507 && compile(json, 0, &timing) && timing.frames == 60 && !compile(json, 38, &timing);
+}
+
 bool run() noexcept {
     Arena arena{};
     if (!arena_initialize(&arena, usize{3} << 30, 0, usize{1} << 20))
@@ -482,6 +497,7 @@ bool run() noexcept {
     test_check(&failures, sizeof(kFixture) > 1, "the fixture is present");
     if (sizeof(kFixture) > 1)
         test_check(&failures, compare_corpus(&arena, &embedded, fixture, &tally), "the corpus matches Direct2D's");
+    test_check(&failures, work_limit_stops(), "the work limit stops a document of crossings");
     if (g_report || failures)
         print_tally(tally);
     return failures == 0;

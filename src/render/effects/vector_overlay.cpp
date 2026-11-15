@@ -148,6 +148,20 @@ struct Overlay {
     // A reused boundary's edges outside the other operand's span, and where that span begins (see load and classify).
     Vec<Seg> outside;
     i32 left;
+    // The factory's steps (see work_limit). A quadratic loop counts its steps in a register and stops past the limit.
+    u64* work;
+    u64 work_left() const noexcept {
+        return *work < work_limit ? work_limit - *work : 0;
+    }
+    bool spend(u64 steps, u64 left) noexcept {
+        if (steps > left) {
+            *work = work_limit;
+            s.failed = true;
+            return false;
+        }
+        *work += steps;
+        return true;
+    }
 
     Node snap(double x, double y) const noexcept {
         return {nearest(x * scale), nearest(y * scale)};
@@ -357,12 +371,15 @@ struct Overlay {
         // After the first round an edge that is not fresh needs only the fresh ones: they have lists of their own.
         u32 lists[2][64];
         memset(lists, 0xff, sizeof(lists));
+        const u64 left = work_left();
+        u64 steps = 0;
         for (u32 i = 0; i < n; ++i) {
             const Seg& e = segs.data[i];
             const i32 low = minimum(e.y0, e.y1), high = maximum(e.y0, e.y1);
             const u32 first = band(low), last = band(high), set = !all && !(e.flags & fresh);
             for (u32 b = first; b <= last; ++b) {
                 for (u32* link = &lists[set][b]; *link != ~0u;) {
+                    ++steps;
                     const Active& a = active.data[*link];
                     if (a.x1 < e.x0) {
                         *link = a.next;
@@ -375,6 +392,8 @@ struct Overlay {
                         meet(i, a.id);
                 }
             }
+            if (steps > left)
+                return spend(steps, left);
             for (u32 into = 0; into < (!all && (e.flags & fresh) ? 2u : 1u); ++into)
                 for (u32 b = first; b <= last; ++b)
                     if (Active* slot = vec_push(s, active)) {
@@ -382,13 +401,15 @@ struct Overlay {
                         lists[into][b] = active.count - 1;
                     }
         }
-        return !s.failed;
+        return spend(steps, left) && !s.failed;
     }
     bool apply_splits() noexcept {
         if (!vec_reserve(s, other, segs.count + splits.count))
             return false;
         Seg* out = other.data;
         u32 count = 0;
+        const u64 left = work_left();
+        u64 steps = 0;
         for (u32 i = 0; i < segs.count; ++i) {
             Seg e = segs.data[i];
             e.flags &= ~fresh;
@@ -406,7 +427,10 @@ struct Overlay {
                 for (; k && before(p.x, p.y, points.data[k - 1].x, points.data[k - 1].y); --k)
                     points.data[k] = points.data[k - 1];
                 points.data[k] = p;
+                steps += points.count - k;
             }
+            if (steps > left)
+                return spend(steps, left);
             const double dx = static_cast<double>(e.x1) - e.x0, dy = static_cast<double>(e.y1) - e.y0;
             Node previous{e.x0, e.y0};
             float t_previous = e.t0;
@@ -430,7 +454,7 @@ struct Overlay {
         const Vec<Seg> swap = segs;
         segs = other;
         other = swap;
-        return true;
+        return spend(steps, left);
     }
     bool node_segments() noexcept {
         for (u32 pass = 0;; ++pass) {
@@ -483,10 +507,13 @@ bool classify(Overlay& o, CombineMode mode, Vec<i8>& direction) noexcept {
     direction.count = n;
     const Seg* e = o.segs.data;
     u32 next_start = 0;
+    const u64 left = o.work_left();
+    u64 steps = 0;
     while (next_start < n) {
         // The next point where edges start; the edges that end before or at it leave the sweep first.
         const Node node{e[next_start].x0, e[next_start].y0};
         const u64 node_key = key_of(node.x, node.y);
+        steps += status.count;
         u32 kept = 0;
         for (u32 k = 0; k < status.count; ++k)
             if (status.data[k].end > node_key)
@@ -505,7 +532,10 @@ bool classify(Overlay& o, CombineMode mode, Vec<i8>& direction) noexcept {
                 --position;
             }
             group.data[position] = at;
+            steps += k - position;
         }
+        if (steps > left)
+            return o.spend(steps, left);
         u32 low = 0, high = status.count;
         while (low < high) {
             const u32 mid = low + (high - low) / 2;
@@ -540,7 +570,7 @@ bool classify(Overlay& o, CombineMode mode, Vec<i8>& direction) noexcept {
             below_b = above_b.data[id];
         }
     }
-    return true;
+    return o.spend(steps, left);
 }
 
 // The bounds of the control points of `g` under `m`, which hold its outline; false when a point is not finite.
@@ -827,6 +857,7 @@ Geometry* geometry_combine(const Geometry* a, const Geometry* b, CombineMode mod
     }
     Overlay o{};
     o.s = {&factory->scratch, false};
+    o.work = &factory->work;
     const ArenaMark mark = arena_mark(&factory->scratch);
     Vec<i8> direction{};
     if (prepare(o, a, nullptr, box_a, b, box_b, tolerance, mode, factory) && classify(o, mode, direction) &&
@@ -846,6 +877,7 @@ bool geometry_area(const Geometry* geometry, const Matrix* transform, float tole
     Factory* factory = geometry->factory;
     Overlay o{};
     o.s = {&factory->scratch, false};
+    o.work = &factory->work;
     const ArenaMark mark = arena_mark(&factory->scratch);
     Vec<i8> direction{};
     const bool ok = prepare(o, geometry, transform, box, nullptr, box, tolerance, combine_union, nullptr) &&

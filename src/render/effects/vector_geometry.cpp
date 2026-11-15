@@ -184,6 +184,7 @@ void factory_release(Factory* factory) noexcept {
         arena_rewind(arena, {start});
     }
     factory->reuse[0] = factory->reuse[1] = {};
+    factory->work = 0;
     Factory* none = nullptr;
     if (!__atomic_compare_exchange_n(&g_parked, &none, factory, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED))
         destroy(factory);
