@@ -2898,6 +2898,9 @@ if(MAICORD_LINUX)
         TIMEOUT 15 ENV ${maicord_font_set_environment}
         TEST maicord_native_cbdt)
     maicord_add_tests(MaiCordCbdtTests TIMEOUT 5 TEST maicord_native_cbdt_fixture --fixture)
+    # CFF2 outlines (Linux only): a generated variable collection, opened, named and drawn at blended weights.
+    maicord_test(MaiCordCff2Tests ENTRY maicord_cff2_entry SOURCES tests/text/opentype/cff2_test.cpp
+        LIBS maicord_font maicord_core TIMEOUT 5 TEST maicord_native_cff2)
     # The text system over the installed fonts: shaping smoke checks (Latin, CJK, Devanagari, Arabic, Thai, Hebrew, emoji)
     # and the language-specific CJK fallback order, and a bold chat paragraph whose emoji fall back to the bitmap colour
     # face (refused, not crashed on).

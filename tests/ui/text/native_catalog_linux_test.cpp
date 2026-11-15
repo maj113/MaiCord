@@ -92,6 +92,35 @@ bool name_starts(const NativeFontCatalog& catalog, const char* prefix) noexcept 
     return true;
 }
 
+// Writes UTF-16 text with each unit above ASCII as '?': the paths and family names of the installed fonts.
+void write_units(const u16* units, u32 count) noexcept {
+    char buffer[256];
+    u32 used = 0;
+    for (; used < count && used < sizeof(buffer); ++used)
+        buffer[used] = units[used] < 128 ? static_cast<char>(units[used]) : '?';
+    test_write_bytes(buffer, used);
+}
+
+// Writes "  <name>: <family> <path>#<face index>": the face the route chose, for the logs of other distributions.
+void write_choice(const char* name, const NativeSystemFontFile* file) noexcept {
+    test_write_text("  ");
+    test_write_text(name);
+    test_write_text(": ");
+    if (file) {
+        write_units(file->catalog.name.data, file->catalog.name.count);
+        test_write_text(" ");
+        u32 length = 0;
+        while (file->catalog.path[length])
+            ++length;
+        write_units(reinterpret_cast<const u16*>(file->catalog.path), length);
+        test_write_text("#");
+        test_write_u64(file->catalog.face_index);
+    } else {
+        test_write_text("(no file)");
+    }
+    test_write_text("\n");
+}
+
 struct Fixture {
     NativeTextCatalogs catalogs;
     NativeFontSession* session;
@@ -106,6 +135,24 @@ bool covers(Fixture& f, NativeFontInstanceHandle instance, u32 scalar) noexcept 
     const NativeFontFace* face = native_font_get(*native_font_session_fonts(f.session), held->face);
     u16 glyph = 0;
     return face && sfnt_cmap_glyph(face->cmap, scalar, 0, &glyph) == SfntStatus::ok && glyph != 0;
+}
+
+// Whether the instance draws `scalar` with an outline. Checked for CFF faces, the CJK fonts: Noto Sans CJK is CFF on
+// Ubuntu and a CFF2 variable collection on NixOS and Fedora.
+bool draws(Fixture& f, NativeFontInstanceHandle instance, u32 scalar) noexcept {
+    const NativeFontInstance* held = native_font_instance_get(*native_font_session_instances(f.session), instance);
+    const NativeFontFace* face = held ? native_font_get(*native_font_session_fonts(f.session), held->face) : nullptr;
+    if (!face)
+        return false;
+    if (face->geometry.kind != FontGeometryKind::cff)
+        return true;
+    u16 glyph = 0;
+    static GlyphPathCommand commands[4096];
+    GlyphOutline out{};
+    out.commands = commands;
+    out.capacity = 4096;
+    return sfnt_cmap_glyph(face->cmap, scalar, 0, &glyph) == SfntStatus::ok && glyph &&
+           font_geometry_outline(held->geometry, glyph, nullptr, &out) == SfntStatus::ok && out.count;
 }
 
 // The routed face for `text` through native_text_catalog_range, as the instance it prepares.
@@ -140,11 +187,11 @@ bool range_covers(Fixture& f, const NativeTextFontQuery& base, const char* text,
     check(selected, name);
     if (!selected)
         return false;
-    check(covers(f, instance, scalar), name);
-    if (family_prefix && strict()) {
-        const NativeSystemFontFile* file = file_of(f.catalogs, range.match.index);
+    check(covers(f, instance, scalar) && draws(f, instance, scalar), name);
+    const NativeSystemFontFile* file = file_of(f.catalogs, range.match.index);
+    write_choice(name, file);
+    if (family_prefix && strict())
         check(file && name_starts(file->catalog, family_prefix), name);
-    }
     native_font_instance_release(native_font_session_instances(f.session), instance);
     return true;
 }
@@ -275,6 +322,7 @@ bool run(bool scan) noexcept {
     check(native_text_catalog_select_face(&f.catalogs, 0, selected, 0, f.session, &f.scratch, &instance, &source),
           "select_face");
     check(covers(f, instance, 'A'), "instance_maps_latin");
+    write_choice("interface", file_of(f.catalogs, selected));
     check(native_font_instance_release(native_font_session_instances(f.session), instance), "release_instance");
 
     // A private scope: the same file registered by path.
@@ -301,6 +349,14 @@ bool run(bool scan) noexcept {
         {"route_hebrew", "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D", 0x05E9, nullptr},
         {"route_arabic", "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7", 0x0645, nullptr},
         {"route_arrows", "\xE2\x86\x92", 0x2192, nullptr},
+        {"route_chinese", "\xE4\xBD\xA0\xE5\xA5\xBD", 0x4F60, "Noto Sans CJK"},
+        {"route_kana", "\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF", 0x3053, "Noto Sans CJK"},
+        {"route_hangul", "\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94", 0xC548, "Noto Sans CJK"},
+        {"route_emoji", "\xF0\x9F\x98\x80", 0x1F600, nullptr},
+        {"route_heart", "\xE2\x9D\xA4", 0x2764, nullptr},
+        {"route_check", "\xE2\x9C\x93", 0x2713, nullptr},
+        {"route_star", "\xE2\x98\x85", 0x2605, nullptr},
+        {"route_gear", "\xE2\x9A\x99", 0x2699, nullptr},
     };
     u32 candidates[sizeof(samples) / sizeof(samples[0])]{};
     for (u32 pass = 0; pass < 2; ++pass) {
@@ -418,6 +474,8 @@ bool run(bool scan) noexcept {
     invalid.properties.weight = 0;
     check(!native_text_catalog_select_query(&f.catalogs, invalid, f.session, &f.scratch, &absent, &source) && !absent.slot,
           "invalid_properties_fail");
+    test_write_metric("  unsupported faces=", f.catalogs.unsupported);
+    test_write_metric("  catalog failures=", f.catalogs.failures);
     return g_failures == 0;
 }
 

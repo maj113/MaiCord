@@ -14,6 +14,8 @@
 - Colour bitmap emoji (CBLC/CBDT, PNG images) are read by `maicord_font_color` on Linux only (`src/text/opentype`; Windows' Segoe UI Emoji
   is COLR) and reach the colour atlas through `colr_paint_upload_pixels`; `tools/font_reference/make_cbdt_fixture.py` regenerates the
   fixture.
+- CFF2 outlines (variable CFF) are read on Linux only (`cff2_open` and `cff2_outline` in `src/text/opentype`): NixOS and Fedora ship
+  Noto Sans CJK as one CFF2 collection, `NotoSansCJK-VF.otf.ttc`. `tools/font_reference/make_cff2_fixture.py` regenerates the fixture.
 - Names and ranges that differ per system sit under `#if defined(_WIN32)` in `src/ui/text/native_text_catalog*.inc` and
   `native_system_fallback*.inc`.
 

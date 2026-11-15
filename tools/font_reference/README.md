@@ -276,10 +276,15 @@ tested by synthetic native tests only) and rendered pixels.
 
 - cmap: nominal Unicode formats 0, 4, 6, 10, 12, 13 and UVS format 14; other
   encodings and formats (format 8, symbol mappings) are unsupported. Table
-  checksums are not verified. CFF2 outlines are unsupported.
+  checksums are not verified.
 - CFF1 decoder: caller-owned path buffer, operation budget, 48 operands, 32
   transient values, subroutine depth 10 (`tests/text/opentype/cff_outline_test.cpp`, in
   `MaiCordFontTests`, builds its own font bytes).
+- CFF2 decoder (Linux only, as GDI does not select CFF2 faces): the same machine
+  with 513 operands, `blend` and `vsindex` at the instance's coordinates, FDSelect
+  formats 0, 3 and 4, and at most 64 regions in one item variation data.
+  `make_cff2_fixture.py` writes the variable collection that
+  `tests/text/opentype/cff2_test.cpp` (`maicord_native_cff2`) reads.
 - `truetype_outline` (static): caller-owned buffers, work budget, component depth
   64, no hint bytecode; `tt_outline` runs instructions. Active variable-font
   instructions and `cvar` are unsupported.

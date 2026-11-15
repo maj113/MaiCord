@@ -32,7 +32,19 @@ struct VirtualMachine {
     double matrix[6]{};
     double design_scale = 0;
     float em_scale = 0;
+#if defined(_WIN32)
+    static constexpr u32 stack_limit = 48;
     double stack[48]{};
+#else
+    // decode() points these at its own uncleared arrays: CFF2 allows 513 operands (blend pushes a delta for each
+    // region after the default values), CFF1 48. `blend` holds the scalars of the regions of the current item
+    // variation data (vsindex), zero at the default instance.
+    double* stack = nullptr;
+    u32 stack_limit = 48;
+    const VariationInstance* variation = nullptr;
+    double* blend = nullptr;
+    u32 regions = 0;
+#endif
     double transient[32]{};
     double x = 0, y = 0, translate_x = 0, translate_y = 0;
     double accent_x = 0, accent_y = 0;
@@ -133,7 +145,7 @@ struct VirtualMachine {
         return bounded(x) && bounded(y) && append(GlyphPathCommandKind::cubic, ax, ay, bx, by, x, y);
     }
     bool push(double value) noexcept {
-        if (count == 48 || !bounded(value)) return false;
+        if (count == stack_limit || !bounded(value)) return false;
         stack[count++] = value; return true;
     }
     // The first stack value is the glyph width (relative to the nominal width).
@@ -239,6 +251,38 @@ struct VirtualMachine {
         return ok ? SfntStatus::ok : geometry_error();
     }
 
+#if !defined(_WIN32)
+    // vsindex: blend uses item variation data `index`, its region count and the scalar of each of its regions.
+    SfntStatus select_variation(u32 index) noexcept {
+        if (index > 0xffff) return SfntStatus::malformed;
+        ItemVariationData data{};
+        const auto status = item_variation_data(font.variations, static_cast<u16>(index), &data);
+        if (status != SfntStatus::ok) return status == SfntStatus::invalid_input ? SfntStatus::malformed : status;
+        if (data.region_count > 64) return SfntStatus::unsupported;
+        regions = data.region_count;
+        for (u32 i = 0; i < regions; ++i)
+            blend[i] = variation ? variation->scalars[byte_load_be16(data.region_indices.data + i * 2)] : 0;
+        return SfntStatus::ok;
+    }
+    // blend: n default values, then the n * regions deltas (region order within each value), then n. It leaves the
+    // n values at the instance.
+    SfntStatus apply_blend() noexcept {
+        i32 n = 0;
+        if (!count || !integer(stack[--count], &n) || n < 0 || static_cast<u64>(n) * (regions + 1) > count)
+            return SfntStatus::malformed;
+        const u32 values = static_cast<u32>(n), base = count - values * (regions + 1);
+        const double* deltas = stack + base + values;
+        for (u32 i = 0; i < values; ++i) {
+            double value = stack[base + i];
+            for (u32 j = 0; j < regions; ++j) value += deltas[i * regions + j] * blend[j];
+            if (!bounded(value)) return SfntStatus::malformed;
+            stack[base + i] = value;
+        }
+        count = base + values;
+        return SfntStatus::ok;
+    }
+#endif
+
     SfntStatus run(ConstSlice<u8> program, u32 depth) noexcept {
         if (depth > 10) return SfntStatus::resource_limit;
         u32 at = 0;
@@ -280,6 +324,21 @@ struct VirtualMachine {
                 if (status != SfntStatus::ok) return status;
                 continue;
             }
+#if !defined(_WIN32)
+            if (font.cff2 && byte == 16) {
+                const auto status = apply_blend();
+                if (status != SfntStatus::ok) return status;
+                continue;
+            }
+            if (font.cff2 && byte == 15) {
+                i32 index = 0;
+                if (count != 1 || !integer(stack[0], &index) || index < 0) return SfntStatus::malformed;
+                count = 0;
+                const auto status = select_variation(static_cast<u32>(index));
+                if (status != SfntStatus::ok) return status;
+                continue;
+            }
+#endif
             if (byte == 11) return depth ? SfntStatus::ok : SfntStatus::malformed;
             if (byte == 14) {
                 if (!width_seen && (count == 1 || count == 5) && !take_width()) return SfntStatus::malformed;
@@ -359,17 +418,46 @@ struct VirtualMachine {
             count=0;
             if (!ok) return geometry_error();
         }
+#if !defined(_WIN32)
+        // A CFF2 charstring has no endchar: it ends with its bytes, and a subroutine returns at the end of its bytes.
+        if (font.cff2 && !ended) {
+            if (depth) return SfntStatus::ok;
+            ended = true;
+            return close() ? SfntStatus::ok : geometry_error();
+        }
+#endif
         return ended ? SfntStatus::ok : SfntStatus::truncated;
     }
 };
 
+// `variation` (CFF2 only) holds the region scalars of the instance; null draws the default instance.
 SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
-                    GlyphOutline& output, u32& work, u32 depth, CffGlyphMetrics* metrics,bool oblique) noexcept {
+                    GlyphOutline& output, u32& work, u32 depth, CffGlyphMetrics* metrics,bool oblique
+#if !defined(_WIN32)
+                    ,const VariationInstance* variation=nullptr
+#endif
+                    ) noexcept {
     if (glyph >= font.glyph_count) return SfntStatus::glyph_out_of_range;
     if (depth > 8) return SfntStatus::resource_limit;
     VirtualMachine vm{font, {}, output, work, metrics};
+#if defined(_WIN32)
     auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width);
     if (status!=SfntStatus::ok) return status;
+#else
+    double stack[513], blend[64];
+    vm.stack=stack; vm.blend=blend;
+    u32 vsindex=0;
+    auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width,&vsindex);
+    if (status!=SfntStatus::ok) return status;
+    if (font.cff2) {
+        // CFF2 charstrings carry no width: hmtx and HVAR give the advance.
+        vm.stack_limit=513; vm.width_seen=true; vm.variation=variation;
+        if (font.variations.table.data) {
+            status=vm.select_variation(vsindex);
+            if (status!=SfntStatus::ok) return status;
+        }
+    }
+#endif
     if (vm.matrix[0]>0 && vm.matrix[0]==vm.matrix[3] && !vm.matrix[1] && !vm.matrix[2] && !vm.matrix[4] && !vm.matrix[5]) {
         // Windows quantizes uniform scaling in design space to 16.16 before the
         // final single-precision em conversion; a rounded reciprocal alone differs.
@@ -401,13 +489,22 @@ SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
 
 } // namespace
 
-SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
+namespace {
+SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique
+#if !defined(_WIN32)
+                   ,const VariationInstance* variation=nullptr
+#endif
+                   ) noexcept {
     if (metrics) reset_value(metrics);
     if (!output) return SfntStatus::invalid_input;
     auto* commands=output->commands; const u32 capacity=output->capacity;
     reset_value(output); output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
+#if defined(_WIN32)
     auto status=decode(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+#else
+    auto status=decode(font,glyph,0,0,*output,work_limit,0,metrics,oblique,variation);
+#endif
     if(status!=SfntStatus::ok) {
         reset_value(output); output->commands=commands; output->capacity=capacity;
         output->fill_rule=GlyphFillRule::winding; output->rejected=1;
@@ -415,5 +512,32 @@ SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32
     }
     return status;
 }
+} // namespace
+
+SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
+    return outline(font,glyph,output,work_limit,metrics,oblique);
+}
+
+#if !defined(_WIN32)
+SfntStatus cff2_outline(const CffFont& font, u16 glyph, GlyphOutline* output, ConstSlice<double> coordinates,
+                        u32 work_limit, bool oblique) noexcept {
+    if (!font.cff2 || !font.variations.table.data || !coordinates.count)
+        return outline(font,glyph,output,work_limit,nullptr,oblique);
+    // The scalars of the store's regions, once per glyph: Noto Sans CJK has one region.
+    double scalars[64];
+    VariationInstance instance{};
+    const auto status=font.variations.region_count>64?SfntStatus::unsupported:
+        variation_instance_prepare(font.variations,coordinates,{scalars,64},&instance,work_limit);
+    if (status!=SfntStatus::ok) {
+        if (output) {
+            auto* commands=output->commands; const u32 capacity=output->capacity;
+            reset_value(output); output->commands=commands; output->capacity=capacity;
+            output->fill_rule=GlyphFillRule::winding; output->rejected=1;
+        }
+        return status;
+    }
+    return outline(font,glyph,output,work_limit,nullptr,oblique,&instance);
+}
+#endif
 
 } // namespace maicord

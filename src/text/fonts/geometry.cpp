@@ -35,6 +35,11 @@ SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     if(font.kind==FontGeometryKind::bitmap){clear(output);return SfntStatus::unsupported;}
 #endif
     if(bold&&font.kind==FontGeometryKind::cff){clear(output);output->rejected=1;return SfntStatus::unsupported;}
+#if !defined(_WIN32)
+    // A CFF2 glyph blends its deltas at the instance's coordinates.
+    if(font.kind==FontGeometryKind::cff&&font.outline.cff.cff2)
+        return cff2_outline(font.outline.cff,glyph,output,instance.variation?instance.variation->coordinates:ConstSlice<double>{},work,oblique);
+#endif
     if(font.kind==FontGeometryKind::cff)return cff_outline(font.outline.cff,glyph,output,work,cff_metrics,oblique);
     scratch->truetype.work_limit=work;
     SfntOutlineVariation variation{instance.variation,scratch->variation,scratch->deltas};

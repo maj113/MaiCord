@@ -51,12 +51,8 @@ SfntStatus real_number(ConstSlice<u8> data, u32* at, double* value) noexcept {
     return SfntStatus::truncated;
 }
 
-} // namespace
-
-SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
-    reset_value(index);
-    if (!span(data, *at, 2)) return SfntStatus::truncated;
-    const u32 count = byte_load_be16(data.data + *at); *at += 2;
+// The offset array and objects of an INDEX whose count was read; `at` is just past the count.
+SfntStatus index_entries(ConstSlice<u8> data, u32* at, u32 count, CffIndex* index) noexcept {
     if (!count) return SfntStatus::ok;
     if (!span(data, *at, 1)) return SfntStatus::truncated;
     const u8 size = data.data[(*at)++];
@@ -78,6 +74,29 @@ SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
     return SfntStatus::ok;
 }
 
+#if !defined(_WIN32)
+// A CFF2 INDEX: a 32-bit count. Glyph and subroutine numbers are 16-bit, so a larger count is refused.
+SfntStatus index2_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
+    reset_value(index);
+    if (!span(data, *at, 4)) return SfntStatus::truncated;
+    const u32 count = byte_load_be32(data.data + *at); *at += 4;
+    if (count > 0x10000u) return SfntStatus::unsupported;
+    return index_entries(data, at, count, index);
+}
+
+// CFF2 tables start with major version 2; cff_open read the first byte of every table it accepted.
+bool font_is_cff2(ConstSlice<u8> table) noexcept { return table.data[0] == 2; }
+#endif
+
+} // namespace
+
+SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
+    reset_value(index);
+    if (!span(data, *at, 2)) return SfntStatus::truncated;
+    const u32 count = byte_load_be16(data.data + *at); *at += 2;
+    return index_entries(data, at, count, index);
+}
+
 ConstSlice<u8> index_object(const CffIndex& index, u32 object) noexcept {
     if (object >= index.count) return {};
     const u8* p = index.offsets.data + object * index.offset_size;
@@ -87,12 +106,20 @@ ConstSlice<u8> index_object(const CffIndex& index, u32 object) noexcept {
 }
 
 SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
-    double stack[48]{};
+#if defined(_WIN32)
+    constexpr u32 limit = 48;
+    double stack[limit]{};
+#else
+    // CFF2 allows 513 operands: a Private DICT blends each hint value with a delta for each region. Only the values
+    // below `count` are read, so the array is not cleared.
+    constexpr u32 limit = 513;
+    double stack[limit];
+#endif
     u32 count = 0, at = 0;
     while (at < bytes.count) {
         const u8 byte = bytes.data[at++];
         if (byte >= 32 || byte == 28 || byte == 29 || byte == 30) {
-            if (count == 48) return SfntStatus::malformed;
+            if (count == limit) return SfntStatus::malformed;
             double value = 0;
             if (byte >= 32 && byte <= 246) value = static_cast<i32>(byte) - 139;
             else if (byte >= 247 && byte <= 254) {
@@ -149,6 +176,10 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
         case 0x11e:
             if (count != 3) return SfntStatus::malformed;
             out->cid = true; break;
+#if !defined(_WIN32)
+        case 22: target = &out->vsindex; break;
+        case 24: target = &out->variation_store; break;
+#endif
         default: break; // Font names/hint preferences do not change unhinted paths.
         }
         if (target && (count != 1 || !unsigned_integer(stack[0], target))) return SfntStatus::malformed;
@@ -157,8 +188,13 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
     return count ? SfntStatus::malformed : SfntStatus::ok;
 }
 
+#if defined(_WIN32)
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
                            double* default_width, double* nominal_width) noexcept {
+#else
+SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
+                           double* default_width, double* nominal_width, u32* vsindex) noexcept {
+#endif
     reset_value(subrs); *seed = 0;
     if (!span(table, dict.private_offset, dict.private_size)) return SfntStatus::truncated;
     Dictionary priv{};
@@ -166,20 +202,46 @@ SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex*
     if (status != SfntStatus::ok) return status;
     *seed = priv.random_seed;
     *default_width = priv.default_width; *nominal_width = priv.nominal_width;
+#if !defined(_WIN32)
+    *vsindex = priv.vsindex;
+#endif
     if (!priv.subrs) return SfntStatus::ok;
     if (priv.subrs > table.count - dict.private_offset) return SfntStatus::truncated;
     u32 at = dict.private_offset + priv.subrs;
+#if !defined(_WIN32)
+    if (font_is_cff2(table)) return index2_open(table, &at, subrs);
+#endif
     return index_open(table, &at, subrs);
 }
 
+#if defined(_WIN32)
 SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* matrix, u32* seed,
                          double* default_width, double* nominal_width) noexcept {
+#else
+SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* matrix, u32* seed,
+                         double* default_width, double* nominal_width, u32* vsindex) noexcept {
+    *vsindex = 0;
+#endif
     *subrs = font.local_subrs; *seed = font.random_seed;
     *default_width = font.default_width; *nominal_width = font.nominal_width;
     for (u32 i = 0; i < 6; ++i) matrix[i] = font.matrix[i];
     if (!font.cid) return SfntStatus::ok;
     const auto select = font.fd_select;
     u32 fd = 0;
+#if !defined(_WIN32)
+    // A CFF2 font with one Font DICT may have no FDSelect. Format 4 has 32-bit glyph numbers and 16-bit FD numbers.
+    if (!select.data) fd = 0;
+    else if (select.data[0] == 4) {
+        const u32 count = byte_load_be32(select.data + 1);
+        u32 low = 0, high = count;
+        while (low + 1 < high) {
+            const u32 mid = low + (high - low) / 2;
+            if (byte_load_be32(select.data + 5 + mid * 6) <= glyph) low = mid;
+            else high = mid;
+        }
+        fd = byte_load_be16(select.data + 5 + low * 6 + 4);
+    } else
+#endif
     if (select.data[0] == 0) fd = select.data[1u + glyph];
     else {
         const u32 count = byte_load_be16(select.data + 1);
@@ -194,7 +256,11 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
     Dictionary dict{};
     auto status = dictionary(index_object(font.font_dicts, fd), &dict);
     if (status != SfntStatus::ok) return status;
+#if defined(_WIN32)
     status = private_subrs(font.table, dict, subrs, seed, default_width, nominal_width);
+#else
+    status = private_subrs(font.table, dict, subrs, seed, default_width, nominal_width, vsindex);
+#endif
     if (status != SfntStatus::ok) return status;
     if (dict.has_matrix) {
         // Font DICT transform, followed by the Top DICT transform.
@@ -206,6 +272,99 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
     return SfntStatus::ok;
 }
 
+namespace {
+
+// The FDSelect at `offset`, checked against the glyph and Font DICT counts.
+SfntStatus fd_select_open(ConstSlice<u8> table, u32 offset, u32 glyph_count, u32 fd_count,
+                          ConstSlice<u8>* output) noexcept {
+    if (offset >= table.count) return SfntStatus::truncated;
+    const ConstSlice<u8> select{table.data + offset, table.count - offset};
+    if (select.data[0] == 0) {
+        if (select.count < 1u + glyph_count) return SfntStatus::truncated;
+        for (u32 i = 0; i < glyph_count; ++i)
+            if (select.data[1 + i] >= fd_count) return SfntStatus::malformed;
+    } else if (select.data[0] == 3) {
+        if (select.count < 5) return SfntStatus::truncated;
+        const u32 count = byte_load_be16(select.data + 1);
+        if (!count || count > (select.count - 5u) / 3u) return SfntStatus::truncated;
+        u32 previous = 0;
+        for (u32 i = 0; i < count; ++i) {
+            const u32 first = byte_load_be16(select.data + 3 + i * 3);
+            if ((!i && first) || (i && first <= previous) || first >= glyph_count ||
+                select.data[5 + i * 3] >= fd_count) return SfntStatus::malformed;
+            previous = first;
+        }
+        if (byte_load_be16(select.data + 3 + count * 3) != glyph_count) return SfntStatus::malformed;
+#if !defined(_WIN32)
+    } else if (select.data[0] == 4) {
+        if (select.count < 9) return SfntStatus::truncated;
+        const u32 count = byte_load_be32(select.data + 1);
+        if (!count || count > (select.count - 9u) / 6u) return SfntStatus::truncated;
+        u32 previous = 0;
+        for (u32 i = 0; i < count; ++i) {
+            const u32 first = byte_load_be32(select.data + 5 + i * 6);
+            if ((!i && first) || (i && first <= previous) || first >= glyph_count ||
+                byte_load_be16(select.data + 9 + i * 6) >= fd_count) return SfntStatus::malformed;
+            previous = first;
+        }
+        if (byte_load_be32(select.data + 5 + count * 6) != glyph_count) return SfntStatus::malformed;
+#endif
+    } else return SfntStatus::unsupported;
+    *output = select;
+    return SfntStatus::ok;
+}
+
+} // namespace
+
+#if !defined(_WIN32)
+// CFF2: a header with the Top DICT length, then the Top DICT itself (not an INDEX), the global subroutines and,
+// through the Top DICT, the charstrings, the Font DICTs, the FDSelect and the variation store. Every glyph reads
+// its local subroutines and its default vsindex from the Private DICT of its Font DICT. Once per face: compiled for
+// size.
+__attribute__((minsize))
+SfntStatus cff2_open(const SfntFace& face, CffFont* font) noexcept {
+    CffFont result{};
+    result.cff2 = true; result.cid = true;
+    auto status = sfnt_table(face, sfnt_tag('C','F','F','2'), &result.table);
+    if (status != SfntStatus::ok) return status;
+    const auto table = result.table;
+    if (table.count < 5) return SfntStatus::truncated;
+    if (table.data[0] != 2) return SfntStatus::unsupported;
+    const u32 header = table.data[2], top_size = byte_load_be16(table.data + 3);
+    if (header < 5) return SfntStatus::malformed;
+    if (!span(table, header, top_size)) return SfntStatus::truncated;
+    SfntHorizontalMetrics metrics{};
+    status = sfnt_horizontal_metrics_open(face, &metrics);
+    if (status != SfntStatus::ok) return status;
+    result.glyph_count = metrics.glyph_count; result.units_per_em = metrics.units_per_em;
+    Dictionary dict{};
+    status = dictionary({table.data + header, top_size}, &dict);
+    if (status != SfntStatus::ok) return status;
+    u32 at = header + top_size;
+    status = index2_open(table, &at, &result.global_subrs); if (status != SfntStatus::ok) return status;
+    if (!dict.charstrings || !dict.fd_array) return SfntStatus::malformed;
+    at = dict.charstrings;
+    status = index2_open(table, &at, &result.charstrings); if (status != SfntStatus::ok) return status;
+    if (result.charstrings.count != result.glyph_count) return SfntStatus::malformed;
+    at = dict.fd_array;
+    status = index2_open(table, &at, &result.font_dicts); if (status != SfntStatus::ok) return status;
+    if (!result.font_dicts.count || result.font_dicts.count > 256) return SfntStatus::malformed;
+    if (dict.fd_select) {
+        status = fd_select_open(table, dict.fd_select, result.glyph_count, result.font_dicts.count, &result.fd_select);
+        if (status != SfntStatus::ok) return status;
+    } else if (result.font_dicts.count != 1) return SfntStatus::malformed;
+    // The store follows a 16-bit length.
+    if (dict.variation_store) {
+        if (!span(table, dict.variation_store, 2)) return SfntStatus::truncated;
+        status = item_variation_store_open(table, dict.variation_store + 2, &result.variations);
+        if (status != SfntStatus::ok) return status;
+    }
+    for (u32 i = 0; i < 6; ++i) result.matrix[i] = dict.matrix[i];
+    copy_value(font, result);
+    return SfntStatus::ok;
+}
+#endif
+
 } // namespace cff_detail
 
 // Once per face, before any outline: compiled for size.
@@ -215,6 +374,9 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     reset_value(font);
     CffFont result{};
     auto status = sfnt_table(face, sfnt_tag('C','F','F',' '), &result.table);
+#if !defined(_WIN32)
+    if (status == SfntStatus::missing_table) return cff_detail::cff2_open(face, font);
+#endif
     if (status != SfntStatus::ok) return status;
     const auto table = result.table;
     if (table.count < 4) return SfntStatus::truncated;
@@ -241,8 +403,14 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     if (result.charstrings.count != result.glyph_count) return SfntStatus::malformed;
     for (u32 i = 0; i < 6; ++i) result.matrix[i] = dict.matrix[i];
     result.charset = dict.charset; result.cid = dict.cid;
+#if defined(_WIN32)
     status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed,
                                       &result.default_width, &result.nominal_width);
+#else
+    u32 vsindex = 0;
+    status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed,
+                                      &result.default_width, &result.nominal_width, &vsindex);
+#endif
     if (status != SfntStatus::ok) return status;
     if (result.cid) {
         if (!dict.fd_array || !dict.fd_select) return SfntStatus::malformed;
@@ -250,26 +418,8 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
         status = cff_detail::index_open(table, &at, &result.font_dicts);
         if (status != SfntStatus::ok) return status;
         if (!result.font_dicts.count || result.font_dicts.count > 256) return SfntStatus::malformed;
-        if (dict.fd_select >= table.count) return SfntStatus::truncated;
-        result.fd_select = {table.data + dict.fd_select, table.count - dict.fd_select};
-        const auto select = result.fd_select;
-        if (select.data[0] == 0) {
-            if (select.count < 1u + result.glyph_count) return SfntStatus::truncated;
-            for (u32 i = 0; i < result.glyph_count; ++i)
-                if (select.data[1 + i] >= result.font_dicts.count) return SfntStatus::malformed;
-        } else if (select.data[0] == 3) {
-            if (select.count < 5) return SfntStatus::truncated;
-            const u32 count = byte_load_be16(select.data + 1);
-            if (!count || count > (select.count - 5u) / 3u) return SfntStatus::truncated;
-            u32 previous = 0;
-            for (u32 i = 0; i < count; ++i) {
-                const u32 first = byte_load_be16(select.data + 3 + i * 3);
-                if ((!i && first) || (i && first <= previous) || first >= result.glyph_count ||
-                    select.data[5 + i * 3] >= result.font_dicts.count) return SfntStatus::malformed;
-                previous = first;
-            }
-            if (byte_load_be16(select.data + 3 + count * 3) != result.glyph_count) return SfntStatus::malformed;
-        } else return SfntStatus::unsupported;
+        status = cff_detail::fd_select_open(table, dict.fd_select, result.glyph_count, result.font_dicts.count, &result.fd_select);
+        if (status != SfntStatus::ok) return status;
     }
     copy_value(font, result);
     return SfntStatus::ok;
