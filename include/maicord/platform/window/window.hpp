@@ -92,8 +92,9 @@ WindowMetrics window_metrics(Window window) noexcept;
 u32 window_display_count() noexcept;
 
 // Presentation. Wayland: queues one frame callback on the surface (answered through the frame listener when the compositor
-// wants the next frame); it rides the next commit, which the GPU backend's buffer swap makes. Nothing on Windows.
-void window_frame_callback_request(Window window) noexcept;
+// wants the next frame); it rides the next commit, which the GPU backend's buffer swap makes. False while the window is
+// hidden: the caller must not present, because no buffer may reach the unmapped surface. True on Windows.
+bool window_frame_callback_request(Window window) noexcept;
 using FrameListener = void (*)(void* context, u32 time_ms) noexcept;
 void window_set_frame_listener(Window window, FrameListener listener, void* context) noexcept;
 // Any thread.

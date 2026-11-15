@@ -186,6 +186,11 @@ struct ExtrasState {
     u32 preferred_integer;  // wl_surface.preferred_buffer_scale, 0 until sent
     // xdg-foreign: the window's export; its handle goes to the portals (dbus::portal_set_parent_window).
     zxdg_exported_v2* exported;
+    // xdg-toplevel-icon: the buffers of the window's icon, kept so that a reveal can set the icon again (a hide's null
+    // buffer resets the toplevel, icon included).
+    wl_shm_pool* icon_pool;
+    wl_buffer* icon_buffers[4];
+    u32 icon_buffer_count;
     // ext-idle-notify: the system's input idle time. `idle_now` is the compositor's last word (idled or resumed) and
     // `idle_mark_ms` when it said it (monotonic); the watch is for `idle_timeout_ms` without input. `idle_changes`
     // counts the words.
@@ -200,6 +205,7 @@ struct WindowState {
     WindowSink sink;
     void* sink_context;
     char app_id[128];  // the desktop entry's name: what activation tokens and the compositor identify the window by
+    char title[512];   // what the toplevel was last given: a reveal after a hide sends it again
 
     wl_surface* surface;
     xdg_surface* shell_surface;
@@ -213,6 +219,13 @@ struct WindowState {
 
     bool configured;
     bool visible;
+    // window_show(hide) unmaps the surface (README.md, "Hide"). While `hidden`, no buffer may reach it: the frame request
+    // refuses every present until the configure that answers the reveal's initial commit is acked.
+    bool hidden;
+    bool drawn;      // a present committed a buffer since the surface was last mapped: a hide must unmap it
+    bool unmapped;   // the hide committed a null buffer: a buffer needs a new acked configure first
+    bool answer_pending;  // the initial commit after the unmap is sent: the next configure answers it
+    bool remapping;  // a reveal waits for that configure, and draws once it is acked
     u32 logical_width, logical_height;
     u32 floating_width, floating_height;    // the last size outside maximized, fullscreen and tiled states
     u32 pending_width, pending_height;
@@ -378,6 +391,9 @@ void text_shutdown() noexcept;
 void extras_attach_surface() noexcept;
 void extras_output_added(wl_output* output) noexcept;
 void extras_shutdown() noexcept;
+// After a hide's null buffer reset the toplevel: the icon and the xdg-foreign export are made again, before the reveal's
+// initial commit.
+void extras_reveal() noexcept;
 // The system's input idle time in milliseconds for PlatformSettings, kSystemIdleUnknown without ext-idle-notify or a watch.
 u32 extras_system_idle_ms() noexcept;
 

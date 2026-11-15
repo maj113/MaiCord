@@ -228,8 +228,12 @@ GpuStatus gpu_surface_present(GpuSurface* surface, u32 sync_interval, const GpuR
     }
     flush_barriers();
     // The compositor's answer to this frame is the frame clock's next tick: asked before the swap commits the buffer.
-    if (g_frame_request)
-        g_frame_request(g_frame_request_context);
+    // A window that takes no buffer now (hidden) refuses: the frame is dropped, and the next one is shown whole.
+    if (g_frame_request && !g_frame_request(g_frame_request_context)) {
+        s.needs_full = true;
+        gles::poll_fences();
+        return kGpuOk;
+    }
 
     // What this back buffer misses: the damage of this frame and of the frames drawn since it was last shown.
     GlesDamage now = damage_of(dirty, dirty_count, s.width, s.height);

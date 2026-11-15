@@ -225,10 +225,25 @@ void on_toplevel_wm_capabilities(void*, xdg_toplevel*, Array* capabilities) noex
 const xdg_toplevel_listener kToplevelListener = {on_toplevel_configure, on_toplevel_close,
                                                  on_toplevel_configure_bounds, on_toplevel_wm_capabilities};
 
+// The configure that answers a reveal's initial commit is acked: buffers may reach the surface again. The hide dropped
+// the pending frame callback, so the frame clock ticks once here and the app draws.
+void finish_reveal() noexcept {
+    WindowState& window = g.window;
+    window.remapping = false;
+    window.hidden = false;
+    if (window.frame_listener)
+        window.frame_listener(window.frame_listener_context, now_ms32());
+}
+
 // The configure sequence: the toplevel events describe the new state, the xdg_surface event completes it. Apply
 // everything, acknowledge, then report what changed.
 void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
     WindowState& window = g.window;
+    // A configure that comes while the surface is unmapped and before the reveal's initial commit was sent before the
+    // null buffer: that commit reset the surface, the compositor forgot the serial, and an ack of it is the protocol
+    // error xdg_wm_base.invalid_surface_state ("wrong configure serial"). The reveal's commit brings a new one.
+    if (window.unmapped && !window.answer_pending)
+        return;
     constexpr u32 sized_states =
         (1u << xdg_toplevel_state_maximized) | (1u << xdg_toplevel_state_fullscreen) | kTiledStates;
     const u32 states = window.pending_states;
@@ -275,6 +290,12 @@ void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
     if (was_resizing && !now_resizing)
         emit_resize(EventType::resize_end);
     surface_sync();
+    // An unmapped surface takes a buffer again once the answer to its initial commit is acked: at once when a reveal
+    // waits for it.
+    window.unmapped = false;
+    window.answer_pending = false;
+    if (window.remapping)
+        finish_reveal();
 }
 
 const xdg_surface_listener kSurfaceListener = {on_surface_configure};
@@ -567,6 +588,79 @@ bool is_window(Window window) noexcept {
     return g.window_exists && window == reinterpret_cast<Window>(&g.window);
 }
 
+// How long a reveal waits for the compositor's configure on the UI thread. Sway answers in a few milliseconds. A
+// compositor that does not answer in time leaves the window hidden until its configure comes through the pump.
+constexpr u32 kRevealWaitMs = 500;
+
+bool reveal_answered() noexcept {
+    return !g.window.remapping;
+}
+
+// xdg-shell has no hidden toplevel: a null buffer unmaps the surface, and the compositor takes the window off the screen
+// and out of the task bar. From here until a reveal's configure is acked, window_frame_callback_request refuses every
+// present, so no buffer reaches the surface. The frame callback of the last present is dropped: an unmapped surface
+// never answers it.
+void hide_surface() noexcept {
+    WindowState& window = g.window;
+    window.remapping = false;
+    if (window.hidden)
+        return;
+    window.hidden = true;
+    if (window.frame_callback) {
+        wl_callback_destroy(window.frame_callback);
+        window.frame_callback = nullptr;
+    }
+    if (!window.drawn)
+        return;  // never mapped: there is nothing to take off the screen
+    window.drawn = false;
+    window.unmapped = true;
+    wl_surface_attach(window.surface, nullptr, 0, 0);
+    wl_surface_commit(window.surface);
+    g_client.display_flush(g.display);
+}
+
+// An unmapped surface is shown again by the initial commit with no buffer, as at creation. on_surface_configure acks the
+// compositor's answer and only then lets the app draw (finish_reveal). A buffer before that ack is the protocol error
+// xdg_surface.unconfigured_buffer, which ends the connection.
+void reveal_surface() noexcept {
+    WindowState& window = g.window;
+    if (!window.hidden || window.remapping)
+        return;
+    if (!window.unmapped) {
+        finish_reveal();
+        return;
+    }
+    window.remapping = true;
+    if (!window.answer_pending) {
+        // A configure the compositor sent before it took the null buffer may still be on its way. The roundtrip reads
+        // it (on_surface_configure drops it), so that the next configure is the answer to the initial commit below.
+        g_client.display_roundtrip(g.display);
+        // The null buffer reset the toplevel: the compositor forgot what the window set on it (wlroots clears the
+        // title and the app id, KWin the icon, which the task bar shows). All of it is sent again before the initial
+        // commit, as at creation: the icon and the xdg-foreign export too (extras_reveal).
+        xdg_toplevel_set_title(window.toplevel, window.title);
+        xdg_toplevel_set_app_id(window.toplevel, window.app_id);
+        if (window.min_logical_width || window.min_logical_height)
+            xdg_toplevel_set_min_size(window.toplevel, static_cast<i32>(window.min_logical_width),
+                                      static_cast<i32>(window.min_logical_height));
+        if (window.decoration)
+            zxdg_toplevel_decoration_v1_set_mode(window.decoration, zxdg_toplevel_decoration_v1_mode_client_side);
+        if (window.states & (1u << xdg_toplevel_state_maximized))
+            xdg_toplevel_set_maximized(window.toplevel);
+        if (window.states & (1u << xdg_toplevel_state_fullscreen))
+            xdg_toplevel_set_fullscreen(window.toplevel, nullptr);
+        extras_reveal();
+        wl_surface_commit(window.surface);
+        window.answer_pending = true;
+    }
+    const u64 start = clock_monotonic_milliseconds();
+    const bool answered = dispatch_until(reveal_answered, kRevealWaitMs);
+    LogEvent("window_revealed")
+        .field("answered", static_cast<u64>(answered))
+        .field("wait_ms", clock_monotonic_milliseconds() - start)
+        .write(answered ? LogLevel::info : LogLevel::warning, "wayland");
+}
+
 } // namespace
 
 const WindowCaps& window_caps() noexcept {
@@ -649,13 +743,12 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     g.caps.minimize = true;
     g.caps.fullscreen = true;
 
-    char title[256];
     const auto copy = [](char* destination, u32 capacity, Utf8View text) {
         const u32 length = minimum<u32>(static_cast<u32>(text.bytes), capacity - 1);
         copy_bytes(destination, text.data, length);
         destination[length] = 0;
     };
-    copy(title, sizeof(title), info.title);
+    copy(window.title, sizeof(window.title), info.title);
     copy(window.app_id, sizeof(window.app_id), info.app_id);
 
     window.surface = wl_compositor_create_surface(g.compositor);
@@ -663,7 +756,7 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     xdg_surface_add_listener(window.shell_surface, &kSurfaceListener, nullptr);
     window.toplevel = xdg_surface_get_toplevel(window.shell_surface);
     xdg_toplevel_add_listener(window.toplevel, &kToplevelListener, nullptr);
-    xdg_toplevel_set_title(window.toplevel, title);
+    xdg_toplevel_set_title(window.toplevel, window.title);
     xdg_toplevel_set_app_id(window.toplevel, window.app_id);
     if (g.decoration_manager) {
         window.decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(g.decoration_manager, window.toplevel);
@@ -714,10 +807,12 @@ void window_show(Window window, ShowMode mode) noexcept {
     switch (mode) {
     case ShowMode::hide:
         g.window.visible = false;
+        hide_surface();
         break;
     case ShowMode::show:
     case ShowMode::show_default:
         g.window.visible = true;
+        reveal_surface();
         surface_sync();
         break;
     case ShowMode::minimize_no_activate:
@@ -734,8 +829,8 @@ void window_show(Window window, ShowMode mode) noexcept {
 void window_set_title(Window window, Utf8View title) noexcept {
     if (!is_window(window))
         return;
-    char text[512];
-    const u32 length = minimum<u32>(static_cast<u32>(title.bytes), sizeof(text) - 1);
+    char* text = g.window.title;
+    const u32 length = minimum<u32>(static_cast<u32>(title.bytes), sizeof(g.window.title) - 1);
     copy_bytes(text, title.data, length);
     text[length] = 0;
     xdg_toplevel_set_title(g.window.toplevel, text);
@@ -830,11 +925,18 @@ bool window_frame_inset(Window window, u32* pixels) noexcept {
     return is_window(window);
 }
 
-void window_frame_callback_request(Window window) noexcept {
-    if (!is_window(window) || g.window.frame_callback)
-        return;
-    g.window.frame_callback = wl_surface_frame(g.window.surface);
-    wl_callback_add_listener(g.window.frame_callback, &kFrameListener, nullptr);
+bool window_frame_callback_request(Window window) noexcept {
+    if (!is_window(window))
+        return true;
+    WindowState& state = g.window;
+    if (state.hidden)
+        return false;  // unmapped, or never shown: no buffer until a reveal (hide_surface)
+    state.drawn = true;
+    if (!state.frame_callback) {
+        state.frame_callback = wl_surface_frame(state.surface);
+        wl_callback_add_listener(state.frame_callback, &kFrameListener, nullptr);
+    }
+    return true;
 }
 
 void window_set_frame_listener(Window window, FrameListener listener, void* context) noexcept {

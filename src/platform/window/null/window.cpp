@@ -332,7 +332,9 @@ bool window_frame_inset(Window, u32* pixels) noexcept {
     return true;
 }
 
-void window_frame_callback_request(Window) noexcept {}
+bool window_frame_callback_request(Window) noexcept {
+    return true;
+}
 
 void window_set_frame_listener(Window, FrameListener, void*) noexcept {}
 

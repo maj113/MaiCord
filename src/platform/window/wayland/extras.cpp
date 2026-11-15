@@ -124,13 +124,51 @@ bool is_window(Window window) noexcept {
     return g.window_exists && window == reinterpret_cast<Window>(&g.window);
 }
 
+void export_toplevel() noexcept {
+    if (!g.exporter_manager)
+        return;
+    g.extras.exported = zxdg_exporter_v2_export_toplevel(g.exporter_manager, g.window.surface);
+    zxdg_exported_v2_add_listener(g.extras.exported, &kExportedListener, nullptr);
+}
+
+// The icon from the kept buffers: the compositor takes what the icon object holds when set_icon arrives.
+void apply_icon() noexcept {
+    ExtrasState& extras = g.extras;
+    if (!g.icon_manager || !extras.icon_buffer_count)
+        return;
+    xdg_toplevel_icon_v1* icon = xdg_toplevel_icon_manager_v1_create_icon(g.icon_manager);
+    for (u32 i = 0; i < extras.icon_buffer_count; ++i)
+        xdg_toplevel_icon_v1_add_buffer(icon, extras.icon_buffers[i], 1);
+    xdg_toplevel_icon_manager_v1_set_icon(g.icon_manager, g.window.toplevel, icon);
+    xdg_toplevel_icon_v1_destroy(icon);
+}
+
+void release_icon_buffers() noexcept {
+    ExtrasState& extras = g.extras;
+    for (u32 i = 0; i < extras.icon_buffer_count; ++i)
+        wl_buffer_destroy(extras.icon_buffers[i]);
+    extras.icon_buffer_count = 0;
+    if (extras.icon_pool)
+        wl_shm_pool_destroy(extras.icon_pool);
+    extras.icon_pool = nullptr;
+}
+
 } // namespace
 
 void extras_attach_surface() noexcept {
     wl_surface_add_listener(g.window.surface, &kSurfaceEvents, nullptr);
-    if (g.exporter_manager) {
-        g.extras.exported = zxdg_exporter_v2_export_toplevel(g.exporter_manager, g.window.surface);
-        zxdg_exported_v2_add_listener(g.extras.exported, &kExportedListener, nullptr);
+    export_toplevel();
+}
+
+void extras_reveal() noexcept {
+    apply_icon();
+    // A compositor may end the export with the unmap (the handle then names nothing): the window exports itself
+    // again, and the new handle replaces the old one at the portals when it arrives.
+    if (g.extras.exported) {
+        zxdg_exported_v2_destroy(g.extras.exported);
+        g.extras.exported = nullptr;
+        dbus::portal_set_parent_window(nullptr);
+        export_toplevel();
     }
 }
 
@@ -148,6 +186,7 @@ void extras_output_added(wl_output* output) noexcept {
 
 void extras_shutdown() noexcept {
     ExtrasState& extras = g.extras;
+    release_icon_buffers();
     if (extras.token)
         xdg_activation_token_v1_destroy(extras.token);
     if (extras.inhibitor)
@@ -296,23 +335,19 @@ void window_set_icon(Window window, const IconImage* images, u32 count) noexcept
             out[p] = alpha << 24 | scale(pixel >> 16 & 0xFF) << 16 | scale(pixel >> 8 & 0xFF) << 8 | scale(pixel & 0xFF);
         }
     }
-    wl_shm_pool* pool = wl_shm_create_pool(g.shm, static_cast<i32>(fd), static_cast<i32>(bytes));
+    // The buffers stay for a reveal after a hide, which sets the icon again (extras_reveal).
+    release_icon_buffers();
+    ExtrasState& extras = g.extras;
+    extras.icon_pool = wl_shm_create_pool(g.shm, static_cast<i32>(fd), static_cast<i32>(bytes));
     sys_munmap(memory, bytes);
     sys_close(static_cast<int>(fd));
-    xdg_toplevel_icon_v1* icon = xdg_toplevel_icon_manager_v1_create_icon(g.icon_manager);
-    wl_buffer* buffers[kMaxIcons];
     for (u32 i = 0; i < used; ++i) {
         const i32 extent = static_cast<i32>(chosen[i]->extent);
-        buffers[i] = wl_shm_pool_create_buffer(pool, static_cast<i32>(offsets[i]), extent, extent, extent * 4,
-                                               wl_shm_format_argb8888);
-        xdg_toplevel_icon_v1_add_buffer(icon, buffers[i], 1);
+        extras.icon_buffers[i] = wl_shm_pool_create_buffer(extras.icon_pool, static_cast<i32>(offsets[i]), extent,
+                                                           extent, extent * 4, wl_shm_format_argb8888);
     }
-    xdg_toplevel_icon_manager_v1_set_icon(g.icon_manager, g.window.toplevel, icon);
-    // The compositor keeps what it took; the buffers must outlive the icon object only.
-    xdg_toplevel_icon_v1_destroy(icon);
-    for (u32 i = 0; i < used; ++i)
-        wl_buffer_destroy(buffers[i]);
-    wl_shm_pool_destroy(pool);
+    extras.icon_buffer_count = used;
+    apply_icon();
     g_client.display_flush(g.display);
 }
 

@@ -20,8 +20,8 @@ void frame_done(void*, u32) noexcept {
         gpu_surface_frame_callback(&g_app.renderer.graphics.surface);
 }
 
-void frame_request(void*) noexcept {
-    window_frame_callback_request(g_app.window);
+bool frame_request(void*) noexcept {
+    return window_frame_callback_request(g_app.window);
 }
 
 } // namespace

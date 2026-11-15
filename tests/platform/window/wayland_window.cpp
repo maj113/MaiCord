@@ -208,6 +208,26 @@ void touch_file(const char* name) noexcept {
         sys_close(static_cast<int>(fd));
 }
 
+// A request to the driver that names this process: the input and lifecycle tests run at the same time, each with a
+// window of the same app_id, and sway's tree tells them apart by pid.
+void write_pid_file(const char* name) noexcept {
+    char path[320];
+    if (!path_in_directory(path, sizeof(path), name))
+        return;
+    char digits[24];
+    u32 count = 0;
+    for (u64 pid = static_cast<u64>(sys_getpid()); pid || !count; pid /= 10)
+        digits[count++] = static_cast<char>('0' + pid % 10);
+    char text[24];
+    for (u32 i = 0; i < count; ++i)
+        text[i] = digits[count - 1 - i];
+    const long fd = sys_open(path, kOpenWriteOnly | kOpenCreate | kOpenTruncate, 0644);
+    if (syscall_failed(fd))
+        return;
+    sys_write(static_cast<int>(fd), text, count);
+    sys_close(static_cast<int>(fd));
+}
+
 // The whitespace-separated integers of a small file; how many there were.
 u32 read_numbers(const char* name, i32* values, u32 capacity) noexcept {
     char path[320];
@@ -429,10 +449,13 @@ void print_support_matrix() noexcept {
     test_write_line("");
 }
 
-// A frame callback rides the next commit; in the client that is the GPU backend's swap, here a repaint.
-void request_frame() noexcept {
-    window_frame_callback_request(g_window);
+// A frame callback rides the next commit; in the client that is the GPU backend's swap, here a repaint. A hidden window
+// refuses the frame, and the client's swap is dropped then: no buffer reaches the unmapped surface.
+bool request_frame() noexcept {
+    if (!window_frame_callback_request(g_window))
+        return false;
     paint(g_window);
+    return true;
 }
 
 bool create_window() noexcept {
@@ -505,6 +528,27 @@ void test_window_up() noexcept {
     const u32 after = g_frame_callbacks;
     check(pump_until([&] { return g_frame_callbacks > after; }, 5000), "a frame callback follows the repaint");
 
+    // The output's scale (MAICORD_WAYLAND_SCALE_120: tools/test_wayland_window.sh sets it from --scale) reaches the
+    // window: fractional-scale's preferred scale in 120ths, or the integer buffer scale. Sway sends it once the surface
+    // is on the output, after the first configure (a scale_changed event); KWin sends it before the first configure,
+    // and the first resize carries it. The surface takes the pixel size of its logical size at that scale.
+    if (const char* wanted = environment_get("MAICORD_WAYLAND_SCALE_120")) {
+        u32 expected = 0;
+        for (; *wanted >= '0' && *wanted <= '9'; ++wanted)
+            expected = expected * 10 + static_cast<u32>(*wanted - '0');
+        check(pump_until([&] { return window_metrics(g_window).scale_120 == expected; }, 5000),
+              "the window takes the output's scale");
+        test_write_metric("scale_120 after the first frame=", window_metrics(g_window).scale_120);
+        const auto names = [&](const Record& r) { return r.event.resize.scale_120 == expected; };
+        check(find_event(0, EventType::scale_changed, names) != kNone || find_event(0, EventType::resize, names) != kNone,
+              "a scale_changed or resize event names the scale");
+        WaylandSurfaceInfo now{};
+        const u32 dpi = (96 * expected + 60) / 120;
+        check(window_wayland_info(g_window, &now) && now.width_px == (now.logical_width * dpi + 48) / 96 &&
+                  now.height_px == (now.logical_height * dpi + 48) / 96,
+              "the surface's pixel size is its logical size at that scale");
+    }
+
     // The whole surface is opaque (no rounded or transparent corners) at its logical size, and the region follows the size.
     const auto region_is_surface = [&]() noexcept {
         WaylandSurfaceInfo now{};
@@ -529,6 +573,79 @@ void test_window_up() noexcept {
               }, 5000),
               "and the size it comes back to");
     }
+}
+
+// Close to the tray hides the window (window_show hide): the surface is unmapped, so the compositor takes it off the
+// screen, and a reveal maps it again after a new configure. 50 times in a row with a frame drawn between: no protocol
+// error (xdg_surface.unconfigured_buffer would end the connection), every reveal draws, and the window is mapped and
+// drawing at the end. With the driver, sway's tree says whether the window is on screen.
+void test_hide_reveal() noexcept {
+    const auto drawn = [] {
+        const u32 before = g_frame_callbacks;
+        return request_frame() && pump_until([&] { return g_frame_callbacks > before; }, 2000);
+    };
+    check(drawn(), "the window draws before it is hidden");
+    const auto on_screen = [](const char* name) noexcept {
+        if (!g_paths.enabled)
+            return -1;
+        write_pid_file(name);
+        char result[64];
+        u32 length = 0;
+        for (; name[length]; ++length)
+            result[length] = name[length];
+        const char suffix[] = ".result";
+        for (u32 i = 0; i < sizeof(suffix); ++i)
+            result[length + i] = suffix[i];
+        i32 answer[1] = {-1};
+        pump_until([&] { return read_numbers(result, answer, 1) == 1; }, 5000);
+        return answer[0];
+    };
+    u32 refused = 0;
+    u32 revealed = 0;
+    u64 reveal_total_us = 0;
+    u64 reveal_longest_us = 0;
+    for (u32 i = 0; i < 50 && !g_quit; ++i) {
+        window_show(g_window, ShowMode::hide);
+        refused += !request_frame();
+        if (i == 0)
+            check(on_screen("hidden") != 1, "a hidden window is not on screen");
+        settle(2);
+        // The reveal waits on the UI thread for the compositor's configure: how long that takes.
+        const u64 start = clock_now_microseconds();
+        window_show(g_window, ShowMode::show);
+        const u64 took = clock_now_microseconds() - start;
+        reveal_total_us += took;
+        reveal_longest_us = maximum(reveal_longest_us, took);
+        revealed += drawn();
+        // The reveal sent the toplevel's state again (the null buffer reset it): sway shows the window under its
+        // app id as at the first map.
+        if (i == 0)
+            check(on_screen("revealed") != 0, "the first reveal is on screen under its app id");
+    }
+    test_write_metric("reveal wait, mean us=", reveal_total_us / 50);
+    test_write_metric("reveal wait, longest us=", reveal_longest_us);
+    check(refused == 50, "a hidden window refuses every frame");
+    check(revealed == 50, "every reveal draws and gets its frame callback");
+    check(!g_quit, "no protocol error after 50 hides and reveals");
+    check(on_screen("shown") != 0, "the revealed window is on screen");
+    // The reveal exports the window again (xdg-foreign): the portals get the new handle.
+    bool exporter = false;
+    const char* global = nullptr;
+    u32 version = 0;
+    for (u32 i = 0; window_wayland_global(i, &global, &version); ++i)
+        exporter |= arg_is(global, "zxdg_exporter_v2");
+    if (exporter)
+        check(pump_until([] {
+                  const char* parent = dbus::portal_parent_window();
+                  return parent[0] == 'w' && parent[1] == 'a' && parent[2] == 'y' && parent[3] == 'l' &&
+                         parent[4] == 'a' && parent[5] == 'n' && parent[6] == 'd' && parent[7] == ':' && parent[8];
+              }, 3000),
+              "the revealed window's export reaches the portals");
+    // A second launch reveals the window and hands over its activation token, as desktop_window_reveal does.
+    window_show(g_window, ShowMode::hide);
+    window_show(g_window, ShowMode::show);
+    window_wayland_activate("maicord-test-reveal-token");
+    check(drawn() && !g_quit, "a reveal with an activation token draws");
 }
 
 void test_lifecycle() noexcept {
@@ -1747,6 +1864,7 @@ MAICORD_TEST_ENTRY(maicord_wayland_window_entry) {
         window_wayland_activate("maicord-test-token");
         settle(50);
         check(!g_quit, "an unknown activation token does no harm");
+        test_hide_reveal();
     }
     if (lifecycle) {
         // With a driver (a screenshot is wanted), keep the presented window up until it says it is done.

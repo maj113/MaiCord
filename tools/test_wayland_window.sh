@@ -38,13 +38,20 @@ while [ "$#" -gt 0 ]; do
         --compositor) compositor="$2"; shift 2 ;;
         --binary) binary="$2"; shift 2 ;;
         --scale) scale="$2"; shift 2 ;;
-        --integer) export MAICORD_WAYLAND_NO_FRACTIONAL=1; shift ;;
+        --integer) export MAICORD_WAYLAND_NO_FRACTIONAL=1; integer=1; shift ;;
         --out) out="$2"; shift 2 ;;
         -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 case "$compositor" in headless|nested|current) ;; *) echo "Unknown compositor: $compositor" >&2; exit 2 ;; esac
+# The scale the windows must take from sway's output, in 120ths: fractional-scale gives the output's scale, the integer
+# path the buffer scale sway prefers for it (the scale rounded up). The running compositor's scale is unknown.
+if [ "$compositor" != current ]; then
+    MAICORD_WAYLAND_SCALE_120="$(awk -v s="$scale" -v i="${integer:-0}" \
+        'BEGIN { if (i) { c = int(s); if (c < s) c++; print c * 120 } else print int(s * 120 + 0.5) }')"
+    export MAICORD_WAYLAND_SCALE_120
+fi
 
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export LANG="${LANG:-C.UTF-8}"
@@ -165,6 +172,33 @@ drive_idle() {
     idle_state > "$sync/input/idle-off.tmp" && mv "$sync/input/idle-off.tmp" "$sync/input/idle-off.result"
 }
 
+# 1 when sway's tree holds a window of the process the request file names (the lifecycle and input tests both show a
+# "maicord" window at the same time), else 0. A hidden window is unmapped and leaves the tree.
+window_shown() {
+    swaymsg -t get_tree | python3 -c '
+import json, sys
+pid = int(sys.argv[1])
+def walk(node):
+    if "app_id" in node:
+        print("view: app_id", node.get("app_id"), "pid", node.get("pid"), "visible", node.get("visible"), file=sys.stderr)
+    if node.get("app_id") == "maicord" and node.get("pid") == pid:
+        return True
+    return any(walk(child) for child in node.get("nodes", []) + node.get("floating_nodes", []))
+print(1 if walk(json.load(sys.stdin)) else 0)' "$1"
+}
+
+# The lifecycle test hides and reveals its window and asks (`hidden`, `revealed` after the first reveal, then `shown`,
+# each holding its pid) whether it is on screen under its app id; the answer goes in `<name>.result`.
+drive_hide() {
+    local name
+    for name in hidden revealed shown; do
+        wait_for "$sync/lifecycle/$name" "$driver_wait" || return
+        sleep 0.1
+        window_shown "$(cat "$sync/lifecycle/$name")" > "$sync/lifecycle/$name.tmp" &&
+            mv "$sync/lifecycle/$name.tmp" "$sync/lifecycle/$name.result"
+    done
+}
+
 drive_input() {
     wait_for "$sync/input/ready" "$driver_wait" || return
     sleep 0.6
@@ -176,7 +210,7 @@ drive_input() {
 
 if [ "$compositor" != current ]; then
     # Concurrent: ctest runs the cases in an order of its own choosing, and each waits for its own files.
-    ( drive_lifecycle & drive_input & drive_idle & wait ) > "$out/driver.log" 2>&1 &
+    ( drive_lifecycle & drive_input & drive_idle & drive_hide & wait ) > "$out/driver.log" 2>&1 &
     injector_pid=$!
 fi
 

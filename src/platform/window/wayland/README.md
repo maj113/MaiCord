@@ -41,6 +41,17 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 - Features are optional: every protocol except wl_compositor 4, wl_shm and xdg_wm_base is bound when present and silently absent
   otherwise; the call then returns false or does nothing. Never fail the window for a missing integration protocol.
 - Values the compositor sends are applied at the xdg `configure` ack, never in the middle of a sequence.
+- Hide (close to the tray): xdg-shell has no hidden toplevel, so `window_show(ShowMode::hide)` unmaps the surface with a
+  null buffer, and the compositor takes the window off the screen and out of the task bar on every desktop. The null
+  buffer resets the toplevel: a configure the compositor sent before it is never acked (its serial is forgotten, and
+  the ack is the error "wrong configure serial"). A reveal makes a roundtrip that reads such a configure, sends the
+  title, app id, minimum size, decoration mode and a maximized or full-screen state again, and makes the initial
+  commit again (no buffer). It waits up to 500 ms for the configure, acks it, and only then lets a buffer come: a
+  buffer before that ack is `xdg_surface.unconfigured_buffer`, which ends the connection. While hidden,
+  `window_frame_callback_request` returns false, so `gpu_surface_present` drops the frame and nothing commits a buffer.
+  The hide drops the pending frame callback, and the reveal's ack ticks the frame clock once so the app draws. A
+  configure that comes later than the wait finishes the reveal from the pump. A window that never drew (start
+  minimized) has nothing to unmap.
 - A pointer move replaces the last queued event when that event is a move with the same buttons (`pointer.cpp`), so a
   pump gets one move at the newest position. Any other event between two moves keeps them apart.
 - `window_pump` after a `window_wait` reads only what that wait saw ready: the wait read the display itself, and the session
@@ -86,7 +97,9 @@ Evaluated and not used (support from wayland.app, Mutter 51, KWin 6.7, Sway 1.11
 
 - `maicord_wayland_input` (normal suite): key table, characters, double click, repeat, generated tables against libwayland-client's.
 - `tools/test_wayland_window.sh [--compositor headless|nested|current] [--scale S] [--integer]`: headless sway runs
-  `maicord_wayland_window_lifecycle` (window, frame callbacks, xdg-foreign handle, bell, icon, opaque region) and
-  `maicord_wayland_window_input` (virtual pointer and keyboard, two helper clients, idle inhibit, system idle time).
+  `maicord_wayland_window_lifecycle` (window, frame callbacks, xdg-foreign handle, bell, icon, opaque region, 50 hides and
+  reveals with sway's tree checked for the window) and `maicord_wayland_window_input` (virtual pointer and keyboard, two
+  helper clients, idle inhibit, system idle time). Both check that the window takes sway's output scale
+  (`MAICORD_WAYLAND_SCALE_120`, from `--scale`: the fractional scale, or with `--integer` the buffer scale rounded up).
   Without a GPU the tests attach a `wl_shm` buffer themselves (`Painter`). xdg-toplevel-icon and xdg-system-bell are not in
   sway 1.9 (wlroots 0.17): their requests are exercised for protocol errors only where the compositor has them.

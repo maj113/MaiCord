@@ -48,8 +48,9 @@ struct GpuSurface {
 
 // What a window surface asks of the window service before each swap: a frame callback on the surface, which the window
 // answers through gpu_surface_frame_callback (the frame clock). EGL commits the buffer, so the request has to be made
-// first. One hook per process; null removes it, and a surface without one is paced by the caller's watchdog alone.
-using GpuFrameRequest = void (*)(void* context) noexcept;
+// first. False refuses the present: the window takes no buffer now (a hidden Wayland window), and the surface drops the
+// frame. One hook per process; null removes it, and a surface without one is paced by the caller's watchdog alone.
+using GpuFrameRequest = bool (*)(void* context) noexcept;
 void gpu_surface_set_frame_request(GpuFrameRequest request, void* context) noexcept;
 
 // Frame timing, held by value, zeroed: a pair of GL timestamp queries (GL_EXT_disjoint_timer_query), so the create
