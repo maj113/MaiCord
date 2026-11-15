@@ -58,8 +58,9 @@ struct VideoRtpFrame {
     VideoRtpCodec codec;  // Of the frame's payload type.
     bool keyframe;        // Contains an IDR (H.264) / IRAP (H.265) picture, or starts an AV1 sequence.
     bool references_lost; // Loss since the last delivered keyframe (or none yet).
-    // A whole first unit still inside the stream's start wait: the sink may open it now, must keep the result and
-    // will get the same unit again (early false) when the wait is over. Nothing else about the stream changes.
+    // A whole unit still inside the stream's start wait, offered as it completes, in order: the sink may open it now,
+    // must keep the result and will get the same unit again (early false) when the wait is over. Nothing else about
+    // the stream changes.
     bool early;
 };
 // Called synchronously from video_rtp_receive/video_rtp_tick for complete,
@@ -104,7 +105,7 @@ struct VideoRtpStream {
     // The packets [scan_base, scan_next) are in the unit that starts at scan_base and do not end it.
     u64 scan_base, scan_next;
     bool started, prev_known, prev_marker, has_last_timestamp, has_transit;
-    bool opened_early; // The whole first unit [opened_base, opened_end] was already offered to the sink (early).
+    bool opened_early; // The whole units [opened_base, opened_end] were already offered to the sink (early).
     bool keyframe_needed, keyframe_seen, references_lost;
     VideoRtpStreamStats stats;
 };

@@ -405,11 +405,83 @@ void start_with_audio(Check check) noexcept {
           "Video sink start: stopping frees the buffers and the reservation");
     voice_participants_release(&connection.participants);
 }
+// The sender's DAVE counters as a strict receiver window sees them: each unit carries its counter (the IDR unit 1,
+// the P unit 3), the test opens the audio counters 2 and 4 as they arrive, and a counter at or below the newest one
+// is refused.
+struct CountedDave {
+    u32 newest, refused, opened[4], opens;
+};
+bool counted_open(CountedDave& dave, u32 counter) noexcept {
+    if (counter <= dave.newest) {
+        ++dave.refused;
+        return false;
+    }
+    dave.newest = counter;
+    return true;
+}
+DaveMediaResult open_counted(void* context, u64, u32, ConstSlice<u8> frame, Slice<u8>, Slice<u8> output) noexcept {
+    auto& dave = *static_cast<CountedDave*>(context);
+    u32 counter = 3;
+    for (u32 i = 4; i < frame.count; ++i)
+        if (frame.data[i - 4] == 0 && frame.data[i - 3] == 0 && frame.data[i - 2] == 0 && frame.data[i - 1] == 1 &&
+            (frame.data[i] & 0x1f) == 5)
+            counter = 1;
+    DaveMediaResult result{};
+    if (output.count < frame.count || !counted_open(dave, counter)) {
+        result.error = DaveMediaError::rejected;
+        return result;
+    }
+    if (dave.opens < 4)
+        dave.opened[dave.opens] = counter;
+    ++dave.opens;
+    copy_bytes(output.data, frame.data, frame.count);
+    result.bytes = frame.count;
+    return result;
+}
+// Two units complete inside the stream's start wait, with the sender's audio after each: both units are DAVE-opened
+// as they complete, in arrival order, held, and emitted after the wait without a second open.
+void start_with_two_units(Check check) noexcept {
+    auto& [connection, receive, decoder, dave] = fresh_rig();
+    static CountedDave counted;
+    counted = {};
+    check(announce(connection, 11, utf8_literal(R"({"user_ids":["2"]})")) &&
+              announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+                  {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "Video sink start, two units: the sender announces a camera");
+    receive.video.decrypt = open_counted;
+    receive.video.decrypt_context = &counted;
+    receive.video.frames = {&decoder, push, end};
+    receive.video.wake = wake;
+    connection.media.has_description = true;
+    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
+    connection.media.ssrc = 7;
+    voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
+    send_keyframe(receive, connection, 100, 9000, 1'000'000);
+    const bool audio_2 = counted_open(counted, 2);
+    const u8 slice[]{0x41, 0x9a, 0x02, 0x03};
+    u8 plain[64];
+    const u32 bytes = rtp(plain, 101, kVideo, 103, 12000, true, {slice, sizeof(slice)});
+    voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused, nullptr,
+                         1'005'000);
+    const bool audio_4 = counted_open(counted, 4);
+    check(audio_2 && audio_4 && counted.opens == 2 && counted.opened[0] == 1 && counted.opened[1] == 3 &&
+              !decoder.frames,
+          "Video sink start, two units: each unit is DAVE-opened as it completes, before the audio after it");
+    voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
+    check(decoder.frames == 2 && counted.opens == 2 && !counted.refused && decoder.bytes == 8 &&
+              decoder.timestamp == 12000,
+          "Video sink start, two units: both held units are emitted in order after the wait, with no second open");
+    check(!receive.video.held_committed,
+          "Video sink start, two units: the held pages are decommitted once the last unit is emitted");
+    voice_receive_stop(&receive);
+    voice_participants_release(&connection.participants);
+}
 } // namespace
 
 void test_voice_video_sink(Check check) noexcept {
     routing(check);
     start_with_audio(check);
+    start_with_two_units(check);
     codec_binding(check);
     av1_binding(check);
     dave_frames(check);

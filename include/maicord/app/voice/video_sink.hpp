@@ -13,6 +13,8 @@ namespace maicord {
 inline constexpr u32 kVoiceVideoFeedbackBytes = 1200;
 inline constexpr u32 kVoiceVideoMaximumUsers = 16;
 inline constexpr u32 kVoiceVideoUnwantedUsers = 32;
+// Units DAVE-opened inside a start wait and held for their turn. A unit past this count is opened at its turn.
+inline constexpr u32 kVoiceVideoHeldUnits = 4;
 // DAVE stage for one assembled frame from a currently mapped video SSRC.
 // Production binds voice_connection_dave_decrypt_frame; tests substitute.
 using VoiceVideoDecrypt = DaveMediaResult (*)(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
@@ -45,15 +47,14 @@ struct VoiceVideoSink {
     u32 ended_count, unwanted_count, feedback_bytes;
     u32 offer; // Bound Select Protocol video offer (voice_video_codec_bit set).
     u64 keyframe_requests; // Decoder-requested keyframes applied, for the attachment summary.
-    // A first unit DAVE-opened while its stream still waits out its start (VideoRtpFrame::early): the plaintext is
-    // kept in `held` (a reservation, committed only for the unit's pages while it is held) until the RTP core hands
-    // the same unit over (same size) to emit.
+    // Units DAVE-opened while their stream still waits out its start (VideoRtpFrame::early), in arrival order: the
+    // plaintexts lie one after another in `held` (a reservation, committed only for the pages in use while any unit is
+    // held) until the RTP core hands each unit over (same size) to emit.
     u8* held;
-    u32 held_committed;
+    u32 held_committed, held_bytes, held_count;
     struct {
-        u32 ssrc, timestamp, sealed_bytes, bytes;
-        bool valid;
-    } settled;
+        u32 ssrc, timestamp, sealed_bytes, offset, bytes;
+    } settled[kVoiceVideoHeldUnits];
     VoiceVideoSummary summary;
     u8 feedback[kVoiceVideoFeedbackBytes]; // Built RTCP waiting for the transport.
     bool rtp_ready;

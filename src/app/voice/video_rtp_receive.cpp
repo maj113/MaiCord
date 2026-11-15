@@ -148,15 +148,15 @@ VideoRtpCodec codec_of(const VideoRtpReceiver& receiver, u8 type) noexcept {
     const auto* binding = media_codec(receiver, type);
     return binding ? binding->codec : VideoRtpCodec::none;
 }
-void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, bool early = false) noexcept {
-    const auto& head = slot_at(stream, stream.base);
+void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 start, u64 end, bool early = false) noexcept {
+    const auto& head = slot_at(stream, start);
     const u8 type = head.payload_type;
     const u32 timestamp = head.timestamp;
     const VideoRtpCodec codec = codec_of(receiver, type);
     RtpVideoAssembly assembly;
     rtp_video_assembly_begin(&assembly, {receiver.frame, kVideoRtpFrameBytes});
     bool intact = codec != VideoRtpCodec::none;
-    for (u64 sequence = stream.base; intact && sequence <= end; ++sequence) {
+    for (u64 sequence = start; intact && sequence <= end; ++sequence) {
         const auto& slot = slot_at(stream, sequence);
         if (slot.state != present)
             continue;
@@ -213,6 +213,45 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, bool e
     frame.early = early;
     if (receiver.sink)
         receiver.sink(receiver.sink_context, frame);
+}
+// While a new stream waits out its start, the sink opens every whole unit as it completes, in order, so a sender's
+// DAVE counters are consumed in arrival order (its audio is opened as it arrives). The sink holds the results and
+// gets each unit again after the wait. [opened_base, opened_end] are the units from the head on already offered; a
+// head that moved is offered again. end: the end of the complete head unit.
+void open_early(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexcept {
+    if (!stream.opened_early || stream.opened_base != stream.base) {
+        stream.opened_early = true;
+        stream.opened_base = stream.base;
+        stream.opened_end = end;
+        deliver(receiver, stream, stream.base, end, true);
+    }
+    // The units after the head, each from the packet after the end of the one before.
+    for (u64 start = stream.opened_end + 1; start <= stream.highest;) {
+        const auto& first = slot_at(stream, start);
+        if (first.state == missing)
+            return;
+        if (first.state != present) { // Padding: sequence space only.
+            ++start;
+            continue;
+        }
+        u64 sequence = start;
+        for (; sequence <= stream.highest; ++sequence) {
+            const auto& slot = slot_at(stream, sequence);
+            if (slot.state == missing)
+                return;
+            if (slot.state == present && slot.timestamp != first.timestamp) {
+                --sequence;
+                break;
+            }
+            if (slot.state == present && slot.marker)
+                break;
+        }
+        if (sequence > stream.highest)
+            return; // The unit is not complete yet.
+        stream.opened_end = sequence;
+        deliver(receiver, stream, start, sequence, true);
+        start = sequence + 1;
+    }
 }
 // Emits every access unit that is complete, in order, and resolves gaps whose
 // recovery time ran out. Frames whose first packet is unknown are dropped.
@@ -285,18 +324,12 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
         stream.scan_base = stream.base;
         stream.scan_next = sequence;
         if (waiting) {
-            // A whole unit is opened by the sink now, so a sender's DAVE counters are consumed in arrival order
-            // (its audio is opened as it arrives); the sink holds the result and gets the unit again after the wait.
-            if (complete && !(stream.opened_early && stream.opened_base == stream.base && stream.opened_end == end)) {
-                stream.opened_early = true;
-                stream.opened_base = stream.base;
-                stream.opened_end = end;
-                deliver(receiver, stream, end, true);
-            }
+            if (complete)
+                open_early(receiver, stream, end);
             return;
         }
         if (complete) {
-            deliver(receiver, stream, end);
+            deliver(receiver, stream, stream.base, end);
             continue;
         }
         if (!blocked || !expired(config, slot_at(stream, sequence), now_us))
