@@ -8,6 +8,7 @@ namespace {
 
 // Sonames, newest first: OpenSSL 4.x, then 3.x.
 constexpr const char* const kSuffixes[] = {"4", "3"};
+constexpr u32 kSuffixCount = sizeof(kSuffixes) / sizeof(kSuffixes[0]);
 
 // Held only while the libraries load.
 SRWLOCK g_lock = SRWLOCK_INIT;
@@ -18,6 +19,11 @@ Crypto g_crypto;
 Ssl g_ssl;
 volatile u32 g_crypto_ready;
 volatile u32 g_ssl_ready;
+// The soname index of the first library that loaded. The other library starts there. A libssl loads only with
+// the libcrypto of its own soname and the same table, so a libcrypto that failed at a lower index fails there for
+// libssl too. After a libssl of the older soname, crypto() gets the libcrypto that libssl already holds. The load
+// lock guards the index.
+u32 g_first_suffix;
 
 struct LoadGuard {
     LoadGuard() noexcept { AcquireSRWLockExclusive(&g_lock); }
@@ -87,8 +93,9 @@ const Crypto* crypto(u32* failure) noexcept {
     if (g_crypto_ready)
         return &g_crypto;
     u32 reason = kFailureLibrary;
-    for (const char* suffix : kSuffixes) {
-        if (open_crypto(suffix, &g_crypto_library, &g_crypto, &reason)) {
+    for (u32 index = g_first_suffix; index < kSuffixCount; ++index) {
+        if (open_crypto(kSuffixes[index], &g_crypto_library, &g_crypto, &reason)) {
+            g_first_suffix = index;
             __atomic_store_n(&g_crypto_ready, 1u, __ATOMIC_RELEASE);
             return &g_crypto;
         }
@@ -105,7 +112,8 @@ const Ssl* ssl(u32* failure) noexcept {
     if (g_ssl_ready)
         return &g_ssl;
     u32 reason = kFailureLibrary;
-    for (const char* suffix : kSuffixes) {
+    for (u32 index = g_first_suffix; index < kSuffixCount; ++index) {
+        const char* const suffix = kSuffixes[index];
         char name[32];
         if (!soname(name, "libssl", suffix) || !shared_library_open(&g_ssl_library, name))
             continue;
@@ -120,6 +128,7 @@ const Ssl* ssl(u32* failure) noexcept {
             reason = kFailureSymbol;
             continue;
         }
+        g_first_suffix = index;
         __atomic_store_n(&g_ssl_ready, 1u, __ATOMIC_RELEASE);
         return &g_ssl;
     }

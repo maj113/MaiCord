@@ -360,8 +360,6 @@ __attribute__((minsize)) int start_interface() noexcept {
     MAICORD_PERF_MARK("window_shown");
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
-    application_updates_initialize(application_update_build_config(), application_update_build_commit());
-    application_log_start_install();
     application_catalog_initialize_default();
 #endif
 
@@ -373,6 +371,18 @@ __attribute__((minsize)) int start_interface() noexcept {
 #endif
     return 0;
 }
+
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
+// Once, after the frame of the first loop turn. The first frame shows no update state: the caption badge stays
+// hidden until the worker publishes a check. So the updater's files, key import and thread follow that frame.
+__declspec(noinline) __attribute__((minsize)) void start_updates() noexcept {
+    application_updates_initialize(application_update_build_config(), application_update_build_commit());
+    application_log_start_install();
+    // The first present of this turn came before the worker existed, so it could not ask for the first check.
+    if (g_app.first_present_recorded)
+        application_updates_ready();
+}
+#endif
 
 // Once, after the loop: stops the account and releases every owner in dependency order.
 __attribute__((minsize)) void stop_application(int exit_code) noexcept {
@@ -449,6 +459,9 @@ int application_run() noexcept {
     application_trace_load_stage("loop_entered");
     MAICORD_PERF_MARK("loop_entered");
     g_app.frame_loop_active = true;
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
+    bool updates_started = false;
+#endif
     for (;;) {
         drain_deferred_text_services();
         application_downloads_pump();
@@ -828,6 +841,10 @@ int application_run() noexcept {
 #endif
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
         application_desktop_tick(restart_now_ms);
+        if (!updates_started) {
+            updates_started = true;
+            start_updates();
+        }
 #endif
 #if defined(MAICORD_PERF_PROBE)
         if (perf::probe_step(&exit_code))
@@ -835,6 +852,12 @@ int application_run() noexcept {
 #endif
         application_update_frame_rate(application_now_us());
     }
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
+    // The first turn ended the loop before its tail. The updater starts here as it did before the loop: the install
+    // record and the removal of old update files still happen, and stop_application stops it again.
+    if (!updates_started)
+        start_updates();
+#endif
 
     stop_application(exit_code);
     return exit_code;

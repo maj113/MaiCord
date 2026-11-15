@@ -5,6 +5,7 @@
 // The system OpenSSL, loaded with dlopen (D6). A Linux image never links libssl or libcrypto: the first call that
 // needs them opens "libcrypto.so.<N>" (and "libssl.so.<N>" for TLS) with N = 4, then 3 (OpenSSL 4.x, then
 // 3.x), resolves every function of the tables below at once and keeps the libraries for the life of the process.
+// The second library starts at the N of the first one.
 // A missing library or symbol is an error value, never a partial table. Version 3.0 is the minimum (3.0.2 on Ubuntu
 // 22.04, 3.0.x on Debian 12; Fedora 45 has 4.0): the EVP_MAC, EVP_PKEY_fromdata and OSSL_PARAM interfaces are 3.0
 // additions, and the older 1.1 line is not supported.
