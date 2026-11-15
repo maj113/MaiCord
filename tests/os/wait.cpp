@@ -108,6 +108,17 @@ void test_wait_many() noexcept {
     event_set(events[2]);
     const WaitManyResult tolerant = wait_many(events, 4, kLimit, 10);
     check(!tolerant.failed && tolerant.ready_mask == 0b0100, "wait_many: with a tolerance");
+#if !defined(_WIN32)
+    // The slack is the tolerance rounded down to a power of two: 8 to 15 ms ask for one value and one system call.
+    constexpr int kGetTimerSlack = 30; // PR_GET_TIMERSLACK, in nanoseconds
+    check(sys_prctl(kGetTimerSlack, 0) == 8'000'000, "wait_many: a tolerance of 10 ms is a slack of 8 ms");
+    event_set(events[2]);
+    wait_many(events, 4, kLimit, 15);
+    check(sys_prctl(kGetTimerSlack, 0) == 8'000'000, "wait_many: 15 ms keeps the slack of 8 ms");
+    event_set(events[2]);
+    wait_many(events, 4, kLimit, 0);
+    check(sys_prctl(kGetTimerSlack, 0) != 8'000'000, "wait_many: an exact wait restores the default slack");
+#endif
     check(wait_many(events, 0, 0, 0).failed, "wait_many: no waitables fails");
     for (const Waitable event : events) {
         waitable_close(event);

@@ -8,7 +8,6 @@
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
-#include "monotonic.hpp"
 
 namespace maicord {
 namespace {
@@ -46,35 +45,16 @@ bool consume(Waitable waitable) noexcept {
 }
 
 // The thread's timer slack, so ppoll may return up to `tolerance_ms` late and share a wakeup. Only changed when
-// the wanted slack differs from the last one this thread set (0 restores the kernel's default).
+// the wanted slack differs from the last one this thread set (0 restores the kernel's default). The slack is the
+// tolerance rounded down to a power of two: the main loop asks for a part of each timeout, and the rounded value
+// stays the same over most turns, so few turns make the system call. A shorter slack is inside the contract.
 void apply_tolerance(u32 tolerance_ms) noexcept {
     static __thread u32 applied;
+    if (tolerance_ms)
+        tolerance_ms = 1u << (31 - __builtin_clz(tolerance_ms));
     if (applied != tolerance_ms) {
         sys_prctl(kPrctlSetTimerSlack, static_cast<unsigned long>(tolerance_ms) * 1'000'000ul);
         applied = tolerance_ms;
-    }
-}
-
-// Waits on the descriptors until one is ready; `ready` receives the poll flags of each. Returns the count of ready
-// descriptors, 0 on timeout, -1 on failure. A signal interrupts only for the time it takes to resume.
-long poll_ready(PollFd* descriptors, u32 count, u32 timeout_ms) noexcept {
-    const i64 deadline = timeout_ms == kInfinite ? 0 : monotonic_nanoseconds() + timeout_ms * kNanosecondsPerMillisecond;
-    for (;;) {
-        TimeSpec timeout{};
-        const TimeSpec* limit = nullptr;
-        if (timeout_ms != kInfinite) {
-            timeout = timespec_from_nanoseconds(deadline - monotonic_nanoseconds());
-            limit = &timeout;
-        }
-        const long result = sys_ppoll(descriptors, count, limit);
-        if (result == -kErrorInterrupted) {
-            continue;
-        }
-        if (syscall_failed(result)) {
-            set_thread_last_error(win32_error_from_result(result));
-            return -1;
-        }
-        return result;
     }
 }
 
@@ -172,6 +152,17 @@ WaitManyResult wait_set(const Waitable* waitables, u32 count, u32 timeout_ms, u3
         result.failed = true;
         return result;
     }
+    // A poll of one auto-reset waitable is one read. The read takes the signal, or finds none (EAGAIN). Any other
+    // result goes to the full wait below, which reports it.
+    if (timeout_ms == 0 && count == 1 && valid(waitables[0]) && !manual_reset(waitables[0])) {
+        u64 counter = 0;
+        const long taken = sys_read(descriptor(waitables[0]), &counter, sizeof(counter));
+        if (taken == static_cast<long>(sizeof(counter)) || taken == -kErrorAgain) {
+            result.ready_mask = taken > 0;
+            result.timed_out = taken < 0;
+            return result;
+        }
+    }
     apply_tolerance(tolerance_ms);
     PollFd descriptors[kWaitMaximumCount];
     for (u32 index = 0; index < count; ++index) {
@@ -182,11 +173,15 @@ WaitManyResult wait_set(const Waitable* waitables, u32 count, u32 timeout_ms, u3
         }
         descriptors[index] = PollFd{descriptor(waitables[index]), kPollIn, 0};
     }
-    const i64 deadline = timeout_ms == kInfinite ? 0 : monotonic_nanoseconds() + timeout_ms * kNanosecondsPerMillisecond;
-    u32 remaining = timeout_ms;
+    // The kernel writes the time that is left into `limit` each time ppoll returns. So a wait reads no clock.
+    TimeSpec limit{timeout_ms / 1000, timeout_ms % 1000 * kNanosecondsPerMillisecond};
     for (;;) {
-        const long ready = poll_ready(descriptors, count, remaining);
-        if (ready < 0) {
+        const long ready = sys_ppoll(descriptors, count, timeout_ms == kInfinite ? nullptr : &limit);
+        if (ready == -kErrorInterrupted) {
+            continue;
+        }
+        if (syscall_failed(ready)) {
+            set_thread_last_error(win32_error_from_result(ready));
             result.failed = true;
             return result;
         }
@@ -214,14 +209,6 @@ WaitManyResult wait_set(const Waitable* waitables, u32 count, u32 timeout_ms, u3
         }
         if (result.ready_mask != 0) {
             return result;
-        }
-        if (timeout_ms != kInfinite) {
-            const i64 left = deadline - monotonic_nanoseconds();
-            if (left <= 0) {
-                result.timed_out = true;
-                return result;
-            }
-            remaining = static_cast<u32>((left + kNanosecondsPerMillisecond - 1) / kNanosecondsPerMillisecond);
         }
     }
 }

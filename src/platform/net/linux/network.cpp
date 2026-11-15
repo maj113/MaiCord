@@ -75,6 +75,10 @@ NetworkOperation* ready_pop(NetworkLoop* loop) noexcept {
 
 // Moves what other threads posted to the ready list, oldest first.
 void drain_posted(NetworkLoop* loop) noexcept {
+    // The exchange is a locked write: a poll with nothing posted only reads.
+    if (!__atomic_load_n(&loop->posted, __ATOMIC_ACQUIRE)) {
+        return;
+    }
     NetworkOperation* stack = __atomic_exchange_n(&loop->posted, nullptr, __ATOMIC_ACQUIRE);
     NetworkOperation* reversed = nullptr;
     while (stack) {
@@ -598,7 +602,9 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
     const bool finite = timeout_milliseconds != kInfinite;
-    const i64 deadline = finite ? monotonic_nanoseconds() + timeout_milliseconds * i64{1'000'000} : 0;
+    // Only a poll that waits reads the clock: one time for the deadline, then one time for each more wait.
+    i64 remaining = timeout_milliseconds * i64{1'000'000};
+    i64 deadline = -1;
     for (;;) {
         if (!loop->ready_head) {
             drain_posted(loop);
@@ -615,7 +621,14 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         u32 flags = kRingEnterGetEvents;
         if (finite) {
             // Even a poll that must not wait runs the ring's pending work: the zero timeout expires after it.
-            const i64 remaining = maximum<i64>(deadline - monotonic_nanoseconds(), 0);
+            if (remaining > 0) {
+                const i64 now = monotonic_nanoseconds();
+                if (deadline < 0) {
+                    deadline = now + remaining;
+                } else {
+                    remaining = maximum<i64>(deadline - now, 0);
+                }
+            }
             limit = TimeSpec{remaining / kNanosecondsPerSecond, remaining % kNanosecondsPerSecond};
             argument.timeout = reinterpret_cast<u64>(&limit);
             flags |= kRingEnterExtendedArgument;
@@ -634,7 +647,8 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
             return result;
         }
         reap(loop);
-        if (!loop->ready_head && !loop->posted && finite && monotonic_nanoseconds() >= deadline) {
+        // The kernel says when the wait ran out. A wake with no work and time left waits again.
+        if (entered == -kErrorTimerExpired && !loop->ready_head && !loop->posted) {
             result.state = NetworkPollState::timeout;
             return result;
         }

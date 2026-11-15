@@ -19,7 +19,11 @@ struct Thread {
     ThreadProc procedure;
     void* argument;
     volatile u32 state;
+    // thread_waitable makes the event at its first call: most threads have no waiter in a wait set. The thread stores
+    // `ended` and then loads `done`. thread_waitable stores `done` and then loads `ended`. Each store is a full
+    // barrier, so the side that comes second sees the store of the other side and sets the event.
     Waitable done;
+    volatile u32 ended;
     volatile u32 in_use;
 };
 
@@ -61,7 +65,10 @@ void release_record(Thread* record) noexcept {
 void* thread_main(void* argument) noexcept {
     auto* record = static_cast<Thread*>(argument);
     record->procedure(record->argument);
-    event_set(record->done);
+    __atomic_store_n(&record->ended, 1u, __ATOMIC_SEQ_CST);
+    if (const Waitable done = __atomic_load_n(&record->done, __ATOMIC_SEQ_CST)) {
+        event_set(done);
+    }
     u32 expected = kRunning;
     if (__atomic_compare_exchange_n(&record->state, &expected, kFinished, false, __ATOMIC_ACQ_REL,
                                     __ATOMIC_ACQUIRE)) {
@@ -116,7 +123,7 @@ __attribute__((minsize)) Thread* thread_start(ThreadProc procedure, void* argume
     record->procedure = procedure;
     record->argument = argument;
     record->state = kRunning;
-    record->done = event_create(true, false);
+    record->ended = 0;
     const u32 stack = stack_reserve_bytes < kMinimumStackBytes ? kMinimumStackBytes : stack_reserve_bytes;
     PthreadAttribute attribute;
     int error = pthread_attr_init(&attribute);
@@ -168,10 +175,23 @@ void thread_close(Thread* thread) noexcept {
     release_record(thread);
 }
 
-// The record's own manual-reset event, set by thread_main just before it publishes the end: it lives until the
-// record is released, so a waiter holds it exactly as long as it holds the Thread.
+// The record's own manual-reset event, set when the procedure returned: it lives until the record is released, so a
+// waiter holds it exactly as long as it holds the Thread.
 Waitable thread_waitable(Thread* thread) noexcept {
-    return thread->done;
+    Waitable done = __atomic_load_n(&thread->done, __ATOMIC_ACQUIRE);
+    if (done == nullptr) {
+        done = event_create(true, false);
+        Waitable expected = nullptr;
+        if (done != nullptr &&
+            !__atomic_compare_exchange_n(&thread->done, &expected, done, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+            waitable_close(done); // Another caller made the event first.
+            done = expected;
+        }
+        if (done != nullptr && __atomic_load_n(&thread->ended, __ATOMIC_SEQ_CST)) {
+            event_set(done);
+        }
+    }
+    return done;
 }
 
 void thread_cancel_synchronous_io(Thread*) noexcept {}
@@ -188,14 +208,12 @@ void thread_boost_realtime() noexcept {
 }
 
 void thread_sleep(u32 milliseconds) noexcept {
-    const i64 deadline = monotonic_nanoseconds() + static_cast<i64>(milliseconds) * 1'000'000;
-    for (;;) {
-        const i64 remaining = deadline - monotonic_nanoseconds();
-        if (remaining <= 0) {
-            return;
-        }
-        const TimeSpec request = timespec_from_nanoseconds(remaining);
-        sys_nanosleep(&request);
+    if (milliseconds == 0) {
+        return;
+    }
+    // The kernel writes the time that is left into the request when a signal interrupts the sleep.
+    TimeSpec request{milliseconds / 1000, milliseconds % 1000 * 1'000'000};
+    while (sys_nanosleep(&request, &request) == -kErrorInterrupted) {
     }
 }
 

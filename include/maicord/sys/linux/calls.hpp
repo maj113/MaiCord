@@ -288,8 +288,9 @@ inline long sys_futex_wake(volatile u32* address, u32 waiters) noexcept {
     return syscall3(kSysFutex, reinterpret_cast<long>(address), kFutexWake | kFutexPrivate, static_cast<long>(waiters));
 }
 
-inline long sys_nanosleep(const TimeSpec* request) noexcept {
-    return syscall2(kSysNanosleep, reinterpret_cast<long>(request), 0);
+// An interrupted sleep writes the time that is left into `remaining` (it may be `request`).
+inline long sys_nanosleep(const TimeSpec* request, TimeSpec* remaining = nullptr) noexcept {
+    return syscall2(kSysNanosleep, reinterpret_cast<long>(request), reinterpret_cast<long>(remaining));
 }
 
 inline long sys_sched_setaffinity(u32 thread, usize bytes, const void* mask) noexcept {
@@ -303,6 +304,7 @@ inline long sys_sched_getaffinity(u32 thread, usize bytes, void* mask) noexcept 
 }
 
 // Waits until a descriptor is ready or the timeout (null waits forever) passes: the count of ready ones, 0 on timeout.
+// The kernel writes the time that is left into a timeout that is not zero.
 inline long sys_ppoll(PollFd* descriptors, u32 count, const TimeSpec* timeout) noexcept {
     return syscall5(kSysPpoll, reinterpret_cast<long>(descriptors), static_cast<long>(count),
                     reinterpret_cast<long>(timeout), 0, 8);

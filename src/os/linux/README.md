@@ -15,10 +15,12 @@ has no `RENAME_NOREPLACE`, and `sync_parent` accepts a file system that cannot s
 ## Rules
 
 - A `Thread` is a glibc pthread over a fixed table of 64 records (Mesa, libEGL and libwayland need a real thread control
-  block). `thread_main` signals the record's `done` event (`thread_waitable`) just before it publishes the state.
+  block). `thread_waitable` makes the record's `done` event at its first call. `thread_main` sets it, if it exists,
+  just before it publishes the state.
 - A wait is one `ppoll` over eventfds, timerfds and borrowed descriptors (`wait.cpp`); there is no futex wait on several
-  words, which is why `futex_waitv` has no use here. Every futex user (`srwlock.cpp`, which the page table and the log
-  lock with, the thread table, the OpenSSL/TLS locks) waits on one word.
+  words, which is why `futex_waitv` has no use here. A poll (zero timeout) of one auto-reset waitable is one `read`, with
+  no `ppoll`. Every futex user (`srwlock.cpp`, which the page table and the log lock with, the thread table, the
+  OpenSSL/TLS locks) waits on one word.
 - The network loop's ring and its file operations are in `src/platform/net/linux`, not here.
 - Fewer system calls where the kernel does the work: `file_copy_new` copies with `sendfile` (any output file since
   2.6.33; one call per 2 GiB instead of a read and a write per 32 KiB), and `data_path`/`state_path` with

@@ -176,6 +176,12 @@ void test_thread_waitable() noexcept {
           "thread_com_enter and thread_com_leave");
     if (com != nullptr)
         thread_close(com);
+    // A thread that ended before the first call: the event is made signaled.
+    Thread* ended = thread_start(enter_and_leave, const_cast<Atomic32*>(&entered), 64 * 1024, nullptr);
+    check(ended != nullptr && thread_wait(ended, kLimit) && wait_one(thread_waitable(ended), 0) == WAIT_OBJECT_0,
+          "thread_waitable of a thread that ended is signaled at once");
+    if (ended != nullptr)
+        thread_close(ended);
 }
 
 } // namespace
