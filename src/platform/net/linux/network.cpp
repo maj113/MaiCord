@@ -44,13 +44,6 @@ u32 acquire(const u32* counter) noexcept {
     return __atomic_load_n(counter, __ATOMIC_ACQUIRE);
 }
 
-void initialize_operation(NetworkOperation* operation, void* owner, NetworkOperationKind kind, u32 generation) noexcept {
-    reset_value<NetworkOperation>(operation);
-    operation->owner = owner;
-    operation->generation = generation;
-    operation->kind = kind;
-}
-
 void ready_append(NetworkLoop* loop, NetworkOperation* operation) noexcept {
     operation->next = nullptr;
     if (loop->ready_tail) {
@@ -213,10 +206,6 @@ u32 reap(NetworkLoop* loop) noexcept {
 void translate_connection(NetworkOperation* operation, NetworkPollResult* result) noexcept {
     auto* connection = static_cast<NetworkConnection*>(operation->owner);
     NetworkCompletion& completion = result->completion;
-    completion.transferred = operation->transferred;
-    completion.native_error = operation->native_error;
-    completion.kind = operation->kind;
-    completion.succeeded = operation->succeeded;
     completion.connection = connection;
     // Windows: the packet's key and the operation's generation both match the owner's current incarnation.
     completion.stale = !connection || operation->generation != connection->generation;
@@ -247,36 +236,32 @@ void translate_connection(NetworkOperation* operation, NetworkPollResult* result
     }
 }
 
+// The completion poll returns for `operation`. A signal's owner is never null: network_signal_post is the one
+// function that makes a signal operation, and it sets the owner.
 NetworkPollResult translate(NetworkOperation* operation) noexcept {
     NetworkPollResult result{};
     result.state = NetworkPollState::completion;
-    switch (operation->kind) {
-    case NetworkOperationKind::signal: {
-        auto* signal = static_cast<NetworkSignal*>(operation->owner);
-        result.completion.signal = signal;
-        result.completion.signal_value = signal ? signal->value : 0;
-        result.completion.kind = NetworkOperationKind::signal;
-        result.completion.succeeded = signal != nullptr;
-        result.completion.stale = !signal;
-        if (signal) {
-            InterlockedExchange(&signal->pending, 0);
-        }
-        break;
-    }
-    case NetworkOperationKind::resolve:
+    NetworkCompletion& completion = result.completion;
+    const NetworkOperationKind kind = operation->kind;
+    completion.kind = kind;
+    if (kind == NetworkOperationKind::resolve) {
         translate_resolver(operation, &result);
-        break;
-    case NetworkOperationKind::file_read:
-    case NetworkOperationKind::file_write:
+        return result;
+    }
+    completion.transferred = operation->transferred;
+    completion.native_error = operation->native_error;
+    completion.succeeded = operation->succeeded;
+    if (kind == NetworkOperationKind::signal) {
+        auto* signal = static_cast<NetworkSignal*>(operation->owner);
+        completion.signal = signal;
+        completion.signal_value = signal->value;
+        InterlockedExchange(&signal->pending, 0);
+    } else if (kind == NetworkOperationKind::file_read || kind == NetworkOperationKind::file_write) {
         translate_file(operation, &result);
-        break;
-    case NetworkOperationKind::datagram_receive:
-    case NetworkOperationKind::datagram_send:
+    } else if (kind == NetworkOperationKind::datagram_receive || kind == NetworkOperationKind::datagram_send) {
         translate_datagram(operation, &result);
-        break;
-    default:
+    } else {
         translate_connection(operation, &result);
-        break;
     }
     return result;
 }
@@ -510,8 +495,8 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
     // The request reads the address when it is submitted, so it lives in the connection. A connect is submitted at
     // once, as a Windows one starts: a peer may accept it before the loop is polled. Other requests wait for the poll.
     copy_bytes(connection->connect_address, &target, address_bytes);
-    initialize_operation(&connection->connect_operation, connection, NetworkOperationKind::connect,
-                         connection->generation);
+    network_operation_initialize(&connection->connect_operation, connection, NetworkOperationKind::connect,
+                                 connection->generation);
     connection->state = NetworkConnectionState::connecting;
     connection->connect_pending = true;
     if (RingSubmission* entry = take_entry(loop)) {
@@ -535,8 +520,8 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
         !buffer.data || buffer.count == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
-    initialize_operation(&connection->receive_operation, connection, NetworkOperationKind::receive,
-                         connection->generation);
+    network_operation_initialize(&connection->receive_operation, connection, NetworkOperationKind::receive,
+                                 connection->generation);
     connection->receive_operation.buffer.buf = reinterpret_cast<char*>(buffer.data);
     connection->receive_operation.buffer.len = buffer.count;
     connection->receive_pending = true;
@@ -549,7 +534,8 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
         !buffer.data || buffer.count == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
-    initialize_operation(&connection->send_operation, connection, NetworkOperationKind::send, connection->generation);
+    network_operation_initialize(&connection->send_operation, connection, NetworkOperationKind::send,
+                                 connection->generation);
     connection->send_operation.buffer.buf = reinterpret_cast<char*>(const_cast<u8*>(buffer.data));
     connection->send_operation.buffer.len = buffer.count;
     connection->send_pending = true;
@@ -586,9 +572,7 @@ NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 
     if (!loop || !loop->ready || !signal || InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
         return failure(NetworkError::invalid_argument, ERROR_INVALID_PARAMETER);
     }
-    reset_value<NetworkOperation>(&signal->operation);
-    signal->operation.owner = signal;
-    signal->operation.kind = NetworkOperationKind::signal;
+    network_operation_initialize(&signal->operation, signal, NetworkOperationKind::signal, 0);
     signal->value = value;
     post(loop, &signal->operation, true, 0, 0);
     return success();

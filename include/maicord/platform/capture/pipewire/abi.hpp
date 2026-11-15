@@ -235,7 +235,7 @@ inline constexpr char kTypeNode[] = "PipeWire:Interface:Node";
 inline constexpr char kTypePort[] = "PipeWire:Interface:Port";
 inline constexpr char kTypeLink[] = "PipeWire:Interface:Link";
 
-// The entry points of libpipewire-0.3: F(return type, name, (argument types)). Filled by pipewire_api().
+// The entry points of libpipewire-0.3: F(return type, name, (argument types)). Filled by pipewire::api().
 #define MAICORD_PIPEWIRE_FUNCTIONS(F)                                                                                  \
     F(void, pw_init, (int*, char***))                                                                                  \
     F(ThreadLoop*, pw_thread_loop_new, (const char*, const void*))                                                     \

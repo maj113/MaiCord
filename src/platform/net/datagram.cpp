@@ -7,12 +7,6 @@ namespace {
 NetworkResult fail(NetworkError error, i32 native = WSAEINVAL) noexcept {
     return {native, error};
 }
-void operation(NetworkOperation* output, NetworkDatagram* owner, NetworkOperationKind kind) noexcept {
-    reset_value(output);
-    output->owner = owner;
-    output->generation = owner->generation;
-    output->kind = kind;
-}
 } // namespace
 NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram,
                                     const NetworkAddress& peer) noexcept {
@@ -52,7 +46,7 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
     if (slot ? (datagram->extra_receive_pending & bit) != 0 : datagram->receive_pending)
         return fail(NetworkError::invalid_argument);
     auto& receive = slot ? datagram->extra_receive_operations[slot - 1] : datagram->receive_operation;
-    operation(&receive, datagram, NetworkOperationKind::datagram_receive);
+    network_operation_initialize(&receive, datagram, NetworkOperationKind::datagram_receive, datagram->generation);
     receive.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
     if (slot)
         datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending | bit);
@@ -82,7 +76,7 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
     if (!datagram || !datagram->open || datagram->send_pending || (!buffer.data && buffer.count))
         return fail(NetworkError::invalid_argument);
     auto& send = datagram->send_operation;
-    operation(&send, datagram, NetworkOperationKind::datagram_send);
+    network_operation_initialize(&send, datagram, NetworkOperationKind::datagram_send, datagram->generation);
     send.buffer = {buffer.count, reinterpret_cast<char*>(const_cast<u8*>(buffer.data))};
     datagram->send_pending = true;
     if (WSASend(datagram->socket, native(&send.buffer), 1, nullptr, 0, native(&send.overlapped), nullptr) == SOCKET_ERROR) {

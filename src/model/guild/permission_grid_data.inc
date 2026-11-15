@@ -1,6 +1,6 @@
 // The permission grid's data: the editable permission catalog shared by the role editor and channel overrides.
 // Not compiled into the client: tools/pack_tables.py reads this text into the zlib stream
-// src/model/guild/permission_grid.cpp inflates on first use, and tests/model/guild/permission_grid_pack.cpp
+// src/model/guild/permission_grid.cpp inflates on first use, and tests/model/guild/settings_model.cpp
 // compiles the same text to check the decoded grid against it. Included inside namespace maicord, after
 // permission_grid.hpp.
 constexpr u8 G = permission_scope_guild, T = permission_scope_text, V = permission_scope_voice,

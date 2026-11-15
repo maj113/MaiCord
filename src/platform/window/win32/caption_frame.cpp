@@ -53,39 +53,15 @@ u32 window_dpi(HWND window) noexcept {
     return dpi ? dpi : 96;
 }
 
+// The HT code of each FrameHit, in the order of the enumeration.
+constexpr u8 kHitCodes[]{HTCLIENT,  HTCAPTION, HTSYSMENU, HTMINBUTTON, HTMAXBUTTON,  HTCLOSE,       HTLEFT,   HTRIGHT,
+                         HTTOP,     HTBOTTOM,  HTTOPLEFT, HTTOPRIGHT,  HTBOTTOMLEFT, HTBOTTOMRIGHT, HTNOWHERE};
+static_assert(sizeof(kHitCodes) == static_cast<usize>(FrameHit::nowhere) + 1 &&
+              kHitCodes[static_cast<usize>(FrameHit::close)] == HTCLOSE &&
+              kHitCodes[static_cast<usize>(FrameHit::bottom_right)] == HTBOTTOMRIGHT);
+
 LRESULT hit_code(FrameHit hit) noexcept {
-    switch (hit) {
-    case FrameHit::caption:
-        return HTCAPTION;
-    case FrameHit::system_menu:
-        return HTSYSMENU;
-    case FrameHit::minimize:
-        return HTMINBUTTON;
-    case FrameHit::maximize:
-        return HTMAXBUTTON;
-    case FrameHit::close:
-        return HTCLOSE;
-    case FrameHit::left:
-        return HTLEFT;
-    case FrameHit::right:
-        return HTRIGHT;
-    case FrameHit::top:
-        return HTTOP;
-    case FrameHit::bottom:
-        return HTBOTTOM;
-    case FrameHit::top_left:
-        return HTTOPLEFT;
-    case FrameHit::top_right:
-        return HTTOPRIGHT;
-    case FrameHit::bottom_left:
-        return HTBOTTOMLEFT;
-    case FrameHit::bottom_right:
-        return HTBOTTOMRIGHT;
-    case FrameHit::nowhere:
-        return HTNOWHERE;
-    default:
-        return HTCLIENT;
-    }
+    return static_cast<usize>(hit) < sizeof(kHitCodes) ? kHitCodes[static_cast<usize>(hit)] : HTCLIENT;
 }
 
 FrameHit button_part(WPARAM hit) noexcept {

@@ -204,6 +204,15 @@ struct NetworkLoop {
 };
 #endif
 
+// A cleared operation of `owner`, of the kind and the owner's generation.
+inline void network_operation_initialize(NetworkOperation* operation, void* owner, NetworkOperationKind kind,
+                                         u32 generation) noexcept {
+    *operation = {};
+    operation->owner = owner;
+    operation->generation = generation;
+    operation->kind = kind;
+}
+
 // Whether network_loop_initialize succeeded and the loop was not released since.
 #if defined(_WIN32)
 inline bool network_loop_ready(const NetworkLoop& loop) noexcept {

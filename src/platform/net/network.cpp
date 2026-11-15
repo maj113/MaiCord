@@ -21,14 +21,6 @@ NetworkResult failure(NetworkError error, i32 native_error) noexcept {
     return NetworkResult{native_error, error};
 }
 
-void initialize_operation(NetworkOperation* operation, NetworkConnection* owner, NetworkOperationKind kind,
-                          u32 generation) noexcept {
-    reset_value<NetworkOperation>(operation);
-    operation->owner = owner;
-    operation->generation = generation;
-    operation->kind = kind;
-}
-
 bool post_resolve_complete(NetworkResolver* resolver, DWORD native_error) noexcept {
     resolver->native_error = static_cast<i32>(native_error);
     // Publication transfers ownership to the consumer, which may immediately
@@ -156,8 +148,8 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
         return failure(NetworkError::bind_local, native_error);
     }
 
-    initialize_operation(&connection->connect_operation, connection, NetworkOperationKind::connect,
-                         connection->generation);
+    network_operation_initialize(&connection->connect_operation, connection, NetworkOperationKind::connect,
+                                 connection->generation);
     connection->state = NetworkConnectionState::connecting;
     connection->connect_pending = true;
     const BOOL started = connect_ex(socket_value, reinterpret_cast<const sockaddr*>(&target), address_bytes, nullptr, 0,
@@ -180,8 +172,8 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
         connection->receive_pending || !buffer.data || buffer.count == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
-    initialize_operation(&connection->receive_operation, connection, NetworkOperationKind::receive,
-                         connection->generation);
+    network_operation_initialize(&connection->receive_operation, connection, NetworkOperationKind::receive,
+                                 connection->generation);
     connection->receive_operation.buffer.buf = reinterpret_cast<char*>(buffer.data);
     connection->receive_operation.buffer.len = buffer.count;
     connection->receive_pending = true;
@@ -203,8 +195,8 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
         !buffer.data || buffer.count == 0) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
-    initialize_operation(&connection->send_operation, connection, NetworkOperationKind::send,
-                         connection->generation);
+    network_operation_initialize(&connection->send_operation, connection, NetworkOperationKind::send,
+                                 connection->generation);
     connection->send_operation.buffer.buf = reinterpret_cast<char*>(const_cast<u8*>(buffer.data));
     connection->send_operation.buffer.len = buffer.count;
     connection->send_pending = true;
@@ -309,9 +301,7 @@ NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 
         InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
         return failure(NetworkError::invalid_argument, ERROR_INVALID_PARAMETER);
     }
-    reset_value<NetworkOperation>(&signal->operation);
-    signal->operation.owner = signal;
-    signal->operation.kind = NetworkOperationKind::signal;
+    network_operation_initialize(&signal->operation, signal, NetworkOperationKind::signal, 0);
     signal->value = value;
     if (!PostQueuedCompletionStatus(loop->completion_port, 0, reinterpret_cast<ULONG_PTR>(signal),
                                     native(&signal->operation.overlapped))) {

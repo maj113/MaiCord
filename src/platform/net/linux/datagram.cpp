@@ -17,13 +17,6 @@ NetworkResult fail(NetworkError error, i32 native = WSAEINVAL) noexcept {
     return failure(error, native);
 }
 
-void initialize_operation(NetworkOperation* output, NetworkDatagram* owner, NetworkOperationKind kind) noexcept {
-    reset_value(output);
-    output->owner = owner;
-    output->generation = owner->generation;
-    output->kind = kind;
-}
-
 NetworkOperation& receive_operation(NetworkDatagram* datagram, u32 slot) noexcept {
     return slot ? datagram->extra_receive_operations[slot - 1] : datagram->receive_operation;
 }
@@ -54,10 +47,6 @@ i32 datagram_error(long result) noexcept {
 void translate_datagram(NetworkOperation* operation, NetworkPollResult* result) noexcept {
     auto* datagram = static_cast<NetworkDatagram*>(operation->owner);
     NetworkCompletion& completion = result->completion;
-    completion.transferred = operation->transferred;
-    completion.native_error = operation->native_error;
-    completion.kind = operation->kind;
-    completion.succeeded = operation->succeeded;
     completion.datagram = datagram;
     const bool is_owned = datagram && operation->generation == datagram->generation;
     completion.stale = !is_owned || !datagram->open;
@@ -121,7 +110,7 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
         return fail(NetworkError::invalid_argument);
     }
     NetworkOperation& receive = receive_operation(datagram, slot);
-    initialize_operation(&receive, datagram, NetworkOperationKind::datagram_receive);
+    network_operation_initialize(&receive, datagram, NetworkOperationKind::datagram_receive, datagram->generation);
     receive.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
     if (slot) {
         datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending | bit);
@@ -147,7 +136,7 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
         return fail(NetworkError::invalid_argument);
     }
     NetworkOperation& send = datagram->send_operation;
-    initialize_operation(&send, datagram, NetworkOperationKind::datagram_send);
+    network_operation_initialize(&send, datagram, NetworkOperationKind::datagram_send, datagram->generation);
     send.buffer = {buffer.count, reinterpret_cast<char*>(const_cast<u8*>(buffer.data))};
     datagram->send_pending = true;
     start(datagram->loop, &send);

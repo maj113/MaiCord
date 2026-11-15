@@ -1,6 +1,6 @@
 // The portable half of the window procedure: every window event of the main window, in the order the overlays and the
-// shell take it (window_runtime.hpp). The Windows-only half (state observer, caption frame, UI Automation, shell
-// integration) lives in window_runtime.cpp.
+// shell take it (window_runtime.hpp). The Windows-only half (UI Automation, shell integration) lives in
+// app/windows/platform_window.cpp.
 #include "../account/dm_profile.hpp"
 #include "../account/application_account_module.hpp"
 #include "../plugins/pipeline_host.hpp"

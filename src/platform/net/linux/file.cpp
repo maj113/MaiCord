@@ -19,10 +19,7 @@ NetworkResult fail(i32 error, NetworkError kind) noexcept {
 }
 
 void start_operation(NetworkFile* file, NetworkOperationKind kind, u64 offset, Slice<u8> buffer) noexcept {
-    reset_value(&file->operation);
-    file->operation.owner = file;
-    file->operation.kind = kind;
-    file->operation.generation = file->generation;
+    network_operation_initialize(&file->operation, file, kind, file->generation);
     file->operation.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
     file->offset = offset;
     file->job_handle = file->handle;
@@ -37,10 +34,6 @@ namespace net_detail {
 void translate_file(NetworkOperation* operation, NetworkPollResult* result) noexcept {
     auto* file = static_cast<NetworkFile*>(operation->owner);
     NetworkCompletion& completion = result->completion;
-    completion.transferred = operation->transferred;
-    completion.native_error = operation->native_error;
-    completion.kind = operation->kind;
-    completion.succeeded = operation->succeeded;
     completion.file = file;
     completion.stale = !file || operation->generation != file->generation;
     if (!completion.stale) {

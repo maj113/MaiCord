@@ -5,10 +5,7 @@
 namespace maicord {
 namespace {
 void start_operation(NetworkFile* file, NetworkOperationKind kind, u64 offset) noexcept {
-    reset_value(&file->operation);
-    file->operation.owner = file;
-    file->operation.kind = kind;
-    file->operation.generation = file->generation;
+    network_operation_initialize(&file->operation, file, kind, file->generation);
     file->operation.overlapped.Offset = static_cast<DWORD>(offset);
     file->operation.overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
     file->pending = true;

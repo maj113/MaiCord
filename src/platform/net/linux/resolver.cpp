@@ -224,7 +224,6 @@ void translate_resolver(NetworkOperation* operation, NetworkPollResult* result) 
     auto* resolver = static_cast<NetworkResolver*>(operation->owner);
     NetworkCompletion& completion = result->completion;
     completion.resolver = resolver;
-    completion.kind = NetworkOperationKind::resolve;
     completion.stale = !resolver || operation->generation != resolver->generation;
     if (completion.stale) {
         completion.native_error = resolver ? operation->native_error : WSAEINVAL;

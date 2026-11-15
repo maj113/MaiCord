@@ -2,7 +2,7 @@
 
 // The decisions of screen capture that need no system: which windows the picker lists, how far a thumbnail is
 // reduced, which frames a frame-rate cap admits, and UTF-8 names cut at a character. Shared by both systems' backends
-// and tested directly (tests/platform/capture/capture_policy.cpp).
+// and tested directly (tests/platform/capture/capture.cpp).
 
 #include "maicord/core/base.hpp"
 
