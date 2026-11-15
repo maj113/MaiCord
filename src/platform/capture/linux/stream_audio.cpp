@@ -232,7 +232,7 @@ void on_process(void* data) noexcept {
         plane->chunk->size <= plane->maxsize - plane->chunk->offset) {
         const u32 frames = plane->chunk->size / kFrameBytes;
         // The block ends now: its first frame was heard its duration ago.
-        const u64 now = clock_microseconds(clock_initialize(), 0, clock_now());
+        const u64 now = clock_now_microseconds();
         const u64 duration = u64{frames} * 1'000'000u / kStreamAudioRate;
         if (frames)
             r.sink.block(r.sink.context,

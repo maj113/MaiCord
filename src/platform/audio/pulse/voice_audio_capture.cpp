@@ -17,7 +17,7 @@ constexpr u32 kServerTimeoutMs = 3000;
 constexpr usize kDeviceNameBytes = 128;
 
 u64 now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 struct Runtime {
     VoiceAudioCaptureSink sink;

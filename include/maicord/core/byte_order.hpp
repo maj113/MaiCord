@@ -16,6 +16,9 @@ inline u16 byte_load_be16(const u8* input) noexcept {
     u16 value; memcpy(&value, input, sizeof(value)); return byte_swap(value);
 }
 u32 byte_load_le24(const u8* input) noexcept;
+// The shortest LEB128 form of a value (an AV1 obu_size, a field of a DAVE frame): its length, and writing it.
+u32 leb128_bytes(u32 value) noexcept;
+u32 leb128_write(u8* output, u32 value) noexcept;
 inline u32 byte_load_le32(const u8* input) noexcept {
     u32 value; memcpy(&value, input, sizeof(value)); return value;
 }

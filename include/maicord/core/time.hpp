@@ -103,6 +103,11 @@ __declspec(noinline) inline u64 clock_microseconds(const Clock& clock, i64 begin
            (remainder * 1'000'000ull) / frequency;
 }
 
+// The clock in microseconds: the timestamp of the voice, capture and stream paths.
+inline u64 clock_now_microseconds() noexcept {
+    return clock_microseconds(clock_initialize(), 0, clock_now());
+}
+
 inline u64 clock_monotonic_milliseconds() noexcept {
 #if defined(_WIN32)
     return GetTickCount64();

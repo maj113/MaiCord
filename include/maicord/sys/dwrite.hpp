@@ -82,8 +82,6 @@ enum DWRITE_MEASURING_MODE {
     DWRITE_MEASURING_MODE_NATURAL,
 };
 enum DWRITE_GLYPH_IMAGE_FORMATS {
-    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE = 0x00000001,
-    DWRITE_GLYPH_IMAGE_FORMATS_CFF = 0x00000002,
     DWRITE_GLYPH_IMAGE_FORMATS_COLR_PAINT_TREE = 0x00000100
 };
 
@@ -98,14 +96,12 @@ enum DWRITE_FONT_SIMULATIONS {
 };
 enum DWRITE_FONT_WEIGHT {
     DWRITE_FONT_WEIGHT_NORMAL = 400,
-    DWRITE_FONT_WEIGHT_SEMI_BOLD = 600,
 };
 enum DWRITE_FONT_STRETCH {
     DWRITE_FONT_STRETCH_NORMAL = 5,
 };
 enum DWRITE_FONT_STYLE {
     DWRITE_FONT_STYLE_NORMAL,
-    DWRITE_FONT_STYLE_ITALIC = 2
 };
 struct DWRITE_FONT_METRICS {
     UINT16 designUnitsPerEm;
@@ -231,14 +227,12 @@ enum DWRITE_FLOW_DIRECTION {
     DWRITE_FLOW_DIRECTION_TOP_TO_BOTTOM = 0,
 };
 enum DWRITE_TEXT_ALIGNMENT {
-    DWRITE_TEXT_ALIGNMENT_LEADING,
     DWRITE_TEXT_ALIGNMENT_CENTER = 2,
 };
 enum DWRITE_PARAGRAPH_ALIGNMENT {
     DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
 };
 enum DWRITE_WORD_WRAPPING {
-    DWRITE_WORD_WRAPPING_WRAP = 0,
     DWRITE_WORD_WRAPPING_NO_WRAP = 1,
 };
 enum DWRITE_LINE_SPACING_METHOD {
@@ -246,7 +240,6 @@ enum DWRITE_LINE_SPACING_METHOD {
 };
 enum DWRITE_TRIMMING_GRANULARITY {
     DWRITE_TRIMMING_GRANULARITY_NONE,
-    DWRITE_TRIMMING_GRANULARITY_CHARACTER,
 };
 enum DWRITE_FONT_FEATURE_TAG {
     DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_LIGATURES = ((static_cast < UINT32 > (static_cast < UINT8 > ('g')) << 24) | (static_cast < UINT32 > (static_cast < UINT8 > ('i')) << 16) | (static_cast < UINT32 > (static_cast < UINT8 > ('l')) << 8) | static_cast < UINT32 > (static_cast < UINT8 > ('c'))),
@@ -308,7 +301,6 @@ struct DWRITE_SCRIPT_ANALYSIS {
     DWRITE_SCRIPT_SHAPES shapes;
 };
 enum DWRITE_BREAK_CONDITION {
-    DWRITE_BREAK_CONDITION_NEUTRAL,
     DWRITE_BREAK_CONDITION_MAY_NOT_BREAK = 2,
 };
 struct DWRITE_LINE_BREAKPOINT {
@@ -838,7 +830,6 @@ struct __declspec(uuid("958DB99A-BE2A-4F09-AF7D-65189803D1D3")) __declspec(novta
 };
 enum DWRITE_FONT_AXIS_TAG : UINT32 {
     DWRITE_FONT_AXIS_TAG_WEIGHT = (static_cast < DWRITE_FONT_AXIS_TAG > (((static_cast < UINT32 > (static_cast < UINT8 > ('t')) << 24) | (static_cast < UINT32 > (static_cast < UINT8 > ('h')) << 16) | (static_cast < UINT32 > (static_cast < UINT8 > ('g')) << 8) | static_cast < UINT32 > (static_cast < UINT8 > ('w'))))),
-    DWRITE_FONT_AXIS_TAG_WIDTH = (static_cast < DWRITE_FONT_AXIS_TAG > (((static_cast < UINT32 > (static_cast < UINT8 > ('h')) << 24) | (static_cast < UINT32 > (static_cast < UINT8 > ('t')) << 16) | (static_cast < UINT32 > (static_cast < UINT8 > ('d')) << 8) | static_cast < UINT32 > (static_cast < UINT8 > ('w'))))),
 };
 struct DWRITE_FONT_AXIS_VALUE {
     DWRITE_FONT_AXIS_TAG axisTag;

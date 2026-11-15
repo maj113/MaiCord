@@ -115,7 +115,7 @@ bool refill(VoicePlayback& playback, VoicePlaybackStream& stream, u64 now_us) no
 } // namespace
 
 u64 voice_playback_now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 
 bool voice_playback_initialize(VoicePlayback* playback) noexcept {

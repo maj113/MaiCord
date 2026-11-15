@@ -87,7 +87,6 @@ struct DXGI_ADAPTER_DESC {
 };
 // <dxgitype.h>
 enum DXGI_MODE_ROTATION {
-    DXGI_MODE_ROTATION_UNSPECIFIED = 0,
     DXGI_MODE_ROTATION_IDENTITY = 1,
 };
 // <dxgi.h>

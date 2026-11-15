@@ -15,7 +15,7 @@ enqueues its GPU reads before it returns and keeps nothing. Nothing is copied th
 - **Linux:** the compositor's dma-buf (one plane of packed RGB: XR24, AR24, XB24 or AB24, linear or with the implicit
   modifier) with its pitch and offset. The dma-buf's implicit fences order the consumer's GPU reads.
 
-`timestamp_us` is the client clock (`clock_microseconds(clock_initialize(), 0, clock_now())`) at composition: the
+`timestamp_us` is the client clock (`clock_now_microseconds()`) at composition: the
 capture's own time where the system gives one (WGC's SystemRelativeTime, Desktop Duplication's LastPresentTime, the
 PipeWire header meta's pts), arrival time otherwise. Stream audio blocks carry the same clock. Frames come only when the
 picture changes, and no closer together than `max_fps` allows (`CapturePacer`, which keeps a source at the cap intact

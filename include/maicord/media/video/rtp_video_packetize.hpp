@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/slice.hpp"
 
 namespace maicord {
@@ -41,7 +42,4 @@ u32 rtp_packetizer_next(RtpVideoPacketizer* packetizer, Slice<u8> output, bool* 
 // The first start code prefix (00 00 01) at or after from: *start is where its zeros begin (a fourth zero included),
 // the result where the unit after it begins; both are data.count when there is none.
 u32 annexb_next_unit(ConstSlice<u8> data, u32 from, u32* start) noexcept;
-// The shortest LEB128 form of a value (an AV1 obu_size): its length, and writing it.
-u32 leb128_bytes(u32 value) noexcept;
-u32 leb128_write(u8* output, u32 value) noexcept;
 } // namespace maicord

@@ -43,7 +43,6 @@
 #define SO_REUSEADDR 0x0004
 #define SO_EXCLUSIVEADDRUSE ((int)(~SO_REUSEADDR))
 #define SO_RCVBUF 0x1002
-#define SO_SNDTIMEO 0x1005
 #define SO_RCVTIMEO 0x1006
 #define SOL_SOCKET 0xffff
 
@@ -56,7 +55,6 @@
 #define WSA_FLAG_NO_HANDLE_INHERIT 0x80
 
 // <ws2def.h>
-#define NS_ALL (0)
 #define NS_DNS (12)
 
 // <WS2tcpip.h>

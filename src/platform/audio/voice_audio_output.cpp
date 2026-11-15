@@ -38,7 +38,7 @@ HRESULT fill(Runtime& r, Engine& e) noexcept {
     h = e.render->GetBuffer(frames, &data);
     if (FAILED(h))
         return h;
-    const u64 now = clock_microseconds(clock_initialize(), 0, clock_now());
+    const u64 now = clock_now_microseconds();
     auto* pcm = reinterpret_cast<i16*>(data);
     for (u32 at = 0; at < frames;) {
         const u32 chunk = minimum(kChunkFrames, frames - at);

@@ -49,7 +49,7 @@ void wake(GoLiveMedia* media) noexcept {
         media->wake(media->wake_context);
 }
 u64 microseconds() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 constexpr GpuStreamCodec kCodecs[]{GpuStreamCodec::h264, GpuStreamCodec::h265, GpuStreamCodec::av1};
 VoiceVideoCodec voice_codec(GpuStreamCodec codec) noexcept {

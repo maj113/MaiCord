@@ -38,7 +38,7 @@ bool fill(Runtime& r, Engine& e) noexcept {
     const u32 frames = pulse::request_frames(pulse::track_writable(&e.track), kFrameBytes, kFillLimitFrames);
     if (!frames)
         return pulse::track_alive(e.track);
-    const u64 now = clock_microseconds(clock_initialize(), 0, clock_now());
+    const u64 now = clock_now_microseconds();
     i16 pcm[kChunkFrames * kChannels];
     for (u32 at = 0; at < frames;) {
         const u32 chunk = minimum(kChunkFrames, frames - at);

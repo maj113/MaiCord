@@ -111,24 +111,10 @@ struct _UNICODE_STRING {
 };
 typedef _UNICODE_STRING UNICODE_STRING;
 enum _SYSTEM_INFORMATION_CLASS {
-    SystemBasicInformation = 0,
-    SystemPerformanceInformation = 2,
-    SystemTimeOfDayInformation = 3,
     SystemProcessInformation = 5,
-    SystemProcessorPerformanceInformation = 8,
-    SystemInterruptInformation = 23,
-    SystemExceptionInformation = 33,
-    SystemRegistryQuotaInformation = 37,
-    SystemLookasideInformation = 45,
-    SystemCodeIntegrityInformation = 103,
-    SystemPolicyInformation = 134
 };
 typedef _SYSTEM_INFORMATION_CLASS SYSTEM_INFORMATION_CLASS;
 enum _PROCESSINFOCLASS {
-    ProcessBasicInformation = 0,
-    ProcessDebugPort = 7,
-    ProcessWow64Information = 26,
-    ProcessImageFileName = 27,
     ProcessBreakOnTermination = 29
 };
 typedef _PROCESSINFOCLASS PROCESSINFOCLASS;

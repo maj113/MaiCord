@@ -206,7 +206,7 @@ struct GpuStreamEncoder {
 namespace {
 
 inline u64 now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 
 // Under the lock: wakes the encoder thread for the pending picture.

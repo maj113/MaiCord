@@ -1,5 +1,6 @@
 #include "maicord/app/voice/dave/frame_crypto.hpp"
 #include "maicord/app/voice/dave/key_derivation.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -80,18 +81,6 @@ __declspec(noinline) DaveSealError rotate_key(DaveFrameSealer& sealer, KdfSha256
     secure_clear_bytes(secret, sizeof(secret));
     return imported.ok() ? DaveSealError::none : DaveSealError::crypto_failure;
 }
-u32 uleb_bytes(u32 value) noexcept {
-    u32 bytes = 1;
-    for (value >>= 7; value; value >>= 7)
-        ++bytes;
-    return bytes;
-}
-u8* uleb_write(u8* output, u32 value) noexcept {
-    for (; value >= 0x80; value >>= 7)
-        *output++ = static_cast<u8>(value | 0x80);
-    *output++ = static_cast<u8>(value);
-    return output;
-}
 // Without ranges the whole frame is encrypted (output may equal it exactly);
 // with ranges the clear bytes are the AAD and scratch stages the gather.
 DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
@@ -99,9 +88,9 @@ DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, Cons
     if (sealer.truncated_nonce == ~u32{0})
         return {0, 0, 0, DaveSealError::exhausted};
     const u32 nonce = sealer.truncated_nonce + 1, generation = nonce >> 24;
-    u32 supplemental = kDaveFrameTagBytes + uleb_bytes(nonce) + 3, clear = 0;
+    u32 supplemental = kDaveFrameTagBytes + leb128_bytes(nonce) + 3, clear = 0;
     for (u32 i = 0; i != ranges.count; ++i) {
-        supplemental += uleb_bytes(ranges[i].offset) + uleb_bytes(ranges[i].bytes);
+        supplemental += leb128_bytes(ranges[i].offset) + leb128_bytes(ranges[i].bytes);
         clear += ranges[i].bytes;
     }
     if (supplemental > 255)
@@ -131,9 +120,12 @@ DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, Cons
     }
     if (!sealed)
         return {0, 0, 0, DaveSealError::crypto_failure};
-    u8* suffix = uleb_write(output.data + frame.count + kDaveFrameTagBytes, nonce);
-    for (u32 i = 0; i != ranges.count; ++i)
-        suffix = uleb_write(uleb_write(suffix, ranges[i].offset), ranges[i].bytes);
+    u8* suffix = output.data + frame.count + kDaveFrameTagBytes;
+    suffix += leb128_write(suffix, nonce);
+    for (u32 i = 0; i != ranges.count; ++i) {
+        suffix += leb128_write(suffix, ranges[i].offset);
+        suffix += leb128_write(suffix, ranges[i].bytes);
+    }
     *suffix++ = static_cast<u8>(supplemental);
     *suffix++ = 0xfa;
     *suffix = 0xfa;

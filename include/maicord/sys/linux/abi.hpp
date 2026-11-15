@@ -252,10 +252,7 @@ inline constexpr int kSolSocket = 1;
 inline constexpr int kSolTcp = 6;
 inline constexpr int kSocketReuseAddress = 2;
 inline constexpr int kSocketReceiveBuffer = 8;
-inline constexpr int kSocketReceiveTimeout = 20;
-inline constexpr int kSocketSendTimeout = 21;
 inline constexpr int kTcpNoDelay = 1;
-inline constexpr int kShutdownBoth = 2;
 inline constexpr int kMessageTruncate = 0x20;
 inline constexpr int kMessageNoSignal = 0x4000;
 inline constexpr int kSocketAddressStorageBytes = 128;
@@ -276,10 +273,6 @@ struct alignas(8) SockAddrStorage {
     u8 bytes[kSocketAddressStorageBytes];
 };
 static_assert(sizeof(SockAddrIn) == 16 && sizeof(SockAddrIn6) == 28);
-struct TimeVal {
-    i64 seconds;
-    i64 microseconds;
-};
 // struct addrinfo (x86-64): the hints and the list getaddrinfo(3) returns. glibc and musl declare the same fields in
 // this order and so the same layout; tools/check_libc_abi.py compares it with the installed C library's headers.
 struct AddrInfo {

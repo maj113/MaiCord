@@ -115,7 +115,7 @@ HRESULT drain(Runtime& r, Engine& e) noexcept {
         if (FAILED(h))
             return h;
         // The packet's QPC time (100 ns units, the client clock); a device that gives none is stamped on arrival.
-        const u64 timestamp = qpc_100ns ? qpc_100ns / 10 : clock_microseconds(clock_initialize(), 0, clock_now());
+        const u64 timestamp = qpc_100ns ? qpc_100ns / 10 : clock_now_microseconds();
         if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
             for (u32 at = 0; at < frames; at += kSilenceFrames) {
                 const u32 piece = minimum(kSilenceFrames, frames - at);

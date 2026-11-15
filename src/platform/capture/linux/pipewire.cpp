@@ -338,7 +338,7 @@ void on_process(void* data) noexcept {
             corrupted = corrupted || (header->flags & kHeaderCorrupted);
         }
     }
-    const u64 now = clock_microseconds(clock_initialize(), 0, clock_now());
+    const u64 now = clock_now_microseconds();
     const u64 stamped = pts > 0 ? static_cast<u64>(pts) / 1000 : 0;
     // A pts on another clock (far from now) is not ours to pass on.
     const u64 timestamp = stamped && stamped <= now + 1'000'000 && stamped + 1'000'000 >= now ? stamped : now;

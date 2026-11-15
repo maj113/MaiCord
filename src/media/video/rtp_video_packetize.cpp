@@ -19,20 +19,6 @@ u32 annexb_next_unit(ConstSlice<u8> data, u32 from, u32* start) noexcept {
     *start = data.count;
     return data.count;
 }
-u32 leb128_bytes(u32 value) noexcept {
-    u32 bytes = 1;
-    for (; value >= 0x80; value >>= 7)
-        ++bytes;
-    return bytes;
-}
-u32 leb128_write(u8* output, u32 value) noexcept {
-    u32 n = 0;
-    do {
-        output[n++] = static_cast<u8>((value & 0x7f) | (value >= 0x80 ? 0x80 : 0));
-        value >>= 7;
-    } while (value);
-    return n;
-}
 namespace {
 constexpr u8 kStapA = 24, kFuA = 28, kH265Aggregation = 48, kH265Fragmentation = 49;
 constexpr u32 kAv1MaximumElements = 63; // The depacketizer reads at most 64 per packet.

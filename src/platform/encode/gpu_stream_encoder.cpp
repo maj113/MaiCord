@@ -383,7 +383,7 @@ struct GpuStreamEncoder {
 namespace {
 
 u64 now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 
 // Under the lock: the pending picture into the transform when it asked for input (never while held).

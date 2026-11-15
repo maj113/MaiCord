@@ -14,7 +14,7 @@ constexpr PROPERTYKEY kFriendlyName{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x
                                     14};
 
 u64 now_us() noexcept {
-    return clock_microseconds(clock_initialize(), 0, clock_now());
+    return clock_now_microseconds();
 }
 struct Runtime {
     VoiceAudioCaptureSink sink;

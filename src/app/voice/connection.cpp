@@ -56,7 +56,7 @@ void record_extensions(VoiceConnection& connection, ConstSlice<u8> bytes, const 
     }
     if (extensions.found && extensions.value.count == 2)
         rtcp_transport_feedback_record(&connection.transport_feedback, byte_load_be16(extensions.value.data),
-                                       layout.ssrc, clock_microseconds(clock_initialize(), 0, clock_now()));
+                                       layout.ssrc, clock_now_microseconds());
 }
 bool receive_media(void* context, ConstSlice<u8> bytes, const VoicePacketResult& packet) noexcept {
     auto& connection = *static_cast<VoiceConnection*>(context);

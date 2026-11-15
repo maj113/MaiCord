@@ -229,30 +229,27 @@ Mp4DemuxError parse_description(Mp4Demuxer* demuxer, const Box& stsd) noexcept {
     return Mp4DemuxError::none;
 }
 
+// Load the run at stts_index or ctts_index. False for a run that the reader does not accept.
+bool load_stts(Mp4Demuxer* demuxer) noexcept {
+    const u8* run = demuxer->encoded.data + demuxer->stts_offset + demuxer->stts_index * 8u;
+    demuxer->stts_left = read_u32(run);
+    demuxer->stts_delta = read_u32(run + 4u);
+    return demuxer->stts_left != 0 && demuxer->stts_delta != 0;
+}
+bool load_ctts(Mp4Demuxer* demuxer) noexcept {
+    const u8* run = demuxer->encoded.data + demuxer->ctts_offset + demuxer->ctts_index * 8u;
+    demuxer->ctts_left = read_u32(run);
+    const u32 delta = read_u32(run + 4u);
+    demuxer->ctts_delta = demuxer->ctts_version == 0 ? static_cast<i64>(delta) : static_cast<i32>(delta);
+    return demuxer->ctts_left != 0;
+}
+
+// The caller set the run indices to 0.
 bool initialize_runs(Mp4Demuxer* demuxer) noexcept {
-    if (demuxer->stts_count == 0 || demuxer->stsc_count == 0 ||
-        demuxer->chunk_count == 0 || demuxer->sample_count == 0) {
-        return false;
-    }
-    const u8* encoded = demuxer->encoded.data;
-    demuxer->stts_left = read_u32(encoded + demuxer->stts_offset);
-    demuxer->stts_delta = read_u32(encoded + demuxer->stts_offset + 4u);
-    if (demuxer->stts_left == 0 || demuxer->stts_delta == 0) {
-        return false;
-    }
-    if (demuxer->ctts_count != 0) {
-        demuxer->ctts_left = read_u32(encoded + demuxer->ctts_offset);
-        const u32 encoded_delta =
-            read_u32(encoded + demuxer->ctts_offset + 4u);
-        demuxer->ctts_delta = demuxer->ctts_version == 0
-                                  ? static_cast<i64>(encoded_delta)
-                                  : static_cast<i32>(encoded_delta);
-        if (demuxer->ctts_left == 0) {
-            return false;
-        }
-    }
-    return read_u32(encoded + demuxer->stsc_offset) == 1u &&
-           read_u32(encoded + demuxer->stsc_offset + 4u) != 0u;
+    const u8* stsc = demuxer->encoded.data + demuxer->stsc_offset;
+    return demuxer->stts_count != 0 && demuxer->stsc_count != 0 && demuxer->chunk_count != 0 &&
+           demuxer->sample_count != 0 && load_stts(demuxer) && (demuxer->ctts_count == 0 || load_ctts(demuxer)) &&
+           read_u32(stsc) == 1u && read_u32(stsc + 4u) != 0u;
 }
 
 bool load_chunk(Mp4Demuxer* demuxer) noexcept {
@@ -297,43 +294,19 @@ bool load_chunk(Mp4Demuxer* demuxer) noexcept {
 }
 
 bool consume_stts(Mp4Demuxer* demuxer, u32* delta) noexcept {
-    if (demuxer->stts_left == 0) {
-        if (++demuxer->stts_index >= demuxer->stts_count) {
-            return false;
-        }
-        const u8* run = demuxer->encoded.data + demuxer->stts_offset +
-                        demuxer->stts_index * 8u;
-        demuxer->stts_left = read_u32(run);
-        demuxer->stts_delta = read_u32(run + 4u);
-        if (demuxer->stts_left == 0 || demuxer->stts_delta == 0) {
-            return false;
-        }
-    }
+    if (demuxer->stts_left == 0 && (++demuxer->stts_index >= demuxer->stts_count || !load_stts(demuxer)))
+        return false;
     *delta = demuxer->stts_delta;
     --demuxer->stts_left;
     return true;
 }
 
 bool consume_ctts(Mp4Demuxer* demuxer, i64* delta) noexcept {
-    if (demuxer->ctts_count == 0) {
-        *delta = 0;
+    *delta = 0;
+    if (demuxer->ctts_count == 0)
         return true;
-    }
-    if (demuxer->ctts_left == 0) {
-        if (++demuxer->ctts_index >= demuxer->ctts_count) {
-            return false;
-        }
-        const u8* run = demuxer->encoded.data + demuxer->ctts_offset +
-                        demuxer->ctts_index * 8u;
-        demuxer->ctts_left = read_u32(run);
-        const u32 encoded_delta = read_u32(run + 4u);
-        demuxer->ctts_delta = demuxer->ctts_version == 0
-                                  ? static_cast<i64>(encoded_delta)
-                                  : static_cast<i32>(encoded_delta);
-        if (demuxer->ctts_left == 0) {
-            return false;
-        }
-    }
+    if (demuxer->ctts_left == 0 && (++demuxer->ctts_index >= demuxer->ctts_count || !load_ctts(demuxer)))
+        return false;
     *delta = demuxer->ctts_delta;
     --demuxer->ctts_left;
     return true;
@@ -426,92 +399,46 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
             return Mp4DemuxError::unsupported;
     }
 
-    Box mdhd{};
-    Box stsd{};
-    Box stts{};
-    Box ctts{};
-    Box stsc{};
-    Box stsz{};
-    Box stco{};
-    Box co64{};
-    Box stss{};
-    if (!find_box(encoded, mdia.payload, mdia.end,
-                  fourcc('m', 'd', 'h', 'd'), &mdhd) ||
-        mdhd.end - mdhd.payload < 20u ||
-        !find_box(encoded, stbl.payload, stbl.end,
-                  fourcc('s', 't', 's', 'd'), &stsd) ||
-        !find_box(encoded, stbl.payload, stbl.end,
-                  fourcc('s', 't', 't', 's'), &stts) ||
-        !find_box(encoded, stbl.payload, stbl.end,
-                  fourcc('s', 't', 's', 'c'), &stsc) ||
-        !find_box(encoded, stbl.payload, stbl.end,
-                  fourcc('s', 't', 's', 'z'), &stsz)) {
+    const auto child = [&](char a, char b, char c, char d, Box* box) noexcept {
+        return find_box(encoded, stbl.payload, stbl.end, fourcc(a, b, c, d), box);
+    };
+    Box mdhd{}, stsd{}, stts{}, ctts{}, stsc{}, stsz{}, stco{}, co64{}, stss{};
+    if (!find_box(encoded, mdia.payload, mdia.end, fourcc('m', 'd', 'h', 'd'), &mdhd) ||
+        mdhd.end - mdhd.payload < 20u || !child('s', 't', 's', 'd', &stsd) || !child('s', 't', 't', 's', &stts) ||
+        !child('s', 't', 's', 'c', &stsc) || !child('s', 't', 's', 'z', &stsz))
         return Mp4DemuxError::malformed;
-    }
     const u8 mdhd_version = encoded.data[mdhd.payload];
     const u64 timescale_offset = mdhd.payload + (mdhd_version == 1 ? 20u : 12u);
-    if ((mdhd_version != 0 && mdhd_version != 1) ||
-        timescale_offset + 4u > mdhd.end) {
+    if ((mdhd_version != 0 && mdhd_version != 1) || timescale_offset + 4u > mdhd.end)
         return Mp4DemuxError::unsupported;
-    }
     demuxer->timescale = read_u32(encoded.data + timescale_offset);
-    if (demuxer->timescale == 0 ||
-        !table(encoded, stts, 8u, &demuxer->stts_offset,
-               &demuxer->stts_count) ||
-        !table(encoded, stsc, 12u, &demuxer->stsc_offset,
-               &demuxer->stsc_count)) {
+    if (demuxer->timescale == 0 || !table(encoded, stts, 8u, &demuxer->stts_offset, &demuxer->stts_count) ||
+        !table(encoded, stsc, 12u, &demuxer->stsc_offset, &demuxer->stsc_count) ||
+        stsz.end - stsz.payload < 12u || read_u32(encoded.data + stsz.payload) != 0)
         return Mp4DemuxError::malformed;
-    }
-
-    if (stsz.end - stsz.payload < 12u || read_u32(encoded.data+stsz.payload)!=0) {
-        return Mp4DemuxError::malformed;
-    }
     demuxer->constant_sample_bytes = read_u32(encoded.data + stsz.payload + 4u);
     demuxer->sample_count = read_u32(encoded.data + stsz.payload + 8u);
     demuxer->stsz_offset = static_cast<u32>(stsz.payload + 12u);
     if (demuxer->sample_count == 0 ||
         (demuxer->constant_sample_bytes == 0 &&
-         static_cast<u64>(demuxer->sample_count) * 4u >
-             stsz.end - (stsz.payload + 12u))) {
+         static_cast<u64>(demuxer->sample_count) * 4u > stsz.end - (stsz.payload + 12u)))
         return Mp4DemuxError::malformed;
-    }
 
-    if (find_box(encoded, stbl.payload, stbl.end,
-                 fourcc('c', 't', 't', 's'), &ctts)) {
-        if (!table(encoded, ctts, 8u, &demuxer->ctts_offset,
-                   &demuxer->ctts_count)) {
+    if (child('c', 't', 't', 's', &ctts)) {
+        if (!table(encoded, ctts, 8u, &demuxer->ctts_offset, &demuxer->ctts_count))
             return Mp4DemuxError::malformed;
-        }
         demuxer->ctts_version = encoded.data[ctts.payload];
-        if (!demuxer->ctts_count || demuxer->ctts_version > 1u) {
+        if (!demuxer->ctts_count || demuxer->ctts_version > 1u)
             return Mp4DemuxError::unsupported;
-        }
     }
-    if (find_box(encoded, stbl.payload, stbl.end,
-                 fourcc('s', 't', 's', 's'), &stss) &&
-        !table(encoded, stss, 4u, &demuxer->stss_offset,
-               &demuxer->stss_count)) {
+    demuxer->sync_table_present = child('s', 't', 's', 's', &stss);
+    // One chunk offset table: 32-bit or 64-bit offsets.
+    demuxer->chunk_offsets_64 = child('c', 'o', '6', '4', &co64);
+    if ((demuxer->sync_table_present && !table(encoded, stss, 4u, &demuxer->stss_offset, &demuxer->stss_count)) ||
+        child('s', 't', 'c', 'o', &stco) == demuxer->chunk_offsets_64 ||
+        !table(encoded, demuxer->chunk_offsets_64 ? co64 : stco, demuxer->chunk_offsets_64 ? 8u : 4u,
+               &demuxer->chunk_offset_table, &demuxer->chunk_count))
         return Mp4DemuxError::malformed;
-    }
-    demuxer->sync_table_present=stss.end!=0;
-    if (find_box(encoded, stbl.payload, stbl.end,
-                 fourcc('s', 't', 'c', 'o'), &stco)) {
-        if (!table(encoded, stco, 4u, &demuxer->chunk_offset_table,
-                   &demuxer->chunk_count)) {
-            return Mp4DemuxError::malformed;
-        }
-    } else if (find_box(encoded, stbl.payload, stbl.end,
-                        fourcc('c', 'o', '6', '4'), &co64)) {
-        if (!table(encoded, co64, 8u, &demuxer->chunk_offset_table,
-                   &demuxer->chunk_count)) {
-            return Mp4DemuxError::malformed;
-        }
-        demuxer->chunk_offsets_64 = true;
-    } else {
-        return Mp4DemuxError::malformed;
-    }
-    Box extra_offsets{};
-    if (stco.end && find_box(encoded,stbl.payload,stbl.end,fourcc('c','o','6','4'),&extra_offsets))return Mp4DemuxError::malformed;
     // Validate complete run totals once, including unconsumed trailing runs.
     u64 total{},ticks{};
     for(u32 i=0;i<demuxer->stts_count;++i){const auto* p=encoded.data+demuxer->stts_offset+u64{i}*8;
@@ -663,63 +590,46 @@ void mp4_demux_reset(Mp4Demuxer* demuxer) noexcept {
     }
 }
 
-Mp4AccessUnit mp4_demux_next(Mp4Demuxer* demuxer) noexcept {
-    Mp4AccessUnit result{};
-    if (!demuxer || !demuxer->ready) {
-        result.error = Mp4DemuxError::invalid_input;
-        return result;
-    }
-    if (demuxer->sample_index >= demuxer->sample_count) {
-        result.error = Mp4DemuxError::end_of_stream;
-        return result;
-    }
-    if (demuxer->samples_left_in_chunk == 0 && !load_chunk(demuxer)) {
-        result.error = Mp4DemuxError::malformed;
-        return result;
-    }
-    const u32 sample_bytes = demuxer->constant_sample_bytes != 0
-                                 ? demuxer->constant_sample_bytes
-                                 : read_u32(demuxer->encoded.data +
-                                            demuxer->stsz_offset +
-                                            demuxer->sample_index * 4u);
-    if (sample_bytes == 0 || demuxer->chunk_byte_offset > demuxer->encoded.count ||
-        sample_bytes > demuxer->encoded.count - demuxer->chunk_byte_offset ||
-        demuxer->chunk_byte_offset>demuxer->mdat_end || sample_bytes>demuxer->mdat_end-demuxer->chunk_byte_offset) {
-        result.error = Mp4DemuxError::malformed;
-        return result;
-    }
+namespace {
+// Reads the next sample into `result` and moves the cursor past it. The caller stores the returned error.
+Mp4DemuxError next_unit(Mp4Demuxer* demuxer, Mp4AccessUnit& result) noexcept {
+    if (!demuxer || !demuxer->ready)
+        return Mp4DemuxError::invalid_input;
+    if (demuxer->sample_index >= demuxer->sample_count)
+        return Mp4DemuxError::end_of_stream;
+    if (demuxer->samples_left_in_chunk == 0 && !load_chunk(demuxer))
+        return Mp4DemuxError::malformed;
+    const u32 sample_bytes =
+        demuxer->constant_sample_bytes != 0
+            ? demuxer->constant_sample_bytes
+            : read_u32(demuxer->encoded.data + demuxer->stsz_offset + demuxer->sample_index * 4u);
     u32 duration = 0;
     i64 composition_delta = 0;
-    if (!consume_stts(demuxer, &duration) ||
-        !consume_ctts(demuxer, &composition_delta)) {
-        result.error = Mp4DemuxError::malformed;
-        return result;
-    }
-    if (composition_delta>0 && demuxer->decode_time>0x7fffffffffffffffull-static_cast<u64>(composition_delta)) {
-        result.error=Mp4DemuxError::unsupported;return result;
-    }
-    const i64 presentation = static_cast<i64>(demuxer->decode_time) +
-                             composition_delta;
-    if(presentation<(-0x7fffffffffffffffll-1)+demuxer->media_start_ticks){result.error=Mp4DemuxError::unsupported;return result;}
+    if (sample_bytes == 0 || demuxer->chunk_byte_offset > demuxer->encoded.count ||
+        sample_bytes > demuxer->encoded.count - demuxer->chunk_byte_offset ||
+        demuxer->chunk_byte_offset > demuxer->mdat_end ||
+        sample_bytes > demuxer->mdat_end - demuxer->chunk_byte_offset || !consume_stts(demuxer, &duration) ||
+        !consume_ctts(demuxer, &composition_delta))
+        return Mp4DemuxError::malformed;
+    if (composition_delta > 0 && demuxer->decode_time > 0x7fffffffffffffffull - static_cast<u64>(composition_delta))
+        return Mp4DemuxError::unsupported;
+    const i64 presentation = static_cast<i64>(demuxer->decode_time) + composition_delta;
+    if (presentation < (-0x7fffffffffffffffll - 1) + demuxer->media_start_ticks)
+        return Mp4DemuxError::unsupported;
     const i64 relative=presentation-demuxer->media_start_ticks;
     const u64 absolute=relative<0?static_cast<u64>(-(relative+1))+1:static_cast<u64>(relative);
     const u64 scaled=scale_us(absolute,demuxer->timescale);
-    if(scaled>0x7fffffffffffffffull || (relative>=0&&scaled>0x7fffffffffffffffull-demuxer->empty_edit_us)){
-        result.error=Mp4DemuxError::unsupported;return result;
-    }
+    if (scaled > 0x7fffffffffffffffull || (relative >= 0 && scaled > 0x7fffffffffffffffull - demuxer->empty_edit_us))
+        return Mp4DemuxError::unsupported;
     const i64 mapped=(relative<0?-static_cast<i64>(scaled):static_cast<i64>(scaled))+static_cast<i64>(demuxer->empty_edit_us);
     bool sync = !demuxer->sync_table_present;
     if (!sync && demuxer->stss_index < demuxer->stss_count) {
-        const u32 sync_sample = read_u32(
-            demuxer->encoded.data + demuxer->stss_offset +
-            demuxer->stss_index * 4u);
+        const u32 sync_sample = read_u32(demuxer->encoded.data + demuxer->stss_offset + demuxer->stss_index * 4u);
         sync = sync_sample == demuxer->sample_index + 1u;
-        if (sync) {
+        if (sync)
             ++demuxer->stss_index;
-        } else if (sync_sample < demuxer->sample_index + 1u) {
-            result.error = Mp4DemuxError::malformed;
-            return result;
-        }
+        else if (sync_sample < demuxer->sample_index + 1u)
+            return Mp4DemuxError::malformed;
     }
     result.bytes = ConstSlice<u8>{
         demuxer->encoded.data + demuxer->chunk_byte_offset, sample_bytes};
@@ -731,15 +641,20 @@ Mp4AccessUnit mp4_demux_next(Mp4Demuxer* demuxer) noexcept {
     result.duration_ticks=duration;
     result.sample_index = demuxer->sample_index;
     result.sync = sync;
-    result.error = Mp4DemuxError::none;
 
     demuxer->decode_time += duration;
     demuxer->chunk_byte_offset += sample_bytes;
     --demuxer->samples_left_in_chunk;
     ++demuxer->sample_index;
-    if (demuxer->samples_left_in_chunk == 0) {
+    if (demuxer->samples_left_in_chunk == 0)
         ++demuxer->chunk_index;
-    }
+    return Mp4DemuxError::none;
+}
+} // namespace
+
+Mp4AccessUnit mp4_demux_next(Mp4Demuxer* demuxer) noexcept {
+    Mp4AccessUnit result{};
+    result.error = next_unit(demuxer, result);
     return result;
 }
 

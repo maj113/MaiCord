@@ -42,15 +42,11 @@ unsigned __int64 __popcnt64(unsigned __int64);
 void* _InterlockedCompareExchangePointer(void* volatile* _Destination, void* _Exchange, void* _Comparand);
 void* _InterlockedExchangePointer(void* volatile* _Target, void* _Value);
 void* _ReturnAddress(void);
-void __cpuid(int[4], int);
-void __cdecl __debugbreak(void);
 __declspec(noreturn) void __fastfail(unsigned int);
 unsigned __int64 __rdtsc(void);
 unsigned long __readgsdword(unsigned long);
 unsigned __int64 __readgsqword(unsigned long);
 [[nodiscard]] unsigned __int64 __cdecl _byteswap_uint64(unsigned __int64);
-[[nodiscard]] unsigned long __cdecl _byteswap_ulong(unsigned long);
-[[nodiscard]] unsigned short __cdecl _byteswap_ushort(unsigned short);
 
 }
 
