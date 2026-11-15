@@ -20,10 +20,6 @@ constexpr GlyphAtlasGpuResult gpu_error(GlyphAtlasGpuError error,
     return GlyphAtlasGpuResult{native_error, error};
 }
 
-bool bounded_float(float value, float limit) noexcept {
-    return value == value && value >= -limit && value <= limit;
-}
-
 // A buffer is made at start and each time a batch outgrows it: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GpuStatus reserve_commands(GlyphAtlasGpu* gpu,GpuDevice* device,u32 required) noexcept {
@@ -131,7 +127,7 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         allocation.x < allocation_padding || allocation.y < allocation_padding ||
         static_cast<u32>(allocation.x) + allocation.width + allocation_padding > gpu->width ||
         static_cast<u32>(allocation.y) + allocation.height + allocation_padding > gpu->height ||
-        !bounded_float(pixels_per_em, 1024.0f) || pixels_per_em <= 0.0f ||
+        !(pixels_per_em > 0.0f && pixels_per_em <= 1024.0f) ||
         !(stroke_half_width >= 0.0f && stroke_half_width < 128.0f) ||
         // The raster with its gutter lies in backed rows: no shader touches an unbacked tile.
         (gpu->surface && !gpu_paged_texture_backed(gpu->surface, allocation.y - allocation_padding,

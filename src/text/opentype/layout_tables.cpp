@@ -64,6 +64,16 @@ __attribute__((minsize)) void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,co
         bounds.last=maximum(bounds.last,coverage.format==1?read(coverage.records,i*stride):read(coverage.records,i*stride+2));
     }
 }
+// The scan walks each span of the view by pointer. The range test is the sign of two differences and joins the
+// digest test without a branch: in a run each part of sfnt_lookup_bounds_exclude changes outcome from glyph to glyph.
+u32 sfnt_lookup_bounds_find(const SfntLookupBounds& bounds,const SfntGlyphView& view,u32 at,u32 end) noexcept {
+    const u32 first=bounds.first,last=bounds.last,any=!bounds.digest.low;const u64 low=bounds.digest.low,high=bounds.digest.high;
+    while(at<end){const bool prefix=at<view.prefix_count;const u32 limit=prefix&&view.prefix_count<end?view.prefix_count:end;
+        const u8* record=reinterpret_cast<const u8*>(&sfnt_glyph_at(view,at));
+        for(;at<limit;++at,record+=view.record_size){const u32 glyph=reinterpret_cast<const SfntGsubGlyph*>(record)->glyph;
+            if(!((((glyph-first)|(last-glyph))>>31|~(static_cast<u32>((low>>(glyph&63))&(high>>((glyph>>6)&63)))|any))&1))return at;}}
+    return end;
+}
 __attribute__((minsize)) SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
     if(!glyph)return SfntStatus::invalid_input;*glyph=0;
     if(coverage.format!=1 && coverage.format!=2)return SfntStatus::invalid_input;

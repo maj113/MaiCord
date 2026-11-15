@@ -440,21 +440,31 @@ const NativeFormat* resolve_format(const TextSystem& system,TextWrapping wrappin
     const auto* value=format_at(*system.native_text,system.native_format);if(!value)return nullptr;
     return wrapping==TextWrapping::wrap&&!value->word_wrap?nullptr:value;
 }
+// The arrays of one line storage, carved from one block. The first pass (place false) finds the size and leaves
+// each slice without data, which is also the result when the arena is full.
+struct Carve {u8* base;usize offset;bool place;
+    template<class T> Slice<T> take(u32 count) noexcept {offset=(offset+alignof(T)-1)&~(alignof(T)-1);
+        T* const data=place&&count?reinterpret_cast<T*>(base+offset):nullptr;offset+=static_cast<usize>(count)*sizeof(T);return {data,count};}};
 NativeAsciiLineStorage storage(Arena& arena,u32 source,u32 glyphs,bool arabic=false,bool full_actions=false) noexcept {
-    NativeAsciiLineStorage result{};auto& out=result.run;
-    if(!arabic)result.clusters=take<NativeLineCluster>(arena,source);auto& s=out.shaping;
-    // Every initial glyph owns a component node; dotted circles and split vowels can outnumber the source units.
-    s.glyphs=take<SfntComponentGlyph>(arena,glyphs);s.components=take<SfntComponentNode>(arena,maximum(source,glyphs));s.cluster_bits=take<u64>(arena,(source+63)/64*2);
-    s.character_glyphs=take<u32>(arena,source);s.targets=take<u32>(arena,glyphs);s.associations=take<SfntMarkAssociation>(arena,glyphs);s.advances=take<double>(arena,glyphs);
-    s.flags=take<u8>(arena,glyphs);s.positions=take<SfntPosition>(arena,glyphs);s.placements=take<SfntPlacement>(arena,glyphs);
+    // Each member is set below. A zeroed result costs a 416-byte fill for each line, and an arena call for each
+    // of the twenty arrays cost a quarter of a short line.
+    NativeAsciiLineStorage result;auto& out=result.run;auto& s=out.shaping;
     // Nested match positions and component undo are reused after each edit.
     // The first attempt caps this at 1024; the retry (full_actions) restores
     // the source-scaled capacity.
     const u32 actions=full_actions?maximum<u32>(256,source*16):minimum(maximum<u32>(256,source*16),1024u);
-    s.substitutions={take<SfntGsubExecutionFrame>(arena,64),take<u32>(arena,actions),take<u32>(arena,actions),take<u32>(arena,glyphs),
-        take<u8>(arena,glyphs*sizeof(SfntComponentGlyph)),take<SfntComponentUndo>(arena,actions)};
-    s.positioning={take<SfntGposExecutionFrame>(arena,64),take<u32>(arena,actions),take<u64>(arena,(glyphs+63)/64),take<double>(arena,glyphs),take<SfntCursiveChainNode>(arena,glyphs)};
-    if(!arabic){out.mapped={reinterpret_cast<SfntClusterGlyph*>(s.positions.data),source};out.glyphs={reinterpret_cast<u16*>(s.glyphs.data),glyphs};out.placements=s.placements;out.character_glyphs=s.character_glyphs;}
+    for(Carve c{};;){
+        result.clusters=c.take<NativeLineCluster>(arabic?0:source);
+        // Every initial glyph owns a component node; dotted circles and split vowels can outnumber the source units.
+        s.glyphs=c.take<SfntComponentGlyph>(glyphs);s.components=c.take<SfntComponentNode>(maximum(source,glyphs));s.cluster_bits=c.take<u64>((source+63)/64*2);
+        s.character_glyphs=c.take<u32>(source);s.targets=c.take<u32>(glyphs);s.associations=c.take<SfntMarkAssociation>(glyphs);s.advances=c.take<double>(glyphs);
+        s.flags=c.take<u8>(glyphs);s.positions=c.take<SfntPosition>(glyphs);s.placements=c.take<SfntPlacement>(glyphs);
+        s.substitutions={c.take<SfntGsubExecutionFrame>(64),c.take<u32>(actions),c.take<u32>(actions),c.take<u32>(glyphs),
+            c.take<u8>(glyphs*sizeof(SfntComponentGlyph)),c.take<SfntComponentUndo>(actions)};
+        s.positioning={c.take<SfntGposExecutionFrame>(64),c.take<u32>(actions),c.take<u64>((glyphs+63)/64),c.take<double>(glyphs),c.take<SfntCursiveChainNode>(glyphs)};
+        if(c.place)break;c={static_cast<u8*>(arena_allocate(&arena,c.offset,16)),0,true};if(!c.base)break;}
+    if(arabic)out.mapped={},out.glyphs={},out.placements={},out.character_glyphs={};
+    else{out.mapped={reinterpret_cast<SfntClusterGlyph*>(s.positions.data),source};out.glyphs={reinterpret_cast<u16*>(s.glyphs.data),glyphs};out.placements=s.placements;out.character_glyphs=s.character_glyphs;}
     return result;
 }
 // Retains the session and the font of each of the first count published runs, releasing what it took on failure.
@@ -740,11 +750,11 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
         else for(u32 i=0;i<text.bytes;){const auto cp=utf8_decode_one(text.data+i,text.bytes-i);if(!cp.valid)return false;
             if(cp.codepoint==9||cp.codepoint==10||cp.codepoint==13||cp.codepoint==0x85||cp.codepoint==0x2028||cp.codepoint==0x2029)segment=0;
             else{segment+=cp.width;printable+=cp.width;longest=maximum(longest,segment);}units+=cp.codepoint>65535?2u:1u;i+=cp.width;}
-        NativeAsciiParagraphStorage s{};NativeParagraphShape shape{};Slice<char> saved{};Slice<NativeParagraphRun> runs{};SfntStatus status{};
+        NativeAsciiParagraphStorage s;NativeParagraphShape shape{};Slice<char> saved{};Slice<NativeParagraphRun> runs{};SfntStatus status{};
         for(u32 attempt=0;attempt<2;++attempt){
             arena_reset(&owner.scratch);const u32 factor=attempt?4u:1u;const u32 glyphs=printable?printable*factor+16:0;
             saved=take<char>(owner.scratch,text.bytes);if(!saved.data)return false;
-            reset_value(&s);if(longest)s.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);s.glyphs=take<u16>(owner.scratch,glyphs);s.placements=take<SfntPlacement>(owner.scratch,glyphs);
+            if(longest)s.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);else reset_value(&s.work);s.glyphs=take<u16>(owner.scratch,glyphs);s.placements=take<SfntPlacement>(owner.scratch,glyphs);
             // Source maps, clusters and runs are bounded by UTF-16 units, not UTF-8 bytes.
             s.source_glyphs=take<u32>(owner.scratch,units);s.clusters=take<NativeParagraphCluster>(owner.scratch,units);
             runs=take<NativeParagraphRun>(owner.scratch,units);if(!runs.data)return false;
@@ -1096,8 +1106,10 @@ bool native_text_candidate_line_once(const TextSystem& system,const NativeTextRe
         NativeLinePosition tail{};if(split&&native_ascii_line_position({buffers.clusters.data,line.cluster_count},line,trim,false,&tail)!=SfntStatus::ok)return false;
         const u32 split_glyph=split?buffers.run.character_glyphs[trim]:line.run.glyph_count;
         if(run_count>output->run_capacity||line.run.glyph_count>output->glyph_capacity||line.run.source_units>output->cluster_capacity||line.run.glyph_count>65535)return output_capacity_failure(owner);
-        for(u32 i=0;i<line.run.glyph_count;++i){const auto& p=buffers.run.placements[i];output->glyphs[i]={p.advance,p.advance_offset,p.ascender_offset,arabic?buffers.run.shaping.glyphs[i].glyph.glyph:buffers.run.glyphs[i],0};}
-        for(u32 i=0;i<line.run.source_units;++i)output->clusters[i]=static_cast<u16>(buffers.run.character_glyphs[i]);
+        // The loops read their pointers and counts from locals: without them each store forces a reload.
+        TextGlyph* const out=output->glyphs;u16* const first_glyphs=output->clusters;const auto run=buffers.run;const u32 glyph_count=line.run.glyph_count,units=line.run.source_units;
+        for(u32 i=0;i<glyph_count;++i){const auto& p=run.placements[i];out[i]={p.advance,p.advance_offset,p.ascender_offset,arabic?run.shaping.glyphs[i].glyph.glyph:run.glyphs[i],0};}
+        for(u32 i=0;i<units;++i)first_glyphs[i]=static_cast<u16>(run.character_glyphs[i]);
         output->runs[0]={selected->font,arabic?line.caret_end:0,line.vertical.baseline,em,0,split_glyph,0,split?trim:line.run.source_units,0,static_cast<u8>(arabic?1:0),false,true};
         if(split){output->runs[1]={selected->font,tail.left,line.vertical.baseline,em,split_glyph,line.run.glyph_count-split_glyph,trim,line.trailing_source_units,0,0,false,true};}
         if(!retain_fonts(owner.fonts,output,run_count))return false;

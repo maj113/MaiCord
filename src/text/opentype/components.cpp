@@ -6,8 +6,14 @@ using namespace sfnt_read;
 constexpr u32 nil=0xffffffffu;
 // journaled marks nodes already saved by the current edit; it never outlives one.
 constexpr u8 alias=1,known=2,cached=4,owner=8,journaled=16;
-u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
-const SfntComponentGlyph& record(const SfntGlyphView& v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
+inline u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
+inline const SfntComponentGlyph& record(const SfntGlyphView& v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
+// Root and rank of a node of the forest. False when the work runs out: the outputs then stay.
+inline bool locate(const SfntComponentNode* nodes,u32 node,u32* root,u32* rank,u64& work) noexcept {
+    u32 at=node,ordinal=(nodes[at].flags&alias) || nodes[at].left==nil?0:nodes[nodes[at].left].count;
+    for(;;){if(!spend(work))return false;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*rank=ordinal;return true;}
+        const auto& up=nodes[p];if(up.right==at)ordinal+=1+(up.left==nil?0:nodes[up.left].count);at=p;}
+}
 struct Tree {
     SfntComponentForest& forest;Slice<SfntComponentUndo> journal;u32 used=0;u64 work;SfntStatus status=SfntStatus::ok;
     bool charge() noexcept {if(status!=SfntStatus::ok)return false;if(!spend(work)){status=SfntStatus::resource_limit;return false;}return true;}
@@ -72,10 +78,7 @@ SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntCompo
 }
 SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* root,u32* ordinal,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
-    WorkReport report{work,work,used};const auto* nodes=f.nodes.data;
-    u32 at=node,rank=(nodes[at].flags&alias) || nodes[at].left==nil?0:nodes[nodes[at].left].count;
-    for(;;){if(!spend(work))return SfntStatus::resource_limit;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*ordinal=rank;return SfntStatus::ok;}
-        const auto& up=nodes[p];if(up.right==at)rank+=1+(up.left==nil?0:nodes[up.left].count);at=p;}
+    WorkReport report{work,work,used};return locate(f.nodes.data,node,root,ordinal,work)?SfntStatus::ok:SfntStatus::resource_limit;
 }
 void sfnt_components_rollback(SfntComponentForest* forest,ConstSlice<SfntComponentUndo> journal) noexcept {
     for(u32 i=journal.count;i;){const auto& item=journal.data[--i];forest->nodes.data[item.index]=item.before;}
@@ -114,7 +117,7 @@ SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Sl
     for(u32 i=0;i<f->nodes.count;++i){if(!spend(work))return SfntStatus::resource_limit;auto& n=f->nodes.data[i];if(n.flags&owner){n.parent=nil;n.flags&=~owner;}}
     for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;const auto& g=record(glyphs,i);if(static_cast<u8>(g.glyph.glyph_class)>4)return SfntStatus::invalid_input;
         if(g.component!=nil && g.component>=f->nodes.count)return SfntStatus::invalid_input;if(g.attachment!=nil && g.attachment>=f->nodes.count)return SfntStatus::invalid_input;
-        if(g.glyph.glyph_class==SfntGlyphClass::mark || g.component==nil)continue;u32 root=nil,rank=0;u64 charged=0;auto s=sfnt_component_location(*f,g.component,&root,&rank,work,&charged);work-=charged;if(s!=SfntStatus::ok)return s;
+        if(g.glyph.glyph_class==SfntGlyphClass::mark || g.component==nil)continue;u32 root=nil,rank=0;if(!locate(f->nodes.data,g.component,&root,&rank,work))return SfntStatus::resource_limit;
         auto& n=f->nodes.data[root];if(n.flags&owner)return SfntStatus::invalid_input;if(*target_count==targets.count)return SfntStatus::output_too_small;
         if(n.flags&alias){n.left=n.right=nil;n.flags=0;}n.flags|=owner;n.parent=*target_count;targets.data[(*target_count)++]=i;
     }
@@ -122,7 +125,7 @@ SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Sl
         u32 node=g.attachment,leaf=nil;
         while(node!=nil){if(!spend(work))return SfntStatus::resource_limit;const auto& n=f->nodes.data[node];if(!(n.flags&alias)){leaf=node;break;}if(n.flags&cached){leaf=n.right;break;}node=n.left;}
         node=g.attachment;while(node!=nil){auto& n=f->nodes.data[node];if(!(n.flags&alias) || (n.flags&cached))break;if(!spend(work))return SfntStatus::resource_limit;const u32 next=n.left;n.right=leaf;n.flags|=cached;node=next;}
-        if(leaf==nil)continue;u32 root=nil,rank=0;u64 charged=0;auto s=sfnt_component_location(*f,leaf,&root,&rank,work,&charged);work-=charged;if(s!=SfntStatus::ok)return s;
+        if(leaf==nil)continue;if(leaf>=f->nodes.count)return SfntStatus::invalid_input;u32 root=nil,rank=0;if(!locate(f->nodes.data,leaf,&root,&rank,work))return SfntStatus::resource_limit;
         const auto& n=f->nodes.data[root];if(!(n.flags&owner))continue;const u32 slot=n.parent;if(targets.data[slot]>=i)continue;
         associations.data[i]={slot,n.flags&known?rank:sfnt_component_unknown};
     }return SfntStatus::ok;

@@ -218,8 +218,12 @@ struct Executor {
             // A glyph the root provably cannot start at costs the single unit of a rejected attempt.
             u64 left=work;const u32 end=result.input_end,back=reverse?1u:0u;
             for(;reverse?at>start:at<end;at=reverse?at-1:at+1){const auto& g=sfnt_glyph_at(view,at-back);
-                if(!sfnt_lookup_bounds_exclude(root.bounds,g.glyph)&&!(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,g.glyph,g.glyph_class)))break;
-                if(!left){work=0;return SfntStatus::resource_limit;}--left;}
+                const bool excluded=sfnt_lookup_bounds_exclude(root.bounds,g.glyph);
+                if(!excluded&&!(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,g.glyph,g.glyph_class)))break;
+                if(!left){work=0;return SfntStatus::resource_limit;}--left;
+                // The excluded glyphs that follow an excluded glyph, one unit each.
+                if(excluded&&!reverse){const u32 next=sfnt_lookup_bounds_find(root.bounds,view,at+1,end);
+                    if(next-at-1>left){work=0;return SfntStatus::resource_limit;}left-=next-at-1;at=next-1;}}
             work=left;if(reverse?at<=start:at>=end)return SfntStatus::ok;
             const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;u32 limit=end;
             if(segmented&&!reverse){

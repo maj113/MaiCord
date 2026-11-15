@@ -60,9 +60,6 @@ SfntStatus range_metrics(const TextEditLayoutOwner& owner,u32 first,u32 length,f
     if(!native||capacity>kTextEditSelectionCapacity)return SfntStatus::invalid_input;
     return native_paragraph_hit_range(native->hits,first,length,x,y,{output,capacity},count);
 }
-bool initialize_storage(TextEditLayoutOwner* owner) noexcept {
-    return owner->storage.arena.base||stable_storage_initialize(&owner->storage,edit_storage_words,0,8,8);
-}
 bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,const TextSystem& system) noexcept {
     if(!system.native_text||!input.text.bytes||input.text.bytes>kTextEditTextCapacity)return false;
     // The edit layout applies font styles and emoji overrides but not tracking
@@ -76,7 +73,7 @@ bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,
     // Drawing's same-length substitute when the native items reject the text.
     TextNativeFallback fallback;Utf8View source=shaping.text;u32 fallback_stage=0;
     u32 style_capacity=native_text_candidate_style_capacity(shaping.text,input.styles);
-    if(!initialize_storage(owner))return false;
+    if(!owner->storage.arena.base&&!stable_storage_initialize(&owner->storage,edit_storage_words,0,8,8))return false;
     for(u32 attempt=0;attempt<3+TextNativeFallback::stages;++attempt){
     const u32 base_bytes=native_storage_bytes(n,input.text.bytes,style_capacity);
     if(!stable_storage_reserve(&owner->storage,storage_words(base_bytes)))return false;

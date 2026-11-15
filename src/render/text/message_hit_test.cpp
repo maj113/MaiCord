@@ -12,9 +12,6 @@
 namespace maicord {
 namespace {
 
-bool initialize_storage(MessageHitTestCacheOwner& owner) noexcept {
-    return owner.storage.base||arena_initialize(&owner.storage,512*1024,0,4096,ArenaTag::text);
-}
 struct NativeMessageGeometry {NativeParagraphHits hits;TextMeasureResult measure;float* widths;u16* bytes;};
 template<class T> Slice<T> message_take(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
 const void* pack_message_bytes(Arena& arena,const void* source,u32 count,usize size,usize alignment) noexcept {
@@ -138,7 +135,7 @@ bool acquire_layout(MessageHitTestCacheOwner* owner, const MessageTextCommand& c
 
     message_hit_test_cache_invalidate(owner);
     u32 units=0;
-    if(!utf8_utf16_position_for_byte_offset(command.text,command.text.bytes,&units)||!units||units>kMessageHitTestTextCapacity||!initialize_storage(*owner)||
+    if(!utf8_utf16_position_for_byte_offset(command.text,command.text.bytes,&units)||!units||units>kMessageHitTestTextCapacity||(!owner->storage.base&&!arena_initialize(&owner->storage,512*1024,0,4096,ArenaTag::text))||
        !acquire_native(*owner,command,text_system,width,height,units)){
         owner->geometry=false;saturating_increment(owner->rejected);return false;}
     owner->native_format=native_text_format_identity(text_system);
@@ -158,16 +155,10 @@ bool acquire_layout(MessageHitTestCacheOwner* owner, const MessageTextCommand& c
 }
 
 // Body text: the surfaces whose emoji get a tooltip.
-bool emoji_text(const MessageTextCommand& command) noexcept {
-    switch (command.measurement_kind) {
-    case MessageTextMeasurementKind::reply:
-    case MessageTextMeasurementKind::content:
-    case MessageTextMeasurementKind::embed:
-    case MessageTextMeasurementKind::component:
-        return true;
-    default:
-        return false;
-    }
+constexpr bool emoji_text(const MessageTextCommand& command) noexcept {
+    using enum MessageTextMeasurementKind;
+    return command.measurement_kind == reply || command.measurement_kind == content ||
+           command.measurement_kind == embed || command.measurement_kind == component;
 }
 bool emoji_semantic(const MessageMarkdownSemantic& semantic) noexcept {
     return semantic.kind == MessageMarkdownSemanticKind::custom_emoji ||

@@ -48,6 +48,8 @@ inline bool sfnt_lookup_bounds_disjoint(const SfntLookupBounds& bounds,u16 first
 inline bool sfnt_lookup_bounds_exclude(const SfntLookupBounds& bounds,u16 glyph) noexcept {
     return bounds.ready&&(glyph<bounds.first||glyph>bounds.last||(bounds.digest.low&&!sfnt_glyph_digest_has(bounds.digest,glyph)));
 }
+// The first position in [at,end) of a validated run that ready bounds do not exclude, else end.
+u32 sfnt_lookup_bounds_find(const SfntLookupBounds& bounds,const SfntGlyphView& view,u32 at,u32 end) noexcept;
 inline bool sfnt_lookup_bounds_miss(const SfntLookupBounds& bounds,const SfntGlyphSummary& run) noexcept {
     return sfnt_lookup_bounds_disjoint(bounds,run.first,run.last)||(bounds.ready&&bounds.digest.low&&!sfnt_glyph_digest_meets(bounds.digest,run.digest));
 }

@@ -26,10 +26,6 @@ bool row_visible(const GlyphAtlasAllocator& atlas, u32 row_index, bool protect) 
            (protect && atlas.protect_ms && row.occupied_entries != 0 && row.last_used >= atlas.protect_after);
 }
 
-bool allocation_protects(const GlyphAtlasAllocator& atlas) noexcept {
-    return atlas.protect_allocations && atlas.protect_ms;
-}
-
 u32 page_of(const GlyphAtlasAllocator& atlas, u32 y) noexcept {
     return y / atlas.page_rows;
 }
@@ -658,7 +654,7 @@ GlyphAtlasAllocation glyph_atlas_allocate_unique(GlyphAtlasAllocator* atlas, u64
     }
 
     const u32 evicted_before = atlas->evicted_entries;
-    const bool protect = allocation_protects(*atlas);
+    const bool protect = atlas->protect_allocations && atlas->protect_ms;
     bool reset = false;
     u32 slot = kNone; // an evicted entry whose slot (and record) the new one takes
     u32 row_index = kNone;
@@ -774,10 +770,6 @@ u32 index_home(const GlyphAtlasIndex& index, u64 key) noexcept {
     return static_cast<u32>((key * 0x9E3779B97F4A7C15ull) >> 32) & index.mask;
 }
 
-bool index_bucket_live(const GlyphAtlasAllocator& atlas, u16 bucket) noexcept {
-    return bucket != 0 && bucket - 1u < atlas.entry_capacity && atlas.entries[bucket - 1u].occupied;
-}
-
 void index_place(GlyphAtlasIndex* index, u64 key, u32 slot) noexcept {
     u32 probe = index_home(*index, key);
     while (index->buckets[probe] != 0) {
@@ -811,7 +803,7 @@ void index_insert(GlyphAtlasIndex* index, const GlyphAtlasAllocator& atlas, u64 
         if (bucket == 0) {
             break;
         }
-        if (!index_bucket_live(atlas, bucket) || bucket - 1u == slot) {
+        if (bucket - 1u >= atlas.entry_capacity || !atlas.entries[bucket - 1u].occupied || bucket - 1u == slot) {
             index->buckets[probe] = static_cast<u16>(slot + 1);
             return;
         }

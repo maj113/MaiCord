@@ -20,27 +20,16 @@ bool identifier_continue(char value) noexcept {
     return identifier_begin(value) || ascii_is_digit(value);
 }
 
-bool c_family(CodeLanguage language) noexcept {
-    return language == CodeLanguage::c || language == CodeLanguage::cpp ||
-           language == CodeLanguage::csharp || language == CodeLanguage::rust ||
-           language == CodeLanguage::javascript || language == CodeLanguage::typescript ||
-           language == CodeLanguage::java || language == CodeLanguage::hlsl ||
-           language == CodeLanguage::glsl || language == CodeLanguage::css;
-}
-
-bool preprocessor_language(CodeLanguage language) noexcept {
-    return language == CodeLanguage::c || language == CodeLanguage::cpp || language == CodeLanguage::hlsl ||
-           language == CodeLanguage::glsl;
-}
-
-bool hash_comment_language(CodeLanguage language) noexcept {
-    return language == CodeLanguage::python || language == CodeLanguage::powershell ||
-           language == CodeLanguage::shell;
-}
-
-bool dash_comment_language(CodeLanguage language) noexcept {
-    return language == CodeLanguage::sql;
-}
+// Language sets: one bit for each CodeLanguage.
+constexpr u32 bit(CodeLanguage language) noexcept { return 1u << static_cast<u32>(language); }
+struct Languages {
+    using enum CodeLanguage;
+    static constexpr u32 preprocessor = bit(c) | bit(cpp) | bit(hlsl) | bit(glsl);
+    static constexpr u32 slash_comment =
+        preprocessor | bit(csharp) | bit(rust) | bit(javascript) | bit(typescript) | bit(java) | bit(css);
+    static constexpr u32 block_comment = slash_comment | bit(sql);
+    static constexpr u32 hash_comment = bit(python) | bit(powershell) | bit(shell);
+};
 
 struct LanguageLexicon {
     const char* keywords;
@@ -482,17 +471,18 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
         line_start = false;
         const bool has_next = offset + 1 < code.bytes;
         u32 end = offset + 1, style = text_style_syntax_comment;
-        if (preprocessor_language(language) && at_line_start && value == '#') {
+        if ((Languages::preprocessor & bit(language)) && at_line_start && value == '#') {
             end = line_end(code, offset);
             style = text_style_syntax_preprocessor;
-        } else if (c_family(language) && has_next && value == '/' && code.data[offset + 1] == '/') {
+        } else if ((Languages::slash_comment & bit(language)) && has_next && value == '/' &&
+                   code.data[offset + 1] == '/') {
             end = line_end(code, offset);
-        } else if ((c_family(language) || language == CodeLanguage::sql) && has_next && value == '/' &&
+        } else if ((Languages::block_comment & bit(language)) && has_next && value == '/' &&
                    code.data[offset + 1] == '*') {
             end = block_end(code, offset + 2, '*', '/');
-        } else if (hash_comment_language(language) && value == '#') {
+        } else if ((Languages::hash_comment & bit(language)) && value == '#') {
             end = line_end(code, offset);
-        } else if (dash_comment_language(language) && has_next && value == '-' && code.data[offset + 1] == '-') {
+        } else if (language == CodeLanguage::sql && has_next && value == '-' && code.data[offset + 1] == '-') {
             end = line_end(code, offset);
         } else if (value == '"' || value == '\'' ||
                    (value == '`' &&

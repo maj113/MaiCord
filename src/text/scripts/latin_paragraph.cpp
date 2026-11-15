@@ -7,8 +7,8 @@
 #include "maicord/text/unicode/detail/thai_word_break.hpp"
 #include "../shaping/script_paragraph.hpp"
 namespace maicord {namespace {
-bool control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029;}
-bool nonvisual(u32 cp) noexcept {return cp==0x200b||native_text_bidi_format(cp)||native_text_zero_width_control(cp);}
+constexpr bool control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029;}
+constexpr bool nonvisual(u32 cp) noexcept {return cp==0x200b||native_text_bidi_format(cp)||native_text_zero_width_control(cp);}
 }
 SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraphCluster> clusters,NativeLatinBoundaryStorage s) noexcept {
     if((text.bytes&&!text.data)||(clusters.count&&!clusters.data)||(s.scalar_count&&!s.scalar_data)||(s.breaks.count&&!s.breaks.data))return SfntStatus::invalid_input;
@@ -53,7 +53,8 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Ut
             status=native_paragraph_append_control(s,shaped,count,nonvisual(cp.codepoint)?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
             start=cp.codepoint!=9&&!nonvisual(cp.codepoint);at+=cp.width+(count-1);continue;
         }
-        u32 end=at+cp.width;while(end<input.bytes){const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;if(control(next.codepoint)||nonvisual(next.codepoint))break;end+=next.width;}
+        // Printable ASCII is not a control and is visible: it needs no decode.
+        u32 end=at+cp.width;while(end<input.bytes){if(static_cast<u8>(input.data[end])-0x20u<0x5fu){++end;continue;}const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;if(control(next.codepoint)||nonvisual(next.codepoint))break;end+=next.width;}
         NativeAsciiLineResult line{};status=source.shape(source.context,{input.data+at,end-at},em,s.work,&line,start);if(status!=SfntStatus::ok)return status;
         status=native_paragraph_append_line(s,line,shaped);if(status!=SfntStatus::ok)return status;
         at=end;start=false;
