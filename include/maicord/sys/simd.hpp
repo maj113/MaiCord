@@ -83,7 +83,6 @@ MAICORD_SIMD(128) __m128 _mm_setzero_ps(void) { return __extension__(__m128){0.0
 MAICORD_SIMD(128) __m128d _mm_setzero_pd(void) { return __extension__(__m128d){0.0, 0.0}; }
 MAICORD_SIMD(128) __m128 _mm_set_ss(float __w) { return __extension__(__m128){__w, 0.0f, 0.0f, 0.0f}; }
 MAICORD_SIMD(128) __m128d _mm_set_sd(double __w) { return __extension__(__m128d){__w, 0.0}; }
-MAICORD_SIMD(128) __m128 _mm_set1_ps(float __w) { return __extension__(__m128){__w, __w, __w, __w}; }
 MAICORD_SIMD(128) __m128i _mm_set1_epi8(char __b) {
     return __extension__(__m128i)(__v16qi){__b, __b, __b, __b, __b, __b, __b, __b,
                                            __b, __b, __b, __b, __b, __b, __b, __b};
@@ -163,7 +162,6 @@ MAICORD_SIMD(128) __m128i _mm_cvtepu8_epi16(__m128i __v) {
 MAICORD_SIMD(128) __m128i _mm_cvtepu8_epi32(__m128i __v) {
     return (__m128i)__builtin_convertvector(__builtin_shufflevector((__v16qu)__v, (__v16qu)__v, 0, 1, 2, 3), __v4si);
 }
-MAICORD_SIMD(128) __m128i _mm_cvttps_epi32(__m128 __a) { return (__m128i)__builtin_ia32_cvttps2dq((__v4sf)__a); }
 
 // Single and double precision.
 MAICORD_SIMD(128) __m128 _mm_add_ss(__m128 __a, __m128 __b) { __a[0] += __b[0]; return __a; }
@@ -176,7 +174,6 @@ MAICORD_SIMD_RUNTIME(128) __m128 _mm_cmpeq_ss(__m128 __a, __m128 __b) {
 MAICORD_SIMD_RUNTIME(128) __m128d _mm_sqrt_sd(__m128d __a, __m128d __b) {
     return __extension__(__m128d){__builtin_elementwise_sqrt(__b[0]), __a[1]};
 }
-MAICORD_SIMD(128) __m128 _mm_add_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a + (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_sub_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a - (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_mul_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a * (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_div_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a / (__v4sf)__b); }
@@ -316,12 +313,10 @@ MAICORD_SIMD(256) __m256 _mm256_setzero_ps(void) {
 MAICORD_SIMD(256) __m256 _mm256_set1_ps(float __w) {
     return __extension__(__m256){__w, __w, __w, __w, __w, __w, __w, __w};
 }
-MAICORD_SIMD_RUNTIME(256) __m256 _mm256_load_ps(float const* __p) { return *(const __m256*)__p; }
 MAICORD_SIMD_RUNTIME(256) __m256 _mm256_loadu_ps(float const* __p) {
     struct __loadu_ps { __m256_u __v; } __attribute__((__packed__, __may_alias__));
     return ((const struct __loadu_ps*)__p)->__v;
 }
-MAICORD_SIMD_RUNTIME(256) void _mm256_store_ps(float* __p, __m256 __a) { *(__m256*)__p = __a; }
 MAICORD_SIMD_RUNTIME(256) void _mm256_storeu_ps(float* __p, __m256 __a) {
     struct __storeu_ps { __m256_u __v; } __attribute__((__packed__, __may_alias__));
     ((struct __storeu_ps*)__p)->__v = __a;

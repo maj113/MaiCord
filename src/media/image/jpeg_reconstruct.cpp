@@ -1,6 +1,7 @@
 #include "jpeg_internal.hpp"
 
 #include "maicord/core/byte_order.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 using namespace jpeg_detail;
@@ -17,264 +18,291 @@ inline constexpr float kIdctBasis[8][8] = {
     {0.353553391f, -0.490392640f, 0.461939766f, -0.415734806f, 0.353553391f, -0.277785117f, 0.191341716f, -0.097545161f},
 };
 
-struct IdctColumns {
-    float values[8][8];
+// The inverse DCT and its box averages as pairs of 16-bit values for _mm256_madd_epi16, scaled by 2^15. Row k of
+// kBasisPairs<Samples> holds for each sample s the value M[s][2k] in the low half and M[s][2k + 1] in the high half.
+// M[s][u] is the mean of kIdctBasis[x][u] over the s-th box of 8 / Samples pixels x: the basis itself at 8 samples.
+template <u32 Samples> struct BasisPairs {
+    u32 values[4][8];
 };
-constexpr IdctColumns transpose_basis() noexcept {
-    IdctColumns result{};
-    for (u32 row = 0; row < 8; ++row)
-        for (u32 column = 0; column < 8; ++column)
-            result.values[column][row] = kIdctBasis[row][column];
-    return result;
-}
-// kIdctBasisColumns.values[u][x] == kIdctBasis[x][u]: one row pass step for eight x at once.
-alignas(32) inline constexpr IdctColumns kIdctBasisColumns = transpose_basis();
-
-u8 clamp_sample(float value) noexcept {
-    value += .5f;
-    return value <= 0.f ? 0 : value >= 255.f ? 255 : static_cast<u8>(value);
-}
-
-// The box average of the 8x8 IDCT over step x step pixels is separable too:
-// sample (sy, sx) = sum over v, u of M[sy][v] M[sx][u] C[v][u], where M[s][u]
-// is the mean of kIdctBasis[x][u] over the s-th box of x (zero for u = 4, and
-// for u = 2 and 6 at two samples, which the vertical pass skips).
-template <u32 Samples> struct BoxBasis {
-    float values[Samples][8];
-};
-template <u32 Samples> constexpr BoxBasis<Samples> box_basis() noexcept {
-    BoxBasis<Samples> result{};
+template <u32 Samples> constexpr BasisPairs<Samples> basis_pairs() noexcept {
+    BasisPairs<Samples> result{};
     constexpr u32 step = 8 / Samples;
     for (u32 s = 0; s < Samples; ++s)
         for (u32 u = 0; u < 8; ++u) {
             double total = 0;
             for (u32 x = s * step; x < (s + 1) * step; ++x)
                 total += kIdctBasis[x][u];
-            result.values[s][u] = static_cast<float>(total / step);
+            const double scaled = total * (32768.0 / step);
+            const i32 value = static_cast<i32>(scaled < 0 ? scaled - .5 : scaled + .5);
+            result.values[u / 2][s] |= static_cast<u32>(static_cast<u16>(value)) << (u % 2 * 16);
         }
     return result;
 }
-template <u32 Samples> alignas(32) inline constexpr BoxBasis<Samples> kBoxBasis = box_basis<Samples>();
+template <u32 Samples> alignas(32) inline constexpr BasisPairs<Samples> kBasisPairs = basis_pairs<Samples>();
 
-// {sum a, sum b, sum c, sum d} over eight lanes each.
-inline __m128 lane_sums(__m256 a, __m256 b, __m256 c, __m256 d) noexcept {
-    // {a0+a2, b0+b2, a1+a3, b1+b3 | a4+a6, b4+b6, a5+a7, b5+b7}, and likewise for c and d.
-    const __m256 ab = _mm256_add_ps(_mm256_unpacklo_ps(a, b), _mm256_unpackhi_ps(a, b));
-    const __m256 cd = _mm256_add_ps(_mm256_unpacklo_ps(c, d), _mm256_unpackhi_ps(c, d));
-    // {a0..3, b0..3, c0..3, d0..3 | a4..7, b4..7, c4..7, d4..7}
-    const __m256 sums = _mm256_add_ps(_mm256_shuffle_ps(ab, cd, 0x44), _mm256_shuffle_ps(ab, cd, 0xEE));
-    const __m256 totals = _mm256_add_ps(sums, _mm256_permute2f128_ps(sums, sums, 0x01));
-    return __builtin_shufflevector(totals, totals, 0, 1, 2, 3);
+// In each 128-bit lane, the words of the low and the high quadword in turns.
+alignas(32) inline constexpr u8 kInterleaveWords[32] = {0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15,
+                                                        0, 1, 8, 9, 2, 3, 10, 11, 4, 5, 12, 13, 6, 7, 14, 15};
+// After two packs: the rows of four samples, each row in 8 bytes.
+alignas(32) inline constexpr u32 kRowOrder[8] = {0, 4, 1, 5, 2, 6, 3, 7};
+
+// Dequantized coefficients to Samples x Samples samples: the 8x8 inverse DCT or its box averages. A vertical pass
+// and then a horizontal pass multiply pairs of 16-bit values and add the products in 32 bits. Between the passes
+// the values keep 5 fraction bits and saturate at 16 bits. The coefficients from row and column Used on are zero.
+// Dequantization wraps at 16 bits, as in libjpeg-turbo: only a damaged file has larger values.
+template <u32 Samples, u32 Used>
+MAICORD_HASWELL void reconstruct(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u8* plane,
+                                 u32 pitch) noexcept {
+    const auto& basis = kBasisPairs<Samples>.values;
+    const __m256i interleave = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kInterleaveWords));
+    // pairs[k]: rows 2k and 2k + 1 of each column in turns, columns 0-3 in the low lane and 4-7 in the high lane.
+    __m256i pairs[Used / 2];
+    for (u32 k = 0; k < Used / 2; ++k) {
+        const __m256i values =
+            _mm256_mullo_epi16(_mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(block.values + k * 16)),
+                               _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(table.values + k * 16)));
+        pairs[k] = _mm256_shuffle_epi8(_mm256_permute4x64_epi64(values, 0xD8), interleave);
+    }
+    // The vertical pass: one row of eight frequencies for each sample row.
+    alignas(32) i16 rows[Samples][8];
+    for (u32 sy = 0; sy < Samples; sy += 2) {
+        __m256i sums[2];
+        for (u32 i = 0; i < 2; ++i) {
+            sums[i] = _mm256_set1_epi32(1 << 9);
+            for (u32 k = 0; k < Used / 2; ++k)
+                sums[i] = _mm256_add_epi32(
+                    sums[i], _mm256_madd_epi16(pairs[k], _mm256_set1_epi32(static_cast<int>(basis[k][sy + i]))));
+            sums[i] = _mm256_srai_epi32(sums[i], 10);
+        }
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(rows[sy]),
+                            _mm256_permute4x64_epi64(_mm256_packs_epi32(sums[0], sums[1]), 0xD8));
+    }
+    // The horizontal pass, plus 128 and rounded half up.
+    __m256i samples[Samples < 4 ? 4 : Samples];
+    for (u32 sy = 0; sy < Samples; ++sy) {
+        __m256i sum = _mm256_set1_epi32((128 << 20) + (1 << 19));
+        for (u32 k = 0; k < Used / 2; ++k)
+            sum = _mm256_add_epi32(
+                sum, _mm256_madd_epi16(
+                         _mm256_set1_epi32(static_cast<int>(byte_load_le32(reinterpret_cast<const u8*>(rows[sy] + k * 2)))),
+                         _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(basis[k]))));
+        samples[sy] = _mm256_srai_epi32(sum, 20);
+    }
+    for (u32 sy = Samples; sy < 4; ++sy)
+        samples[sy] = _mm256_setzero_si256();
+    const __m256i order = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kRowOrder));
+    alignas(32) u8 bytes[Samples < 4 ? 32 : 64];
+    for (u32 sy = 0; sy < Samples; sy += 4)
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(bytes + sy * 8),
+                            _mm256_permutevar8x32_epi32(
+                                _mm256_packus_epi16(_mm256_packs_epi32(samples[sy], samples[sy + 1]),
+                                                    _mm256_packs_epi32(samples[sy + 2], samples[sy + 3])),
+                                order));
+    for (u32 y = 0; y < Samples; ++y)
+        copy_bytes(plane + y * pitch, bytes + y * 8, Samples);
 }
 
-// clamp_sample(value + 128) of a then b, as eight bytes in the low half.
-inline __m128i sample_bytes(__m128 a, __m128 b) noexcept {
-    const __m128 bias = _mm_set1_ps(128.f), half = _mm_set1_ps(.5f), zero = _mm_setzero_ps(),
-                 top = _mm_set1_ps(255.f);
-    const auto lanes = [&](__m128 value) noexcept {
-        return _mm_cvttps_epi32(
-            _mm_min_ps(_mm_max_ps(_mm_add_ps(_mm_add_ps(value, bias), half), zero), top));
-    };
-    const __m128i words = _mm_packs_epi32(lanes(a), lanes(b));
-    return _mm_packus_epi16(words, words);
-}
-
-// Dequantized coefficients (rows of eight) to Samples x Samples box averages:
-// a vertical pass per sample row (lanes u), then dot products with M[sx]. Box
-// Samples - 1 - s mirrors box s (M[Samples - 1 - s][v] = (-1)^v M[s][v]), so the
-// vertical pass sums even and odd v apart and takes both rows from the two sums.
-template <u32 Samples> void reconstruct_boxes(const float* coefficients, u8* plane, u32 pitch) noexcept {
-    const auto& m = kBoxBasis<Samples>.values;
-    __m256 q[Samples];
-    for (u32 s = 0; s < Samples / 2; ++s) {
-        __m256 even = _mm256_mul_ps(_mm256_set1_ps(m[s][0]), _mm256_load_ps(coefficients));
-        __m256 odd = _mm256_mul_ps(_mm256_set1_ps(m[s][1]), _mm256_load_ps(coefficients + 8));
-        for (u32 v = 2; v < 8; ++v) {
-            if (m[s][v] == 0.f)
-                continue;
-            const __m256 term = _mm256_mul_ps(_mm256_set1_ps(m[s][v]), _mm256_load_ps(coefficients + v * 8));
-            if (v & 1)
-                odd = _mm256_add_ps(odd, term);
-            else
-                even = _mm256_add_ps(even, term);
-        }
-        q[s] = _mm256_add_ps(even, odd);
-        q[Samples - 1 - s] = _mm256_sub_ps(even, odd);
-    }
-    const auto basis = [&](u32 s) noexcept { return _mm256_load_ps(m[s]); };
-    if constexpr (Samples == 2) {
-        const __m128 samples = lane_sums(_mm256_mul_ps(q[0], basis(0)), _mm256_mul_ps(q[0], basis(1)),
-                                         _mm256_mul_ps(q[1], basis(0)), _mm256_mul_ps(q[1], basis(1)));
-        const u32 bytes = static_cast<u32>(_mm_cvtsi128_si32(sample_bytes(samples, samples)));
-        byte_store_le16(plane, static_cast<u16>(bytes));
-        byte_store_le16(plane + pitch, static_cast<u16>(bytes >> 16));
-    } else {
-        const auto row = [&](u32 sy) noexcept {
-            return lane_sums(_mm256_mul_ps(q[sy], basis(0)), _mm256_mul_ps(q[sy], basis(1)),
-                             _mm256_mul_ps(q[sy], basis(2)), _mm256_mul_ps(q[sy], basis(3)));
-        };
-        for (u32 sy = 0; sy < Samples; sy += 2) {
-            const u64 bytes = static_cast<u64>(_mm_cvtsi128_si64(sample_bytes(row(sy), row(sy + 1))));
-            byte_store_le32(plane + sy * pitch, static_cast<u32>(bytes));
-            byte_store_le32(plane + (sy + 1) * pitch, static_cast<u32>(bytes >> 32));
-        }
-    }
-}
-
-// The exact 8x8 IDCT, or its box averages to samples x samples (DC alone at one sample).
-void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u32 samples,
-                       u8* plane, u32 pitch) noexcept {
-    if (samples == 1) {
-        plane[0] = clamp_sample(static_cast<float>(block.values[0]) * table.values[0] * .125f + 128.f);
-        return;
-    }
-    bool dc_only = true;
-    for (u32 i = 1; i < 64; ++i)
-        if (block.values[i] != 0) {
-            dc_only = false;
-            break;
-        }
-    if (dc_only) {
-        // Keep the two basis products and repeated box sum from the full IDCT.
-        // DC / 8 can round differently at a sample boundary.
-        const float coefficient = static_cast<float>(block.values[0]) * table.values[0];
-        const float row = kIdctBasis[0][0] * coefficient;
-        const float value = kIdctBasis[0][0] * row;
-        const u32 step = 8 / samples;
-        const float scale = 1.f / static_cast<float>(step * step);
-        float total = 0;
-        for (u32 i = 0; i < step * step; ++i)
-            total += value;
-        const u8 sample = clamp_sample(total * scale + 128.f);
-        for (u32 y = 0; y < samples; ++y)
-            for (u32 x = 0; x < samples; ++x)
-                plane[y * pitch + x] = sample;
-        return;
-    }
-    alignas(32) float coefficients[64];
-    for (u32 i = 0; i < 64; ++i)
-        coefficients[i] = static_cast<float>(block.values[i]) * table.values[i];
+template <u32 Used>
+void reconstruct_used(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u32 samples, u8* plane,
+                      u32 pitch) noexcept {
     if (samples == 2)
-        return reconstruct_boxes<2>(coefficients, plane, pitch);
+        return reconstruct<2, Used>(block, table, plane, pitch);
     if (samples == 4)
-        return reconstruct_boxes<4>(coefficients, plane, pitch);
-    // Both passes run eight independent outputs per instruction; each output
-    // keeps the scalar order (sum from 0, terms in index order).
-    alignas(32) float rows[64];
-    for (u32 v = 0; v < 8; ++v) {
-        __m256 sum = _mm256_setzero_ps();
-        for (u32 u = 0; u < 8; ++u)
-            sum = _mm256_add_ps(sum, _mm256_mul_ps(_mm256_load_ps(kIdctBasisColumns.values[u]),
-                                                   _mm256_set1_ps(coefficients[v * 8 + u])));
-        _mm256_store_ps(rows + v * 8, sum);
-    }
-    alignas(32) float columns[64];
-    for (u32 y = 0; y < 8; ++y) {
-        __m256 sum = _mm256_setzero_ps();
-        for (u32 v = 0; v < 8; ++v)
-            sum = _mm256_add_ps(sum, _mm256_mul_ps(_mm256_set1_ps(kIdctBasis[y][v]), _mm256_load_ps(rows + v * 8)));
-        _mm256_store_ps(columns + y * 8, sum);
-    }
-    for (u32 y = 0; y < 8; ++y)
-        _mm_storel_epi64(reinterpret_cast<__m128i*>(plane + y * pitch),
-                         sample_bytes(_mm_loadu_ps(columns + y * 8), _mm_loadu_ps(columns + y * 8 + 4)));
+        return reconstruct<4, Used>(block, table, plane, pitch);
+    reconstruct<8, Used>(block, table, plane, pitch);
 }
 
+// One block into its plane: the 8x8 IDCT, or its box averages to samples x samples (DC alone at one sample).
+// `end` is one past the last coefficient of the block in zigzag order, or 64 when the caller does not know it.
 void reconstruct_component_block(const JpegImage& image, const JpegThumbnailLayout& layout, u8* planes,
-                                 u32 component_index, u32 block_x, u32 block_y,
-                                 const JpegCoefficientBlock& block) noexcept {
+                                 u32 component_index, u32 block_x, u32 block_y, const JpegCoefficientBlock& block,
+                                 u32 end) noexcept {
     const JpegComponent& component = image.components[component_index];
+    const JpegQuantizationTable& table = image.tables->quantization[component.quantization_table];
+    const u32 samples = layout.samples;
     const u32 pitch = layout.plane_pitches[component_index];
-    u8* target = planes + layout.plane_offsets[component_index] +
-                 static_cast<usize>(block_y) * layout.samples * pitch + static_cast<usize>(block_x) * layout.samples;
-    reconstruct_block(block, image.tables->quantization[component.quantization_table], layout.samples, target, pitch);
-}
-
-// Four pixels in place: sixteen bytes of component samples (one pixel per four
-// bytes) become RGBA. The float operations are the scalar ones, in order.
-template <JpegColorTransform Transform> void convert_group(u8* pixels) noexcept {
-    const __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pixels));
-    const auto sample = [&](char index) noexcept {
-        return _mm_cvtepi32_ps(_mm_cvtepu8_epi32(_mm_shuffle_epi8(
-            bytes, _mm_setr_epi8(index, index + 4, index + 8, index + 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))));
+    u8* plane = planes + layout.plane_offsets[component_index] + static_cast<usize>(block_y) * samples * pitch +
+                static_cast<usize>(block_x) * samples;
+    // DC / 8 + 128, rounded half up: each pixel of a block without other coefficients, and so the mean of each box.
+    // The product of an i16 and a u16 fits in 32 bits.
+    const auto dc_sample = [&]() noexcept {
+        const i32 value = (block.values[0] * table.values[0] + 1028) >> 3;
+        return static_cast<u8>(value < 0 ? 0 : value > 255 ? 255 : value);
     };
-    const __m128 zero = _mm_setzero_ps(), maximum_value = _mm_set1_ps(255.f);
-    __m128 r = sample(0), g = r, b = r;
-    if constexpr (Transform != JpegColorTransform::grayscale) {
-        g = sample(1);
-        b = sample(2);
+    if (samples == 1) {
+        plane[0] = dc_sample();
+        return;
     }
-    if constexpr (Transform == JpegColorTransform::ycbcr || Transform == JpegColorTransform::ycck) {
-        const __m128 luma = r, cb = _mm_sub_ps(g, _mm_set1_ps(128.f)), cr = _mm_sub_ps(b, _mm_set1_ps(128.f));
-        r = _mm_add_ps(luma, _mm_mul_ps(_mm_set1_ps(1.402f), cr));
-        g = _mm_sub_ps(_mm_sub_ps(luma, _mm_mul_ps(_mm_set1_ps(.344136f), cb)), _mm_mul_ps(_mm_set1_ps(.714136f), cr));
-        b = _mm_add_ps(luma, _mm_mul_ps(_mm_set1_ps(1.772f), cb));
+    // Ten coefficients or fewer have no run of 16 zeroes: one of them is not DC, and all lie in the first four
+    // rows and columns. A longer block shows in its values where the coefficients are.
+    bool dc_only = end == 1, small = end <= 10;
+    if (!small) {
+        // Row i is eight coefficients: the pointer moves in coefficients, then the load reads sixteen bytes.
+        const auto row = [&](u32 i) noexcept {
+            return _mm_loadu_si128(reinterpret_cast<const __m128i*>(block.values + i * 8));
+        };
+        const auto zero = [](__m128i values) noexcept {
+            return _mm_movemask_epi8(_mm_cmpeq_epi8(values, _mm_setzero_si128())) == 0xFFFF;
+        };
+        const __m128i first = row(0);
+        const __m128i top = _mm_or_si128(_mm_or_si128(row(1), row(2)), row(3));
+        const __m128i bottom = _mm_or_si128(_mm_or_si128(row(4), row(5)), _mm_or_si128(row(6), row(7)));
+        small = zero(_mm_or_si128(bottom, _mm_srli_si128(_mm_or_si128(first, top), 8)));
+        dc_only = small && zero(_mm_or_si128(top, _mm_srli_si128(first, 2)));
     }
-    if constexpr (Transform == JpegColorTransform::ycck || Transform == JpegColorTransform::cmyk) {
-        // Inverted Adobe CMYK: the YCC triple, like C, M and Y, is already 255 - ink.
-        const __m128 k = _mm_div_ps(sample(3), maximum_value);
-        if constexpr (Transform == JpegColorTransform::ycck) {
-            r = _mm_min_ps(_mm_max_ps(r, zero), maximum_value);
-            g = _mm_min_ps(_mm_max_ps(g, zero), maximum_value);
-            b = _mm_min_ps(_mm_max_ps(b, zero), maximum_value);
+    if (dc_only) {
+        const u8 sample = dc_sample();
+        const __m128i fill = _mm_set1_epi8(static_cast<char>(sample));
+        for (u32 y = 0; y < samples; ++y, plane += pitch) {
+            if (samples == 8)
+                _mm_storel_epi64(reinterpret_cast<__m128i*>(plane), fill);
+            else if (samples == 4)
+                _mm_storeu_si32(plane, fill);
+            else
+                byte_store_le16(plane, static_cast<u16>(sample * 0x101u));
         }
-        r = _mm_mul_ps(r, k);
-        g = _mm_mul_ps(g, k);
-        b = _mm_mul_ps(b, k);
+        return;
     }
-    // clamp_sample: round half up by truncation, clamped to 0..255.
-    const auto to_byte = [&](__m128 value) noexcept {
-        return _mm_cvttps_epi32(_mm_min_ps(_mm_max_ps(_mm_add_ps(value, _mm_set1_ps(.5f)), zero), maximum_value));
-    };
-    const __m128i packed = _mm_or_si128(
-        _mm_or_si128(to_byte(r), _mm_slli_epi32(to_byte(g), 8)),
-        _mm_or_si128(_mm_slli_epi32(to_byte(b), 16), _mm_set1_epi32(static_cast<int>(0xFF000000u))));
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels), packed);
+    if (small)
+        return reconstruct_used<4>(block, table, samples, plane, pitch);
+    reconstruct_used<8>(block, table, samples, plane, pitch);
 }
 
-using ConvertGroup = void (*)(u8*) noexcept;
+// In each 128-bit lane, bytes R0-3, G0-3, B0-3, A0-3 to the four bytes of each of the four pixels.
+alignas(32) inline constexpr u8 kPixelBytes[32] = {0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15,
+                                                   0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15};
+// Bytes 1 and 2 of each pixel (Cb and Cr) to two words.
+alignas(32) inline constexpr u8 kChromaWords[32] = {1, 128, 2, 128, 5, 128, 6, 128, 9, 128, 10, 128, 13, 128, 14, 128,
+                                                    1, 128, 2, 128, 5, 128, 6, 128, 9, 128, 10, 128, 13, 128, 14, 128};
 
-void convert_row(ConvertGroup convert, u8* row, u32 width) noexcept {
+// Eight pixels: the component samples of each (one pixel per four bytes) become RGBA. Gray and RGB samples need
+// no arithmetic. YCbCr uses 14 fraction bits and rounds half up.
+template <JpegColorTransform Transform>
+MAICORD_HASWELL __forceinline __m256i convert_pixels(__m256i pixels) noexcept {
+    const __m256i opaque = _mm256_set1_epi32(static_cast<int>(0xFF000000u)), low = _mm256_set1_epi32(0xFF),
+                  words = _mm256_set1_epi32(0x00FF00FF);
+    if constexpr (Transform == JpegColorTransform::rgb) {
+        return _mm256_or_si256(pixels, opaque);
+    } else if constexpr (Transform == JpegColorTransform::grayscale) {
+        const __m256i gray = _mm256_and_si256(pixels, low);
+        return _mm256_or_si256(_mm256_or_si256(gray, _mm256_slli_epi32(gray, 8)),
+                               _mm256_or_si256(_mm256_slli_epi32(gray, 16), opaque));
+    } else {
+        if constexpr (Transform == JpegColorTransform::ycbcr || Transform == JpegColorTransform::ycck) {
+            // Cb - 128 and Cr - 128 in the two words of each pixel, and Y + 1/2 with 14 fraction bits.
+            const __m256i chroma = _mm256_sub_epi16(
+                _mm256_shuffle_epi8(pixels, _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kChromaWords))),
+                _mm256_set1_epi16(128));
+            const __m256i luma =
+                _mm256_add_epi32(_mm256_slli_epi32(_mm256_and_si256(pixels, low), 14), _mm256_set1_epi32(1 << 13));
+            const auto channel = [&](i16 cb, i16 cr) MAICORD_HASWELL noexcept {
+                const u32 factors = static_cast<u16>(cb) | u32{static_cast<u16>(cr)} << 16;
+                return _mm256_srai_epi32(
+                    _mm256_add_epi32(luma, _mm256_madd_epi16(chroma, _mm256_set1_epi32(static_cast<int>(factors)))),
+                    14);
+            };
+            // The factors are 1.402, 0.344136, 0.714136 and 1.772 times 2^14. The packs clamp to 0..255. Byte 3
+            // keeps K for YCCK.
+            const __m256i rg = _mm256_packs_epi32(channel(0, 22970), channel(-5638, -11700));
+            const __m256i last = Transform == JpegColorTransform::ycck ? _mm256_srli_epi32(pixels, 24) : low;
+            pixels = _mm256_shuffle_epi8(_mm256_packus_epi16(rg, _mm256_packs_epi32(channel(29032, 0), last)),
+                                         _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kPixelBytes)));
+            if constexpr (Transform == JpegColorTransform::ycbcr)
+                return pixels;
+        }
+        // Inverted Adobe CMYK: the YCC triple, like C, M and Y, is already 255 - ink. Each channel times K / 255,
+        // rounded half up: (t + 128) * 257 / 2^16 is exact for t = channel * K.
+        const __m256i k = _mm256_srli_epi32(pixels, 24), factors = _mm256_or_si256(k, _mm256_slli_epi32(k, 16));
+        const auto scale = [&](__m256i values) MAICORD_HASWELL noexcept {
+            return _mm256_mulhi_epu16(_mm256_add_epi16(_mm256_mullo_epi16(values, factors), _mm256_set1_epi16(128)),
+                                      _mm256_set1_epi16(257));
+        };
+        return _mm256_or_si256(_mm256_or_si256(scale(_mm256_and_si256(pixels, words)),
+                                               _mm256_slli_epi16(scale(_mm256_and_si256(_mm256_srli_epi32(pixels, 8), words)), 8)),
+                               opaque);
+    }
+}
+
+// One row in place, eight pixels for each step.
+template <JpegColorTransform Transform> MAICORD_HASWELL void convert_row(u8* row, u32 width) noexcept {
     u32 x = 0;
-    for (; x + 4 <= width; x += 4)
-        convert(row + x * 4u);
+    for (; x + 8 <= width; x += 8) {
+        __m256i_u* const pixels = reinterpret_cast<__m256i_u*>(row + x * 4u);
+        _mm256_storeu_si256(pixels, convert_pixels<Transform>(_mm256_loadu_si256(pixels)));
+    }
     if (x < width) {
-        u8 tail[16]{};
-        copy_bytes(tail, row + x * 4u, (width - x) * 4u);
-        convert(tail);
-        copy_bytes(row + x * 4u, tail, (width - x) * 4u);
+        // The last pixels go through a padded copy, one pixel for each move.
+        u8 tail[32]{};
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for (u32 i = x; i < width; ++i)
+            copy_bytes(tail + (i - x) * 4u, row + i * 4u, 4);
+        __m256i_u* const pixels = reinterpret_cast<__m256i_u*>(tail);
+        _mm256_storeu_si256(pixels, convert_pixels<Transform>(_mm256_loadu_si256(pixels)));
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for (u32 i = x; i < width; ++i)
+            copy_bytes(row + i * 4u, tail + (i - x) * 4u, 4);
     }
 }
+
+using ConvertRow = void (*)(u8*, u32) noexcept;
 
 bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes, u8* row,
                     JpegThumbnailRowSink sink, void* context) noexcept {
     const u32 max_h = image.maximum_horizontal_sampling, max_v = image.maximum_vertical_sampling;
-    ConvertGroup convert = convert_group<JpegColorTransform::grayscale>;
+    ConvertRow convert = convert_row<JpegColorTransform::grayscale>;
     switch (image.color_transform) {
     case JpegColorTransform::grayscale: break;
-    case JpegColorTransform::rgb: convert = convert_group<JpegColorTransform::rgb>; break;
-    case JpegColorTransform::ycbcr: convert = convert_group<JpegColorTransform::ycbcr>; break;
-    case JpegColorTransform::cmyk: convert = convert_group<JpegColorTransform::cmyk>; break;
-    case JpegColorTransform::ycck: convert = convert_group<JpegColorTransform::ycck>; break;
+    case JpegColorTransform::rgb: convert = convert_row<JpegColorTransform::rgb>; break;
+    case JpegColorTransform::ycbcr: convert = convert_row<JpegColorTransform::ycbcr>; break;
+    case JpegColorTransform::cmyk: convert = convert_row<JpegColorTransform::cmyk>; break;
+    case JpegColorTransform::ycck: convert = convert_row<JpegColorTransform::ycck>; break;
     }
     const u32 width = layout.width;
     for (u32 y = 0; y < layout.height; ++y) {
         // Each component's sample for pixel x is the plane sample at
-        // (x * h / max_h, y * v / max_v). Locals and a stepped output pointer
-        // keep the u8 stores from reloading them.
+        // (x * h / max_h, y * v / max_v).
+        const u8* sources[kJpegComponentMaximum]{};
+        u32 shifts[kJpegComponentMaximum]{};
+        bool doubled = true;
         for (u32 c = 0; c < image.component_count; ++c) {
             const JpegComponent& component = image.components[c];
-            const u32 h = component.horizontal_sampling;
             const u32 py = y * component.vertical_sampling / max_v;
-            const u8* source = planes + layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c];
-            u8* out = row + c;
-            if (h == max_h || 2 * h == max_h) {
-                const u32 shift = h == max_h ? 0 : 1;
-                for (u32 x = 0; x < width; ++x, out += 4)
+            sources[c] = planes + layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c];
+            shifts[c] = component.horizontal_sampling == max_h ? 0 : 1;
+            doubled = doubled && u32{component.horizontal_sampling} << shifts[c] == max_h;
+        }
+        // Full and half width components: 16 pixels for each step, a half width sample two times.
+        u32 first = 0;
+        for (; doubled && first + 16 <= width; first += 16) {
+            __m128i samples[4]{};
+            for (u32 c = 0; c < image.component_count; ++c) {
+                const __m128i* const source = reinterpret_cast<const __m128i*>(sources[c] + (first >> shifts[c]));
+                const __m128i half = _mm_loadl_epi64(source);
+                samples[c] = shifts[c] ? _mm_unpacklo_epi8(half, half) : _mm_loadu_si128(source);
+            }
+            const __m128i low01 = _mm_unpacklo_epi8(samples[0], samples[1]);
+            const __m128i high01 = _mm_unpackhi_epi8(samples[0], samples[1]);
+            const __m128i low23 = _mm_unpacklo_epi8(samples[2], samples[3]);
+            const __m128i high23 = _mm_unpackhi_epi8(samples[2], samples[3]);
+            __m128i* const pixels = reinterpret_cast<__m128i*>(row + first * 4u);
+            _mm_storeu_si128(pixels, _mm_unpacklo_epi16(low01, low23));
+            _mm_storeu_si128(pixels + 1, _mm_unpackhi_epi16(low01, low23));
+            _mm_storeu_si128(pixels + 2, _mm_unpacklo_epi16(high01, high23));
+            _mm_storeu_si128(pixels + 3, _mm_unpackhi_epi16(high01, high23));
+        }
+        // The last pixels of the row, and every pixel of another ratio. Locals and a stepped output pointer
+        // keep the u8 stores from reloading them.
+        for (u32 c = 0; c < image.component_count; ++c) {
+            const u8* source = sources[c];
+            u8* out = row + first * 4u + c;
+            if (doubled) {
+                const u32 shift = shifts[c];
+                for (u32 x = first; x < width; ++x, out += 4)
                     *out = source[x >> shift];
                 continue;
             }
             // Other ratios step the column index instead of dividing it.
+            const u32 h = image.components[c].horizontal_sampling;
             u32 accumulated = 0;
             for (u32 x = 0; x < width; ++x, out += 4) {
                 *out = *source;
@@ -285,7 +313,7 @@ bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, c
                 }
             }
         }
-        convert_row(convert, row, width);
+        convert(row, width);
         if (!sink(context, y, row)) return false;
     }
     return true;
@@ -352,7 +380,7 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
             for (u32 by = 0; by < component.block_rows; ++by)
                 for (u32 bx = 0; bx < component.block_columns; ++bx)
                     reconstruct_component_block(image, layout, planes, c, bx, by,
-                                                blocks[component.block_offset + by * component.block_columns + bx]);
+                                                blocks[component.block_offset + by * component.block_columns + bx], 64);
         }
     } else {
         JpegEntropyReader reader =
@@ -389,7 +417,7 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                         }
                         reconstruct_component_block(image, layout, planes, component_index,
                                                     mcu_x * component.horizontal_sampling + horizontal,
-                                                    mcu_y * component.vertical_sampling + vertical, block);
+                                                    mcu_y * component.vertical_sampling + vertical, block, end);
                         ++result.decoded_blocks;
                     }
             }

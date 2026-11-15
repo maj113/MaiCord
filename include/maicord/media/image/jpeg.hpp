@@ -316,7 +316,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
 
 // Local-file thumbnails (composer upload previews). The parse accepts photos
 // up to 16384 px per side; decoding reconstructs each 8x8 block at 1, 2, 4
-// or 8 samples per axis (box average of the exact IDCT, DC only at 1) into
+// or 8 samples per axis (box average of a 16-bit integer IDCT, DC only at 1) into
 // per-component planes, then converts to straight RGBA8. Baseline scans
 // stream without coefficient storage; progressive scans retain coefficients.
 // EXIF orientation is reported, not applied.

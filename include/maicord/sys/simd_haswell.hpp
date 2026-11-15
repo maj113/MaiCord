@@ -178,6 +178,9 @@ MAICORD_SIMD_HASWELL __m256i _mm256_cmpgt_epi16(__m256i __a, __m256i __b) {
 MAICORD_SIMD_HASWELL __m256i _mm256_andnot_si256(__m256i __a, __m256i __b) {
     return (__m256i)(~(__v4du)__a & (__v4du)__b);
 }
+MAICORD_SIMD_HASWELL __m256i _mm256_slli_epi32(__m256i __a, int __n) {
+    return (__m256i)__builtin_ia32_pslldi256((__v8si)__a, __n);
+}
 MAICORD_SIMD_HASWELL __m256i _mm256_slli_epi16(__m256i __a, int __n) {
     return (__m256i)__builtin_ia32_psllwi256((__v16hi)__a, __n);
 }
@@ -194,6 +197,12 @@ MAICORD_SIMD_HASWELL __m256i _mm256_unpacklo_epi16(__m256i __a, __m256i __b) {
 MAICORD_SIMD_HASWELL __m256i _mm256_unpackhi_epi16(__m256i __a, __m256i __b) {
     return (__m256i)__builtin_shufflevector((__v16hi)__a, (__v16hi)__b, 4, 20, 5, 21, 6, 22, 7, 23, 12, 28, 13, 29,
                                             14, 30, 15, 31);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_shuffle_epi8(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_pshufb256((__v32qi)__a, (__v32qi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_permutevar8x32_epi32(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_permvarsi256((__v8si)__a, (__v8si)__b);
 }
 
 #undef MAICORD_SIMD_HASWELL

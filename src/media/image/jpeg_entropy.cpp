@@ -1,5 +1,7 @@
 #include "jpeg_internal.hpp"
 
+#include "maicord/core/intrinsics.hpp"
+
 namespace maicord {
 namespace jpeg_detail {
 
@@ -38,9 +40,7 @@ JpegError find_entropy_end(ConstSlice<u8> encoded, u32 start, JpegScan* scan, u3
                 const u32 mask = static_cast<u32>(_mm_movemask_epi8(_mm_cmpeq_epi8(
                     _mm_loadu_si128(reinterpret_cast<const __m128i*>(encoded.data + cursor)), marker_byte)));
                 if (mask != 0) {
-                    unsigned long first = 0;
-                    _BitScanForward(&first, mask);
-                    cursor += first;
+                    cursor += lowest_set_bit(mask);
                     break;
                 }
                 cursor += 16u;
@@ -321,20 +321,15 @@ __declspec(noinline) bool decode_progressive_dc_initial(JpegEntropyReader* reade
 
 __declspec(noinline) bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u8 approximation_low,
                                       JpegCoefficientBlock* block) noexcept {
-    const i32 delta = 1u << approximation_low;
-    const u32 bit = entropy_read_bit(reader);
-    i32 value = block->values[0];
-    if (reader->error != JpegError::none) {
-        return false;
-    }
-    if (bit != 0) {
-        if ((value & delta) != 0) {
+    const i16 delta = static_cast<i16>(1u << approximation_low);
+    // A bit of zero comes also from a read that fails. A new bit keeps the value in the range of a coefficient.
+    if (entropy_read_bit(reader) != 0) {
+        if ((block->values[0] & delta) != 0) {
             reader->error = JpegError::coefficient;
-            return false;
         }
-        value |= delta;
+        block->values[0] |= delta;
     }
-    return store_coefficient(reader, value, &block->values[0]);
+    return reader->error == JpegError::none;
 }
 
 __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegAcDecodeTable& table,
@@ -407,29 +402,73 @@ __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reade
     return true;
 }
 
-__forceinline bool refine_nonzeroes(JpegEntropyReader* reader, JpegCoefficientBlock* block, u32* coefficient,
-                      u32 spectral_end, i32 zeroes_to_skip, i32 delta) noexcept {
-    if (delta <= 0) {
-        return false;
+// kZigzagShuffle.control[out][in] moves to part `out` of the zigzag order the bytes that it takes from part `in`
+// of the raster order. A part is 16 bytes.
+struct ZigzagShuffle {
+    alignas(16) u8 control[4][4][16];
+};
+constexpr ZigzagShuffle zigzag_shuffle() noexcept {
+    ZigzagShuffle result{};
+    for (u32 index = 0; index < 64; ++index) {
+        for (u32 part = 0; part < 4; ++part) {
+            result.control[index / 16][part][index % 16] =
+                kZigzagToRaster[index] / 16 == part ? kZigzagToRaster[index] % 16 : 0x80;
+        }
     }
-    while (*coefficient <= spectral_end) {
-        i16& stored = block->values[kZigzagToRaster[*coefficient]];
-        i32 value = stored;
-        if (value == 0) {
-            if (zeroes_to_skip == 0) {
+    return result;
+}
+inline constexpr ZigzagShuffle kZigzagShuffle = zigzag_shuffle();
+
+// Bit i is set when the coefficient at zigzag index i is not zero.
+__forceinline u64 nonzero_coefficients(const JpegCoefficientBlock& block) noexcept {
+    // The low byte of a lane is not zero when the coefficient is not zero.
+    const auto flags = [&](u32 row) noexcept {
+        const __m128i values = _mm_loadu_si128(reinterpret_cast<const __m128i*>(block.values + row * 8));
+        return _mm_and_si128(_mm_or_si128(values, _mm_srli_epi16(values, 8)), _mm_set1_epi16(0xFF));
+    };
+    __m128i zero[4];
+    for (u32 part = 0; part < 4; ++part) {
+        zero[part] = _mm_cmpeq_epi8(_mm_packus_epi16(flags(part * 2), flags(part * 2 + 1)), _mm_setzero_si128());
+    }
+    u64 zeroes = 0;
+    for (u32 out = 0; out < 4; ++out) {
+        __m128i lanes = _mm_setzero_si128();
+        for (u32 part = 0; part < 4; ++part) {
+            lanes = _mm_or_si128(lanes, _mm_shuffle_epi8(zero[part], _mm_loadu_si128(reinterpret_cast<const __m128i*>(
+                                                                         kZigzagShuffle.control[out][part]))));
+        }
+        zeroes |= u64{static_cast<u32>(_mm_movemask_epi8(lanes))} << (out * 16);
+    }
+    return ~zeroes;
+}
+
+// Refines the coefficients of `nonzero` from *coefficient to spectral_end, and stops at the zero coefficient
+// after zeroes_to_skip others (never for -1). The walk goes from one nonzero coefficient to the next.
+__forceinline bool refine_nonzeroes(JpegEntropyReader* reader, JpegCoefficientBlock* block, u32* coefficient,
+                      u32 spectral_end, i32 zeroes_to_skip, i32 delta, u64 nonzero) noexcept {
+    u64 pending = nonzero >> *coefficient << *coefficient;
+    for (;;) {
+        const u32 next = minimum(pending ? lowest_set_bit(pending) : 64u, spectral_end + 1u);
+        const i32 zeroes = static_cast<i32>(next - *coefficient);
+        if (zeroes_to_skip >= 0) {
+            if (zeroes > zeroes_to_skip) {
+                *coefficient += static_cast<u32>(zeroes_to_skip);
                 return true;
             }
-            if (zeroes_to_skip > 0) {
-                --zeroes_to_skip;
-            }
-            ++*coefficient;
-            continue;
+            zeroes_to_skip -= zeroes;
         }
+        *coefficient = next;
+        if (next > spectral_end) {
+            break;
+        }
+        pending &= pending - 1;
         const u32 bit = entropy_read_bit(reader);
         if (reader->error != JpegError::none) {
             return false;
         }
         if (bit != 0) {
+            i16& stored = block->values[kZigzagToRaster[next]];
+            i32 value = stored;
             const i32 magnitude = value < 0 ? -value : value;
             if ((magnitude & delta) != 0) {
                 reader->error = JpegError::coefficient;
@@ -453,6 +492,7 @@ __declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* re
                                       u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                       JpegCoefficientBlock* block, u32* eob_run) noexcept {
     const i32 delta = 1u << approximation_low;
+    const u64 nonzero = nonzero_coefficients(*block);
     u32 coefficient = spectral_start;
     if (*eob_run == 0) {
         while (coefficient <= spectral_end) {
@@ -481,29 +521,20 @@ __declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* re
                 reader->error = JpegError::coefficient;
                 return false;
             }
-            if (!refine_nonzeroes(reader, block, &coefficient, spectral_end, static_cast<i32>(zeroes),
-                                  delta) ||
-                coefficient > spectral_end) {
-                if (reader->error == JpegError::none) {
-                    reader->error = JpegError::coefficient;
-                }
+            // A refinement that fails sets the error. One that stops is at a zero coefficient in the band.
+            if (!refine_nonzeroes(reader, block, &coefficient, spectral_end, static_cast<i32>(zeroes), delta,
+                                  nonzero)) {
                 return false;
             }
             if (new_value != 0) {
-                i16& destination = block->values[kZigzagToRaster[coefficient]];
-                if (destination != 0 || !store_coefficient(reader, new_value, &destination)) {
-                    reader->error = JpegError::coefficient;
-                    return false;
-                }
+                block->values[kZigzagToRaster[coefficient]] = static_cast<i16>(new_value);
             }
             ++coefficient;
         }
     }
     if (*eob_run != 0) {
         --*eob_run;
-        if (!refine_nonzeroes(reader, block, &coefficient, spectral_end, -1, delta)) {
-            return false;
-        }
+        return refine_nonzeroes(reader, block, &coefficient, spectral_end, -1, delta, nonzero);
     }
     return true;
 }

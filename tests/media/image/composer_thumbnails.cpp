@@ -607,7 +607,7 @@ void test_webp_thumbnails(Check check) noexcept {
 }
 
 // The per-component sample stepping and the colour conversion of every JPEG
-// colour transform, hashed over whole rows (frozen from the earlier scalar form).
+// colour transform, hashed over whole rows (frozen from the integer IDCT and conversion).
 struct JpegHash {
     u64 hash;
     u32 width;
