@@ -12,6 +12,8 @@
 #include "maicord/model/user/profile.hpp"
 #include "maicord/ui/account/activity_card.hpp"
 #include "maicord/ui/core/transition.hpp"
+// Not machine-outlined (see navigation_view.cpp): the layout and hit test code is 5 to 17 % faster.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 namespace {
@@ -1721,3 +1723,4 @@ bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float 
     return false;
 }
 } // namespace maicord
+#pragma clang attribute pop

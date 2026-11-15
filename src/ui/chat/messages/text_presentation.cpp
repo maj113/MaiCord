@@ -10,6 +10,11 @@
 #include "maicord/core/win32_types.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
+// The text build lays out the visible rows when the message pane changes. The machine outliner of the size tier
+// put calls in place of its short sequences, and the build was 8 % slower with them in this file and the row,
+// content and reply files.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 using namespace text_presentation_detail;
 namespace {
@@ -588,3 +593,4 @@ bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentat
 }
 
 } // namespace maicord
+#pragma clang attribute pop

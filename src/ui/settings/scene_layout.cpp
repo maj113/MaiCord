@@ -4,6 +4,8 @@
 #include "maicord/ui/widgets/kit.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/badge.hpp"
+// Not machine-outlined (see navigation_view.cpp): the layout and hit test code is 5 to 17 % faster.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -1915,3 +1917,4 @@ UiSettingsFocusZone zone_of(const UiSettingsTarget& target) noexcept {
 }
 } // namespace settings_scene_detail
 } // namespace maicord
+#pragma clang attribute pop

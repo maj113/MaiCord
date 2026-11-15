@@ -1,4 +1,6 @@
 #include "vector_internal.hpp"
+// Not machine-outlined (see lottie_program.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 // Boolean combination and area of nonzero-filled outlines.
 //
@@ -863,3 +865,4 @@ bool geometry_area(const Geometry* geometry, const Matrix* transform, float tole
     return ok;
 }
 } // namespace maicord::geometry
+#pragma clang attribute pop

@@ -7,6 +7,10 @@
 #include "maicord/core/name_list.hpp"
 #include "../encoding/json_fields.hpp"
 
+// Not machine-outlined: the appearance and activity decoders run for each PRESENCE_UPDATE and each member list item
+// (5 % of a presence route).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 using namespace protocol_detail;
@@ -676,3 +680,4 @@ bool profile_effect_decode(Utf8View json, Slice<u32> scratch, u64 sku,
     return true;
 }
 } // namespace maicord
+#pragma clang attribute pop

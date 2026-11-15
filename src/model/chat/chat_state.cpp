@@ -6,6 +6,9 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 
+// Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp): the state apply of each Gateway event runs here.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -1652,3 +1655,4 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
         chat_state_store_select_default(store);
 }
 } // namespace maicord
+#pragma clang attribute pop

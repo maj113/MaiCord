@@ -1,6 +1,8 @@
 #include "scene_measurements.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/simd.hpp"
+// Not machine-outlined (see scene.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord::message_scene_detail {
 namespace {
@@ -107,3 +109,4 @@ void retain_measurement(MessageScene* scene, const MessageSceneRowWidget& row) n
 }
 
 } // namespace maicord::message_scene_detail
+#pragma clang attribute pop

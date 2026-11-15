@@ -10,6 +10,10 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/sys/crt.hpp"
 
+// Not machine-outlined: the outliner made the state apply of READY 26 % slower (this file, the chat state store
+// and the permission files together).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -1381,3 +1385,4 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
 }
 
 } // namespace maicord
+#pragma clang attribute pop

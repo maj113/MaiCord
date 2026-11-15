@@ -1,4 +1,6 @@
 #include "vector_internal.hpp"
+// Not machine-outlined (see lottie_program.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 // geometry_stroke: the outline of a stroke as polygons.
 //
@@ -377,3 +379,4 @@ Geometry* geometry_stroke(const Geometry* geometry, const StrokeStyle& style, fl
     return st.s.failed ? nullptr : out;
 }
 } // namespace maicord::geometry
+#pragma clang attribute pop

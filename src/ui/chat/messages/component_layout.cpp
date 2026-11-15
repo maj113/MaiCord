@@ -5,6 +5,8 @@
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/layout/layout_engine.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
+// Not machine-outlined (see scene.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 namespace {
@@ -531,3 +533,4 @@ MessageComponentButtonColors message_component_button_colors(const Theme& theme,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

@@ -6,6 +6,8 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "scene_internal.hpp"
 #include "maicord/ui/widgets/icon.hpp"
+// Not machine-outlined (see navigation_view.cpp): the layout and hit test code is 5 to 17 % faster.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 using namespace settings_scene_detail;
@@ -1227,3 +1229,4 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

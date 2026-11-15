@@ -4,6 +4,9 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
+// Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -229,3 +232,4 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

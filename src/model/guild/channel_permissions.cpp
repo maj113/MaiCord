@@ -5,6 +5,9 @@
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 
+// Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -851,3 +854,4 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
 }
 
 } // namespace maicord
+#pragma clang attribute pop

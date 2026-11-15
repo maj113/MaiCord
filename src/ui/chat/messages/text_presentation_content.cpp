@@ -5,6 +5,9 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 
+// Not machine-outlined: see text_presentation.cpp.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 using namespace text_presentation_detail;
 
@@ -833,3 +836,4 @@ bool append_poll_result(BuildContext* context, const MessageRichStore& store, co
 }
 } // namespace text_presentation_detail
 } // namespace maicord
+#pragma clang attribute pop

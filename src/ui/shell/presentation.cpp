@@ -31,6 +31,10 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/widgets/activity_status.hpp"
 
+// The chrome build paints each rail tile and channel row of a frame. The machine outliner of the size tier put
+// calls in place of its short sequences, and the build was 11 % slower with them.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
@@ -1378,3 +1382,4 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
 }
 
 } // namespace maicord
+#pragma clang attribute pop

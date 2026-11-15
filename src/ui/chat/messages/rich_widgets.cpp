@@ -1,6 +1,8 @@
 
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/chat/messages/component_layout.hpp"
+// Not machine-outlined (see scene.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 namespace {
@@ -415,3 +417,4 @@ bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecor
 }
 
 } // namespace maicord
+#pragma clang attribute pop

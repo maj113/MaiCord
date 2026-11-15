@@ -1,6 +1,9 @@
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/role_policy.hpp"
 
+// Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -150,3 +153,4 @@ const RoleRecord* chat_state_store_highest_role(const ChatStateStore& store, u64
 }
 
 } // namespace maicord
+#pragma clang attribute pop

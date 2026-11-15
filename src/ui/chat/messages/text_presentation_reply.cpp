@@ -8,6 +8,9 @@
 #include "maicord/model/user/store.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
 
+// Not machine-outlined: see text_presentation.cpp.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 using namespace text_presentation_detail;
 
@@ -977,3 +980,4 @@ float rich_item_total(const MessageSceneRichItemLayout& layout, u32 begin, u32 c
 
 } // namespace text_presentation_detail
 } // namespace maicord
+#pragma clang attribute pop

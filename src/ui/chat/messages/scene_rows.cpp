@@ -5,6 +5,8 @@
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/os/local_time.hpp"
+// Not machine-outlined (see scene.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 using namespace message_scene_detail;
@@ -1129,3 +1131,4 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
 }
 } // namespace message_scene_detail
 } // namespace maicord
+#pragma clang attribute pop

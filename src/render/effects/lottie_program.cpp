@@ -5,6 +5,9 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/effects/vector_geometry.hpp"
 #include "maicord/sys/crt.hpp"
+// A sticker compiles a frame for each frame it shows. The compiler and the geometry engine (vector_*.cpp) stay
+// compiled for size but are not machine-outlined: outlined, a frame took a third longer.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 namespace maicord {
 namespace {
 constexpr u32 maximum_leaves = 1024;
@@ -1310,3 +1313,4 @@ bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float
            compile_indexed(source.json, program, frame, pixels);
 }
 } // namespace maicord
+#pragma clang attribute pop

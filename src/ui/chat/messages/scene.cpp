@@ -7,6 +7,10 @@
 #include "maicord/ui/theme/styles.hpp"
 
 #include "scene_internal.hpp"
+// The scene code runs for each row of an update. The machine outliner of the size tier puts calls in place of
+// its short sequences, and the row build, the row refresh and the hit test were 12 to 15% slower with them. The
+// scene and layout files stay in the size tier and are not outlined.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 using namespace message_scene_detail;
@@ -1207,3 +1211,4 @@ bool message_scene_focus_message(MessageScene* scene, u64 message_id) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

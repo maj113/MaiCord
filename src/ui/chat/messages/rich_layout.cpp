@@ -9,6 +9,8 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/sys/simd.hpp"
+// Not machine-outlined (see scene.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 namespace {
@@ -1030,3 +1032,4 @@ MessageInviteCardGeometry message_invite_card_geometry(const UiRect& item) noexc
 }
 
 } // namespace maicord
+#pragma clang attribute pop

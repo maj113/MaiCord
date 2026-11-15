@@ -1,4 +1,6 @@
 #include "vector_internal.hpp"
+// Not machine-outlined (see lottie_program.cpp).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord::geometry {
 namespace {
@@ -264,3 +266,4 @@ Geometry* geometry_transform(const Geometry* source, const Matrix& m) noexcept {
     return g;
 }
 } // namespace maicord::geometry
+#pragma clang attribute pop

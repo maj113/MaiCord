@@ -11,6 +11,9 @@
 #include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 
+// Not machine-outlined: see text_presentation.cpp.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
+
 namespace maicord {
 using namespace text_presentation_detail;
 
@@ -950,3 +953,4 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
 }
 } // namespace text_presentation_detail
 } // namespace maicord
+#pragma clang attribute pop

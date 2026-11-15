@@ -6,11 +6,12 @@ namespace {
 
 constexpr float kLayoutEpsilon = 0.01f;
 
-bool has_flag(const UiLayoutStyle& style, UiLayoutNodeFlag flag) noexcept {
+// The contract inlines only functions with the hint. Each helper below runs for each node of each layout pass.
+inline bool has_flag(const UiLayoutStyle& style, UiLayoutNodeFlag flag) noexcept {
     return (style.flags & static_cast<u16>(flag)) != 0;
 }
 
-float clamp_extent(float value, float minimum_value, float maximum_value) noexcept {
+inline float clamp_extent(float value, float minimum_value, float maximum_value) noexcept {
     return minimum(maximum(value, minimum_value), maximum_value);
 }
 
@@ -32,26 +33,26 @@ bool valid_style(const UiLayoutNodeSpec& specification) noexcept {
            (specification.debug_name.data || specification.debug_name.bytes == 0);
 }
 
-float outer_width(const UiLayoutNode& node) noexcept {
+inline float outer_width(const UiLayoutNode& node) noexcept {
     return node.measured_size.width + node.spec.style.margin.left + node.spec.style.margin.right;
 }
 
-float outer_height(const UiLayoutNode& node) noexcept {
+inline float outer_height(const UiLayoutNode& node) noexcept {
     return node.measured_size.height + node.spec.style.margin.top + node.spec.style.margin.bottom;
 }
 
-float resolved_measure(UiLayoutLength length, float content, float minimum_value,
-                       float maximum_value) noexcept {
+inline float resolved_measure(UiLayoutLength length, float content, float minimum_value,
+                              float maximum_value) noexcept {
     const float desired = length.mode == UiLayoutLengthMode::fixed ? length.value : content;
     return clamp_extent(desired, minimum_value, maximum_value);
 }
 
-bool extents_match(UiSize left, UiSize right) noexcept {
+inline bool extents_match(UiSize left, UiSize right) noexcept {
     return absolute_value(left.width - right.width) <= kLayoutEpsilon &&
            absolute_value(left.height - right.height) <= kLayoutEpsilon;
 }
 
-UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noexcept {
+inline UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noexcept {
     const UiLayoutStyle& style = node.spec.style;
     float width = maximum(0.0f, viewport.width - style.margin.left - style.margin.right -
                                     style.padding.left - style.padding.right);
@@ -65,7 +66,7 @@ UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noe
     return UiSize{width, height};
 }
 
-UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport) noexcept {
+inline UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport) noexcept {
     if (!engine->measure_callback && engine->wrap_nodes == 0) {
         return UiLayoutError::none;
     }
@@ -101,8 +102,8 @@ struct WrapRowMetrics {
     float height;
 };
 
-WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
-                                float gap) noexcept {
+inline WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
+                                       float gap) noexcept {
     WrapRowMetrics row{first, 0, 0.0f, 0.0f};
     u16 slot = first;
     while (slot != kInvalidUiLayoutSlot) {
@@ -128,7 +129,7 @@ WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float a
     return row;
 }
 
-void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
+inline void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
     UiLayoutNode& node = engine->storage[index];
     const UiLayoutStyle& style = node.spec.style;
     float children_width = 0.0f;
@@ -191,43 +192,43 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
                          style.maximum_size.height)};
 }
 
-void set_geometry(UiLayoutNode* node, const UiRect& rectangle, const UiRect& inherited_clip) noexcept {
+inline void set_geometry(UiLayoutNode* node, const UiRect& rectangle, const UiRect& inherited_clip) noexcept {
     node->rectangle = rectangle;
     node->content_rectangle = ui_rect_inset(rectangle, node->spec.style.padding);
     node->clip_rectangle = inherited_clip;
     node->visible = has_flag(node->spec.style, ui_layout_node_visible);
 }
 
-UiRect children_clip(const UiLayoutNode& parent) noexcept {
+inline UiRect children_clip(const UiLayoutNode& parent) noexcept {
     return has_flag(parent.spec.style, ui_layout_node_clip_children)
                ? ui_rect_intersection(parent.clip_rectangle, parent.content_rectangle)
                : parent.clip_rectangle;
 }
 
-float child_main_minimum(const UiLayoutNode& child, bool horizontal) noexcept {
+inline float child_main_minimum(const UiLayoutNode& child, bool horizontal) noexcept {
     return horizontal ? child.spec.style.minimum_size.width : child.spec.style.minimum_size.height;
 }
 
-float child_main_measured(const UiLayoutNode& child, bool horizontal) noexcept {
+inline float child_main_measured(const UiLayoutNode& child, bool horizontal) noexcept {
     return horizontal ? child.measured_size.width : child.measured_size.height;
 }
 
-UiLayoutLength child_main_length(const UiLayoutNode& child, bool horizontal) noexcept {
+inline UiLayoutLength child_main_length(const UiLayoutNode& child, bool horizontal) noexcept {
     return horizontal ? child.spec.style.width : child.spec.style.height;
 }
 
-float child_main_margin(const UiLayoutNode& child, bool horizontal) noexcept {
+inline float child_main_margin(const UiLayoutNode& child, bool horizontal) noexcept {
     return horizontal ? child.spec.style.margin.left + child.spec.style.margin.right
                       : child.spec.style.margin.top + child.spec.style.margin.bottom;
 }
 
-float child_fill_weight(const UiLayoutNode& child, bool horizontal) noexcept {
+inline float child_fill_weight(const UiLayoutNode& child, bool horizontal) noexcept {
     const UiLayoutLength length = child_main_length(child, horizontal);
     return length.mode == UiLayoutLengthMode::fill ? length.value : 0.0f;
 }
 
-float aligned_position(float start, float available, float extent, float margin_start, float margin_end,
-                       UiLayoutAlignment alignment) noexcept {
+inline float aligned_position(float start, float available, float extent, float margin_start, float margin_end,
+                              UiLayoutAlignment alignment) noexcept {
     const float usable = maximum(0.0f, available - margin_start - margin_end);
     switch (alignment) {
     case UiLayoutAlignment::center:
@@ -273,7 +274,7 @@ inline UiRect overlay_child_rectangle(const UiLayoutNode& parent, const UiLayout
     return {left, top, left + width, top + height};
 }
 
-void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     const UiRect inherited_clip = children_clip(parent);
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
          child_slot = engine->storage[child_slot].next_sibling) {
@@ -285,7 +286,7 @@ void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noex
     }
 }
 
-void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool horizontal) noexcept {
+inline void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool horizontal) noexcept {
     const UiRect available = parent.content_rectangle;
     const float available_main = horizontal ? ui_rect_width(available) : ui_rect_height(available);
     const float available_cross = horizontal ? ui_rect_height(available) : ui_rect_width(available);
@@ -359,7 +360,7 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
     }
 }
 
-void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     const UiRect inherited_clip = children_clip(parent);
     const UiRect available = parent.content_rectangle;
     const float available_width = ui_rect_width(available);
@@ -403,7 +404,7 @@ void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcep
     }
 }
 
-void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     switch (parent.spec.style.flow) {
     case UiLayoutFlow::overlay:
         arrange_overlay_children(engine, parent);
@@ -420,7 +421,7 @@ void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     }
 }
 
-bool update_measure_constraints(UiLayoutEngine* engine) noexcept {
+inline bool update_measure_constraints(UiLayoutEngine* engine) noexcept {
     if (!engine->measure_callback && engine->wrap_nodes == 0) {
         return false;
     }

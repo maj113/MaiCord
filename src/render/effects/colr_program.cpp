@@ -2,7 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/text/glyph_raster.hpp"
 #include "colr_segment_bounds.hpp"
-
+// Not machine-outlined (see lottie_program.cpp): a colour glyph and a sticker frame compile here.
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 namespace maicord {
 namespace {
 constexpr u32 none=~0u;
@@ -457,3 +458,4 @@ bool colr_program_build(ColrPaintProgram* p, const ColrPaintSource& source,
 }
 
 } // namespace maicord
+#pragma clang attribute pop
