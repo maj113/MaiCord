@@ -635,6 +635,9 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
                                         runtime->voice_connection.socket.close_code,
                                         runtime->voice_connection.udp.phase,
                                         runtime->voice_connection.udp.error};
+    snapshot.transmitting = voice_send_transmitting(runtime->voice_send);
+    snapshot.round_trip =
+        voice_round_trip_step(static_cast<u32>(read_acquire(&runtime->voice_send.cells.round_trip)));
     snapshot.speaking_count = voice_receive_speaking(
         &runtime->voice_receive, {snapshot.speaking_users, kGatewayVoiceSpeakingUsers}, clock_monotonic_milliseconds());
     // The local user is never received; transmitting counts as speaking.
@@ -826,6 +829,11 @@ bool publish_ready_projection(void* opaque, const GatewayClientEvent& event,
     return publish_event_payload(binding.client, binding.runtime, event, payload);
 }
 
+// While the user transmits, the capture thread wakes the worker for each frame, and each wake publishes the voice
+// snapshot. If the frames stop (the device left), this wake publishes the snapshot, and `transmitting` goes off.
+u64 transmit_check(const GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    return runtime->voice_snapshot.transmitting ? now_ms + 1'000 : 0;
+}
 u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* runtime,
                      u64 now_ms) noexcept {
     if (runtime->closing)
@@ -839,8 +847,9 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
         const u64 deadline = earliest_deadline(
             earliest_deadline(earliest_deadline(main_deadline, voice_connection_deadline(runtime->voice_connection)),
                               voice_receive_deadline(runtime->voice_receive)),
-            earliest_deadline(gateway_stream_session_deadline(runtime->stream),
-                              gateway_go_live_deadline(runtime->go_live)));
+            earliest_deadline(earliest_deadline(gateway_stream_session_deadline(runtime->stream),
+                                                gateway_go_live_deadline(runtime->go_live)),
+                              transmit_check(runtime, now_ms)));
         return deadline ? wait_milliseconds_until(now_ms, deadline) : INFINITE;
     }
     u64 deadline = runtime->deadline_ms;
@@ -850,6 +859,7 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     deadline = earliest_deadline(deadline, voice_receive_deadline(runtime->voice_receive));
     deadline = earliest_deadline(deadline, gateway_stream_session_deadline(runtime->stream));
     deadline = earliest_deadline(deadline, gateway_go_live_deadline(runtime->go_live));
+    deadline = earliest_deadline(deadline, transmit_check(runtime, now_ms));
     if (runtime->session.lifecycle.heartbeat_interval_ms != 0)
         deadline = earliest_deadline(deadline, runtime->session.lifecycle.next_heartbeat_ms);
     deadline = earliest_deadline(deadline, client_activity_deadline(runtime, now_ms));

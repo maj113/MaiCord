@@ -29,8 +29,9 @@ constexpr bool presence_idle_update(PresenceIdle* state, const PresenceIdleInput
 }
 // Delay until the state can next change: a short poll while idle (input ends
 // it), otherwise the time left before the timeout, bounded to [1 s, 60 s].
+// A call needs no check: the state changes only where the call starts or ends.
 constexpr u64 presence_idle_next_check_ms(const PresenceIdle& state, const PresenceIdleInput& in) noexcept {
-    if (state.idle || in.in_call)
+    if (state.idle)
         return kPresenceIdlePollMs;
     const u64 left = kPresenceIdleTimeoutMs > in.input_idle_ms ? kPresenceIdleTimeoutMs - in.input_idle_ms : 0;
     return left < 1'000 ? 1'000 : left > 60'000 ? 60'000 : left;

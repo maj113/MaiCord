@@ -21,6 +21,7 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/app/voice/push_to_talk_binding.hpp"
+#include "maicord/app/voice/save_wait.hpp"
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
@@ -38,7 +39,8 @@ struct VoiceUi {
     u64 pushed_user;
     u64 status_at_ms;
     u64 menu_user;
-    bool loaded, dirty, monitor, mute_before_deafen, users_dirty, menu_dragging, save_pending;
+    bool loaded, dirty, monitor, mute_before_deafen, menu_dragging;
+    VoiceSaveWait save_wait;
     char menu_label[48];
     u32 menu_label_bytes;
 };
@@ -111,12 +113,10 @@ void push() noexcept {
     voice.pushed_instance = h.instance;
     voice.pushed_user = user;
 }
-UiVoiceSignal signal(u16 round_trip_ms) noexcept {
-    return !round_trip_ms         ? UiVoiceSignal::unknown
-           : round_trip_ms < 150 ? UiVoiceSignal::good
-           : round_trip_ms < 300 ? UiVoiceSignal::fair
-                                 : UiVoiceSignal::poor;
-}
+static_assert(static_cast<u8>(UiVoiceSignal::unknown) == static_cast<u8>(VoiceRoundTrip::unknown) &&
+              static_cast<u8>(UiVoiceSignal::good) == static_cast<u8>(VoiceRoundTrip::good) &&
+              static_cast<u8>(UiVoiceSignal::fair) == static_cast<u8>(VoiceRoundTrip::fair) &&
+              static_cast<u8>(UiVoiceSignal::poor) == static_cast<u8>(VoiceRoundTrip::poor));
 bool same_view(const UiVoicePanelView& a, const UiVoicePanelView& b) noexcept {
     return a.guild_id == b.guild_id && a.channel_id == b.channel_id && a.state == b.state && a.signal == b.signal &&
            a.self_mute == b.self_mute && a.self_deaf == b.self_deaf && a.server_mute == b.server_mute &&
@@ -135,14 +135,13 @@ void refresh_view() noexcept {
                  : s->socket_phase == VoiceSocketPhase::open && s->udp_phase == VoiceUdpPhase::ready
                      ? UiVoicePanelState::connected
                      : UiVoicePanelState::connecting;
-    next.signal = signal(voice.status.round_trip_ms);
+    next.signal = joined ? static_cast<UiVoiceSignal>(s->round_trip) : UiVoiceSignal::unknown;
     next.self_mute = voice.preferences.self_mute;
     next.self_deaf = voice.preferences.self_deaf;
     next.server_mute = joined && (s->flags & gateway_voice_mute);
     next.server_deaf = joined && (s->flags & gateway_voice_deaf);
-    // The worker's speaker list is current every pump; the audio status that
-    // also reports speech is polled once a second.
-    next.speaking = joined && (gateway_voice_self_speaking(*s) || voice.status.transmitting);
+    // The worker publishes the speaker list and the microphone state with each change.
+    next.speaking = joined && (gateway_voice_self_speaking(*s) || s->transmitting);
     const UiCallShare share = joined ? application_go_live_share(s->channel_id) : UiCallShare::unavailable;
     next.share_enabled = share == UiCallShare::available || share == UiCallShare::live;
     next.share_live = share == UiCallShare::live;
@@ -189,7 +188,7 @@ u64 camera_user_at_message_point() noexcept {
 void set_user(u64 user_id, u32 gain, bool muted) noexcept {
     auto& h = g_app.account;
     voice_preferences_set_user(&voice.preferences, user_id, gain, muted);
-    voice.users_dirty = true;
+    voice.save_wait.users = true;
     if (h.instance)
         account_module_voice_user_audio(h.instance, user_id, gain, muted);
 }
@@ -213,36 +212,37 @@ void application_voice_pump() noexcept {
     auto& h = g_app.account;
     const bool call = application_voice_call() != nullptr;
     const u64 now = clock_monotonic_milliseconds();
-    if (h.instance && (call || voice.monitor) && now >= voice.status_at_ms) {
+    // Only the microphone test polls the audio status (the level meter). A call reads the voice snapshot.
+    if (h.instance && voice.monitor && now >= voice.status_at_ms) {
         VoiceAudioStatus status{};
         if (account_module_voice_audio_status(h.instance, &status))
             voice.status = status;
-        voice.status_at_ms = now + (voice.monitor ? 30 : 1000);
-    } else if (!call && !voice.monitor)
+        voice.status_at_ms = now + 30;
+    } else if (!voice.monitor)
         reset_value(&voice.status);
     refresh_view();
     voice_push_to_talk_binding_update(call, voice.preferences.audio.mode, voice.preferences.audio.push_to_talk_key);
     application_voice_channels_pump();
     application_voice_settings_tick();
-    if (voice.save_pending && !window_key_down(key::lbutton)) {
-        voice.save_pending = false;
-        save();
-    }
-    if (voice.users_dirty && !menu_open() && !voice.menu_dragging) {
-        voice.users_dirty = false;
-        save();
-    }
     application_call_voice_pump();
     application_stage_pump();
     application_go_live_pump();
 }
 
 u64 application_voice_next_wake() noexcept {
-    const u64 keys = application_go_live_next_wake();
-    const auto earliest = [keys](u64 wake) noexcept { return earliest_deadline(wake, keys); };
-    if (!voice.monitor && !application_voice_call())
-        return earliest(voice.users_dirty || voice.save_pending ? clock_monotonic_milliseconds() + 250 : 0);
-    return earliest(voice.status_at_ms ? voice.status_at_ms : 1);
+    const u64 go_live = application_go_live_next_wake();
+    return voice.monitor ? earliest_deadline(voice.status_at_ms ? voice.status_at_ms : 1, go_live) : go_live;
+}
+
+void application_voice_save_tick() noexcept {
+    auto& wait = voice.save_wait;
+    if ((wait.drag || wait.users) &&
+        voice_save_look(&wait, window_key_down(key::lbutton), menu_open() || voice.menu_dragging))
+        save();
+}
+
+u64 application_voice_save_next_wake() noexcept {
+    return voice_save_next_look(voice.save_wait, clock_monotonic_milliseconds());
 }
 
 float application_voice_panel_reserve() noexcept {
@@ -541,11 +541,9 @@ VoicePreferences& application_voice_preferences() noexcept {
 void application_voice_settings_changed(bool persist) noexcept {
     voice.dirty = true;
     push();
-    if (persist) {
-        voice.save_pending = false;
+    voice.save_wait.drag = !persist; // Slider drag: saved once the button is released.
+    if (persist)
         save();
-    } else
-        voice.save_pending = true; // Slider drag: saved once the button is released.
 }
 
 void application_voice_set_monitor(bool enabled) noexcept {

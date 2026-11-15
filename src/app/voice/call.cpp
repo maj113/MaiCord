@@ -271,7 +271,7 @@ u32 project_participants(u64 channel_id) noexcept {
             flags |= voice_mute;
         if (joined && (s->flags & gateway_voice_deaf))
             flags |= voice_deaf;
-        if (joined && application_voice_status().transmitting)
+        if (joined && s->transmitting)
             flags |= voice_speaking;
         if (count == kUiCallMaximumTiles)
             --count;
@@ -354,7 +354,8 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
                                                   {after, camera_targets(snapshot, after)});
     copy_value(&view.snapshot, snapshot);
     view.snapshot_valid = true;
-    const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && !application_window_minimized();
+    // A window in the tray shows no tile, like a minimized one: no camera or stream picture is wanted.
+    const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && application_window_shown();
     const float pixel_scale = static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u) / 96.f;
     CallVideoTarget targets[kGatewayVoiceVideoUsers + 2];
     u32 count = 0;

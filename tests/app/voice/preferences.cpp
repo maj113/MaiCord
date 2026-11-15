@@ -1,4 +1,5 @@
 #include "maicord/app/voice/preferences.hpp"
+#include "maicord/app/voice/save_wait.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
@@ -136,9 +137,24 @@ void test_binding(Check check) noexcept {
          bytes_equal(&before, &p, sizeof(p));
     check(ok, "Voice settings binding: out-of-range values and foreign bindings are refused untouched");
 }
+void test_save_wait(Check check) noexcept {
+    VoiceSaveWait wait{};
+    const bool idle = !voice_save_look(&wait, false, false) && !voice_save_next_look(wait, 500);
+    wait.drag = wait.users = true;
+    const bool held = !voice_save_look(&wait, true, true) && voice_save_next_look(wait, 500) == 500 + kVoiceSaveLookMs;
+    const bool released = voice_save_look(&wait, false, true) && !wait.drag && wait.users &&
+                          voice_save_next_look(wait, 500) != 0;
+    const bool still_open = !voice_save_look(&wait, false, true);
+    const bool closed = voice_save_look(&wait, false, false) && !wait.users && !voice_save_next_look(wait, 500);
+    wait.drag = wait.users = true;
+    const bool together = voice_save_look(&wait, false, false) && !voice_save_look(&wait, false, false);
+    check(idle && held && released && still_open && closed && together,
+          "Voice save wait: a drag saves when the button is up, a user volume when its menu closes, each one time");
+}
 } // namespace
 void test_voice_preferences(Check check) noexcept {
     test_record(check);
     test_binding(check);
+    test_save_wait(check);
 }
 } // namespace maicord

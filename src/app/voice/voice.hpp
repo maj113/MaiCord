@@ -12,6 +12,10 @@ namespace maicord::app_detail {
 // mute/deafen, the voice user menu and the settings meter.
 void application_voice_pump() noexcept;
 u64 application_voice_next_wake() noexcept;
+// A volume change that waits for the pointer (maicord/app/voice/save_wait.hpp): the main loop calls the tick on each
+// turn, and the wake is a loop deadline, not an account deadline.
+void application_voice_save_tick() noexcept;
+u64 application_voice_save_next_wake() noexcept;
 // The "Invite to Voice" row countdown (channels.cpp): a visual wake only while the row is on screen.
 u64 application_voice_invite_next_wake() noexcept;
 void application_voice_invite_tick(u64 now_ms) noexcept;

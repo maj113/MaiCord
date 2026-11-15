@@ -14,6 +14,9 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/gateway/client.hpp"
+#if !defined(_WIN32)
+#include "maicord/platform/window/wayland.hpp"
+#endif
 
 namespace maicord::app_detail {
 namespace {
@@ -30,12 +33,15 @@ struct ActivityState {
     u64 account_scope;
     PresenceIdle idle;
     u64 idle_check_at, scan_at;
+#if !defined(_WIN32)
+    u32 idle_word; // The compositor's count of idle words at the last check, plus one.
+#endif
     // The shown game (the official client's visible running game): its start holds while the same process runs.
     char game_name[kGatewayLocalGameNameBytes];
     u64 game_started_ms, game_application_id;
     u32 game_pid;
     u8 game_name_bytes;
-    bool game, game_custom, streamer_tool;
+    bool game, game_custom, streamer_tool, in_call;
     GatewayLocalPresence published;
     bool published_valid;
     // "Add it!" choices: programs owning a visible window that no game or added program names.
@@ -319,10 +325,24 @@ void application_activity_tick(u64 now_ms) noexcept {
     scope();
     if (!module())
         return;
-    if (!g.idle_check_at || now_ms >= g.idle_check_at) {
-        const PresenceIdleInput input{input_idle_ms(), clock_unix_milliseconds(), in_call()};
+    // A call holds the user online. The check runs where the call starts and where it ends, with no timer between.
+    const bool call = in_call();
+#if defined(_WIN32)
+    // The system has no event for input in other programs: outside a call a timer asks.
+    const bool due = !call && (!g.idle_check_at || now_ms >= g.idle_check_at);
+#else
+    // The compositor says when input stops and when it comes back, and its word wakes the loop: no timer asks.
+    const u32 word = window_wayland_idle_changes() + 1;
+    const bool due = word != g.idle_word;
+    g.idle_word = word;
+#endif
+    if (call != g.in_call || due) {
+        g.in_call = call;
+        const PresenceIdleInput input{input_idle_ms(), clock_unix_milliseconds(), call};
         presence_idle_update(&g.idle, input);
-        g.idle_check_at = deadline_after(now_ms, presence_idle_next_check_ms(g.idle, input));
+#if defined(_WIN32)
+        g.idle_check_at = call ? 0 : deadline_after(now_ms, presence_idle_next_check_ms(g.idle, input));
+#endif
     }
     detect(now_ms);
     GatewayLocalPresence local{};

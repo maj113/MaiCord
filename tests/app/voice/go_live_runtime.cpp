@@ -67,6 +67,24 @@ void run() noexcept {
     check(application_go_live_next_wake() == ui.polled_ms + kLivePollMs, "go live: a live stream is polled every 500 ms");
     answer_next(GoLiveState::idle);
     check(application_go_live_next_wake() == 0, "go live: an idle account asks for no wake");
+    // The picker's thumbnail thread: no timer while it runs. Its end makes the wake due, and the next pump collects.
+    ui.job = commit_pages<ThumbnailJob>();
+    check(ui.job != nullptr, "go live: the thumbnail job allocates");
+    if (ui.job) {
+        ui.open = true;
+        u8 running = 0;
+        ui.worker = reinterpret_cast<Thread*>(&running);
+        check(application_go_live_next_wake() == ui.polled_ms + kLivePollMs,
+              "go live: a running thumbnail pass asks for no wake of its own");
+        ui.worker = thread_start(worker_main, ui.job, 64 * 1024, nullptr); // No source: the thread ends at once.
+        for (u32 i = 0; ui.worker && i < 5000 && !read_acquire(&ui.job->done); ++i)
+            Sleep(1);
+        check(ui.worker && application_go_live_next_wake() == 1, "go live: a finished thumbnail pass is due at once");
+        collect_thumbnails();
+        check(!ui.worker, "go live: the pump collects a finished thumbnail pass");
+        application_go_live_modal_close();
+        check(!ui.open && application_go_live_next_wake() == 0, "go live: the closed dialog asks for no wake");
+    }
 
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

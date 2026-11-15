@@ -259,6 +259,10 @@ void test_pipeline(Check check) noexcept {
     feed(send, t, &now, 4, 0);
     voice_send_flush(&send, transport);
     const bool transmits_when_down = rec.count == 5 && rec.order[0] == 1001;
+    // The gate is open, but no capture device runs in this pipeline: the status and the worker's read agree.
+    check(read_acquire(&send.cells.transmitting) && !voice_send_status(&send).transmitting &&
+              !voice_send_transmitting(send),
+          "Voice send: transmitting needs a capture that runs, with and without the lock");
     key.down = false;
     feed(send, t, &now, 8, 0);
     voice_send_flush(&send, transport);

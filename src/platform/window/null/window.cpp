@@ -171,6 +171,10 @@ bool window_wayland_set_idle_inhibit(Window, bool) noexcept {
     return false;
 }
 
+u32 window_wayland_idle_changes() noexcept {
+    return 0;
+}
+
 bool window_wayland_system_bell() noexcept {
     return false;
 }

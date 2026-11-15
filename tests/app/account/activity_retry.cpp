@@ -1,4 +1,5 @@
 #include "../../../src/app/account/activity.cpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../../support/account_module_fake.hpp"
 
@@ -190,6 +191,56 @@ void detection(void (*check)(bool, const char*) noexcept) noexcept {
     g_account_fake.local_presence = old_presence;
     g_app.preferences = old_preferences;
 }
+
+// A call: the idle check asks for no wake, and runs where the call starts and where it ends.
+void call_idle(void (*check)(bool, const char*) noexcept) noexcept {
+    Arena arena{};
+    auto* const ui = arena_initialize(&arena, sizeof(AccountUiRuntime) + 4096, 0, 4096)
+                         ? arena_allocate_zero<AccountUiRuntime>(&arena)
+                         : nullptr;
+    check(ui != nullptr, "activity: fixture arena");
+    if (!ui)
+        return;
+    const auto old_instance = g_app.account.instance;
+    const auto old_presence = g_account_fake.local_presence;
+    auto* const old_ui = g_app.account_ui;
+    g_app.account.instance = &g_publishes;
+    g_account_fake.local_presence = capture_presence;
+    g_app.account_ui = ui;
+    const auto old_preferences = g_app.preferences;
+    g_app.preferences.game_detection = g_app.preferences.streamer_auto = false;
+    g = {};
+    g.account_scope = g_app.plugin_account_scope_serial;
+    u64 now = 1'000'000;
+    application_activity_tick(now);
+    // Windows asks with a timer. On Linux the compositor tells the change, and the headless window never does.
+    const bool timer = application_activity_next_wake() > now;
+#if defined(_WIN32)
+    check(g_app.account_ui && !g.in_call && timer, "activity: outside a call the idle check has a deadline");
+#else
+    check(g_app.account_ui && !g.in_call && !application_activity_next_wake(),
+          "activity: outside a call the idle check has no timer");
+#endif
+    g_app.account_ui->voice_session.channel_id = 5;
+    g_app.account_ui->voice_session.phase = VoiceSetupPhase::credentials_ready;
+    u32 wakes = 0;
+    for (u32 second = 0; second < 3'600; ++second) {
+        now += 1'000;
+        application_activity_tick(now);
+        wakes += application_activity_next_wake() != 0;
+    }
+    check(g.in_call && !wakes && !g.idle.idle, "activity: an hour in a call asks for no wake");
+    g_app.account_ui->voice_session.channel_id = 0;
+    application_activity_tick(now);
+    check(!g.in_call && (application_activity_next_wake() > now) == timer,
+          "activity: the end of the call starts the idle check again");
+    g = {};
+    g_app.preferences = old_preferences;
+    g_app.account_ui = old_ui;
+    g_app.account.instance = old_instance;
+    g_account_fake.local_presence = old_presence;
+    arena_release(&arena);
+}
 } // namespace
 
 void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
@@ -222,5 +273,6 @@ void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
     g_app.account.instance = old_instance;
     g_account_fake.self_status_complete = old_complete;
     detection(check);
+    call_idle(check);
 }
 } // namespace maicord::app_detail

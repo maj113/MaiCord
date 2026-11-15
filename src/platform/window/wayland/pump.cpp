@@ -333,7 +333,9 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
         dbus::instance_process();
     keyboard_poll_repeat(clock_monotonic_milliseconds());
     post_drain();
-    if (__atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL)) {
+    // Read first: most turns have no poke, and the exchange is a locked write. A poke that comes after the read writes
+    // the loop's eventfd, so the next wait returns for it.
+    if (__atomic_load_n(&g.wake_pending, __ATOMIC_ACQUIRE) && __atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL)) {
         WindowEvent event = make_event(EventType::wake, now_ms32());
         event.wake.cause = wake_poke;
         ring_push(event);

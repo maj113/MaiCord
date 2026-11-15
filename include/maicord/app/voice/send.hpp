@@ -85,6 +85,8 @@ void voice_send_stop(VoiceSend* send) noexcept;
 bool voice_send_active(const VoiceSend& send) noexcept;
 // The local user is transmitting voice right now.
 bool voice_send_speaking(const VoiceSend& send) noexcept;
+// Worker: `transmitting` of voice_send_status (the capture runs and the gate is open).
+bool voice_send_transmitting(const VoiceSend& send) noexcept;
 // Sends queued frames in order until the transport is busy.
 void voice_send_flush(VoiceSend* send, const VoiceSendTransport& transport) noexcept;
 

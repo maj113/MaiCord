@@ -664,6 +664,7 @@ int application_run() noexcept {
         // Background voice keybinds: the turn of their 20 ms wake samples the chords here. Only a chord that ran its
         // action makes account work.
         const bool keybind_action = !logout_blocked && application_shortcuts_pump();
+        application_voice_save_tick();
         const bool account_work =
             !logout_blocked && (account_signal || keybind_action ||
                                 (draft_handle && wait_ready(waited, draft_handle_index)) ||

@@ -15,6 +15,7 @@
 #include "maicord/platform/audio/stream_audio.hpp"
 #include "maicord/app/gateway/stream_session.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/os_text.hpp"
@@ -36,7 +37,7 @@ namespace maicord::app_detail {
 namespace {
 // The official client lists sources at 447 x 251 and refreshes them every second while the dialog is open.
 constexpr u32 kThumbnailWidth = 448, kThumbnailHeight = 252, kThumbnailBytes = kThumbnailWidth * kThumbnailHeight * 4;
-constexpr u64 kThumbnailRefreshMs = 1'000, kWorkerPollMs = 20;
+constexpr u64 kThumbnailRefreshMs = 1'000;
 // Snapshot polling while a stream starts, runs or ends; nothing otherwise.
 constexpr u64 kStartingPollMs = 100, kLivePollMs = 500;
 constexpr u64 kMenuOwner = 0x474c'4956'4d45'4e55ull;
@@ -64,6 +65,9 @@ enum class Menu : u8 { none, options, manage, viewers };
 
 struct ThumbnailJob {
     GpuDevice* device;
+    Window window;
+    // The thread stores 1 as its last write to the job and then wakes the window. The UI thread clears it before a start.
+    volatile LONG done;
     u32 count;
     CaptureSource sources[kUiGoLiveMaximumSources];
     u32 width[kUiGoLiveMaximumSources], height[kUiGoLiveMaximumSources];
@@ -232,6 +236,9 @@ u32 worker_main(void* argument) noexcept {
     for (u32 i = 0; i < job->count; ++i)
         job->ok[i] = capture_thumbnail(job->device, job->sources[i], kThumbnailWidth, kThumbnailHeight, job->pixels[i],
                                        &job->width[i], &job->height[i]);
+    InterlockedExchange(&job->done, 1);
+    if (job->window)
+        window_wake(job->window);
     return 0;
 }
 bool tab_has(const CaptureSource& s) noexcept {
@@ -267,6 +274,8 @@ void refresh_sources(u64 now) noexcept {
     if (!ui.job)
         return;
     ui.job->device = g_app.renderer.graphics.device;
+    ui.job->window = g_app.window;
+    ui.job->done = 0;
     ui.job->count = 0;
     for (u32 i = 0; i < ui.capture_count; ++i)
         if (tab_has(ui.capture[i]))
@@ -277,7 +286,8 @@ void refresh_sources(u64 now) noexcept {
 // A finished pass: each picture replaces its source's previous one, which stays resident until the scene took the
 // new key (application_go_live_modal_synchronize), so no tile is ever drawn without its picture.
 void collect_thumbnails() noexcept {
-    if (!ui.worker || !thread_wait(ui.worker, 0))
+    // `done` is the thread's last write to the job: the thread ends at once after it, so this wait is short.
+    if (!ui.worker || !read_acquire(&ui.job->done) || !thread_wait(ui.worker, INFINITE))
         return;
     thread_close(ui.worker);
     ui.worker = nullptr;
@@ -937,8 +947,9 @@ u64 application_go_live_next_wake() noexcept {
     const auto earliest = [&](u64 at) noexcept { wake = earliest_deadline(wake, at); };
     if (const u64 interval = poll_interval())
         earliest(ui.polled_ms + interval);
+    // The thumbnail thread wakes the loop when it ends: the wake is due only then, and the pump of that turn collects.
     if (ui.open && ui.worker)
-        earliest(now_ms() + kWorkerPollMs);
+        earliest(read_acquire(&ui.job->done) ? 1 : 0);
     else if (ui.open && ui.content.mode == UiGoLiveMode::picker)
         earliest(ui.next_refresh_ms ? ui.next_refresh_ms : 1);
     return wake;

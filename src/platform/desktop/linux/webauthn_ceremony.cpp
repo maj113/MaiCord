@@ -97,7 +97,8 @@ bool on_pin(void* context, bool wrong, i32 retries, char* pin, u32 capacity) noe
         const u64 now = clock_monotonic_milliseconds();
         if (now >= c.deadline)
             return false;
-        wait_one(c.event, static_cast<u32>(minimum<u64>(c.deadline - now, 1000)));
+        // A PIN and a cancel set the event: the wait needs no shorter timeout than the time that is left.
+        wait_one(c.event, static_cast<u32>(c.deadline - now));
     }
 }
 

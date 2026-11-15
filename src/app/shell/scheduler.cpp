@@ -273,6 +273,8 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     limit_timeout(timeout, now_ms, application_text_form_next_wake());
     // The background keybind sample: a loop turn, not account work (see application_shortcuts_pump).
     limit_timeout(timeout, now_ms, application_shortcuts_next_wake());
+    // A voice volume save that waits for the pointer: also a loop turn (application_voice_save_tick).
+    limit_timeout(timeout, now_ms, application_voice_save_next_wake());
     limit_timeout(timeout, now_ms, application_theme_schedule_wake());
     limit_timeout(timeout, now_ms, application_message_interaction_next_wake(now_ms));
     limit_timeout(timeout, now_ms, application_forum_form_next_wake());

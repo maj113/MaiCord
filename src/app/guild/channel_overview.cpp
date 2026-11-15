@@ -447,6 +447,9 @@ u64 application_channel_overview_caret_wake() noexcept {
 }
 void application_channel_overview_tick(u64 now) noexcept {
     application_guild_settings_tick(now);
+    // With no modal owner, each layer below is null (the Overview's own owner included).
+    if (!g_settings_modal_owners)
+        return;
     // Server Settings ticks its own layer.
     const auto* own = application_guild_settings_settings_layer();
     const auto tick = [&](SettingsLayer* layer) noexcept {

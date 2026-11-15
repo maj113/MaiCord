@@ -19,6 +19,10 @@ struct SettingsDialog : SettingsModal {
     UiSettingsPageContent content;
 };
 
+// The owners that settings_modal_allocate made and settings_modal_free did not free yet. Each modal's owner
+// pointer is set only by the allocation and cleared only by the free, so zero means that no modal is active.
+inline u32 g_settings_modal_owners;
+
 // Allocates a modal's owner with its layer bound to `hooks`; null when the system refuses.
 template <typename Owner>
 [[nodiscard]] inline Owner* settings_modal_allocate(const SettingsLayerHooks& hooks) noexcept {
@@ -26,6 +30,7 @@ template <typename Owner>
     if (owner) {
         owner->layer.scene = &owner->scene;
         owner->layer.hooks = &hooks;
+        ++g_settings_modal_owners;
     }
     return owner;
 }
@@ -39,6 +44,7 @@ inline void settings_modal_free(Owner*& owner) noexcept {
     settings_modal_finish_exit(owner);
     ui_settings_scene_release(&owner->scene);
     owner_release(owner);
+    --g_settings_modal_owners;
 }
 
 // Layer hooks that forward to a modal's own functions (the layer's `close` hook, which closes with focus

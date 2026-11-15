@@ -10,6 +10,14 @@ enum class VoiceUdpError : u8;
 enum class VoiceSourceKind : u8;
 enum class VoiceVideoCodec : u8;
 inline constexpr u32 kGatewayVoiceSpeakingUsers = 16;
+// The step of the voice heartbeat round trip that the voice panel shows.
+enum class VoiceRoundTrip : u8 { unknown, good, fair, poor };
+constexpr VoiceRoundTrip voice_round_trip_step(u32 milliseconds) noexcept {
+    return !milliseconds        ? VoiceRoundTrip::unknown
+           : milliseconds < 150 ? VoiceRoundTrip::good
+           : milliseconds < 300 ? VoiceRoundTrip::fair
+                                : VoiceRoundTrip::poor;
+}
 struct GatewayClientVoiceSnapshot {
     u64 user_id, guild_id, channel_id, generation;
     u32 flags, present_flags;
@@ -22,6 +30,9 @@ struct GatewayClientVoiceSnapshot {
     u16 voice_close_code;
     VoiceUdpPhase udp_phase;
     VoiceUdpError udp_error;
+    // The microphone sends voice now (VoiceAudioStatus::transmitting), and the round trip. The two fill the padding.
+    bool transmitting;
+    VoiceRoundTrip round_trip;
     // Remote users currently heard speaking (received audio energy, or packet
     // activity with op 5 flags while deafened), sorted by ID.
     u32 speaking_count;

@@ -917,8 +917,9 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
     const bool live = gateway_go_live_busy(runtime->go_live);
     if (live)
         gateway_go_live_drive(&runtime->go_live, runtime->voice, loop, event.now_ms);
-    // One snapshot for the three drives of this event.
-    if (voice || watching || live)
+    // One snapshot for the three drives of this event. A published `transmitting` always gets its end (the wake of
+    // transmit_check comes here).
+    if (voice || watching || live || runtime->voice_snapshot.transmitting)
         publish_voice_snapshot(client, runtime);
     drive_client_activity(runtime, event.now_ms);
     notify_consumer(client, runtime);

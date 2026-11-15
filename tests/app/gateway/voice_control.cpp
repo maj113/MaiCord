@@ -34,6 +34,14 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
     check(self_heard && !gateway_voice_self_speaking(heard) &&
               !gateway_voice_self_speaking(GatewayClientVoiceSnapshot{}),
           "voice self speaking follows the worker's speaker list");
+    GatewayClientVoiceSnapshot quiet{}, talking{}, slow{};
+    talking.transmitting = true;
+    slow.round_trip = VoiceRoundTrip::poor;
+    check(!(quiet == talking) && !(quiet == slow) && gateway_client_voice_revision(&empty_client) == 0 &&
+              voice_round_trip_step(0) == VoiceRoundTrip::unknown && voice_round_trip_step(149) == VoiceRoundTrip::good &&
+              voice_round_trip_step(150) == VoiceRoundTrip::fair && voice_round_trip_step(299) == VoiceRoundTrip::fair &&
+              voice_round_trip_step(300) == VoiceRoundTrip::poor,
+          "voice snapshot: the microphone state and the round trip step are a change, and no account has no publication");
     GatewayVoiceControl voice{};
     const auto session = utf8_literal("test-session");
     const GatewayVoiceStateUpdate join{10, 20, false, false, false};

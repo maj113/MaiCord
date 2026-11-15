@@ -31,6 +31,9 @@ bool window_wayland_set_idle_inhibit(Window window, bool inhibit) noexcept;
 // "idle for at least the timeout"). Without the protocol (GNOME's Mutter has none) it stays kSystemIdleUnknown and the
 // call returns false. Calling again replaces the watch.
 bool window_wayland_watch_idle(Window window, u32 timeout_ms) noexcept;
+// A count that changes each time that idle time starts or ends (each word of the compositor, and each new watch). The
+// word arrives as a display event, so it wakes the main loop: a reader that compares the count needs no timer.
+u32 window_wayland_idle_changes() noexcept;
 
 // Rings the compositor's system bell for the window (xdg-system-bell-v1); false where it has none.
 bool window_wayland_system_bell() noexcept;

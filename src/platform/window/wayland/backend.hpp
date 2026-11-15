@@ -187,9 +187,11 @@ struct ExtrasState {
     // xdg-foreign: the window's export; its handle goes to the portals (dbus::portal_set_parent_window).
     zxdg_exported_v2* exported;
     // ext-idle-notify: the system's input idle time. `idle_now` is the compositor's last word (idled or resumed) and
-    // `idle_mark_ms` when it said it (monotonic); the watch is for `idle_timeout_ms` without input.
+    // `idle_mark_ms` when it said it (monotonic); the watch is for `idle_timeout_ms` without input. `idle_changes`
+    // counts the words.
     ext_idle_notification_v1* idle;
     u32 idle_timeout_ms;
+    u32 idle_changes;
     bool idle_now;
     u64 idle_mark_ms;
 };

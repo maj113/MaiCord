@@ -951,6 +951,8 @@ bool reconcile() noexcept {
 }
 
 const HostedModal* active_modal() noexcept {
+    if (!g_settings_modal_owners)
+        return nullptr;
     for (const auto& modal : kModals)
         if (modal.active())
             return &modal;

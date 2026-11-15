@@ -471,9 +471,14 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     // never armed for paused playback, audio-only playback, or network waits.
     const Waitable frame_timer = initialized.ok() && v.session.video
         ? timer_create_waitable(false, true) : nullptr;
-    bool stopping = false;
+    // The stop event is the first handle of the wait below, so a turn that follows the wait takes the stop from its
+    // result. Only the first turn and a turn that follows `continue` ask the event (a system call). The event is
+    // manual-reset: a stop that comes after the wait returned ends the next wait at once.
+    bool stopping = false, ask_stop = true;
     for (;;) {
-        stopping = wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+        if (ask_stop && !stopping)
+            stopping = wait_one(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+        ask_stop = true;
         AccountVideoControl command{};
         bool has_command = false, ack = false, discard = false;
         u64 ack_epoch = 0, ack_serial = 0;
@@ -591,6 +596,10 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
                     delay == service.next_service_delay_ms ? frame_timer : nullptr, delay);
         if (waited == WAIT_FAILED)
             exit_selection = true;
+        else if (!stopping) {
+            stopping = waited == WAIT_OBJECT_0;
+            ask_stop = false;
+        }
     }
     if (frame_timer)
         waitable_close(frame_timer);

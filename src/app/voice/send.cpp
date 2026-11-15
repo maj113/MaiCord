@@ -315,4 +315,10 @@ bool voice_send_active(const VoiceSend& send) noexcept {
 bool voice_send_speaking(const VoiceSend& send) noexcept {
     return send.shared && send.speaking_on && read_acquire(&send.cells.transmitting);
 }
+
+bool voice_send_transmitting(const VoiceSend& send) noexcept {
+    // As voice_send_status, without the lock: only the worker writes capture_visible and starts or stops the capture.
+    return send.capture_visible && read_acquire(&send.cells.transmitting) &&
+           voice_audio_capture_status(send.capture).state == VoiceCaptureState::capturing;
+}
 } // namespace maicord

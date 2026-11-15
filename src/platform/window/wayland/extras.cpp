@@ -104,14 +104,18 @@ void on_exported_handle(void*, zxdg_exported_v2*, const char* handle) noexcept {
 
 const zxdg_exported_v2_listener kExportedListener = {on_exported_handle};
 
-void on_idled(void*, ext_idle_notification_v1*) noexcept {
-    g.extras.idle_now = true;
+void idle_word(bool idle) noexcept {
+    g.extras.idle_now = idle;
+    ++g.extras.idle_changes;
     g.extras.idle_mark_ms = clock_monotonic_milliseconds();
 }
 
+void on_idled(void*, ext_idle_notification_v1*) noexcept {
+    idle_word(true);
+}
+
 void on_resumed(void*, ext_idle_notification_v1*) noexcept {
-    g.extras.idle_now = false;
-    g.extras.idle_mark_ms = clock_monotonic_milliseconds();
+    idle_word(false);
 }
 
 const ext_idle_notification_v1_listener kIdleListener = {on_idled, on_resumed};
@@ -235,10 +239,13 @@ bool window_wayland_watch_idle(Window window, u32 timeout_ms) noexcept {
                       : ext_idle_notifier_v1_get_idle_notification(g.idle_notifier, timeout_ms, g.seat);
     ext_idle_notification_v1_add_listener(extras.idle, &kIdleListener, nullptr);
     extras.idle_timeout_ms = timeout_ms;
-    extras.idle_now = false;
-    extras.idle_mark_ms = clock_monotonic_milliseconds();
+    idle_word(false);
     g_client.display_flush(g.display);
     return true;
+}
+
+u32 window_wayland_idle_changes() noexcept {
+    return g.extras.idle_changes;
 }
 
 bool window_wayland_system_bell() noexcept {
