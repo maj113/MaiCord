@@ -254,12 +254,14 @@ UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float 
     if (!ui_coordinate_valid(x) || !ui_coordinate_valid(y)) {
         return ui_widget_invalid_handle();
     }
+    constexpr u16 required = ui_widget_enabled | ui_widget_hit_test;
     for (u32 reverse = manager.count; reverse != 0; --reverse) {
         const u32 index = reverse - 1;
-        const UiWidget& widget = manager.storage[index];
+        // The flags come first: most widgets take no pointer, and their 192-byte layout node stays unread.
+        if ((manager.storage[index].flags & required) != required)
+            continue;
         const UiLayoutNode& layout = manager.layout.storage[index];
-        if (!layout.visible || (widget.flags & ui_widget_enabled) == 0 ||
-            (widget.flags & ui_widget_hit_test) == 0 || !ui_rect_contains(layout.rectangle, x, y) ||
+        if (!layout.visible || !ui_rect_contains(layout.rectangle, x, y) ||
             !ui_rect_contains(layout.clip_rectangle, x, y)) {
             continue;
         }

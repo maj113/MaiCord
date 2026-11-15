@@ -294,19 +294,10 @@ MemberListSceneResult member_list_scene_scroll(MemberListScene* scene, float del
 
 const MemberListRowWidget* member_list_scene_resolve(const MemberListScene& scene,
                                                      UiWidgetHandle widget) noexcept {
-    if (!ui_widget_manager_resolve(scene.widgets, widget)) {
-        return nullptr;
-    }
-    for (u32 index = 0; index < scene.count; ++index) {
-        const MemberListRowWidget& row = scene.rows[index];
-        const UiWidgetHandle handles[] = {row.widget, row.avatar, row.label, row.status};
-        for (u32 handle = 0; handle < 4; ++handle) {
-            if (handles[handle].slot == widget.slot && handles[handle].generation == widget.generation) {
-                return &row;
-            }
-        }
-    }
-    return nullptr;
+    // The four widgets of row n take the slots 1 + 4n to 4 + 4n, after the root.
+    const u32 index = (widget.slot - 1u) / kMemberListWidgetsPerRow;
+    return ui_widget_manager_resolve(scene.widgets, widget) && widget.slot && index < scene.count ? &scene.rows[index]
+                                                                                                  : nullptr;
 }
 
 const UiLayoutNode* member_list_scene_layout_node(const MemberListScene& scene,
@@ -427,8 +418,7 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
         b.style = text_style_subtext | text_style_bold;
         b.label = a->primary_tag.view();
     }
-    const bool hovered =
-        s.widgets.hovered.slot == row.widget.slot && s.widgets.hovered.generation == row.widget.generation;
+    const bool hovered = ui_widget_handle_equal(s.widgets.hovered, row.widget);
     b.opacity = row.source_row.status == GuildMemberStatus::offline && !hovered
                     ? .4f
                     : 1.f;
@@ -708,8 +698,7 @@ UiBadgeWidget member_list_badge(const MemberListScene& s, u32 index) noexcept {
     b.accent = b.compact = entry->badge_accent;
     b.style = text_style_subtext | text_style_bold;
     b.label = {entry->badge_text, entry->badge_bytes};
-    const bool hovered =
-        s.widgets.hovered.slot == row.widget.slot && s.widgets.hovered.generation == row.widget.generation;
+    const bool hovered = ui_widget_handle_equal(s.widgets.hovered, row.widget);
     b.opacity = row.source_row.status == GuildMemberStatus::offline && !hovered ? .4f : 1.f;
     b.rectangle = member_media_offset(entry->badge_rectangle, node->rectangle.left, node->rectangle.top);
     return b;

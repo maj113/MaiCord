@@ -42,21 +42,9 @@ UiLayoutStyle row_style(float reveal) noexcept {
     return style;
 }
 
-UiMotionTransition transition_of(const GuildRailFolderMotion& slot) noexcept {
-    return {{slot.folder_id, 1}, slot.started_ms, slot.sampled_ms, slot.value, slot.from, slot.target,
-            kFolderMotion, slot.active};
-}
-void store_transition(GuildRailFolderMotion* slot, const UiMotionTransition& t) noexcept {
-    slot->started_ms = t.started_ms;
-    slot->sampled_ms = t.sampled_ms;
-    slot->value = t.value;
-    slot->from = t.from;
-    slot->target = t.target;
-    slot->active = t.active;
-}
-const GuildRailFolderMotion* folder_slot(const GuildRailScene& scene, u64 folder_id) noexcept {
+const UiMotionTransition* folder_slot(const GuildRailScene& scene, u64 folder_id) noexcept {
     for (const auto& slot : scene.folder_motion)
-        if (slot.folder_id == folder_id && folder_id)
+        if (slot.scope.owner == folder_id && folder_id)
             return &slot;
     return nullptr;
 }
@@ -394,7 +382,6 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         scene->rows = ui_virtual_row_storage_rows<GuildRailRowWidget>(*scene->row_storage);
     }
     // Rows come first: storage sized only for them leaves out the add button.
-            // Only materialize() writes layout specifications, so the measured sizes are current.
     if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count + range.tiles_top + range.tiles_bottom)) {
         range.add = false;
         range.tiles_bottom = 0;
@@ -407,6 +394,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         const bool geometry_changed = !ui_rect_equal(scene->viewport, viewport) || scene->scroll_dips != scroll;
         update_retained_rows(scene, *view, range);
         if (geometry_changed) {
+            // Only materialize() writes layout specifications, so the measured sizes are current.
             if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, scroll}) ||
                 !ui_widget_manager_layout_rectangle(&scene->widgets, viewport, true).ok()) {
                 return scene_error(scene, GuildRailSceneError::layout);
@@ -570,30 +558,26 @@ bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool 
                                      bool animate) noexcept {
     if (!scene || !folder_id)
         return false;
-    GuildRailFolderMotion* slot = nullptr;
+    UiMotionTransition* slot = nullptr;
     for (auto& candidate : scene->folder_motion)
-        if (candidate.folder_id == folder_id)
+        if (candidate.scope.owner == folder_id)
             slot = &candidate;
     const float from = slot && slot->active ? slot->value : expanded ? 0.0f : 1.0f;
     if (!slot)
         for (auto& candidate : scene->folder_motion)
-            if (!candidate.folder_id || !candidate.active) {
+            if (!candidate.scope.owner || !candidate.active) {
                 slot = &candidate;
                 break;
             }
     if (!slot)
         return false;
     const UiMotionScope scope{folder_id, 1};
-    UiMotionTransition transition = slot->folder_id == folder_id ? transition_of(*slot) : UiMotionTransition{};
-    if (slot->folder_id != folder_id) {
-        slot->folder_id = folder_id;
-        ui_motion_transition_reset(&transition, scope, from);
-    }
+    if (slot->scope.owner != folder_id)
+        ui_motion_transition_reset(slot, scope, from);
     // Ticking with an unchanged sample time starts the deadline at now_ms.
-    ui_motion_transition_tick(&transition, scope, expanded ? 1.0f : 0.0f, now_ms, kFolderMotion, !animate);
-    store_transition(slot, transition);
+    ui_motion_transition_tick(slot, scope, expanded ? 1.0f : 0.0f, now_ms, kFolderMotion, !animate);
     if (!slot->active)
-        slot->folder_id = 0;
+        slot->scope.owner = 0;
     scene->content_height = -1.0f; // force the next update to re-layout
     return true;
 }
@@ -603,15 +587,12 @@ bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noex
         return false;
     bool changed = false;
     for (auto& slot : scene->folder_motion) {
-        if (!slot.folder_id)
+        if (!slot.scope.owner)
             continue;
-        const UiMotionScope scope{slot.folder_id, 1};
-        auto transition = transition_of(slot);
-        changed = ui_motion_transition_tick(&transition, scope, slot.target, now_ms, kFolderMotion, !animate) ||
+        changed = ui_motion_transition_tick(&slot, slot.scope, slot.target, now_ms, kFolderMotion, !animate) ||
                   changed;
-        store_transition(&slot, transition);
         if (!slot.active) {
-            slot.folder_id = 0;
+            slot.scope.owner = 0;
             changed = true;
         }
     }
@@ -621,9 +602,7 @@ bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noex
 u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
     u64 wake = 0;
     for (const auto& slot : scene.folder_motion) {
-        if (!slot.folder_id)
-            continue;
-        const u64 deadline = ui_motion_transition_next_wake(transition_of(slot), {slot.folder_id, 1}, false);
+        const u64 deadline = slot.scope.owner ? ui_motion_transition_next_wake(slot, slot.scope, false) : 0;
         if (deadline && (!wake || deadline < wake))
             wake = deadline;
     }
@@ -631,21 +610,11 @@ u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
 }
 
 namespace {
-UiMotionTransition guild_rail_indicator_transition(const GuildRailIndicatorMotion& motion) noexcept {
-    return {{motion.scope.owner, motion.scope.generation}, motion.started_ms, motion.sampled_ms,
-            motion.value, motion.from, motion.target, {200, UiMotionCurve::css_ease_out}, motion.active};
-}
-
-bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMotionScope scope,
-                                         float target, u64 now_ms, bool animate) noexcept {
-    auto transition = guild_rail_indicator_transition(*motion);
+bool guild_rail_indicator_parameter_tick(UiMotionTransition* motion, UiMotionScope scope, float target, u64 now_ms,
+                                         bool animate) noexcept {
     if (motion->scope.owner != scope.owner || motion->scope.generation != scope.generation)
-        ui_motion_transition_reset(&transition, scope, target);
-    const bool changed = ui_motion_transition_tick(&transition, scope, target, now_ms,
-        {200, UiMotionCurve::css_ease_out}, !animate);
-    *motion = {{transition.scope.owner, transition.scope.generation}, transition.started_ms,
-               transition.sampled_ms, transition.value, transition.from, transition.target, transition.active};
-    return changed;
+        ui_motion_transition_reset(motion, scope, target);
+    return ui_motion_transition_tick(motion, scope, target, now_ms, {200, UiMotionCurve::css_ease_out}, !animate);
 }
 } // namespace
 
@@ -659,15 +628,12 @@ bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
 }
 
 u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill) noexcept {
-    u64 wake = 0;
-    const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility};
-    for (const auto* motion : motions) {
-        const auto transition = guild_rail_indicator_transition(*motion);
-        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, false);
-        if (deadline && (!wake || deadline < wake))
-            wake = deadline;
-    }
-    return wake;
+    // A pill at rest has no deadline.
+    if (!pill.height.active && !pill.visibility.active)
+        return 0;
+    const u64 a = ui_motion_transition_next_wake(pill.height, pill.height.scope, false);
+    const u64 b = ui_motion_transition_next_wake(pill.visibility, pill.visibility.scope, false);
+    return !a ? b : !b ? a : minimum(a, b);
 }
 
 } // namespace maicord

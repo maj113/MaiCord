@@ -14,14 +14,8 @@ struct UiVirtualRowStorageOwner;
 inline constexpr float kGuildRailRowGapDips = kUiGuildRailGap;
 
 // Guild indicator transition: 8/20/40px, 200ms CSS ease-out.
-struct GuildRailIndicatorMotion {
-    struct Scope { u64 owner, generation; } scope;
-    u64 started_ms, sampled_ms;
-    float value, from, target;
-    bool active;
-};
 struct GuildRailIndicator {
-    GuildRailIndicatorMotion height, visibility;
+    UiMotionTransition height, visibility;
 };
 bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
                                bool selected, bool hovered, bool unread,
@@ -64,13 +58,6 @@ struct GuildRailRowWidget {
 };
 
 inline constexpr u32 kGuildRailFolderMotionSlots = 8;
-// Plain fields keep GuildRailScene constant-initializable.
-struct GuildRailFolderMotion {
-    u64 folder_id;
-    u64 started_ms, sampled_ms;
-    float value, from, target;
-    bool active;
-};
 
 // Plugin tiles (kUiPluginSlotServerTop above the first server, kUiPluginSlotServerBottom after "Add a server").
 inline constexpr u32 kGuildRailPluginTiles = 4;
@@ -107,7 +94,7 @@ struct GuildRailScene {
     u32 rejected;
     bool active;
     GuildRailIndicator home_indicator;
-    GuildRailFolderMotion folder_motion[kGuildRailFolderMotionSlots];
+    UiMotionTransition folder_motion[kGuildRailFolderMotionSlots];
     float spacer_height;
     // Drag-and-drop reorder: the dimmed source and the drop line or ring.
     NavigationDragVisual drag;
