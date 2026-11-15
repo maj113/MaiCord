@@ -46,6 +46,7 @@
 #include "../account/login/input.hpp"
 #include "../account/login/ui.hpp"
 #include "scheduler.hpp"
+#include "shortcuts.hpp"
 #include "../voice/call.hpp"
 #include "shutdown_metrics.hpp"
 #include "../settings/settings.hpp"
@@ -660,8 +661,12 @@ int application_run() noexcept {
         }
         if (!logout_blocked)
             application_account_reconnect_tick(restart_now_ms);
+        // Background voice keybinds: the turn of their 20 ms wake samples the chords here. Only a chord that ran its
+        // action makes account work.
+        const bool keybind_action = !logout_blocked && application_shortcuts_pump();
         const bool account_work =
-            !logout_blocked && (account_signal || (draft_handle && wait_ready(waited, draft_handle_index)) ||
+            !logout_blocked && (account_signal || keybind_action ||
+                                (draft_handle && wait_ready(waited, draft_handle_index)) ||
                                 application_nonvisual_wake_due(restart_now_ms) ||
                                 application_notifications_gateway_pending(&g_app));
         if (account_work) {

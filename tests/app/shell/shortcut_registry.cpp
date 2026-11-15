@@ -1,4 +1,5 @@
 #include "maicord/app/shell/shortcut_registry.hpp"
+#include "maicord/app/shell/background_keybinds.hpp"
 #include "maicord/app/shell/navigation_shortcuts.hpp"
 #include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "maicord/core/memory.hpp"
@@ -266,6 +267,50 @@ void test_listing(Check check) noexcept {
           "shortcut overlay scene: two balanced columns when wide, one scrolling column when narrow");
     ui_shortcuts_scene_release(&scene);
 }
+
+// Background keybinds over a model of the main loop: one turn each `sample_ms`, the F9 key down from `from` to `to`
+// (with Ctrl when `ctrl`), the window in the foreground from `front_from` to `front_to`. Returns how many times each
+// of the two keybinds acted (F9 in the low byte, Ctrl+F9 in the next), with `samples` times one sample in each turn.
+bool g_keys[256];
+u32 background_run(u32 sample_ms, u32 from, u32 to, bool ctrl, u32 front_from, u32 front_to, u32 samples) noexcept {
+    CustomKeybinds keybinds{};
+    keybinds.count = 2;
+    keybinds.items[0] = {CustomKeybindAction::toggle_mute, {key::f9, 0}};
+    keybinds.items[1] = {CustomKeybindAction::toggle_deafen, {key::f9, C}};
+    BackgroundKeybinds state{};
+    u32 acted = 0;
+    for (u32 now = 0; now <= 3'000; now += sample_ms) {
+        g_keys[key::f9] = now >= from && now < to;
+        g_keys[key::ctrl] = ctrl && g_keys[key::f9];
+        const bool active = !(now >= front_from && now < front_to);
+        for (u32 sample = 0; sample < samples; ++sample) {
+            const u32 fired =
+                background_keybinds_sample(&state, keybinds, 1, active, [](Key key) noexcept { return g_keys[key]; });
+            acted += (fired & 1) + ((fired >> 1 & 1) << 8);
+        }
+    }
+    g_keys[key::f9] = g_keys[key::ctrl] = false;
+    return acted;
+}
+void test_background(Check check) noexcept {
+    // The defect that the 20 ms loop turn fixes: with one sample for each account pump (about one a second in a
+    // call), a press of 100 ms between two pumps did nothing.
+    check(background_run(1'000, 110, 210, false, 0, 0, 1) == 0, "background keybinds: a sample each second loses a 100 ms press");
+    check(background_run(20, 110, 210, false, 0, 0, 1) == 1, "background keybinds: a sample each 20 ms runs a 100 ms press one time");
+    check(background_run(20, 110, 210, false, 0, 0, 3) == 1,
+          "background keybinds: more samples of one press (a pump turn and a wake turn) run it one time");
+    check(background_run(20, 110, 2'500, false, 0, 0, 1) == 1, "background keybinds: a held key runs one time, with no repeat");
+    check(background_run(20, 110, 2'500, false, 500, 900, 1) == 1,
+          "background keybinds: the window in the foreground during the press adds no action when it leaves again");
+    check(background_run(20, 0, 400, false, 0, 0, 1) == 0, "background keybinds: a key down before the first sample never acts");
+    check(background_run(20, 110, 210, true, 0, 0, 1) == 0x100, "background keybinds: the modifiers choose the chord");
+    check(background_run(20, 110, 210, false, 0, 3'001, 1) == 0, "background keybinds: no sample acts when the conditions do not hold");
+    BackgroundKeybinds state{};
+    state.armed = true;
+    const CustomKeybinds none{};
+    check(background_keybinds_sample(&state, none, 1, false, [](Key) noexcept { return true; }) == 0 && !state.armed,
+          "background keybinds: conditions that do not hold disarm the wake");
+}
 } // namespace
 
 void test_shortcut_registry(Check check) noexcept {
@@ -273,5 +318,6 @@ void test_shortcut_registry(Check check) noexcept {
     test_recorder(check);
     test_custom(check);
     test_listing(check);
+    test_background(check);
 }
 } // namespace maicord

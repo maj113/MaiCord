@@ -11,6 +11,7 @@
 #include "../chat/composer/commands.hpp"
 #include "../account/friends.hpp"
 #include "scheduler.hpp"
+#include "shortcuts.hpp"
 #include "../settings/custom_theme.hpp"
 #include "../voice/stream.hpp"
 #include "../voice/stage.hpp"
@@ -270,6 +271,8 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     if ((application_smooth_scroll_active() || application_theme_transition_active()) && !frame_clock_armed)
         timeout = minimum(timeout, 16u);
     limit_timeout(timeout, now_ms, application_text_form_next_wake());
+    // The background keybind sample: a loop turn, not account work (see application_shortcuts_pump).
+    limit_timeout(timeout, now_ms, application_shortcuts_next_wake());
     limit_timeout(timeout, now_ms, application_theme_schedule_wake());
     limit_timeout(timeout, now_ms, application_message_interaction_next_wake(now_ms));
     limit_timeout(timeout, now_ms, application_forum_form_next_wake());

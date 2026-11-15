@@ -8,7 +8,6 @@
 #include "call.hpp"
 #include "go_live.hpp"
 #include "stage.hpp"
-#include "../shell/shortcuts.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/messages/interaction.hpp"
 #include "../shell/state.hpp"
@@ -233,15 +232,13 @@ void application_voice_pump() noexcept {
         voice.users_dirty = false;
         save();
     }
-    application_shortcuts_pump();
     application_call_voice_pump();
     application_stage_pump();
     application_go_live_pump();
 }
 
 u64 application_voice_next_wake() noexcept {
-    // Background voice keybinds sample their chords on the same cadence as push to talk.
-    const u64 keys = earliest_deadline(application_shortcuts_next_wake(), application_go_live_next_wake());
+    const u64 keys = application_go_live_next_wake();
     const auto earliest = [keys](u64 wake) noexcept { return earliest_deadline(wake, keys); };
     if (!voice.monitor && !application_voice_call())
         return earliest(voice.users_dirty || voice.save_pending ? clock_monotonic_milliseconds() + 250 : 0);

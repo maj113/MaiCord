@@ -32,11 +32,11 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/global_keys.hpp"
+#include "maicord/app/shell/background_keybinds.hpp"
 #include "maicord/ui/media/picker.hpp"
 
 namespace maicord::app_detail {
 namespace {
-constexpr u32 kModifiersUnread = ~0u;
 constexpr u32 kKeyBytes = 24, kQueryBytes = 64;
 struct Overlay {
     UiShortcutsScene scene;
@@ -49,12 +49,7 @@ struct Overlay {
     bool active;
 };
 Overlay overlay{};
-struct GlobalKeys {
-    u32 revision;
-    bool armed;
-    bool down[kCustomKeybindMaximum];
-};
-GlobalKeys global{};
+BackgroundKeybinds global{};
 
 bool focused_message(u64* id) noexcept {
     const u64 message = g_app.message_scene.focused_message_id;
@@ -78,17 +73,6 @@ bool run_custom(CustomKeybindAction action) noexcept {
     default: return false; // Push to talk is held by the capture thread.
     }
 }
-// Whether the chord is held. The modifier keys are read on the first held
-// key and shared by the chords checked after it in the same pump.
-bool chord_down(ShortcutChord chord, u32* held) noexcept {
-    if (!chord.key || !global_key_down(chord.key))
-        return false;
-    if (*held == kModifiersUnread)
-        *held = (global_key_down(key::ctrl) ? shortcut_ctrl : 0) | (global_key_down(key::alt) ? shortcut_alt : 0) |
-                (global_key_down(key::shift) ? shortcut_shift : 0);
-    return *held == chord.modifiers;
-}
-
 // Overlay content from the registry listing and the current query.
 // A second chord with the first one's modifiers shows only its key
 // ("Ctrl Alt ↑ / ↓"), as the official client lists previous/next pairs.
@@ -296,25 +280,15 @@ bool application_custom_keybind_input(UiInputKind kind, u32 code, bool repeated)
     return true;
 }
 
-void application_shortcuts_pump() noexcept {
+bool application_shortcuts_pump() noexcept {
     const auto& keybinds = application_custom_keybinds();
-    const bool background = g_app.window && !application_window_foreground();
-    if (!background || !keybinds.count || !in_call()) {
-        global.armed = false;
-        return;
-    }
-    const u32 revision = application_custom_keybinds_revision();
-    // Rebase on (re)arming: keys already held when focus left never fire.
-    const bool rebase = !global.armed || global.revision != revision;
-    global.armed = true;
-    global.revision = revision;
-    u32 held = kModifiersUnread;
-    for (u32 i = 0; i < keybinds.count; ++i) {
-        const bool down = chord_down(keybinds.items[i].chord, &held);
-        if (down && !global.down[i] && !rebase)
+    const bool active = g_app.window && !application_window_foreground() && keybinds.count && in_call();
+    const u32 fired =
+        background_keybinds_sample(&global, keybinds, application_custom_keybinds_revision(), active, global_key_down);
+    for (u32 i = 0; i < keybinds.count; ++i)
+        if (fired >> i & 1)
             run_custom(keybinds.items[i].action);
-        global.down[i] = down;
-    }
+    return fired != 0;
 }
 
 u64 application_shortcuts_next_wake() noexcept {

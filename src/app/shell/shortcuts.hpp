@@ -17,9 +17,12 @@ bool handle_shortcut_key(u32 key, bool repeated) noexcept;
 // surfaces; they never share a built-in, text-editing or system chord.
 bool application_custom_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept;
 
-// Background voice keybinds: polls the custom chords (the push-to-talk
-// mechanism) while a call is active and another window has focus.
-void application_shortcuts_pump() noexcept;
+// Background voice keybinds: samples the custom chords (the push-to-talk
+// mechanism) while a call is active and another window has focus. The main
+// loop calls the pump on each turn, and the wake makes a turn each 20 ms while
+// the conditions hold. True when a chord ran its action: that turn runs the
+// account pump. A turn with no action does not.
+bool application_shortcuts_pump() noexcept;
 u64 application_shortcuts_next_wake() noexcept;
 
 // Keyboard shortcuts overlay.

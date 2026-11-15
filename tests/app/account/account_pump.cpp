@@ -17,6 +17,13 @@
 
 namespace maicord::app_detail {
 
+// The background keybind wake as shortcuts.cpp gives it: 20 ms after the clock, which the fixture sets.
+u64 keybind_clock;
+bool keybind_armed;
+u64 application_shortcuts_next_wake() noexcept {
+    return keybind_armed ? keybind_clock + 20 : 0;
+}
+
 bool refresh_account_text(bool force) noexcept {
     if (account_text_retry_runtime_test::active) {
         account_text_retry_runtime_test::last_force = force;
@@ -52,6 +59,23 @@ void test_frame_deadlines() noexcept {
     check(!application_visual_frame_requested(1000, 1000000) && !application_effect_frame_due(1000) &&
               application_wait_timeout(1000, 1000000, false) == 42,
           "future_effect_uses_supplied_loop_time");
+    // Background voice keybinds: their wake makes a loop turn each 20 ms, and no turn of it is account work.
+    {
+        g_app.renderer.text_effect_animated = false;
+        keybind_armed = true;
+        u32 turns = 0, pumps = 0, frames = 0;
+        for (u64 now = 1000; now < 2000; ++turns) {
+            keybind_clock = now;
+            now += application_wait_timeout(now, now * 1000, true);
+            keybind_clock = now;
+            pumps += application_nonvisual_wake_due(now);
+            frames += application_visual_frame_requested(now, now * 1000);
+        }
+        keybind_armed = false;
+        g_app.renderer.text_effect_animated = true;
+        check(turns == 50 && !pumps && !frames, "keybind_sample_wakes_each_20_ms_without_account_pump_or_frame");
+        check(application_wait_timeout(1000, 1000000, true) == INFINITE, "no_keybind_wake_when_its_conditions_do_not_hold");
+    }
     form_wake = 1000;
     check(application_wait_timeout(1000, 1000000, true) == 0 && !application_nonvisual_wake_due(1000),
           "form_caret_wakes_ui_without_pumping_account");
