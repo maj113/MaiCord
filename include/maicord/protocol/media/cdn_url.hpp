@@ -56,18 +56,22 @@ enum class CdnHost : u8 {
     pornhub_video,
     vimeo_video,
     soundcloud_audio,
-    // i.ytimg.com: a YouTube playlist track's thumbnail in a media page's queue ("/vi/<id>/mqdefault.jpg").
+    // i.ytimg.com: a YouTube track's thumbnail. A media page's queue shows "/vi/<id>/mqdefault.jpg". A page's stage and
+    // the viewer show "/vi/<id>/maxresdefault.jpg" for a track without a picture of its own.
     track_art,
 };
 inline constexpr char kActivityArtHost[] = "i.scdn.co";
 inline constexpr char kWebAssetHost[] = "discord.com";
 inline constexpr char kTrackArtHost[] = "i.ytimg.com";
-// A track art target: "/vi/", an 11-character video id and "/mqdefault.jpg".
+// A track art target: "/vi/", an 11-character video id and "/mqdefault.jpg" (320 x 180) or "/maxresdefault.jpg"
+// (1280 x 720).
 constexpr bool track_art_target_valid(ConstSlice<u8> target) noexcept {
-    constexpr char prefix[] = "/vi/", suffix[] = "/mqdefault.jpg";
-    constexpr u32 prefix_bytes = sizeof(prefix) - 1, suffix_bytes = sizeof(suffix) - 1;
-    if (!target.data || target.count != prefix_bytes + 11 + suffix_bytes)
+    constexpr char prefix[] = "/vi/", small[] = "/mqdefault.jpg", large[] = "/maxresdefault.jpg";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1, small_bytes = prefix_bytes + 11 + sizeof(small) - 1,
+                  large_bytes = prefix_bytes + 11 + sizeof(large) - 1;
+    if (!target.data || (target.count != small_bytes && target.count != large_bytes))
         return false;
+    const char* suffix = target.count == large_bytes ? large : small;
     for (u32 i = 0; i < target.count; ++i) {
         const u8 c = target[i];
         if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
@@ -76,6 +80,23 @@ constexpr bool track_art_target_valid(ConstSlice<u8> target) noexcept {
             return false;
     }
     return true;
+}
+// Writes the URL of a video's track art and returns its length: the 320 x 180 picture, or the 1280 x 720 one for
+// `large`. `video` is 11 characters.
+inline constexpr u32 kTrackArtUrlBytes = 52;
+constexpr u32 track_art_url(const char* video, bool large, char* out) noexcept {
+    u32 bytes = 0;
+    const auto put = [&](const char* text, u32 count) noexcept {
+        for (u32 i = 0; i < count; ++i)
+            out[bytes++] = text[i];
+    };
+    put("https://i.ytimg.com/vi/", 23);
+    put(video, 11);
+    if (large)
+        put("/maxresdefault.jpg", 18);
+    else
+        put("/mqdefault.jpg", 14);
+    return bytes;
 }
 // An activity art target: "/image/" and 1-64 ASCII letters or digits.
 constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {

@@ -144,6 +144,9 @@ struct AccountVideoSession {
     // Picture off skips the decode loop. Picture on sets picture_seek: service seeks the decoder
     // alone to the clock (while paused, as a seek that lands one picture without touching audio).
     bool picture_off{}, picture_seek{};
+    // The provider's loudness gain for this source, at most 1. The owner sets it after initialization and before
+    // the first play command. The audio transport multiplies each sample by it.
+    float source_gain{1};
 };
 inline bool account_video_identity_equal(const AccountVideoIdentity& a,
                                          const AccountVideoIdentity& b) noexcept {

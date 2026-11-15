@@ -985,9 +985,10 @@ bool account_media_audio_matches(const AccountMedia* media, const MediaAssetKey&
     const bool streaming = media->progressive &&
         media->progressive->kind == ProgressiveVideoKind::fragmented_audio &&
         media->progressive->state == ProgressiveVideoFetchState::ready;
-    return (streaming || (encoded_audio_ready(media->audio_source.metadata) && media->audio_source.bytes.data)) &&
-           media->audio_source.content_identity &&
-           media_asset_key_valid(key) && media_attachment_format_audio_supported(media_asset_audio_format(key)) &&
+    // A streamed source without a picture can have a video key: an art track of YouTube Music.
+    return (streaming || (encoded_audio_ready(media->audio_source.metadata) && media->audio_source.bytes.data &&
+                          media_attachment_format_audio_supported(media_asset_audio_format(key)))) &&
+           media->audio_source.content_identity && media_asset_key_valid(key) &&
            media_asset_key_equal(media->audio_source.key, key) &&
            (!cache_generation || media->audio_source.cache_generation == cache_generation);
 }
@@ -1069,7 +1070,7 @@ AccountMediaRequestResult account_media_request_attachment(AccountMedia* media,
                                                            const AccountMediaAttachmentRequest& request,
                                                            u64 monotonic_now_ms,
                                                            u64 unix_now_seconds) noexcept {
-    if (request.options.progressive > 1 || request.options.reserved[0] || request.options.reserved[1] ||
+    if (request.options.progressive > 1 || request.options.list_formats > 1 || request.options.reserved ||
         request.options.collection_track > kMediaCollectionTracks ||
         (request.options.collection_track && (!request.options.progressive || (!(soundcloud_collection_url(request.signed_url) || apple_music_collection_locator(request.signed_url).id.bytes) || request.image_type != CdnImageType::m4a) &&
             (!youtube_collection_locator(request.signed_url).list.bytes || request.image_type != CdnImageType::mp4))) ||
@@ -1089,6 +1090,7 @@ AccountMediaRequestResult account_media_request_attachment(AccountMedia* media,
                                         0,
                                         request.options.progressive != 0};
     source.collection_track = request.options.collection_track;
+    source.list_formats = request.options.list_formats != 0;
     return request_url_media(media, source, monotonic_now_ms, unix_now_seconds);
 }
 

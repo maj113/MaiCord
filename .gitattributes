@@ -44,6 +44,7 @@ packaging/debian/debian/* text eol=lf
 *.mcp binary
 *.mp3 binary
 *.mp4 binary
+*.webm binary
 *.ogg binary
 *.opus binary
 *.wav binary

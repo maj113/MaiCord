@@ -45,7 +45,7 @@ maicord_library(maicord_media_codec
     src/media/video/rtp_nal.cpp src/media/video/hevc_stream.cpp src/media/video/rtp_video_packetize.cpp
     src/media/video/rtp_av1.cpp src/media/video/av1.cpp src/media/containers/mp4_fragment.cpp src/media/containers/mp4_fragment_track.cpp
     src/media/containers/mp4_fragment_source.cpp
-    src/media/containers/mp4_fragment_audio.cpp
+    src/media/containers/mp4_fragment_audio.cpp src/media/containers/webm_opus.cpp
     src/media/containers/mp4_fragment_segment.cpp
     src/media/containers/mp4_segment_store.cpp
     src/media/containers/mpeg_ts.cpp
@@ -158,6 +158,7 @@ maicord_library(maicord_protocol
     src/protocol/gateway/qos_token.cpp
     src/protocol/gateway/etf.cpp
     src/protocol/messages/interaction_data.cpp
+    src/protocol/media/embed_offer.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_unicode

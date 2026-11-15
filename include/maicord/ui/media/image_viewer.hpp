@@ -2,6 +2,7 @@
 #include "maicord/ui/widgets/button_keyboard.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/media/containers/track_info.hpp"
 namespace maicord {
 struct PaintStream;
 struct Theme;
@@ -148,6 +149,11 @@ void ui_image_viewer_pan(UiImageViewer* viewer, UiPoint delta) noexcept;
 UiRect ui_image_viewer_button(const UiImageViewer& viewer, u32 index) noexcept;
 // Tooltip text: the action and its shortcut.
 Utf8View ui_image_viewer_tooltip(const UiImageViewer& viewer, u32 index) noexcept;
+// What a provider page plays, for the end of its source line: "YouTube · H.264 1080p60 4.2 Mbps · AAC 130 kbps".
+// A picture that is not 16:9 shows both sides: "1080×1920 60 fps". The channel count shows when it is not 2.
+// Returns the bytes written: 0 without a pick, or when `capacity` is under kUiImageViewerQualityBytes.
+inline constexpr u32 kUiImageViewerQualityBytes = 96;
+u32 ui_image_viewer_quality_text(const MediaPlaybackQuality& quality, char* out, u32 capacity) noexcept;
 bool ui_image_viewer_spinner_visible(const UiImageViewer& viewer) noexcept;
 // Media fades with the reveal only when there is no inline preview to travel to.
 float ui_image_viewer_media_opacity(const UiImageViewer& viewer) noexcept;

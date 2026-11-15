@@ -1,5 +1,6 @@
 #include "maicord/media/containers/mp4_fragment_audio.hpp"
 #include "maicord/media/containers/mp4_segment_store.hpp"
+#include "maicord/media/containers/webm_opus.hpp"
 #include "maicord/core/byte_range.hpp"
 // Container parsing, once per packet and no byte loop: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -70,6 +71,21 @@ Mp4DemuxError mp4_fragment_audio_initialize(Mp4FragmentSource* source, Mp4Fragme
     return E::none;
 }
 namespace {
+// The packet at the adapter's index on its timeline.
+E timed(const Mp4FragmentAudio& audio, ConstSlice<u8> bytes, u32 frames, Mp4FragmentAudioPacket* output) noexcept {
+    Mp4FragmentAudioPacket value{};
+    value.bytes = bytes;
+    value.first_source_frame = u64{audio.packet_index} * frames;
+    i64 end{};
+    if (!mp4_audio_frame_time_100ns(audio.timeline, value.first_source_frame, &value.presentation_time_100ns) ||
+        !mp4_audio_frame_time_100ns(audio.timeline, value.first_source_frame + frames, &end) ||
+        value.presentation_time_100ns == (-0x7fffffffffffffffll - 1) || end <= value.presentation_time_100ns)
+        return E::unsupported;
+    // Signed endpoints can straddle zero; subtract in the unsigned domain.
+    value.duration_100ns = static_cast<u64>(end) - static_cast<u64>(value.presentation_time_100ns);
+    *output = value;
+    return E::none;
+}
 E audio_packet(const Mp4FragmentAudio& audio, Mp4FragmentRange segment, const Mp4Fragment& fragment,
                const Mp4FragmentPacket& packet, Mp4FragmentAudioPacket* output) noexcept {
     const auto& stream = *audio.source;
@@ -89,21 +105,30 @@ E audio_packet(const Mp4FragmentAudio& audio, Mp4FragmentRange segment, const Mp
         (fragment.first_time - segment.time) % audio.packet_ticks ||
         fragment.count != fragment.duration / audio.packet_ticks +
             u64{fragment.duration % audio.packet_ticks != 0}) return E::unsupported;
-    Mp4FragmentAudioPacket value{};
-    value.bytes = packet.bytes;
-    value.first_source_frame = u64{audio.packet_index} * stream.track.frames_per_packet;
-    i64 end{};
-    if (!mp4_audio_frame_time_100ns(audio.timeline, value.first_source_frame, &value.presentation_time_100ns) ||
-        !mp4_audio_frame_time_100ns(audio.timeline, value.first_source_frame + stream.track.frames_per_packet, &end) ||
-        value.presentation_time_100ns == (-0x7fffffffffffffffll - 1) || end <= value.presentation_time_100ns)
-        return E::unsupported;
-    // Signed endpoints can straddle zero; subtract in the unsigned domain.
-    value.duration_100ns = static_cast<u64>(end) - static_cast<u64>(value.presentation_time_100ns);
+    return timed(audio, packet.bytes, stream.track.frames_per_packet, output);
+}
+} // namespace
+Mp4DemuxError mp4_fragment_audio_attach(WebmOpus* webm, Mp4FragmentAudio* output) noexcept {
+    if (!webm || !webm->packet_count || !output || output->source || output->webm) return E::invalid_input;
+    const auto sought = webm_opus_seek(webm, 0);
+    if (sought != E::none) return sought;
+    Mp4FragmentAudio value{};
+    value.webm = webm; value.timeline = webm->timeline; value.packet_count = webm->packet_count;
     *output = value;
     return E::none;
 }
-} // namespace
+bool mp4_fragment_audio_format(const Mp4FragmentAudio& audio, Mp4FragmentAudioFormat* output) noexcept {
+    if (audio.webm) {
+        *output = {{}, 48000, audio.webm->output_gain_q8, audio.webm->frames_per_packet, audio.webm->channels, true};
+        return audio.webm->packet_count != 0;
+    }
+    if (!audio.source || !mp4_fragment_source_valid(*audio.source) || !audio.source->track.audio) return false;
+    const auto& track = audio.source->track;
+    *output = {track.configuration, track.sample_rate, 0, track.frames_per_packet, track.channels, false};
+    return true;
+}
 Mp4DemuxError mp4_fragment_audio_refresh(Mp4FragmentAudio* audio) noexcept {
+    if (audio && audio->webm) return E::none;
     if (!audio || !audio->source || !mp4_fragment_source_valid(*audio->source) || !audio->packet_ticks) return E::invalid_input;
     auto& source = *audio->source;
     if (!source.segments || !source.segments->live) return E::none;
@@ -120,6 +145,13 @@ Mp4DemuxError mp4_fragment_audio_refresh(Mp4FragmentAudio* audio) noexcept {
     return E::none;
 }
 Mp4DemuxError mp4_fragment_audio_peek(Mp4FragmentAudio* audio, Mp4FragmentAudioPacket* output) noexcept {
+    if (audio && audio->webm && output) {
+        ConstSlice<u8> bytes{};
+        auto error = webm_opus_peek(audio->webm, &bytes);
+        if (error == E::none) error = timed(*audio, bytes, audio->webm->frames_per_packet, output);
+        audio->pending = error == E::none;
+        return error;
+    }
     if (!audio || !audio->source || !mp4_fragment_source_valid(*audio->source) || !output ||
         !separate(*audio->source, audio, sizeof(*audio), output, sizeof(*output))) return E::invalid_input;
     const auto refreshed = mp4_fragment_audio_refresh(audio);
@@ -135,11 +167,21 @@ Mp4DemuxError mp4_fragment_audio_peek(Mp4FragmentAudio* audio, Mp4FragmentAudioP
     return E::none;
 }
 bool mp4_fragment_audio_commit(Mp4FragmentAudio* audio) noexcept {
+    if (audio && audio->webm && audio->pending) {
+        webm_opus_commit(audio->webm);
+        ++audio->packet_index; audio->pending = false;
+        return true;
+    }
     if (!audio || !audio->source || !audio->pending || !mp4_fragment_source_commit(audio->source)) return false;
     ++audio->packet_index; audio->pending = false;
     return true;
 }
 Mp4DemuxError mp4_fragment_audio_seek(Mp4FragmentAudio* audio, u32 packet) noexcept {
+    if (audio && audio->webm) {
+        const auto sought = webm_opus_seek(audio->webm, packet);
+        if (sought == E::none) { audio->packet_index = packet; audio->pending = false; }
+        return sought;
+    }
     const auto refreshed = mp4_fragment_audio_refresh(audio);
     if (refreshed != E::none) return refreshed;
     if (packet > audio->packet_count) return E::invalid_input;

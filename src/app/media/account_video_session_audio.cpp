@@ -184,10 +184,11 @@ bool audio_window(AccountVideoSession& s, Workspace& w) noexcept {
     copy_value(&w.demux, s.audio_metadata);
     if (s.fragmented_audio) {
         if (mp4_fragment_audio_refresh(s.fragmented_audio) != Mp4DemuxError::none) return false;
-        const auto& track = s.fragmented_audio->source->track;
+        Mp4FragmentAudioFormat format{};
+        if (!mp4_fragment_audio_format(*s.fragmented_audio, &format)) return false;
         w.timeline = s.fragmented_audio->timeline;
         w.packet_count = s.fragmented_audio->packet_count;
-        w.channels = track.channels; w.frames_per_packet = track.frames_per_packet;
+        w.channels = format.channels; w.frames_per_packet = format.frames_per_packet;
     } else {
         mp4_audio_demux_reset(&w.demux);
         if (!mp4_audio_demux_timeline(w.demux, &w.timeline)) return false;
@@ -202,7 +203,9 @@ bool audio_window(AccountVideoSession& s, Workspace& w) noexcept {
     if (!mp4_audio_sample_window(w.timeline, audio_target, &w.window) ||
         !frame_count(s.status.duration_100ns - s.seek_target, w.timeline.sample_rate, &w.wanted_frames)) return false;
     const u64 packet = w.window.first_source_frame / w.frames_per_packet;
-    const u32 preroll = aac_decoder_seek_preroll_packets(w.frames_per_packet);
+    // Opus needs 80 ms of packets before the target (RFC 7845 section 4.6).
+    const u32 preroll = w.opus ? (kOggOpusSeekPrerollFrames + w.frames_per_packet - 1) / w.frames_per_packet
+                               : aac_decoder_seek_preroll_packets(w.frames_per_packet);
     w.packet_index = packet > preroll && packet - preroll < w.packet_count ? static_cast<u32>(packet - preroll) : 0;
     w.seek_pending = false;
     if (s.fragmented_audio) {
@@ -300,6 +303,7 @@ bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 cha
     config.initial_epoch = s.playback_epoch;
     config.source_origin_100ns = s.seek_target;
     config.volume = s.status.muted ? 0 : s.status.desired_volume;
+    config.gain = s.source_gain;
     config.refill_event = config.status_event = s.lane_event;
     const auto started = media_audio_initialize(audio, config);
     if (!started.ok())
@@ -402,21 +406,32 @@ bool workspace(AccountVideoSession& s) noexcept {
         return opus_workspace(s);
     if (pcm_backed(s))
         return pcm_workspace(s);
+    Mp4FragmentAudioFormat format{};
+    // One block of the pump holds one packet: 20 ms of Opus fits, and the longest Opus packet does not.
+    if (s.fragmented_audio && (!mp4_fragment_audio_format(*s.fragmented_audio, &format) ||
+                               (format.opus && u32{format.frames_per_packet} * format.channels > sizeof(Workspace::pcm) / 4))) {
+        terminal(s, AccountVideoError::decoder);
+        return false;
+    }
     auto* w = static_cast<Workspace*>(
-        commit_pages(sizeof(Workspace)));
+        commit_pages(format.opus ? kWorkspaceOpusOffset + sizeof(OpusPackets) : sizeof(Workspace)));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
     }
     s.workspace = w;
-    const auto* track = s.fragmented_audio ? &s.fragmented_audio->source->track : nullptr;
-    const auto asc = track ? track->configuration : mp4_audio_demux_asc(s.audio_metadata);
-    const u32 rate = track ? track->sample_rate : s.audio_metadata.sample_rate;
-    const u32 channels = track ? track->channels : s.audio_metadata.channels;
-    const auto decoder = aac_decoder_initialize(&w->decoder, asc, rate, channels);
-    if (!decoder.ok()) {
-        terminal(s, AccountVideoError::decoder, static_cast<u32>(decoder.native_status));
-        return false;
+    const auto asc = s.fragmented_audio ? format.configuration : mp4_audio_demux_asc(s.audio_metadata);
+    const u32 rate = s.fragmented_audio ? format.sample_rate : s.audio_metadata.sample_rate;
+    const u32 channels = s.fragmented_audio ? format.channels : s.audio_metadata.channels;
+    if (format.opus) {
+        w->opus = reinterpret_cast<OpusPackets*>(reinterpret_cast<u8*>(w) + kWorkspaceOpusOffset);
+        opus_decoder_start(&w->opus->decoder, channels, format.gain_q8);
+    } else {
+        const auto decoder = aac_decoder_initialize(&w->decoder, asc, rate, channels);
+        if (!decoder.ok()) {
+            terminal(s, AccountVideoError::decoder, static_cast<u32>(decoder.native_status));
+            return false;
+        }
     }
     if (!start_audio(s, &w->audio, w->ring, channels, rate)) return false;
     if (!audio_window(s, *w)) {
@@ -520,7 +535,12 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
                 return false;
             }
         } else if (!standalone(s)) {
-            const auto flushed = aac_decoder_flush(&static_cast<Workspace*>(s.workspace)->decoder);
+            auto& w = *static_cast<Workspace*>(s.workspace);
+            if (w.opus) {
+                opus_decoder_reset(&w.opus->decoder);
+                w.opus->pending = false;
+            }
+            const auto flushed = w.opus ? AacDecodeResult{} : aac_decoder_flush(&w.decoder);
             if (!flushed.ok()) {
                 terminal(s, AccountVideoError::decoder, static_cast<u32>(flushed.native_status));
                 return false;
@@ -641,6 +661,36 @@ void refresh(AccountVideoSession& s) noexcept {
 } // namespace account_video_session_detail
 namespace {
 
+// The pump's decoder: the platform AAC decoder, or MaiCord's Opus decoder for a source of Opus packets. An Opus
+// packet decodes at once into the block the pump writes next, and the read gives that block its packet's time.
+AacDecodeResult decoder_submit(Workspace& w, ConstSlice<u8> packet, i64 time, u64 duration) noexcept {
+    if (!w.opus)
+        return aac_decoder_submit(&w.decoder, packet, time, duration);
+    auto& o = *w.opus;
+    if (o.pending)
+        return {AacDecodeError::need_output};
+    const Slice<i16> work{o.pcm16, sizeof(o.pcm16) / 2};
+    u32 frames = opus_decode_float(&o.decoder, packet, work, w.pcm);
+    if (!frames) {
+        // A packet the decoder rejects is concealed like a lost one: the timeline keeps its length.
+        frames = opus_decode_lost(&o.decoder, {}, w.frames_per_packet, work);
+        for (u32 i = 0; i < frames * w.channels; ++i)
+            w.pcm[i] = o.pcm16[i] / 32768.0f;
+    }
+    if (frames != w.frames_per_packet)
+        return {AacDecodeError::input};
+    o.time = time;
+    o.pending = true;
+    return {};
+}
+AacDecodedBlock decoder_read(Workspace& w) noexcept {
+    if (!w.opus)
+        return aac_decoder_read(&w.decoder, {reinterpret_cast<u8*>(w.pcm), sizeof(w.pcm)});
+    if (!w.opus->pending)
+        return {w.draining ? AacDecodeError::end_of_stream : AacDecodeError::need_input};
+    w.opus->pending = false;
+    return {AacDecodeError::none, 0, w.frames_per_packet * w.channels * 4u, w.frames_per_packet, w.opus->time, true};
+}
 bool write(AccountVideoSession& s, Workspace& w, u32 frames, u32 offset) noexcept {
     const auto value = media_audio_write(&w.audio, s.playback_epoch,
                                          {w.pcm + offset * w.channels, frames * w.channels});
@@ -656,7 +706,7 @@ bool write(AccountVideoSession& s, Workspace& w, u32 frames, u32 offset) noexcep
     return true;
 }
 bool output(AccountVideoSession& s, Workspace& w) noexcept {
-    const auto block = aac_decoder_read(&w.decoder, {reinterpret_cast<u8*>(w.pcm), sizeof(w.pcm)});
+    const auto block = decoder_read(w);
     if (block.error == AacDecodeError::need_input) {
         w.reading = false;
         if (w.draining) {
@@ -797,7 +847,7 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
             if (s.fragmented_audio && mp4_fragment_audio_seek(s.fragmented_audio, w.packet_count) != Mp4DemuxError::none) {
                 terminal(s, AccountVideoError::demux); break;
             }
-            const auto value = aac_decoder_drain(&w.decoder);
+            const auto value = w.opus ? AacDecodeResult{} : aac_decoder_drain(&w.decoder);
             if (!value.ok()) {
                 terminal(s, AccountVideoError::decoder, static_cast<u32>(value.native_status));
                 break;
@@ -833,7 +883,7 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
         if (error != Mp4DemuxError::none || !duration) {
             terminal(s, AccountVideoError::timestamp); break;
         }
-        const auto value = aac_decoder_submit(&w.decoder, bytes, start, duration);
+        const auto value = decoder_submit(w, bytes, start, duration);
         if (value.error == AacDecodeError::need_output) {
             w.demux = before;
             w.reading = true;
@@ -1115,8 +1165,8 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
         movie.duration_us > static_cast<u64>(kLimit) / 10)
         return result(AccountVideoError::invalid_input);
     Mp4AudioDemuxer audio{};
-    if (fragmented_audio && (!fragmented_audio->source || !mp4_fragment_source_valid(*fragmented_audio->source) ||
-        !fragmented_audio->source->track.audio || !fragmented_audio->packet_count ||
+    Mp4FragmentAudioFormat format{};
+    if (fragmented_audio && (!mp4_fragment_audio_format(*fragmented_audio, &format) || !fragmented_audio->packet_count ||
         fragmented_audio->packet_index > fragmented_audio->packet_count))
         return result(AccountVideoError::invalid_input);
     auto error = fragmented_audio ? Mp4DemuxError::none : mp4_audio_demux_initialize(&audio, source, audio_availability);
@@ -1155,9 +1205,9 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
 }
 AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession* s, Mp4FragmentAudio* audio,
     const AccountVideoIdentity& id, HANDLE event) noexcept {
-    if (s->initialized || s->workspace || !audio->source || !identity_valid(id) || !event ||
-        !mp4_fragment_source_valid(*audio->source) || !audio->source->track.audio ||
-        (audio->source->segments && audio->source->segments->live) || !audio->packet_count ||
+    Mp4FragmentAudioFormat format{};
+    if (s->initialized || s->workspace || !identity_valid(id) || !event || !mp4_fragment_audio_format(*audio, &format) ||
+        (audio->source && audio->source->segments && audio->source->segments->live) || !audio->packet_count ||
         audio->packet_index > audio->packet_count)
         return result(AccountVideoError::invalid_input);
     Mp4AudioSampleWindow window{};

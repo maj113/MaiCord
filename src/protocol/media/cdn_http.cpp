@@ -451,6 +451,8 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
             (image_type == CdnImageType::m4a &&
              (http_ascii_equal_case_insensitive(content_type, "audio/x-m4a") ||
               http_ascii_equal_case_insensitive(content_type, "audio/m4a") ||
+              // YouTube's Opus formats are WebM files. The source reader admits them by their own bytes.
+              (host == CdnHost::google_video && http_ascii_equal_case_insensitive(content_type, "audio/webm")) ||
               ((host == CdnHost::twitch_vod || host == CdnHost::twitch_live || host == CdnHost::vimeo_video) && http_ascii_equal_case_insensitive(content_type, "video/mp4")) ||
               // Apple's public previews use this legacy label for clear mp4a;
               // source admission still rejects encrypted sample entries.

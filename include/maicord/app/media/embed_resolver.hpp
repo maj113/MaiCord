@@ -27,6 +27,8 @@ struct EmbedResolver {
     u32 response_bytes;
     char music_version[32]{};
     u8 music_version_bytes{};
+    // Every format of the last YouTube list, for the worker's log. Its count is 0 after another provider's resolve.
+    EmbedOffer offer;
 };
 // Eight bytes, so a result returns in a register.
 struct EmbedResolveResult {
@@ -42,8 +44,11 @@ static_assert(sizeof(EmbedResolveResult) == 8);
 // Worker-only. Zero-initialize and keep at a fixed address until joined release.
 // Fetches at most one public bootstrap and one player response per call. No
 // unbounded retry, cookies persisted to disk, or provider network work at idle.
+// `music` (a YouTube Music link) also asks YouTube Music for the kind of the track, at the same time as the player
+// request. An art track then resolves to its audio format alone: video.url stays empty. A kind request that fails,
+// answers another kind or answers later than 250 ms after the player response leaves the track a video.
 EmbedResolveResult youtube_resolve(EmbedResolver*, Utf8View video_id, u16 maximum_height,
-    EmbedStreams*, EmbedResolveTransport transport = {}) noexcept;
+    EmbedStreams*, EmbedResolveTransport transport = {}, bool music = false) noexcept;
 EmbedResolveResult youtube_hls_resolve(EmbedResolver*, Utf8View master, u16 maximum_height, u64 unix_seconds,
     ProgressiveVideoFetch* video, ProgressiveVideoFetch* audio, EmbedResolveTransport transport = {}) noexcept;
 EmbedResolveResult tiktok_resolve(EmbedResolver*, Utf8View post_id, u16 maximum_height, u64 unix_seconds,

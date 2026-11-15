@@ -39,6 +39,8 @@ u32 opened_urls, opened_bytes;
 char opened_url[256];
 MediaAssetKey hosted_video_key{};
 u32 hosted_video_opens{};
+// The player's picture of a sound-only track (video.cpp). Zero for none.
+MediaAssetKey track_art{};
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
@@ -797,6 +799,18 @@ void run() noexcept {
         check(application_image_viewer_synchronize() && g_app.image_viewer.scene.pixels.width == decoded_width &&
               g_app.image_viewer.scene.pixels.height == decoded_height && correct_aspect(g_app.image_viewer.scene.display),
               "expanded provider uses decoded picture aspect instead of iframe metadata");
+        // A sound-only track has no frames: the viewer draws the track's picture, at the picture's aspect.
+        track_art = media_asset_attachment(7'001, MediaAttachmentFormat::jpeg, MediaResolutionTier::px512);
+        check(media_atlas_allocate(&atlas, track_art, 320, 180).ok() && application_image_viewer_synchronize() &&
+              media_asset_key_equal(g_app.renderer.image_viewer_key, track_art) &&
+              media_asset_key_equal(g_app.renderer.image_viewer_fallback, track_art) &&
+              g_app.image_viewer.scene.pixels.width == 320 && g_app.image_viewer.scene.pixels.height == 180,
+              "expanded sound-only track draws the track's picture in place of frames");
+        track_art = {};
+        check(application_image_viewer_synchronize() &&
+              media_asset_key_equal(g_app.renderer.image_viewer_key, hosted_video_key) &&
+              g_app.image_viewer.scene.pixels.width == decoded_width,
+              "expanded video draws its frames again when the track's picture goes");
         app_detail::activate(ui_image_viewer_fullscreen);
         g_app.renderer.width = 1920; g_app.renderer.height = 1080;
         check(application_image_viewer_synchronize() && g_app.image_viewer.scene.fullscreen &&
@@ -914,6 +928,7 @@ bool application_video_key(UINT, bool, bool) noexcept { return false; }
 float application_video_viewer_chrome() noexcept { return 1; }
 void application_video_viewer_activity() noexcept {}
 bool application_video_viewer_url(Utf8View*, bool*) noexcept { return false; }
+MediaAssetKey application_video_art() noexcept { return image_viewer_runtime_test::track_art; }
 namespace video_detail {
 // What the player resolves for an embed: the playback URL its message's embed selects.
 bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* url, u32* width, u32* height) noexcept {

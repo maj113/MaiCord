@@ -161,7 +161,7 @@ void run() noexcept {
     {
         const auto key = media_asset_embed(700, 1, 0, MediaEmbedResource::video, MediaAttachmentFormat::m4a);
         AccountMediaAttachmentRequest request{utf8_literal("https://soundcloud.com/forss/sets/soulhack"), key,
-            700, 1, 0, 0, CdnImageType::m4a, {1, {0, 0}, 2}, nullptr};
+            700, 1, 0, 0, CdnImageType::m4a, {1, 0, 0, 2}, nullptr};
         auto& lane = worker->lanes[1];
         lane.command.key = key; lane.command.kind = AccountMediaWorkKind::attachment;
         lane.command.source_message_id = 700; lane.command.source_message_revision = 1;

@@ -18,6 +18,7 @@
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
+#include "maicord/ui/chat/messages/component_media.hpp"
 
 namespace maicord {
 namespace ui_probe_detail {
@@ -6449,12 +6450,32 @@ bool probe_media_page() noexcept {
     }
     UiImageViewer player{};
     UiVideoScene controls{};
+    Utf8View source_line = image_info.source;
+    // A track without a picture: the stage shows the track's thumbnail under the audio icon, and the player has
+    // nothing to expand. The fixture has YouTube's framing of a square cover: the cover in the middle, here with a
+    // grid, and a plain band on each side. It is an eighth of 1280 x 720, which the probe's atlas holds. Its key has
+    // the kind and tier the client fetches the thumbnail with, so the stage draws it from the identity atlas.
+    bool sound_only = false;
+    u8 art_pixels[90 * (160 * 4 + 1)]{};
+    constexpr u8 kBand[]{30, 60, 110};
+    for (u32 y = 0; y < 90; ++y)
+        for (u32 x = 0; x < 160; ++x) {
+            u8* pixel = art_pixels + y * 641 + 1 + x * 4;
+            const bool cover = x >= 35 && x < 125, line = cover && ((x - 35) % 10 == 0 || y % 10 == 0);
+            pixel[0] = line ? 250 : cover ? static_cast<u8>(40 + (x - 35) * 2) : kBand[0];
+            pixel[1] = line ? 250 : cover ? static_cast<u8>(40 + y * 2) : kBand[1];
+            pixel[2] = line ? 250 : cover ? 120 : kBand[2];
+            pixel[3] = 255;
+        }
+    PngImage art_image{};
+    const MediaAssetKey art =
+        message_component_media_key(991990, MediaAttachmentFormat::jpeg, MediaResolutionTier::px2048);
     const auto capture_player = [&](float dips, bool playlist, const wchar_t* name,
                                     const Theme& theme = kDefaultTheme) noexcept {
         if (!probe_resize_surface(static_cast<u32>(dips * renderer.dpi / 96.0f + .5f), height))
             return false;
         const UiRect column = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);
-        UiVideoPlaybackState playback{1, 1, 1, 83'000, 214'000, 70, true, false, false, false, true, true, true, true, true};
+        UiVideoPlaybackState playback{1, 1, 1, 83'000, 214'000, 70, true, false, false, false, true, true, true, true, !sound_only};
         playback.buffered_count = 1;
         playback.buffered_end[0] = 6'000;
         playback.collection_count = playlist ? queue.count : 0;
@@ -6469,7 +6490,8 @@ bool probe_media_page() noexcept {
         visual.scrim_lead = 40;
         if (!ui_image_viewer_set_dpi(&player, renderer.dpi) || !ui_image_viewer_open(&player, column, {16, 9}) ||
             !ui_image_viewer_set_page(&player, {playlist ? utf8_literal("Late night mix") : utf8_literal("launch-day.mp4"),
-                                                image_info.source, UiIcon::video, UiImageViewerPageKind::video, true,
+                                                source_line, sound_only ? UiIcon::music : UiIcon::video,
+                                                UiImageViewerPageKind::video, true,
                                                 playlist}) ||
             !ui_image_viewer_set_actions(&player, ui_image_viewer_action_open))
             return false;
@@ -6481,7 +6503,12 @@ bool probe_media_page() noexcept {
                                          (layout.player.top + layout.player.bottom) * .5f});
         ui_video_scene_tick(&controls, 0, true);
         renderer.media_page = &player;
-        renderer.media_page_key = renderer.media_page_fallback = key;
+        renderer.media_page_key = renderer.media_page_fallback = sound_only ? art : key;
+        // The left band of the track's picture, at the stage's mid-height.
+        const ProbePixelSample band{{player.display.left + ui_rect_width(player.display) * .08f,
+                                     (player.display.top + player.display.bottom) * .5f},
+                                    {kBand[0] / 255.f, kBand[1] / 255.f, kBand[2] / 255.f, 1},
+                                    2};
         renderer.audio_scene = nullptr;
         renderer.video_scene = &controls;
         renderer.video_scene_page = true;
@@ -6491,6 +6518,7 @@ bool probe_media_page() noexcept {
         const auto& bar = controls.projection.controls;
         return rebuild_probe_content_text() && probe_present(&renderer, theme) &&
                (d3d11_renderer_surfaces(renderer) & d3d11_surface_page_video) &&
+               (!sound_only || probe_exact_pixels({&band, 1})) &&
                (!playlist || (ui_rect_has_area(layout.queue) && probe_text_pixels({&first_row, 1}) && bar[9].hidden &&
                               !bar[7].hidden && bar[7].bounds.top == bar[0].bounds.top &&
                               bar[7].bounds.right < bar[0].bounds.left && bar[8].bounds.left > bar[0].bounds.right &&
@@ -6513,6 +6541,73 @@ bool probe_media_page() noexcept {
     // channel list's glass. Captured for review.
     if (!capture_player(1920, true, L"media-player-playlist-hover-aurora-1920.bmp", aurora))
         return false;
+    // A provider page: its source line ends with what the player picked, in the formatter's own text. A long channel
+    // name and a long server name at 1000 DIP cut the line at its end. Then the title still shows and the cut is
+    // inside the text's box. The toolbar's pixels are those of the page with the plain line. Captured for review.
+    g_probe.failure_stage = 150;
+    const MediaPlaybackQuality pick{4230996, 129492, 1920, 1080, 60, 2, MediaQualityProvider::youtube};
+    const Utf8View origins[2]{image_info.source,
+                              utf8_literal("#the-channel-for-very-long-video-links \xC2\xB7 A Server With A Remarkably "
+                                           "Long Name \xC2\xB7 Mai")};
+    char lines[2][224];
+    Utf8View with_pick[2];
+    for (u32 i = 0; i < 2; ++i) {
+        u32 bytes = origins[i].bytes;
+        copy_bytes(lines[i], origins[i].data, bytes);
+        copy_bytes(lines[i] + bytes, " \xC2\xB7 ", 4);
+        bytes += 4;
+        bytes += ui_image_viewer_quality_text(pick, lines[i] + bytes, kUiImageViewerQualityBytes);
+        with_pick[i] = {lines[i], bytes};
+    }
+    if (with_pick[0].bytes <= origins[0].bytes + 4 || !capture_player(1000, false, L"media-player-video-1000.bmp"))
+        return false;
+    float toolbar = player.viewport.right;
+    for (u32 i = 0; i < ui_image_viewer_button_count; ++i)
+        if (const auto button = ui_image_viewer_button(player, i);
+            ui_rect_has_area(button) && i != ui_image_viewer_previous && i != ui_image_viewer_next &&
+            i != ui_image_viewer_retry)
+            toolbar = minimum(toolbar, button.left);
+    // From 4 DIP past the text's right limit to the page's edge, at the height of the source line.
+    constexpr u32 kSamples = 64;
+    UiPoint samples[kSamples];
+    u8 plain[kSamples][4]{}, cut[kSamples][4]{};
+    for (u32 i = 0; i < kSamples; ++i)
+        samples[i] = {toolbar - 12 + static_cast<float>(i) * (player.viewport.right - toolbar + 12) / kSamples,
+                      player.viewport.top + 34};
+    const UiRect title_ink{player.viewport.left + 52, player.viewport.top + 6, player.viewport.left + 200,
+                           player.viewport.top + 26};
+    const UiRect line_end{toolbar - 16 - 72, player.viewport.top + 26, toolbar - 16, player.viewport.top + 42};
+    if (toolbar >= player.viewport.right || !probe_read_pixels(kDefaultTheme, {samples, kSamples}, plain))
+        return false;
+    source_line = with_pick[1];
+    // The source line is secondary text: dimmer than the default ink threshold.
+    if (!capture_player(1000, false, L"media-player-pick-long-1000.bmp") || !probe_text_pixels({&title_ink, 1}) ||
+        !probe_text_pixels({&line_end, 1}, 96) || !probe_read_pixels(kDefaultTheme, {samples, kSamples}, cut) ||
+        !bytes_equal(plain, cut, sizeof(plain)))
+        return false;
+    source_line = with_pick[0];
+    if (!capture_player(1000, false, L"media-player-pick-1000.bmp") ||
+        !capture_player(1920, false, L"media-player-pick-1920.bmp") ||
+        !capture_player(1920, true, L"media-player-pick-playlist-1920.bmp"))
+        return false;
+    // An art track of YouTube Music on its page and in a playlist: the track's thumbnail on the stage, the transport,
+    // seek and volume of the player, and a source line whose pick has no video part. Captured for review.
+    const MediaPlaybackQuality sound{0, 129610, 0, 0, 0, 2, MediaQualityProvider::youtube_music};
+    u32 sound_bytes = origins[0].bytes + 4;
+    sound_bytes += ui_image_viewer_quality_text(sound, lines[0] + sound_bytes, kUiImageViewerQualityBytes);
+    source_line = {lines[0], sound_bytes};
+    sound_only = true;
+    constexpr auto sound_text = utf8_literal("YouTube Music \xC2\xB7 AAC 130 kbps");
+    if (!media_quality_sound_only(sound) ||
+        !utf8_equal({lines[0] + origins[0].bytes + 4, sound_bytes - origins[0].bytes - 4}, sound_text) ||
+        !png_image_configure(&art_image, 160, 90, 8, 6) ||
+        !renderer_upload_png_scanlines(&renderer, art, art_image, {art_pixels, sizeof(art_pixels)}).ok() ||
+        !capture_player(1000, false, L"media-player-sound-only-1000.bmp") ||
+        !capture_player(1920, true, L"media-player-sound-only-playlist-1920.bmp"))
+        return false;
+    sound_only = false;
+    media_atlas_forget(renderer.media_atlas, art);
+    source_line = image_info.source;
     renderer.retained_presentation.valid = false;
     renderer.video_scene_page = false;
     g_probe.failure_stage = 145;

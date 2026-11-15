@@ -3,10 +3,15 @@
 #include "video.hpp"
 #include "../shell/frame_presentation.hpp"
 #include "policy.hpp"
+#include "pump.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "maicord/media/containers/track_info.hpp"
+#include "maicord/protocol/media/cdn_url.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
+#include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/voice/video_controls.hpp"
@@ -43,8 +48,9 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     out.collection_more = video.collection_more;
     out.can_change_track = video.collection_count && !video.selecting && !playback.release_pending;
     // In the viewer the toolbar's full screen button replaces expand; on a page it is the page's full screen.
+    // A track without a picture has nothing to expand.
     out.can_expand = !video.source.audio && !video.source.audio_preview && !video.presentation_failed &&
-                     video.source.host != VideoHost::viewer;
+                     video.source.host != VideoHost::viewer && !media_quality_sound_only(video.status.quality);
     out.expanded = video.source.host == VideoHost::viewer ||
                    (video.source.host == VideoHost::page && application_media_page_fullscreen());
     const auto& buffered = video.status.buffered;
@@ -900,6 +906,34 @@ VideoPageQueue application_video_page_queue(u8 page) noexcept {
                 ? static_cast<u64>(playback.duration_100ns / 10000)
                 : 0};
 }
+MediaPlaybackQuality application_video_page_quality(u8 page) noexcept {
+    const auto* video = page_video(page);
+    return video && video->selected && video->status.selected ? video->status.quality : MediaPlaybackQuality{};
+}
+MediaAssetKey application_video_art() noexcept {
+    const auto* video = g_app.video;
+    return video && (video->source.host == VideoHost::viewer ||
+                     (video->source.host == VideoHost::page &&
+                      application_media_page_shown() == video->source.page_id))
+               ? video->art
+               : MediaAssetKey{};
+}
+bool application_video_art_pump(ApplicationMediaPump& pump, bool* stop) noexcept {
+    auto* video = g_app.video;
+    const MediaAssetKey key = application_video_art();
+    if (!media_asset_key_valid(key))
+        return true;
+    char url[kTrackArtUrlBytes];
+    const u32 bytes = track_art_url(video->art_video, !video->art_small, url);
+    if (!pump.request_url_picture(key, {url, bytes}, stop, false, nullptr, &video->source.preview))
+        return false;
+    // The larger picture failed (YouTube answers HTTP 404 when a video has none). The next frame shows the small one.
+    if (!video->art_small && pump.asset_backed_off(key)) {
+        video->art_small = true;
+        application_request_frame();
+    }
+    return true;
+}
 bool application_video_page_track(u8 page, u16 track) noexcept {
     auto* video = page_video(page);
     if (!video)
@@ -1010,6 +1044,46 @@ bool update_video_extent(ApplicationVideo& video, const GpuVideoFrame& frame) no
     }
     return changed;
 }
+// Sets application_video_art for what the session plays now.
+void sync_art(ApplicationVideo& video) noexcept {
+    Utf8View id{};
+    MediaTrackTitle title;
+    title.id = {};
+    MediaPagePlayback page{};
+    u32 width = 0, height = 0;
+    if (video.source.host != VideoHost::card && video.selected && video.status.selected &&
+        media_quality_sound_only(video.status.quality)) {
+        if (video.collection_count) {
+            const AccountMediaCollectionTitleRequest query{video.source.key, video.source.revision,
+                                                           video.collection_track, true};
+            // A busy playlist keeps the picture it has.
+            if (account_module_collection_title(g_app.account.instance, &query, &title).state ==
+                AccountMediaRequestState::busy)
+                return;
+            if (title.id.youtube_track)
+                id = {title.id.youtube, 11};
+        } else if (video.source.host == VideoHost::page
+                       ? application_media_page_playback(video.source.page_id, &page)
+                       : resolve_message_video_url(video.source, &page.url, &width, &height)) {
+            id = embed_video_locator(page.url).id;
+        }
+    }
+    MediaAssetKey art{};
+    if (id.bytes == 11) {
+        // Another track asks for the larger picture again.
+        video.art_small = video.art_small && bytes_equal(video.art_video, id.data, 11);
+        copy_bytes(video.art_video, id.data, 11);
+        char url[kTrackArtUrlBytes];
+        const u32 bytes = track_art_url(id.data, !video.art_small, url);
+        // The px2048 tier keeps the larger picture's size in the decoder. The small one has the queue row's key.
+        art = message_component_media_key(hash64_bytes(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg,
+                                          video.art_small ? MediaResolutionTier::px512 : MediaResolutionTier::px2048);
+    }
+    if (!media_asset_key_equal(art, video.art)) {
+        video.art = art;
+        application_request_frame();
+    }
+}
 // The controls' scene projection: the UI library's own work (compiled for size there), here once per pump
 // turn of an open player, so it is compiled for size with what it inlines from that library. Positioning
 // stays at full speed.
@@ -1019,6 +1093,8 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
     if (visible)
         video->hidden_pause = false;
     if (!visible) {
+        // The track can change while nothing shows the session. The next showing finds its picture again.
+        video->art = {};
         // A hidden page plays on: its pump keeps turning (playlist, status) while it plays.
         video->presentation_wake_ms = video->source.host == VideoHost::page && video->status.playback.playing
                                           ? clock_monotonic_milliseconds() + 500
@@ -1035,6 +1111,7 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
         return true;
     }
     video->source = positioned;
+    sync_art(*video);
     const MediaAssetKey inline_key =
         positioned.provider && video->provider_frame_ready && video->source.host == VideoHost::card ? positioned.key
                                                                                                     : MediaAssetKey{};

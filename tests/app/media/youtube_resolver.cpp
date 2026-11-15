@@ -4,6 +4,8 @@
 #include "maicord/app/media/segmented_video_fetch.hpp"
 #include "maicord/app/net/cdn_client.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/os/thread.hpp"
+#include "../../../src/app/media/account_media_internal.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {
@@ -441,6 +443,105 @@ void resident_selection() noexcept {
           "failed or expired provider ranges require fresh resolution on retry");
     media = {};
 }
+// A YouTube Music link asks YouTube Music for the kind of the track while the player request runs. The kind request
+// has its own thread, so this fake answers each host from its own state.
+enum class Kind : u32 { art, video, plain, unknown, error, refused, late };
+struct MusicFake { Fake player; volatile LONG kinds; Kind kind; };
+UpdateTransportError music_exchange(void* context, const UpdateHttpRequest& request,
+    const HttpsExchangeOptions& options, UpdateHttpResponse* response) noexcept {
+    auto& f = *static_cast<MusicFake*>(context);
+    if (!utf8_equal(request.host_name, utf8_literal("music.youtube.com")))
+        return exchange(&f.player, request, options, response);
+    InterlockedIncrement(&f.kinds);
+    check(utf8_equal({request.target.data, request.target.count}, kYoutubeMusicKindTarget) &&
+          request.maximum_body_bytes == kYoutubeMusicKindBytes && options.headers.count == 4 &&
+          utf8_equal({reinterpret_cast<const char*>(options.body.data), options.body.count},
+              utf8_literal(R"({"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20261110.04.00"}},"videoId":"aB_01234-xy"})")),
+          "kind request: one small filtered player request to YouTube Music");
+    for (u32 i = 0; i < options.headers.count; ++i)
+        check(!utf8_equal(options.headers[i].name, utf8_literal("Authorization")), "kind request: no account credentials");
+    *response = {};
+    response->status = f.kind == Kind::refused ? 403 : 200;
+    if (f.kind == Kind::error) return UpdateTransportError::connect;
+    if (f.kind == Kind::refused) return UpdateTransportError::none;
+    // Later than the 250 ms the resolver waits after the player response.
+    if (f.kind == Kind::late) thread_sleep(450);
+    const Utf8View answers[]{
+        utf8_literal(R"({"videoDetails":{"videoId":"aB_01234-xy","musicVideoType":"MUSIC_VIDEO_TYPE_ATV"}})"),
+        utf8_literal(R"({"videoDetails":{"videoId":"aB_01234-xy","musicVideoType":"MUSIC_VIDEO_TYPE_OMV"}})"),
+        utf8_literal(R"({"videoDetails":{"videoId":"aB_01234-xy"}})"),
+        utf8_literal(R"({"videoDetails":{"videoId":"aB_01234-xy","musicVideoType":"MUSIC_VIDEO_TYPE_NEW"}})")};
+    return reply(request, response, answers[f.kind == Kind::late ? 0 : static_cast<u32>(f.kind)]);
+}
+void music_kind() noexcept {
+    auto* r = allocate<EmbedResolver>();
+    check(r != nullptr, "resolver allocation");
+    if (!r) return;
+    MusicFake f{};
+    const auto resolve = [&](Kind kind, bool music = true) noexcept {
+        EmbedStreams streams{};
+        f.kind = kind;
+        const auto result = youtube_resolve(r, kId, 480, &streams, {&f, music_exchange}, music);
+        u32 marked = 0;
+        for (u32 i = 0; i < r->offer.count; ++i)
+            marked += (r->offer.formats[i].flags & embed_format_picked) != 0;
+        // 1: the audio format alone. 2: the video with its audio, as before the kind request existed.
+        return !result.ok() || !streams.audio.url_bytes || streams.audio.bitrate != 128000 ? 0u
+               : !streams.video.url_bytes && marked == 1 ? 1u
+               : streams.video.height == 360 && marked == 2 ? 2u : 0u;
+    };
+    check(resolve(Kind::art) == 1 && f.kinds == 1 && f.player.player == 1,
+          "art track: the resolver asks for the audio format alone and no video format");
+    check(resolve(Kind::video) == 2 && f.kinds == 2, "music video: the resolver keeps the video");
+    check(resolve(Kind::plain) == 2 && resolve(Kind::unknown) == 2 && f.kinds == 4,
+          "an answer without the kind and an unknown kind keep the video");
+    check(resolve(Kind::error) == 2 && resolve(Kind::refused) == 2 && f.kinds == 6,
+          "a kind request that fails or is refused keeps the video");
+    check(resolve(Kind::late) == 2 && f.kinds == 7, "a kind that arrives after the wait keeps the video");
+    check(resolve(Kind::art, false) == 2 && f.kinds == 7 && f.player.player == 8,
+          "a YouTube link sends no kind request and keeps the video");
+    f.player.login = true;
+    EmbedStreams streams{};
+    f.kind = Kind::art;
+    check(youtube_resolve(r, kId, 480, &streams, {&f, music_exchange}, true).error == EmbedPlayerError::login_required &&
+              !streams.audio.url_bytes && !r->response.committed,
+          "a refused player request ends the kind request with it and publishes nothing");
+    embed_resolver_release(r);
+    VirtualFree(r, 0, MEM_RELEASE);
+}
+// The media worker plays an art track from one audio fetch under the embed's video key. No MP4 decoder exists, so
+// the session has no picture, no video conversion and no frame timer.
+void sound_only_source() noexcept {
+    static AccountMedia media{};
+    check(account_media_initialize(&media).ok(), "media fixture initialization");
+    const auto key = media_asset_embed(77, 1, 0, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true,
+                                       MediaResolutionTier::px512, false);
+    AccountMediaUrlRequest request{utf8_literal("https://rr1---sn-test.googlevideo.com/videoplayback?itag=140"),
+                                   key, 77, 1, 1920, 1080, CdnImageType::mp4, nullptr, 0, 0, true};
+    request.provider_expires = 5'000;
+    request.provider_host = CdnHost::google_video;
+    request.sound_only = true;
+    const auto queued = account_media_detail::request_url_media(&media, request, 1'000, 1'100);
+    const auto* fetch = media.progressive;
+    check(queued.state == AccountMediaRequestState::queued && fetch &&
+              fetch->kind == ProgressiveVideoKind::fragmented_audio && fetch->image_type == CdnImageType::m4a &&
+              fetch->inflight_id && !fetch->refreshable && !media.progressive_audio && !media.mp4_decoder,
+          "art track: one audio fetch starts, with no video fetch and no MP4 decoder");
+    check(!account_media_audio_matches(&media, key) && !account_media_video_matches(&media, key),
+          "art track: the source cannot be selected before its first bytes arrive");
+    if (fetch) {
+        // What the lane sets when the head of the audio format arrives.
+        media.progressive->state = ProgressiveVideoFetchState::ready;
+        media.audio_source.key = key;
+        media.audio_source.content_identity = 9;
+        check(account_media_audio_matches(&media, key) && !account_media_video_matches(&media, key) && !media.mp4_decoder,
+              "art track: the session selects the audio source under the video key and no decoder");
+        media.progressive->kind = ProgressiveVideoKind::fragmented_video;
+        check(!account_media_audio_matches(&media, key), "a video key matches an audio source only while it streams audio");
+        media.progressive->kind = ProgressiveVideoKind::fragmented_audio;
+    }
+    check(account_media_stop(&media, 5'000), "media fixture stop");
+}
 void resolver() noexcept {
     auto* r = allocate<EmbedResolver>();
     check(r != nullptr, "resolver allocation");
@@ -452,14 +553,18 @@ void resolver() noexcept {
           streams.video.height == 360 && streams.audio.bitrate == 128000 && !r->response.committed &&
           !r->structurals.committed && !r->response_bytes && !r->https.winsock,
           "native resolution uses two requests and releases all response/scratch pages");
+    u32 marked = 0;
+    for (u32 i = 0; i < r->offer.count; ++i)
+        marked += (r->offer.formats[i].flags & embed_format_picked) != 0;
+    check(r->offer.count >= 2 && marked == 2, "the resolver keeps the offered list with the two picked formats marked");
     result = youtube_resolve(r, kId, 480, &streams, {&f, exchange});
     check(result.ok() && f.calls == 3 && f.bootstrap == 1, "bootstrap reused without background traffic");
     f.login = true;
     auto prior = streams;
     result = youtube_resolve(r, kId, 480, &streams, {&f, exchange});
     check(result.error == EmbedPlayerError::login_required && f.calls == 4 &&
-          bytes_equal(&prior, &streams, sizeof(streams)) && !r->response.committed,
-          "login challenge neither loops nor replaces prior source");
+          bytes_equal(&prior, &streams, sizeof(streams)) && !r->response.committed && !r->offer.count,
+          "login challenge neither loops nor replaces prior source, and leaves no offer to report");
     f.rate_limited = true;
     result = youtube_resolve(r, kId, 480, &streams, {&f, exchange});
     check(!result.ok() && result.status == 429 && result.retry_after_seconds == 120 && f.calls == 5,
@@ -628,6 +733,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_youtube_resolver_entry() noe
     maicord::youtube_live_resolver_test();
     maicord::check(maicord::soundcloud_player_tests(), "SoundCloud identity-bound native resolution");
     maicord::live_resolver_test();
-    maicord::scanner(); maicord::headers(); maicord::resolver(); maicord::steam_resolver_test(); maicord::vod_resolver_test(); maicord::resident_selection(); maicord::paired_ranges();
+    maicord::scanner(); maicord::headers(); maicord::resolver(); maicord::music_kind(); maicord::sound_only_source(); maicord::steam_resolver_test(); maicord::vod_resolver_test(); maicord::resident_selection(); maicord::paired_ranges();
     ExitProcess(maicord::failures ? 1 : 0);
 }

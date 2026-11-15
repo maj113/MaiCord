@@ -170,7 +170,7 @@ AccountMediaRequestResult account_media_worker_request_attachment(
     AccountMediaWorker* worker, const AccountMediaAttachmentRequest& request, u64 monotonic_now_ms,
     u64 unix_now_seconds) noexcept {
     const bool collection = embed_collection_url(request.signed_url);
-    if (request.options.progressive > 1 || request.options.reserved[0] || request.options.reserved[1] ||
+    if (request.options.progressive > 1 || request.options.list_formats > 1 || request.options.reserved ||
         request.options.collection_track > 8192 ||
         (request.options.collection_track && (!collection || !request.options.progressive || (request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mp4))) ||
         (request.options.progressive &&
@@ -194,6 +194,7 @@ AccountMediaRequestResult account_media_worker_request_attachment(
     work.progressive = request.options.progressive;
     work.collection = collection;
     work.collection_track = request.options.collection_track;
+    work.list_formats = request.options.list_formats;
     if (!copy_bytes(work.text, sizeof(work.text), request.signed_url.data, request.signed_url.bytes)) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }

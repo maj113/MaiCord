@@ -8,6 +8,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/os/thread.hpp"
 
 namespace maicord {
 namespace {
@@ -111,6 +112,72 @@ EmbedResolveResult public_metadata_exchange(EmbedResolver* r, const EmbedResolve
     const Utf8View& host, const Utf8View& target, u32 limit, UpdateHttpResponse* headers = nullptr) noexcept {
     return fetch(r, transport, host, target, limit, {{kBrowserHeaders, 1}}, headers);
 }
+// A YouTube Music resolve asks which kind of track the id is. The player response does not say it. The question
+// goes on its own connection and thread while the player request runs, so it does not delay the start.
+struct MusicKind {
+    UpdateHttpsTransport https;
+    EmbedResolveTransport transport;
+    Thread* thread;
+    u32 body_bytes, answer_bytes;
+    u8 body[256];
+    char answer[kYoutubeMusicKindBytes], id[11];
+    bool art_track;
+};
+u32 music_kind_main(void* opaque) noexcept {
+    auto& k = *static_cast<MusicKind*>(opaque);
+    static constexpr HttpsHeader headers[]{{utf8_literal("User-Agent"), kAgent},
+        {utf8_literal("Cookie"), utf8_literal("SOCS=CAI")}, {utf8_literal("Content-Type"), utf8_literal("application/json")},
+        {utf8_literal("Origin"), utf8_literal("https://music.youtube.com")}};
+    const UpdateHttpRequest request{UpdateHost::provider, utf8_literal("music.youtube.com"),
+        {kYoutubeMusicKindTarget.data, kYoutubeMusicKindTarget.bytes}, sizeof(k.answer),
+        +[](void* context, ConstSlice<u8> bytes) noexcept {
+            auto& kind = *static_cast<MusicKind*>(context);
+            if (bytes.count > sizeof(kind.answer) - kind.answer_bytes) return false;
+            copy_bytes(kind.answer + kind.answer_bytes, bytes.data, bytes.count);
+            kind.answer_bytes += static_cast<u32>(bytes.count);
+            return true;
+        }, &k};
+    HttpsExchangeOptions options{{headers, 4}};
+    options.body = {k.body, k.body_bytes};
+    UpdateHttpResponse response{};
+    k.art_track = k.transport.exchange(k.transport.context, request, options, &response) == UpdateTransportError::none &&
+        response.status == 200 && youtube_music_art_track({k.answer, k.answer_bytes}, {k.id, sizeof(k.id)});
+    return 0;
+}
+// The client waits this long for the kind after the player response arrives. Then it plays the video.
+constexpr u32 kMusicKindWaitMs = 250;
+struct MusicKindRequest {
+    MusicKind* kind{};
+    // A request that cannot start leaves the track a video.
+    void start(const EmbedResolver& r, const Utf8View& id, const EmbedResolveTransport& caller) noexcept {
+        auto* k = kind = commit_pages<MusicKind>();
+        if (!k || id.bytes != sizeof(k->id)) return;
+        // YouTube Music answers this request for a client version it no longer serves pages to.
+        k->body_bytes = youtube_music_kind_body(id, r.music_version_bytes
+            ? Utf8View{r.music_version, r.music_version_bytes} : utf8_literal("1.20261110.04.00"), {k->body, sizeof(k->body)});
+        copy_bytes(k->id, id.data, sizeof(k->id));
+        k->transport = caller;
+        if (!caller.exchange && update_https_initialize(&k->https)) k->transport = {&k->https, native_exchange};
+        if (k->body_bytes && k->transport.exchange) k->thread = thread_start(music_kind_main, k, 256u * 1024u, nullptr);
+    }
+    // True for an art track. An answer later than `wait_ms` counts as no answer.
+    bool finish(u32 wait_ms) noexcept {
+        auto* k = kind;
+        if (!k || !k->thread) return false;
+        const bool answered = thread_wait(k->thread, wait_ms);
+        if (!answered) {
+            update_https_cancel(&k->https);
+            thread_wait(k->thread, INFINITE);
+        }
+        thread_close(k->thread);
+        k->thread = nullptr;
+        return answered && k->art_track;
+    }
+    ~MusicKindRequest() noexcept {
+        finish(0);
+        if (kind) pages_release(kind, sizeof(*kind));
+    }
+};
 } // namespace
 bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept {
     if (!s || s->complete || s->failed || (!input.data && input.count)) return false;
@@ -140,7 +207,7 @@ bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept 
     return true;
 }
 static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 height,
-    EmbedStreams* out, const EmbedResolveTransport& caller_transport, CdnHost provider, u64 now, const Utf8View& country = {}, u8 media_index = 0, bool episode = false) noexcept {
+    EmbedStreams* out, const EmbedResolveTransport& caller_transport, CdnHost provider, u64 now, const Utf8View& country = {}, u8 media_index = 0, bool episode = false, bool music = false) noexcept {
     EmbedResolveTransport transport = caller_transport;
     const bool tiktok = provider == CdnHost::tiktok_video, twitch = provider == CdnHost::twitch_video;
     const bool youtube = provider == CdnHost::google_video;
@@ -163,6 +230,8 @@ static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 heig
     if (!request_bytes) return {E::invalid_input};
     const auto prepared = transport_for(*r, transport);
     if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
+    MusicKindRequest kind;
+    if (music) kind.start(*r, id, caller_transport);
     if (youtube && !r->bootstrap.complete) {
         reset_value(&r->bootstrap);
         static constexpr HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
@@ -227,7 +296,8 @@ static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 heig
                               : twitch ? twitch_clip_streams(json, id, height, now, scratch, out)
                               : streamable ? streamable_video_streams(json, id, height, now, scratch, out)
                               : twitter ? twitter_video_streams(json, id, height, media_index, scratch, out)
-                                       : youtube_player_streams(json, id, height, scratch, out);
+                                       : youtube_player_streams(json, id, height, scratch, out, &r->offer,
+                                                                music && kind.finish(kMusicKindWaitMs));
     return {error, UpdateTransportError::none, fetched.status};
 }
 EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now, EmbedStreams* out,
@@ -256,7 +326,9 @@ EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u6
     return {E::unavailable};
 }
 EmbedResolveResult youtube_resolve(EmbedResolver* r, Utf8View id, u16 height, EmbedStreams* out,
-    EmbedResolveTransport transport) noexcept { return resolve(r, id, height, out, transport, CdnHost::google_video, 0); }
+    EmbedResolveTransport transport, bool music) noexcept {
+    return resolve(r, id, height, out, transport, CdnHost::google_video, 0, {}, 0, false, music);
+}
 EmbedResolveResult tiktok_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now, EmbedStreams* out,
     EmbedResolveTransport transport) noexcept { return resolve(r, id, height, out, transport, CdnHost::tiktok_video, now); }
 EmbedResolveResult twitch_clip_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now, EmbedStreams* out,

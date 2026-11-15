@@ -185,6 +185,14 @@ if(MAICORD_LINUX)
         LIBS maicord_aac_decoder maicord_media_codec maicord_core
         TIMEOUT 30 TEST maicord_aac_lc)
 endif()
+# The WebM Opus reader (src/media/containers/webm_opus.cpp), the audio adapter over it and the float output of the Opus
+# decoder, on the fixture of tools/generate_webm_fixtures.py: every packet against ffprobe's list, seeks, a file without
+# Cues, a sparse file, cut and damaged files behind a page with no access.
+maicord_test(MaiCordWebmOpusTests ENTRY maicord_webm_opus_entry
+    SOURCES tests/media/containers/webm_opus.cpp
+    LIBS maicord_media_codec maicord_core
+    WINDOWS LIBS kernel32
+    BOTH TIMEOUT 20 TEST maicord_webm_opus)
 maicord_test(MaiCordNotificationPcmTests ENTRY maicord_notification_pcm_tests_entry SOURCES tests/media/audio/notification_pcm.cpp
     LIBS maicord_notification_pcm
     BUNDLE MaiCordCoreUnitTests
@@ -1261,7 +1269,9 @@ maicord_test(MaiCordMediaWorkerPosterLeaseTests ONLY WINDOWS ENTRY maicord_media
 # Media decode lanes: threads start on first use; lane stacks keep a margin
 # over the deepest decode (every image codec and the largest bundled flag).
 maicord_test(MaiCordMediaWorkerLanesTests ONLY WINDOWS ENTRY maicord_media_worker_lanes_entry
+    # The media worker logs a YouTube pick: log.cpp gives the whole bundle the log.
     SOURCES tests/app/media/worker_lanes.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
+        src/core/log.cpp
     LIBS maicord_account_media
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_worker_lanes)
@@ -3303,7 +3313,7 @@ maicord_test(MaiCordEmbedResolverTests ONLY WINDOWS ENTRY maicord_youtube_resolv
     # Public SoundCloud queues.
     SOURCES tests/app/media/youtube_resolver.cpp tests/app/media/soundcloud_player.cpp
         tests/app/media/soundcloud_collection.cpp tests/app/media/youtube_collection.cpp tests/app/media/apple_music_album.cpp
-        tests/app/media/apple_music_playlist.cpp src/app/update/https.cpp
+        tests/app/media/apple_music_playlist.cpp src/app/update/https.cpp src/core/log.cpp
     LIBS maicord_account_media maicord_app_core maicord_protocol maicord_platform maicord_core
         d3d11 dxgi ole32 user32 kernel32 ws2_32 maicord_sspicli bcrypt
     TIMEOUT 20 TEST maicord_youtube_resolver)

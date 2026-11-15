@@ -57,6 +57,7 @@ struct AccountMediaWorkItem {
     u8 progressive;
     u8 collection;
     bool title_batch;
+    u8 list_formats;
     u16 collection_track;
     u64 catalog_scope;
     MediaTrackId title_track;

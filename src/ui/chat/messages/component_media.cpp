@@ -40,9 +40,9 @@ MediaAttachmentFormat message_component_media_format(Utf8View url) noexcept {
     return MediaAttachmentFormat::unknown;
 }
 
-MediaAssetKey message_component_media_key(u64 url_hash, MediaAttachmentFormat format) noexcept {
-    MediaAssetKey key = media_asset_embed(url_hash, 1, 0, MediaEmbedResource::image, format, false,
-                                          MediaResolutionTier::px512);
+MediaAssetKey message_component_media_key(u64 url_hash, MediaAttachmentFormat format,
+                                          MediaResolutionTier resolution) noexcept {
+    MediaAssetKey key = media_asset_embed(url_hash, 1, 0, MediaEmbedResource::image, format, false, resolution);
     key.kind = MediaAssetKind::profile_image;
     return key;
 }

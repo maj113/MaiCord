@@ -470,6 +470,39 @@ __attribute__((minsize)) u32 opus_decode(OpusDecoder* decoder, ConstSlice<u8> pa
     return frames;
 }
 
+// The float output of a packet. A CELT frame after a CELT frame has no fade with another mode, so its samples go
+// out before the PCM16 saturation. Every other frame goes out as its saturated PCM16 samples.
+__attribute__((minsize)) u32 opus_decode_float(OpusDecoder* decoder, ConstSlice<u8> packet, Slice<i16> work,
+                                               float* pcm) noexcept {
+    State& st = state_of(decoder);
+    Packet parsed;
+    if (!parse_packet(packet, &parsed))
+        return 0;
+    const u32 frames = parsed.count * parsed.frame_size;
+    if (!work.data || !pcm || work.count / st.channels < frames)
+        return 0;
+    st.mode = parsed.mode;
+    st.bandwidth = parsed.bandwidth;
+    st.frame_size = parsed.frame_size;
+    st.stream_channels = parsed.channels;
+    const u8* data = parsed.data;
+    FrameScratch scratch;
+    for (u32 i = 0, done = 0; i < parsed.count; ++i, done += parsed.frame_size) {
+        i16* const to = work.data + done * st.channels;
+        float* const wide = pcm + done * st.channels;
+        const bool direct = parsed.mode == kCeltOnly && parsed.sizes[i] > 1 &&
+                            (st.previous_mode == kCeltOnly || st.previous_mode == kNoMode);
+        if (decode_frame(st, scratch, data, parsed.sizes[i], to, frames - done, false, direct ? wide : nullptr) < 0)
+            return 0;
+        const u32 count = parsed.frame_size * st.channels;
+        if (!direct)
+            to_float(wide, to, count);
+        scale(wide, count, 1.f / 32768.f);
+        data += parsed.sizes[i];
+    }
+    return frames;
+}
+
 __attribute__((minsize)) u32 opus_decode_lost(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames,
                                               Slice<i16> pcm) noexcept {
     State& st = state_of(decoder);

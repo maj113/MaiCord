@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/app/media/account_video_session.hpp"
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/media/containers/track_info.hpp"
 
 namespace maicord {
 struct AccountVideoSelection {
@@ -25,6 +26,8 @@ struct AccountVideoPlaybackStatus {
     AccountVideoBuffered buffered{};
     u16 collection_count{}, collection_track{};
     bool collection_more{};
+    // What the provider resolver picked for the selected source. Zero when it is not a YouTube pick.
+    MediaPlaybackQuality quality{};
 };
 // The GPU source is borrowed until exact acknowledgement. Acknowledgement means
 // the renderer copy has been queued, or the caller has discarded the frame.

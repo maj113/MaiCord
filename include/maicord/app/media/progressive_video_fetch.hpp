@@ -2,6 +2,7 @@
 
 #include "maicord/media/core/progressive_source.hpp"
 #include "maicord/media/containers/mp4_fragment_audio.hpp"
+#include "maicord/media/containers/webm_opus.hpp"
 #include "maicord/protocol/media/cdn_http.hpp"
 
 namespace maicord {
@@ -38,6 +39,11 @@ struct ProgressiveVideoFetch {
     Mp4Demuxer index;
     Mp4FragmentSource fragment;
     Mp4FragmentAudio audio;
+    // The reader of an Opus format, which is a WebM file. `audio` then reads through it and `fragment` stays empty.
+    WebmOpus webm;
+    // The target of the same list's AAC format, for a WebM file the reader refuses. Empty without one.
+    u8 fallback[kCdnMaximumTargetBytes];
+    u32 fallback_bytes;
     u8 target[kCdnMaximumTargetBytes];
     // A refreshed URL offered by the UI thread; guarded by the video runtime lock.
     char offered[kCdnMaximumTargetBytes];
@@ -61,6 +67,8 @@ struct ProgressiveVideoFetch {
     // Only signed attachments have an API refresh route. An ordinary embed
     // returning 403/410 must end, rather than wait forever for an impossible refresh.
     bool refreshable;
+    // The reader refused the WebM file. With a fallback the next step starts again with it, and `fell_back` stays.
+    bool webm_refused, fell_back;
 };
 
 // The first range is the head probe; later ranges follow the probe and cursors.
@@ -68,6 +76,10 @@ bool progressive_video_fetch_begin(ProgressiveVideoFetch*, ConstSlice<u8> target
                                    u64 expires_at_seconds, ProgressiveVideoKind = ProgressiveVideoKind::movie) noexcept;
 bool progressive_video_fetch_begin_segments(ProgressiveVideoFetch*, Utf8View manifest_url, const DashTrack&, bool audio) noexcept;
 bool progressive_video_fetch_pending(const ProgressiveVideoFetch*) noexcept;
+// Gives an audio fetch a second target. The fetch starts again with it when the client cannot read the WebM file
+// of the first target. Call it after progressive_video_fetch_begin. The second target has the host and the expiry
+// of the first one.
+void progressive_video_fetch_fallback(ProgressiveVideoFetch*, ConstSlice<u8> target) noexcept;
 u64 progressive_video_fetch_generation(const ProgressiveVideoFetch*) noexcept;
 // Rebuilds fragment metadata from retained initialization after joined retirement.
 bool progressive_video_fetch_restore(ProgressiveVideoFetch*) noexcept;

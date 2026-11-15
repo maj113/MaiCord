@@ -16,13 +16,21 @@ using protocol_detail::fields_n;
 
 struct Candidate {
     JsonString url;
-    u32 content, bitrate, width, height;
+    // `index` is the format's place in the provider's list.
+    u32 content, bitrate, width, height, fps, index;
+    // The audioQuality of an audio or combined format: 1 low or unnamed, 2 medium, 3 high. 0 without the field.
+    u32 audio_quality;
     bool combined, drc;
 };
 struct Selection {
     JsonIndexedDocument doc;
+    // The best adaptive video, the best audio and the best combined format.
     Candidate video, audio, combined;
     u32 maximum_height, count;
+    // Receives one record for each format. Null when the caller wants no report.
+    EmbedOffer* offer;
+    // The best Opus format. `audio` is the best AAC format until the list ends and the client picks one of the two.
+    Candidate opus;
 };
 struct TwitterMedia { JsonIndexedDocument doc; JsonValue selected; u8 index; u32 count; bool found; };
 struct TwitterVariants { JsonIndexedDocument doc; EmbedStream selected; u16 cap; u32 count; };
@@ -52,6 +60,7 @@ bool track_page_is(const JsonString& page, u64 id, const Utf8View& country, u32 
 EmbedPlayerError publish_stream(EmbedStream* staged, u32 url_bytes, bool valid, EmbedStream* output) noexcept;
 EmbedPlayerError embedded_json(Utf8View html, Utf8View marker, Utf8View* output, bool array = false) noexcept;
 bool better_rendition(u32 height, u32 bitrate, u32 old_height, u32 old_bitrate, u32 cap) noexcept;
+u32 short_side(const Candidate& c) noexcept;
 bool format(void* opaque, u32, JsonValue value) noexcept;
 bool store(const Candidate& candidate, EmbedStream* out) noexcept;
 u64 stream_expiry_chars(const Utf8View& url, const char* key_data, u32 key_bytes, bool* present) noexcept;

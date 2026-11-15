@@ -23,6 +23,10 @@ void opus_decoder_reset(OpusDecoder*) noexcept;
 // state is unchanged, except for a frame that overruns its own bits (the caller conceals or resets either
 // way).
 u32 opus_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm) noexcept;
+// The same decode with float output, where full scale is 1: for music. `pcm` has room for as many samples as `work`.
+// An encoder codes music as CELT frames. A CELT frame after a CELT frame goes out before the PCM16 saturation, so a
+// peak above full scale stays. Every other frame goes out as its saturated PCM16 samples. `work` is working memory.
+u32 opus_decode_float(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> work, float* pcm) noexcept;
 // Fills in for the packet lost just before `next`: `frames` (a multiple of 120, at most 5760) are concealed
 // from the decoder's history, or, when `next` carries a redundant copy of the lost frame (LBRR), decoded
 // from it; the caller still decodes `next` afterwards. An empty `next` always conceals. 0 on a malformed

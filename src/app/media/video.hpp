@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/media/containers/track_info.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "maicord/platform/window/event.hpp"
@@ -9,6 +10,7 @@ struct UiSearchTarget;
 } // namespace maicord
 namespace maicord::app_detail {
 struct ApplicationVideo;
+struct ApplicationMediaPump;
 // What a pointer did over a player: it moved, the primary button went down or up, or the pointer left the window.
 enum class VideoPointer : u8 { move, down, up, leave };
 struct ApplicationSearchSourceTicket;
@@ -60,11 +62,19 @@ struct VideoPageQueue {
 };
 VideoPageQueue application_video_page_queue(u8 page) noexcept;
 bool application_video_page_track(u8 page, u16 track) noexcept;
+// What the page's playing session picked from its provider. Zero without a session or without a YouTube pick.
+MediaPlaybackQuality application_video_page_quality(u8 page) noexcept;
 // Accessibility: presses the control with this id (UiVideoControl or UiAudioControl) of the page's player, or sets a
 // slider (seek 0 to 10000, volume 0 to 100); a player that has not started starts with Play. False when refused.
 bool application_video_page_control(u8 page, u8 control, u32 value) noexcept;
 // The URL the viewer's playing item plays from (what its page copies) and whether it is a provider embed.
 bool application_video_viewer_url(Utf8View* url, bool* provider) noexcept;
+// A sound-only YouTube track has no frames. The page that shows its session, or the viewer, draws the track's
+// thumbnail in their place. The thumbnail is the 1280 x 720 picture, or the 320 x 180 one after the larger failed.
+// This gives its key, or zero when no such track shows.
+MediaAssetKey application_video_art() noexcept;
+// The media pump requests that picture.
+bool application_video_art_pump(ApplicationMediaPump& pump, bool* stop) noexcept;
 // Media viewer hosting: the one session moves between inline and viewer
 // geometry; position and play state stay with the session.
 void application_video_viewer_detach() noexcept;

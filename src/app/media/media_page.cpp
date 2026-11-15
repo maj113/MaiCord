@@ -28,6 +28,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/containers/track_info.hpp"
@@ -80,6 +81,12 @@ struct MediaPages {
     bool fullscreen;
     // Counts showings: the queue's scroll position belongs to one.
     u32 showings;
+    // The shown page's source line with what its player picked after it. Empty while the player has no pick to show.
+    char line[sizeof(MediaPage::source) + 4 + kUiImageViewerQualityBytes];
+    u8 line_bytes;
+    // The shown page's copy of application_video_art (video.hpp). The stage shows that picture where a video shows its
+    // frames. Zero for every other track.
+    MediaAssetKey art;
 };
 MediaPages g_pages;
 
@@ -119,8 +126,9 @@ bool front() noexcept {
 UiImageViewerPage page_info(const MediaPage& page) noexcept {
     static constexpr UiIcon glyphs[]{UiIcon::image, UiIcon::video, UiIcon::music};
     return {{page.title, page.title_bytes},
-            {page.source, page.source_bytes},
-            glyphs[static_cast<u32>(page.kind)],
+            g_pages.line_bytes ? Utf8View{g_pages.line, g_pages.line_bytes} : Utf8View{page.source, page.source_bytes},
+            // A sound-only track has the audio icon.
+            media_asset_key_valid(g_pages.art) ? UiIcon::music : glyphs[static_cast<u32>(page.kind)],
             static_cast<UiImageViewerPageKind>(page.kind),
             page.message_id && application_channel_navigable(page.channel_id),
             // A playlist keeps the queue column from the start; another collection gets it once it is known.
@@ -286,14 +294,6 @@ bool key_event(const WindowEvent& event) noexcept {
     application_request_frame();
     return true;
 }
-// A YouTube track's thumbnail: its 320 x 180 picture, keyed by its URL as other pictures fetched by URL.
-constexpr char kThumbPrefix[] = "https://i.ytimg.com/vi/", kThumbSuffix[] = "/mqdefault.jpg";
-constexpr u32 kThumbPrefixBytes = sizeof(kThumbPrefix) - 1, kThumbUrlBytes = kThumbPrefixBytes + 11 + sizeof(kThumbSuffix) - 1;
-void thumb_url(const char* video, char* out) noexcept {
-    copy_bytes(out, kThumbPrefix, kThumbPrefixBytes);
-    copy_bytes(out + kThumbPrefixBytes, video, 11);
-    copy_bytes(out + kThumbPrefixBytes + 11, kThumbSuffix, sizeof(kThumbSuffix) - 1);
-}
 // The queue's list scrolls with the shared scroll host (its curve, wheel settings and reduced motion).
 bool queue_scroll_read(void*, u64, UiScrollRange* range) noexcept {
     const UiRect body = ui_image_viewer_queue_body(g_pages.scene);
@@ -322,6 +322,35 @@ bool queue_scroll_write(void*, u64, double offset, bool* changed) noexcept {
     return true;
 }
 constexpr UiScrollBinding kQueueScroll{nullptr, 0x5155'4555'5343'524cull, queue_scroll_read, queue_scroll_write};
+// A provider page's source line ends with what its player picked: "#channel · Server · author · YouTube · H.264 ...".
+void sync_quality(const MediaPage& page) noexcept {
+    char text[sizeof(g_pages.line)], picked[kUiImageViewerQualityBytes];
+    u32 bytes = 0;
+    if (const u32 picked_bytes = ui_image_viewer_quality_text(application_video_page_quality(g_pages.shown), picked,
+                                                              sizeof(picked))) {
+        bytes = page.source_bytes;
+        copy_bytes(text, page.source, bytes);
+        if (bytes) {
+            copy_bytes(text + bytes, " \xC2\xB7 ", 4);
+            bytes += 4;
+        }
+        copy_bytes(text + bytes, picked, picked_bytes);
+        bytes += picked_bytes;
+    }
+    if (bytes == g_pages.line_bytes && bytes_equal(g_pages.line, text, bytes))
+        return;
+    copy_bytes(g_pages.line, text, bytes);
+    g_pages.line_bytes = static_cast<u8>(bytes);
+    ++g_pages.scene.revision;
+}
+void sync_art() noexcept {
+    const MediaAssetKey art = application_video_art();
+    if (media_asset_key_equal(art, g_pages.art))
+        return;
+    g_pages.art = art;
+    ++g_pages.scene.revision;
+    application_request_frame();
+}
 // A video or audio page's player: the play button until its session starts, and a playlist's queue. The queue shows
 // the current track with one row of the past above it when the page shows; after a track change it moves (along the
 // scroll curve) only when the new current row is not wholly in view. Rows come from the playlist as the media worker
@@ -426,10 +455,11 @@ void sync_player(const MediaPage& page) noexcept {
         MediaAssetKey thumb{};
         g_pages.videos[n][0] = 0;
         if (listed && title.id.youtube_track) {
-            char url[kThumbUrlBytes];
+            // The track's 320 x 180 picture, keyed by its URL as other pictures fetched by URL.
+            char url[kTrackArtUrlBytes];
             copy_bytes(g_pages.videos[n], title.id.youtube, 11);
-            thumb_url(title.id.youtube, url);
-            thumb = message_component_media_key(hash64_bytes(kHash64Seed, url, kThumbUrlBytes), MediaAttachmentFormat::jpeg);
+            const u32 bytes = track_art_url(title.id.youtube, false, url);
+            thumb = message_component_media_key(hash64_bytes(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg);
         }
         changed = changed || !media_asset_key_equal(thumb, item.thumb);
         item = {{stored, title_bytes},
@@ -503,6 +533,8 @@ bool application_media_page_show(u8 id) noexcept {
     message_action_bar_close(&g_app.message_action_bar);
     auto& scene = g_pages.scene;
     reset_value(&g_pages.queue);
+    g_pages.line_bytes = 0;
+    g_pages.art = {};
     g_pages.followed = 0;
     ++g_pages.showings;
     ui_image_viewer_set_dpi(&scene, g_app.renderer.dpi);
@@ -585,6 +617,9 @@ UiImageViewer* application_media_page_spinner() noexcept {
                                                                                             : nullptr;
 }
 bool application_media_page_key_current(const MediaAssetKey& key) noexcept {
+    // A sound-only track's picture is current on the shown page's stage and in the viewer.
+    if (const MediaAssetKey art = application_video_art(); media_asset_key_valid(art) && media_asset_key_equal(key, art))
+        return true;
     const auto* page = application_media_page_shown() ? shown_page() : nullptr;
     if (!page)
         return false;
@@ -645,8 +680,11 @@ bool application_media_page_synchronize() noexcept {
         return !g_app.account_ui || !renderer.interaction_text_media_page_revision ||
                renderer_rebuild_content_text(&renderer, application_theme());
     }
-    if (page->kind != MediaPageKind::image)
+    if (page->kind != MediaPageKind::image) {
         sync_player(*page);
+        sync_quality(*page);
+        sync_art();
+    }
     ui_image_viewer_set_page(&scene, page_info(*page));
     const bool image = page->kind == MediaPageKind::image;
     ui_image_viewer_set_media(&scene, page->missing                  ? UiImageViewerMedia::failed
@@ -672,9 +710,11 @@ bool application_media_page_synchronize() noexcept {
         ++scene.revision;
     }
     renderer.media_page = &scene;
-    // An audio page draws its artwork, an image page its picture; a video page's poster is the player's.
-    renderer.media_page_key = picture_key(*page);
-    renderer.media_page_fallback = page->fallback;
+    // An audio page draws its artwork, an image page its picture; a video page's poster is the player's. A track
+    // without a picture draws its thumbnail.
+    const bool art = media_asset_key_valid(g_pages.art);
+    renderer.media_page_key = art ? g_pages.art : picture_key(*page);
+    renderer.media_page_fallback = art ? g_pages.art : page->fallback;
     return renderer.interaction_text_media_page_revision == scene.revision ||
            renderer_rebuild_content_text(&renderer, application_theme());
 }
@@ -813,6 +853,13 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
 
 bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcept {
     *stop = false;
+    // A sound-only track's picture comes first. The viewer shows it too, so the request does not need a page.
+    if (!pump.visibility_only) {
+        if (!application_video_art_pump(pump, stop))
+            return false;
+        if (*stop)
+            return true;
+    }
     auto* page = application_media_page_shown() ? shown_page() : nullptr;
     if (!page)
         return true;
@@ -823,13 +870,10 @@ bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcep
          ++n) {
         if (!g_pages.videos[n][0])
             continue;
-        ProfileMedia media{};
-        media.key = g_pages.queue.rows[n].thumb;
-        thumb_url(g_pages.videos[n], media.url.data);
-        media.url.bytes = kThumbUrlBytes;
-        media.rectangle = ui_image_viewer_queue_thumb(scene, n);
-        media.clip = ui_image_viewer_queue_body(scene);
-        if (!pump.request_profile_media(media, stop, false))
+        char url[kTrackArtUrlBytes];
+        const u32 bytes = track_art_url(g_pages.videos[n], false, url);
+        const UiRect thumb = ui_image_viewer_queue_thumb(scene, n);
+        if (!pump.request_url_picture(g_pages.queue.rows[n].thumb, {url, bytes}, stop, false, nullptr, &thumb))
             return false;
         if (*stop)
             return true;
@@ -869,7 +913,7 @@ bool application_media_page_pump(ApplicationMediaPump& pump, bool* stop) noexcep
                                                 proxy.width,
                                                 proxy.height,
                                                 pump.cdn_image_type(format),
-                                                {0, {0, 0}},
+                                                {0, 0, 0},
                                                 application.renderer.graphics.device};
     const auto requested =
         account_module_media_attachment_request(application.account.instance, &request, pump.now_ms, pump.now_seconds);

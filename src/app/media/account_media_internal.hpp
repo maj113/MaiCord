@@ -171,7 +171,12 @@ struct AccountMediaUrlRequest {
     u64 provider_expires = 0;
     CdnHost provider_host = CdnHost::none;
     Utf8View companion_url{};
+    // The same provider's AAC format, for an Opus audio format in a WebM file that the client cannot read.
+    Utf8View audio_fallback_url{};
     u16 collection_track{};
+    bool list_formats = false;
+    // `url` is a provider's audio format and the source has no picture. The key stays the embed's video key.
+    bool sound_only = false;
 };
 
 namespace account_media_detail {

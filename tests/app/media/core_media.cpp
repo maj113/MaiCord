@@ -444,7 +444,8 @@ void test_cdn_http_policy() noexcept {
                web_asset_refused(CdnImageType::png, byte_literal("/assets/1cc92a6d139af44d.png?x=1")) &&
                web_asset_refused(CdnImageType::webp, byte_literal("/assets/1cc92a6d139af44d.png")),
            "cdn_web_asset_host_serves_only_hashed_png_assets");
-    // A YouTube playlist track's thumbnail: i.ytimg.com/vi/<id>/mqdefault.jpg as a JPEG, nothing else on that host.
+    // A YouTube track's thumbnail: i.ytimg.com/vi/<id>/mqdefault.jpg or /maxresdefault.jpg as a JPEG, nothing else on
+    // that host.
     const CdnRequestResult track_art_request = write_static_cdn_get_request(
         CdnImageType::jpeg, CdnHost::track_art, byte_literal("/vi/CZQdi1sxd30/mqdefault.jpg"), {},
         Slice<u8>{request, sizeof(request)});
@@ -453,11 +454,21 @@ void test_cdn_http_policy() noexcept {
         return !write_static_cdn_get_request(type, CdnHost::track_art, target, {}, Slice<u8>{request, sizeof(request)})
                     .ok();
     };
+    char small_url[kTrackArtUrlBytes], large_url[kTrackArtUrlBytes];
+    const Utf8View small_art{small_url, track_art_url("CZQdi1sxd30", false, small_url)},
+        large_art{large_url, track_art_url("CZQdi1sxd30", true, large_url)};
     expect(track_art_request.ok() && bytes_equal(ConstSlice<u8>{request, track_art_head.count}, track_art_head) &&
                track_art_target_valid(byte_literal("/vi/a-_b0123456/mqdefault.jpg")) &&
                !track_art_target_valid(byte_literal("/vi/CZQdi1sxd3/mqdefault.jpg")) &&
                !track_art_target_valid(byte_literal("/vi/CZQdi1sxd3./mqdefault.jpg")) &&
-               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/maxresdefault.jpg")) &&
+               track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/maxresdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd3/maxresdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/maxresdefault.png")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/hqdefault.jpg")) &&
+               !track_art_target_valid(byte_literal("/vi/CZQdi1sxd30/sddefault.jpg")) &&
+               utf8_equal(small_art, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/mqdefault.jpg")) &&
+               utf8_equal(large_art, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/maxresdefault.jpg")) &&
+               large_art.bytes == kTrackArtUrlBytes &&
                track_art_refused(CdnImageType::jpeg, byte_literal("/generate_204")) &&
                track_art_refused(CdnImageType::png, byte_literal("/vi/CZQdi1sxd30/mqdefault.jpg")),
            "cdn_track_art_host_serves_only_video_thumbnails");
@@ -1090,6 +1101,17 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
                attachment.rgba_height == 480 && attachment.rgba8.count == 640u * 480u * 4u &&
                pixel(attachment, 0, 0) >= 156 && pixel(attachment, 639, 479) <= 132,
            "cdn_pipeline_large_attachment_jpeg_decodes_full_size_on_the_cpu");
+    // A profile image whose key has the px2048 tier fills a stage (a track's 1280 x 720 picture). It decodes at
+    // full size too.
+    auto stage_key = media_asset_embed(7004, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::jpeg, false,
+                                       MediaResolutionTier::px2048);
+    stage_key.kind = MediaAssetKind::profile_image;
+    const auto stage = cdn_media_pipeline_admit_static_jpeg(&pipeline, stage_key, policy(fixture.encoded_bytes),
+                                                            {encoded, fixture.encoded_bytes});
+    expect(media_asset_key_valid(stage_key) && stage.decoded() &&
+               !stage.coefficients && stage.rgba_width == 640 && stage.rgba_height == 480 &&
+               pixel(stage, 0, 0) >= 156 && pixel(stage, 639, 479) <= 132,
+           "cdn_pipeline_large_profile_jpeg_at_the_2048_tier_decodes_full_size");
 }
 
 namespace {
@@ -2911,9 +2933,10 @@ void test_account_media_profile_jpeg_hosts() noexcept {
     const auto other = request(9'103, utf8_literal("https://example.com/image.jpg"));
     const auto thumb = request(9'104, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/mqdefault.jpg"));
     const auto large = request(9'105, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/maxresdefault.jpg"));
+    const auto medium = request(9'106, utf8_literal("https://i.ytimg.com/vi/CZQdi1sxd30/hqdefault.jpg"));
     expect(splash.error != AccountMediaError::target && art.error != AccountMediaError::target &&
-               thumb.error != AccountMediaError::target && large.error == AccountMediaError::target &&
-               large.media_url_error == MediaUrlError::invalid_target &&
+               thumb.error != AccountMediaError::target && large.error != AccountMediaError::target &&
+               medium.error == AccountMediaError::target && medium.media_url_error == MediaUrlError::invalid_target &&
                other.error == AccountMediaError::target && other.media_url_error == MediaUrlError::invalid_host,
            "account_media_profile_jpeg_hosts_route_album_art_and_track_thumbnails_by_exact_shape");
     (void)account_media_stop(&media, 5'000);

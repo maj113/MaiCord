@@ -120,7 +120,7 @@ HRESULT render(Runtime& r,Engine& e,u64 epoch,bool playing) noexcept {
         bool valid=target!=nullptr;u32 at{};
         while(valid&&at<frames){const u32 chunk=minimum(kMediaAudioMaximumWriteFrames,frames-at);
             AcquireSRWLockExclusive(&r.lock);valid=!r.stopping&&r.desired_play&&r.status.desired_epoch==epoch&&r.ring.epoch==epoch;
-            if(valid)valid=media_audio_ring_render(&r.ring,{reinterpret_cast<float*>(target)+at*r.config.channels,chunk*r.config.channels},1)==chunk;
+            if(valid)valid=media_audio_ring_render(&r.ring,{reinterpret_cast<float*>(target)+at*r.config.channels,chunk*r.config.channels},r.config.gain)==chunk;
             ReleaseSRWLockExclusive(&r.lock);at+=chunk;}
         AcquireSRWLockShared(&r.lock);valid=valid&&r.status.desired_epoch==epoch&&!r.stopping&&r.desired_play;ReleaseSRWLockShared(&r.lock);
         h=e.render->ReleaseBuffer(frames,valid?0:AUDCLNT_BUFFERFLAGS_SILENT);if(FAILED(h))return h;
@@ -212,7 +212,7 @@ MediaAudioResult command(MediaAudio* owner,u32 kind,float volume=0) noexcept {
 }
 }
 MediaAudioResult media_audio_initialize(MediaAudio* owner,const MediaAudioConfig& config) noexcept {
-    if(!owner||owner->initialized||owner->runtime||!media_audio_gain_valid(config.volume)||
+    if(!owner||owner->initialized||owner->runtime||!media_audio_gain_valid(config.volume)||!media_audio_gain_valid(config.gain)||
         !disjoint(owner,sizeof(*owner),&config,sizeof(config))||config.pcm.count>32768||
         !disjoint(owner,sizeof(*owner),config.pcm.data,config.pcm.count*4))return fail(Error::invalid_input);
     MediaAudioRing ring{};if(!media_audio_ring_initialize(&ring,config.pcm,config.sample_rate,config.channels,config.initial_epoch))return fail(Error::invalid_input);

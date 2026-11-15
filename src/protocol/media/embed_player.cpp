@@ -53,13 +53,34 @@ JsonStringDecodeResult decode(const JsonString& value, char* out, u32 capacity) 
 bool visit_array(const JsonIndexedDocument& doc, const JsonValue& value, JsonArrayVisitor visitor, void* context) noexcept {
     return json_visit_indexed_array(doc, value, 24, visitor, context).ok();
 }
+bool number64(const Field& f, u64* out) noexcept {
+    JsonString s{};
+    return f.seen && (f.value.kind == JsonValueKind::string ?
+            json_value_as_string(f.value, &s) && json_string_to_u64(s, out) :
+            json_value_to_u64(f.value, out));
+}
 bool number(const Field& f, u32* out) noexcept {
     u64 n = 0;
-    JsonString s{};
-    if (!f.seen || !(f.value.kind == JsonValueKind::string ?
-            json_value_as_string(f.value, &s) && json_string_to_u64(s, &n) :
-            json_value_to_u64(f.value, &n)) || n > ~u32{0}) return false;
+    if (!number64(f, &n) || n > ~u32{0}) return false;
     *out = static_cast<u32>(n);
+    return true;
+}
+// Reads a plain JSON decimal number as hundredths, rounded to the nearest. A number with an exponent fails.
+bool hundredths(const Field& f, i32* out) noexcept {
+    if (!f.seen || f.value.kind != JsonValueKind::number) return false;
+    const Utf8View s = f.value.source;
+    const bool negative = s.bytes && s.data[0] == '-';
+    u32 i = negative, digits = 0, places = 0;
+    i32 value = 0;
+    for (; i < s.bytes && ascii_is_digit(s.data[i]) && digits < 5; ++i, ++digits) value = value * 10 + (s.data[i] - '0');
+    value *= 100;
+    if (i < s.bytes && s.data[i] == '.')
+        for (++i; i < s.bytes && ascii_is_digit(s.data[i]); ++i, ++places) {
+            const i32 digit = s.data[i] - '0';
+            value += places == 0 ? digit * 10 : places == 1 ? digit : places == 2 && digit >= 5;
+        }
+    if (!digits || i != s.bytes) return false;
+    *out = negative ? -value : value;
     return true;
 }
 // Builds the structural index of one JSON document in the caller's scratch.
@@ -141,57 +162,116 @@ bool better_rendition(u32 height, u32 bitrate, u32 old_height, u32 old_bitrate, 
     if (height != old_height) return height <= cap ? height > old_height : height < old_height;
     return bitrate < old_bitrate;
 }
+// YouTube names a format by its shorter side: 1080 x 1920 is 1080p.
+u32 short_side(const Candidate& c) noexcept { return minimum(c.width, c.height); }
+// Orders two formats of one kind: both adaptive or both combined.
 bool better_video(const Candidate& a, const Candidate& b, u32 cap) noexcept {
     if (!b.url.encoded.bytes) return true;
-    // Save the second source only when both choices have the same resolution.
-    if (a.height == b.height && a.combined != b.combined) return a.combined;
-    return better_rendition(a.height, a.bitrate, b.height, b.bitrate, cap);
+    const u32 size = short_side(a), old_size = short_side(b);
+    if (size != old_size) return better_rendition(size, 0, old_size, 0, cap);
+    return a.fps != b.fps ? a.fps > b.fps : a.bitrate > b.bitrate;
 }
 bool format(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<Selection*>(opaque);
-    if (++s.count > 256) return false;
+    if (++s.count > kEmbedOfferFormats) return false;
     FieldSet<"url", "mimeType", "contentLength", "bitrate", "width", "height", "audioQuality", "audioChannels",
-        "audioTrack", "drmFamilies", "signatureCipher", "cipher", "isDrc"> f;
+        "audioTrack", "drmFamilies", "signatureCipher", "cipher", "isDrc", "fps", "averageBitrate", "itag",
+        "audioSampleRate", "qualityLabel", "loudnessDb", "trackAbsoluteLoudnessLkfs"> f;
     if (!fields(s.doc, value, f)) return false;
-    if (f[9].seen || f[10].seen || f[11].seen || !f[0].seen) return true;
     Candidate c{};
-    JsonString mime{};
+    c.index = s.count - 1;
+    JsonString mime{}, label{};
     char mime_bytes[128];
-    if (!text(f[0], &c.url) || !text(f[1], &mime)) return false;
-    const auto decoded = decode(mime, mime_bytes, sizeof(mime_bytes));
-    if (!decoded.ok()) return true;
-    const Utf8View type{mime_bytes, decoded.bytes};
+    const bool mime_text = text(f[1], &mime);
+    const auto decoded = mime_text ? decode(mime, mime_bytes, sizeof(mime_bytes)) : JsonStringDecodeResult{};
+    const Utf8View type{mime_bytes, mime_text && decoded.ok() ? decoded.bytes : 0};
     const bool video = has_prefix(type, "video/mp4; codecs=\"avc1.");
-    const bool audio = is_text(type, "audio/mp4; codecs=\"mp4a.40.2\"");
-    if (!video && !audio) return true;
-    if (f[2].seen && (!number(f[2], &c.content) || !c.content)) return false;
-    if (c.content > kMediaMaximumProgressiveVideoBytes) return true;
+    const bool opus = is_text(type, "audio/webm; codecs=\"opus\"");
+    const bool audio = opus || is_text(type, "audio/mp4; codecs=\"mp4a.40.2\"");
+    // What the log reports of the format. A value the client cannot read stays 0 here and fails nothing.
+    using R = EmbedFormatReason;
+    const auto loose = [](const Field& field, u32 limit) noexcept {
+        u32 n = 0;
+        number(field, &n);
+        return minimum(n, limit);
+    };
+    const auto has = [](const Utf8View& in, Utf8View tag) noexcept { return ascii_contains_ignore_case(in, tag); };
+    EmbedFormat info{};
+    info.itag = static_cast<u16>(loose(f[15], 65535));
+    info.width = static_cast<u16>(loose(f[4], 65535));
+    info.height = static_cast<u16>(loose(f[5], 65535));
+    info.fps = static_cast<u8>(loose(f[13], 255));
+    info.channels = static_cast<u8>(loose(f[7], 255));
+    info.sample_rate = loose(f[16], ~u32{0});
+    info.bitrate = loose(f[14], ~u32{0});
+    if (!info.bitrate) info.bitrate = loose(f[3], ~u32{0});
+    info.container = has(type, utf8_literal("/mp4;")) ? EmbedContainer::mp4
+                     : has(type, utf8_literal("/webm;")) ? EmbedContainer::webm : EmbedContainer::other;
+    info.codec = has(type, utf8_literal("=\"avc1")) ? EmbedCodec::h264
+                 : has(type, utf8_literal("=\"vp9")) || has(type, utf8_literal("=\"vp09")) ? EmbedCodec::vp9
+                 : has(type, utf8_literal("=\"av01")) ? EmbedCodec::av1
+                 : has(type, utf8_literal("=\"mp4a.40.2\"")) ? EmbedCodec::aac
+                 : has(type, utf8_literal("=\"mp4a")) ? EmbedCodec::he_aac
+                 : has(type, utf8_literal("=\"opus")) ? EmbedCodec::opus : EmbedCodec::other;
+    const bool sound = has_prefix(type, "audio/");
+    bool drc = false;
+    if (f[12].seen) json_value_to_bool(f[12].value, &drc);
+    // The format's URL names its audio track kind. Only the kind reaches the log.
+    const bool located = text(f[0], &c.url);
+    info.flags = static_cast<u8>((sound ? embed_format_audio : 0) | (!sound && f[6].seen ? embed_format_combined : 0) |
+        (text(f[17], &label) && has(label.encoded, utf8_literal("HDR")) ? embed_format_hdr : 0) |
+        (drc ? embed_format_drc : 0) |
+        (located && has(c.url.encoded, utf8_literal("acont%3Doriginal")) ? embed_format_original : 0) |
+        (located && has(c.url.encoded, utf8_literal("acont%3Ddubbed")) ? embed_format_dubbed : 0));
+    // The list gives the content loudness itself, or the distance to the -14 LKFS target of the client's request.
+    i32 loudness = 0;
+    if (hundredths(f[19], &loudness) || (hundredths(f[18], &loudness) && ((loudness -= 1400), true))) {
+        info.loudness = static_cast<i16>(maximum(-32768, minimum(loudness, 32767)));
+        info.flags |= embed_format_loudness;
+    }
+    const auto done = [&](R reason) noexcept {
+        info.reason = reason;
+        if (s.offer) s.offer->formats[c.index] = info;
+        return true;
+    };
+    if (f[9].seen || f[10].seen || f[11].seen || !f[0].seen) return done(R::protection);
+    if (!located || !mime_text) return false;
+    if (!video && !audio)
+        return done(info.container == EmbedContainer::mp4 ? R::codec : R::container);
+    // A long video has formats of 4 GiB and more. The client skips a format above its limit. It does not fail the list.
+    u64 content = 0;
+    if (f[2].seen && (!number64(f[2], &content) || !content)) return false;
+    if (content > kMediaMaximumProgressiveVideoBytes) return done(R::length);
+    c.content = static_cast<u32>(content);
     if (!number(f[3], &c.bitrate) || !c.bitrate) return false;
+    c.fps = info.fps;
+    c.audio_quality = equal(f[6], "AUDIO_QUALITY_HIGH") ? 3 : equal(f[6], "AUDIO_QUALITY_MEDIUM") ? 2 : f[6].seen;
     if (video) {
         if (!number(f[4], &c.width) || !number(f[5], &c.height) || !c.width || !c.height) return false;
-        if (c.width > 2048 || c.height > 2048) return true;
+        if (c.width > 2048 || c.height > 2048) return done(R::size);
         c.combined = f[6].seen;
-        if (c.combined && !ascii_contains_ignore_case(type, utf8_literal("mp4a.40.2"))) return true;
-        if (c.combined && better_video(c, s.combined, s.maximum_height)) s.combined = c;
-        if (better_video(c, s.video, s.maximum_height)) s.video = c;
+        if (c.combined && !has(type, utf8_literal("mp4a.40.2"))) return done(R::codec);
+        auto& best = c.combined ? s.combined : s.video;
+        if (better_video(c, best, s.maximum_height)) best = c;
     } else {
         if(f[12].seen && !json_value_to_bool(f[12].value,&c.drc)) return false;
         u32 channels = 0;
-        if (!number(f[7], &channels) || !channels || channels > 2) return true;
+        if (!number(f[7], &channels) || !channels || channels > 2) return done(R::channels);
         if (f[8].seen) {
             FieldSet<"audioIsDefault"> track;
             bool is_default = false;
             if (!fields(s.doc, f[8].value, track) || !track[0].seen ||
                 !json_value_to_bool(track[0].value, &is_default)) return false;
-            if (!is_default) return true;
+            if (!is_default) return done(R::track);
         }
         // Admit higher-quality stereo AAC, including variable-rate encodes.
         // Prefer the original dynamic range. Tiny bitrate differences between
         // otherwise equivalent encodes must not select processed audio.
-        if (c.bitrate <= 512000 && (!s.audio.url.encoded.bytes ||
-            (c.drc != s.audio.drc ? !c.drc : c.bitrate > s.audio.bitrate))) s.audio = c;
+        if (c.bitrate > 512000) return done(R::bitrate);
+        auto& best = opus ? s.opus : s.audio;
+        if (!best.url.encoded.bytes || (c.drc != best.drc ? !c.drc : c.bitrate > best.bitrate)) best = c;
     }
-    return true;
+    return done(R::none);
 }
 bool store(const Candidate& candidate, EmbedStream* out) noexcept {
     const auto decoded = decode(candidate.url, out->url, sizeof(out->url));

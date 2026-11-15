@@ -481,7 +481,7 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh, Applic
         source.audio || source.audio_preview ? audio_source_type(media_asset_audio_format(source.key))
                      : CdnImageType::mp4,
         {static_cast<u8>(source.embed && (!source.audio_preview || soundcloud_track_url(original_url) || embed_collection_url(original_url))),
-         {0, 0}, playback->collection_track},
+         static_cast<u8>(g_app.preferences.developer_mode), 0, playback->collection_track},
         source.audio || source.audio_preview ? nullptr : g_app.renderer.graphics.device};
     const auto result =
         account_module_media_attachment_request(g_app.account.instance, &request, now, unix_seconds);

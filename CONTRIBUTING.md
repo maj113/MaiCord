@@ -291,8 +291,11 @@ with the area's design and test notes.
 - **Logging.** One event is one line: build it with `LogEvent` (`core/log_event.hpp`) and `write` it once, never one
   `log_u64` per value, and keep user names, paths and account ids out of it. The log is `maicord.log` in
   `%LOCALAPPDATA%\MaiCord\logs` or `$XDG_STATE_HOME/maicord/logs` (at 16 MiB it moves to `maicord.previous.log`);
-  `core/log.hpp` documents the line format, `src/app/shell/startup_record.hpp` each session's `[start]` record and
-  `memory_summary.hpp` the `[memory] summary` line.
+  `core/log.hpp` documents the line format, `src/app/shell/startup_record.hpp` each session's `[start]` record,
+  `memory_summary.hpp` the `[memory] summary` line and `protocol/media/embed_player.hpp` the `[media] playback_quality`
+  line of a YouTube playback start (with Developer Mode on, a `playback_format` line for each offered format follows it).
+  A `[media] audio_fallback from=opus to=aac` line follows when the client cannot read the WebM file of the Opus
+  format and plays the AAC format of the same list.
 - **Source layout.** Each module (`app`, `ui`, `render`, `gpu`, `protocol`, `model`, `text`, `media`, `platform`) is split
   into topic folders, and `include/maicord/<module>/<folder>/` mirrors `src/<module>/<folder>/`. Put a new file in the folder
   of its feature; a header private to a module stays beside its sources. File names drop a prefix the folder already states

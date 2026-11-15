@@ -20,6 +20,9 @@ u32 requests, resolves, forced_resolves, settles, closed_tabs, navigations, open
 // The queue's thumbnail requests, and whether each named its track's i.ytimg.com picture under its key.
 u32 thumb_requests;
 bool thumb_url_ok = true;
+// The player's sound-only track picture (video.cpp): its key, zero for none, and the pump turns that asked for it.
+MediaAssetKey art_state;
+u32 art_pumps;
 // The media worker's playlist lane is busy (resolving a track): every title lookup answers busy.
 bool titles_busy;
 // The player's stand-ins (video.cpp): what the page asked of it and what it answers.
@@ -29,6 +32,7 @@ u16 jumped_track;
 bool window_fullscreen;
 VideoPagePlayback playback_state = VideoPagePlayback::none;
 VideoPageQueue queue_state;
+MediaPlaybackQuality quality_state;
 u64 navigated_message;
 MediaUrlState url_state = MediaUrlState::empty;
 bool url_ready = true;
@@ -302,6 +306,28 @@ void run() noexcept {
     check(press(ui_image_viewer_open_original) && opened_links == links + 1,
           "header: Open original opens an embed page's own link");
     const auto& page = *application_media_page_viewer();
+    // A YouTube pick shows after the page's source line while the page's session plays it, and goes with the session.
+    const u32 plain_revision = page.revision;
+    quality_state = {4230996, 129492, 1920, 1080, 60, 2, MediaQualityProvider::youtube};
+    check(application_media_page_synchronize() && page.revision != plain_revision &&
+              utf8_equal(page.page_info.source,
+                         utf8_literal("#general \xC2\xB7 Fixture \xC2\xB7 Mai \xC2\xB7 YouTube \xC2\xB7 H.264 1080p60 4.2 Mbps "
+                                      "\xC2\xB7 AAC 129 kbps")) &&
+              utf8_equal(application_media_page_source(player), utf8_literal("#general \xC2\xB7 Fixture \xC2\xB7 Mai")),
+          "player: the header's source line ends with what the player picked; the page's own source is unchanged");
+    const u32 picked_revision = page.revision;
+    check(application_media_page_synchronize() && page.revision == picked_revision,
+          "player: an unchanged pick rebuilds no text");
+    quality_state.fps = 30;
+    check(application_media_page_synchronize() && page.revision != picked_revision &&
+              utf8_equal(page.page_info.source,
+                         utf8_literal("#general \xC2\xB7 Fixture \xC2\xB7 Mai \xC2\xB7 YouTube \xC2\xB7 H.264 1080p30 4.2 Mbps "
+                                      "\xC2\xB7 AAC 129 kbps")),
+          "player: a pick of the same length shows anew");
+    quality_state = {};
+    check(application_media_page_synchronize() &&
+              utf8_equal(page.page_info.source, utf8_literal("#general \xC2\xB7 Fixture \xC2\xB7 Mai")),
+          "player: without a pick the header shows the source line alone");
     const auto layout = ui_image_viewer_page_layout(page);
     const u32 rows = ui_image_viewer_queue_rows(page);
     const float view = ui_rect_height(ui_image_viewer_queue_body(page));
@@ -339,6 +365,23 @@ void run() noexcept {
     const u32 thumbs = thumb_requests;
     check(pump_once() == 0 && thumb_requests - thumbs == rows && thumb_url_ok,
           "player: a video page requests no picture of its own, only its rows' thumbnails from i.ytimg.com");
+    // A sound-only track: the stage draws the player's picture of the track under the audio icon. The player asks for
+    // that picture. The rows still ask only for their 320 x 180 thumbnails (48-byte URLs).
+    const u32 art_revision = page.revision, art_before = art_pumps, small_before = thumb_requests;
+    art_state = message_component_media_key(77, MediaAttachmentFormat::jpeg);
+    check(application_media_page_synchronize() && page.revision != art_revision &&
+              page.page_info.glyph == UiIcon::music && media_asset_key_equal(g_app.renderer.media_page_key, art_state) &&
+              media_asset_key_equal(g_app.renderer.media_page_fallback, art_state) &&
+              application_media_page_key_current(art_state),
+          "player: a sound-only track's picture fills the stage under the audio icon");
+    check(pump_once() == 0 && art_pumps == art_before + 1 && thumb_requests - small_before == rows && thumb_url_ok,
+          "player: the player asks for the stage's picture and the rows ask only for small thumbnails");
+    const MediaAssetKey old_art = art_state;
+    art_state = {};
+    check(application_media_page_synchronize() && page.page_info.glyph == UiIcon::video &&
+              media_asset_key_equal(g_app.renderer.media_page_key, playlist.key) &&
+              !application_media_page_key_current(old_art),
+          "player: a track with a picture gets the video icon and the player's frames back");
     // A track change moves the highlight only: no scroll, the same thumbnails, and every row but the old and the
     // new current one keeps its text.
     UiImageViewerQueueRow before[kUiImageViewerQueueRows];
@@ -574,6 +617,16 @@ bool application_video_page_pointer(u8, VideoPointer, UiPoint) noexcept {
 }
 VideoPageQueue application_video_page_queue(u8) noexcept {
     return queue_state;
+}
+MediaPlaybackQuality application_video_page_quality(u8) noexcept {
+    return quality_state;
+}
+MediaAssetKey application_video_art() noexcept {
+    return art_state;
+}
+bool application_video_art_pump(ApplicationMediaPump&, bool*) noexcept {
+    ++art_pumps;
+    return true;
 }
 bool application_video_page_track(u8, u16 track) noexcept {
     jumped_track = track;

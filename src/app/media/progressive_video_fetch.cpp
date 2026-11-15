@@ -2,6 +2,7 @@
 #include "maicord/app/media/segmented_video_fetch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/containers/hevc_mp4_demux.hpp"
+#include "maicord/media/containers/webm_opus.hpp"
 
 
 namespace maicord {
@@ -9,6 +10,26 @@ namespace {
 ProgressiveVideoAccept fail(ProgressiveVideoFetch* f) noexcept {
     f->state = ProgressiveVideoFetchState::failed;
     return ProgressiveVideoAccept::failed;
+}
+// Adds [first, last) of the duration to the buffered ranges, in 1/10000. A range that touches the last one joins it.
+void add_buffered(u64 first, u64 last, u64 duration, u16* begin, u16* end, u32 capacity, u32* count) noexcept {
+    const u16 b = static_cast<u16>(minimum(first, duration) * 10000 / duration);
+    const u16 e = static_cast<u16>(minimum(last, duration) * 10000 / duration);
+    if (e <= b) return;
+    if (*count && b <= end[*count - 1] + 1u) end[*count - 1] = maximum(end[*count - 1], e);
+    else if (*count < capacity) { begin[*count] = b; end[(*count)++] = e; }
+}
+// The client cannot read the WebM file of the Opus format. It starts again with the AAC format of the same list,
+// so the track still plays.
+void fall_back(ProgressiveVideoFetch* f) noexcept {
+    progressive_source_release(&f->source);
+    reset_value(&f->webm);
+    reset_value(&f->audio);
+    copy_bytes(f->target, f->fallback, f->fallback_bytes);
+    f->target_bytes = f->fallback_bytes;
+    f->fallback_bytes = 0;
+    f->webm_refused = false;
+    f->fell_back = true;
 }
 } // namespace
 
@@ -36,7 +57,22 @@ bool progressive_video_fetch_restore(ProgressiveVideoFetch* f) noexcept {
     }
     if (!f || !f->source.base) return false;
     const bool audio = f->kind == ProgressiveVideoKind::fragmented_audio;
-    if (f->kind == ProgressiveVideoKind::movie || (f->fragment.source && (!audio || f->audio.source))) return true;
+    if (f->kind == ProgressiveVideoKind::movie || f->audio.webm || (f->fragment.source && (!audio || f->audio.source))) return true;
+    // An Opus format is a WebM file. Its reader stands in for the fragment source and its audio adapter.
+    const auto bytes = progressive_source_bytes(f->source);
+    if (audio && !f->fragment.source && progressive_source_available(f->source, 0, 4) && webm_present(bytes)) {
+        auto error = f->webm.encoded.data ? Mp4DemuxError::none
+            : webm_opus_initialize(&f->webm, bytes, progressive_source_reader(&f->source, ProgressiveTrack::audio));
+        if (error == Mp4DemuxError::none) {
+            // The head and the header of the first Cluster stay resident: a restore after retirement reads them.
+            progressive_source_pin(&f->source, 0, minimum<u64>(f->webm.clusters + 32, bytes.count));
+            error = mp4_fragment_audio_attach(&f->webm, &f->audio);
+        }
+        f->webm_refused = error != Mp4DemuxError::none && error != Mp4DemuxError::data_pending;
+        if (error != Mp4DemuxError::none) return false;
+        progressive_source_set_duration(&f->source, f->webm.timeline.content_ticks * 1'000'000 / 48'000);
+        return true;
+    }
     if (!f->fragment.source && mp4_fragment_source_initialize(&f->source, audio, &f->fragment) != Mp4DemuxError::none) return false;
     if (audio) {
         const auto error=mp4_fragment_audio_initialize(&f->fragment,&f->audio);
@@ -50,6 +86,11 @@ bool progressive_video_fetch_restore(ProgressiveVideoFetch* f) noexcept {
     u64 duration{};
     if (mp4_fragment_source_duration(f->fragment, &duration)) progressive_source_set_duration(&f->source, duration);
     return true;
+}
+void progressive_video_fetch_fallback(ProgressiveVideoFetch* f, ConstSlice<u8> target) noexcept {
+    if (!f || !target.data || !target.count || target.count > sizeof(f->fallback)) return;
+    copy_bytes(f->fallback, target.data, target.count);
+    f->fallback_bytes = target.count;
 }
 void progressive_video_fetch_retire(ProgressiveVideoFetch* f) noexcept {
     if (!f) return;
@@ -91,6 +132,10 @@ ProgressiveVideoNext progressive_video_fetch_next(ProgressiveVideoFetch* f, bool
         if (f->kind == ProgressiveVideoKind::movie) probe = progressive_mp4_probe(&f->source);
         else {
             const bool ready = progressive_video_fetch_restore(f);
+            if (!ready && f->webm_refused && f->fallback_bytes) {
+                fall_back(f);
+                return progressive_video_fetch_next(f, read_ahead, now_seconds);
+            }
             if (ready) probe.state = ProgressiveProbeState::ready;
             else {
                 const auto plan = progressive_schedule(f->source, {}, false);
@@ -227,7 +272,20 @@ u32 progressive_video_fetch_buffered(ProgressiveVideoFetch* f, u64 duration_us, 
     if (!f || !f->source.base || f->state == ProgressiveVideoFetchState::probing)
         return 0;
     if (f->kind != ProgressiveVideoKind::movie) {
-        if (!f->fragment.source || !duration_us || !capacity || !begin || !end) return 0;
+        if (!duration_us || !capacity || !begin || !end) return 0;
+        if (f->audio.webm) {
+            // One range for each Cluster the source holds in full.
+            u32 count = 0;
+            u64 cursor = 0;
+            WebmOpusCluster cluster{};
+            const u64 packet_us = u64{f->webm.frames_per_packet} * 1'000'000 / 48'000;
+            while (webm_opus_next_cluster(f->webm, &cursor, &cluster))
+                if (progressive_source_available(f->source, cluster.offset, cluster.bytes))
+                    add_buffered(cluster.first_packet * packet_us, cluster.end_packet * packet_us, duration_us, begin, end,
+                                 capacity, &count);
+            return count;
+        }
+        if (!f->fragment.source) return 0;
         Mp4FragmentRange range{}; u32 count = 0;
         if (!mp4_fragment_index_range(f->fragment.index, 0, &range)) return 0;
         for (u32 i = 0; i < f->fragment.index.count; ++i) {
@@ -235,12 +293,8 @@ u32 progressive_video_fetch_buffered(ProgressiveVideoFetch* f, u64 duration_us, 
             if (progressive_source_available(f->source, range.offset, range.bytes) &&
                 mp4_fragment_source_time(f->fragment, static_cast<i64>(range.time), &first) &&
                 mp4_fragment_source_time(f->fragment, static_cast<i64>(range.time + range.duration), &last)) {
-                const u16 b = static_cast<u16>(minimum<u64>(first < 0 ? 0 : static_cast<u64>(first), duration_us) * 10000 / duration_us);
-                const u16 e = static_cast<u16>(minimum<u64>(last < 0 ? 0 : static_cast<u64>(last), duration_us) * 10000 / duration_us);
-                if (e > b) {
-                    if (count && b <= end[count - 1] + 1u) end[count - 1] = maximum(end[count - 1], e);
-                    else if (count < capacity) { begin[count] = b; end[count++] = e; }
-                }
+                add_buffered(first < 0 ? 0 : static_cast<u64>(first), last < 0 ? 0 : static_cast<u64>(last), duration_us,
+                             begin, end, capacity, &count);
             }
             if (i + 1 < f->fragment.index.count && !mp4_fragment_index_follow(f->fragment.index, range, &range)) break;
         }

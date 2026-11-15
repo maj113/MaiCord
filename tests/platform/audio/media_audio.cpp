@@ -47,8 +47,8 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
         media_audio_ring_write(&ring,2,{output,2}).error==MediaAudioError::stale_epoch&&
         media_audio_ring_write(&ring,1,{storage,2}).error==MediaAudioError::invalid_input,
         "media ring: NaN, stale epoch and alias failures preserve cursors atomically");
-    input[0]=2;input[1]=-2;check(media_audio_ring_write(&ring,1,{input,2}).ok()&&media_audio_ring_render(&ring,{output,2},.75f)==1&&output[0]==1&&output[1]==-1,
-        "media ring: finite overrange PCM applies gain and clips without a resampler");
+    input[0]=2;input[1]=-2;check(media_audio_ring_write(&ring,1,{input,2}).ok()&&media_audio_ring_render(&ring,{output,2},.75f)==1&&output[0]==1.5f&&output[1]==-1.5f,
+        "media ring: finite overrange PCM applies gain and does not clip, so the system applies the volume before any limit");
     check(!media_audio_ring_native_queue_empty(ring,1)&&!media_audio_ring_native_queue_empty(ring,0),
         "media clock: paused or padding-drained PCM without clock-confirmed consumption preserves the existing anchor");
     media_audio_ring_rewind(&ring);
@@ -96,5 +96,26 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
         media_audio_write(&owner,1,{input,2}).error==MediaAudioError::stale_epoch&&media_audio_status(&owner).observed_epoch==2&&
         media_audio_release(&owner,0).ok()&&!owner.initialized,
         "media lifecycle: fresh pre-play epoch reset clears logical stream only and release is allocation-free");
+    // A 997 Hz sine at +4 dBFS and 44.1 kHz, as a decoder gives it for a loud track. The recurrence needs no library.
+    static float loud_storage[4096],loud[2048],heard[2048];
+    double before_last=-0.22437524436133377,last=0;float peak=0,low=0;
+    for(u32 i=0;i<1024;++i){const double next=1.979856149286117*last-before_last;before_last=last;last=next;
+        loud[2*i]=static_cast<float>(last);loud[2*i+1]=static_cast<float>(-last);peak=maximum(peak,loud[2*i]);low=minimum(low,loud[2*i]);}
+    MediaAudioRing sine{};
+    check(peak>1.58f&&peak<1.59f&&low< -1.58f&&media_audio_ring_initialize(&sine,{loud_storage,4096},44100,2,1)&&
+        media_audio_ring_write(&sine,1,{loud,2048}).ok()&&media_audio_ring_render(&sine,{heard,2048},1)==1024&&
+        bytes_equal(loud,heard,sizeof(loud)),
+        "media ring: a +4 dBFS sine leaves the ring bit for bit, with its peaks above full scale");
+    media_audio_ring_rewind(&sine);
+    bool scaled=media_audio_ring_render(&sine,{heard,2048},.5f)==1024;
+    for(u32 i=0;i<2048&&scaled;++i)scaled=heard[i]==loud[i]*.5f;
+    check(scaled,"media ring: the gain scales the +4 dBFS sine exactly, with no clip before the gain or after it");
+    MediaAudio gained{};MediaAudioConfig gain_config{};gain_config.pcm={loud_storage,4096};gain_config.sample_rate=44100;gain_config.channels=2;
+    check(gain_config.gain==1,"media lifecycle: a source without a loudness rule plays at gain 1");
+    gain_config.gain=1.5f;const bool boost=media_audio_initialize(&gained,gain_config).error==MediaAudioError::invalid_input&&!gained.initialized;
+    gain_config.gain=nan;const bool invalid=media_audio_initialize(&gained,gain_config).error==MediaAudioError::invalid_input&&!gained.initialized;
+    gain_config.gain=.762f;
+    check(boost&&invalid&&media_audio_initialize(&gained,gain_config).ok()&&gained.config.gain==.762f&&media_audio_release(&gained,0).ok(),
+        "media lifecycle: the source gain is at most 1 and finite, and the transport keeps it");
 }
 }

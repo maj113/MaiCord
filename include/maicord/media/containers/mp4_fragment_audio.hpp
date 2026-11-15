@@ -3,6 +3,7 @@
 #include "maicord/media/containers/mp4_audio_demux.hpp"
 
 namespace maicord {
+struct WebmOpus;
 struct Mp4FragmentAudioPacket {
     ConstSlice<u8> bytes{};
     u64 first_source_frame{}, duration_100ns{};
@@ -20,8 +21,10 @@ struct Mp4FragmentAudio {
     // interval omits this encoder priming; decoded packets still start at zero.
     u32 index_edit_ticks{};
     bool pending{};
+    // An Opus track of a WebM file in place of `source`: the calls below then read that file, and `source` is null.
+    WebmOpus* webm{};
 };
-static_assert(sizeof(Mp4FragmentAudio) <= 88);
+static_assert(sizeof(Mp4FragmentAudio) <= 96);
 // Empty output, initial audio source only. Validates the indexed constant AAC
 // frame grid, allowing a short final packet. Track/movie clocks stay exact;
 // packet decode times and durations are checked again against each real moof.
@@ -29,6 +32,20 @@ static_assert(sizeof(Mp4FragmentAudio) <= 88);
 // missing bytes return data_pending and preserve output. Success retains that
 // first packet without consuming it, so normal playback reuses its metadata.
 Mp4DemuxError mp4_fragment_audio_initialize(Mp4FragmentSource*, Mp4FragmentAudio*) noexcept;
+// Empty output only. Binds the adapter to an initialized WebM reader at its first packet. The reader stays at the
+// same address and outlives the adapter.
+Mp4DemuxError mp4_fragment_audio_attach(WebmOpus*, Mp4FragmentAudio*) noexcept;
+// What a decoder needs for the adapter's packets. `configuration` is the AAC configuration, and it is empty for
+// Opus. False for an adapter that is not bound to a valid source.
+struct Mp4FragmentAudioFormat {
+    ConstSlice<u8> configuration;
+    u32 sample_rate;
+    i32 gain_q8;
+    u16 frames_per_packet;
+    u8 channels;
+    bool opus;
+};
+bool mp4_fragment_audio_format(const Mp4FragmentAudio&, Mp4FragmentAudioFormat*) noexcept;
 // Extend a live packet timeline from received files without moving its cursor.
 Mp4DemuxError mp4_fragment_audio_refresh(Mp4FragmentAudio*) noexcept;
 // Failure leaves caller output and accepted packet index unchanged. Missing

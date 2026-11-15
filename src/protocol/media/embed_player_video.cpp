@@ -169,11 +169,12 @@ u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> 
     return ok ? w.used : 0;
 }
 EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_height,
-    Slice<u32> scratch, EmbedStreams* output) noexcept {
+    Slice<u32> scratch, EmbedStreams* output, EmbedOffer* offer, bool sound_only) noexcept {
     using E = EmbedPlayerError;
     if (!output || !video_id(id) || !maximum_height || maximum_height > 2048 ||
         !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
-    Selection s{{}, {}, {}, {}, maximum_height, 0};
+    if (offer) offer->count = 0;
+    Selection s{{}, {}, {}, {}, maximum_height, 0, offer};
     if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
     FieldSet<"playabilityStatus", "videoDetails", "streamingData"> root;
     if (!fields(s.doc, root) || !root[0].seen) return E::malformed;
@@ -204,14 +205,56 @@ EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_
     for (u32 i = 0; i < 2; ++i)
         if (data[i].seen && !visit_array(s.doc, data[i].value, format, &s))
             return E::malformed;
-    if (!s.video.combined && !s.audio.url.encoded.bytes) s.video = s.combined;
-    if (!s.video.url.encoded.bytes) return E::unsupported;
+    // Opus at 48 kHz keeps the sound up to 20 kHz, and YouTube's AAC stops near 16 kHz. The Opus format wins when its
+    // quality class is not below the AAC format's. It loses when it is the compressed twin of an original AAC format.
+    // The AAC format stays as the fallback for a WebM file the client cannot read.
+    Candidate fallback{};
+    if (s.opus.url.encoded.bytes && (!s.audio.url.encoded.bytes ||
+            (s.opus.audio_quality >= s.audio.audio_quality && s.opus.drc <= s.audio.drc))) {
+        fallback = s.audio;
+        s.audio = s.opus;
+    }
+    // A combined format needs no second stream. It wins when the pair has no better picture and no better audio.
+    const u32 pair = short_side(s.video), one = short_side(s.combined);
+    if (!pair || !s.audio.url.encoded.bytes ||
+        (one && (one == pair ? s.combined.audio_quality >= s.audio.audio_quality
+                             : better_rendition(one, 0, pair, 0, maximum_height))))
+        s.video = s.combined;
+    if (offer) offer->count = static_cast<u16>(s.count);
+    // An art track plays from the audio format alone. Without one the client plays the video, as for any other track.
+    const bool sound = sound_only && s.audio.url.encoded.bytes;
+    if (!sound && !s.video.url.encoded.bytes) return E::unsupported;
+    const bool paired = sound || !s.video.combined;
     EmbedStreams staged{};
-    if (!store(s.video, &staged.video) || (!s.video.combined && !store(s.audio, &staged.audio))) return E::malformed;
+    if ((!sound && !store(s.video, &staged.video)) || (paired && !store(s.audio, &staged.audio))) {
+        if (offer) offer->count = 0;
+        return E::malformed;
+    }
+    if (paired && fallback.url.encoded.bytes && !store(fallback, &staged.audio_fallback))
+        staged.audio_fallback.url_bytes = 0;
     staged.expires_seconds = expires;
-    staged.combined = s.video.combined;
+    staged.combined = !paired;
+    if (offer) {
+        if (!sound) offer->formats[s.video.index].flags |= embed_format_picked;
+        if (paired) offer->formats[s.audio.index].flags |= embed_format_picked;
+    }
     *output = staged;
     return E::none;
+}
+bool youtube_music_art_track(Utf8View json, Utf8View id) noexcept {
+    u32 scratch[kYoutubeMusicKindBytes];
+    JsonIndexedDocument doc{};
+    FieldSet<"videoDetails"> root;
+    FieldSet<"videoId", "musicVideoType"> details;
+    return video_id(id) && json.data && json.bytes && json.bytes <= kYoutubeMusicKindBytes &&
+           index_json(json, {scratch, json.bytes}, &doc) == EmbedPlayerError::none && fields(doc, root) &&
+           root[0].seen && fields(doc, root[0].value, details) && equal(details[0], id) &&
+           equal(details[1], "MUSIC_VIDEO_TYPE_ATV");
+}
+u32 youtube_music_kind_body(Utf8View id, Utf8View version, Slice<u8> output) noexcept {
+    ProtocolWriter w{output, 0};
+    return video_id(id) && protocol_write(&w, "{\"context\":{\"client\":{\"clientName\":\"WEB_REMIX\",\"clientVersion\":",
+               json_text(version), "}},\"videoId\":", json_text(id), '}') ? w.used : 0;
 }
 bool amazon_music_track_id(Utf8View id) noexcept {
     if(!id.data || id.bytes!=10 || id.data[0]!='B') return false;

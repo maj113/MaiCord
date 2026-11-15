@@ -576,6 +576,63 @@ Utf8View ui_image_viewer_tooltip(const UiImageViewer& v, u32 index) noexcept {
     default: return {};
     }
 }
+u32 ui_image_viewer_quality_text(const MediaPlaybackQuality& q, char* out, u32 capacity) noexcept {
+    if (q.provider == MediaQualityProvider::none || capacity < kUiImageViewerQualityBytes)
+        return 0;
+    u32 n = 0;
+    const auto put = [&](Utf8View text) noexcept {
+        copy_bytes(out + n, text.data, text.bytes);
+        n += text.bytes;
+    };
+    const auto number = [&](u32 value) noexcept { n += decimal_write(out + n, value); };
+    // " 4.2 Mbps" from one megabit, " 560 kbps" below it, nothing for an unknown rate.
+    const auto rate = [&](u32 bits) noexcept {
+        if (!bits)
+            return;
+        out[n++] = ' ';
+        if (bits < 1'000'000) {
+            number((bits + 500) / 1000);
+            put(utf8_literal(" kbps"));
+            return;
+        }
+        const u32 tenths = (bits + 50'000) / 100'000;
+        number(tenths / 10);
+        out[n++] = '.';
+        number(tenths % 10);
+        put(utf8_literal(" Mbps"));
+    };
+    put(q.provider == MediaQualityProvider::youtube_music ? utf8_literal("YouTube Music") : utf8_literal("YouTube"));
+    // A track without a picture has no video part: "YouTube Music · AAC 129 kbps".
+    if (!media_quality_sound_only(q)) {
+        put(utf8_literal(" \xC2\xB7 H.264 "));
+        // A 16:9 picture has its usual name. 854 x 480 is 16:9 too: YouTube rounds the width.
+        const i32 skew = i32{q.width} * 9 - i32{q.height} * 16;
+        if (skew >= -18 && skew <= 18) {
+            number(q.height);
+            out[n++] = 'p';
+            if (q.fps)
+                number(q.fps);
+        } else {
+            number(q.width);
+            put(utf8_literal("\xC3\x97"));
+            number(q.height);
+            if (q.fps) {
+                out[n++] = ' ';
+                number(q.fps);
+                put(utf8_literal(" fps"));
+            }
+        }
+        rate(q.video_bitrate);
+    }
+    put(q.opus ? utf8_literal(" \xC2\xB7 Opus") : utf8_literal(" \xC2\xB7 AAC"));
+    rate(q.audio_bitrate);
+    if (q.channels && q.channels != 2) {
+        out[n++] = ' ';
+        number(q.channels);
+        put(utf8_literal(" ch"));
+    }
+    return n;
+}
 float ui_image_viewer_media_opacity(const UiImageViewer& v) noexcept {
     return v.reveal < 1 && !ui_rect_has_area(v.origin) ? v.reveal : 1.0f;
 }

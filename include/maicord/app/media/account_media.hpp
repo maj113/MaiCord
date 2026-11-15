@@ -196,7 +196,9 @@ struct AccountMediaRequestOptions {
     // Opt-in bounded range fetching for a non-looping inline MP4 embed.
     // Attachments already stream; GIFV/catalog animation retains whole files.
     u8 progressive;
-    u8 reserved[2];
+    // The media worker also logs every format the provider offers, one line each (Developer Mode).
+    u8 list_formats;
+    u8 reserved;
     // Zero uses the widget's starting track; otherwise a one-based collection index.
     u16 collection_track{};
 };
@@ -322,6 +324,9 @@ struct AccountMedia {
     EmbedResolver* provider_resolver; // Published once; released only after the lane joins.
     bool progressive_active;
     bool progressive_continue;
+    // The last YouTube pick of this lane and the asset it plays (requests.cpp). The status of the session reports it.
+    MediaPlaybackQuality quality;
+    MediaAssetKey quality_key;
 };
 
 // Complete progressive sources at most this large enter the encoded cache.

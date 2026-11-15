@@ -1,4 +1,5 @@
 #include "maicord/app/media/progressive_video_fetch.hpp"
+#include "maicord/app/media/account_video_session.hpp"
 #include "maicord/media/core/progressive_source.hpp"
 #include "maicord/protocol/media/cdn_http.hpp"
 #include "maicord/core/memory.hpp"
@@ -7,7 +8,9 @@
 // Progressive MP4 playback: Range/206 parsing, sparse-source bookkeeping, moov
 // probing, pending reads, scheduling, signed-URL refresh, the resident memory
 // bound and an end-to-end fetch against a fake range server. Every MP4 is an
-// original fixture generated here.
+// original fixture generated here. An Opus format is a WebM file: the same fetch
+// opens it with the WebM reader, seeks in it, takes a new URL for it, and starts
+// again with the AAC format when the reader refuses the file.
 namespace maicord {
 namespace {
 
@@ -749,9 +752,201 @@ int end_to_end_tests() noexcept {
     return failure;
 }
 
+// A WebM file as YouTube's Opus formats are: the head, Cues with one point for each Cluster, then Clusters of 100
+// packets of 20 ms. The packets hold a pattern, not sound: the fetch and the reader do not decode them.
+constexpr u32 kWebmPackets = 3200, kWebmClusterPackets = 100, kWebmPacketBytes = 401;
+struct WebmFile {
+    u8* bytes;
+    u32 count;
+    template <typename... Values> void put(Values... values) noexcept {
+        ((bytes[count++] = static_cast<u8>(values)), ...);
+    }
+    void put32(u32 at, u32 value) noexcept {
+        for (u32 i = 0; i < 4; ++i)
+            bytes[at + i] = static_cast<u8>(value >> (24 - 8 * i));
+    }
+};
+u8 webm_packet_byte(u32 packet, u32 at) noexcept {
+    return at ? static_cast<u8>(packet * 7 + at) : 0xFC; // 20 ms of fullband CELT, stereo, one frame
+}
+WebmFile build_webm(u8 channels) noexcept {
+    WebmFile f{static_cast<u8*>(VirtualAlloc(nullptr, 2u << 20, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)), 0};
+    f.put(0x1A, 0x45, 0xDF, 0xA3, 0x80);
+    f.put(0x18, 0x53, 0x80, 0x67, 0x01, 0, 0, 0, 0, 0, 0, 0);
+    const u32 segment = f.count;
+    f.put(0x15, 0x49, 0xA9, 0x66, 0x87, 0x2A, 0xD7, 0xB1, 0x83, 0x0F, 0x42, 0x40);
+    f.put(0x16, 0x54, 0xAE, 0x6B, 0xA9, 0xAE, 0xA7, 0xD7, 0x81, 0x01, 0x86, 0x86, 'A', '_', 'O', 'P', 'U', 'S');
+    f.put(0x63, 0xA2, 0x93, 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, channels, 0x38, 0x01, 0x80, 0xBB, 0, 0, 0, 0, 0);
+    f.put(0x56, 0xAA, 0x83, 0x63, 0x2E, 0xA0);
+    const u32 clusters = kWebmPackets / kWebmClusterPackets, cues = f.count + 6;
+    f.put(0x1C, 0x53, 0xBB, 0x6B, static_cast<u8>(0x40 | (clusters * 17) >> 8), static_cast<u8>(clusters * 17));
+    f.count += clusters * 17;
+    for (u32 cluster = 0; cluster < clusters; ++cluster) {
+        // YouTube's muxer writes each timestamp after the first one a millisecond late.
+        const u32 at = f.count, time = cluster * kWebmClusterPackets * 20 + (cluster != 0);
+        f.count = cues + cluster * 17;
+        f.put(0xBB, 0x8F, 0xB3, 0x82, static_cast<u8>(time >> 8), static_cast<u8>(time), 0xB7, 0x89, 0xF7, 0x81, 0x01,
+               0xF1, 0x84, 0, 0, 0, 0);
+        f.put32(f.count - 4, at - segment);
+        f.count = at;
+        f.put(0x1F, 0x43, 0xB6, 0x75, 0x10, 0, 0, 0, 0xE7, 0x82, static_cast<u8>(time >> 8), static_cast<u8>(time));
+        for (u32 i = 0; i < kWebmClusterPackets; ++i) {
+            const u32 packet = cluster * kWebmClusterPackets + i, block = kWebmPacketBytes + 4;
+            if (packet + 1 == kWebmPackets) // the last block discards 10 ms of padding
+                f.put(0xA0, static_cast<u8>(0x40 | (block + 10) >> 8), static_cast<u8>(block + 10), 0x75, 0xA2, 0x84, 0,
+                      0x98, 0x96, 0x80, 0xA1, static_cast<u8>(0x40 | block >> 8), static_cast<u8>(block));
+            else
+                f.put(0xA3, static_cast<u8>(0x40 | block >> 8), static_cast<u8>(block));
+            f.put(0x81, 0, 0, 0x80);
+            for (u32 n = 0; n < kWebmPacketBytes; ++n)
+                f.put(webm_packet_byte(packet, n));
+        }
+        f.put32(at + 4, 0x10000000u | (f.count - at - 8));
+    }
+    f.put32(segment - 4, f.count - segment);
+    return f;
+}
+struct WebmServer {
+    const WebmFile* file;
+    char head[512];
+    u32 requests, expire_at_request;
+};
+ProgressiveVideoAccept pump_webm(ProgressiveVideoFetch* fetch, WebmServer* server, bool read_ahead, u64* id,
+                                 ProgressiveVideoStep* step) noexcept {
+    const auto next = progressive_video_fetch_next(fetch, read_ahead, kNow);
+    *step = next.step;
+    if (next.step != ProgressiveVideoStep::submit)
+        return ProgressiveVideoAccept::ignored;
+    progressive_video_fetch_submitted(fetch, ++*id, next.range);
+    ConstSlice<u8> body{};
+    u32 at = 0;
+    if (++server->requests == server->expire_at_request) {
+        at = put_text(server->head, at, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+    } else {
+        const u64 last = minimum<u64>(next.range.first + next.range.bytes, server->file->count) - 1;
+        body = {server->file->bytes + next.range.first, static_cast<u32>(last - next.range.first + 1)};
+        at = put_text(server->head, at, "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/webm\r\nContent-Length: ");
+        at = put_number(server->head, at, body.count);
+        at = put_text(server->head, at, "\r\nContent-Range: bytes ");
+        at = put_number(server->head, at, next.range.first);
+        at = put_text(server->head, at, "-");
+        at = put_number(server->head, at, last);
+        at = put_text(server->head, at, "/");
+        at = put_number(server->head, at, server->file->count);
+        at = put_text(server->head, at, "\r\n\r\n");
+    }
+    const auto policy = validate_cdn_range_response(CdnImageType::m4a, {reinterpret_cast<const u8*>(server->head), at},
+                                                    body.count, next.range, kNow, CdnHost::google_video);
+    return progressive_video_fetch_accept(fetch, *id, true, policy, body);
+}
+bool webm_packet_is(const Mp4FragmentAudioPacket& packet, u32 index) noexcept {
+    bool same = packet.bytes.count == kWebmPacketBytes && packet.first_source_frame == u64{index} * 960;
+    for (u32 n = 0; same && n < kWebmPacketBytes; ++n)
+        same = packet.bytes[n] == webm_packet_byte(index, n);
+    return same;
+}
+
+int webm_tests() noexcept {
+    const auto webm_head = head("HTTP/1.1 206 Partial Content\r\nContent-Type: audio/webm\r\nContent-Length: 16\r\n"
+                                "Content-Range: bytes 0-15/1000\r\n\r\n");
+    if (!validate_cdn_range_response(CdnImageType::m4a, webm_head, 16, {0, 16}, kNow, CdnHost::google_video).ok() ||
+        validate_cdn_range_response(CdnImageType::m4a, webm_head, 16, {0, 16}, kNow, CdnHost::cdn).ok() ||
+        validate_cdn_range_response(CdnImageType::mp4, webm_head, 16, {0, 16}, kNow, CdnHost::google_video).ok())
+        return 901; // only the provider's audio request takes a WebM answer
+    WebmFile file = build_webm(2);
+    auto* fetch = static_cast<ProgressiveVideoFetch*>(
+        VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    int failure = 0;
+    WebmServer server{&file, {}, 0, 0};
+    u64 id = 0;
+    ProgressiveVideoStep step{};
+    const auto target = head("https://rr1---sn-test.googlevideo.com/videoplayback?itag=251");
+    const auto fallback = head("https://rr1---sn-test.googlevideo.com/videoplayback?itag=140");
+    if (file.count < 2 * kProgressiveBlockBytes ||
+        !progressive_video_fetch_begin(fetch, target, CdnHost::google_video, kNow + 60, ProgressiveVideoKind::fragmented_audio))
+        failure = 902;
+    progressive_video_fetch_fallback(fetch, fallback);
+    // The head block, then the block of the last Cluster: the reader needs both for the packet count.
+    for (u32 i = 0; !failure && i < 8 && fetch->state != ProgressiveVideoFetchState::ready; ++i)
+        pump_webm(fetch, &server, false, &id, &step);
+    if (!failure && (fetch->state != ProgressiveVideoFetchState::ready || server.requests != 2 || !fetch->audio.webm ||
+                     fetch->audio.source || fetch->fragment.source || fetch->audio.packet_count != kWebmPackets ||
+                     fetch->webm.frames_per_packet != 960 || fetch->fell_back ||
+                     fetch->webm.timeline.content_ticks != kWebmPackets * 960 - 312 - 480))
+        failure = 903;
+    // The session takes the adapter as it takes the AAC one.
+    const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    AccountVideoSession session{};
+    if (!failure && (!account_video_session_initialize_fragment_audio(&session, &fetch->audio, {1, 2, 3, 4, 0, 1, 0}, event).ok() ||
+                     !session.status.has_audio || session.status.duration_100ns != 639'835'000 || session.workspace ||
+                     !account_video_session_release(&session, 0).ok()))
+        failure = 904;
+    if (event)
+        CloseHandle(event);
+    // The first block holds 6 whole Clusters and the last block holds 6: two buffered ranges of 12 seconds.
+    u16 begin[4]{}, end[4]{};
+    if (!failure && (progressive_video_fetch_buffered(fetch, 63'983'500, begin, end, 4) != 2 || begin[0] != 0 ||
+                     end[0] < 1874 || end[0] > 1876 || begin[1] < 8126 || begin[1] > 8128 || end[1] != 10000))
+        failure = 908;
+    // A seek to packet 850: the Cluster is not there, the fetch brings its block, and the packet is the right one.
+    Mp4FragmentAudioPacket packet{};
+    if (!failure && (mp4_fragment_audio_seek(&fetch->audio, 850) != Mp4DemuxError::data_pending ||
+                     fetch->audio.packet_index != 0 || !progressive_video_fetch_pending(fetch)))
+        failure = 905;
+    for (u32 i = 0; !failure && i < 4 && mp4_fragment_audio_seek(&fetch->audio, 850) == Mp4DemuxError::data_pending; ++i)
+        if (pump_webm(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::progress)
+            failure = 906;
+    if (!failure && (fetch->audio.packet_index != 850 || mp4_fragment_audio_peek(&fetch->audio, &packet) != Mp4DemuxError::none ||
+                     !webm_packet_is(packet, 850) || server.requests != 3))
+        failure = 907;
+    // An expired URL: the fetch asks for a new one, keeps the reader and reads on from the new target.
+    fetch->refreshable = true;
+    server.expire_at_request = server.requests + 1;
+    if (!failure && (mp4_fragment_audio_seek(&fetch->audio, 1500) != Mp4DemuxError::data_pending ||
+                     pump_webm(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::refresh_required ||
+                     progressive_video_fetch_next(fetch, false, kNow).step != ProgressiveVideoStep::refresh_required ||
+                     !progressive_video_fetch_refresh(fetch, head("https://rr2---sn-test.googlevideo.com/videoplayback?itag=251"),
+                                                      CdnHost::google_video, kNow + 3600) ||
+                     fetch->state != ProgressiveVideoFetchState::ready || !fetch->audio.webm))
+        failure = 909;
+    for (u32 i = 0; !failure && i < 4 && mp4_fragment_audio_seek(&fetch->audio, 1500) == Mp4DemuxError::data_pending; ++i)
+        pump_webm(fetch, &server, false, &id, &step);
+    if (!failure && (mp4_fragment_audio_peek(&fetch->audio, &packet) != Mp4DemuxError::none || !webm_packet_is(packet, 1500)))
+        failure = 910;
+    // A lane that goes idle keeps the head. The restore binds the adapter again at the first packet.
+    progressive_video_fetch_retire(fetch);
+    if (!failure && (fetch->audio.webm || !progressive_video_fetch_restore(fetch) || !fetch->audio.webm ||
+                     fetch->audio.packet_index != 0 || fetch->audio.packet_count != kWebmPackets))
+        failure = 911;
+    // A WebM file the reader refuses (3 channels): the fetch starts again with the AAC format's target.
+    VirtualFree(file.bytes, 0, MEM_RELEASE);
+    file = build_webm(3);
+    server = {&file, {}, 0, 0};
+    if (!failure && !progressive_video_fetch_begin(fetch, target, CdnHost::google_video, kNow + 60, ProgressiveVideoKind::fragmented_audio))
+        failure = 912;
+    progressive_video_fetch_fallback(fetch, fallback);
+    if (!failure && (pump_webm(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::progress || !fetch->source.base))
+        failure = 913;
+    const auto restart = progressive_video_fetch_next(fetch, false, kNow);
+    if (!failure && (restart.step != ProgressiveVideoStep::submit || restart.range.first != 0 || fetch->source.base ||
+                     !fetch->fell_back || fetch->fallback_bytes || fetch->target_bytes != fallback.count ||
+                     !bytes_equal(fetch->target, fallback.data, fallback.count) ||
+                     fetch->state != ProgressiveVideoFetchState::probing || fetch->webm.encoded.data))
+        failure = 914;
+    // Without a fallback the same file ends the fetch.
+    if (!failure && (!progressive_video_fetch_begin(fetch, target, CdnHost::google_video, kNow + 60, ProgressiveVideoKind::fragmented_audio) ||
+                     pump_webm(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::progress ||
+                     progressive_video_fetch_next(fetch, false, kNow).step != ProgressiveVideoStep::failed))
+        failure = 915;
+    progressive_video_fetch_release(fetch);
+    VirtualFree(fetch, 0, MEM_RELEASE);
+    VirtualFree(file.bytes, 0, MEM_RELEASE);
+    return failure;
+}
+
 int run() noexcept {
-    int (*const tests[])() noexcept{http_tests,     sparse_tests,  probe_tests,     pending_tests,
-                                    schedule_tests, memory_tests,  refresh_tests,   end_to_end_tests};
+    int (*const tests[])() noexcept{http_tests,     sparse_tests,  probe_tests,     pending_tests,   schedule_tests,
+                                    memory_tests,   refresh_tests, end_to_end_tests, webm_tests};
     for (auto test : tests)
         if (const int failure = test()) {
             char text[48];

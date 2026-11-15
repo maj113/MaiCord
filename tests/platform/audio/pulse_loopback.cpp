@@ -439,7 +439,8 @@ constexpr u32 kMediaRingFrames = 16384;
 alignas(4) float g_media_ring[kMediaRingFrames * 2];
 
 // Plays `frames` of a 400 Hz square wave (amplitude 0.3 = 9830 in PCM16 terms) through a MediaAudio at `volume`; the
-// producer refills the ring as the playback frees it. Returns the final status.
+// producer refills the ring as the playback frees it. Returns the final status. With `loud` the signal is a 400 Hz
+// sine at +4 dBFS (peak 1.585), as a decoder gives it for a loud track.
 struct MediaRun {
     MediaAudioStatus status;
     bool completed;
@@ -473,7 +474,16 @@ void show_run(const char* label, const MediaRun& run) noexcept {
     test_write_line(run.completed ? ", completed" : ", not completed");
 }
 
-MediaRun play_media(u32 frames, float volume, bool pause_midway) noexcept {
+MediaRun play_media(u32 frames, float volume, bool pause_midway, bool loud = false) noexcept {
+    // One period of the sine, by the recurrence s[n] = 2 cos(w) s[n - 1] - s[n - 2]. It needs no math library.
+    float sine[120];
+    double before_last = -0.0829469007703844, last = 0;
+    for (u32 i = 0; i < 120; ++i) {
+        sine[i] = static_cast<float>(last);
+        const double next = 1.9972590695091477 * last - before_last;
+        before_last = last;
+        last = next;
+    }
     MediaRun run{};
     const Waitable refill = event_create(false, false);
     MediaAudio media{};
@@ -490,7 +500,8 @@ MediaRun play_media(u32 frames, float volume, bool pause_midway) noexcept {
         while (written < frames) {
             const u32 want = minimum<u32>(2048, frames - written);
             for (u32 i = 0; i < want; ++i)
-                chunk[2 * i] = chunk[2 * i + 1] = (written + i) % 120 < 60 ? 0.3f : -0.3f;
+                chunk[2 * i] = chunk[2 * i + 1] =
+                    loud ? sine[(written + i) % 120] : (written + i) % 120 < 60 ? 0.3f : -0.3f;
             const auto result = media_audio_write(&media, 1, {chunk, want * 2});
             if (result.error == MediaAudioError::capacity)
                 return true;
@@ -561,6 +572,18 @@ void media() noexcept {
     show_run("paused and resumed", paused);
     check(paused.completed && paused.status.error == MediaAudioError::none,
           "media audio: a paused and resumed stream still plays to its end");
+
+    // The client hands a sample above full scale to the server as it is. Each later conversion to 16 bits must
+    // saturate. A conversion that wraps adds sign changes, so the pitch reads three times too high.
+    check(quiet_recording(), "media audio: the recording restarts for the +4 dBFS sine");
+    const MediaRun over = play_media(28800, 1.0f, false, true);
+    show_run("+4 dBFS", over);
+    settle(150);
+    const Measure clipped = measure_recording();
+    show("+4 dBFS", clipped);
+    check(over.completed && over.status.error == MediaAudioError::none && clipped.peak >= 32000 &&
+              near(clipped.frequency_hz, 400, 10) && clipped.span >= kRate / 2,
+          "media audio: a +4 dBFS sine saturates at full scale and keeps its pitch, so no conversion wraps");
 }
 
 void events(pulse::Session& session) noexcept {

@@ -135,6 +135,13 @@ void test_profile_card_over_member_list(void (*check)(bool, const char*) noexcep
     check(ok && evicted == 0 && cached == 0 && session.atlas.allocations.evicted_entries == evicted_before &&
               session.atlas.allocations.full_resets == 0 && untouched(session.atlas, list, kMembers) && one_shelf,
           "atlas_profile_card_over_full_member_list_touches_no_resident");
+    // A sound-only track's 1280 x 720 picture is the largest picture a media page's stage asks this surface for. It
+    // lands in the same session at its own size and moves no resident.
+    const MediaAtlasResult stage =
+        media_atlas_allocate(&session.atlas, profile_image_key(++session.serial), 1280, 720);
+    check(stage.ok() && stage.width == 1280 && stage.height == 720 && session.atlas.allocations.full_resets == 0 &&
+              untouched(session.atlas, list, kMembers),
+          "atlas_track_picture_1280x720_fits_the_identity_surface");
 }
 
 // The reporter's session: 59 pinned pictures (native 288 px decorations, avatars, nameplates, emoji and the

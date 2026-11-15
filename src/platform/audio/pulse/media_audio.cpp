@@ -222,7 +222,7 @@ u32 render(Runtime& r, Engine& e, u64 epoch, bool playing) noexcept {
         AcquireSRWLockExclusive(&r.lock);
         valid = !r.stopping && r.desired_play && r.status.desired_epoch == epoch && r.ring.epoch == epoch;
         if (valid)
-            valid = media_audio_ring_render(&r.ring, {e.scratch, chunk * channels}, 1) == chunk;
+            valid = media_audio_ring_render(&r.ring, {e.scratch, chunk * channels}, r.config.gain) == chunk;
         ReleaseSRWLockExclusive(&r.lock);
         if (!valid)
             break;
@@ -470,6 +470,7 @@ MediaAudioResult command(MediaAudio* owner, u32 kind, float volume = 0) noexcept
 
 MediaAudioResult media_audio_initialize(MediaAudio* owner, const MediaAudioConfig& config) noexcept {
     if (!owner || owner->initialized || owner->runtime || !media_audio_gain_valid(config.volume) ||
+        !media_audio_gain_valid(config.gain) ||
         !disjoint(owner, sizeof(*owner), &config, sizeof(config)) || config.pcm.count > 32768 ||
         !disjoint(owner, sizeof(*owner), config.pcm.data, config.pcm.count * 4))
         return fail(Error::invalid_input);

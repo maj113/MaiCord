@@ -19,7 +19,8 @@ struct MediaAudioRing {
 bool media_audio_ring_initialize(MediaAudioRing*,Slice<float>,u32 rate,u32 channels,u64 epoch) noexcept;
 u32 media_audio_ring_free(const MediaAudioRing&) noexcept;
 MediaAudioResult media_audio_ring_write(MediaAudioRing*,u64 epoch,ConstSlice<float>) noexcept;
-// Copies up to capacity available frames, applying validated gain. Advances submitted
+// Copies up to capacity available frames, each multiplied by the validated gain. It does not clip: a sample
+// above full scale stays above it, and the system limits it after the user's volume. Advances submitted
 // only; the data stays in the ring until confirmed native padding consumption.
 u32 media_audio_ring_render(MediaAudioRing*,Slice<float>,float gain) noexcept;
 // True when padding and confirmed consumption both show the submitted native
@@ -37,6 +38,9 @@ bool media_audio_clock_frames(u64 position,u64 frequency,u32 source_rate,u64* fr
 struct MediaAudioConfig {
     Slice<float> pcm{};u32 sample_rate{},channels{};u64 initial_epoch{1};
     i64 source_origin_100ns{};float volume{1.0f};
+    // The source's own gain, at most 1: the provider's loudness rule. The transport multiplies each sample by it.
+    // It stays the same for the life of the stream and it is not part of the volume the status reports.
+    float gain{1.0f};
     // Posted (window_post) on a status change, coalesced until the next status call. A null window posts nothing.
     Waker wake{};
     // Borrowed decode-worker event. Set only when rendering consumes data and frees

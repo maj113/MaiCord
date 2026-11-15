@@ -493,12 +493,16 @@ bool message_rich_embed_playback_select(const MessageRichStore& store, const Mes
         reset_value(out);
         return false;
     }
-    *out = {&embed.video, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+    // The player URL of a YouTube Music link is a YouTube one. Only the link tells the player to ask YouTube Music
+    // for the kind of the track. The link is the source when it names the same video.
+    const auto page = embed_video_locator(message_rich_store_string(store, embed.url));
+    const bool music = page.provider == EmbedProvider::youtube_music && utf8_equal(page.id, locator.id);
+    *out = {&embed.video, music ? message_rich_store_string(store, embed.url) : url, {}, MediaEmbedResource::video,
+            MediaAttachmentFormat::mp4, true, true};
     out->start_seconds = locator.start_seconds;
     // Vimeo oEmbed may retain the iframe's canonical video URL but omit the shared
     // link's fragment. Only the same exact provider/video may supply its time.
     if (locator.provider == EmbedProvider::vimeo) {
-        const auto page = embed_video_locator(message_rich_store_string(store, embed.url));
         if (page.provider == locator.provider && page.id.bytes && utf8_equal(page.id, locator.id) && page.start_seconds)
             out->start_seconds = page.start_seconds;
     }

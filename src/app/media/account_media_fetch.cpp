@@ -1,5 +1,6 @@
 #include "account_media_internal.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/render/effects/lottie_program.hpp"
 #include "maicord/media/containers/hevc_mp4_demux.hpp"
 #include "maicord/media/image/regional_flag_art.hpp"
@@ -34,6 +35,14 @@ bool continue_progressive(AccountMedia* media, u64 now_ms, u64 unix_now_seconds)
             auto value = result(AccountMediaRequestState::failed, AccountMediaError::decode);
             value.video_failure = AccountMediaVideoFailure::demux_unsupported;
             return failure(value);
+        }
+        if (next.step == ProgressiveVideoStep::ready && selected && selected->fell_back && media->quality.opus &&
+            media_asset_key_equal(media->quality_key, media->active_key)) {
+            // The client could not read the WebM file of the Opus format and plays the AAC format. The page and the
+            // log say so. The bitrate of the AAC format is not known here.
+            media->quality.opus = false;
+            media->quality.audio_bitrate = 0;
+            LogEvent("audio_fallback").field("from", "opus").field("to", "aac").write(LogLevel::warning, "media");
         }
         if (next.step == ProgressiveVideoStep::ready || fetch->state != ProgressiveVideoFetchState::ready)
             continue;

@@ -19,12 +19,90 @@ struct EmbedStreams {
     EmbedStream video, audio;
     u32 expires_seconds;
     bool combined, live;
+    // YouTube: the AAC format of the same list when `audio` is an Opus format in WebM. The client starts again
+    // with it when it cannot read the WebM file. Empty without one.
+    EmbedStream audio_fallback;
+};
+// One format of YouTube's list, as the log reports it. It holds no URL.
+enum class EmbedCodec : u8 { other, h264, vp9, av1, aac, he_aac, opus };
+enum class EmbedContainer : u8 { other, mp4, webm };
+// Why the client cannot play a format.
+//   protection: the URL has a cipher, or the format is under DRM.
+//   container: the client reads no such container.     codec: the client has no such decoder.
+//   size: a side is above 2048.                         length: the file is above the progressive limit.
+//   channels: the audio has more than two channels.     track: the audio track is not the default one.
+//   bitrate: the audio bitrate is above 512 kbit/s.
+enum class EmbedFormatReason : u8 { none, protection, container, codec, size, length, channels, track, bitrate };
+enum EmbedFormatFlag : u8 {
+    embed_format_audio = 1,
+    embed_format_combined = 2,
+    embed_format_hdr = 4,
+    embed_format_drc = 8,
+    embed_format_original = 16,
+    embed_format_dubbed = 32,
+    embed_format_picked = 64,
+    embed_format_loudness = 128,
+};
+struct EmbedFormat {
+    // Bits per second: the mean bitrate when the list gives it, else the peak.
+    u32 bitrate, sample_rate;
+    u16 itag, width, height;
+    u8 fps, channels, flags;
+    EmbedCodec codec;
+    EmbedContainer container;
+    EmbedFormatReason reason;
+    // The content loudness in 1/100 LKFS. It has a value only with embed_format_loudness.
+    i16 loudness;
+};
+inline constexpr u32 kEmbedOfferFormats = 256;
+struct EmbedOffer {
+    EmbedFormat formats[kEmbedOfferFormats];
+    u16 count;
 };
 // Transactional, no allocations. Caller supplies the structural index scratch.
-// Select direct H.264/AAC MP4 or a validated live HLS master in video.url.
+// Select direct H.264 MP4 with Opus WebM or AAC MP4 audio, or a validated live HLS master in video.url.
+// The cap is the picture's shorter side. Of two formats of one size the higher frame rate wins, then the higher bitrate.
 // Ciphered/DRM responses remain unsupported; no provider JavaScript is run.
+// `offer` receives every format of the list in the provider's order, the picked ones marked. It also receives the
+// list when the client can play none of it. A malformed list or a live stream leaves its count 0.
+// `sound_only` picks the audio format alone, by the same rule: video.url stays empty and no video format is marked.
+// A list without a playable audio format then gives the video, as without `sound_only`.
 EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View expected_video_id,
-    u16 maximum_height, Slice<u32> scratch, EmbedStreams* output) noexcept;
+    u16 maximum_height, Slice<u32> scratch, EmbedStreams* output, EmbedOffer* offer = nullptr,
+    bool sound_only = false) noexcept;
+// YouTube Music's answer to "which kind of track is this id". The player request above does not give the kind.
+// The request goes to music.youtube.com/youtubei/v1/player with kYoutubeMusicKindTarget. The answer holds two fields.
+inline constexpr auto kYoutubeMusicKindTarget =
+    utf8_literal("/youtubei/v1/player?prettyPrint=false&fields=videoDetails(videoId%2CmusicVideoType)");
+inline constexpr u32 kYoutubeMusicKindBytes = 256;
+u32 youtube_music_kind_body(Utf8View video_id, Utf8View client_version, Slice<u8> output) noexcept;
+// True only for an art track of this id: audio with one still picture (MUSIC_VIDEO_TYPE_ATV). A music video, a user
+// upload, another kind, an answer without the field and a malformed answer all give false.
+bool youtube_music_art_track(Utf8View json, Utf8View video_id) noexcept;
+struct LogEvent;
+// The media worker's two "[media]" log lines for one YouTube list. No line holds a URL, a video id or a title.
+//
+// playback_quality: one line at each playback start.
+//   provider=youtube video_pick="h264 1920x1080 60 4231kbps" video_playable_best="..." video_best="vp9 3840x2160 60
+//   28894kbps hdr" h264_best="..." vp9_best="..." av1_best="..." audio_pick="aac 129kbps 44100Hz 2ch"
+//   audio_playable_best="..." audio_best="opus 133kbps 48000Hz 2ch" aac_best="..." opus_best="..." formats=18 playable=8
+// A video value is the codec, width x height, frame rate and mean bitrate, with "hdr" for an HDR format. An audio value
+// is the codec, mean bitrate, sample rate and channel count. A key without a format stays out of the line: a list the
+// client cannot play has no pick. The best video format has the longest shorter side, then the highest frame rate,
+// then the highest bitrate. The best audio format has the highest bitrate. A dubbed track and a dynamic-range-compressed
+// one never count as a best audio format.
+// With a loudness value on the picked audio the line ends with the content loudness, the target of the provider's web
+// player and the gain the client applies, before the two counts: loudness_lkfs=-4.64 target_lkfs=-7 gain_db=-2.36
+void embed_offer_summary(const EmbedOffer& offer, bool music, LogEvent* line) noexcept;
+// playback_format: one line for each format of the list, written only when Developer Mode is on.
+//   itag=337 codec=vp9 container=webm width=3840 height=2160 fps=60 bitrate=28894277 flags=adaptive,hdr playable=0
+//   picked=0 reason=container
+// An audio format has sample_rate and channels in place of width, height and fps. The flags are adaptive or combined,
+// then hdr, drc, original and dubbed. The reason is an EmbedFormatReason: protected, container, codec, size, length,
+// channels, track or bitrate.
+void embed_offer_format(const EmbedFormat& format, LogEvent* line) noexcept;
+// What the picked formats give the player's page.
+MediaPlaybackQuality embed_offer_quality(const EmbedOffer& offer, bool music) noexcept;
 // Exact Google video CDN boundary and /videoplayback target, HTTPS only.
 // Does not authorize forwarding browser cookies to that CDN.
 bool youtube_stream_url(Utf8View url) noexcept;

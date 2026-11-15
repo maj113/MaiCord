@@ -16,9 +16,11 @@ bool ring_valid(const MediaAudioRing& r) noexcept {
         !byte_range_valid({reinterpret_cast<const u8*>(r.samples.data),r.samples.count*4}))return false;
     return r.consumed<=r.submitted&&r.submitted<=r.written&&r.written-r.consumed<=r.samples.count/r.channels;
 }
-void scale_clip(float* out,const float* in,u32 count,float gain) noexcept {
+// No clip here. The system applies the user's volume to these samples and limits them at the device.
+// A clip at this point cuts every decoded peak above full scale, also at a low volume.
+void scale(float* out,const float* in,u32 count,float gain) noexcept {
 #pragma clang loop vectorize(disable) unroll(disable)
-    for(u32 i=0;i<count;++i){const float value=in[i]*gain;out[i]=value>1?1:value< -1? -1:value;}
+    for(u32 i=0;i<count;++i)out[i]=in[i]*gain;
 }
 }
 bool media_audio_gain_valid(float gain) noexcept {return is_finite(gain)&&gain>=0&&gain<=1;}
@@ -48,7 +50,7 @@ u32 media_audio_ring_render(MediaAudioRing* r,Slice<float> output,float gain) no
         !disjoint(r,sizeof(*r),output.data,output.count*4)||!disjoint(r->samples.data,r->samples.count*4,output.data,output.count*4))return 0;
     const u32 count=static_cast<u32>(minimum<u64>(output.count/r->channels,r->written-r->submitted)),capacity=r->samples.count/r->channels;
     const u32 total=count*r->channels,start=static_cast<u32>(r->submitted%capacity)*r->channels,first=minimum(total,r->samples.count-start);
-    scale_clip(output.data,r->samples.data+start,first,gain);scale_clip(output.data+first,r->samples.data,total-first,gain);
+    scale(output.data,r->samples.data+start,first,gain);scale(output.data+first,r->samples.data,total-first,gain);
     r->submitted+=count;return count;
 }
 bool media_audio_ring_native_queue_empty(const MediaAudioRing& r,u32 padding) noexcept {

@@ -8,6 +8,10 @@
 #include "shell/state.hpp"
 #include "media/video.hpp"
 #include "media/video_internal.hpp"
+#include "media/pump.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/protocol/media/cdn_url.hpp"
+#include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "../../support/test_output.hpp"
@@ -77,6 +81,39 @@ CdnImageType audio_type(MediaAttachmentFormat format) noexcept {
     if (format == MediaAttachmentFormat::wav)
         return CdnImageType::wav;
     return CdnImageType::ogg_opus;
+}
+// A sound-only track's picture (application_video_art). The stand-ins of the media pump below record each request
+// for it and refuse `art_failed`. With `track_videos` the playlist knows each track's YouTube video.
+const MediaPlaybackQuality kSoundOnly{0, 129'000, 0, 0, 0, 2, MediaQualityProvider::youtube_music};
+u32 art_requests, art_url_bytes;
+char art_url[kTrackArtUrlBytes];
+MediaAssetKey art_key, art_failed;
+bool track_videos;
+// One turn of the media pump. True when it asked once for `video`'s 1280 x 720 picture (`large`) or its 320 x 180
+// one, under the key the player shows. The larger picture's key has the px2048 tier, so the decoder keeps its size.
+// The small one's key is a queue row's.
+bool art_asks(const char* video, bool large) noexcept {
+    ApplicationMediaPump media{g_app};
+    media.pass(1000, 2000, 3000, nullptr);
+    bool stop = false;
+    char expected[kTrackArtUrlBytes];
+    const u32 bytes = track_art_url(video, large, expected), before = art_requests;
+    const MediaAssetKey shown = application_video_art();
+    return application_video_art_pump(media, &stop) && art_requests == before + 1 && art_url_bytes == bytes &&
+           bytes_equal(art_url, expected, bytes) && media_asset_key_equal(art_key, shown) &&
+           media_asset_key_equal(shown, message_component_media_key(hash64_bytes(kHash64Seed, expected, bytes),
+                                                                    MediaAttachmentFormat::jpeg,
+                                                                    large ? MediaResolutionTier::px2048
+                                                                          : MediaResolutionTier::px512));
+}
+// One turn of the media pump. True when the player shows no track picture and asked for none.
+bool art_idle() noexcept {
+    ApplicationMediaPump media{g_app};
+    media.pass(1000, 2000, 3000, nullptr);
+    bool stop = false;
+    const u32 before = art_requests;
+    return !media_asset_key_valid(application_video_art()) && application_video_art_pump(media, &stop) &&
+           art_requests == before;
 }
 
 void check(bool passed, const char* label) noexcept {
@@ -1133,6 +1170,35 @@ void run_pages() noexcept {
               account.status.playback.playing,
           "playlist page: a queue row jumps to its track and plays");
 
+    // A sound-only YouTube track has no frames. The stage asks for the track's 1280 x 720 picture, and for the
+    // 320 x 180 one after the larger failed. Each track starts with the larger picture. A hidden page and a track with
+    // frames ask for none.
+    track_videos = true;
+    account.status.quality = kSoundOnly;
+    check(pump() && art_asks("trackvideo3", true), "track art: the stage asks for the larger picture of a sound-only track");
+    art_failed = application_video_art();
+    check(art_asks("trackvideo3", true) && pump() && art_asks("trackvideo3", false) && pump() &&
+              art_asks("trackvideo3", false),
+          "track art: a track whose larger picture failed shows the small one, and keeps it");
+    check(application_video_page_track(3, 2) && pump() && pump() && pump() && account.status.collection_track == 2,
+          "track art: the playlist moves to another track");
+    account.status.quality = kSoundOnly;
+    check(pump() && art_asks("trackvideo2", true), "track art: another track asks for the larger picture again");
+    shown = 0;
+    check(pump() && art_idle(), "track art: a hidden page asks for no picture");
+    shown = 3;
+    check(pump() && art_asks("trackvideo2", true), "track art: the page shows again and asks for its track's picture");
+    account.status.quality = {4'230'996, 129'492, 1920, 1080, 60, 2, MediaQualityProvider::youtube};
+    check(pump() && art_idle(), "track art: a track with frames asks for no picture");
+    // Without a playlist the video comes from the page's own URL.
+    application_video_page_close(3);
+    collection_selection = track_videos = false;
+    check(application_video_page_toggle(3) && pump() && pump() && !application_video_page_queue(3).count,
+          "track art: the page plays its URL as a single track");
+    account.status.quality = kSoundOnly;
+    check(pump() && art_asks("eyk25H75ld0", true), "track art: a single track takes its video from the page's URL");
+    art_failed = {};
+
     // An audio page plays in its card and answers the player keys.
     collection_selection = false;
     shown = 4;
@@ -1180,6 +1246,11 @@ void run() noexcept {
         if (!request || !title || !request->track || request->track > 3) { result.state = AccountMediaRequestState::invalid; return result; }
         const auto name = request->track == 1 ? utf8_literal("First song") : request->track == 2 ? utf8_literal("Second song") : utf8_literal("Last song");
         copy_bytes(title->text, name.data, name.bytes); title->bytes = static_cast<u16>(name.bytes);
+        if (track_videos) {
+            title->id.youtube_track = true;
+            copy_bytes(title->id.youtube, "trackvideo", 10);
+            title->id.youtube[10] = static_cast<char>('0' + request->track);
+        }
         result.state = AccountMediaRequestState::ready; return result;
     };
     g_account_fake.video_select = select;
@@ -1826,6 +1897,16 @@ void run() noexcept {
                   account.network_requests == requested_before && account.status.playback.position_100ns == position_before &&
                   !g_app.renderer.inline_embed_video.id,
                   "provider expansion keeps the playback position, sound state and one network/decoder session");
+            // A sound-only track that the viewer hosts shows its picture there. A card shows none: its poster stays.
+            if (utf8_equal(provider_url, utf8_literal("https://music.youtube.com/watch?v=zlQ0Lfpq078"))) {
+                account.status.quality = kSoundOnly;
+                check(pump() && art_asks("zlQ0Lfpq078", true), "track art: the viewer asks for the larger picture");
+                g_app.video->source.host = VideoHost::card;
+                check(art_idle(), "track art: a card asks for no picture");
+                g_app.video->source.host = VideoHost::viewer;
+                account.status.quality = {};
+                check(pump() && art_idle(), "track art: the viewer asks for none once the track has frames");
+            }
             if (live_selection) {
                 const auto* controls = g_app.renderer.video_scene;
                 const auto epoch = account.status.playback.identity.session_epoch;
@@ -2184,6 +2265,23 @@ u64 application_call_next_wake() noexcept {
 // Provider-embed pills open their page through the link trust rules.
 bool application_link_open(Utf8View, bool) noexcept {
     return true;
+}
+// The media pump's stand-ins: the track picture's requests, and the key whose request failed.
+bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool* stop, bool,
+                                                 AccountMediaRequestResult*) noexcept {
+    namespace test = video_focus_runtime_test;
+    *stop = false;
+    ++test::art_requests;
+    test::art_key = media.key;
+    test::art_url_bytes = minimum<u32>(media.url.bytes, sizeof(test::art_url));
+    copy_bytes(test::art_url, media.url.data, test::art_url_bytes);
+    return true;
+}
+bool ApplicationMediaPump::asset_backed_off(const MediaAssetKey& key) const noexcept {
+    return media_asset_key_equal(key, video_focus_runtime_test::art_failed);
+}
+u8 application_media_page_shown() noexcept {
+    return video_focus_runtime_test::pages::shown;
 }
 // The page store's answers (media_page.cpp) for the page fixtures.
 bool application_media_page_playback(u8 id, MediaPagePlayback* out) noexcept {

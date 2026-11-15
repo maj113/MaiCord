@@ -853,13 +853,17 @@ bool application_image_viewer_synchronize() noexcept {
             source.rich->embeds[item->index], item->resource, &media) && media.media->width && media.media->height)
             pixels = {static_cast<float>(media.media->width), static_cast<float>(media.media->height)};
     }
+    // A sound-only track has no frames. The viewer draws the track's picture in their place.
+    const MediaAssetKey art = item && item->video ? application_video_art() : MediaAssetKey{};
+    const bool track = media_asset_key_valid(art);
+    const MediaAssetKey shown = track ? art : viewer.key;
     if (item && item->video) {
         MediaAtlasResult frame{};
         frame.error = MediaAtlasError::not_found;
         if (g_app.renderer.preview_media_atlas)
-            frame = media_atlas_peek(g_app.renderer.preview_media_atlas, viewer.key);
+            frame = media_atlas_peek(g_app.renderer.preview_media_atlas, shown);
         if (!frame.ok() && g_app.renderer.media_atlas)
-            frame = media_atlas_peek(g_app.renderer.media_atlas, viewer.key);
+            frame = media_atlas_peek(g_app.renderer.media_atlas, shown);
         if (frame.ok() && frame.width && frame.height)
             pixels = {static_cast<float>(frame.width), static_cast<float>(frame.height)};
     }
@@ -920,8 +924,8 @@ bool application_image_viewer_synchronize() noexcept {
                                                    : UiImageViewerMedia::loading);
     }
     g_app.renderer.image_viewer = &scene;
-    g_app.renderer.image_viewer_key = viewer.key;
-    g_app.renderer.image_viewer_fallback = viewer.fallback;
+    g_app.renderer.image_viewer_key = shown;
+    g_app.renderer.image_viewer_fallback = track ? art : viewer.fallback;
     if (scene.keyboard_focus != g_app.keyboard_focus_visible) {
         scene.keyboard_focus = g_app.keyboard_focus_visible;
         ++scene.revision;

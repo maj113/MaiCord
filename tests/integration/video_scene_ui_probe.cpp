@@ -197,7 +197,10 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         valid = valid && require(scene.controls_transition.value == 1 &&
                                      ui_video_scene_next_wake(scene, 360, false) ==
                                          scene.activity_ms + scene.style.idle_ms &&
-                                     present_fade() && capture(L"video-controls-compact-native-preview.bmp"),
+                                     present_fade() && capture(L"video-controls-compact-native-preview.bmp") &&
+                                     // The card of a track without a picture is this state: the still picture stays
+                                     // under the transport, seek and volume, and the bar has no expand control.
+                                     !playback.can_expand && capture(L"video-sound-only-card.bmp"),
                                  10);
         if (valid) {
             log_u64(LogLevel::info, "probe", "video_fade_base_builds_delta",

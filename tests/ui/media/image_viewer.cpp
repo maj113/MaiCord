@@ -627,6 +627,39 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
               ui_image_viewer_paint(page, kDefaultTheme, &paint) && paint.clip_depth == 1 && paint.count > 4,
           "page: the plate, header, stage and toolbar paint");
     paint_stream_release(&paint);
+    // What a provider page plays, for the end of its source line. The picks are real YouTube formats.
+    char text[kUiImageViewerQualityBytes];
+    const auto shows = [&](const MediaPlaybackQuality& quality, Utf8View expected) noexcept {
+        return utf8_equal({text, ui_image_viewer_quality_text(quality, text, sizeof(text))}, expected);
+    };
+    using P = MediaQualityProvider;
+    check(shows({4230996, 129492, 1920, 1080, 60, 2, P::youtube},
+                utf8_literal("YouTube \xC2\xB7 H.264 1080p60 4.2 Mbps \xC2\xB7 AAC 129 kbps")),
+          "quality: a 16:9 pick shows its name, its frame rate and both bitrates");
+    check(shows({560670, 129492, 854, 480, 30, 2, P::youtube},
+                utf8_literal("YouTube \xC2\xB7 H.264 480p30 561 kbps \xC2\xB7 AAC 129 kbps")),
+          "quality: 854 x 480 is 16:9, and a bitrate under one megabit shows in kbps");
+    check(shows({3649284, 130001, 1080, 1920, 60, 2, P::youtube},
+                utf8_literal("YouTube \xC2\xB7 H.264 1080\xC3\x97" "1920 60 fps 3.6 Mbps \xC2\xB7 AAC 130 kbps")),
+          "quality: a portrait pick shows both sides");
+    check(shows({94672, 129584, 1080, 1080, 25, 2, P::youtube_music},
+                utf8_literal("YouTube Music \xC2\xB7 H.264 1080\xC3\x97" "1080 25 fps 95 kbps \xC2\xB7 AAC 130 kbps")),
+          "quality: a square YouTube Music picture shows both sides");
+    check(shows({500000, 0, 640, 360, 0, 0, P::youtube}, utf8_literal("YouTube \xC2\xB7 H.264 360p 500 kbps \xC2\xB7 AAC")),
+          "quality: a combined pick has no frame rate, no audio bitrate and no channel count to show");
+    check(shows({500000, 64000, 640, 360, 30, 1, P::youtube},
+                utf8_literal("YouTube \xC2\xB7 H.264 360p30 500 kbps \xC2\xB7 AAC 64 kbps 1 ch")),
+          "quality: the channel count shows when it is not 2");
+    check(shows({0, 129610, 0, 0, 0, 2, P::youtube_music}, utf8_literal("YouTube Music \xC2\xB7 AAC 130 kbps")),
+          "quality: a track without a picture has no video part");
+    check(shows({0, 158573, 0, 0, 0, 2, P::youtube_music, true}, utf8_literal("YouTube Music \xC2\xB7 Opus 159 kbps")) &&
+              shows({4230996, 132567, 1920, 1080, 60, 2, P::youtube, true},
+                    utf8_literal("YouTube \xC2\xB7 H.264 1080p60 4.2 Mbps \xC2\xB7 Opus 133 kbps")) &&
+              shows({0, 0, 0, 0, 0, 2, P::youtube_music}, utf8_literal("YouTube Music \xC2\xB7 AAC")),
+          "quality: an Opus pick shows as Opus, and the AAC format after a fallback shows without a bitrate");
+    check(!ui_image_viewer_quality_text({}, text, sizeof(text)) &&
+              !ui_image_viewer_quality_text({4230996, 129492, 1920, 1080, 60, 2, P::youtube}, text, sizeof(text) - 1),
+          "quality: no pick and a short buffer write nothing");
 }
 } // namespace
 bool clipboard_system_open() noexcept {

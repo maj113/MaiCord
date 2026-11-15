@@ -306,13 +306,14 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
         v.snapshot.collection_count = collection.count;
         v.snapshot.collection_track = collection.track;
         v.snapshot.collection_more = collection.more;
+        if (media_asset_key_equal(lane.media.quality_key, requested.key))
+            v.snapshot.quality = lane.media.quality;
         const auto format = media_asset_audio_format(requested.key);
-        v.snapshot.playback.kind = !audio                                 ? AccountPlaybackKind::mp4
-                                   : format == MediaAttachmentFormat::mp3 ? AccountPlaybackKind::mp3
+        v.snapshot.playback.kind = format == MediaAttachmentFormat::mp3   ? AccountPlaybackKind::mp3
                                    : format == MediaAttachmentFormat::wav ? AccountPlaybackKind::wave_pcm
-                                   // AAC audio reuses the MP4 session's decoder path.
-                                   : format == MediaAttachmentFormat::m4a ? AccountPlaybackKind::mp4
-                                                                          : AccountPlaybackKind::ogg_opus;
+                                   : format == MediaAttachmentFormat::ogg_opus ? AccountPlaybackKind::ogg_opus
+                                   // A video, and AAC audio under an audio key or a video key: the MP4 session.
+                                                                               : AccountPlaybackKind::mp4;
         WriteRelease(&v.command_pending, 0); // every write is under v.lock; the lock-free readers need only a whole value
         WriteRelease(&v.selected_lane, static_cast<LONG>(index));
         ReleaseSRWLockExclusive(&v.lock);
@@ -442,6 +443,9 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
                 v.selection.identity, lane->command_event, audio, companion ? &companion->audio : nullptr);
         }
     }
+    // The loudness gain of the provider's pick for this source. Every other source plays at its own level.
+    if (initialized.ok() && media_asset_key_equal(lane->media.quality_key, v.selection.key))
+        v.session.source_gain = media_attenuation_gain(lane->media.quality.attenuation);
     {
         // A complete source buffers everything; a progressive one publishes as ranges land.
         // Rides along with the next status publication; selection already notified.

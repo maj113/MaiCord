@@ -460,7 +460,9 @@ void decode_jpeg_bytes(CdnMediaPipeline* pipeline, const MediaAssetKey& key, Con
         out->decode.parse = parse;
     }
     if (out->decode.error == JpegError::dimensions || out->decode.error == JpegError::encoded_limit) {
-        const bool profile = key.kind == MediaAssetKind::profile_image;
+        // A profile image at the px2048 tier fills a stage (a track's 1280 x 720 picture): it keeps its size.
+        const bool profile = key.kind == MediaAssetKind::profile_image &&
+                             media_asset_resolution_tier(key) != MediaResolutionTier::px2048;
         return reduce_jpeg_bytes(
             pipeline, encoded, profile ? kReducedJpegExtent : kReducedJpegPreviewExtent,
             profile ? kJpegDimensionMaximum : kReducedJpegPreviewExtent, success_state, out);

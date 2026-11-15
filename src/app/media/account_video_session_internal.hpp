@@ -13,6 +13,14 @@ using namespace account_video_session_detail;
 namespace account_video_session_detail {
 
 constexpr i64 kLimit = 0x7fffffffffffffffll;
+// The decoder of a source whose packets are Opus, in the place of the AAC decoder. One packet goes in and its frames
+// come out, as from the AAC decoder. It lives behind the Workspace, in the same pages.
+struct OpusPackets {
+    OpusDecoder decoder;
+    i16 pcm16[kAacDecoderMaximumOutputBytes / 4];
+    i64 time;
+    bool pending;
+};
 struct Workspace {
     float ring[8192 * 2], pcm[kAacDecoderMaximumOutputBytes / 4];
     Mp4AudioDemuxer demux{};
@@ -24,7 +32,10 @@ struct Workspace {
     u64 source_frames{}, queued_frames{}, wanted_frames{}, silence_frames{};
     u32 pending_offset{}, pending_frames{}, input_retries{}, preceding_frames{};
     bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{}, seek_pending{};
+    // Null for an AAC source.
+    OpusPackets* opus{};
 };
+inline constexpr usize kWorkspaceOpusOffset = (sizeof(Workspace) + 63) & ~usize{63};
 
 struct OpusWorkspace {
     float ring[8192 * 2], pcm[kOpusDecoderMaximumFrames * 2];

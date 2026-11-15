@@ -88,6 +88,10 @@ struct ApplicationVideo {
     bool collection_more{};
     bool collection_continue{true};
     UiVideoControl collection_focus{};
+    // application_video_art: the key, the track's video, and whether the 1280 x 720 picture failed.
+    MediaAssetKey art{};
+    char art_video[11]{};
+    bool art_small{};
     UiPoint pointer{-kMaximumUiCoordinate, -kMaximumUiCoordinate};
     static void* operator new(decltype(sizeof(0)), void* storage) noexcept {
         return storage;

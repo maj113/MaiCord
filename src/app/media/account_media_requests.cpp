@@ -1,5 +1,6 @@
 #include "account_media_internal.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/app/media/embed_resolver.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
@@ -295,30 +296,39 @@ static AccountMediaRequestResult request_progressive(AccountMedia* media, const 
                                                      const ConstSlice<u8>& target, CdnHost host,
                                                      u64 expires_at_seconds, u64 monotonic_now_ms,
                                                      u64 unix_now_seconds) noexcept {
-    if (!media->collection && !request.companion_url.bytes && decode_cached_mp4(media, request, unix_now_seconds))
+    const bool paired = request.companion_url.bytes != 0, sound_only = request.sound_only;
+    if (!media->collection && !paired && !sound_only && decode_cached_mp4(media, request, unix_now_seconds))
         return result(AccountMediaRequestState::ready);
     account_media_release_video(media);
-    media->progressive = allocate_fetch();
-    if (!media->progressive || !progressive_video_fetch_begin(media->progressive, target, host, expires_at_seconds,
-            request.companion_url.bytes ? ProgressiveVideoKind::fragmented_video : ProgressiveVideoKind::movie))
-        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    if (request.companion_url.bytes) {
-        media->progressive_audio = allocate_fetch();
-        if (!media->progressive_audio || !progressive_video_fetch_begin(media->progressive_audio,
-                {reinterpret_cast<const u8*>(request.companion_url.data), request.companion_url.bytes}, host,
-                expires_at_seconds, ProgressiveVideoKind::fragmented_audio)) {
+    if (!sound_only) {
+        media->progressive = allocate_fetch();
+        if (!media->progressive || !progressive_video_fetch_begin(media->progressive, target, host, expires_at_seconds,
+                paired ? ProgressiveVideoKind::fragmented_video : ProgressiveVideoKind::movie))
+            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+        media->progressive->refreshable = request.key.kind == MediaAssetKind::attachment;
+    }
+    // A provider's audio format starts here, beside its video or alone. A source without a picture is the one fetch.
+    if (paired || sound_only) {
+        auto*& audio = sound_only ? media->progressive : media->progressive_audio;
+        audio = allocate_fetch();
+        if (!audio || !progressive_video_fetch_begin(audio,
+                sound_only ? target : ConstSlice<u8>{reinterpret_cast<const u8*>(request.companion_url.data),
+                                                    request.companion_url.bytes},
+                host, expires_at_seconds, ProgressiveVideoKind::fragmented_audio)) {
             account_media_release_video(media); return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         }
-        media->progressive_audio->refreshable = false;
+        audio->refreshable = false;
+        if (request.audio_fallback_url.bytes && embed_stream_location(host, request.audio_fallback_url))
+            progressive_video_fetch_fallback(audio, {reinterpret_cast<const u8*>(request.audio_fallback_url.data),
+                                                     request.audio_fallback_url.bytes});
     }
-    media->progressive->refreshable = request.key.kind == MediaAssetKind::attachment;
     return queue_progressive(media, request, monotonic_now_ms, unix_now_seconds);
 }
 
-// Direct picture hosts, each with one exact target shape and image type, for profile-image keys requested at their
+// Direct picture hosts, each with exact target shapes and one image type, for profile-image keys requested at their
 // own size: Spotify album art of activity cards (https://i.scdn.co/image/<id>), a connected account's logo
-// (https://discord.com/assets/<16 hex digits>.png) and a YouTube playlist track's thumbnail in a media page's queue
-// (https://i.ytimg.com/vi/<id>/mqdefault.jpg).
+// (https://discord.com/assets/<16 hex digits>.png) and a YouTube track's thumbnail on a media page or in the viewer
+// (https://i.ytimg.com/vi/<id>/mqdefault.jpg or maxresdefault.jpg).
 struct DirectHost {
     const char* origin;
     u32 origin_bytes;
@@ -597,6 +607,23 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
 
 } // namespace account_media_detail
 
+// YouTube's list for the source that plays `request.key`: the worker logs its summary once, and every format too when
+// the request asks. It keeps the pick for the status of the session. No line holds a URL, a video id or a title.
+static void note_youtube_offer(AccountMedia* media, const AccountMediaUrlRequest& request, const EmbedOffer& offer,
+                               bool music) noexcept {
+    media->quality = embed_offer_quality(offer, music);
+    media->quality_key = request.key;
+    LogEvent summary("playback_quality");
+    embed_offer_summary(offer, music, &summary);
+    summary.write(LogLevel::info, "media");
+    if (!request.list_formats)
+        return;
+    for (u32 i = 0; i < offer.count; ++i) {
+        LogEvent line("playback_format");
+        embed_offer_format(offer.formats[i], &line);
+        line.write(LogLevel::info, "media");
+    }
+}
 static AccountMediaRequestResult request_provider_media(AccountMedia* media, const AccountMediaUrlRequest& request,
     u64 now_ms, u64 unix_seconds) noexcept {
     AccountMediaRequestResult settled;
@@ -739,6 +766,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
                                      : request.image_type != CdnImageType::m4a))
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
+    // Only the YouTube resolver fills the offer.
+    if (resolver) resolver->offer.count = 0;
     // Imgur's single-image MP4 mapping needs no metadata exchange. A resolved
     // provider_host also prevents re-entering this route for its direct URL.
     const auto resolved = apple_collection ? EmbedResolveResult{EmbedPlayerError::none,UpdateTransportError::none,200}
@@ -757,7 +786,12 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             ? pornhub_resolve(resolver, locator.id, height, unix_seconds, &streams)
         : locator.provider == EmbedProvider::twitter
             ? twitter_resolve(resolver, locator.id, height, unix_seconds, &streams, {}, twitter_video_locator(request.url).media_index)
-            : youtube_resolve(resolver, locator.id, height, &streams);
+            // Only a YouTube Music link asks for the kind of the track. A YouTube link keeps its video.
+            : youtube_resolve(resolver, locator.id, height, &streams, {},
+                              embed_provider(request.url) == EmbedProvider::youtube_music);
+    // The worker reports the list also when the client can play none of it.
+    if (resolver && resolver->offer.count)
+        note_youtube_offer(media, request, resolver->offer, locator.provider == EmbedProvider::youtube_music);
     if(resolved.ok() && streams.live) {
         if(!request.progressive || request.image_type!=CdnImageType::mp4) {
             secure_clear_bytes(&streams,sizeof(streams));return result(AccountMediaRequestState::unsupported,AccountMediaError::invalid_input);
@@ -776,8 +810,9 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         }
         return queue_progressive(media,request,now_ms,unix_seconds);
     }
-    if (!resolved.ok() || (preview ? !streams.audio.url_bytes : !streams.video.url_bytes ||
-        (!streams.combined && !streams.audio.url_bytes))) {
+    // An art track of YouTube Music resolves to its audio format alone.
+    const bool sound_only = !preview && !streams.video.url_bytes;
+    if (!resolved.ok() || ((preview || sound_only || !streams.combined) && !streams.audio.url_bytes)) {
         auto failure = result(resolved.ok() || resolved.error == EmbedPlayerError::login_required ||
                               resolved.error == EmbedPlayerError::not_embeddable ||
                               resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
@@ -788,7 +823,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         return remember_failure(media, request.key, now_ms, failure);
     }
     auto source = request;
-    const auto& selected = preview ? streams.audio : streams.video;
+    const auto& selected = preview || sound_only ? streams.audio : streams.video;
+    source.sound_only = sound_only;
     source.url = {selected.url, selected.url_bytes};
     source.provider_expires = unix_seconds + streams.expires_seconds;
     source.provider_host = track.bytes ? CdnHost::spotify_preview : amazon.id.bytes ? CdnHost::amazon_music_preview : (apple.id.bytes || apple_collection)
@@ -799,7 +835,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         : locator.provider == EmbedProvider::pornhub ? CdnHost::pornhub_video
         : locator.provider == EmbedProvider::twitter ? CdnHost::twitter_video
         : locator.provider == EmbedProvider::imgur ? CdnHost::imgur_video : CdnHost::google_video;
-    if (!preview && !streams.combined) source.companion_url = {streams.audio.url, streams.audio.url_bytes};
+    if (!preview && !sound_only && !streams.combined) source.companion_url = {streams.audio.url, streams.audio.url_bytes};
+    source.audio_fallback_url = {streams.audio_fallback.url, streams.audio_fallback.url_bytes};
     const auto requested = request_url_media(media, source, now_ms, unix_seconds);
     secure_clear_bytes(&streams, sizeof(streams));
     return requested;

@@ -14,11 +14,14 @@
 //
 // Status 77: no EGL device or no libopenh264 (--audio: no sound server).
 #include "../../fixtures/mp4/mp4_fixtures.hpp"
+#include "../../fixtures/webm/webm_fixtures.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/yuv_reference.hpp"
 #include "maicord/app/media/account_video_session.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/media/containers/mp4_fragment_audio.hpp"
+#include "maicord/media/containers/webm_opus.hpp"
 #include "maicord/os/wait.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -322,6 +325,59 @@ bool play_with_audio(GpuDevice* device, GpuContext* context, const Mp4Reference&
     return true;
 }
 
+WebmOpus g_webm;
+Mp4FragmentAudio g_webm_audio;
+
+// Services a session without a picture until it ends or `milliseconds` pass. True when it ended without an error.
+bool serve_sound(AccountVideoSession* session, Waitable lane, u32 milliseconds) noexcept {
+    const u64 deadline = clock_monotonic_milliseconds() + milliseconds;
+    while (clock_monotonic_milliseconds() < deadline) {
+        const AccountVideoService service = account_video_session_service(session);
+        const AccountVideoStatus status = account_video_session_status(session);
+        if (status.error != AccountVideoError::none)
+            return false;
+        if (status.ended)
+            return true;
+        if (!service.needs_service)
+            wait_one(lane, service.next_service_delay_ms && service.next_service_delay_ms < 20 ? service.next_service_delay_ms : 20);
+    }
+    return false;
+}
+
+// The Opus track of a WebM file through the audio pump that plays a provider's AAC format. The session plays the
+// whole file, then seeks to its middle. This is the path of a YouTube Music art track.
+void play_opus() noexcept {
+    const Waitable lane = event_create(false, false);
+    AccountVideoSession session{};
+    u64 serial = 0;
+    const auto control = [&](AccountVideoCommand kind, i64 seek = 0) noexcept {
+        return account_video_session_control(&session, kIdentity, ++serial, kind, seek).ok();
+    };
+    check(lane && webm_opus_initialize(&g_webm, {kWebmOpusStereo, sizeof(kWebmOpusStereo)}) == Mp4DemuxError::none &&
+              mp4_fragment_audio_attach(&g_webm, &g_webm_audio) == Mp4DemuxError::none &&
+              account_video_session_initialize_fragment_audio(&session, &g_webm_audio, kIdentity, lane).ok(),
+          "opus: the session opens the Opus track of a WebM file");
+    AccountVideoStatus status = account_video_session_status(&session);
+    check(status.has_audio && status.duration_100ns == 30'000'000, "opus: the track lasts 3 seconds");
+    check(control(AccountVideoCommand::play) && serve_sound(&session, lane, 8000), "opus: the track plays to its end");
+    AccountVideoAudioProgress progress = account_video_session_audio_progress(&session);
+    test_write_metric("opus frames written ", progress.written_frames);
+    test_write_metric("opus frames consumed ", progress.consumed_frames);
+    check(progress.written_frames == 144'000 && progress.consumed_frames == 144'000,
+          "opus: the transport got 144,000 frames, without the codec delay and the padding");
+    check(control(AccountVideoCommand::seek, 15'000'000) && control(AccountVideoCommand::play) &&
+              serve_sound(&session, lane, 8000),
+          "opus: a seek to 1.5 seconds plays to the end");
+    progress = account_video_session_audio_progress(&session);
+    test_write_metric("opus frames written after the seek ", progress.written_frames);
+    check(progress.written_frames == 72'000 && progress.consumed_frames == 72'000,
+          "opus: the transport got the 72,000 frames after the seek target");
+    status = account_video_session_status(&session);
+    check(status.error == AccountVideoError::none && status.ended, "opus: the session ended without an error");
+    account_video_session_release(&session, 2000);
+    waitable_close(lane);
+}
+
 } // namespace
 } // namespace maicord
 
@@ -347,6 +403,8 @@ MAICORD_TEST_ENTRY(maicord_account_video_playback_entry) {
         test_write_line("audio part skipped: the session refused the audio track (no sound server?)");
         test_process_exit(77);
     }
+    if (has_argument("--audio"))
+        play_opus();
     gpu_device_destroy(&device, &context);
     test_exit(g_failures, "maicord_account_video_playback");
 }

@@ -17,7 +17,10 @@ struct MessageComponentMedia {
 };
 
 MediaAttachmentFormat message_component_media_format(Utf8View url) noexcept;
-MediaAssetKey message_component_media_key(u64 url_hash, MediaAttachmentFormat format) noexcept;
+// The px2048 tier asks the decoder for a JPEG's own size (a track's 1280 x 720 picture on a stage). A profile image
+// at the px512 tier draws small, and a JPEG past 512 px decodes at about 160 px.
+MediaAssetKey message_component_media_key(u64 url_hash, MediaAttachmentFormat format,
+                                          MediaResolutionTier resolution = MediaResolutionTier::px512) noexcept;
 // False for components without fetchable HTTPS media (attachment:// names and
 // unsupported formats).
 bool message_component_media_resolve(const MessageRichStore& store, const MessageRichComponent& component,

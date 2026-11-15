@@ -57,7 +57,8 @@ enum class CdnStaticJpegState : u8 {
 // JPEGs wider or taller than kJpegDimensionMaximum decode on the CPU at the
 // coarsest DCT scale that still reaches the drawn extent: the activity card's
 // 160 px for profile images (Spotify's 640 px album art), and the full
-// rendition, up to the preview cap, for attachments and embeds.
+// rendition, up to the preview cap, for attachments, embeds and a profile
+// image whose key has the px2048 tier.
 inline constexpr u32 kReducedJpegExtent = 160;
 inline constexpr u32 kReducedJpegPreviewExtent = 2048;
 // Still lossy WebPs past the GPU path's 512 px decode on the CPU one

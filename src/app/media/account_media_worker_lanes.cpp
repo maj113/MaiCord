@@ -387,7 +387,7 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWork
                                                     work.proxy_width,
                                                     work.proxy_height,
                                                     work.image_type,
-                                                    {work.progressive, {0, 0}, work.collection_track},
+                                                    {work.progressive, work.list_formats, 0, work.collection_track},
                                                     work.video_device};
         return account_media_request_attachment(&lane->media, request, work.monotonic_now_ms,
                                                 work.unix_now_seconds);
