@@ -304,11 +304,12 @@ __attribute__((minsize)) int start_interface() noexcept {
     // content text.
     if (!renderer_initialize(&g_app.renderer, renderer_window_surface(g_app.window), application_account_prestart_pending())) {
         renderer_prestart_cancel();
-        window_fatal_message(utf8_literal("Direct3D 11 unavailable"),
+        window_fatal_message(MAICORD_OS_TEXT("Direct3D 11 unavailable", "OpenGL ES 3.1 unavailable"),
                              MAICORD_OS_TEXT("MaiCord requires a Direct3D 11 GPU with Tiled Resources Tier 1 or "
                                              "higher and a WDDM 2.0 or newer graphics driver. Updating the graphics "
                                              "driver may fix this.",
-                                             "MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime."));
+                                             "MaiCord requires OpenGL ES 3.1 on EGL 1.5 with image copy and dual-source "
+                                             "blending. Updating Mesa or the graphics driver may fix this."));
         application_release_login_ui();
         window_destroy(g_app.window);
         application_account_prestart_cancel();

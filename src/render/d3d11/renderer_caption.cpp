@@ -748,28 +748,30 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         caption->scrim_quad = ~0u;
         // The stream culls to its viewport: the band and the content a tooltip
         // hangs into.
-        // The title first: its icon's box depends on the shaped text.
-        if (!append_tabs(renderer, caption, theme, layout) ||
-            !append_title(renderer, caption, &layout, ui_caption_bar_title_color(theme, caption->state),
-                          &glyph_count, &image) ||
-            !paint_stream_reset(&caption->paint, layout.width,
-                                layout.height + dips(renderer->height, renderer->dpi)) ||
-            !ui_caption_bar_paint(&caption->paint, theme, layout, caption->state, scale,
-                                  &caption->buttons_first_quad) ||
-            caption->paint.rejected || !append_scrim(caption, layout) ||
-            !append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs) ||
-            caption->paint.count > caption->paint_capacity ||
-            !create_buffer(renderer->graphics.device,
-                           static_cast<u32>(sizeof(PaintQuad)) * caption->paint_capacity,
-                           &caption->paint_buffer) ||
-            !create_buffer(renderer->graphics.device,
-                           static_cast<u32>(sizeof(GlyphQuad)) * kCaptionGlyphCapacity * 2,
-                           &caption->glyph_buffer) ||
-            !upload_paint(renderer, caption, ui_icon_theme_weight(theme)) ||
-            !upload_icon_quad(renderer, caption, layout) ||
-            !upload_image_quad(renderer, caption, image, theme.scale.radius_sm) ||
-            !upload_glyphs(renderer, caption, glyph_count + tooltip_glyphs)) {
-            log_write(LogLevel::error, "render", "caption_build_failed");
+        // The title first: its icon's box depends on the shaped text. `stage`
+        // names the step that failed in the log.
+        u64 stage = 0;
+        if (!(++stage, append_tabs(renderer, caption, theme, layout)) ||
+            !(++stage, append_title(renderer, caption, &layout, ui_caption_bar_title_color(theme, caption->state),
+                                    &glyph_count, &image)) ||
+            !(++stage, paint_stream_reset(&caption->paint, layout.width,
+                                          layout.height + dips(renderer->height, renderer->dpi))) ||
+            !(++stage, ui_caption_bar_paint(&caption->paint, theme, layout, caption->state, scale,
+                                            &caption->buttons_first_quad)) ||
+            (++stage, caption->paint.rejected) || !(++stage, append_scrim(caption, layout)) ||
+            !(++stage, append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs)) ||
+            (++stage, caption->paint.count > caption->paint_capacity) ||
+            !(++stage, create_buffer(renderer->graphics.device,
+                                     static_cast<u32>(sizeof(PaintQuad)) * caption->paint_capacity,
+                                     &caption->paint_buffer)) ||
+            !(++stage, create_buffer(renderer->graphics.device,
+                                     static_cast<u32>(sizeof(GlyphQuad)) * kCaptionGlyphCapacity * 2,
+                                     &caption->glyph_buffer)) ||
+            !(++stage, upload_paint(renderer, caption, ui_icon_theme_weight(theme))) ||
+            !(++stage, upload_icon_quad(renderer, caption, layout)) ||
+            !(++stage, upload_image_quad(renderer, caption, image, theme.scale.radius_sm)) ||
+            !(++stage, upload_glyphs(renderer, caption, glyph_count + tooltip_glyphs))) {
+            log_u64(LogLevel::error, "render", "caption_build_failed", stage);
             return false;
         }
         caption->title_glyphs = glyph_count;
