@@ -41,9 +41,9 @@
 #include "../shell/state.hpp"
 
 #include "maicord/core/log.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
@@ -56,47 +56,6 @@ namespace maicord::app_detail {
 namespace {
 const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
     return ui_scene_node(g_app.shell_scene, semantic);
-}
-void log_member_presentation() noexcept {
-    if (!g_app.account_ui)
-        return;
-    const auto& ui = *g_app.account_ui;
-    const auto& state = ui.chat_state;
-    const auto* selected = chat_state_store_find_channel(state, state.selected_channel_id);
-    if (!selected || !selected->guild_id)
-        return;
-    const auto& projection = ui.member_list;
-    const auto& scene = g_app.member_list_scene;
-    const u64 expected_list =
-        projection.thread_mode ? selected->id : member_list_channel_id(state, selected->id);
-    u32 visible_members = 0, visible_named = 0;
-    for (u32 index = 0; index < scene.count; ++index) {
-        if (!member_list_scene_row_resident(scene, index) ||
-            scene.rows[index].kind != MemberListRowKind::member)
-            continue;
-        ++visible_members;
-        const auto* profile = user_store_find(ui.user_store, scene.rows[index].user_id);
-        if (profile && profile->name_bytes && profile->username_bytes)
-            ++visible_named;
-    }
-    TraceRecord trace("member_presentation");
-    const u64 fields[] = {projection.guild_id == selected->guild_id,
-                          expected_list && projection.list_id == expected_list,
-                          projection.thread_mode,
-                          projection.authoritative,
-                          projection.awaiting_sync,
-                          projection.count,
-                          projection.resident_count,
-                          scene.active,
-                          ui_rect_has_area(scene.viewport),
-                          scene.count,
-                          visible_members,
-                          visible_named};
-    trace.fields("same_guild\0same_list\0thread_mode\0authoritative\0awaiting_sync\0logical_count\0"
-                 "resident_count\0scene_active\0pane_has_area\0scene_rows\0visible_members\0"
-                 "visible_named_profiles",
-                 fields);
-    trace.write("member_hydration");
 }
 // The caller's own status for private member rows; unknown until the session
 // reports it for this account.
@@ -147,16 +106,22 @@ bool synchronize_navigation_view() noexcept {
     ui.navigation_view.voice_extras = &application_voice_channels_extras();
     application_guild_community_navigation(&ui.navigation_view);
     application_private_channel_navigation(&ui.navigation_view);
-    // The official Home badge: incoming friend requests plus message requests.
-    u32 home_badge = ui.chat_state.private_channels
-                         ? private_channel_store_request_count(*ui.chat_state.private_channels, false)
-                         : 0;
-    if (const auto* relationships = application_friends_relationships())
-        for (u32 i = 0; i < relationships->count; ++i)
+    // The official Home badge: incoming friend requests plus message requests. Each store is
+    // counted again only after its revision changed (a key is the revision plus 1, zero without a store).
+    const auto* requests = ui.chat_state.private_channels;
+    const auto* relationships = application_friends_relationships();
+    const u32 requests_key = requests ? requests->revision + 1 : 0;
+    const u32 relationships_key = relationships ? relationships->revision + 1 : 0;
+    if (ui.home_badge_requests != requests_key || ui.home_badge_relationships != relationships_key) {
+        ui.home_badge_requests = requests_key;
+        ui.home_badge_relationships = relationships_key;
+        u32 home_badge = requests ? private_channel_store_request_count(*requests, false) : 0;
+        for (u32 i = 0; relationships && i < relationships->count; ++i)
             home_badge += relationships->records[i].type == RelationshipType::incoming;
-    if (ui.navigation_view.home_badge != home_badge) {
-        ui.navigation_view.home_badge = home_badge;
-        ++ui.navigation_view.requests_revision;
+        if (ui.navigation_view.home_badge != home_badge) {
+            ui.navigation_view.home_badge = home_badge;
+            ++ui.navigation_view.requests_revision;
+        }
     }
     const bool friends_mode = application_friends_active();
     if (ui.navigation_view.friends_mode != friends_mode) {
@@ -391,7 +356,6 @@ bool synchronize_shell_widget_scenes() noexcept {
         g_app.member_list_scene.media_cache =
             g_app.account_ui ? &g_app.account_ui->member_media_cache : nullptr;
         g_app.member_list_scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
-        const u32 member_rebuilds = g_app.member_list_scene.rebuilds;
         UiRect member_viewport = !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{};
         UiPluginSlotNode member_header;
         if (ui_rect_has_area(member_viewport) && ui_plugin_member_list_header(&member_header))
@@ -403,8 +367,6 @@ bool synchronize_shell_widget_scenes() noexcept {
             g_app.account_ui ? &g_app.account_ui->chat_state : nullptr, member_viewport,
             g_app.member_list_scene.scroll_dips);
         MAICORD_SHELL_SCENE_STEP(member_scene.ok());
-        if (g_app.member_list_scene.rebuilds != member_rebuilds)
-            log_member_presentation();
         MAICORD_SHELL_SCENE_STEP(
             message_action_bar_synchronize(&g_app.message_action_bar, g_app.message_scene));
 

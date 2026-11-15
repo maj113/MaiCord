@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord::app_detail {
 
@@ -8,6 +9,9 @@ namespace maicord::app_detail {
 u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed,
                              bool visual_suspended = false) noexcept;
 bool application_nonvisual_wake_due(u64 now_ms) noexcept;
+// The event of a draft save in flight. Only the account pump takes the result, so the handle exists only while
+// application_pump_account reaches the draft session.
+Waitable application_draft_save_notification() noexcept;
 u64 application_login_browser_deadline() noexcept;
 bool application_smooth_scroll_active() noexcept;
 bool application_animation_frame_due(u64 now_us) noexcept;

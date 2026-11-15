@@ -69,10 +69,20 @@ void add_process(GameScan* scan, u32* used, u32 pid, Utf8View path, Utf8View com
 #if defined(_WIN32)
 constexpr u32 kProcessCommandLineInformation = 60; // PROCESSINFOCLASS; a UNICODE_STRING and its text follow.
 constexpr u32 kCommandLineQueryLimit = 65536 + 16;
-struct CommandLineText {
-    u16 length, maximum_length;
-    const wchar_t* text;
+// The fields of SYSTEM_PROCESS_INFORMATION (winternl.h) that a scan reads. This is not the SDK struct: the SDK
+// renamed a later field between generations, so no mirror of the whole record passes the conformance unit with each
+// SDK. The three offsets read here (0, 56 and 80) are the same in all of them.
+struct ProcessEntry {
+    ULONG next_entry_offset, thread_count;
+    u8 reserved[48];
+    UNICODE_STRING image_name;
+    LONG base_priority;
+    HANDLE process_id;
 };
+static_assert(__builtin_offsetof(ProcessEntry, image_name) == 56 && __builtin_offsetof(ProcessEntry, process_id) == 80);
+// The process list's size at the last scan: the first guess of the next scan.
+u32 g_list_bytes;
+constexpr u32 kListMarginBytes = 64 * 1024, kListMaximumBytes = 16 * 1024 * 1024;
 
 struct WindowOwners {
     DWORD pids[512];
@@ -133,51 +143,78 @@ Utf8View command_line(HANDLE process) noexcept {
     if (!query(&needed) && (!needed || needed > kCommandLineQueryLimit || !line_room(needed) || !query(&needed)))
         return {};
     // Character i lands at byte i, before any character still to be read (they start past the header).
-    const auto& line = *reinterpret_cast<const CommandLineText*>(g_line);
-    const wchar_t* text = line.text;
-    const u32 units = line.length / 2;
+    const auto& line = *reinterpret_cast<const UNICODE_STRING*>(g_line);
+    const wchar_t* text = line.Buffer;
+    const u32 units = line.Length / 2;
     char* output = reinterpret_cast<char*>(g_line);
     for (u32 i = 0; i < units; ++i)
         output[i] = fold(text[i]);
     return {output, units};
 }
-u32 file_name(const PROCESSENTRY32W& entry, char* output) noexcept {
+// The file name of a list entry, normalized, or 0. Tool Help cut a name at MAX_PATH - 1 characters: so does this.
+u32 file_name(const wchar_t* name, u32 units, char* output) noexcept {
     char utf8[kRegisteredGameExecutableBytes * 3];
-    const int converted =
-        WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, utf8, sizeof(utf8), nullptr, nullptr);
+    const int converted = WideCharToMultiByte(CP_UTF8, 0, name, static_cast<int>(minimum(units, 259u)), utf8,
+                                              sizeof(utf8), nullptr, nullptr);
     u8 bytes = 0;
-    return converted > 1 && game_detection_normalize({utf8, static_cast<u32>(converted - 1)}, output, &bytes) ? bytes
-                                                                                                             : 0;
+    return converted > 0 && game_detection_normalize({utf8, static_cast<u32>(converted)}, output, &bytes) ? bytes : 0;
 }
 } // namespace
 
 void game_detection_scan(const RegisteredGames& custom, const DetectableList& list, GameScan* scan) noexcept {
     scan->count = scan->foreground_pid = 0;
-    const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
+    // One query lists every process (Tool Help mapped its snapshot again for each entry). The list can grow between
+    // two queries: each of three tries has room for the size the last one needed and a margin. A scan that gets no
+    // list reports no game. The pages go back after the scan.
+    u8* entries = nullptr;
+    ULONG capacity = 0, bytes = 0;
+    for (u32 attempt = 0; attempt < 3; ++attempt) {
+        capacity = (g_list_bytes + kListMarginBytes + 4095) & ~4095u;
+        entries = static_cast<u8*>(commit_pages(capacity));
+        if (entries && NtQuerySystemInformation(SystemProcessInformation, entries, capacity, &bytes) >= 0 &&
+            bytes <= capacity)
+            break;
+        if (entries)
+            pages_release(entries, capacity);
+        entries = nullptr;
+        if (bytes <= capacity || bytes > kListMaximumBytes)
+            return;
+        g_list_bytes = bytes;
+    }
+    if (!entries)
         return;
+    g_list_bytes = bytes;
     const DWORD self = process_id();
-    PROCESSENTRY32W entry{};
-    entry.dwSize = sizeof(entry);
+    const usize base = reinterpret_cast<usize>(entries);
     u32 used = 0;
-    for (BOOL more = Process32FirstW(snapshot, &entry); more && scan->count < kGameScanProcesses;
-         more = Process32NextW(snapshot, &entry)) {
+    // Offsets and name ranges are checked against the bytes the query returned.
+    for (u32 at = 0; scan->count < kGameScanProcesses && bytes - at >= sizeof(ProcessEntry);) {
+        ProcessEntry entry;
+        copy_bytes(&entry, entries + at, sizeof(entry));
+        const DWORD pid = static_cast<DWORD>(reinterpret_cast<usize>(entry.process_id));
+        const usize name = reinterpret_cast<usize>(entry.image_name.Buffer);
+        const bool named = name >= base && name - base <= bytes && entry.image_name.Length <= bytes - (name - base);
         char file[kRegisteredGameExecutableBytes];
-        const u32 file_bytes = entry.th32ProcessID == self || entry.th32ProcessID <= 4 ? 0 : file_name(entry, file);
+        const u32 file_bytes = pid == self || pid <= 4 || !named
+                                   ? 0
+                                   : file_name(entry.image_name.Buffer, entry.image_name.Length / 2u, file);
         const auto candidate = file_bytes ? game_detection_candidate(custom, list, {file, file_bytes})
                                           : GameCandidate{};
-        if (!candidate.named)
-            continue;
-        // A process MaiCord may not query keeps its file name.
-        const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
-        char path[1024 * 3];
-        const u32 path_bytes = image_path(process, path, sizeof(path));
-        add_process(scan, &used, entry.th32ProcessID, path_bytes ? Utf8View{path, path_bytes} : Utf8View{file, file_bytes},
-                    candidate.arguments ? command_line(process) : Utf8View{}, list);
-        if (process)
-            CloseHandle(process);
+        if (candidate.named) {
+            // A process MaiCord may not query keeps its file name.
+            const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            char path[1024 * 3];
+            const u32 path_bytes = image_path(process, path, sizeof(path));
+            add_process(scan, &used, pid, path_bytes ? Utf8View{path, path_bytes} : Utf8View{file, file_bytes},
+                        candidate.arguments ? command_line(process) : Utf8View{}, list);
+            if (process)
+                CloseHandle(process);
+        }
+        if (!entry.next_entry_offset || entry.next_entry_offset > bytes - at)
+            break;
+        at += entry.next_entry_offset;
     }
-    CloseHandle(snapshot);
+    pages_release(entries, capacity);
     if (!scan->count)
         return;
     WindowOwners owners; // only the first `count` pids are read

@@ -1,6 +1,6 @@
 #pragma once
 
-// Process information: PSAPI, Tool Help and process queries, declared as the SDK declares them; see
+// Process information: PSAPI, the system process list and process queries, declared as the SDK declares them; see
 // maicord/sys/sdk.hpp.
 
 #include "maicord/sys/sdk.hpp"
@@ -9,16 +9,12 @@
 #if defined(MAICORD_SDK_INCLUDES)
 #include <Windows.h>
 #include <psapi.h>
-#include <tlhelp32.h>
 #endif
 
 // <psapi.h>
 #define PSAPI_VERSION 2
 #define GetProcessMemoryInfo K32GetProcessMemoryInfo
 #define QueryWorkingSetEx K32QueryWorkingSetEx
-
-// <tlhelp32.h>
-#define TH32CS_SNAPPROCESS 0x00000002
 
 // <winnt.h>
 #define PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
@@ -107,22 +103,27 @@ struct _PROCESS_MEMORY_COUNTERS_EX2 {
     ULONG64 SharedCommitUsage;
 };
 typedef _PROCESS_MEMORY_COUNTERS_EX2 PROCESS_MEMORY_COUNTERS_EX2;
-// <tlhelp32.h>
-struct tagPROCESSENTRY32W {
-    DWORD dwSize;
-    DWORD cntUsage;
-    DWORD th32ProcessID;
-    ULONG_PTR th32DefaultHeapID;
-    DWORD th32ModuleID;
-    DWORD cntThreads;
-    DWORD th32ParentProcessID;
-    LONG pcPriClassBase;
-    DWORD dwFlags;
-    WCHAR szExeFile[260];
-};
-typedef tagPROCESSENTRY32W PROCESSENTRY32W;
-typedef PROCESSENTRY32W* LPPROCESSENTRY32W;
 // <winternl.h>
+struct _UNICODE_STRING {
+    USHORT Length;
+    USHORT MaximumLength;
+    PWSTR Buffer;
+};
+typedef _UNICODE_STRING UNICODE_STRING;
+enum _SYSTEM_INFORMATION_CLASS {
+    SystemBasicInformation = 0,
+    SystemPerformanceInformation = 2,
+    SystemTimeOfDayInformation = 3,
+    SystemProcessInformation = 5,
+    SystemProcessorPerformanceInformation = 8,
+    SystemInterruptInformation = 23,
+    SystemExceptionInformation = 33,
+    SystemRegistryQuotaInformation = 37,
+    SystemLookasideInformation = 45,
+    SystemCodeIntegrityInformation = 103,
+    SystemPolicyInformation = 134
+};
+typedef _SYSTEM_INFORMATION_CLASS SYSTEM_INFORMATION_CLASS;
 enum _PROCESSINFOCLASS {
     ProcessBasicInformation = 0,
     ProcessDebugPort = 7,
@@ -142,11 +143,6 @@ extern "C" DWORD WINAPI K32GetMappedFileNameW(HANDLE hProcess, LPVOID lpv, LPWST
 extern "C" BOOL WINAPI K32QueryWorkingSetEx(HANDLE hProcess, PVOID pv, DWORD cb);
 extern "C" BOOL WINAPI K32GetProcessMemoryInfo(HANDLE Process, PPROCESS_MEMORY_COUNTERS ppsmemCounters, DWORD cb);
 
-// <tlhelp32.h>
-extern "C" HANDLE WINAPI CreateToolhelp32Snapshot(DWORD dwFlags, DWORD th32ProcessID);
-extern "C" BOOL WINAPI Process32FirstW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
-extern "C" BOOL WINAPI Process32NextW(HANDLE hSnapshot, LPPROCESSENTRY32W lppe);
-
 // <processthreadsapi.h>
 extern "C" __declspec(dllimport) HANDLE WINAPI OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle,
     DWORD dwProcessId);
@@ -156,3 +152,5 @@ extern "C" __declspec(dllimport) BOOL WINAPI QueryFullProcessImageNameW(HANDLE h
 // <winternl.h>
 extern "C" NTSTATUS NTAPI NtQueryInformationProcess(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass,
     PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength);
+extern "C" NTSTATUS NTAPI NtQuerySystemInformation(SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    PVOID SystemInformation, ULONG SystemInformationLength, PULONG ReturnLength);

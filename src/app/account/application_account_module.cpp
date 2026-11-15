@@ -80,32 +80,6 @@
 
 namespace maicord::app_detail {
 namespace {
-void log_member_source_binding(const GatewayClientEvent& event) noexcept {
-    if (!g_app.account_ui || event.kind != GatewayClientEventKind::dispatch ||
-        event.dispatch_kind != GatewayClientDispatchKind::guild_member_list_update)
-        return;
-    const auto& state = g_app.account_ui->chat_state;
-    const auto* selected = chat_state_store_find_channel(state, state.selected_channel_id);
-    const bool same_guild = selected && selected->guild_id == event.member_list.guild_id;
-    const u64 derived_list = same_guild ? member_list_channel_id(state, selected->id) : 0;
-    TraceRecord trace("member_source_binding");
-    const u64 fields[] = {selected && selected->guild_id,
-                          same_guild,
-                          derived_list != 0,
-                          event.member_list.list_id != 0,
-                          same_guild && derived_list &&
-                              (!event.member_list.list_id || derived_list == event.member_list.list_id),
-                          event.member_list.member_record_count,
-                          event.member_list.group_count,
-                          event.member_list.logical_count};
-    trace.fields("selected_guild_channel\0same_guild\0derived_list_available\0incoming_list_present\0same_list\0"
-                 "member_records\0group_summaries\0logical_count",
-                 fields);
-    trace.write("member_hydration");
-}
-} // namespace
-
-namespace {
 bool author_hydration_visible() noexcept {
     return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
            !g_app.login.visible && !g_app.startup_shell_provisional && !application_friends_active() &&
@@ -503,7 +477,6 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     if (!popped.ok() || !event) {
         return popped;
     }
-    log_member_source_binding(*event);
     application_channel_overview_gateway(
         *event, {reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes});
     if (event->kind == GatewayClientEventKind::ready)

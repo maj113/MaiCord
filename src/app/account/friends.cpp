@@ -364,13 +364,13 @@ ApplicationFriends* ensure() noexcept {
     g_app.friends = friends;
     return friends;
 }
+// The display name of each record that a projection sorts. The projection finds a name one time: a sort
+// compares each name many times.
+Utf8View g_sort_names[relationship_capacity];
 bool before(const ApplicationFriends& friends, u32 left, u32 right) noexcept {
-    const auto& users = g_app.account_ui->user_store;
     if (friends.records[left].type != friends.records[right].type)
         return friends.records[left].type < friends.records[right].type;
-    const auto a = relationship_display_name(friends.records[left], users);
-    const auto b = relationship_display_name(friends.records[right], users);
-    const auto compared = friend_name_compare(a, b);
+    const auto compared = friend_name_compare(g_sort_names[left], g_sort_names[right]);
     return compared.ok() && compared.order ? compared.order < 0 : friends.records[left].user_id < friends.records[right].user_id;
 }
 void project(ApplicationFriends& friends, bool force = false) noexcept {
@@ -379,6 +379,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
     const u32 query_revision = query_model ? query_model->text_revision : 0;
     if (!g_app.account_ui || (!force && friends.store_revision == friends.store.revision &&
         friends.user_revision == g_app.account_ui->user_store.revision && friends.query_revision == query_revision)) return;
+    const auto& users = g_app.account_ui->user_store;
     if (!friends_relationship_storage_indices(&friends.storage, friends.store.count)) {
         recovery(friends, "Couldn't update your friends list. Try again.");
         friends.source.count = 0;friends.total_count = 0;
@@ -400,16 +401,17 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
         for (u32 i = 0; i < friends.store.count; ++i)
             if (relationship_matches(friends.records[i], filter)) {
                 ++friends.total_count;
-                const auto* user = user_store_find(g_app.account_ui->user_store, friends.records[i].user_id);
-                if (!query.bytes || (user && friend_search(query,
-                    user_store_username(g_app.account_ui->user_store, *user),
+                const auto* user = query.bytes ? user_store_find(users, friends.records[i].user_id) : nullptr;
+                if (!query.bytes || (user && friend_search(query, user_store_username(users, *user),
                     {friends.records[i].nickname, friends.records[i].nickname_bytes},
-                    user_store_name(g_app.account_ui->user_store, *user)).matched))
+                    user_store_name(users, *user)).matched)) {
+                    g_sort_names[i] = relationship_display_name(friends.records[i], users);
                     friends.indices[friends.source.count++] = i;
+                }
             }
     heap_sort_shared(friends.indices, friends.source.count,
               [&friends](u32 a, u32 b) noexcept { return before(friends, a, b); });
-    friends.store_revision = friends.store.revision;friends.user_revision = g_app.account_ui->user_store.revision;
+    friends.store_revision = friends.store.revision;friends.user_revision = users.revision;
     friends.query_revision = query_revision;
     u32 incoming_count = 0;
     if (friends.tab == UiFriendsTab::pending)
@@ -433,8 +435,10 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
             const u32 first = count;
             for (u32 i = 0; i < friends.store.count; ++i) {
                 const auto& row = friends.records[i];
-                if (row.type == RelationshipType::incoming &&
-                    (pass == 0 ? row.ignored : row.spam && !row.ignored)) indices[count++] = i;
+                if (row.type != RelationshipType::incoming || !(pass == 0 ? row.ignored : row.spam && !row.ignored))
+                    continue;
+                g_sort_names[i] = relationship_display_name(row, users);
+                indices[count++] = i;
             }
             heap_sort_shared(indices + first, count - first,
                 [&friends](u32 a, u32 b) noexcept { return before(friends, a, b); });

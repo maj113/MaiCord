@@ -20,6 +20,29 @@ GatewayClientSelfStatusSnapshot backend() noexcept {
     return g_app.account.instance ? account_module_self_status_snapshot(g_app.account.instance)
                                   : GatewayClientSelfStatusSnapshot{};
 }
+// Returns the backend snapshot it read, so that a caller does not take the lock again.
+GatewayClientSelfStatusSnapshot synchronize() noexcept {
+    const auto snapshot = backend();
+    auto& request = g_app.self_status;
+    if (!same_scope(request, snapshot)) {
+        if (request.request_id)
+            return snapshot; // The primary lane retains its exact completion until teardown/drain.
+        reset_value(&request);
+        if (!snapshot.available || !snapshot.profile_id || !snapshot.self_user_id)
+            return snapshot;
+        request.profile_id = snapshot.profile_id;
+        request.self_user_id = snapshot.self_user_id;
+    }
+    // Reconnect keeps the account's queued choice and exact REST ticket. Only
+    // admission and scheduling require an available Gateway; existing primary
+    // REST completions still need to drain the backend request while offline.
+    if (snapshot.available && !snapshot.authoritative && !snapshot.settings_known && !request.request_id &&
+        !request.queued && !request.fetch_failed) {
+        request.operation = SelfStatusSettingsOperation::fetch;
+        request.retry_at_ms = 1;
+    }
+    return snapshot;
+}
 } // namespace
 
 GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
@@ -33,34 +56,13 @@ GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
     return snapshot;
 }
 void application_self_status_synchronize() noexcept {
-    const auto snapshot = backend();
-    auto& request = g_app.self_status;
-    if (!same_scope(request, snapshot)) {
-        if (request.request_id)
-            return; // The primary lane retains its exact completion until teardown/drain.
-        reset_value(&request);
-        if (!snapshot.available || !snapshot.profile_id || !snapshot.self_user_id)
-            return;
-        request.profile_id = snapshot.profile_id;
-        request.self_user_id = snapshot.self_user_id;
-    }
-    // Reconnect keeps the account's queued choice and exact REST ticket. Only
-    // admission and scheduling require an available Gateway; existing primary
-    // REST completions still need to drain the backend request while offline.
-    if (!snapshot.available)
-        return;
-    if (!snapshot.authoritative && !snapshot.settings_known && !request.request_id && !request.queued &&
-        !request.fetch_failed) {
-        request.operation = SelfStatusSettingsOperation::fetch;
-        request.retry_at_ms = 1;
-    }
+    synchronize();
 }
 bool application_self_status_request(GatewayUserStatus status) noexcept {
     if (status != GatewayUserStatus::online && status != GatewayUserStatus::idle &&
         status != GatewayUserStatus::dnd && status != GatewayUserStatus::invisible)
         return false;
-    application_self_status_synchronize();
-    const auto snapshot = backend();
+    const auto snapshot = synchronize();
     auto& request = g_app.self_status;
     if (!current(request, snapshot))
         return false;
@@ -90,9 +92,9 @@ void application_self_status_clear() noexcept {
     reset_value(&g_app.self_status);
 }
 bool application_self_status_pending(u64 now_ms) noexcept {
-    application_self_status_synchronize();
+    const auto snapshot = synchronize();
     const auto& request = g_app.self_status;
-    return current(request, backend()) && !request.request_id && request.retry_at_ms &&
+    return current(request, snapshot) && !request.request_id && request.retry_at_ms &&
            request.retry_at_ms <= now_ms;
 }
 bool application_self_status_submit(u64 id, u64 now_ms) noexcept {
@@ -130,9 +132,9 @@ bool application_self_status_response(const RestClientResponse& response, Utf8Vi
     const bool consumed =
         scope_current && account_module_self_status_complete(g_app.account.instance, request.profile_id,
                                                       request.self_user_id, request.request_id, &response, body);
+    const auto error = backend().last_error;
     const bool accepted = consumed && response.transport_ok() && response.status_code >= 200 &&
-                          response.status_code < 300 &&
-                          backend().last_error == GatewaySelfStatusError::none;
+                          response.status_code < 300 && error == GatewaySelfStatusError::none;
     request.request_id = 0;
     request.admission_busy = false;
     if (!scope_current) {
@@ -143,8 +145,7 @@ bool application_self_status_response(const RestClientResponse& response, Utf8Vi
     if ((response.rate_limited || response.status_code == 429) && response.retry_at_ms > now_ms &&
         request.attempts < 3) {
         request.retry_at_ms = response.retry_at_ms;
-    } else if (!accepted && backend().last_error == GatewaySelfStatusError::out_of_date &&
-               request.refreshes < 2) {
+    } else if (!accepted && error == GatewaySelfStatusError::out_of_date && request.refreshes < 2) {
         ++request.refreshes;
         request.operation = SelfStatusSettingsOperation::fetch;
         request.retry_at_ms = 1;

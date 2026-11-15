@@ -1093,89 +1093,30 @@ SecureBufferResult account_module_login_copy_webauthn_challenge(void* instance,
                : SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
 }
 
-RestClientSubmitResult account_module_pinned_messages(void* instance, const MessagePinsRequest* request,
-                                                      u64 request_id) noexcept {
-    return module_lane<account_pinned_messages_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_thread_action(void* instance, const ThreadActionRequest* request,
-                                                    u64 request_id) noexcept {
-    return module_lane<account_thread_action_submit, admit_thread_action>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_thread_browser(void* instance, const ThreadBrowserRequest* request,
-                                                     u64 request_id) noexcept {
-    return module_lane<account_thread_browser_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_thread_creation(void* instance, const ThreadCreationRequest* request,
-                                                      u64 request_id) noexcept {
-    return module_lane<account_thread_creation_submit, admit_thread_creation>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_forum_post(void* instance, const ForumPostRequest* request,
-                                                 u64 request_id) noexcept {
-    return module_lane<account_forum_post_submit, admit_published_identity<ForumPostRequest>>(
-        instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_poll(void* instance, const PollRequest* request, u64 request_id) noexcept {
-    return module_lane<account_message_poll_submit, admit_published_identity<PollRequest>>(
-        instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_admin(void* instance, const GuildAdminRequest* request,
-                                                  u64 request_id) noexcept {
-    return module_lane<account_guild_admin_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_invite(void* instance, const GuildInviteRequest* request,
-                                                   u64 request_id) noexcept {
-    return module_lane<account_guild_invite_submit, admit_invite, accepts_invite>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_private_channel(void* instance, const PrivateChannelActionRequest* request,
-                                                      u64 request_id) noexcept {
-    return module_lane<account_private_channel_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_settings(void* instance, const UserGuildSettingsPatch* request,
-                                                     u64 request_id) noexcept {
-    return module_lane<account_guild_settings_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_mentions(void* instance, const MentionsQuery* request, u64 request_id) noexcept {
-    return module_lane<account_mentions_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_stage(void* instance, const StageRequest* request, u64 request_id) noexcept {
-    return module_lane<account_stage_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_user_social(void* instance, const UserSocialRequest* request,
-                                                  u64 request_id) noexcept {
-    return module_lane<account_user_social_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_community(void* instance, const GuildCommunityRequest* request,
-                                                      u64 request_id) noexcept {
-    return module_lane<account_guild_community_submit, nullptr, joins_guild>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_profile_edit(void* instance, const ProfileEditRequest* request,
-                                                   u64 request_id) noexcept {
-    return module_lane<account_profile_edit_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_moderation(void* instance, const GuildModerationRequest* request,
-                                                       u64 request_id) noexcept {
-    return module_lane<account_guild_moderation_submit>(instance, request, request_id);
-}
-
-RestClientSubmitResult account_module_guild_automation(void* instance, const GuildAutomationRequest* request,
-                                                       u64 request_id) noexcept {
-    return module_lane<account_guild_automation_submit>(instance, request, request_id);
-}
+// The request entries on the DETAILS lane: an entry, its submit function, then the optional hooks of module_lane.
+#define MAICORD_LANE_ENTRY(entry, submit, ...)                                                                    \
+    RestClientSubmitResult entry(void* instance, const decltype(lane_request(submit))* request,                   \
+                                 u64 request_id) noexcept {                                                       \
+        return module_lane<submit __VA_OPT__(, ) __VA_ARGS__>(instance, request, request_id);                     \
+    }
+MAICORD_LANE_ENTRY(account_module_pinned_messages, account_pinned_messages_submit)
+MAICORD_LANE_ENTRY(account_module_thread_action, account_thread_action_submit, admit_thread_action)
+MAICORD_LANE_ENTRY(account_module_thread_browser, account_thread_browser_submit)
+MAICORD_LANE_ENTRY(account_module_thread_creation, account_thread_creation_submit, admit_thread_creation)
+MAICORD_LANE_ENTRY(account_module_forum_post, account_forum_post_submit, admit_published_identity<ForumPostRequest>)
+MAICORD_LANE_ENTRY(account_module_poll, account_message_poll_submit, admit_published_identity<PollRequest>)
+MAICORD_LANE_ENTRY(account_module_guild_admin, account_guild_admin_submit)
+MAICORD_LANE_ENTRY(account_module_guild_invite, account_guild_invite_submit, admit_invite, accepts_invite)
+MAICORD_LANE_ENTRY(account_module_private_channel, account_private_channel_submit)
+MAICORD_LANE_ENTRY(account_module_guild_settings, account_guild_settings_submit)
+MAICORD_LANE_ENTRY(account_module_mentions, account_mentions_submit)
+MAICORD_LANE_ENTRY(account_module_stage, account_stage_submit)
+MAICORD_LANE_ENTRY(account_module_user_social, account_user_social_submit)
+MAICORD_LANE_ENTRY(account_module_guild_community, account_guild_community_submit, nullptr, joins_guild)
+MAICORD_LANE_ENTRY(account_module_profile_edit, account_profile_edit_submit)
+MAICORD_LANE_ENTRY(account_module_guild_moderation, account_guild_moderation_submit)
+MAICORD_LANE_ENTRY(account_module_guild_automation, account_guild_automation_submit)
+#undef MAICORD_LANE_ENTRY
 
 RestClientSubmitResult account_module_relationships(void* instance, RelationshipOperation operation, u64 user_id,
                                                     Utf8View username, u64 request_id) noexcept {

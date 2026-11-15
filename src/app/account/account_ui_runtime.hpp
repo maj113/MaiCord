@@ -247,6 +247,8 @@ struct AccountUiRuntime {
     u64 text_rebuild_retry_at_ms;
     u32 text_rebuild_failures;
     u32 rendered_poll_revision;
+    // The store revisions (plus 1) that the Home badge last counted.
+    u32 home_badge_requests, home_badge_relationships;
     MessageMarkdownCache message_markdown_cache;
     MessageMarkdownCacheEntry message_markdown_cache_entries[kMessageMarkdownCacheSlots];
     alignas(8) u8 message_markdown_cache_arena[kMessageMarkdownCacheArenaBytes];

@@ -151,9 +151,12 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
         session.persist_at_ms == 1'500,
         "message_draft_session_cleanup_keeps_first_deadline_and_file_until_due");
     message_draft_session_persist(session, drafts, 1'500, false);
-    const bool queued = session.persist_in_flight;
+    // A save in flight has its event and no timer.
+    const bool queued = session.persist_in_flight && session.persist_at_ms == 0 &&
+                        message_draft_session_notification(session) != nullptr;
     message_draft_session_persist(session, drafts, 1'500, true);
-    const bool migration_committed = queued && !session.persist_in_flight;
+    const bool migration_committed = queued && !session.persist_in_flight &&
+                                     message_draft_session_notification(session) == nullptr;
     const MessageDraftPersistenceResult rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(migration_committed && rewritten.ok() && rewritten.discarded == 0 && rewritten.records == 1 &&
         rewritten.bytes == 114 && !session.cleanup_required &&

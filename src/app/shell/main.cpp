@@ -468,6 +468,10 @@ int application_run() noexcept {
             push_handle(application_forum_attachments_notification());
             push_handle(application_guild_settings_notification());
         }
+        const u32 draft_handle_index = wait_handle_count;
+        if (!application_account_logout_blocked())
+            push_handle(application_draft_save_notification());
+        const bool draft_handle = wait_handle_count != draft_handle_index;
         push_handle(application_preferences_notification());
         push_handle(application_custom_theme_notification());
         push_handle(application_downloads_notification());
@@ -657,7 +661,8 @@ int application_run() noexcept {
         if (!logout_blocked)
             application_account_reconnect_tick(restart_now_ms);
         const bool account_work =
-            !logout_blocked && (account_signal || application_nonvisual_wake_due(restart_now_ms) ||
+            !logout_blocked && (account_signal || (draft_handle && wait_ready(waited, draft_handle_index)) ||
+                                application_nonvisual_wake_due(restart_now_ms) ||
                                 application_notifications_gateway_pending(&g_app));
         if (account_work) {
             application_pump_account();

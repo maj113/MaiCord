@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/app/account/account_profile.hpp"
+#include "maicord/os/wait.hpp"
 
 namespace maicord {
 
@@ -31,5 +32,8 @@ void message_draft_session_observe(MessageDraftSession& session, const MessageDr
 // synchronously with write-through.
 void message_draft_session_persist(MessageDraftSession& session, const MessageDraftStore& drafts,
                                    u64 now_ms, bool force) noexcept;
+// The event of the save in flight, or nullptr. It stays set until a persist call takes the result. The owner waits
+// for it and then calls message_draft_session_persist: the session has no timer while a save is in flight.
+Waitable message_draft_session_notification(const MessageDraftSession& session) noexcept;
 
 } // namespace maicord

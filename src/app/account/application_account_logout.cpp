@@ -9,7 +9,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/account/account_logout.hpp"
 #include "account_access.hpp"
 

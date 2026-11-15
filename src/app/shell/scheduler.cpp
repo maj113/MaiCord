@@ -342,6 +342,12 @@ bool application_nonvisual_wake_due(u64 now_ms) noexcept {
            ((g_app.message_media.scan_pending && !application_thread_browser_read_blocked()) ||
             account_host_wake_due(&host, now_ms) || deadline_due(now_ms, application_next_wake_at_ms()));
 }
+Waitable application_draft_save_notification() noexcept {
+    const AccountHost& host = g_app.account;
+    return host.instance && !host.stop_failed && g_app.account_ui
+               ? message_draft_session_notification(g_app.account_ui->message_draft_session)
+               : nullptr;
+}
 u64 application_login_browser_deadline() noexcept {
     if (application_account_logout_blocked())
         return 0;

@@ -15,8 +15,8 @@ namespace {
 
 inline constexpr u32 kPersistThrottleMs = 500;
 inline constexpr u32 kPersistRetryMaximumMs = 30'000;
-// While a background save is in flight the scheduler re-polls at this cadence
-// instead of spinning on an elapsed deadline.
+// A discarded session's save can still run. The writer has no event for the new session, so the session asks again
+// after this time.
 inline constexpr u32 kPersistPollMs = 25;
 inline constexpr u32 kPersistDrainMs = 5'000;
 
@@ -145,8 +145,8 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
         return;
     }
     if (!collect(session, drafts, now_ms, force ? kPersistDrainMs : 0)) {
-        // Still in flight; a forced save cannot overtake an older commit.
-        session.persist_at_ms = now_ms + kPersistPollMs;
+        // Still in flight; a forced save cannot overtake an older commit. The writer's event wakes the owner.
+        session.persist_at_ms = 0;
         return;
     }
     message_draft_session_observe(session, drafts, now_ms);
@@ -184,7 +184,7 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
         ReleaseSRWLockExclusive(writer->lock.native());
         session.persist_in_flight = true;
         session.inflight_revision = drafts.revision;
-        session.persist_at_ms = now_ms + kPersistPollMs;
+        session.persist_at_ms = 0;
         return;
     }
     apply_result(session, drafts, drafts.revision,
@@ -239,6 +239,10 @@ bool message_draft_session_configure(MessageDraftSession& session, MessageDraftS
             .write(LogLevel::warning, "draft");
     message_draft_session_observe(session, drafts, now_ms);
     return true;
+}
+
+Waitable message_draft_session_notification(const MessageDraftSession& session) noexcept {
+    return session.persist_in_flight ? g_writer->done_event : nullptr;
 }
 
 } // namespace maicord

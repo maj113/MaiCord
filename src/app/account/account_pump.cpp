@@ -267,23 +267,29 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
     drain.navigation_message_receipt = false;
     if (!popped.ok() || !event)
         return popped;
+    const bool dispatch = event->kind == GatewayClientEventKind::dispatch;
+    const bool ready = event->kind == GatewayClientEventKind::ready;
+    const auto kind = event->dispatch_kind;
     // A startup shell saved for another account must not reject READY's.
-    if (event->kind == GatewayClientEventKind::ready && application_startup_shell_gateway_ready(event->state.id))
+    if (ready && application_startup_shell_gateway_ready(event->state.id))
         drain.navigation_self = 0;
     drain.poll_sequence = event->sequence;
     drain.poll_has_sequence = event->has_sequence;
-    drain.poll_batched = event->kind == GatewayClientEventKind::dispatch &&
-                         event->dispatch_kind == GatewayClientDispatchKind::message_poll_vote_add &&
-                         event->poll_vote.batched;
+    drain.poll_batched =
+        dispatch && kind == GatewayClientDispatchKind::message_poll_vote_add && event->poll_vote.batched;
     drain.poll_checked = drain.poll_current = false;
     reset_value(&drain.pending_scope);
     drain.pending_thread = 0;
     drain.navigation_deleted = 0;
     drain.force = false;
     drain.forum_metadata = false;
-    GatewayClientEvent decoded{};
+    const bool message_delete = dispatch && (kind == GatewayClientDispatchKind::message_delete ||
+                                             kind == GatewayClientDispatchKind::message_bulk_delete);
+    // Only READY and the deletes read the trimmed record. Other events do not pay for its copy.
+    GatewayClientEvent decoded;
     ConstSlice<u8> decoded_payload{};
     const bool decoded_receipt =
+        (ready || message_delete || (dispatch && kind == GatewayClientDispatchKind::channel_delete)) &&
         event->error == GatewayClientError::none &&
         event->event_decode_error == GatewayEventDecodeError::none &&
         event->gateway_decode_error == GatewayDecodeError::none &&
@@ -291,15 +297,11 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
         gateway_client_notification_trim(*event, {payload_output.data, popped.payload_bytes}, &decoded,
                                          &decoded_payload);
     drain.navigation_message_receipt =
-        decoded_receipt && navigation_gateway_scope_current(drain) &&
-        decoded.kind == GatewayClientEventKind::dispatch &&
-        (decoded.dispatch_kind == GatewayClientDispatchKind::message_delete ||
-         decoded.dispatch_kind == GatewayClientDispatchKind::message_bulk_delete);
+        decoded_receipt && message_delete && navigation_gateway_scope_current(drain);
     // Cancel the shared navigation intent before a fresh READY can reset its
     // source. Reconnect/RESUMED keep the current session's request guards
     // and do not enter this branch.
-    if (decoded_receipt && navigation_gateway_scope_current(drain) &&
-        event->kind == GatewayClientEventKind::ready && event->state.id &&
+    if (decoded_receipt && ready && navigation_gateway_scope_current(drain) && event->state.id &&
         (!drain.state || !drain.state->self_user_id || drain.state->self_user_id == event->state.id)) {
         u32 guild_count{};
         const auto scratch = g_app.message_pump.guild_id_scratch;
@@ -321,16 +323,15 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
         }
     }
     application_account_connection_observe(event->kind);
-    if (event->kind == GatewayClientEventKind::ready ||
-        event->kind == GatewayClientEventKind::reconnecting ||
+    if (ready || event->kind == GatewayClientEventKind::reconnecting ||
         event->kind == GatewayClientEventKind::closed || event->kind == GatewayClientEventKind::failed ||
         event->kind == GatewayClientEventKind::stopped) {
         drain.pending = drain.force = true;
         return popped;
     }
-    if (event->kind != GatewayClientEventKind::dispatch)
+    if (!dispatch)
         return popped;
-    switch (event->dispatch_kind) {
+    switch (kind) {
     case GatewayClientDispatchKind::private_state_incomplete:
     case GatewayClientDispatchKind::ready_state_complete:
     case GatewayClientDispatchKind::supplemental_state_complete:
@@ -348,7 +349,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
         const bool category = (event->state.fields & gateway_client_state_field_type)
                                   ? event->state.type == 4
                                   : previous && previous->type == 4;
-        const bool unknown_delete = event->dispatch_kind == GatewayClientDispatchKind::channel_delete &&
+        const bool unknown_delete = kind == GatewayClientDispatchKind::channel_delete &&
                                     !(event->state.fields & gateway_client_state_field_type) && !previous;
         const u64 parent = category || unknown_delete ? 0
                            : thread                   ? (event->state.parent_id ? event->state.parent_id
@@ -356,19 +357,19 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
                                                                                 : 0)
                                                       : event->state.id;
         drain.pending_scope = {guild, parent};
-        if (decoded_receipt && event->dispatch_kind == GatewayClientDispatchKind::channel_delete &&
+        if (decoded_receipt && kind == GatewayClientDispatchKind::channel_delete &&
             event->state.id && (event->state.fields & gateway_client_state_field_id) &&
             navigation_gateway_scope_current(drain))
             drain.navigation_deleted = event->state.id;
         drain.pending_thread = thread || unknown_delete ? event->state.id : 0;
         drain.forum_metadata =
-            event->dispatch_kind == GatewayClientDispatchKind::channel_update &&
+            kind == GatewayClientDispatchKind::channel_update &&
             (((event->state.fields & gateway_client_state_field_type) && event->state.type == 15) ||
              (previous && previous->type == 15));
         drain.pending = true;
         // A deletion of an uncached thread is newer than an in-flight REST page
         // and must stop that page from bringing the thread back.
-        drain.force = event->dispatch_kind == GatewayClientDispatchKind::channel_delete;
+        drain.force = kind == GatewayClientDispatchKind::channel_delete;
         break;
     }
     case GatewayClientDispatchKind::thread_self_update: {
@@ -399,7 +400,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
     case GatewayClientDispatchKind::guild_delete:
         drain.pending_scope = {event->state.id, 0};
         drain.pending = true;
-        drain.force = event->dispatch_kind == GatewayClientDispatchKind::guild_delete;
+        drain.force = kind == GatewayClientDispatchKind::guild_delete;
         break;
     case GatewayClientDispatchKind::guild_role_create:
     case GatewayClientDispatchKind::guild_role_update:

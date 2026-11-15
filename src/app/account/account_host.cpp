@@ -30,6 +30,11 @@ bool login_live(const AccountHost* host) noexcept {
 bool login_startable(const AccountHost* host) noexcept {
     return host->module && !host->login_instance && !host->stop_failed;
 }
+// Keeps the status of a login call that reached the module.
+AccountLoginStatus kept(AccountHost* host, const AccountLoginStatus& status) noexcept {
+    host->login_status = status;
+    return status;
+}
 
 } // namespace
 
@@ -103,25 +108,20 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
 }
 
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!login_startable(host) || !profile_path)
-        return login_refused();
-    host->login_status = account_module_login_start(&host->login_instance, profile_path);
-    return host->login_status;
+    return login_startable(host) && profile_path
+               ? kept(host, account_module_login_start(&host->login_instance, profile_path)) : login_refused();
 }
 
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!login_startable(host) || !profile_path)
-        return login_refused();
-    host->login_status = account_module_login_start_reset(&host->login_instance, profile_path);
-    return host->login_status;
+    return login_startable(host) && profile_path
+               ? kept(host, account_module_login_start_reset(&host->login_instance, profile_path)) : login_refused();
 }
 
 AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const SecureBuffer* link_token,
                                                    const SecureBuffer* password) noexcept {
-    if (!login_live(host) || !password)
-        return login_refused();
-    host->login_status = account_module_login_submit_reset(host->login_instance, link_token, password);
-    return host->login_status;
+    return login_live(host) && password
+               ? kept(host, account_module_login_submit_reset(host->login_instance, link_token, password))
+               : login_refused();
 }
 
 AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u64 unix_now_ms,
@@ -146,39 +146,29 @@ AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u
 
 AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
                                                           const SecureBuffer* link_token) noexcept {
-    if (!login_live(host) || !link_token)
-        return login_refused();
-    host->login_status = account_module_login_submit_verification(host->login_instance, link_token);
-    return host->login_status;
+    return login_live(host) && link_token
+               ? kept(host, account_module_login_submit_verification(host->login_instance, link_token))
+               : login_refused();
 }
 
 AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
-    if (!login_live(host) || !login)
-        return account_login_invalid_input();
-    host->login_status = account_module_login_submit_recovery(host->login_instance, login);
-    return host->login_status;
+    return login_live(host) && login ? kept(host, account_module_login_submit_recovery(host->login_instance, login))
+                                     : account_login_invalid_input();
 }
 
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
-    if (!login_live(host))
-        return login_refused();
-    host->login_status = account_module_login_pump(host->login_instance);
-    return host->login_status;
+    return login_live(host) ? kept(host, account_module_login_pump(host->login_instance)) : login_refused();
 }
 
 AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
-    if (!login_live(host) || !code)
-        return account_login_invalid_input();
-    host->login_status = account_module_login_submit_phone_verify(host->login_instance, code);
-    return host->login_status;
+    return login_live(host) && code ? kept(host, account_module_login_submit_phone_verify(host->login_instance, code))
+                                    : account_login_invalid_input();
 }
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
-    if (!login_live(host))
-        return account_login_invalid_input();
-    host->login_status = account_module_login_submit_phone_resend(host->login_instance);
-    return host->login_status;
+    return login_live(host) ? kept(host, account_module_login_submit_phone_resend(host->login_instance))
+                            : account_login_invalid_input();
 }
 SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, u64 expected_generation,
                                                              SecureBuffer* output) noexcept {

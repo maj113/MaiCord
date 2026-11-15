@@ -15,7 +15,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/local_time.hpp"
 #include "maicord/app/gateway/client.hpp"
 
@@ -24,7 +23,7 @@ namespace {
 struct Request {
     SelfCustomStatus desired;
     SelfCustomStatus projected;
-    u64 account_scope, profile_id, self_user_id, request_id, retry_at, expired_created_at;
+    u64 account_scope, profile_id, self_user_id, request_id, retry_at, expired_created_at, expires_at_ms;
     u32 revision, submitted_revision;
     u8 attempts;
     bool queued, projected_known;
@@ -52,11 +51,11 @@ u64 local_ms_of_day() noexcept {
 }
 // The account's own rows (member list, profile card, account panel) read the
 // global appearance; server presence for the same user replaces it.
-void project_appearance(u64 unix_now) noexcept {
-    if (!g_app.account_ui)
-        return;
-    SelfCustomStatus effective;
-    if (!application_custom_status_snapshot(&effective))
+// `effective` is the status to show when `known`: the queued choice, else the saved one.
+void project_appearance(u64 unix_now, bool known, SelfCustomStatus& effective) noexcept {
+    // The scheduler reads this expiry, so that it does not decode the settings in each loop turn.
+    request.expires_at_ms = known && effective.present ? effective.expires_at_ms : 0;
+    if (!known || !g_app.account_ui)
         return;
     if (!self_custom_status_active(effective, unix_now))
         reset_value(&effective);
@@ -84,6 +83,11 @@ void project_appearance(u64 unix_now) noexcept {
     if (g_app.renderer_ready)
         refresh_account_text(true);
     application_request_frame();
+}
+void project_appearance(u64 unix_now) noexcept {
+    SelfCustomStatus effective;
+    const bool known = application_custom_status_snapshot(&effective);
+    project_appearance(unix_now, known, effective);
 }
 
 constexpr u64 kPageOwner = 0x4d41494353544154ull;
@@ -280,14 +284,18 @@ bool application_custom_status_request(const SelfCustomStatus* status) noexcept 
 void application_custom_status_tick(u64) noexcept {
     scope();
     const u64 unix_now = clock_unix_milliseconds();
-    SelfCustomStatus current{};
+    // One read of the saved settings serves the expiry check and the projection.
+    SelfCustomStatus current;
+    const bool known = !request.queued && saved(&current);
     // The client clears an expired status itself; do it once per status.
-    if (!request.queued && !request.request_id && saved(&current) && current.present && current.expires_at_ms &&
+    if (known && !request.request_id && current.present && current.expires_at_ms &&
         current.expires_at_ms <= unix_now && request.expired_created_at != current.created_at_ms + 1) {
         request.expired_created_at = current.created_at_ms + 1;
         application_custom_status_request(nullptr);
     }
-    project_appearance(unix_now);
+    if (request.queued)
+        copy_value(&current, request.desired);
+    project_appearance(unix_now, known || request.queued, current);
 }
 
 bool application_custom_status_pending(u64 now_ms) noexcept {
@@ -350,11 +358,10 @@ u64 application_custom_status_next_wake() noexcept {
     if (request.queued && !request.request_id && request.retry_at &&
         g_app.message_history_request_owner == MessageHistoryRequestOwner::none)
         wake = request.retry_at;
-    SelfCustomStatus current;
-    const u64 unix_now = clock_unix_milliseconds();
     // A past expiry is handled once by the tick; only a future one schedules.
-    if (application_custom_status_snapshot(&current) && current.present && current.expires_at_ms > unix_now)
-        wake = earliest_deadline(wake, clock_monotonic_milliseconds() + (current.expires_at_ms - unix_now));
+    const u64 expiry = request.expires_at_ms, unix_now = expiry ? clock_unix_milliseconds() : 0;
+    if (expiry > unix_now)
+        wake = earliest_deadline(wake, clock_monotonic_milliseconds() + (expiry - unix_now));
     return wake;
 }
 

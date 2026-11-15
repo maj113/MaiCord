@@ -525,7 +525,22 @@ FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username
     }
     return {FriendSearchError::none, matched};
 }
+// A name the fold accepts and that holds only ASCII bytes.
+static bool ascii_name(Utf8View name) noexcept {
+    if (name.bytes > kFriendSearchMaximumBytes || (!name.data && name.bytes)) return false;
+    u8 any = 0;
+    for (u32 i = 0; i < name.bytes; ++i) any |= static_cast<u8>(name.data[i]);
+    return any < 0x80;
+}
 FriendCompareResult friend_name_compare(Utf8View left, Utf8View right) noexcept {
+    // The fold of an ASCII name is its lowercase bytes, each one UTF-16 unit: no table and no scalar buffer.
+    if (ascii_name(left) && ascii_name(right)) {
+        for (u32 i = 0; i < left.bytes && i < right.bytes; ++i) {
+            const u32 x = lowercase(static_cast<u8>(left.data[i])), y = lowercase(static_cast<u8>(right.data[i]));
+            if (x != y) return {FriendSearchError::none, x < y ? -1 : 1};
+        }
+        return {FriendSearchError::none, left.bytes > right.bytes ? 1 : left.bytes < right.bytes ? -1 : 0};
+    }
     Folded a, b;
     if (!fold(left, &a) || !fold(right, &b)) return {FriendSearchError::invalid_name, 0};
     Utf16Cursor first{&a, 0, 0}, second{&b, 0, 0};
