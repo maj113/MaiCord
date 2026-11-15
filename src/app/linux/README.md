@@ -10,8 +10,9 @@ AT-SPI host).
 
 ## Entry and window
 
-- `entry.cpp`: `MaiCord --version` prints `MaiCord <version>` (the build's number as the updater knows it, `-dev.N+commit` for a
-  master build) and exits 0 before anything else runs (`maicord_linux_client_version`); otherwise `argv` becomes the Windows command
+- `entry.cpp`: a processor older than Haswell is refused first, with the cause named (`maicord/app/shell/processor_check.hpp`).
+  `MaiCord --version` prints `MaiCord <version>` (the build's number as the updater knows it, `-dev.N+commit` for a master build)
+  and exits 0 before anything else but that check runs (`maicord_linux_client_version`); otherwise `argv` becomes the Windows command
   line (`platform/desktop/launch_line.hpp`).
 - `platform_window.cpp`: the window through the Wayland backend; `application_platform_window_prepare` connects the compositor
   before the renderer's device start, which EGL needs. `application_platform_window_create` makes `window_set_frame_listener` feed

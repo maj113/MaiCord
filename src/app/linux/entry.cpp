@@ -1,11 +1,12 @@
-// The process entry of the Linux client: `--version`, which answers before anything starts, the arguments as the one
-// command line the launch parser reads (the Windows entry hands it GetCommandLineW's), a check that the network loops
-// can run (they are io_uring rings and there is no other backend), a second launch handing its link to the running
-// client, the termination signals turned into a loop event, then the application.
+// The process entry of the Linux client: the processor check, `--version`, which answers before anything else starts,
+// the arguments as the one command line the launch parser reads (the Windows entry hands it GetCommandLineW's), a check
+// that the network loops can run (they are io_uring rings and there is no other backend), a second launch handing its
+// link to the running client, the termination signals turned into a loop event, then the application.
 #include "../notifications/desktop.hpp"
 #include "../shell/run.hpp"
 #include "../update/updates.hpp"
 #include "shutdown_signal.hpp"
+#include "maicord/app/shell/processor_check.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/platform/desktop/launch_line.hpp"
 #include "maicord/platform/net/network.hpp"
@@ -17,8 +18,9 @@ namespace {
 // Room for a link of kDesktopUrlCapacity units, its options and the program's path.
 constexpr maicord::u32 kCommandLineCapacity = 4096;
 
-// Ends the process with the reason the client cannot run, on standard error and in the log.
-[[noreturn]] void refuse_to_start(const char* reason) noexcept {
+// Ends the process with the reason the client cannot run, on standard error and in the log. The processor check calls
+// it, so the text reaches standard error on a processor without AVX too.
+[[noreturn]] MAICORD_ANY_PROCESSOR void refuse_to_start(const char* reason) noexcept {
     using namespace maicord;
     constexpr char kPrefix[] = "MaiCord cannot start: ";
     usize length = 0;
@@ -65,6 +67,9 @@ bool version_requested(const maicord::ProcessStartup& startup) noexcept {
 
 extern "C" [[noreturn, gnu::used]] void maicord_entry() noexcept {
     using namespace maicord;
+    if (processor_too_old()) {
+        refuse_to_start(MAICORD_PROCESSOR_TOO_OLD);
+    }
     if (version_requested(process_startup())) {
         print_version();
     }

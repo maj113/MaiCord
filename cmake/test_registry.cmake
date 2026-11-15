@@ -1063,6 +1063,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
             tests/core/json_reader_visit.cpp tests/core/json_scan.cpp tests/core/clock.cpp
             tests/app/shell/owner_pages.cpp tests/platform/net/resolver_publication.cpp
             tests/app/media/worker_publication.cpp tests/media/image/png_crc.cpp tests/app/shell/frame_rate.cpp
+            tests/app/shell/processor_check.cpp
             tests/ui/core/layout_anchors.cpp tests/ui/account/widget_input.cpp tests/ui/text/form.cpp
             tests/app/chat/threads/forum_form.cpp tests/ui/text/secure_edit_history.cpp
             tests/ui/text/composition_history.cpp tests/ui/text/input_runs.cpp tests/ui/layout/widget_scroll.cpp
@@ -1108,6 +1109,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
             tests/protocol/user/profile_decode_scratch.cpp tests/media/compression/deflate_differential.cpp
             tests/media/compression/deflate_reference.cpp tests/media/image/core_codecs.cpp
             tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp tests/app/shell/owner_pages.cpp
+            tests/app/shell/processor_check.cpp
         LIBS maicord_core maicord_compression maicord_protocol maicord_media_core maicord_media_codec maicord_model
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry

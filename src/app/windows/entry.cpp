@@ -1,10 +1,12 @@
-// The process entry of the Windows client: the probe builds' set-up, a second launch handing its discord:// link to the
-// running client, then the application.
+// The process entry of the Windows client: the processor check, the probe builds' set-up, a second launch handing its
+// discord:// link to the running client, then the application.
 #include "../notifications/desktop.hpp"
 #include "../shell/perf_mark.hpp"
 #include "../shell/run.hpp"
 #include "../shell/shutdown_metrics.hpp"
+#include "maicord/app/shell/processor_check.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 #if defined(MAICORD_PERF_PROBE)
 #include "../../../tools/perf/perf_probe.hpp"
@@ -13,6 +15,10 @@
 #endif
 
 extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
+    if (maicord::processor_too_old()) {
+        MessageBoxW(nullptr, L"MaiCord cannot start: " MAICORD_PROCESSOR_TOO_OLD, L"MaiCord", MB_OK | MB_ICONERROR);
+        ExitProcess(1);
+    }
 #if defined(MAICORD_STARTUP_PROBE)
     if (!maicord::app_detail::application_startup_probe_initialize())
         ExitProcess(126);

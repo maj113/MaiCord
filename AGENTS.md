@@ -46,6 +46,9 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
 - `-nostdinc`: SDK, C library and compiler declarations (intrinsics included) live in `include/maicord/sys` and
   `core/win32_*.hpp` (Linux: `include/maicord/sys/linux`), declared exactly as the SDK and compiler declare them. Add what you
   use there; a generated conformance unit checks them on every build.
+- The compiler's baseline is Sandy Bridge (`/arch:AVX`, `-march=sandybridge`): do not change it. The minimum processor is
+  Haswell, because hand-written `MAICORD_HASWELL` functions use AVX2, BMI1, BMI2, LZCNT, MOVBE and F16C with no other path.
+  Each client's entry checks the processor first (`maicord/app/shell/processor_check.hpp`).
 - UI colors, radii and spacing come from theme tokens (`include/maicord/ui/theme/tokens.inc`);
   `tools/check_theme_literals.py` fails on new literals.
 - Shaders: the HLSL in `src/render/shaders` and its hand-written GLSL ES 3.10 twin in `src/render/shaders/gles` change in one
