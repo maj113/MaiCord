@@ -350,9 +350,13 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
             if(!selected&&!prepare_script_profile(*system->native_text,*font,script,system->independent_letters)){
                 if(script!=arabic_script&&script!=devanagari_script&&script!=tamil_script&&script!=sinhala_script&&script!=khmer_script&&script!=myanmar_script&&script!=tibetan_script&&!form_script(static_cast<u16>(script)))return 0;
                 // A fallback item can leave spaces in a base face with no
-                // script program. Neutral characters use its Common frontend;
-                // letters still require their script shaping profile.
-                for(u32 byte=at;byte<end;){const auto cp=utf8_decode_one(text.data+byte,end-byte);if(!cp.valid||(!(native_script_class(cp.codepoint).flags&native_script_contextual)&&!layout_control(cp.codepoint)))return 0;byte+=cp.width;}
+                // script program. Neutral characters and digits use its Common
+                // frontend (Segoe UI maps the Devanagari and Bengali digits but
+                // has no Indic program); letters still require their script
+                // shaping profile.
+                for(u32 byte=at;byte<end;){const auto cp=utf8_decode_one(text.data+byte,end-byte);
+                    if(!cp.valid||(!(native_script_class(cp.codepoint).flags&native_script_contextual)&&!layout_control(cp.codepoint)&&
+                        unicode_properties(cp.codepoint)->general_category()!=UnicodeGeneralCategory::nd))return 0;byte+=cp.width;}
                 script=128;if(!prepare_script_profile(*system->native_text,*font,script,system->independent_letters))return 0;
             }}
         // Windows layout publishes long font/effect items in chunks of at most

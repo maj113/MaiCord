@@ -49,5 +49,15 @@ bool native_font_selection_cases() noexcept {
     CHECK(!native_text_catalog_select_query(&catalogs,invalid,session,&scratch,&absent,&source)&&!absent.slot);
     native_text_catalogs_release(&catalogs);
     CHECK(native_font_instance_get(*native_font_session_instances(session),instance)==held&&sfnt_cmap_glyph(face->cmap,'A',0,&glyph)==SfntStatus::ok&&glyph);
+    // Segoe UI maps the Devanagari and Bengali digits but has no Indic program. The digits shape in Segoe UI, alone and
+    // beside letters that fall back to Nirmala UI; the whole line failed before.
+    {TextSystem digits{};CHECK(text_system_initialize(&digits,L"Segoe UI",16).ok());
+        TextGlyph glyphs[64];TextRun runs[16];u16 clusters[64];TextDecoration decorations[4];ShapedText shaped_text{};
+        const Utf8View lines[]{utf8_literal("२"),utf8_literal("नमस्ते ४६"),utf8_literal("abc ०१२३४५६७८९"),utf8_literal("নমস্কার ৪৬")};
+        for(const auto& line:lines){const TextLayoutRequest request{line,{},400.0f,100000.0f,TextWrapping::wrap,TextOverflow::clip};
+            CHECK(shaped_text_initialize(&shaped_text,{glyphs,64},{runs,16},{clusters,64},{decorations,4}));
+            const auto shaped=text_shape_utf8(&digits,request,&shaped_text);const bool drawn=shaped.ok()&&shaped_text.glyph_count;
+            shaped_text_reset(&shaped_text);CHECK(drawn&&text_measure_utf8(&digits,request).ok());}
+        text_system_release(&digits);}
     print("font_selection_lazy_scripts_styles_variable_private_missing_failure_lifetime_passed\n");return true;
 }
