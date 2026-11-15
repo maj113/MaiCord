@@ -1,6 +1,7 @@
 #include "audio_support.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/sys/simd.hpp"
 
 // The part of media audio that has no operating system in it: the caller-owned ring, the gain rule and the clock
 // conversions. The Windows (media_audio.cpp) and Linux (pulse/media_audio.cpp) transports both build on it.
@@ -19,8 +20,19 @@ bool ring_valid(const MediaAudioRing& r) noexcept {
 // No clip here. The system applies the user's volume to these samples and limits them at the device.
 // A clip at this point cuts every decoded peak above full scale, also at a low volume.
 void scale(float* out,const float* in,u32 count,float gain) noexcept {
+    const __m256 factor=_mm256_set1_ps(gain);u32 i=0;
+    for(;i+8<=count;i+=8)_mm256_storeu_ps(out+i,_mm256_mul_ps(_mm256_loadu_ps(in+i),factor));
 #pragma clang loop vectorize(disable) unroll(disable)
-    for(u32 i=0;i<count;++i)out[i]=in[i]*gain;
+    for(;i<count;++i)out[i]=in[i]*gain;
+}
+// A sample is finite unless all the bits of its exponent are set. Only then does the sum carry into the sign bit.
+bool all_finite(const float* in,u32 count) noexcept {
+    const __m128i exponent=_mm_set1_epi32(0x7f800000),one=_mm_set1_epi32(0x00800000);__m128i carry=_mm_setzero_si128();u32 i=0;
+    for(;i+4<=count;i+=4)carry=_mm_or_si128(carry,_mm_add_epi32(_mm_and_si128(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(in+i)),exponent),one));
+    bool finite=!(_mm_movemask_epi8(carry)&0x8888);
+#pragma clang loop vectorize(disable) unroll(disable)
+    for(;i<count;++i)finite=finite&&is_finite(in[i]);
+    return finite;
 }
 }
 bool media_audio_gain_valid(float gain) noexcept {return is_finite(gain)&&gain>=0&&gain<=1;}
@@ -38,7 +50,7 @@ MediaAudioResult media_audio_ring_write(MediaAudioRing* r,u64 epoch,ConstSlice<f
     if(epoch!=r->epoch)return fail(Error::stale_epoch);if(r->ended)return fail(Error::stopped);
     const u32 frames=pcm.count/r->channels;if(frames>media_audio_ring_free(*r))return fail(Error::capacity);
     if(r->written>~u64{0}-frames)return fail(Error::timeline);
-    for(u32 i=0;i<pcm.count;++i)if(!is_finite(pcm[i]))return fail(Error::invalid_input);
+    if(!all_finite(pcm.data,pcm.count))return fail(Error::invalid_input);
     // The ring wraps at its sample count, a whole number of frames: at most two contiguous copies.
     const u32 start=static_cast<u32>(r->written%(r->samples.count/r->channels))*r->channels,first=minimum(pcm.count,r->samples.count-start);
     copy_bytes(r->samples.data+start,pcm.data,first*4);copy_bytes(r->samples.data,pcm.data+first,(pcm.count-first)*4);

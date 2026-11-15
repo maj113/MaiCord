@@ -5,6 +5,7 @@
 #include "maicord/media/audio/mp3_stream.hpp"
 #include "maicord/media/containers/ogg_opus.hpp"
 #include "maicord/media/audio/opus_decoder.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -354,6 +355,27 @@ bool soundboard_mixer_play(SoundboardMixer* mixer, SoundboardClip* clip, u32 sou
     return true;
 }
 
+namespace {
+// out[i] += source[i] * gain >> 16, for a gain of at most 2^17.
+MAICORD_HASWELL void accumulate(i32* out, const i16* source, u32 count, u32 gain) noexcept {
+    const __m256i low = _mm256_set1_epi32(gain & 0xffff), high = _mm256_set1_epi32(gain >> 16);
+    u32 i = 0;
+    for (; i + 8 <= count; i += 8) {
+        // sample * gain >> 16 = sample * high + (sample * low >> 16). The unsigned product of a negative
+        // sample is low * 65536 too large.
+        const __m256i sample = _mm256_cvtepi16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(source + i)));
+        const __m256i part = _mm256_sub_epi32(_mm256_mulhi_epu16(sample, low),
+                                              _mm256_and_si256(_mm256_srai_epi32(sample, 31), low));
+        auto* const sum = reinterpret_cast<__m256i_u*>(out + i);
+        _mm256_storeu_si256(sum, _mm256_add_epi32(_mm256_loadu_si256(sum),
+                                                  _mm256_add_epi32(part, _mm256_madd_epi16(sample, high))));
+    }
+#pragma clang loop vectorize(disable) unroll(disable)
+    for (; i < count; ++i)
+        out[i] += static_cast<i32>((static_cast<i64>(source[i]) * static_cast<i64>(gain)) >> 16);
+}
+} // namespace
+
 u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, u32 output_percent, bool call,
                             u64 now_us) noexcept {
     if (!mixer || !mix.data)
@@ -370,17 +392,13 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
         return active;
     }
     const u32 board = static_cast<u32>(100 + mixer->volume_delta);
-    i32* out = mix.data; // Local: the slice would be reloaded after every store.
     for (u32 v = 0; v < mixer->count;) {
         auto& voice = mixer->voices[v];
-        const u64 gain = u64{voice.gain_q16} * board * minimum(output_percent, 200u) / 10000;
+        // At most 65536 * 100 * 200 / 10000 = 2^17.
+        const u32 gain = static_cast<u32>(u64{voice.gain_q16} * board * minimum(output_percent, 200u) / 10000);
         const u32 take = minimum(frames, voice.clip->frames - voice.position);
-        const i16* source = voice.clip->pcm + usize{voice.position} * 2;
-        if (gain) {
-#pragma clang loop vectorize(disable) unroll(disable)
-            for (u32 i = 0; i < take * 2; ++i)
-                out[i] += static_cast<i32>((static_cast<i64>(source[i]) * static_cast<i64>(gain)) >> 16);
-        }
+        if (gain)
+            accumulate(mix.data, voice.clip->pcm + usize{voice.position} * 2, take * 2, gain);
         voice.position += take;
         if (voice.position >= voice.clip->frames) {
             finished[finished_count++] = voice.clip;

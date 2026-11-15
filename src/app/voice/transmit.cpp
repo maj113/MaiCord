@@ -1,6 +1,7 @@
 #include "maicord/app/voice/transmit.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -37,23 +38,51 @@ u32 voice_level_from_energy(u64 mean_square) noexcept {
     return low;
 }
 
-u32 voice_level(ConstSlice<i16> pcm) noexcept {
+MAICORD_HASWELL u32 voice_level(ConstSlice<i16> pcm) noexcept {
     if (!pcm.data || !pcm.count)
         return 0;
-    u64 sum = 0;
-    for (u32 i = 0; i < pcm.count; ++i)
+    // The sum of two squares fits an unsigned 32-bit lane. The even and the odd lanes add up in 64-bit lanes.
+    const __m256i even = _mm256_srli_epi64(_mm256_set1_epi32(-1), 32);
+    __m256i squares = _mm256_setzero_si256();
+    u32 i = 0;
+    for (; i + 16 <= pcm.count; i += 16) {
+        const __m256i samples = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(pcm.data + i));
+        const __m256i pairs = _mm256_madd_epi16(samples, samples);
+        squares = _mm256_add_epi64(squares, _mm256_and_si256(pairs, even));
+        squares = _mm256_add_epi64(squares, _mm256_srli_epi64(pairs, 32));
+    }
+    const __v4du lanes = static_cast<__v4du>(squares);
+    u64 sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+#pragma clang loop vectorize(disable) unroll(disable)
+    for (; i < pcm.count; ++i)
         sum += static_cast<u64>(static_cast<i32>(pcm[i]) * static_cast<i32>(pcm[i]));
     return voice_level_from_energy(sum / pcm.count);
 }
 
-void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept {
+MAICORD_HASWELL void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept {
     if (!pcm.data || gain_percent == 100)
         return;
     const i32 gain = static_cast<i32>(minimum(gain_percent, 200u));
-    i16* samples = pcm.data; // Locals, not the slice: its members would be reloaded after every store.
+    i16* samples = pcm.data;
     const u32 count = pcm.count;
+    // As voice_mixer_accumulate: magnitude * gain / 100 = whole * gain + rest * gain / 100, in 16-bit lanes.
+    // The limit is 32767 for a positive sample and 32768 for a negative sample.
+    const __m256i hundredth = _mm256_set1_epi16(20972), hundred = _mm256_set1_epi16(100);
+    const __m256i factor = _mm256_set1_epi16(static_cast<i16>(gain)), top = _mm256_set1_epi16(32767);
+    u32 i = 0;
+    for (; i + 16 <= count; i += 16) {
+        auto* const at = reinterpret_cast<__m256i_u*>(samples + i);
+        const __m256i sample = _mm256_loadu_si256(at);
+        const __m256i magnitude = _mm256_abs_epi16(sample);
+        const __m256i whole = _mm256_srli_epi16(_mm256_mulhi_epu16(magnitude, hundredth), 5);
+        const __m256i rest = _mm256_sub_epi16(magnitude, _mm256_mullo_epi16(whole, hundred));
+        const __m256i part = _mm256_srli_epi16(_mm256_mulhi_epu16(_mm256_mullo_epi16(rest, factor), hundredth), 5);
+        const __m256i scaled = _mm256_adds_epu16(_mm256_mullo_epi16(whole, factor), part);
+        const __m256i limit = _mm256_sub_epi16(top, _mm256_srai_epi16(sample, 15));
+        _mm256_storeu_si256(at, _mm256_sign_epi16(_mm256_min_epu16(scaled, limit), sample));
+    }
 #pragma clang loop vectorize(disable) unroll(disable)
-    for (u32 i = 0; i < count; ++i) {
+    for (; i < count; ++i) {
         const i32 scaled = samples[i] * gain / 100;
         samples[i] = static_cast<i16>(scaled > 32767 ? 32767 : scaled < -32768 ? -32768 : scaled);
     }
