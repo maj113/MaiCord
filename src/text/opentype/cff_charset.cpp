@@ -1,4 +1,5 @@
 #include "cff_internal.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord::cff_detail {
 namespace {

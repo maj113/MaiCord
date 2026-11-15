@@ -11,7 +11,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/virtual_memory.hpp"
-#include "maicord/media/audio/opus_decoder.hpp"
 #include "maicord/platform/decode/gpu_stream_decoder.hpp"
 #include "maicord/protocol/voice/dave_codec.hpp"
 #include "maicord/protocol/voice/dave_frame.hpp"

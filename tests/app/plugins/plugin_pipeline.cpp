@@ -3,7 +3,6 @@
 #include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "plugins/binding_internal.hpp"
 #include "../../support/test_output.hpp"
 #include "plugin_fixture.hpp"
 #include "fake_actions.hpp"

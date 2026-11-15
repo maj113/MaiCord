@@ -1,6 +1,5 @@
 #include "user_payload.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 #include "maicord/model/chat/asset_hash.hpp"

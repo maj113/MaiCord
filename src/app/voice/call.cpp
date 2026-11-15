@@ -34,6 +34,7 @@
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/ui/account/profile_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

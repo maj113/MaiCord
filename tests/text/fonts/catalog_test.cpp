@@ -8,6 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
 #include "../../support/test_output.hpp"
+#include "maicord/core/byte_order.hpp"
 namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
 #include "catalog_fixture.inc"

@@ -1,6 +1,7 @@
 // CBLC/CBDT: the generated fixture (every index subtable format, every PNG image format, three strikes) for the exact
 // behaviour, and the installed Noto Color Emoji for the real thing (Linux: through the system font locator).
 // argv[1]: none runs both; "--fixture" only the fixture.
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/os/file.hpp"

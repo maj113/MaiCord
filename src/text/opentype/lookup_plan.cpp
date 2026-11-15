@@ -1,4 +1,5 @@
 #include "maicord/text/opentype/lookup_plan.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/shaping/simple_script.hpp"
 #include "layout_language.hpp"

@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/emoji_paragraph.hpp"
+#include "maicord/core/utf.hpp"
 #include "../layout/unicode_line_geometry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/layout/visibility.hpp"

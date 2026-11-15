@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/fonts/prepare.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/text/fonts/run_handle.hpp"
 namespace maicord {
 struct NativeFontRun {NativeFontSelection source;NativeFontInstanceHandle instance;u32 simulations;};

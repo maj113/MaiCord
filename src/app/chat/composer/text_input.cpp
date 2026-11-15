@@ -17,6 +17,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/ui/chat/messages/forward_scene.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"

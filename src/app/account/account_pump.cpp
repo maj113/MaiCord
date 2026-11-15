@@ -45,6 +45,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/ui/account/profile_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

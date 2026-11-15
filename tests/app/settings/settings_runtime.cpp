@@ -4,6 +4,7 @@
 #include "../../support/window_fixture.hpp"
 #include "maicord/ui/core/cursor.hpp"
 #include "../../support/settings_schema_validation.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "settings/settings.hpp"
 #include "settings/streamer_mode.hpp"
 #include "maicord/platform/window/null.hpp"

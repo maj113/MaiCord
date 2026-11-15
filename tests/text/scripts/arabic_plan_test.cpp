@@ -7,7 +7,6 @@
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/text/scripts/arabic_shape_run.hpp"
 #include "maicord/text/scripts/arabic_joining.hpp"
-#include "maicord/text/unicode/grapheme.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/scripts/arabic_run_plan.hpp"

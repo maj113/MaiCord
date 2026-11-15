@@ -1,4 +1,3 @@
-#include "../support/test_output.hpp"
 #include "../support/test_main_shared.hpp"
 
 #include "maicord/core/arena.hpp"
@@ -13,8 +12,6 @@
 #include "maicord/core/virtual_memory.hpp"
 #if defined(_WIN32)
 #include "../support/secure_text_store_access.hpp"
-#include "maicord/protocol/user/private_conversation.hpp"
-#include "maicord/core/win32_exception.hpp"
 #else
 #include "maicord/core/data_path.hpp"
 #include "maicord/sys/linux/path.hpp"

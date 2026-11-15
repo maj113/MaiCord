@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/fonts/catalog.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/text/fonts/prepare.hpp"
 #include "maicord/text/fonts/catalog_coverage.hpp"
 #include "maicord/text/fonts/fallback_range.hpp"

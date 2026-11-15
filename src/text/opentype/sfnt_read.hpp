@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/base.hpp"
+#include "maicord/core/byte_order.hpp"
 
 // Bounds checks, big-endian reads and work budgets shared by the table parsers.
 namespace maicord::sfnt_read {

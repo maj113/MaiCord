@@ -11,7 +11,6 @@
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "../../support/gsub_program_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 namespace maicord {namespace {

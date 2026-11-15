@@ -7,6 +7,7 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/widgets/badge.hpp"
+#include "maicord/ui/widgets/kit.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"

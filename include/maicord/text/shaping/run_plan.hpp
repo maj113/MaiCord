@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/fonts/instance.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/text/fonts/metrics.hpp"
 

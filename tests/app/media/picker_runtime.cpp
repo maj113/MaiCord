@@ -15,6 +15,7 @@
 #include "../../support/test_output.hpp"
 #include "../../support/window_fixture.hpp"
 #include "maicord/app/media/account_gif_favorites.hpp"
+#include "maicord/core/byte_range.hpp"
 
 namespace maicord::app_detail {
 // No voice message recording in this runtime.

@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/arabic_marks.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 
 namespace maicord {namespace {

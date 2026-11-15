@@ -1,4 +1,5 @@
 #include "maicord/ui/text/text.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/ui/text/native_text_candidate.hpp"

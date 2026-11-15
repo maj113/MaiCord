@@ -5,7 +5,7 @@
 #if defined(_WIN32)
 #include "maicord/sys/intrin.hpp"
 #else
-#include "maicord/sys/linux/calls.hpp"
+#include "maicord/sys/linux/syscall.hpp"
 #endif
 
 // The bit operations shared code uses, as clang builtins on both systems: each is one instruction.
@@ -46,7 +46,7 @@ __forceinline u32 current_thread_id() noexcept {
 #else
     static __thread u32 cached;
     if (!cached) {
-        cached = static_cast<u32>(sys_gettid());
+        cached = static_cast<u32>(syscall1(kSysGettid, 0));
     }
     return cached;
 #endif

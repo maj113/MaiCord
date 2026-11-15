@@ -21,6 +21,7 @@
 #include "maicord/ui/media/expression_card_scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord::app_detail {
 namespace {

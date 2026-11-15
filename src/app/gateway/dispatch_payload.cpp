@@ -5,7 +5,6 @@
 #include "maicord/core/memory.hpp"
 
 #include "dispatch_common.hpp"
-#include "message_mailbox.hpp"
 
 namespace maicord {
 namespace {

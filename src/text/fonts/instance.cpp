@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/instance.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
 #include "../opentype/sfnt_read.hpp"
 

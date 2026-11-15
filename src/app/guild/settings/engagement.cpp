@@ -1,6 +1,7 @@
 #include "page_common.hpp"
 #include "../../shell/toast.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail::server_settings {

@@ -9,6 +9,7 @@
 #include "../account/account_presentation.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord::app_detail {
 

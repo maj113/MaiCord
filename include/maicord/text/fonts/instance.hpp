@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/fonts/store.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/text/opentype/tt_outline.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {

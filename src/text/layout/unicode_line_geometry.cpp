@@ -1,4 +1,5 @@
 #include "unicode_line_geometry.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "../opentype/layout_float.hpp"

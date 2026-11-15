@@ -3,7 +3,6 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "dispatch_common.hpp"
-#include "message_mailbox.hpp"
 #include "user_payload.hpp"
 #include "maicord/protocol/media/upload_allowance.hpp"
 #include "private_dispatch.hpp"

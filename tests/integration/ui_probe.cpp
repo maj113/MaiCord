@@ -28,7 +28,6 @@
 #include "maicord/ui/account/dm_profile_panel.hpp"
 #include "maicord/ui/widgets/activity_status.hpp"
 #include "maicord/core/decimal.hpp"
-#include "../../src/render/text/shaped_text_cache.hpp"
 #include "font_identity_probe.hpp"
 #include "../fixtures/jpeg_reference_fixture.hpp"
 #include "../fixtures/jpeg_progressive_fixture.hpp"

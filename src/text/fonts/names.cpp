@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/names.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}

@@ -11,6 +11,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/chat/search/account_message_search.hpp"
+#include "maicord/ui/account/profile_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -7,9 +7,6 @@
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "../../../support/test_output.hpp"
-#if defined(_WIN32)
-#include "maicord/core/win32_user.hpp"
-#endif
 #include "maicord/platform/window/key.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/gpu/api.hpp"

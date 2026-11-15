@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/text/opentype/context.hpp"
 #include "maicord/text/base.hpp"
+#include "maicord/core/byte_order.hpp"
 namespace maicord {
 // Two-level glyph sketch: bit (glyph mod 64) in low, bit ((glyph/64) mod 64)
 // in high. A glyph or set can intersect another set only if both levels do.

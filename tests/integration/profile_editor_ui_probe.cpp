@@ -12,7 +12,6 @@
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/ui/guild/card_scene.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
-#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"

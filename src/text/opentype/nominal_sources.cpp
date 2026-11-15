@@ -1,4 +1,5 @@
 #include "maicord/text/opentype/nominal_sources.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {

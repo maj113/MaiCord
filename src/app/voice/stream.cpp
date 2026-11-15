@@ -20,6 +20,7 @@
 #include "maicord/ui/voice/stream_card_scene.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/ui/account/profile_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/latin_run.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "../opentype/nominal_placements.hpp"
 #include "../shaping/compact_run.hpp"

@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/fallback_range.hpp"
+#include "maicord/core/utf.hpp"
 namespace maicord {namespace {
 struct Mapping {
     NativeFallbackIndexSelect base,route,fallback;NativeFallbackCoverage coverage;void* context;

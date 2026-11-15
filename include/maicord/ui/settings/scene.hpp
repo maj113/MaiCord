@@ -5,12 +5,14 @@
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/text/edit_field.hpp"
-#include "maicord/ui/widgets/kit_markdown.hpp"
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
 enum class UiIcon : u8;
+struct UiMarkdownBank;
+struct UiSettingsLayoutTokens;
+struct UiTextMeasureCache;
 
 enum class UiSettingsControlKind : u8 {
     toggle,

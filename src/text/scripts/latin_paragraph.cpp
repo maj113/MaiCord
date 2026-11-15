@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/latin_paragraph.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/scripts/latin_line.hpp"
 #include "maicord/text/unicode/unicode.hpp"

@@ -1,4 +1,5 @@
 #include "compact_run.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/text/opentype/gpos_execute.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {

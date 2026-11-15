@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "../../shell/state.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/platform/desktop/shell_open.hpp"
 #include "maicord/app/account/login/account_action_captcha.hpp"

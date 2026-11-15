@@ -6,7 +6,6 @@
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
 #include "maicord/sys/crt.hpp"
-#include <stddef.h>
 
 namespace maicord {
 namespace {

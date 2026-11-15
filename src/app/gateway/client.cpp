@@ -1,5 +1,4 @@
 #include "client_internal.hpp"
-#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/hash.hpp"
 

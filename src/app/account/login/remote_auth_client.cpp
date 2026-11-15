@@ -1,6 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/login/remote_auth_client.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/os/thread.hpp"
 
 #include "maicord/app/account/login/remote_auth_ticket_exchange.hpp"
 #include "maicord/app/net/signed_out_session.hpp"

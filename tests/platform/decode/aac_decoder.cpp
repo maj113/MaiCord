@@ -1,7 +1,6 @@
 #include "maicord/platform/decode/aac_decoder.hpp"
 #include "maicord/media/audio/aac_configuration.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {

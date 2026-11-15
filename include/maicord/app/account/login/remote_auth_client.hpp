@@ -4,10 +4,10 @@
 #include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/os/thread.hpp"
 #include "maicord/protocol/auth/remote_auth.hpp"
 
 namespace maicord {
+struct Thread;
 
 enum class RemoteAuthCryptoError : u8;
 enum class RemoteAuthHandshakeError : u8;

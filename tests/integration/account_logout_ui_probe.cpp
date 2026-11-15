@@ -35,7 +35,6 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/app/gateway/client.hpp"
 
 namespace maicord::app_detail {

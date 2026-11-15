@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/fallback_range.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 namespace maicord {namespace {
 struct FallbackOverride {u32 first,last_flags;};

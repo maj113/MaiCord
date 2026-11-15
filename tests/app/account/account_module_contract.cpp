@@ -13,7 +13,6 @@
 #include "maicord/protocol/messages/poll.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/protocol/user/private_conversation.hpp"
-#include "maicord/protocol/user/relationships.hpp"
 
 namespace maicord {
 

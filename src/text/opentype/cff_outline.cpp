@@ -1,4 +1,5 @@
 #include "cff_internal.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/simd.hpp"
 

@@ -8,6 +8,7 @@
 #include "maicord/platform/desktop/webauthn.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 #include "maicord/app/account/login/remote_auth_handshake.hpp"
+#include "maicord/app/account/login/remote_auth_client.hpp"
 #include "maicord/platform/window/key.hpp"
 
 namespace maicord::app_detail {

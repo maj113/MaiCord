@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/prepare.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 void* take_data(Arena& a,u32 n,usize size,usize align) noexcept {return n?arena_allocate(&a,size*n,align):nullptr;}

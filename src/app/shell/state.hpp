@@ -26,7 +26,7 @@
 #include "maicord/app/media/url_resolver.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_storage.hpp"
-#include "maicord/app/account/login/remote_auth_client.hpp"
+#include "maicord/protocol/auth/remote_auth.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/render/d3d11/renderer.hpp"

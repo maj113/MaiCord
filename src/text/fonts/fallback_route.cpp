@@ -1,4 +1,5 @@
 #include "maicord/text/fonts/fallback_range.hpp"
+#include "maicord/core/utf.hpp"
 namespace maicord {namespace {u8 band(u32 cp) noexcept{return cp<0xe000?0u:cp<0xf900?1u:2u;}}
 SfntStatus native_font_fallback_routed_range(Utf8View text,NativeFallbackIndexSelect route,NativeFallbackIndexSelect select,
     NativeFallbackCoverage coverage,void* context,NativeFallbackRangeResult* output) noexcept {

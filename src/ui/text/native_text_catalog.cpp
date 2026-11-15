@@ -4,12 +4,12 @@
 #include "maicord/core/log_event.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/os/file.hpp"
 #include "maicord/os/ordinal.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"
 #include "maicord/core/win32_file_info.hpp"
 #else
+#include "maicord/os/file.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/font/system_font_locator.hpp"
 #endif

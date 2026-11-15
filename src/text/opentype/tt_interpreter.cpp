@@ -1,4 +1,5 @@
 #include "maicord/text/opentype/tt_interpreter.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "tt_math.hpp"
 namespace maicord {namespace {

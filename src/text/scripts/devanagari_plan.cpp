@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/indic_plan.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "../opentype/layout_language.hpp"
 #include "maicord/text/base.hpp"

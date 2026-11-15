@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/render/d3d11/renderer.hpp"
-#include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/core/utf.hpp"
 #include "renderer_interaction_state.hpp"
 

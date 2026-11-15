@@ -4,7 +4,6 @@
 // delivered, the pictures the encoder took and dropped, the units it produced and the self-preview's picture sequence,
 // to see where pictures stop between the capture and the wire. A still screen delivers few pictures (the capture only
 // reports changes), so a second with no picture is not a failure; a picture that arrives must reach the units.
-#include "maicord/core/time.hpp"
 #include "maicord/gpu/api.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/platform/capture/screen_capture.hpp"

@@ -1,4 +1,5 @@
 #include "maicord/text/unicode/unicode.hpp"
+#include "maicord/core/utf.hpp"
 namespace maicord {
 bool native_text_nonvisual(u32 cp) noexcept {
     switch(cp>>16){

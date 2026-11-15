@@ -1,4 +1,5 @@
 #include "maicord/text/scripts/arabic_joining.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {

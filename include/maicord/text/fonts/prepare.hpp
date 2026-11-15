@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/fonts/session.hpp"
+#include "maicord/core/arena.hpp"
 namespace maicord {
 // Prepare an already loaded physical face with the given user-space settings.
 // The caller keeps the session and face alive. Scratch is appended to, not

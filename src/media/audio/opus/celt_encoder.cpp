@@ -2,7 +2,6 @@
 // SILK layer into the same range coder. The analysis is single precision; every coded symbol is as RFC
 // 6716 4.3 defines it, through the allocation and band coder that the decoder uses.
 #include "celt.hpp"
-#include "vector.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord::opus {

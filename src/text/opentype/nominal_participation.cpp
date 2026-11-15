@@ -1,4 +1,5 @@
 #include "maicord/text/opentype/nominal_participation.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/opentype/nominal_sources.hpp"
 #include "maicord/text/opentype/layout_tables.hpp"

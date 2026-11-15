@@ -1,4 +1,3 @@
-#include "../../../support/gateway_message_scratch.hpp"
 #include "../../../support/test_main_shared.hpp"
 
 #include "maicord/app/chat/messages/history_sync.hpp"
