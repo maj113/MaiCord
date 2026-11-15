@@ -17,6 +17,10 @@ maicord_library(maicord_core
     linux:src/os/linux/directory.cpp linux:src/os/linux/ordinal.cpp linux:src/os/linux/local_time.cpp
     linux:src/os/linux/date_format.cpp linux:src/os/linux/process.cpp linux:src/os/linux/text.cpp
     linux:src/platform/time/tzif.cpp)
+if(MAICORD_LINUX)
+    # The Linux resources are #embedded (src/core/linux/resource.cpp): clang 23 reports them as a C23 extension.
+    target_compile_options(maicord_core PRIVATE -Wno-c23-extensions)
+endif()
 
 maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/compression/zstd.cpp
     src/media/compression/inflated_block.cpp LIBS maicord_core)
