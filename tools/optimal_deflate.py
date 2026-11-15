@@ -27,6 +27,11 @@ plain zlib stream and a warning (an error with MAICORD_REQUIRE_DEFLATE_CACHE=1,
 which CI sets). The build target ``maicord_update_deflate_cache`` (that is,
 MAICORD_UPDATE_DEFLATE_CACHE=1 for the generators) searches the misses and
 rewrites each generator's own lines; commit the result.
+
+The cache also holds zstd frames, for data that repeats over more than the 32 KB
+window of deflate (the regional flags). The update target makes a missing frame
+with the third-party Python module ``zstandard`` (pip install zstandard). A build
+needs no module: it reads the cached frame, or falls back to zlib.
 """
 import base64
 import hashlib
@@ -443,15 +448,30 @@ def zlib_best(data):
     return best
 
 
+def zstd_frame(data):
+    """The zstd frame of ``data`` at the highest level, without content size or checksum. Only update mode calls
+    this: it needs the third-party ``zstandard`` module, and a build does not."""
+    import zstandard
+    parameters = zstandard.ZstdCompressionParameters.from_level(
+        22, source_size=len(data), write_content_size=False, write_checksum=False, write_dict_id=False)
+    frame = zstandard.ZstdCompressor(compression_params=parameters).compress(data)
+    assert zstandard.ZstdDecompressor().decompress(frame, max_output_size=len(data)) == data
+    return frame
+
+
 CACHE_PATH = pathlib.Path(__file__).with_name("deflate_cache.txt")
 
 
 class DeflateCache:
     """One generator's streams in tools/deflate_cache.txt (lines of
-    ``namespace sha256 base64``, sorted)."""
+    ``namespace sha256 base64``, sorted).
 
-    def __init__(self, namespace):
+    With ``zstd`` the cached streams are zstd frames, for data larger than the 32 KB window of deflate. The
+    client's loader (src/media/compression/inflated_block.cpp) reads both forms, so a miss still uses zlib."""
+
+    def __init__(self, namespace, zstd=False):
         self.namespace = namespace
+        self.zstd = zstd
         self.update = os.environ.get("MAICORD_UPDATE_DEFLATE_CACHE") == "1"
         self.strict = os.environ.get("MAICORD_REQUIRE_DEFLATE_CACHE") == "1"
         self.entries = {}
@@ -466,14 +486,15 @@ class DeflateCache:
         """The cached stream for ``data``; ``fallback(data)`` (zlib) when missing."""
         key = hashlib.sha256(data).hexdigest()
         stream = self.entries.get((self.namespace, key))
-        if stream is None or zlib.decompress(stream) != data:
+        # A build cannot decode a zstd frame, so it trusts the key. The tests of the data decode the frame.
+        if stream is None or not (self.zstd or zlib.decompress(stream) == data):
             stream = fallback(data)
             if self.update:
-                searched = zlib_stream(data)
+                searched = zstd_frame(data) if self.zstd else zlib_stream(data)
                 stream = searched if len(searched) < len(stream) else stream
             else:
                 self.missing += 1
-                message = (f"{self.namespace}: no cached optimal deflate stream for {key[:12]} ({len(data)} bytes); "
+                message = (f"{self.namespace}: no cached stream for {key[:12]} ({len(data)} bytes); "
                            "using zlib. Run the maicord_update_deflate_cache target and commit tools/deflate_cache.txt.")
                 if self.strict:
                     raise SystemExit("error: " + message)

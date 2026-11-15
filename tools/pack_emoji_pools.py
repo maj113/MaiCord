@@ -4,7 +4,8 @@
 Usage: pack_emoji_pools.py OUTPUT CATALOG_INCLUDE SHORTCODE_INCLUDE
 
 The catalog name prefix, shared shortcode names, shared glyphs, the 6-byte catalog and alias rows and the
-primary-shortcode bit set form one zlib stream. Generated alias rows use offsets from the shared name suffix.
+primary-shortcode bit set form one stream: a zstd frame from tools/deflate_cache.txt (the pools repeat over more
+than the 32 KB window of deflate), or a zlib stream when the cache lacks it. Generated alias rows use offsets from the shared name suffix.
 Rows ship as byte planes of BLOCK-row blocks (a plane of one field deflates far better than interleaved
 rows); src/ui/text/emoji_catalog.cpp inflates the stream once, interleaves the rows back in place and checks
 the layout constants emitted here (interleave() below is the same permutation, checked against the sources).
@@ -55,10 +56,9 @@ def pack(data):
                     best = out
         return best
 
-    cache = optimal_deflate.DeflateCache("emoji")
+    cache = optimal_deflate.DeflateCache("emoji_zstd", zstd=True)
     best = cache.stream(data, fallback)
     cache.save()
-    assert zlib.decompress(best) == data
     return best
 
 

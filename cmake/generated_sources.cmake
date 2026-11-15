@@ -198,11 +198,12 @@ add_custom_command(
         tools/font_reference/embed_fixture.py ${MAICORD_PACKED_SHADER_HEADERS}
     VERBATIM)
 
-# The icon pack, regional flags, shaders and emoji pool ship the deflate streams of tools/deflate_cache.txt
-# (tools/optimal_deflate.py): a build never searches, and for data the cache lacks it uses zlib
+# The icon pack, regional flags, shaders and emoji pool ship the streams of tools/deflate_cache.txt
+# (tools/optimal_deflate.py): deflate streams, and zstd frames for the regional flags and the emoji pool, which
+# repeat over more than the window of deflate. A build never searches, and for data the cache lacks it uses zlib
 # and warns (MAICORD_REQUIRE_DEFLATE_CACHE=1 makes that an error). After changing an icon,
 # flag, shader or emoji table, build this target, which searches the missing streams (a minute or so for
-# the flags) and rewrites the cache, then commit it.
+# the icons; a zstd frame needs the Python module zstandard) and rewrites the cache, then commit it.
 add_custom_target(maicord_update_deflate_cache
     COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build

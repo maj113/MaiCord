@@ -106,7 +106,8 @@ void index_pool(const u8* pool) noexcept {
         if (first_skin_tone(entries[i].glyph()))
             set_bit(toned_entries, i);
     }
-    heap_sort_shared(order, kEmojiPoolCatalogEntryCount, [entries](u16 left, u16 right) noexcept {
+    // The sort is most of the first emoji lookup of a process, so its comparator is inline.
+    heap_sort(order, kEmojiPoolCatalogEntryCount, [entries](u16 left, u16 right) noexcept {
         return glyph_key(entries[left].glyph_offset, entries[left].glyph_bytes) <
                glyph_key(entries[right].glyph_offset, entries[right].glyph_bytes);
     });

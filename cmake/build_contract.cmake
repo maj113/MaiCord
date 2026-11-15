@@ -136,13 +136,14 @@ set(MAICORD_SIZE_OPTION ${maicord_clang}-Oz ${maicord_clang}-moutline)
 # smaller.
 if(MAICORD_LINUX)
     set(MAICORD_FOLD_OPTION -finline-functions)
-    # Between the two: sources the Windows build leaves at -O2 compile -Os on Linux unless a measurement shows them hot
-    # (cmake/size_policy.cmake, maicord_source_options): inlining and unrolling are limited and nothing is vectorized,
-    # but nothing is outlined either (-moutline stays with the size option: outlining the -Os group slowed the stores
-    # and text entry). Windows has no such level.
+    # Between the two: -Os for the sources that no measurement shows hot (cmake/size_policy.cmake,
+    # maicord_source_options): inlining and unrolling are limited and nothing is vectorized, but nothing is outlined
+    # either (-moutline stays with the size option: outlining the -Os group slowed the stores and text entry). Linux
+    # takes it for the sources the Windows build leaves at -O2, Windows for a measured part of them.
     set(MAICORD_BALANCED_OPTION -Os)
 else()
     set(MAICORD_FOLD_OPTION /Ob2)
+    set(MAICORD_BALANCED_OPTION /clang:-Os)
 endif()
 
 # One policy owns every final image's freestanding, mitigation, dead-code and
@@ -167,6 +168,8 @@ if(MAICORD_LINUX)
         LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack
         LINKER:--build-id=none
         LINKER:--gc-sections LINKER:--icf=all
+        # ld.lld shares the tail of a string with a longer string only at -O2 (the client: 7.8 KB of .rodata).
+        LINKER:-O2
         # Relative relocations packed as RELR under the Android tags, which no glibc knows: src/core/linux/start.cpp
         # applies them itself, so one image runs on every glibc from 2.34 (DT_RELR needs 2.36 and a version dependency).
         LINKER:--pack-dyn-relocs=relr LINKER:--use-android-relr-tags

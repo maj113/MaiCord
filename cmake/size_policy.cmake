@@ -3,8 +3,9 @@
 # contract's /Ob1 and -finline-hint-functions). cmake/client.cmake includes it once the client and its libraries exist,
 # so the lists below name Windows files and Linux files side by side: a path no target of the build holds is ignored,
 # and a target that does not exist (the Windows libraries on Linux, the Linux ones on Windows) is skipped. The Windows
-# build's code generation is the one it had before the lists moved here. The Linux client has a third tier at the end
-# of this file: -Os (MAICORD_BALANCED_OPTION) for the sources that are still at -O2 and are not byte or sample loops.
+# build's code generation is the one it had before the lists moved here. A third tier at the end of this file compiles
+# -Os (MAICORD_BALANCED_OPTION): on Linux the sources that are still at -O2 and are not byte or sample loops, on Windows
+# the part of them that measured as fast.
 
 # Cold code is compiled for size: source-level -Oz lands after the contract's
 # /O2 /Ob1 -flto. Parsing, crypto, codecs, compression and text shaping stay
@@ -469,4 +470,20 @@ if(MAICORD_LINUX)
             "^src/model/" "^src/render/text/glyph_atlas\\.cpp$")
     maicord_source_options(OPTIONS -fno-unroll-loops -fno-vectorize -fno-slp-vectorize
         INCLUDE "^src/text/(shaping|scripts|layout)/")
+endif()
+# Windows takes -Os for the sources of this tier that measured as fast: the HEVC stream state, GIF, the dominant colour
+# and the layout engine. Each candidate (the 60 sources both clients build outside src/app that Windows compiles /O2) was
+# timed against /O2 in one program with an A/A copy (the whole client linked as a DLL, best of 30 passes, one core).
+# These stayed within 0.6% or got faster: HEVC stream, GIF, palette, navigation, chrome, message scene, member list.
+# The others stay /O2 because their own path got slower: zstd (Gateway stream 11%), inflate (gzip bodies 0.8-1.7%), the
+# WAVE decoder (20%), the H.264 stream state (H.264 21%, HEVC 33%), the AV1 headers (3.8%), the RTP packetizers and
+# encoder units (RTP H.264 2.7-4.5%), the AV1 depacketizer (2.5-3.6%), DAVE frames (1.5%), the Gateway payload and
+# typing decoders (typing 7-8%), src/core (message route 6%), the media timeline (4-5%), the media atlas, frame cache
+# and damage (9.5%), the glyph outlines (2%), the font session (text shaping 2%) and the widget manager (message scene
+# 2.2%). Other paths moved by up to 5% with any one change of code placement, so only a source's own path counts.
+if(NOT MAICORD_LINUX)
+    set_property(SOURCE src/media/video/hevc_picture.cpp src/media/video/hevc_references.cpp
+        src/media/video/hevc_stream.cpp src/media/image/gif.cpp src/media/image/dominant_color.cpp
+        src/ui/layout/layout_engine.cpp
+        APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_BALANCED_OPTION})
 endif()

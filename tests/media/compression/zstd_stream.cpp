@@ -2,6 +2,7 @@
 // flushed messages, as the Gateway sends them), hand-built blocks for the
 // modes the reference encoder rarely picks, malformed input and the window.
 #include "maicord/media/compression/zstd.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
@@ -372,6 +373,28 @@ bool malformed_input() noexcept {
     return true;
 }
 
+// A packed block (inflated_block.hpp) takes a zstd frame: into its own pages and into a destination. A frame
+// of another size or with a reserved block type makes the block unavailable.
+bool packed_blocks() noexcept {
+    u8 message[64];
+    u8 blocks[8];
+    block_header(blocks, true, 0, 3);
+    blocks[3] = 'r';
+    blocks[4] = 'a';
+    blocks[5] = 'w';
+    const u32 bytes = framed(message, blocks, 6);
+    InflatedBlock loaded{}, placed{}, longer{}, damaged{};
+    const u8* data = inflated_block_load(loaded, message, bytes, 3);
+    CHECK(data && bytes_equal(data, "raw", 3) && loaded.state == 2 &&
+          inflated_block_load(loaded, message, bytes, 3) == data);
+    u8 destination[3]{};
+    CHECK(inflated_block_into(placed, message, bytes, destination, 3) && bytes_equal(destination, "raw", 3));
+    CHECK(!inflated_block_load(longer, message, bytes, 4) && longer.state == 3);
+    message[bytes - 6] |= 6;
+    CHECK(!inflated_block_load(damaged, message, bytes, 3) && damaged.state == 3);
+    return true;
+}
+
 bool run() noexcept {
     guarded = static_cast<u8*>(pages_allocate(kGuardedBytes + kPage));
     storage = static_cast<u8*>(pages_allocate(kStorageReserve));
@@ -379,6 +402,7 @@ bool run() noexcept {
     CHECK(reference_streams());
     CHECK(handmade_blocks());
     CHECK(malformed_input());
+    CHECK(packed_blocks());
     return true;
 }
 

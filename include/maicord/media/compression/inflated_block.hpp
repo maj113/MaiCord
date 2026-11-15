@@ -5,9 +5,10 @@
 
 namespace maicord {
 
-// Constant data that ships as one zlib stream and is inflated, on first use, once per process (a few hundred
-// microseconds for the tables that use it). The block is zero-initialised static storage; the stream is named
-// only where the first use can happen.
+// Constant data that ships as one zlib stream, or as one zstd frame where that is smaller (data larger than
+// the 32 KB window of deflate). It is inflated, on first use, once per process (a few hundred microseconds for
+// the tables that use it). The block is zero-initialised static storage; the stream is named only where the
+// first use can happen.
 //
 // Into static storage, for tables that hot code reads at constant addresses (the pages of a zero-initialised
 // array cost nothing until the inflate writes them):
