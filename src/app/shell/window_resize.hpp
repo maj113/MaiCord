@@ -3,6 +3,7 @@
 #include "frame_presentation.hpp"
 #include "../settings/settings.hpp"
 #include "state.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 inline void application_begin_window_resize() noexcept {

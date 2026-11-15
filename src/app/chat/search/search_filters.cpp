@@ -7,6 +7,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/os/local_time.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace search_detail {

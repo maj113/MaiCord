@@ -7,6 +7,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include "../../../support/test_output.hpp"
 #include "../../../support/window_fixture.hpp"

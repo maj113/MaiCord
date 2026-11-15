@@ -3,6 +3,7 @@
 #include "state.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/ui/text/pointer_selection.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 

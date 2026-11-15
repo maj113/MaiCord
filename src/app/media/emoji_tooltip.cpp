@@ -7,6 +7,7 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

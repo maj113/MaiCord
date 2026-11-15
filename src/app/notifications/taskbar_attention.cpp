@@ -4,6 +4,7 @@
 #include "../shell/window_state.hpp"
 #include "maicord/platform/desktop/taskbar_attention.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 
 namespace maicord::app_detail {

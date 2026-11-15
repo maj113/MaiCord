@@ -6,6 +6,7 @@
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/messages/interaction_data.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

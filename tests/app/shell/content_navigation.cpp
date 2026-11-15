@@ -587,6 +587,7 @@ void tests() noexcept {
 
 namespace maicord::app_detail {
 Application g_app{};
+D3D11Renderer Application::renderer{};
 // The complete shipping content-input TU also contains unrelated menus,
 // attachment commands and hit testing. These boundaries stay inactive here.
 bool application_message_navigation_source(u64 channel_id, u64 message_id, MessageHandle handle,

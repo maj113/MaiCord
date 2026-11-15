@@ -1,4 +1,5 @@
 #include "state.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/core/memory.hpp"
 #include "../settings/theme_publication.hpp"
 
@@ -49,6 +50,8 @@ constinit Application g_app{.preferences = {ClientTheme::dark,
                                             0,     // member_pane_width
                                             0},    // expression_picker_width
                             .image_viewer = {.reveal = {.style = {0, UiMotionCurve::linear}}}};
+// Zero-filled at load, like g_app. main.cpp initializes it after the window exists and shuts it down at exit.
+constinit D3D11Renderer Application::renderer{};
 constinit ThemePublication theme_publication{};
 
 const Theme& application_theme() noexcept {
@@ -83,6 +86,16 @@ bool application_request_frame() noexcept {
     if (g_app.renderer.live_resize && g_app.window)
         window_invalidate(g_app.window);
     return true;
+}
+
+__declspec(noinline) bool application_reduced_motion() noexcept {
+    return client_preferences_reduced_motion(g_app.preferences, application_system_reduced_motion()) ||
+           g_app.renderer.reduced_motion;
+}
+
+void application_repaint() noexcept {
+    g_app.renderer.retained_presentation.valid = false;
+    application_request_frame();
 }
 
 } // namespace maicord::app_detail

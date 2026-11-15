@@ -6,6 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/audio/voice_audio_capture.hpp"
 #include "maicord/ui/settings/scene.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

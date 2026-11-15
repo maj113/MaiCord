@@ -1,6 +1,7 @@
 #pragma once
 #include "../../shell/content_point.hpp"
 #include "maicord/render/text/edit_layout.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/text/secure_text_store.hpp"
 
 namespace maicord::app_detail {

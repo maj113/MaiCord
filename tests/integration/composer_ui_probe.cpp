@@ -39,6 +39,7 @@
 
 namespace maicord::app_detail {
 constinit Application g_app{};
+constinit D3D11Renderer Application::renderer{};
 }
 namespace maicord {
 namespace composer_probe_detail {

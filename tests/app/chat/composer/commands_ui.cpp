@@ -10,6 +10,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 // The app shake moves the composition visual; the fixture counts the moves.

@@ -48,7 +48,10 @@ if(NOT MAICORD_LINUX)
 endif()
 maicord_add_test_codegen_twins(maicord_test_targets)
 maicord_share_test_objects(maicord_test_targets)
-if(NOT MAICORD_LINUX)
+if(MAICORD_LINUX)
+    # The tests link the twin of the application library: it uses its own PCHs.
+    maicord_precompile_test_application_sources(maicord_test_targets maicord_app_client_test)
+else()
     # The tests compiling the most application sources use the application PCH too.
     maicord_precompile_test_application_sources(maicord_test_targets
         MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)

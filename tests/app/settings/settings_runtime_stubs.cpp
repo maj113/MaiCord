@@ -10,6 +10,7 @@
 #include "../../support/test_output.hpp"
 
 #include "../../../src/app/store/store_host.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 

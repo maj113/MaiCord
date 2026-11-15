@@ -5,6 +5,7 @@
 #include "../settings/settings.hpp"
 #include "../settings/theme_editor.hpp"
 #include "maicord/ui/theme/background_animation.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 // The background shows and could move: every pausing rule but a package effect's own (its not-focused row and its

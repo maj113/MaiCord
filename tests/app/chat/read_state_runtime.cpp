@@ -12,6 +12,7 @@
 #include "../../support/chat_state_lists.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/app/gateway/client_event.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::read_state_runtime_test {
 using namespace app_detail;

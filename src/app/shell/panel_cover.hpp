@@ -2,6 +2,7 @@
 #include "../settings/settings.hpp"
 #include "state.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 // No settings page, text form, popup, media viewer, reaction viewer or profile card covers the host

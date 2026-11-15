@@ -238,6 +238,7 @@ cleanup:
 } // namespace maicord::forum_preview_test
 namespace maicord::app_detail {
 Application g_app{};
+D3D11Renderer Application::renderer{};
 bool application_request_frame() noexcept {
     ++forum_preview_test::frames;
     return true;

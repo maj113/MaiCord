@@ -11,6 +11,7 @@
 #include "../shell/window_runtime.hpp"
 #include "maicord/platform/window/win32.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
 #include "../../../tools/perf/probe_window.hpp"

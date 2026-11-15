@@ -253,10 +253,6 @@ set_property(TARGET MaiCord APPEND PROPERTY LINK_DEPENDS "${maicord_source_rules
 # The cold-code size policy (MAICORD_SIZE_OPTION sources and their folding), one list for both clients.
 include(cmake/size_policy.cmake)
 
-if(MAICORD_LINUX)
-    return()
-endif()
-
 # maicord_quoted_include_paths(<variable> <spelling> <includer> <directory>):
 # where a quoted include of <includer> can name an application header: beside
 # <includer>, or under <directory> (src/app, an include directory of tests).
@@ -338,7 +334,7 @@ endfunction()
 # reaches shell/state.hpp (directly or through another src/app header) before
 # any #define, #undef or #pragma of its own and has no definitions of its own,
 # so the PCH holds only declarations it already includes. The options apply
-# only to targets with MAICORD_APPLICATION_PCH, the directory of their own
+# only to targets with MAICORD_APPLICATION_PCH, the path prefix of their own
 # PCHs, so every target compiling a source uses a PCH built with its settings,
 # or none. A source with the property MAICORD_NO_APPLICATION_PCH set never
 # uses one.
@@ -349,6 +345,11 @@ endfunction()
 # client's PCH up at all, rather than have test objects wait on a PCH that
 # nothing there uses. STUBS builds them in that object library instead (with
 # <target>'s settings) and orders only <target>'s objects after them.
+# Linux always passes STUBS: there the stub's object file is the PCH itself
+# (-x c++-header), which no image links, and a source uses it with
+# -include-pch. clang also rejects a PCH built with other inlining options, so
+# Linux has one PCH for each option set of the sources. Two targets with the
+# same settings can name one STUBS library and share its PCHs.
 function(maicord_precompile_application_sources target)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "" "STUBS" "")
     if(NOT ARG_STUBS)
@@ -362,6 +363,13 @@ function(maicord_precompile_application_sources target)
         set_property(GLOBAL PROPERTY MAICORD_APPLICATION_STATE_HEADERS "${app_headers}")
     endif()
     set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${ARG_STUBS}.dir")
+    # Where the PCH of a mode is: beside its stub, or (Linux) the stub's object file.
+    set(pch_prefix "${directory}/application_pch_")
+    set(pch_suffix ".pch")
+    if(NOT MSVC)
+        set(pch_prefix "${directory}/CMakeFiles/${ARG_STUBS}.dir/application_pch_")
+        set(pch_suffix ".cpp.o")
+    endif()
     set(enabled "$<BOOL:$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>>")
     set(modes)
     get_target_property(sources ${target} SOURCES)
@@ -388,52 +396,105 @@ function(maicord_precompile_application_sources target)
             continue()
         endif()
         get_source_file_property(options "${path}" COMPILE_OPTIONS)
+        get_source_file_property(tagged "${path}" MAICORD_APPLICATION_PCH_MODE)
         set(mode O2)
-        if(options MATCHES "${MAICORD_SIZE_OPTION}")
-            set(mode Os)
+        if(MSVC)
+            if(options MATCHES "${MAICORD_SIZE_OPTION}")
+                set(mode Os)
+            endif()
+        elseif(tagged)
+            set(mode ${tagged})
+        elseif(options MATCHES "(^|;)-[IW]")
+            # Three Linux sources have include and warning options of their own: a PCH for them alone costs more.
+            continue()
+        elseif(options)
+            string(REGEX REPLACE "[^A-Za-z0-9]" "" mode "${options}")
+            set_property(GLOBAL PROPERTY MAICORD_APPLICATION_PCH_OPTIONS_${mode} ${options})
         endif()
         list(APPEND modes ${mode})
         # The options are the same for every target; the first one sets them.
-        get_source_file_property(tagged "${path}" MAICORD_APPLICATION_PCH_MODE)
         if(NOT tagged)
-            set(pch "$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>/application_pch_${mode}.pch")
+            set(pch "$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>${mode}${pch_suffix}")
             set_property(SOURCE "${path}" PROPERTY MAICORD_APPLICATION_PCH_MODE ${mode})
-            set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS
-                "$<${enabled}:/FI${header}>" "$<${enabled}:/Yu${header}>" "$<${enabled}:/Fp${pch}>")
+            if(MSVC)
+                set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS
+                    "$<${enabled}:/FI${header}>" "$<${enabled}:/Yu${header}>" "$<${enabled}:/Fp${pch}>")
+            else()
+                set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS
+                    "$<${enabled}:-include-pch>" "$<${enabled}:${pch}>")
+            endif()
         endif()
         if(ARG_STUBS STREQUAL target)
             # /showIncludes omits headers read from a PCH, so name the PCH itself
             # (OBJECT_DEPENDS takes no generator expressions; for other targets
             # compiling the source it is only an extra, already built, input).
-            set_property(SOURCE "${path}" APPEND PROPERTY OBJECT_DEPENDS "${directory}/application_pch_${mode}.pch")
+            set_property(SOURCE "${path}" APPEND PROPERTY OBJECT_DEPENDS "${pch_prefix}${mode}${pch_suffix}")
         endif()
     endforeach()
     list(REMOVE_DUPLICATES modes)
     set(pchs)
+    get_target_property(built ${ARG_STUBS} MAICORD_APPLICATION_PCH_MODES)
     foreach(mode IN LISTS modes)
         set(stub "${directory}/application_pch_${mode}.cpp")
-        set(pch "${directory}/application_pch_${mode}.pch")
-        file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
-        # The Os stub carries the size option first, the position of the cold sources' own option.
-        set(options "/Yc${header}" "/Fp${pch}")
-        if(mode STREQUAL "Os")
-            list(PREPEND options ${MAICORD_SIZE_OPTION})
+        set(pch "${pch_prefix}${mode}${pch_suffix}")
+        list(APPEND pchs "${pch}")
+        if(mode IN_LIST built)
+            continue()
         endif()
-        set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
+        file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
+        if(MSVC)
+            # The Os stub carries the size option first, the position of the cold sources' own option.
+            set(options "/Yc${header}" "/Fp${pch}")
+            if(mode STREQUAL "Os")
+                list(PREPEND options ${MAICORD_SIZE_OPTION})
+            endif()
+            set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
+        else()
+            get_property(options GLOBAL PROPERTY MAICORD_APPLICATION_PCH_OPTIONS_${mode})
+            set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options};-x;c++-header")
+        endif()
         # The PCH object holds the header's code; every image using the PCH links it.
         target_sources(${ARG_STUBS} PRIVATE "${stub}")
-        list(APPEND pchs "${pch}")
     endforeach()
+    set_property(TARGET ${ARG_STUBS} APPEND PROPERTY MAICORD_APPLICATION_PCH_MODES ${modes})
     if(NOT ARG_STUBS STREQUAL target)
         # A custom command output of the target orders all of its objects after
         # the PCHs, and only its own; it waits for nothing else the target needs.
-        set(stamp "${directory}/application_pch.stamp")
+        set(stamp "${directory}/${target}_application_pch.stamp")
         add_custom_command(OUTPUT "${stamp}" COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}" DEPENDS ${pchs}
             DEPENDS_EXPLICIT_ONLY VERBATIM)
-        target_sources(${target} PRIVATE "$<TARGET_OBJECTS:${ARG_STUBS}>" "${stamp}")
+        target_sources(${target} PRIVATE "${stamp}")
+        if(MSVC)
+            target_sources(${target} PRIVATE "$<TARGET_OBJECTS:${ARG_STUBS}>")
+        endif()
     endif()
-    set_target_properties(${target} PROPERTIES MAICORD_APPLICATION_PCH "${directory}")
+    set_target_properties(${target} PROPERTIES MAICORD_APPLICATION_PCH "${pch_prefix}")
 endfunction()
-if(NOT MAICORD_TEST_PREBUILT_CLIENT)
+
+# maicord_application_pch_library(<library> <target>): the object library that
+# builds <target>'s PCHs, with the target's compile settings (the properties and
+# link libraries its flags come from).
+function(maicord_application_pch_library library target)
+    add_library(${library} OBJECT)
+    foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
+            COMPILE_FEATURES CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY LINK_LIBRARIES
+            MAICORD_SDK_INCLUDES MAICORD_INLINE_ANY MAICORD_TEST_CODEGEN)
+        get_target_property(value ${target} ${property})
+        if(NOT value STREQUAL "value-NOTFOUND")
+            set_property(TARGET ${library} PROPERTY ${property} "${value}")
+        endif()
+    endforeach()
+    get_target_property(dependencies ${target} MANUALLY_ADDED_DEPENDENCIES)
+    if(dependencies)
+        add_dependencies(${library} ${dependencies})
+    endif()
+endfunction()
+
+if(MAICORD_LINUX)
+    # The application library and the shell compile with the same settings and share one set of PCHs.
+    maicord_application_pch_library(maicord_application_pch maicord_app_client)
+    maicord_precompile_application_sources(maicord_app_client STUBS maicord_application_pch)
+    maicord_precompile_application_sources(MaiCord STUBS maicord_application_pch)
+elseif(NOT MAICORD_TEST_PREBUILT_CLIENT)
     maicord_precompile_application_sources(MaiCord)
 endif()

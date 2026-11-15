@@ -14,6 +14,7 @@
 #include "../../support/window_fixture.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/gateway/client.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::account_menu_runtime_test {
 using namespace app_detail;

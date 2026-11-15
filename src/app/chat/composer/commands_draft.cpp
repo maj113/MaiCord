@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {

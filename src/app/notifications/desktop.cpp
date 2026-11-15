@@ -12,6 +12,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/desktop/system_tray.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #if defined(_WIN32)
 #include "maicord/platform/window/win32.hpp"

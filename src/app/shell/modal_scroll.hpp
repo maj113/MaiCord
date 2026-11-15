@@ -2,6 +2,7 @@
 #include "overlay_input.hpp"
 #include "state.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include <limits.h>
 

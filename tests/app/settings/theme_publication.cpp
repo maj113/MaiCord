@@ -4,6 +4,7 @@
 #include "effects/effects.hpp"
 #include "notifications/desktop.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "../../support/test_output.hpp"
 
 // The shipping theme publication (src/app/settings/theme_publication.cpp) under a fixture clock: its glides step once

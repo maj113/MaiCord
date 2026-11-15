@@ -27,6 +27,7 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

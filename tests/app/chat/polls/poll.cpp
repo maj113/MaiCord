@@ -819,6 +819,7 @@ bool renderer_bind_poll_voters_scene(D3D11Renderer* renderer, const UiPollVoters
 }
 namespace app_detail {
 Application g_app{};
+D3D11Renderer Application::renderer{};
 const Theme& application_theme() noexcept {
     return poll_app_test::fixture_theme;
 }

@@ -1,4 +1,5 @@
 #include "shell/shortcuts.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "../../support/window_fixture.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/application_downloads_inactive.hpp"

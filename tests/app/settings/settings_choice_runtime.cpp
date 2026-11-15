@@ -13,6 +13,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 namespace settings_choice_runtime {

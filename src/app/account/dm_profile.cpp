@@ -24,6 +24,7 @@
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "../chat/messages/history_decode.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

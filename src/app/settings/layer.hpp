@@ -6,6 +6,7 @@
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/platform/window/event.hpp"
 #include "../shell/state.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 

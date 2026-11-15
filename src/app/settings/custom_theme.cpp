@@ -8,6 +8,7 @@
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

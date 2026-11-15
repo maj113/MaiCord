@@ -2,6 +2,7 @@
 
 #include "state.hpp"
 #include "window_state.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 

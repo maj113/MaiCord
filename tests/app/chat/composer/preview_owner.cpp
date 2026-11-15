@@ -4,6 +4,7 @@
 #include "../../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../support/account_module_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 // Shipping composer preview owner with a controlled account boundary: MP4/MOV
 // drafts request a GPU poster (with the renderer's device), unsupported video

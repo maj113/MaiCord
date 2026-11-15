@@ -6,6 +6,7 @@
 #include "maicord/core/time.hpp"
 #include "custom_theme.hpp"
 #include "theme_publication.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

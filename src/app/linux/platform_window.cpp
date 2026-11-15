@@ -8,6 +8,7 @@
 #include "maicord/gpu/api.hpp"
 #include "maicord/gpu/gles/backend.hpp"
 #include "maicord/platform/window/wayland.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -10,6 +10,7 @@
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include "maicord/app/media/account_video_playback.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"

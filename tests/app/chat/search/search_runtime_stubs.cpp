@@ -3,6 +3,7 @@
 #include "application_search_measurement.hpp"
 #include "../../../../src/app/chat/polls/poll.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 bool renderer_bind_search_message_text_presentation(D3D11Renderer* renderer,

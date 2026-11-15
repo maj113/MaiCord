@@ -6,6 +6,7 @@
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

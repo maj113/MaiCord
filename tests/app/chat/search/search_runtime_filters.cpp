@@ -5,6 +5,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../../support/window_fixture.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::search_runtime_test {
 

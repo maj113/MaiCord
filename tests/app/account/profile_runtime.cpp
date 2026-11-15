@@ -20,6 +20,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "chat/game_lookup.hpp"
 #include "settings/settings.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::profile_runtime_test {
 using namespace app_detail;

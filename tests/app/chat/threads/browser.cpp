@@ -675,6 +675,7 @@ bool application_forum_form_active() noexcept { return false; }
 bool application_forum_post_available(u64) noexcept { return false; }
 bool application_forum_post_open(u64) noexcept { return false; }
 Application g_app{};
+D3D11Renderer Application::renderer{};
 const Theme& application_theme() noexcept { static Theme theme{}; return theme; }
 bool application_request_frame() noexcept { return true; }
 bool refresh_account_text(bool) noexcept { return true; }

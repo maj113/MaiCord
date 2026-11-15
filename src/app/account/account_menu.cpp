@@ -24,6 +24,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
 #include "maicord/app/gateway/client.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationAccountMenu {

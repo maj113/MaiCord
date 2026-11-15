@@ -8,6 +8,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../../../support/window_fixture.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;

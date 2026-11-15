@@ -5,6 +5,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 namespace {

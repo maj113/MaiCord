@@ -29,11 +29,12 @@
 #include "maicord/protocol/auth/remote_auth.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"
-#include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/chat/composer/autocomplete.hpp"
 #include "maicord/ui/chat/composer/spellcheck.hpp"
 #include "maicord/ui/account/login_scene.hpp"
+#include "maicord/ui/account/login_view.hpp"
 #include "maicord/ui/chat/messages/action_bar.hpp"
+#include "maicord/ui/chat/messages/text_selection.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/chat/messages/context_controller.hpp"
 #include "maicord/ui/widgets/qr_code.hpp"
@@ -51,6 +52,10 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
 #include "maicord/app/chat/messages/reaction_viewer_controller.hpp"
+
+namespace maicord {
+struct D3D11Renderer;
+} // namespace maicord
 
 namespace maicord::app_detail {
 
@@ -382,7 +387,9 @@ struct Application {
     MessageViewRuntime message_view;
     MessageMediaController message_media;
     MediaAssetFailures media_failures;
-    D3D11Renderer renderer;
+    // The renderer is a global of its own (state.cpp), so that state.hpp does not need renderer.hpp. A unit that
+    // uses it includes that header. g_app.renderer has a fixed address, as when it was a member.
+    static D3D11Renderer renderer;
     MessageEventPump message_pump;
     MessageHistoryCatchup message_catchup;
     MessageHistoryOlder message_older;
@@ -539,10 +546,7 @@ inline bool application_system_reduced_motion() noexcept {
 }
 // Reduced motion (Settings > Accessibility): the user's switch, or the computer's setting while "Sync with computer
 // setting" is on. Read this instead of querying the system per frame.
-__declspec(noinline) inline bool application_reduced_motion() noexcept {
-    return client_preferences_reduced_motion(g_app.preferences, application_system_reduced_motion()) ||
-           g_app.renderer.reduced_motion;
-}
+bool application_reduced_motion() noexcept;
 // The saturation (0..1) user colours (role colours, profile and server colours) are drawn at: Accessibility's
 // Saturation when "Apply saturation setting to custom colors" is on, else 1.
 inline float application_user_color_saturation() noexcept {
@@ -563,9 +567,6 @@ void application_theme_release() noexcept;
 // UI-thread only. Worker completions reach this through the main event pump.
 bool application_request_frame() noexcept;
 // Drops the retained presentation and schedules a frame.
-inline void application_repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
+void application_repaint() noexcept;
 
 } // namespace maicord::app_detail

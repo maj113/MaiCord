@@ -40,6 +40,7 @@
 #include "../../support/fake_text_measure.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::dm_profile_test {
 using namespace app_detail;

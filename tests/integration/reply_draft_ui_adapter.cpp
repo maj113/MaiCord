@@ -17,6 +17,7 @@
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 namespace {

@@ -4,6 +4,7 @@
 #include "state.hpp"
 #include "content_point.hpp"
 #include "maicord/ui/core/cursor.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::app_detail {
 

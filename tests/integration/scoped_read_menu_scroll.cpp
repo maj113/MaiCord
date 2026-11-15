@@ -16,6 +16,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../src/app/account/account_ui_runtime.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord::scoped_read_native {
 using namespace app_detail;

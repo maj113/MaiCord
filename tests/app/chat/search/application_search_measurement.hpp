@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/render/d3d11/renderer.hpp"
 
 // Included after app/chat/search/search.cpp in its isolated runtime executable.
 // No production hook or permanent renderer/text owner is introduced.

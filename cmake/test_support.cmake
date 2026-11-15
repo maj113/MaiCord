@@ -643,26 +643,14 @@ endfunction()
 # the application precompiled headers (cmake/client.cmake) for test
 # executables that compile many application sources. Each target's PCHs come
 # from an object library <target>_application_pch with the target's compile
-# settings (the properties and link libraries its flags come from); appends
+# settings (maicord_application_pch_library); appends
 # those libraries to the temporary target list. Called after the shared
 # objects, so a source compiled once for several tests keeps that one compile.
 function(maicord_precompile_test_application_sources target_list_variable)
     set(libraries)
     foreach(target IN LISTS ARGN)
         set(library ${target}_application_pch)
-        add_library(${library} OBJECT)
-        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
-                COMPILE_FEATURES CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY LINK_LIBRARIES
-                MAICORD_SDK_INCLUDES MAICORD_INLINE_ANY MAICORD_TEST_CODEGEN)
-            get_target_property(value ${target} ${property})
-            if(NOT value STREQUAL "value-NOTFOUND")
-                set_property(TARGET ${library} PROPERTY ${property} "${value}")
-            endif()
-        endforeach()
-        get_target_property(dependencies ${target} MANUALLY_ADDED_DEPENDENCIES)
-        if(dependencies)
-            add_dependencies(${library} ${dependencies})
-        endif()
+        maicord_application_pch_library(${library} ${target})
         maicord_precompile_application_sources(${target} STUBS ${library})
         list(APPEND libraries ${library})
     endforeach()
