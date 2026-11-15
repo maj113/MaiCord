@@ -268,6 +268,19 @@ __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
     line.write(LogLevel::warning, "media");
 }
 
+__declspec(noinline) void ApplicationMediaPump::mark_unplayable(const AccountMediaRequestResult& requested,
+                                                                u64 reveal_key) noexcept {
+    // A request that waits out the failure reports it again, so a mark that left the ring comes back.
+    const AccountMediaVideoFailure failure = requested.video_failure;
+    if ((failure == AccountMediaVideoFailure::missing_h264_decoder ||
+         failure == AccountMediaVideoFailure::missing_hevc_decoder) &&
+        message_scene_mark_unplayable(&application.message_scene, reveal_key,
+                                      failure == AccountMediaVideoFailure::missing_h264_decoder
+                                          ? MessageMediaUnplayable::h264
+                                          : MessageMediaUnplayable::hevc))
+        result.text_changed = true;
+}
+
 __declspec(noinline) void ApplicationMediaPump::trace_first_media_upload() noexcept {
     if (application.load_trace.channel_started && !application.load_trace.media_uploaded) {
         application.load_trace.media_uploaded = true;
@@ -503,6 +516,9 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const AccountMediaRequestResult requested = account_module_media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("attachment_request_failed", requested, key);
+    if (!search_store)
+        mark_unplayable(requested, message_media_reveal_key(message.id, MessageMediaSource::attachment,
+                                                            attachment_index, snapshot));
     const bool target_failed =
         requested.state == AccountMediaRequestState::failed && requested.error == AccountMediaError::target;
     if (requested.state == AccountMediaRequestState::refresh_required || target_failed) {
@@ -647,6 +663,9 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     const AccountMediaRequestResult requested = account_module_media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("embed_media_request_failed", requested, key);
+    if (!search_store)
+        mark_unplayable(requested, message_media_reveal_key(message.id, MessageMediaSource::embed, embed_index,
+                                                            rich.forwarded_snapshot_child));
     return settle_message_media(requested, key, message.id, stop_scan);
 }
 

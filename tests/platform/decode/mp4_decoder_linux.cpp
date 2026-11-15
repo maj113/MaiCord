@@ -13,8 +13,10 @@
 //   fragments  the fragmented movie through mp4_decoder_initialize_fragmented over an in-memory source
 //   audio      the movie's AAC track through the demuxer, the edit-list window and the decoder equals the reference
 //   refusals   garbage, an HEVC movie's brand and an oversized request fail cleanly
+//   missing    (--no-library, libopenh264 named as a library that does not exist) an H.264 movie and an HEVC movie
+//              report kVideoDecoderMissing, and a damaged H.264 movie keeps its parse error
 //
-// Status 77: no EGL device or no libopenh264.
+// Status 77: no EGL device or no libopenh264 (--no-library: no EGL device).
 #include "../../fixtures/mp4/mp4_fixtures.hpp"
 #include "../../support/test_output.hpp"
 #include "../../support/yuv_reference.hpp"
@@ -25,6 +27,7 @@
 #include "maicord/platform/decode/aac_decoder.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/render/media/video_frame_gpu.hpp"
+#include "maicord/sys/linux/process.hpp"
 #include "../../../src/platform/decode/software/software_decoder.hpp"
 
 namespace maicord {
@@ -360,13 +363,13 @@ void fragmented(GpuDevice* device, GpuContext* context, const Mp4Reference& r) n
 
 // An HEVC movie has no software tier: with VA-API off, the container, hvcC and first picture parse (the movie is
 // recognized as HEVC and understood), and the decoder refuses it for want of a decoder, with the status the
-// application reports as an unsupported backend and no parse or demux error.
+// application reports as a missing decoder and no parse or demux error.
 void hevc_without_driver(GpuDevice* device) noexcept {
     Mp4Decoder decoder{};
     check(!mp4_decoder_initialize(&decoder, {kMp4HevcMainAac, sizeof(kMp4HevcMainAac)}, 0, 0, device) && !decoder.ready &&
-              decoder.hevc && decoder.native.status == DXGI_ERROR_UNSUPPORTED &&
+              decoder.hevc && decoder.native.status == kVideoDecoderMissing &&
               decoder.native.parse_error == H264Error::none && decoder.native.demux_error == Mp4DemuxError::none,
-          "hevc: without a driver the movie is understood and refused as an unsupported backend");
+          "hevc: without a driver the movie is understood and refused for a missing decoder");
     check(mp4_decoder_read(&decoder, true).error == Mp4DecodeError::invalid_input,
           "hevc: the refused decoder answers reads with a refusal");
     mp4_decoder_release(&decoder);
@@ -396,12 +399,43 @@ void refusals(GpuDevice* device) noexcept {
           "refusals: a decoder is reused for another movie");
     mp4_decoder_release(&decoder);
 }
+
+// --no-library: neither tier can decode H.264, so the computer has no decoder for it. The status differs from the
+// DXGI_ERROR_UNSUPPORTED of a decoder that refuses a stream, and a damaged movie fails on its parse error first.
+void missing_decoder(GpuDevice* device) noexcept {
+    Mp4Decoder decoder{};
+    check(!mp4_decoder_initialize(&decoder, {kMp4H264BaselineGops, sizeof(kMp4H264BaselineGops)}, 0, 0, device) &&
+              !decoder.ready && !decoder.hevc && decoder.native.status == kVideoDecoderMissing &&
+              decoder.native.parse_error == H264Error::none && decoder.native.demux_error == Mp4DemuxError::none,
+          "missing: an H.264 movie without VA-API and libopenh264 reports a missing decoder");
+    hevc_without_driver(device);
+    // The first half of the movie: the demuxer or the parser refuses it before a tier is chosen.
+    check(!mp4_decoder_initialize(&decoder, {kMp4H264BaselineGops, sizeof(kMp4H264BaselineGops) / 2}, 0, 0, device) &&
+              !decoder.ready && decoder.native.status != kVideoDecoderMissing &&
+              (decoder.native.parse_error != H264Error::none || decoder.native.demux_error != Mp4DemuxError::none),
+          "missing: a truncated H.264 movie keeps its parse or demux error");
+    mp4_decoder_release(&decoder);
+}
+
+bool has_argument(const char* name) noexcept {
+    const ProcessStartup& startup = process_startup();
+    for (int i = 1; i < startup.argc; ++i) {
+        const char* a = startup.argv[i];
+        u32 k = 0;
+        while (a[k] && a[k] == name[k])
+            ++k;
+        if (a[k] == name[k])
+            return true;
+    }
+    return false;
+}
 } // namespace
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_mp4_decoder_linux_entry) {
     using namespace maicord;
-    if (!software_codec_available(GpuStreamCodec::h264)) {
+    const bool no_library = has_argument("--no-library");
+    if (!no_library && !software_codec_available(GpuStreamCodec::h264)) {
         test_write_line("skipped: libopenh264 is not installed");
         test_process_exit(77);
     }
@@ -410,6 +444,12 @@ MAICORD_TEST_ENTRY(maicord_mp4_decoder_linux_entry) {
     if (!gpu_ok(gpu_device_create(&device, &context))) {
         test_write_line("skipped: no EGL device");
         test_process_exit(77);
+    }
+    if (no_library) {
+        check(!software_codec_available(GpuStreamCodec::h264), "missing: libopenh264 does not load");
+        missing_decoder(device);
+        gpu_device_destroy(&device, &context);
+        test_exit(g_failures, "maicord_mp4_decoder_missing");
     }
     Mp4Reference bframes, baseline, pyramid;
     check(mp4_reference_parse(kMp4H264AacBFramesRef, sizeof(kMp4H264AacBFramesRef), &bframes) &&

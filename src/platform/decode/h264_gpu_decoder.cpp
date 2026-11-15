@@ -170,7 +170,7 @@ static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID
         BOOL supported = FALSE;
         status = s->device->CheckVideoDecoderFormat(&decoder_desc.Guid, DXGI_FORMAT_NV12, &supported);
         if (SUCCEEDED(status) && (!supported || !gpu_decoder_surfaces_supported(device)))
-            status = DXGI_ERROR_UNSUPPORTED;
+            status = kVideoDecoderMissing;
     }
     if (SUCCEEDED(status))
         status = gpu_decoder_select_config(s->device, decoder_desc, 2, &selected);

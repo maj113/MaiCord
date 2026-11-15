@@ -155,6 +155,8 @@ struct ApplicationMediaPump {
     __declspec(noinline) void log_message_media_failure(const char* item,
                                                         const AccountMediaRequestResult& failure,
                                                         const MediaAssetKey& key) noexcept;
+    // A timeline video that this computer has no decoder for: its box shows why (message_scene_mark_unplayable).
+    __declspec(noinline) void mark_unplayable(const AccountMediaRequestResult& requested, u64 reveal_key) noexcept;
     __declspec(noinline) void trace_first_media_upload() noexcept;
     __declspec(noinline) CdnImageType cdn_image_type(MediaAttachmentFormat format) noexcept;
     __declspec(noinline) bool message_image_frame_is_current(const AccountMediaFrame& frame) noexcept;

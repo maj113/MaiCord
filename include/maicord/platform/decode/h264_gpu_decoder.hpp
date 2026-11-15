@@ -22,6 +22,10 @@ struct H264GpuDecoder {
 };
 static_assert(sizeof(H264GpuDecoder) == 16);
 static_assert(offsetof(H264GpuDecoder, demux_error) == 13);
+// H264GpuDecoder::status when this computer has no decoder for the codec of the stream: the GPU (VA-API on Linux) has
+// no profile for it, and for H.264 on Linux libopenh264 is not installed either. A decoder that exists but refuses
+// the stream gives DXGI_ERROR_UNSUPPORTED. The value is MF_E_TOPO_CODEC_NOT_FOUND.
+inline constexpr i32 kVideoDecoderMissing = static_cast<i32>(0xC00D5212u);
 struct H264GpuMovie {
     u64 duration_us;
     u32 samples;

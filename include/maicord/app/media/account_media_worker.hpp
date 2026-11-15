@@ -107,9 +107,11 @@ struct AccountMediaWorkerCounters {
 struct AccountMediaWorkerRetry {
     MediaAssetKey key;
     u64 retry_at_ms;
+    // Reported again with retry_wait: a video without a decoder stays labelled (AccountMediaFailure).
+    AccountMediaVideoFailure video_failure;
 };
 
-static_assert(sizeof(AccountMediaWorkerRetry) == 24);
+static_assert(sizeof(AccountMediaWorkerRetry) == 32);
 
 // Eight bounded media lanes share one immutable, leased encoded-byte cache.
 // Each lane owns its parser workspaces and scanline output, so cold decodes can

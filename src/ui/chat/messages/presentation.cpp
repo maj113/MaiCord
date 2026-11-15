@@ -491,10 +491,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                           ui_rect_width(item_layout->content_rectangle),
                                                           &preview_width, &preview_height)) {
             const UiRect preview{left, top, left + preview_width, top + preview_height};
+            const u64 reveal_key = message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
+                                                            row.forwarded_snapshot);
             const MessageMediaObscure obscure = message_scene_media_obscure(
-                scene, media_policy, rich->message_id,
-                message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
-                                         row.forwarded_snapshot),
+                scene, media_policy, rich->message_id, reveal_key,
                 message_rich_attachment_spoiler(*rich_store, attachment),
                 message_rich_attachment_explicit(attachment));
             if (message_media_obscure_notice(obscure)) {
@@ -509,7 +509,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (!command)
                 return false;
             const bool visible = obscure == MessageMediaObscure::none;
-            command->ordinary_video = format == MediaAttachmentFormat::mp4 && visible;
+            // A video without a decoder keeps its box but loses its play control: the text pass labels it.
+            command->ordinary_video = format == MediaAttachmentFormat::mp4 && visible &&
+                                      message_media_unplayable(scene.media_unplayable, reveal_key) ==
+                                          MessageMediaUnplayable::none;
             command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);
             command->gif = message_rich_attachment_gif_favorite(*rich_store, attachment) && visible;
@@ -630,11 +633,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 item_layout->content_rectangle.top + row.rich_item_layout.embed_media_tops[index];
             const float media_left = item_layout->content_rectangle.left + message_rich_embed_media_left(media_only);
             const UiRect preview{media_left, media_top, media_left + media_width, media_top + media_height};
-            const MessageMediaObscure obscure =
-                message_scene_media_obscure(scene, media_policy, record->id,
-                                            message_media_reveal_key(record->id, MessageMediaSource::embed,
-                                                                     index, row.forwarded_snapshot),
-                                            false, message_rich_embed_explicit(embed));
+            const u64 reveal_key =
+                message_media_reveal_key(record->id, MessageMediaSource::embed, index, row.forwarded_snapshot);
+            const MessageMediaObscure obscure = message_scene_media_obscure(
+                scene, media_policy, record->id, reveal_key, false, message_rich_embed_explicit(embed));
             if (message_media_obscure_notice(obscure)) {
                 if (!push_blocked(paint, preview, theme))
                     return false;
@@ -649,7 +651,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (!command)
                 return false;
             const bool visible = obscure == MessageMediaObscure::none;
-            command->ordinary_video = playable && embed.type != GatewayMessageEmbedType::gifv && visible;
+            command->ordinary_video = playable && embed.type != GatewayMessageEmbedType::gifv && visible &&
+                                      message_media_unplayable(scene.media_unplayable, reveal_key) ==
+                                          MessageMediaUnplayable::none;
             command->open_link = command->ordinary_video && message_rich_embed_open_pill(*rich_store, embed);
             command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);

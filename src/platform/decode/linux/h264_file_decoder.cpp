@@ -395,7 +395,11 @@ bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, GpuDevice
     bool created = false;
     if (probe->parse_error == H264Error::none) {
         created = create_hardware(s) || create_software(s);
-        probe->status = created ? S_OK : DXGI_ERROR_UNSUPPORTED;
+        // The hardware tier refused the stream and libopenh264 is absent. The library cannot appear before
+        // the next start.
+        probe->status = created                                         ? S_OK
+                        : software_codec_available(GpuStreamCodec::h264) ? DXGI_ERROR_UNSUPPORTED
+                                                                        : kVideoDecoderMissing;
     } else {
         probe->status = E_INVALIDARG;
     }

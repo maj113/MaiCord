@@ -119,6 +119,8 @@ void run_animation_owner_test(
     VisibilityFixture& fixture, AccountUiRuntime& ui, ApplicationMediaPump& pump, MediaAssetKey key,
     AccountMediaFrameKind frame_kind = AccountMediaFrameKind::gif_indices) noexcept;
 
+void run_unplayable_mark_test(VisibilityFixture& fixture, ApplicationMediaPump& pump) noexcept;
+
 bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept;
 
 MediaAssetKey attachment_key(const VisibilityFixture& fixture, const AccountUiRuntime& ui,

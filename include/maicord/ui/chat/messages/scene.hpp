@@ -326,6 +326,8 @@ struct MessageScene {
     // Session reveals and a borrowed per-author policy; scenes without a policy
     // query show explicit media.
     MessageMediaReveals media_reveals;
+    // Videos this computer has no decoder for, marked by the media pump for the session.
+    MessageMediaUnplayables media_unplayable;
     MessageMediaPolicy media_policy;
     MessageSceneInteraction interaction;
     // The loading dots' pose for a pending control (ui_typing_dots_phase); the
@@ -416,6 +418,8 @@ inline u8 message_scene_plugin_visibility(const MessageScene& scene, const Messa
 }
 // Returns true when the item was newly revealed; the host repaints.
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;
+// Returns true when the item was newly marked; the scene paints and labels it again.
+bool message_scene_mark_unplayable(MessageScene* scene, u64 reveal_key, MessageMediaUnplayable reason) noexcept;
 // Returns true when the feedback changed; failure notices change row height.
 bool message_scene_set_interaction(MessageScene* scene, const MessageSceneInteraction& interaction) noexcept;
 // Returns true when the display changed; every row is remeasured.

@@ -40,6 +40,7 @@ AccountMediaRequestResult request_result(AccountMediaRequestState state,
 bool exact_local_request(const AccountMediaLocalPreviewRequest& request, bool uploaded) noexcept;
 bool exact_local_owner(const AccountMediaWorkItem& work, const AccountMediaLocalPreviewRequest& request) noexcept;
 AccountMediaRequestResult retry_wait_until(u64 retry_at_ms) noexcept;
+AccountMediaRequestResult retry_wait_for(const AccountMediaWorkerRetry& retry) noexcept;
 bool same_work(const AccountMediaWorkItem& left, const AccountMediaWorkItem& right) noexcept;
 AccountMediaRequestResult initialize_lane_media(AccountMediaWorker* worker,
                                                 AccountMediaWorkerLane& lane) noexcept;

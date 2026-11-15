@@ -762,6 +762,7 @@ void run_visibility_test() noexcept {
               "media visibility: original owner fixture restores after decoded animation coverage");
         run_animation_owner_test(fixture, *ui, pump, visible_key);
         animation_timeline_reset(&g_app.animations.timeline);
+        run_unplayable_mark_test(fixture, pump);
         const auto retained_catalog = media_asset_catalog_preview(900, 20);
         const auto stale_catalog = media_asset_catalog_preview(901, 19);
         const auto retained_slot = animation_timeline_publish(

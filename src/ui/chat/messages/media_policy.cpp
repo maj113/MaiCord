@@ -58,6 +58,36 @@ bool message_media_reveal(MessageMediaReveals* reveals, u64 key) noexcept {
     return true;
 }
 
+MessageMediaUnplayable message_media_unplayable(const MessageMediaUnplayables& marks, u64 key) noexcept {
+    for (u32 i = 0; i < marks.keys.count && i < kMessageMediaRevealMaximum; ++i)
+        if (marks.keys.keys[i] == key)
+            return marks.reasons[i];
+    return MessageMediaUnplayable::none;
+}
+
+bool message_media_mark_unplayable(MessageMediaUnplayables* marks, u64 key,
+                                   MessageMediaUnplayable reason) noexcept {
+    if (!marks || reason == MessageMediaUnplayable::none || !message_media_reveal(&marks->keys, key))
+        return false;
+    // message_media_reveal wrote the key into the slot before the cursor.
+    constexpr u32 last = kMessageMediaRevealMaximum - 1u;
+    marks->reasons[(marks->keys.cursor + last) % kMessageMediaRevealMaximum] = reason;
+    return true;
+}
+
+Utf8View message_media_unplayable_label(MessageMediaUnplayable reason) noexcept {
+    // A short label: a GIF box is often under 300 DIPs wide, and a longer one ends in an ellipsis.
+    constexpr Utf8View no_decoder = utf8_literal("No decoder for this video format");
+    if (reason == MessageMediaUnplayable::none)
+        return {};
+#if defined(_WIN32)
+    return no_decoder;
+#else
+    // libopenh264 decodes H.264 when VA-API cannot. HEVC has no such library.
+    return reason == MessageMediaUnplayable::h264 ? utf8_literal("Install OpenH264 to play this video") : no_decoder;
+#endif
+}
+
 MessageMediaObscure message_media_obscure(const MessageMediaReveals& reveals, u64 key, bool spoiler,
                                           bool explicit_media, MessageExplicitFilter filter,
                                           bool spoilers_always, bool explicit_reveal_allowed) noexcept {

@@ -1334,6 +1334,7 @@ void test_embed_parity(Check check) noexcept {
     probe_system_coverage();
     test_native_text_never_fails(check);
     test_vxtwitter_embeds(check);
+    test_unplayable_video(check);
     test_reply_previews(check);
     test_reply_author_and_system_quotes(check);
     test_interaction_headers(check);

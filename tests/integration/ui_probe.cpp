@@ -65,6 +65,7 @@
 #include "message_components_ui_probe.hpp"
 #include "message_header_clip_ui_probe.hpp"
 #include "edited_label_ui_probe.hpp"
+#include "unplayable_video_ui_probe.hpp"
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/gpu/api.hpp"
@@ -2077,6 +2078,15 @@ int run_probe() noexcept {
                                                      g_probe.message_scene, g_probe.users, rebuild_probe_content_text,
                                                      +[](const wchar_t* name) noexcept { return probe_capture_frame(name); }),
                            "edited_label_native_ui_passed", "edited_label_native_ui_failed", 308);
+    if (probe_option_enabled(L"MAICORD_UI_UNPLAYABLE_VIDEO_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                               unplayable_video_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.rich_store,
+                                                         g_probe.message_scene, g_probe.users,
+                                                         rebuild_probe_content_text,
+                                                         +[](const wchar_t* name) noexcept {
+                                                             return probe_capture_frame(name);
+                                                         }),
+                           "unplayable_video_native_ui_passed", "unplayable_video_native_ui_failed", 309);
     if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE"))
         return finish_gate(initialize_fixture(true) && probe_media_underlay_and_quick_reactions(),
                            "media_underlay_native_ui_passed", "media_underlay_native_ui_failed", 264);

@@ -125,6 +125,14 @@ bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
     return true;
 }
 
+bool message_scene_mark_unplayable(MessageScene* scene, u64 reveal_key, MessageMediaUnplayable reason) noexcept {
+    if (!message_media_mark_unplayable(&scene->media_unplayable, reveal_key, reason))
+        return false;
+    // The box keeps its size; the text pass adds the label and the paint drops the play control.
+    message_scene_invalidate_geometry(scene);
+    return true;
+}
+
 bool message_scene_set_interaction(MessageScene* scene, const MessageSceneInteraction& interaction) noexcept {
     const auto& current = scene->interaction;
     if (current.message_id == interaction.message_id && current.component_index == interaction.component_index &&

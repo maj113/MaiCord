@@ -145,6 +145,7 @@ AccountMediaRequestResult remember_failure(AccountMedia* media, const MediaAsset
     slot->key = key;
     slot->retry_at_ms = permanent ? ~0ull : maximum(failure.retry_at_ms,
                                                     deadline_after(now_ms, kAccountMediaFailureRetryMs));
+    slot->video_failure = failure.video_failure;
     failure.retry_at_ms = slot->retry_at_ms;
     media->last_failure = failure;
     return failure;
@@ -619,7 +620,9 @@ Mp4Decoder* ensure_mp4_decoder(AccountMedia* media) noexcept {
     return media->mp4_decoder;
 }
 AccountMediaRequestResult video_failure(const Mp4Decoder* decoder) noexcept {
-    const bool permanent = decoder && decoder->native.parse_error != H264Error::none;
+    // A missing decoder cannot appear while the client runs, so it is permanent like a stream the parser refuses.
+    const bool missing = decoder && decoder->native.status == kVideoDecoderMissing;
+    const bool permanent = decoder && (decoder->native.parse_error != H264Error::none || missing);
     auto failure =
         result(permanent ? AccountMediaRequestState::unsupported : AccountMediaRequestState::failed,
                AccountMediaError::decode);
@@ -656,7 +659,9 @@ AccountMediaRequestResult video_failure(const Mp4Decoder* decoder) noexcept {
         default:
             const i32 native_status = decoder->native.status;
             failure.video_failure =
-                native_status == E_OUTOFMEMORY            ? AccountMediaVideoFailure::memory
+                missing ? (decoder->hevc ? AccountMediaVideoFailure::missing_hevc_decoder
+                                         : AccountMediaVideoFailure::missing_h264_decoder)
+                : native_status == E_OUTOFMEMORY          ? AccountMediaVideoFailure::memory
                 : native_status == DXGI_ERROR_UNSUPPORTED ? AccountMediaVideoFailure::unsupported_backend
                 : native_status == DXGI_ERROR_DEVICE_REMOVED || native_status == DXGI_ERROR_DEVICE_RESET
                     ? AccountMediaVideoFailure::device_removed
@@ -917,6 +922,7 @@ bool failure_cooling(AccountMedia* media, const MediaAssetKey& key, u64 now_ms,
     }
     *settled = result(AccountMediaRequestState::retry_wait);
     settled->retry_at_ms = failed->retry_at_ms;
+    settled->video_failure = failed->video_failure;
     return true;
 }
 

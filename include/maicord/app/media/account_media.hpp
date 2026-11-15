@@ -66,6 +66,9 @@ enum class AccountMediaVideoFailure : u8 {
     unexpected_webp,
     unexpected_jpeg,
     unexpected_avif,
+    // This computer has no decoder for the codec (kVideoDecoderMissing): the result stays for the session.
+    missing_h264_decoder,
+    missing_hevc_decoder,
 };
 
 struct AccountMediaRequestResult {
@@ -231,6 +234,8 @@ struct AccountMediaGuildIconRequest {
 struct AccountMediaFailure {
     MediaAssetKey key;
     u64 retry_at_ms;
+    // A request that waits out the failure reports it again, so the pump can show a missing decoder.
+    AccountMediaVideoFailure video_failure;
 };
 
 struct AccountMediaEncodedAudioSource {

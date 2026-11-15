@@ -192,6 +192,18 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
 }
 
 namespace {
+// A video this computer has no decoder for keeps its box, and its label reads as a blocked notice's.
+bool append_unplayable_label(MessageTextPresentation* presentation, MessageMediaUnplayable reason, const UiRect& media,
+                             const UiWidgetReference& owner, const UiRect& clip, const Theme& theme,
+                             const MessageRecord& record, u16 measurement) noexcept {
+    const UiRect box{media.left + 12.0f, media.top, media.right - 12.0f, media.bottom};
+    const UiRect visible = ui_rect_intersection(clip, box);
+    if (reason == MessageMediaUnplayable::none || !ui_rect_has_area(box) || !ui_rect_has_area(visible))
+        return true;
+    return append_marked(presentation, message_media_unplayable_label(reason), TextStyleSpan{}, nullptr, owner, box,
+                         visible, ui_background_muted_text_color(theme), &record, measurement, kLookNoticeCentered);
+}
+
 // Show image descriptions: an attachment with a description shows "ALT" 4 DIPs inside its bottom-left corner, the
 // official client's 14 px semibold label on a 32-DIP scrim pill (renderer_layout_media.cpp paints the pill around the
 // label's glyphs); clicking it opens the description's popout (tooltip.cpp). Small previews and hidden media show
@@ -834,16 +846,19 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     return fail(presentation, MessageTextPresentationError::layout);
             } else if (preview) {
                 required_extent = preview_height + 6.0f;
+                const u64 reveal_key = message_media_reveal_key(rich->message_id, MessageMediaSource::attachment,
+                                                                index, row.forwarded_snapshot);
                 const MessageMediaObscure obscure = message_scene_media_obscure(
-                    scene, media_policy, rich->message_id,
-                    message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
-                                             row.forwarded_snapshot),
+                    scene, media_policy, rich->message_id, reveal_key,
                     message_rich_attachment_spoiler(*rich_store, attachment),
                     message_rich_attachment_explicit(attachment));
                 const UiRect media{item_left, item_layout->rectangle.top, item_left + preview_width,
                                    item_layout->rectangle.top + preview_height};
                 if (!append_obscure_label(presentation, obscure, media, owner, attachment_clip, theme, *record,
                                           measurement_index) ||
+                    (obscure == MessageMediaObscure::none &&
+                     !append_unplayable_label(presentation, message_media_unplayable(scene.media_unplayable, reveal_key),
+                                              media, owner, attachment_clip, theme, *record, measurement_index)) ||
                     (obscure == MessageMediaObscure::none &&
                      !append_alt_badge(presentation, message_rich_store_string(*rich_store, attachment.description),
                                        rich->forwarded_snapshot_child, index, media, owner, attachment_clip, theme, *record,
@@ -1042,16 +1057,20 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 const u32 labels = gallery.count ? minimum<u32>(gallery.count, kMessageEmbedGalleryDrawn) : 1;
                 for (u32 tile = 0; tile < labels; ++tile) {
                     const u32 member = gallery.count ? gallery.members[tile] : index;
-                    const auto obscure = message_scene_media_obscure(
-                        scene, media_policy, record->id,
-                        message_media_reveal_key(record->id, MessageMediaSource::embed, member,
-                                                 row.forwarded_snapshot),
-                        false, message_rich_embed_explicit(rich->embeds[member]));
+                    const u64 reveal_key =
+                        message_media_reveal_key(record->id, MessageMediaSource::embed, member, row.forwarded_snapshot);
+                    const auto obscure = message_scene_media_obscure(scene, media_policy, record->id, reveal_key,
+                                                                     false,
+                                                                     message_rich_embed_explicit(rich->embeds[member]));
                     const UiRect cell = gallery.count
                                             ? message_rich_embed_gallery_tile(media_box, gallery.count, tile)
                                             : media_box;
                     if (!append_obscure_label(presentation, obscure, cell, owner, embed_clip, theme, *record,
-                                              measurement_index))
+                                              measurement_index) ||
+                        (obscure == MessageMediaObscure::none &&
+                         !append_unplayable_label(presentation,
+                                                  message_media_unplayable(scene.media_unplayable, reveal_key), cell,
+                                                  owner, embed_clip, theme, *record, measurement_index)))
                         return false;
                 }
                 if (!ui_text_flow_advance(&flow, media_height)) {

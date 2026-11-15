@@ -119,4 +119,6 @@ void test_native_text_never_fails(Check check) noexcept;
 
 void test_vxtwitter_embeds(Check check) noexcept;
 
+void test_unplayable_video(Check check) noexcept;
+
 } // namespace maicord

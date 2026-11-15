@@ -86,7 +86,9 @@ AccountMediaWorkerRetry* find_retry(AccountMediaWorker* worker, MediaAssetKey ke
     return nullptr;
 }
 
-void remember_retry(AccountMediaWorker* worker, MediaAssetKey key, u64 now_ms, u64 retry_at_ms) noexcept {
+void remember_retry(AccountMediaWorker* worker, MediaAssetKey key, u64 now_ms,
+                    const AccountMediaRequestResult& failure) noexcept {
+    const u64 retry_at_ms = failure.retry_at_ms;
     AccountMediaWorkerRetry* slot = find_retry(worker, key);
     if (!slot) {
         constexpr u32 bucket_count = kAccountMediaWorkerRetryCapacity / kAccountMediaWorkerRetryWays;
@@ -106,6 +108,7 @@ void remember_retry(AccountMediaWorker* worker, MediaAssetKey key, u64 now_ms, u
     slot->key = key;
     slot->retry_at_ms =
         retry_at_ms != 0 ? retry_at_ms : deadline_after(now_ms, kAccountMediaFailureRetryMs);
+    slot->video_failure = failure.video_failure;
 }
 
 } // namespace
@@ -114,6 +117,13 @@ namespace account_media_worker_detail {
 AccountMediaRequestResult retry_wait_until(u64 retry_at_ms) noexcept {
     AccountMediaRequestResult waiting = request_result(AccountMediaRequestState::retry_wait);
     waiting.retry_at_ms = retry_at_ms;
+    return waiting;
+}
+
+// A retained failure reports its video failure again: the pump marks a video without a decoder from it.
+AccountMediaRequestResult retry_wait_for(const AccountMediaWorkerRetry& retry) noexcept {
+    AccountMediaRequestResult waiting = retry_wait_until(retry.retry_at_ms);
+    waiting.video_failure = retry.video_failure;
     return waiting;
 }
 
@@ -668,7 +678,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     const u64 retry_now_ms =
         retry && work.monotonic_now_ms == 0 ? clock_monotonic_milliseconds() : work.monotonic_now_ms;
     if (retry && retry_now_ms < retry->retry_at_ms)
-        return retry_wait_until(retry->retry_at_ms);
+        return retry_wait_for(*retry);
     if (retry) {
         reset_value<AccountMediaWorkerRetry>(retry);
     }
@@ -732,7 +742,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                     remember_retry(worker, work.key,
                                    work.monotonic_now_ms != 0 ? work.monotonic_now_ms
                                                               : clock_monotonic_milliseconds(),
-                                   completed.retry_at_ms);
+                                   completed);
                 }
                 return completed;
             }
@@ -803,8 +813,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                 failure && (lane.completed.kind != AccountMediaWorkKind::animation_advance ||
                             completed.error == AccountMediaError::decode);
             if (retain && !lane.completed.collection && (!completed.retry_at_ms || completed.retry_at_ms > reclaimed_at_ms))
-                remember_retry(worker, lane.completed.key, reclaimed_at_ms,
-                               lane.completed_result.retry_at_ms);
+                remember_retry(worker, lane.completed.key, reclaimed_at_ms, lane.completed_result);
             InterlockedCompareExchange(&lane.phase, phase_value(AccountMediaWorkerPhase::idle),
                                        phase_value(AccountMediaWorkerPhase::output_ready));
         }
@@ -814,7 +823,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     if (reclaimed_at_ms && !work.collection) {
         retry = find_retry(worker, work.key);
         if (retry && reclaimed_at_ms < retry->retry_at_ms)
-            return retry_wait_until(retry->retry_at_ms);
+            return retry_wait_for(*retry);
     }
 
     const bool animation = work.kind != AccountMediaWorkKind::collection_title &&

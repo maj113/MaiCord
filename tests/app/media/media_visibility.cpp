@@ -176,6 +176,9 @@ MediaAssetKey last_identity_key{};
 u64 last_attachment_message;
 u32 last_attachment_revision;
 MediaAssetKey last_attachment_key{};
+// When set, the next attachment request answers with this state and video failure (run_unplayable_mark_test).
+AccountMediaRequestState attachment_answer_state;
+AccountMediaVideoFailure attachment_answer_failure;
 
 } // namespace media_visibility_detail
 
@@ -295,6 +298,13 @@ AccountMediaRequestResult WINAPI request_attachment(void*, const AccountMediaAtt
             watched_profile_ready = false;
             return result;
         }
+    }
+    if (attachment_answer_failure != AccountMediaVideoFailure::none) {
+        AccountMediaRequestResult result{};
+        result.state = attachment_answer_state;
+        result.error = AccountMediaError::decode;
+        result.video_failure = attachment_answer_failure;
+        return result;
     }
     return busy_result();
 }
@@ -434,6 +444,43 @@ void run_animation_owner_test(
             !repaint && animation_timeline_find(&g_app.animations.timeline, key).ok() && visual.occupied &&
             visual.source_revision == fixture.records[1].revision,
         "media owner: retired pending token cannot consume late frame or destroy same-cachegen new owner");
+}
+
+// A video that this computer has no decoder for: the pump marks its timeline item once, and a waiting result that
+// reports the failure again neither marks nor rebuilds the text. A decoder that refuses a stream marks nothing.
+void run_unplayable_mark_test(VisibilityFixture& fixture, ApplicationMediaPump& pump) noexcept {
+    const u64 item = message_media_reveal_key(fixture.records[1].id, MessageMediaSource::attachment, 0);
+    const auto answer = [&](AccountMediaRequestState state, AccountMediaVideoFailure failure) noexcept {
+        attachment_answer_state = state;
+        attachment_answer_failure = failure;
+        pump.result.text_changed = false;
+        bool repaint = false, stop = false;
+        const u32 before = attachment_requests;
+        const bool settled =
+            pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, &repaint)
+                .request_visible_attachment(fixture.records[1], fixture.rich_records[1].attachments[0], 64, 64,
+                                            &stop);
+        attachment_answer_failure = AccountMediaVideoFailure::none;
+        return settled && attachment_requests == before + 1;
+    };
+    const auto mark = [&]() noexcept {
+        return message_media_unplayable(g_app.message_scene.media_unplayable, item);
+    };
+    check(answer(AccountMediaRequestState::failed, AccountMediaVideoFailure::unsupported_backend) &&
+              mark() == MessageMediaUnplayable::none && !pump.result.text_changed,
+          "media unplayable: a decoder that refuses the stream marks nothing");
+    check(answer(AccountMediaRequestState::unsupported, AccountMediaVideoFailure::missing_h264_decoder) &&
+              mark() == MessageMediaUnplayable::h264 && pump.result.text_changed,
+          "media unplayable: a missing H.264 decoder marks the item and rebuilds the text");
+    check(answer(AccountMediaRequestState::retry_wait, AccountMediaVideoFailure::missing_h264_decoder) &&
+              mark() == MessageMediaUnplayable::h264 && !pump.result.text_changed,
+          "media unplayable: the waiting result keeps the mark without another rebuild");
+    g_app.message_scene.media_unplayable = {};
+    check(answer(AccountMediaRequestState::retry_wait, AccountMediaVideoFailure::missing_hevc_decoder) &&
+              mark() == MessageMediaUnplayable::hevc && pump.result.text_changed,
+          "media unplayable: a mark that left the ring comes back from the waiting result");
+    g_app.message_scene.media_unplayable = {};
+    pump.result.text_changed = false;
 }
 
 bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept {

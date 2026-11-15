@@ -269,7 +269,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         BOOL supported{};
         result = s->device->CheckVideoDecoderFormat(&desc.Guid, DXGI_FORMAT_NV12, &supported);
         if (SUCCEEDED(result) && (!supported || !gpu_decoder_surfaces_supported(device)))
-            result = DXGI_ERROR_UNSUPPORTED;
+            result = kVideoDecoderMissing;
     }
     if (SUCCEEDED(result))
         result = gpu_decoder_select_config(s->device, desc, 1, &selected);
@@ -285,9 +285,10 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     if (SUCCEEDED(result)) {
         const vaapi::Driver* driver = vaapi::driver(device);
         const u32 count = maximum<u32>(a.max_buffering, 1) + 2u;
-        if (!driver || !(driver->codecs & gpu_stream_codec_bit(GpuStreamCodec::h265)) ||
-            surface_extent.width > driver->max_width[1] || surface_extent.height > driver->max_height[1] ||
-            count > vaapi::kSurfaceLimit) {
+        if (!driver || !(driver->codecs & gpu_stream_codec_bit(GpuStreamCodec::h265))) {
+            result = kVideoDecoderMissing; // HEVC has no software tier
+        } else if (surface_extent.width > driver->max_width[1] || surface_extent.height > driver->max_height[1] ||
+                   count > vaapi::kSurfaceLimit) {
             result = DXGI_ERROR_UNSUPPORTED;
         } else {
             s->device = device;

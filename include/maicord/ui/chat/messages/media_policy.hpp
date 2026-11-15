@@ -106,4 +106,18 @@ Utf8View message_media_obscure_label(MessageMediaObscure obscure) noexcept;
 // Centred label pill over an obscured preview (empty when it cannot fit).
 UiRect message_media_obscure_pill(const UiRect& media, MessageMediaObscure obscure = MessageMediaObscure::spoiler) noexcept;
 
+// A received video that this computer has no decoder for (AccountMediaVideoFailure::missing_*). The media pump marks
+// the item when its request reports it. The box keeps its size, shows no play control and shows a centred label.
+enum class MessageMediaUnplayable : u8 { none, h264, hevc };
+// Session marks by item key (message_media_reveal_key), a ring like the reveals.
+struct MessageMediaUnplayables {
+    MessageMediaReveals keys;
+    MessageMediaUnplayable reasons[kMessageMediaRevealMaximum];
+};
+MessageMediaUnplayable message_media_unplayable(const MessageMediaUnplayables& marks, u64 key) noexcept;
+// Returns true when the key was newly marked.
+bool message_media_mark_unplayable(MessageMediaUnplayables* marks, u64 key, MessageMediaUnplayable reason) noexcept;
+// The label of a marked video: what to install, or that this computer has no decoder for the format.
+Utf8View message_media_unplayable_label(MessageMediaUnplayable reason) noexcept;
+
 } // namespace maicord

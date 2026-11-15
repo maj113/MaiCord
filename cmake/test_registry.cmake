@@ -1072,7 +1072,8 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
             tests/ui/chat/messages/embed_colors.cpp tests/ui/text/ansi_code_blocks.cpp
             tests/ui/chat/messages/components.cpp tests/ui/chat/messages/content_wave.cpp
             tests/ui/text/embed_convergence.cpp tests/ui/chat/messages/embed_parity.cpp
-            tests/ui/chat/messages/embed_parity_embeds.cpp tests/ui/chat/messages/link_chips.cpp
+            tests/ui/chat/messages/embed_parity_embeds.cpp tests/ui/chat/messages/embed_parity_unplayable.cpp
+            tests/ui/chat/messages/link_chips.cpp
             tests/ui/chat/messages/plugin_dispatch.cpp tests/app/chat/messages/history_presence_recovery.cpp
             tests/ui/account/profile_appearance.cpp tests/protocol/user/profile_decode_scratch.cpp
             tests/protocol/gateway/message_rich_index.cpp tests/app/net/cdn_response_storage.cpp
@@ -1314,6 +1315,17 @@ maicord_test(MaiCordProfileMediaFitTests ENTRY maicord_profile_media_fit_entry
             maicord_gpu_gles_shaders maicord_gpu_gles maicord_video_software maicord_paint_program
             ${maicord_linux_app_test_libs}
     TIMEOUT 10 TEST maicord_profile_media_fit)
+# A video without a decoder on this computer: a permanent result that names the codec, reported again while it
+# waits; a refused or damaged stream keeps its old result.
+maicord_test(MaiCordVideoDecoderMissingTests ENTRY maicord_video_decoder_missing_entry
+    SOURCES tests/app/media/video_decoder_missing.cpp
+    WINDOWS LIBS maicord_account_media
+        BUNDLE MaiCordCodecUnitTests
+    LINUX SOURCES tests/platform/audio/window_post_stub.cpp
+        LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video
+            maicord_gpu_gles_shaders maicord_gpu_gles maicord_video_software maicord_paint_program
+            ${maicord_linux_app_test_libs}
+    TIMEOUT 10 TEST maicord_video_decoder_missing)
 if(MAICORD_LINUX)
     # The GPU VP8 gate: a device with the 128 invocations per group the specification guarantees has no GPU VP8 path, and
     # lossy WebP stills and animation frames decode on the CPU into RGBA8 (src/gpu/gles/README.md).
@@ -2053,6 +2065,11 @@ if(MAICORD_LINUX)
         INCLUDES src
         TIMEOUT 30 ENV MAICORD_VAAPI=off TEST maicord_mp4_decoder_linux)
     set_tests_properties(maicord_mp4_decoder_linux PROPERTIES SKIP_RETURN_CODE 77)
+    # --no-library: libopenh264 is absent and VA-API is off, so an H.264 and an HEVC movie report a missing decoder
+    # (kVideoDecoderMissing) and a damaged movie keeps its parse error.
+    maicord_add_tests(MaiCordMp4DecoderLinuxTests TIMEOUT 10 SKIP_RETURN_CODE 77
+        ENV MAICORD_VAAPI=off MAICORD_OPENH264_LIBRARY=libmaicord-no-such-openh264.so.7
+        TEST maicord_mp4_decoder_missing --no-library)
     # The media player's session (src/app/media/account_video_session*.cpp, the Windows code) over that decoder: a movie
     # played by the clock, seeked and replayed, every picture converted and compared. --audio (the opt-in
     # maicord_video_playback_audio, against a sound server: tools/test_pulse_audio.sh) plays the AAC track into a server.
@@ -3254,7 +3271,7 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         UI_INLINE_FLAGS UI_RESIZE_TEXT
         UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_MESSAGE_HEADER_CLIP UI_PANE_GLYPH_STRESS
         UI_PINNED_MESSAGES UI_QUICK_SWITCHER
-        UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER TOAST_UI)
+        UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER UI_UNPLAYABLE_VIDEO TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")
     maicord_ui_probe_test(maicord_${maicord_ui_gate_name}_probe ${maicord_ui_gate}_PROBE BOOTSTRAP TIMEOUT 15

@@ -19,6 +19,12 @@ openSUSE and Arch. No software HEVC; the live software tier refuses B slices (Op
 `video_capability.hpp` turns the probes into what Discord is offered. Movies play on both tiers in presentation order
 (libopenh264 is the reorderer); HEVC movies need a VA-API driver.
 
+A movie that no tier can decode because the computer has no decoder for its codec (no VA-API profile and no
+libopenh264 for H.264, no VA-API HEVC profile for HEVC) fails with `kVideoDecoderMissing` (`h264_gpu_decoder.hpp`; on
+Windows, a GPU without the DXVA profile). The client does not try that movie again in the session, and its media box
+shows "Install OpenH264 to play this video" or "No decoder for this video format". A stream that a decoder
+refuses or that is damaged keeps the old result: a retry after 60 s, or none for a stream the parser refuses.
+
 ## VA-API (`vaapi/`)
 
 `libva.so.2` and `libva-drm.so.2` are `dlopen`ed (libva 2.14, Ubuntu 22.04, is the floor). `MAICORD_VAAPI=off` disables
