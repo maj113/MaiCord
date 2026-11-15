@@ -778,11 +778,12 @@ struct GatewayClientPresenceUpdate {
     u8 client_status;
 };
 
-// Decodes a PRESENCE_UPDATE value of an indexed document (no scan); with appearance also its activities.
+// Decodes a PRESENCE_UPDATE value of an indexed document (no scan) and the activities of its appearance.
+// *activities receives the `activities` member (no source text: absent).
 GatewayEventDecodeResult gateway_client_decode_presence(const JsonIndexedDocument& document, JsonValue data,
                                                         u32 maximum_depth,
                                                         GatewayClientPresenceUpdate* output,
-                                                        UserAppearance* appearance = nullptr) noexcept;
+                                                        UserAppearance* appearance, JsonValue* activities) noexcept;
 
 enum class GatewayClientMemberListItemKind : u8 {
     member,

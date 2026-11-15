@@ -1,5 +1,6 @@
 #include "maicord/protocol/gateway/etf.hpp"
 
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
@@ -32,13 +33,12 @@ enum Tag : u8 {
 
 constexpr u64 kSafeInteger = 1ull << 53;
 
-u32 load_be32(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
-}
-
 // ------------------------------------------------------------ JSON output
 struct Writer {
+    // *out as the last growth left it: a reservation reads the copy.
     Slice<u8>* out;
+    u8* data;
+    u32 capacity;
     u32 used;
     u32 maximum;
     EtfGrowOutput grow;
@@ -61,14 +61,15 @@ struct Writer {
         // The owner's storage sets the growth policy (stable storage doubles).
         const u32 required = used + bytes;
         Slice<u8> next{};
-        if (!grow || !grow(context, required, &next) ||
-            (out->data && next.data != out->data) || next.count < required)
+        if (!grow || !grow(context, required, &next) || (data && next.data != data) || next.count < required)
             return nullptr;
         *out = next;
-        return out->data + used;
+        data = next.data;
+        capacity = next.count;
+        return data + used;
     }
     __forceinline u8* reserve(u32 bytes) noexcept {
-        return out->count - used >= bytes ? out->data + used : reserve_slow(bytes);
+        return capacity - used >= bytes ? data + used : reserve_slow(bytes);
     }
     // Every single byte written this way is structural: a quote, comma, colon or bracket.
     __forceinline bool byte(u8 value) noexcept {
@@ -80,7 +81,7 @@ struct Writer {
         ++used;
         return true;
     }
-    bool bytes(const void* data, u32 count) noexcept {
+    __forceinline bool bytes(const void* data, u32 count) noexcept {
         u8* at = reserve(count);
         if (!at)
             return false;
@@ -94,88 +95,109 @@ constexpr char kDigitPairs[] = "000102030405060708091011121314151617181920212223
                                 "40414243444546474849505152535455565758596061626364656667686970717273747576777879"
                                 "8081828384858687888990919293949596979899";
 
+__forceinline void write_pair(u8* out, u32 value) noexcept {
+    copy_bytes(out, kDigitPairs + value * 2, 2);
+}
+
+// Writes 20 bytes: the digits, then bytes of no meaning. Returns the digit count.
 __forceinline u32 write_decimal(u8* out, u64 value) noexcept {
     if (value < 10) {
         out[0] = static_cast<u8>('0' + value);
         return 1;
     }
-    u8 digits[20];
+    // Right-aligned in the first 20 bytes. The copy below reads 20 bytes from any digit position.
+    u8 digits[40];
     u32 at = 20;
-    while (value >= 100) {
-        const u32 pair = static_cast<u32>(value % 100) * 2;
-        value /= 100;
-        at -= 2;
-        digits[at] = static_cast<u8>(kDigitPairs[pair]);
-        digits[at + 1] = static_cast<u8>(kDigitPairs[pair + 1]);
+    // Eight digits at a time in 32-bit arithmetic, so a snowflake takes two 64-bit divisions.
+    while (value >= 100'000'000) {
+        const u32 chunk = static_cast<u32>(value % 100'000'000);
+        value /= 100'000'000;
+        const u32 high = chunk / 10'000, low = chunk % 10'000;
+        at -= 8;
+        write_pair(digits + at, high / 100);
+        write_pair(digits + at + 2, high % 100);
+        write_pair(digits + at + 4, low / 100);
+        write_pair(digits + at + 6, low % 100);
     }
-    if (value >= 10) {
+    u32 rest = static_cast<u32>(value);
+    while (rest >= 100) {
         at -= 2;
-        digits[at] = static_cast<u8>(kDigitPairs[value * 2]);
-        digits[at + 1] = static_cast<u8>(kDigitPairs[value * 2 + 1]);
+        write_pair(digits + at, rest % 100);
+        rest /= 100;
+    }
+    if (rest >= 10) {
+        at -= 2;
+        write_pair(digits + at, rest);
     } else {
-        digits[--at] = static_cast<u8>('0' + value);
+        digits[--at] = static_cast<u8>('0' + rest);
     }
-    const u32 n = 20 - at;
-    // At most 20 digits: a vector body never runs and only adds size.
-#pragma clang loop vectorize(disable) interleave(disable)
-    for (u32 i = 0; i < n; ++i)
-        out[i] = digits[at + i];
-    return n;
+    copy_bytes(out, digits + at, 20);
+    return 20 - at;
 }
 
-__forceinline bool write_unsigned(Writer* w, u64 value, bool negative) noexcept {
-    u8* at = w->reserve(21);
+// An integer of the given magnitude: a number below 2^53, else a string. One reservation holds the two quotes,
+// the sign and the 20 bytes that write_decimal writes.
+bool write_integer(Writer* w, u64 magnitude, bool negative, bool as_name) noexcept {
+    const bool quoted = as_name || magnitude >= kSafeInteger;
+    u8* at = w->reserve(23);
     if (!at)
         return false;
     u32 n = 0;
-    if (negative)
+    if (quoted) {
+        w->mark(w->used);
+        at[n++] = '"';
+    }
+    if (negative && magnitude != 0)
         at[n++] = '-';
-    n += write_decimal(at + n, value);
+    n += write_decimal(at + n, magnitude);
+    if (quoted) {
+        w->mark(w->used + n);
+        at[n++] = '"';
+    }
     w->used += n;
     return true;
 }
 
-// An integer of the given magnitude: a number below 2^53, else a string.
-bool write_integer(Writer* w, u64 magnitude, bool negative, bool as_name) noexcept {
-    const bool quoted = as_name || magnitude >= kSafeInteger;
-    if (quoted && !w->byte('"'))
-        return false;
-    if (!write_unsigned(w, magnitude, negative && magnitude != 0))
-        return false;
-    return !quoted || w->byte('"');
-}
-
 const char kHex[] = "0123456789abcdef";
 
-// Escapes and validates UTF-8 (latin1: bytes are code points).
-bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1) noexcept {
+// One bit for each byte of v that a JSON string cannot hold as it is: a control, '"', '\\' or 0x80 and more.
+__forceinline u32 special_mask(__m128i v) noexcept {
+    return static_cast<u32>(_mm_movemask_epi8(
+        _mm_or_si128(_mm_cmplt_epi8(v, _mm_set1_epi8(0x20)),
+                     _mm_or_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8('"')), _mm_cmpeq_epi8(v, _mm_set1_epi8('\\'))))));
+}
+
+// Escapes and validates UTF-8 (latin1: bytes are code points). readable: bytes from s to the input's end.
+bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
     if (!w->byte('"'))
         return false;
     u32 i = 0;
     while (i < n) {
-        // Runs of bytes that need nothing, 16 at a time.
-        u32 run = i;
-        const __m128i space = _mm_set1_epi8(0x20), quote = _mm_set1_epi8('"'), slash = _mm_set1_epi8('\\');
-        while (n - run >= 16) {
-            const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + run));
-            const __m128i special =
-                _mm_or_si128(_mm_cmplt_epi8(v, space), _mm_or_si128(_mm_cmpeq_epi8(v, quote), _mm_cmpeq_epi8(v, slash)));
-            const u32 mask = static_cast<u32>(_mm_movemask_epi8(special));
-            if (mask) {
-                unsigned long first = 0;
-                _BitScanForward(&first, mask);
-                run += first;
-                break;
-            }
-            run += 16;
-        }
-        while (run < n && s[run] >= 0x20 && s[run] < 0x80 && s[run] != '"' && s[run] != '\\')
-            ++run;
-        if (run != i) {
-            if (!w->bytes(s + i, run - i))
+        if (readable - i >= 16) {
+            // Bytes that need nothing are copied 16 at a time. The copy can pass the run and the string: those
+            // output bytes have no meaning and the next write replaces them.
+            const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
+            u8* at = w->reserve(16);
+            if (!at)
                 return false;
-            i = run;
-            continue;
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(at), v);
+            unsigned long plain = 0;
+            _BitScanForward(&plain, special_mask(v) | 1u << 16);
+            const u32 run = minimum(static_cast<u32>(plain), n - i);
+            w->used += run;
+            i += run;
+            if (plain == 16 || i == n)
+                continue;
+        } else {
+            u32 run = i;
+            while (run < n && s[run] >= 0x20 && s[run] < 0x80 && s[run] != '"' && s[run] != '\\')
+                ++run;
+            if (run != i) {
+                if (!w->bytes(s + i, run - i))
+                    return false;
+                i = run;
+                continue;
+            }
         }
         const u8 c = s[i];
         u8* at = w->reserve(6);
@@ -212,31 +234,38 @@ bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1) noexcept {
             ++i;
             continue;
         }
-        // One UTF-8 sequence, or U+FFFD for an invalid byte.
-        u32 length = 0, minimum_code = 0, code = 0;
-        if (c >= 0xC2 && c <= 0xDF)
-            length = 2, code = c & 0x1F, minimum_code = 0x80;
-        else if (c >= 0xE0 && c <= 0xEF)
-            length = 3, code = c & 0x0F, minimum_code = 0x800;
-        else if (c >= 0xF0 && c <= 0xF4)
-            length = 4, code = c & 0x07, minimum_code = 0x10000;
-        bool valid = length != 0 && n - i >= length;
-        for (u32 k = 1; valid && k < length; ++k) {
-            valid = (s[i + k] & 0xC0) == 0x80;
-            code = code << 6 | (s[i + k] & 0x3F);
-        }
-        if (valid && (code < minimum_code || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)))
-            valid = false;
-        if (valid) {
-            copy_bytes(at, s + i, length);
+        // A run of UTF-8 sequences: each one whole, or U+FFFD for an invalid byte.
+        for (;;) {
+            const u8 lead = s[i];
+            u32 length = 0, minimum_code = 0, code = 0;
+            if (lead >= 0xC2 && lead <= 0xDF)
+                length = 2, code = lead & 0x1F, minimum_code = 0x80;
+            else if (lead >= 0xE0 && lead <= 0xEF)
+                length = 3, code = lead & 0x0F, minimum_code = 0x800;
+            else if (lead >= 0xF0 && lead <= 0xF4)
+                length = 4, code = lead & 0x07, minimum_code = 0x10000;
+            at[0] = lead;
+            bool valid = length != 0 && n - i >= length;
+            for (u32 k = 1; valid && k < length; ++k) {
+                valid = (s[i + k] & 0xC0) == 0x80;
+                code = code << 6 | (s[i + k] & 0x3F);
+                at[k] = s[i + k];
+            }
+            if (valid && (code < minimum_code || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)))
+                valid = false;
+            if (!valid) {
+                at[0] = 0xEF;
+                at[1] = 0xBF;
+                at[2] = 0xBD;
+                length = 3;
+            }
             w->used += length;
-            i += length;
-        } else {
-            at[0] = 0xEF;
-            at[1] = 0xBF;
-            at[2] = 0xBD;
-            w->used += 3;
-            ++i;
+            i += valid ? length : 1;
+            if (i == n || s[i] < 0x80)
+                break;
+            at = w->reserve(4);
+            if (!at)
+                return false;
         }
     }
     return w->byte('"');
@@ -247,10 +276,7 @@ bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1) noexcept {
 __forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
     if (n < 16 && readable >= 16) {
         const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s));
-        const __m128i special =
-            _mm_or_si128(_mm_cmplt_epi8(v, _mm_set1_epi8(0x20)),
-                         _mm_or_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8('"')), _mm_cmpeq_epi8(v, _mm_set1_epi8('\\'))));
-        const u32 mask = static_cast<u32>(_mm_movemask_epi8(special)) & ((1u << n) - 1);
+        const u32 mask = special_mask(v) & ((1u << n) - 1);
         if (!mask) {
             u8* at = w->reserve(18);
             if (!at)
@@ -264,7 +290,7 @@ __forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 
             return true;
         }
     }
-    return write_string_slow(w, s, n, latin1);
+    return write_string_slow(w, s, n, latin1, readable);
 }
 
 // Floats are rare in Gateway payloads and Big only runs for non-integral doubles: compiled for size.
@@ -449,16 +475,30 @@ __forceinline bool same(const u8* s, const char* text, u32 n) noexcept {
             return false;
     return true;
 }
-Quoting key_quoting(const u8* s, u32 n) noexcept {
-    // Every quoted name ends in d, s, w or y.
-    if (n < 2 || (s[n - 1] != 'd' && s[n - 1] != 's' && s[n - 1] != 'w' && s[n - 1] != 'y'))
-        return Quoting::none;
-    const auto ends = [&](const char* suffix, u32 k) noexcept { return n > k && same(s + n - k, suffix, k); };
-    const auto is = [&](const char* name, u32 k) noexcept { return n == k && same(s, name, k); };
-    if (is("id", 2) || ends("_id", 3) || is("permissions", 11) || is("allow", 5) || is("deny", 4) ||
-        is("permissions_new", 15) || is("allow_new", 9) || is("deny_new", 8))
+// The bytes of a name of at most eight characters as one little-endian load reads them.
+consteval u64 packed(const char* text) noexcept {
+    u64 value = 0;
+    for (u32 i = 0; text[i]; ++i)
+        value |= static_cast<u64>(static_cast<u8>(text[i])) << (8 * i);
+    return value;
+}
+// "id", "*_id" and the permission names quote their value. "*_ids" quotes the elements of its list.
+__forceinline Quoting key_quoting(const u8* s, u32 n) noexcept {
+    if (n < 4)
+        return n == 2 && byte_load_le16(s) == packed("id") ? Quoting::value : Quoting::none;
+    const u32 tail = byte_load_le32(s + n - 4);
+    if (tail >> 8 == packed("_id"))
         return Quoting::value;
-    return ends("_ids", 4) ? Quoting::elements : Quoting::none;
+    if (tail == packed("_ids"))
+        return n > 4 ? Quoting::elements : Quoting::none;
+    const u64 head = n >= 8 ? byte_load_le64(s) : byte_load_le32(s);
+    return (n == 4 && tail == packed("deny")) || (n == 5 && head == packed("allo") && tail == packed("llow")) ||
+                   (n == 8 && head == packed("deny_new")) ||
+                   (n == 9 && head == packed("allow_ne") && tail == packed("_new")) ||
+                   (n == 11 && head == packed("permissi") && tail == packed("ions")) ||
+                   (n == 15 && head == packed("permissi") && byte_load_le64(s + 7) == packed("ions_new"))
+               ? Quoting::value
+               : Quoting::none;
 }
 
 struct Frame {
@@ -480,7 +520,7 @@ __forceinline AtomValue atom_value(const u8* s, u32 n) noexcept {
 }
 
 // Reads an atom header at r.at (tag already consumed): its text and encoding.
-bool read_atom(Reader* r, u8 tag, const u8** text, u32* length) noexcept {
+__forceinline bool read_atom(Reader* r, u8 tag, const u8** text, u32* length) noexcept {
     const bool small = tag == kSmallAtom || tag == kSmallAtomUtf8;
     if (!r->has(small ? 1 : 2))
         return false;
@@ -494,7 +534,18 @@ bool read_atom(Reader* r, u8 tag, const u8** text, u32* length) noexcept {
     return true;
 }
 
-bool read_big(Reader* r, u8 tag, u64* magnitude, bool* negative, EtfError* error) noexcept {
+// The magnitude and sign of an integer term (tag already consumed): a byte, 32 bits, or a big of at most 8 bytes.
+__forceinline bool read_integer(Reader* r, u8 tag, u64* magnitude, bool* negative, EtfError* error) noexcept {
+    if (tag == kSmallInteger || tag == kInteger) {
+        const u32 width = tag == kInteger ? 4 : 1;
+        if (!r->has(width))
+            return false;
+        const i32 v = tag == kInteger ? static_cast<i32>(byte_load_be32(r->data + r->at)) : r->data[r->at];
+        r->at += width;
+        *negative = v < 0;
+        *magnitude = v < 0 ? 0ull - static_cast<u64>(static_cast<i64>(v)) : static_cast<u64>(v);
+        return true;
+    }
     u32 digits;
     if (tag == kSmallBig) {
         if (!r->has(2))
@@ -503,7 +554,7 @@ bool read_big(Reader* r, u8 tag, u64* magnitude, bool* negative, EtfError* error
     } else {
         if (!r->has(5))
             return false;
-        digits = load_be32(r->data + r->at);
+        digits = byte_load_be32(r->data + r->at);
         r->at += 4;
     }
     *negative = r->data[r->at++] != 0;
@@ -513,114 +564,101 @@ bool read_big(Reader* r, u8 tag, u64* magnitude, bool* negative, EtfError* error
         *error = EtfError::unsupported_term;
         return false;
     }
+    // One load when eight bytes are readable, else byte by byte at the end of the input.
     u64 value = 0;
-    for (u32 i = 0; i < digits; ++i)
-        value |= static_cast<u64>(r->data[r->at + i]) << (8 * i);
+    if (r->has(8))
+        value = byte_load_le64(r->data + r->at) & ~(~0ull << 4 * digits << 4 * digits);
+    else
+        for (u32 i = 0; i < digits; ++i)
+            value |= static_cast<u64>(r->data[r->at + i]) << (8 * i);
     r->at += digits;
     *magnitude = value;
     return true;
 }
 
-// A map key as a JSON name, then ':'.
-bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept {
+// A map key that is not a short plain ATOM_EXT name, then ':'.
+bool write_key_slow(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept {
     *error = EtfError::truncated;
     *quoting = Quoting::none;
     if (!r->has(1))
         return false;
     const u8 tag = r->data[r->at++];
-    // The Gateway's keys: short plain ATOM_EXT names, written with their ':' in one store.
-    if (tag == kAtom && r->size - r->at >= 18) {
-        const u32 n = static_cast<u32>(r->data[r->at]) << 8 | r->data[r->at + 1];
-        const u8* text = r->data + r->at + 2;
-        if (n - 1 < 13 && !(n == 3 && same(text, "nil", 3))) {
-            const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(text));
-            const __m128i special =
-                _mm_or_si128(_mm_cmplt_epi8(v, _mm_set1_epi8(0x20)),
-                             _mm_or_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8('"')), _mm_cmpeq_epi8(v, _mm_set1_epi8('\\'))));
-            if (!(static_cast<u32>(_mm_movemask_epi8(special)) & ((1u << n) - 1))) {
-                u8* at = w->reserve(19);
-                *error = EtfError::output_capacity;
-                if (!at)
-                    return false;
-                at[0] = '"';
-                _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
-                at[1 + n] = '"';
-                at[2 + n] = ':';
-                w->mark(w->used);
-                w->mark(w->used + 1 + n);
-                w->mark(w->used + 2 + n);
-                w->used += n + 3;
-                *quoting = key_quoting(text, n);
-                r->at += 2 + n;
-                return true;
-            }
-        }
-    }
-    bool written = false;
+    const u8* text = nullptr;
+    u32 n = 0;
+    u64 magnitude = 0;
+    bool negative = false;
     switch (tag) {
     case kAtom:
     case kSmallAtom:
     case kAtomUtf8:
-    case kSmallAtomUtf8: {
-        const u8* text = nullptr;
-        u32 n = 0;
+    case kSmallAtomUtf8:
         if (!read_atom(r, tag, &text, &n))
             return false;
-        *error = EtfError::output_capacity;
-        *quoting = key_quoting(text, n);
-        // erlpack turns nil into null, which names the property "null".
-        if (atom_value(text, n) == AtomValue::null)
-            written = write_string(w, reinterpret_cast<const u8*>("null"), 4, false, 0);
-        else
-            written = write_string(w, text, n, tag == kAtom || tag == kSmallAtom,
-                                   static_cast<u32>(r->data + r->size - text));
         break;
-    }
-    case kBinary: {
+    case kBinary:
         if (!r->has(4))
             return false;
-        const u32 n = load_be32(r->data + r->at);
+        n = byte_load_be32(r->data + r->at);
         r->at += 4;
         if (!r->has(n))
             return false;
-        *error = EtfError::output_capacity;
-        *quoting = key_quoting(r->data + r->at, n);
-        written = write_string(w, r->data + r->at, n, false, r->size - r->at);
+        text = r->data + r->at;
         r->at += n;
         break;
-    }
     case kSmallInteger:
-        if (!r->has(1))
-            return false;
-        *error = EtfError::output_capacity;
-        written = write_integer(w, r->data[r->at++], false, true);
-        break;
-    case kInteger: {
-        if (!r->has(4))
-            return false;
-        const i32 v = static_cast<i32>(load_be32(r->data + r->at));
-        r->at += 4;
-        *error = EtfError::output_capacity;
-        written = write_integer(w, v < 0 ? 0ull - static_cast<u64>(static_cast<i64>(v)) : static_cast<u64>(v),
-                                v < 0, true);
-        break;
-    }
+    case kInteger:
     case kSmallBig:
-    case kLargeBig: {
-        u64 magnitude = 0;
-        bool negative = false;
-        if (!read_big(r, tag, &magnitude, &negative, error))
+    case kLargeBig:
+        if (!read_integer(r, tag, &magnitude, &negative, error))
             return false;
-        *error = EtfError::output_capacity;
-        written = write_integer(w, magnitude, negative, true);
         break;
-    }
     default:
         --r->at;
         *error = EtfError::invalid_key;
         return false;
     }
+    *error = EtfError::output_capacity;
+    bool written = false;
+    if (!text) {
+        written = write_integer(w, magnitude, negative, true);
+    } else {
+        *quoting = key_quoting(text, n);
+        // erlpack turns nil into null, which names the property "null".
+        if (tag != kBinary && atom_value(text, n) == AtomValue::null)
+            written = write_string(w, reinterpret_cast<const u8*>("null"), 4, false, 0);
+        else
+            written = write_string(w, text, n, tag == kAtom || tag == kSmallAtom,
+                                   static_cast<u32>(r->data + r->size - text));
+    }
     return written && w->byte(':');
+}
+
+// A map key as a JSON name, then ':'. The Gateway's keys are short plain ATOM_EXT names: one store writes such a
+// name with its ':'.
+__forceinline bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept {
+    if (r->size - r->at >= 19 && r->data[r->at] == kAtom) {
+        const u32 n = byte_load_be16(r->data + r->at + 1);
+        const u8* text = r->data + r->at + 3;
+        const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(text));
+        if (n - 1 < 13 && !(n == 3 && same(text, "nil", 3)) && !(special_mask(v) & ((1u << n) - 1))) {
+            u8* at = w->reserve(19);
+            *error = EtfError::output_capacity;
+            if (!at)
+                return false;
+            at[0] = '"';
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
+            at[1 + n] = '"';
+            at[2 + n] = ':';
+            w->mark(w->used);
+            w->mark(w->used + 1 + n);
+            w->mark(w->used + 2 + n);
+            w->used += n + 3;
+            *quoting = key_quoting(text, n);
+            r->at += 3 + n;
+            return true;
+        }
+    }
+    return write_key_slow(r, w, error, quoting);
 }
 
 } // namespace
@@ -633,7 +671,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
     if (etf[0] != kVersion)
         return {0, EtfError::bad_version};
     Reader r{etf.data, etf.count, 1};
-    Writer w{output, 0, maximum_output, grow, context, index.data, index.count, 0};
+    Writer w{output, output->data, output->count, 0, maximum_output, grow, context, index.data, index.count, 0};
     Frame stack[kEtfMaximumDepth];
     u32 depth = 0;
     bool started = false;
@@ -681,25 +719,13 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
         bool ok = true;
         switch (tag) {
         case kSmallInteger:
-            if (!r.has(1))
-                return failed(EtfError::truncated);
-            ok = write_integer(&w, r.data[r.at++], false, quote);
-            break;
-        case kInteger: {
-            if (!r.has(4))
-                return failed(EtfError::truncated);
-            const i32 v = static_cast<i32>(load_be32(r.data + r.at));
-            r.at += 4;
-            ok = write_integer(&w, v < 0 ? 0ull - static_cast<u64>(static_cast<i64>(v)) : static_cast<u64>(v), v < 0,
-                               quote);
-            break;
-        }
+        case kInteger:
         case kSmallBig:
         case kLargeBig: {
             u64 magnitude = 0;
             bool negative = false;
             EtfError error = EtfError::truncated;
-            if (!read_big(&r, tag, &magnitude, &negative, &error))
+            if (!read_integer(&r, tag, &magnitude, &negative, &error))
                 return failed(error);
             ok = write_integer(&w, magnitude, negative, quote);
             break;
@@ -747,7 +773,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
         case kBinary: {
             if (!r.has(4))
                 return failed(EtfError::truncated);
-            const u32 n = load_be32(r.data + r.at);
+            const u32 n = byte_load_be32(r.data + r.at);
             r.at += 4;
             if (!r.has(n))
                 return failed(EtfError::truncated);
@@ -769,7 +795,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
                 return failed(EtfError::truncated);
             ok = w.byte('[');
             for (u32 i = 0; ok && i < n; ++i)
-                ok = (!i || w.byte(',')) && write_unsigned(&w, r.data[r.at + i], false);
+                ok = (!i || w.byte(',')) && write_integer(&w, r.data[r.at + i], false, false);
             ok = ok && w.byte(']');
             r.at += n;
             break;
@@ -781,7 +807,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
             const u32 width = tag == kSmallTuple ? 1 : 4;
             if (!r.has(width))
                 return failed(EtfError::truncated);
-            const u32 n = width == 1 ? r.data[r.at] : load_be32(r.data + r.at);
+            const u32 n = width == 1 ? r.data[r.at] : byte_load_be32(r.data + r.at);
             r.at += width;
             // Every element takes at least one byte (two for a map pair).
             if (n > (r.size - r.at) / (tag == kMap ? 2 : 1))

@@ -269,11 +269,10 @@ GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocum
     return extract_snapshot(array, document, maximum_depth, body, present, &child);
 }
 
-GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDocument& document, JsonValue data,
-                                                            u32 maximum_depth, Slice<char> text_output,
-                                                            u32* text_used,
-                                                            const GatewayMessageRichScratch& scratch,
-                                                            GatewayMessageEvent* output) noexcept {
+GatewayEventDecodeResult message_rich_detail::decode_rich_fields(
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> text_output, u32* text_used,
+    const GatewayMessageRichScratch& scratch, GatewayMessageEvent* output, const RootContext& root,
+    GatewayEventDecodeResult result) noexcept {
     if (!output || !text_used || !data.source.data || data.source.bytes == 0 ||
         data.kind != JsonValueKind::object || !document.structurals.data || document.structurals.count == 0 ||
         maximum_depth == 0 || (!text_output.data && text_output.count != 0) ||
@@ -291,9 +290,6 @@ GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDoc
         (!scratch.snapshot.mention_users.data && scratch.snapshot.mention_users.count)) {
         return decode_failure(GatewayEventDecodeError::invalid_input);
     }
-    RootContext root{};
-    GatewayEventDecodeResult result =
-        read_object(data, document, maximum_depth, visit_root, &root, &root.error);
     const RichText text{text_output, text_used, &output->rich_truncations};
     if (result.ok())
         result = decode_reference(root, document, maximum_depth, text, output);

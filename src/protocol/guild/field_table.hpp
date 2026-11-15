@@ -60,10 +60,10 @@ struct ObjectSpec {
     u8 key_size;
     // How a label reads: the most bytes its string decodes to before it reads empty, in 256s (0: 1024).
     u8 text;
-    u8 names_bytes; // the names block: the count, then each name (length first) as member_index reads them
+    u8 names_bytes; // the names block: the count, each name's length, then the characters, as table_index reads them
 };
-// The table: its head, the names, a hash for each name, where each name and each row starts, then the rows: one for
-// each name, in order. Aligned for the hook's pointer, which the image's relocations patch.
+// The table: its head, the names, where each row starts, then the rows: one for each name, in order. Aligned for
+// the hook's pointer, which the image's relocations patch.
 template <usize Bytes> struct alignas(8) FieldTable : ObjectSpec {
     u8 members[Bytes];
 };
@@ -84,20 +84,18 @@ constexpr usize field_row_bytes(u8 info) noexcept {
     const u8 kind = info & 7;
     return kind == field_hook ? 1 : kind >= field_text ? 7 : 3;
 }
-// A byte that tells names apart cheaply: from a name's length, first and last byte.
-constexpr u8 field_name_hash(u32 bytes, u8 first, u8 last) noexcept {
-    return static_cast<u8>(bytes * 7 + first + last * 3);
-}
-// The bytes of the names block: the count, then each name with its length first.
+// The bytes of the names block: the count, each name's length, then the characters.
 template <usize N> consteval usize field_names_bytes(const FieldDef (&defs)[N]) noexcept {
     usize bytes = 1;
     for (usize i = 0; i < N; ++i) bytes += 1 + field_name_length(defs[i].name);
     return bytes;
 }
+// table_index reads the lengths in blocks of 16, so the table holds whole blocks after the count.
 template <usize N> consteval usize field_table_bytes(const FieldDef (&defs)[N]) noexcept {
-    usize bytes = field_names_bytes(defs) + 3 * N;
+    usize bytes = field_names_bytes(defs) + N;
     for (usize i = 0; i < N; ++i) bytes += field_row_bytes(defs[i].info);
-    return bytes;
+    const usize blocks = 1 + (N + 15) / 16 * 16;
+    return bytes > blocks ? bytes : blocks;
 }
 template <usize Bytes, usize N>
 consteval FieldTable<Bytes> make_field_table(const FieldDef (&defs)[N], ObjectSpec head) noexcept {
@@ -114,21 +112,10 @@ consteval FieldTable<Bytes> make_field_table(const FieldDef (&defs)[N], ObjectSp
         table.members[at++] = static_cast<u8>(value >> 8);
     };
     table.members[at++] = static_cast<u8>(N);
-    for (usize i = 0; i < N; ++i) {
-        const usize length = field_name_length(defs[i].name);
-        table.members[at++] = static_cast<u8>(length);
-        for (usize k = 0; k < length; ++k) table.members[at++] = static_cast<u8>(defs[i].name[k]);
-    }
-    // A hash and the offset in the names block of each name, then where each row starts among the rows.
-    usize name_at = 1;
-    for (usize i = 0; i < N; ++i) {
-        const usize length = field_name_length(defs[i].name);
-        table.members[at++] = field_name_hash(static_cast<u32>(length), static_cast<u8>(defs[i].name[0]), static_cast<u8>(defs[i].name[length - 1]));
-    }
-    for (usize i = 0; i < N; ++i) {
-        table.members[at++] = static_cast<u8>(name_at);
-        name_at += 1 + field_name_length(defs[i].name);
-    }
+    for (usize i = 0; i < N; ++i) table.members[at++] = static_cast<u8>(field_name_length(defs[i].name));
+    for (usize i = 0; i < N; ++i)
+        for (usize k = 0; defs[i].name[k]; ++k) table.members[at++] = static_cast<u8>(defs[i].name[k]);
+    // Where each row starts among the rows.
     usize row_at = 0;
     for (usize i = 0; i < N; ++i) {
         if (row_at > 255)
@@ -235,21 +222,8 @@ __declspec(noinline) inline bool read_member(void* opaque, JsonString name, Json
     auto& r = *static_cast<ObjectReader*>(opaque);
     const ObjectSpec& spec = *r.spec;
     const u8* names = reinterpret_cast<const u8*>(&spec + 1);
-    const u8* const hashes = names + spec.names_bytes;
-    u32 index = names[0];
-    if (name.has_escapes) {
-        index = member_index(name, names);
-    } else if (name.encoded.bytes) {
-        const char* const text = name.encoded.data;
-        const u32 bytes = name.encoded.bytes;
-        const u8 hash = field_name_hash(bytes, static_cast<u8>(text[0]), static_cast<u8>(text[bytes - 1]));
-        for (u32 i = 0; i < names[0]; ++i) {
-            if (hashes[i] == hash && name_matches(name, names + hashes[names[0] + i])) {
-                index = i;
-                break;
-            }
-        }
-    }
+    const u8* const offsets = names + spec.names_bytes;
+    const u32 index = table_index(name, names);
     if (index == names[0])
         return true;
     if (spec.codes.duplicate) {
@@ -262,7 +236,7 @@ __declspec(noinline) inline bool read_member(void* opaque, JsonString name, Json
     } else {
         r.seen |= 1ull << index;
     }
-    const u8* const row = hashes + 3 * names[0] + hashes[2 * names[0] + index];
+    const u8* const row = offsets + names[0] + offsets[index];
     const u32 info = row[0];
     const u32 kind = info & 7;
     const bool null = value.kind == JsonValueKind::null_value && (info & kFieldNull);

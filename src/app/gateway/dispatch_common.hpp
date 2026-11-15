@@ -4,6 +4,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/gateway/reaction_events.hpp"
+#include "maicord/protocol/user/appearance_members.hpp"
 
 namespace maicord {
 
@@ -58,6 +59,8 @@ struct GatewayMemberUser {
     bool global_name_null;
     bool display_name_null;
     bool avatar_null;
+    // Receives the members that the appearance of the user reads. Null: the visitor does not gather them.
+    UserAppearanceMembers* appearance;
 };
 // JsonMemberVisitor filling a GatewayMemberUser.
 bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) noexcept;
@@ -80,12 +83,16 @@ struct GatewayMemberObject {
     bool timeout_seen;
     bool flags_seen;
     bool thread;
+    // Receives the members that the guild appearance of the member reads. Null: the visitor does not gather them.
+    UserAppearanceMembers* appearance;
 };
 // JsonMemberVisitor filling a GatewayMemberObject.
 bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value) noexcept;
-// A member's presence: its status and client_status, and for a thread member the user object it carries.
+// A member's presence: its status, client_status and activities, and for a thread member the user object it carries.
+// activities_repeated: the presence holds `activities` two times, and `activities` is the first.
 struct GatewayMemberPresence {
     JsonValue user;
+    JsonValue activities;
     JsonString status;
     GatewayEventDecodeError error;
     u32 field_detail;
@@ -94,6 +101,7 @@ struct GatewayMemberPresence {
     bool client_status_seen;
     u8 client_status;
     bool thread;
+    bool activities_repeated;
 };
 // JsonMemberVisitor filling a GatewayMemberPresence.
 bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue value) noexcept;

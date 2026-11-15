@@ -77,10 +77,8 @@ EmbedPlayerError steam_video_manifest(Utf8View json, Utf8View app, Utf8View movi
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    u8 app_name[11]{static_cast<u8>(app.bytes)}; // length-prefixed member name
-    copy_bytes(app_name + 1, app.data, app.bytes);
     protocol_detail::FieldValue root;
-    if (!protocol_detail::fields_n(doc, {json, 0, JsonValueKind::object}, 16, &root, 1, app_name) || !root.seen) return E::malformed;
+    if (!protocol_detail::field_named(doc, {json, 0, JsonValueKind::object}, 16, app.data, app.bytes, &root) || !root.seen) return E::malformed;
     FieldSet<"success", "data"> product; bool success{};
     if (!fields(doc, root.value, product) || !product[0].seen || !json_value_to_bool(product[0].value, &success)) return E::malformed;
     if (!success) return E::unavailable;

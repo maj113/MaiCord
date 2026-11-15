@@ -444,14 +444,13 @@ EmbedPlayerError vimeo_video_manifest(Utf8View html, Utf8View id, Slice<u32> scr
     if (!fields(doc, root[1].value, request) || !request[0].seen ||
         !fields(doc, request[0].value, files) || !files[0].seen ||
         !fields(doc, files[0].value, hls) || !hls[0].seen || !hls[1].seen) return E::unsupported;
-    char name[65]; JsonString selected{};
+    char name[64]; JsonString selected{};
     if (!text(hls[0], &selected)) return E::malformed;
-    const auto decoded = decode(selected, name + 1, 64);
+    const auto decoded = decode(selected, name, 64);
     if (!decoded.ok() || !decoded.bytes) return E::malformed;
-    name[0] = static_cast<char>(decoded.bytes); // length-prefixed member name
-    Field cdn{};
+    Field cdn;
     FieldSet<"url"> record;
-    if (!fields_n(doc, hls[1].value, 24, &cdn, 1, reinterpret_cast<const u8*>(name)) || !cdn.seen || !fields(doc, cdn.value, record) ||
+    if (!field_named(doc, hls[1].value, 24, name, decoded.bytes, &cdn) || !cdn.seen || !fields(doc, cdn.value, record) ||
         !text(record[0], &selected)) return E::malformed;
     EmbedStream staged{};
     const auto url = decode(selected, staged.url, sizeof(staged.url));

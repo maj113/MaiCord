@@ -3,6 +3,7 @@
 // decoded by the client's decoders of an indexed page or frame.
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "../../src/protocol/gateway/message_rich_internal.hpp"
 
 namespace maicord {
 namespace gateway_message_decode_test {
@@ -74,6 +75,7 @@ inline GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Sl
     return result;
 }
 
+// The rich fields alone: the root visit that the message decoder shares with its plain fields, then their decode.
 inline GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
                                                                    u32 maximum_depth, Slice<char> text_output,
                                                                    u32* text_used,
@@ -84,7 +86,11 @@ inline GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue dat
     const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok())
         return {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
-    return gateway_decode_message_rich_fields({data.source, {structural_scratch.data, scan.count}}, data,
-                                              maximum_depth, text_output, text_used, scratch, output);
+    const JsonIndexedDocument document{data.source, {structural_scratch.data, scan.count}};
+    message_rich_detail::RootContext root{};
+    const auto read = protocol_detail::read_object(data, document, maximum_depth, message_rich_detail::visit_root,
+                                                   &root, &root.error);
+    return message_rich_detail::decode_rich_fields(document, data, maximum_depth, text_output, text_used, scratch,
+                                                   output, root, read);
 }
 } // namespace maicord

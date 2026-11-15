@@ -1,8 +1,7 @@
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
-#include "decode.hpp"
-#include "../encoding/json_field_lists.hpp"
+#include "message_rich_internal.hpp"
 
 namespace maicord {
 
@@ -71,6 +70,11 @@ struct MessageContext {
     JsonValue member;
     JsonValue call;
     GatewayEventDecodeError error;
+    // The rich root members, gathered in the same visit while rich_open. The visit continues after the member
+    // that the rich visitor rejects (name offset rich_rejected), so a fault of a plain field is reported first.
+    message_rich_detail::RootContext rich;
+    u32 rich_rejected;
+    bool rich_open;
 };
 
 struct CallContext {
@@ -362,6 +366,12 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
         (void)json_value_to_bool(value, &event.tts);
         break;
     default: break;
+    }
+    // Of the names above, the rich visitor reads only poll (5) and mentions (18): the other names skip its lookup.
+    if (context->rich_open && (index > 21 || index == 5 || index == 18) &&
+        !message_rich_detail::visit_root(&context->rich, name, value)) {
+        context->rich_open = false;
+        context->rich_rejected = name.source_offset;
     }
     return true;
 }
@@ -676,6 +686,7 @@ GatewayEventDecodeResult decode_message(const JsonIndexedDocument& document, Jso
                                         GatewayMessageEvent* output, bool snapshot_core = false) noexcept {
     reset_value<GatewayMessageEvent>(output);
     MessageContext context{};
+    context.rich_open = capture_rich;
     const GatewayEventDecodeResult read =
         read_object(data, document, maximum_depth, visit_message_member, &context, &context.error);
     if (!read.ok()) {
@@ -748,9 +759,12 @@ GatewayEventDecodeResult decode_message(const JsonIndexedDocument& document, Jso
             return call;
     }
     if (capture_rich) {
-        const GatewayEventDecodeResult rich =
-            gateway_decode_message_rich_fields(document, data, maximum_depth, content_scratch,
-                                               &transient_used, rich_scratch, &context.event);
+        const GatewayEventDecodeResult rich = message_rich_detail::decode_rich_fields(
+            document, data, maximum_depth, content_scratch, &transient_used, rich_scratch, &context.event,
+            context.rich,
+            protocol_detail::finish_read(
+                {context.rich_rejected, context.rich_open ? JsonReadError::none : JsonReadError::visitor_rejected},
+                data, document, true, &context.rich.error));
         if (!rich.ok()) {
             return rich;
         }

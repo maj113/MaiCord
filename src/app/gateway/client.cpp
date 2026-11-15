@@ -537,15 +537,23 @@ bool gateway_client_request_voice_state(GatewayClient* client,
     return posted;
 }
 
-bool gateway_client_voice_snapshot(const GatewayClient* client,
-                                   GatewayClientVoiceSnapshot* output) noexcept {
+namespace {
+// A copy of one snapshot that the worker publishes under the voice lock.
+template <class Snapshot>
+bool copy_snapshot(const GatewayClient* client, Snapshot GatewayClientRuntime::* snapshot, Snapshot* output) noexcept {
     auto* runtime = user_runtime(client);
     if (!runtime || !output)
         return false;
     AcquireSRWLockShared(&runtime->voice_lock);
-    *output = runtime->voice_snapshot;
+    copy_value(output, runtime->*snapshot);
     ReleaseSRWLockShared(&runtime->voice_lock);
     return true;
+}
+} // namespace
+
+bool gateway_client_voice_snapshot(const GatewayClient* client,
+                                   GatewayClientVoiceSnapshot* output) noexcept {
+    return copy_snapshot(client, &GatewayClientRuntime::voice_snapshot, output);
 }
 
 bool gateway_client_voice_user_audio(GatewayClient* client, u64 user_id, u32 gain_percent, bool muted) noexcept {
@@ -573,13 +581,7 @@ bool gateway_client_voice_audio_status(GatewayClient* client, VoiceAudioStatus* 
 
 bool gateway_client_voice_video_snapshot(const GatewayClient* client,
                                          GatewayClientVoiceVideoSnapshot* output) noexcept {
-    auto* runtime = user_runtime(client);
-    if (!runtime || !output)
-        return false;
-    AcquireSRWLockShared(&runtime->voice_lock);
-    copy_value(output, runtime->voice_video_snapshot);
-    ReleaseSRWLockShared(&runtime->voice_lock);
-    return true;
+    return copy_snapshot(client, &GatewayClientRuntime::voice_video_snapshot, output);
 }
 
 bool gateway_client_stream_watch(GatewayClient* client, const GatewayStreamKey& key) noexcept {
@@ -611,13 +613,7 @@ bool gateway_client_stream_watch(GatewayClient* client, const GatewayStreamKey& 
 }
 
 bool gateway_client_stream_snapshot(const GatewayClient* client, GatewayClientStreamSnapshot* output) noexcept {
-    auto* runtime = user_runtime(client);
-    if (!runtime || !output)
-        return false;
-    AcquireSRWLockShared(&runtime->voice_lock);
-    *output = runtime->stream_snapshot;
-    ReleaseSRWLockShared(&runtime->voice_lock);
-    return true;
+    return copy_snapshot(client, &GatewayClientRuntime::stream_snapshot, output);
 }
 
 bool gateway_client_stream_volume(GatewayClient* client, u32 percent) noexcept {
@@ -723,13 +719,7 @@ bool gateway_client_go_live(GatewayClient* client, const GoLiveCommand& command)
 }
 
 bool gateway_client_go_live_snapshot(const GatewayClient* client, GoLiveSnapshot* output) noexcept {
-    auto* runtime = user_runtime(client);
-    if (!runtime || !output)
-        return false;
-    AcquireSRWLockShared(&runtime->voice_lock);
-    *output = runtime->go_live_snapshot;
-    ReleaseSRWLockShared(&runtime->voice_lock);
-    return true;
+    return copy_snapshot(client, &GatewayClientRuntime::go_live_snapshot, output);
 }
 
 bool gateway_client_set_go_live_backend(GatewayClient* client, void* context) noexcept {

@@ -61,14 +61,6 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-GatewayClientDispatchRouteResult failure(GatewayClientDispatchRouteError route,
-                                         GatewayEventDecodeError error) noexcept {
-    GatewayClientDispatchRouteResult result{};
-    result.error = route;
-    result.event_error = error;
-    return result;
-}
-
 } // namespace
 
 GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
@@ -84,10 +76,10 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
         return {};
     if (!structural_scratch.data || !structural_scratch.count || !payload_scratch.data || !maximum_depth ||
         envelope.data.kind != JsonValueKind::object)
-        return failure(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
+        return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
     const auto scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
     if (!scan.ok())
-        return failure(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
+        return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
     MembershipRoot root{};
     const auto read = json_visit_value_object(envelope.data, {structural_scratch.data, scan.count},
                                              maximum_depth, visit_root, &root);
@@ -95,10 +87,10 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
         // The full list travels verbatim when it fits; otherwise only the
         // guild, and Server Settings refetch it.
         if (!read.ok() || !root.guild_seen || !root.guild_id)
-            return failure(GatewayClientDispatchRouteError::decode,
-                           root.error != GatewayEventDecodeError::none ? root.error
-                           : read.ok() ? GatewayEventDecodeError::missing_required_field
-                                       : GatewayEventDecodeError::invalid_json);
+            return route_error(GatewayClientDispatchRouteError::decode,
+                               root.error != GatewayEventDecodeError::none ? root.error
+                               : read.ok() ? GatewayEventDecodeError::missing_required_field
+                                           : GatewayEventDecodeError::invalid_json);
         const JsonValue list = sticker_array(root.stickers, structural_scratch);
         const u32 bytes = list.kind == JsonValueKind::array && list.source.bytes <= payload_scratch.count
                               ? list.source.bytes
@@ -113,10 +105,10 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
         return {};
     }
     if (!read.ok() || !root.guild_seen || !root.user_seen)
-        return failure(GatewayClientDispatchRouteError::decode,
-                       root.error != GatewayEventDecodeError::none ? root.error
-                       : read.ok()                                  ? GatewayEventDecodeError::missing_required_field
-                                                                    : GatewayEventDecodeError::invalid_json);
+        return route_error(GatewayClientDispatchRouteError::decode,
+                           root.error != GatewayEventDecodeError::none ? root.error
+                           : read.ok() ? GatewayEventDecodeError::missing_required_field
+                                       : GatewayEventDecodeError::invalid_json);
     // The envelope index is no longer needed; the user record rescans its object.
     GatewayPayloadWriter writer{payload_scratch, 0};
     const auto user = gateway_append_user(root.user, structural_scratch, maximum_depth, &writer);

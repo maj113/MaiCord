@@ -121,13 +121,7 @@ GatewayClientDispatchRouteResult result(GatewayClientDispatchRouteError route,
                                         GatewayEventDecodeError event = GatewayEventDecodeError::none,
                                         JsonScanError scan = JsonScanError::none,
                                         JsonReadError read = JsonReadError::none, u32 offset = 0) noexcept {
-    GatewayClientDispatchRouteResult value{};
-    value.error = route;
-    value.event_error = event;
-    value.scan_error = scan;
-    value.read_error = read;
-    value.error_offset = offset;
-    return value;
+    return {event, route, scan, read, offset};
 }
 
 bool reject(GatewayEventDecodeError* error,
@@ -362,11 +356,11 @@ bool append_appearance(PayloadWriter* writer, const UserAppearance& appearance, 
 // never crowds out the rest of a list update; true when the activities are known (possibly none), and then
 // *member_extra_bytes includes them.
 __declspec(noinline) bool append_activity_tail(PayloadWriter* writer, const JsonIndexedDocument& document,
-                                               JsonValue presence, u64 user_id, u32 room, u32 appearance_bytes,
+                                               const JsonValue& listed_activities, u64 user_id, u32 room, u32 appearance_bytes,
                                                u32* member_extra_bytes) noexcept {
     UserActivitySet activities;
     bool listed = false;
-    if (!user_activities_decode(document, presence, user_id, &activities, &listed))
+    if (!user_activities_decode_list(document, listed_activities, user_id, &activities, &listed))
         return false;
     const u32 free_bytes = static_cast<u32>(writer->output.count) - writer->used;
     const u32 tail = activities.count
@@ -387,18 +381,20 @@ __declspec(noinline) bool append_activity_tail(PayloadWriter* writer, const Json
 // the used bytes, then the rich presence tail. Out of line: the two appearance structures stay out of the
 // frame of every member item.
 __declspec(noinline) bool append_member_appearances(
-    PayloadWriter* writer, const JsonIndexedDocument& document, JsonValue user_value, JsonValue member_value,
-    JsonValue presence, bool has_presence, u64 user_id, u32 room, u32* user_bytes, u32* member_bytes,
-    bool* activities_known, GatewayEventDecodeError* error) noexcept {
+    PayloadWriter* writer, const JsonIndexedDocument& document, const UserAppearanceMembers& user_members,
+    const UserAppearanceMembers& member_members, const GatewayMemberPresence& presence, bool has_presence,
+    u64 user_id, u32 room, u32* user_bytes, u32* member_bytes, bool* activities_known,
+    GatewayEventDecodeError* error) noexcept {
     UserAppearance global_appearance, guild_appearance; // each is assigned whole by its decode before it is read
     writer->decode_detail = decode_detail(MemberDecodeStage::user_appearance);
-    if (!user_appearance_decode(document, user_value, user_id, 0, &global_appearance))
+    if (!user_appearance_decode(document, user_members, user_id, 0, &global_appearance))
         return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::member_appearance);
-    if (!user_appearance_decode(document, member_value, user_id, 1, &guild_appearance))
+    if (!user_appearance_decode(document, member_members, user_id, 1, &guild_appearance))
         return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::activities);
-    if (has_presence && !activity_decode(document, presence, &guild_appearance))
+    if (has_presence &&
+        (presence.activities_repeated || !activity_decode_list(document, presence.activities, &guild_appearance)))
         return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::serialization);
     if (!append_appearance(writer, global_appearance, user_bytes) ||
@@ -408,7 +404,8 @@ __declspec(noinline) bool append_member_appearances(
     // Rich presence rides behind the member appearance while the payload keeps
     // room for the rest of the list; without the flag the activities are unknown.
     *activities_known = has_presence && (guild_appearance.fields & appearance_activity) &&
-                        append_activity_tail(writer, document, presence, user_id, room, *member_bytes, member_bytes);
+                        append_activity_tail(writer, document, presence.activities, user_id, room, *member_bytes,
+                                             member_bytes);
     return true;
 }
 
@@ -441,7 +438,9 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         writer->decode_detail = decode_detail(MemberDecodeStage::item, 6);
         return reject(error, GatewayEventDecodeError::missing_required_field);
     }
+    UserAppearanceMembers user_members{}, member_members{};
     GatewayMemberObject member{};
+    member.appearance = &member_members;
     writer->decode_detail = decode_detail(MemberDecodeStage::member, 0, 0);
     if (!gateway_visit_object(item.member, document, maximum_depth, gateway_visit_member_object, &member,
                               &member.error) ||
@@ -451,6 +450,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         return reject_visited(error, member.error, GatewayEventDecodeError::missing_required_field);
     }
     UserObject user{};
+    user.appearance = &user_members;
     writer->decode_detail = decode_detail(MemberDecodeStage::user, 0, 0);
     if (!gateway_visit_object(member.user, document, maximum_depth, gateway_visit_member_user, &user, &user.error) ||
         !user.id_seen || !user.username_seen) {
@@ -549,7 +549,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     u32 member_extra_bytes = 0;
     u32 user_extra_bytes = 0;
     bool activities_known = false;
-    if (!append_member_appearances(writer, document, member.user, item.member, member.presence, has_presence,
+    if (!append_member_appearances(writer, document, user_members, member_members, presence, has_presence,
                                    user.id, room, &user_extra_bytes, &member_extra_bytes, &activities_known,
                                    error))
         return false;
@@ -664,7 +664,10 @@ template <typename Value> bool read_packed(ConstSlice<u8> payload, u32* cursor, 
 
 bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayMemberUser*>(opaque);
-    const u32 name_index = skim_member_index<"id", "username", "global_name", "display_name", "avatar">(name);
+    const u32 name_index =
+        skim_member_index<"id", "username", "global_name", "display_name", MAICORD_USER_APPEARANCE_MEMBERS>(name);
+    if (context->appearance && name_index - 4 < kUserAppearanceMemberCount)
+        context->appearance->take(name_index - 4, value);
     switch (name_index) {
     case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
@@ -690,7 +693,7 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
         }
         break;
     }
-    case 4:
+    case 4 + kUserAppearanceAvatarMember:
         context->field_detail = (5u << 8) | static_cast<u32>(value.kind);
         if (context->avatar_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
@@ -709,9 +712,13 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
 bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayMemberObject*>(opaque);
     static constexpr u8 details[] = {1, 2, 3, 4, 6, 5};
-    const u32 index = skim_member_index<"user", "roles", "presence", "nick", "flags", "communication_disabled_until">(name);
-    if (index > 5)
+    const u32 index = skim_member_index<"user", "roles", "presence", "nick", "flags", "communication_disabled_until",
+                                        MAICORD_USER_APPEARANCE_MEMBERS>(name);
+    if (index > 5) {
+        if (context->appearance && index - 6 < kUserAppearanceMemberCount)
+            context->appearance->take(index - 6, value);
         return true;
+    }
     context->field_detail = (u32{details[index]} << 8) | static_cast<u32>(value.kind);
     switch (index) {
     case 0:
@@ -764,7 +771,7 @@ bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value)
 
 bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayMemberPresence*>(opaque);
-    switch (skim_member_index<"status", "client_status", "user">(name)) {
+    switch (skim_member_index<"status", "client_status", "user", "activities">(name)) {
     case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
         return gateway_once_member(&context->error, &context->status_seen,
@@ -784,6 +791,12 @@ bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue valu
             return reject(&context->error);
         context->user = value;
         context->user_seen = true;
+        break;
+    case 3:
+        if (context->activities.source.data)
+            context->activities_repeated = true;
+        else
+            context->activities = value;
         break;
     default: break;
     }

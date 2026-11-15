@@ -1,4 +1,4 @@
-#include "maicord/model/user/profile.hpp"
+#include "maicord/protocol/user/appearance_members.hpp"
 #include "maicord/model/user/profile_connection.hpp"
 #include "maicord/model/user/activity.hpp"
 #include "maicord/core/json_scan.hpp"
@@ -474,48 +474,59 @@ u16 discriminator(const JsonValue& value) noexcept {
     return static_cast<u16>(n);
 }
 } // namespace
-bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 id, u64 guild,
-                               UserAppearance* output) noexcept {
-    if (!id)
-        return false;
-    UserAppearance a{};
-    a.user_id = id;
-    a.guild_id = guild;
-    FieldSet<"bot", "public_flags", "display_name_styles", "avatar_decoration_data", "collectibles", "primary_guild",
-             "avatar", "system"> f;
+// Out of line: three calls of this form are in the thread member route.
+__declspec(noinline) bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 id, u64 guild,
+                                                 UserAppearance* output) noexcept {
+    FieldSet<MAICORD_USER_APPEARANCE_MEMBERS> f;
     if (!object(doc, user, f))
         return false;
-    if (present(f[0].value)) {
+    UserAppearanceMembers members;
+    for (u32 i = 0; i < kUserAppearanceMemberCount; ++i)
+        members.value[i] = f[i].value;
+    members.repeated = false;
+    return user_appearance_decode(doc, members, id, guild, output);
+}
+bool user_appearance_decode(const JsonIndexedDocument& doc, const UserAppearanceMembers& members, u64 id, u64 guild,
+                            UserAppearance* output) noexcept {
+    if (!id || members.repeated)
+        return false;
+    // No caller reads the output of a failed decode, so the decode writes it in place.
+    reset_value(output);
+    UserAppearance& a = *output;
+    a.user_id = id;
+    a.guild_id = guild;
+    const JsonValue* const v = members.value;
+    if (present(v[0])) {
         a.fields |= appearance_bot;
-        if (!boolean(f[0].value, &a.bot))
+        if (!boolean(v[0], &a.bot))
             return false;
     }
-    if (present(f[7].value)) {
+    if (present(v[7])) {
         a.fields |= appearance_system;
-        if (!boolean(f[7].value, &a.system))
+        if (!boolean(v[7], &a.system))
             return false;
     }
-    if (present(f[1].value)) {
+    if (present(v[1])) {
         a.fields |= appearance_flags;
-        if (!number(f[1].value, &a.public_flags))
+        if (!number(v[1], &a.public_flags))
             return false;
     }
-    if (present(f[2].value)) {
+    if (present(v[2])) {
         a.fields |= appearance_name;
-        if (!style(doc, f[2].value, &a.name))
+        if (!style(doc, v[2], &a.name))
             return false;
     }
-    if (present(f[3].value)) {
+    if (present(v[3])) {
         a.fields |= appearance_decoration;
         FieldSet<"asset"> d;
-        if (!object(doc, f[3].value, d) || !string(d[0].value, &a.decoration))
+        if (!object(doc, v[3], d) || !string(d[0].value, &a.decoration))
             return false;
     }
-    if (present(f[4].value)) {
+    if (present(v[4])) {
         FieldSet<"nameplate"> c;
-        if (!object(doc, f[4].value, c))
+        if (!object(doc, v[4], c))
             return false;
-        if (present(c[0].value) || f[4].value.kind == JsonValueKind::null_value) {
+        if (present(c[0].value) || v[4].kind == JsonValueKind::null_value) {
             a.fields |= appearance_nameplate;
             FieldSet<"asset", "sku_id"> n;
             if (!object(doc, c[0].value, n) || !string(n[0].value, &a.nameplate) ||
@@ -523,28 +534,29 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
                 return false;
         }
     }
-    if (present(f[5].value)) {
+    if (present(v[5])) {
         a.fields |= appearance_guild_tag;
         FieldSet<"identity_guild_id", "identity_enabled", "tag", "badge"> g;
-        if (!object(doc, f[5].value, g) || !number(g[0].value, &a.primary_guild_id) ||
+        if (!object(doc, v[5], g) || !number(g[0].value, &a.primary_guild_id) ||
             !boolean(g[1].value, &a.primary_enabled) || !string(g[2].value, &a.primary_tag) ||
             !string(g[3].value, &a.primary_badge))
             return false;
     }
-    if (guild && present(f[6].value)) {
+    if (guild && present(v[kUserAppearanceAvatarMember])) {
         a.fields |= appearance_avatar;
-        if (!string(f[6].value, &a.avatar))
+        if (!string(v[kUserAppearanceAvatarMember], &a.avatar))
             return false;
     }
-    copy_value(output, a);
     return true;
 }
 bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
                              UserAppearance* output) noexcept {
     FieldSet<"activities"> f;
-    if (!object(doc, presence, f))
-        return false;
-    if (!present(f[0].value))
+    return object(doc, presence, f) && activity_decode_list(doc, f[0].value, output);
+}
+bool activity_decode_list(const JsonIndexedDocument& doc, const JsonValue& activities,
+                          UserAppearance* output) noexcept {
+    if (!present(activities))
         return true;
     output->fields = (output->fields | appearance_activity) & ~u32{appearance_custom_status};
     reset_value(&output->activity);
@@ -552,8 +564,8 @@ bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
     output->status_emoji_id = 0;
     output->emoji_animated = false;
     Activities context{&doc, output, false};
-    return f[0].value.kind == JsonValueKind::null_value ||
-           json_visit_indexed_array(doc, f[0].value, 64, activity_item, &context).ok();
+    return activities.kind == JsonValueKind::null_value ||
+           json_visit_indexed_array(doc, activities, 64, activity_item, &context).ok();
 }
 bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 guild,
                             UserProfile* p) noexcept {

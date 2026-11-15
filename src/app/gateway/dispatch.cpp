@@ -569,12 +569,12 @@ GatewayClientDispatchRouteResult frame_index(const GatewayEnvelope& envelope, Sl
 
 // Out of line: the activity set (3.5 KB) would otherwise cost every dispatch route a stack probe. Appends
 // the rich-presence record behind the appearance bytes already written; false when it does not fit.
-__declspec(noinline) bool append_presence_activities(const JsonIndexedDocument& document, JsonValue presence,
+__declspec(noinline) bool append_presence_activities(const JsonIndexedDocument& document, const JsonValue& listed,
                                                      Slice<char> content_scratch, u64 user_id,
                                                      u32* extra) noexcept {
     UserActivitySet activities; // user_activities_decode resets it
     bool has_activities = false;
-    if (user_activities_decode(document, presence, user_id, &activities, &has_activities) && has_activities &&
+    if (user_activities_decode_list(document, listed, user_id, &activities, &has_activities) && has_activities &&
         activities.count) {
         const u32 tail = user_activities_write(
             activities, {reinterpret_cast<u8*>(content_scratch.data) + *extra, content_scratch.count - *extra});
@@ -638,7 +638,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     // One lookup for every event that is routed by name before the state, thread, administration and
     // member list routes: the cursor, notification and acknowledgement events, the verbatim interaction
     // kinds (positions 7-26 and 41-49), and the stage, call and user events.
-    const u32 early = protocol_detail::wide_member_index<
+    const u32 early = protocol_detail::member_index<
         "PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE", "MESSAGE_ACK", "CHANNEL_PINS_UPDATE",
         "GUILD_APPLICATION_COMMAND_INDEX_UPDATE", "USER_REQUIRED_ACTION_UPDATE",
         "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
@@ -816,7 +816,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     }
 
     GatewayEventDecodeResult decoded{};
-    const u32 late = protocol_detail::wide_member_index<
+    const u32 late = protocol_detail::member_index<
         "PRESENCE_UPDATE", "TYPING_START", "MESSAGE_CREATE", "MESSAGE_UPDATE", "MESSAGE_POLL_VOTE_ADD",
         "MESSAGE_POLL_VOTE_REMOVE", "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE",
         "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI", "MESSAGE_DELETE",
@@ -829,8 +829,9 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     }
     if (late == 0) {
         UserAppearance appearance{};
+        JsonValue activities;
         decoded = gateway_client_decode_presence(frame, envelope.data, maximum_depth, &event->presence,
-                                                 &appearance);
+                                                 &appearance, &activities);
         if (!decoded.ok())
             return route_decode_error(decoded);
         u32 extra = user_appearance_write(
@@ -839,8 +840,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         // Rich presence rides behind the appearance record (model/user/activity.hpp);
         // an appearance with activities but no trailer means none are rich.
-        if (extra && !append_presence_activities(frame, envelope.data, content_scratch, event->presence.user_id,
-                                                 &extra))
+        if (extra && !append_presence_activities(frame, activities, content_scratch, event->presence.user_id, &extra))
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         *payload = {reinterpret_cast<const u8*>(content_scratch.data), extra};
         event->dispatch_kind = GatewayClientDispatchKind::presence_update;
@@ -873,24 +873,18 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                    : GatewayClientDispatchKind::message_poll_vote_remove;
         event->poll_vote = vote;
     } else if (late >= 6 && late <= 9) {
-        const bool add = late == 6;
-        const bool remove = late == 7;
-        const bool remove_all = late == 8;
-        const GatewayMessageReactionEventKind kind = add      ? GatewayMessageReactionEventKind::add
-                                                     : remove ? GatewayMessageReactionEventKind::remove
-                                                     : remove_all
-                                                         ? GatewayMessageReactionEventKind::remove_all
-                                                         : GatewayMessageReactionEventKind::remove_emoji;
+        // The four reaction events have the same order in the name list and in both enumerations.
+        static_assert(static_cast<u32>(GatewayMessageReactionEventKind::remove_emoji) == 3 &&
+                      static_cast<u32>(GatewayClientDispatchKind::message_reaction_remove_emoji) ==
+                          static_cast<u32>(GatewayClientDispatchKind::message_reaction_add) + 3);
         GatewayMessageReactionEvent reaction{};
-        decoded = gateway_decode_message_reaction(envelope.data, structural_scratch, maximum_depth,
-                                                  content_scratch, kind, &reaction);
+        decoded = gateway_decode_message_reaction(envelope.data, structural_scratch, maximum_depth, content_scratch,
+                                                  static_cast<GatewayMessageReactionEventKind>(late - 6), &reaction);
         if (!decoded.ok()) {
             return route_decode_error(decoded);
         }
-        event->dispatch_kind = add          ? GatewayClientDispatchKind::message_reaction_add
-                               : remove     ? GatewayClientDispatchKind::message_reaction_remove
-                               : remove_all ? GatewayClientDispatchKind::message_reaction_remove_all
-                                            : GatewayClientDispatchKind::message_reaction_remove_emoji;
+        event->dispatch_kind = static_cast<GatewayClientDispatchKind>(
+            static_cast<u32>(GatewayClientDispatchKind::message_reaction_add) + late - 6);
         copy_reaction(reaction, &event->reaction);
         *payload = ConstSlice<u8>{reinterpret_cast<const u8*>(content_scratch.data), reaction.name.bytes};
     } else if (late == 10) {

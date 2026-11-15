@@ -1,4 +1,4 @@
-#include "maicord/model/user/activity.hpp"
+#include "maicord/protocol/user/appearance_members.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
@@ -290,7 +290,7 @@ struct ActivityFields {
 };
 bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& f = *static_cast<ActivityFields*>(opaque);
-    const u32 index = protocol_detail::wide_member_index<"type", "name", "details", "state", "url", "application_id",
+    const u32 index = protocol_detail::member_index<"type", "name", "details", "state", "url", "application_id",
                                                          "timestamps", "created_at", "party", "assets", "buttons",
                                                          "flags", "session_id", "platform", "status_display_type",
                                                          "sync_id">(key);
@@ -517,13 +517,19 @@ bool root_member(void* opaque, JsonString key, JsonValue value) noexcept {
 bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, u64 user_id,
                             UserActivitySet* output, bool* has) noexcept {
     reset_value(output);
-    output->user_id = user_id;
-    *has = false;
-    if (!presence.source.data || presence.kind != JsonValueKind::object)
-        return presence.kind == JsonValueKind::null_value || !presence.source.data;
     JsonValue activities{};
-    if (!json_visit_indexed_object(doc, presence, 64, root_member, &activities).ok())
-        return false;
+    const bool read = presence.source.data && presence.kind == JsonValueKind::object
+                          ? json_visit_indexed_object(doc, presence, 64, root_member, &activities).ok()
+                          : presence.kind == JsonValueKind::null_value || !presence.source.data;
+    return user_activities_decode_list(doc, read ? activities : JsonValue{}, user_id, output, has) && read;
+}
+bool user_activities_decode_list(const JsonIndexedDocument& doc, const JsonValue& activities, u64 user_id,
+                                 UserActivitySet* output, bool* has) noexcept {
+    // Each decoded item is cleared before it is filled, so the items past the count keep their old bytes.
+    output->user_id = user_id;
+    output->last_seen = 0;
+    output->count = 0;
+    *has = false;
     if (!activities.source.data)
         return true;
     *has = true;

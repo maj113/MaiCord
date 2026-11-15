@@ -6,6 +6,7 @@
 #include "user_payload.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/gateway/session.hpp"
+#include "../../protocol/encoding/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -26,9 +27,7 @@ struct MemberArrayCursor {
             const auto scan = json_scan_structurals_avx1(value.source, scratch);
             if (!scan.ok())
                 return false;
-            const auto read = json_visit_value_array(
-                value, {scratch.data, scan.count}, 64, +[](void*, u32, JsonValue) noexcept { return true; },
-                nullptr);
+            const auto read = json_visit_value_array(value, {scratch.data, scan.count}, 64, nullptr, nullptr);
             if (!read.ok())
                 return false;
         }
@@ -467,36 +466,13 @@ GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
             if (byte_ranges_overlap(buffers[i], buffers[j]))
                 return invalid;
     }
-    struct Fields {
-        JsonValue guilds, members;
-        bool guilds_seen, members_seen;
-    } fields{};
     const auto scan = json_scan_structurals_avx1(data.source, arrays);
-    if (!scan.ok())
-        return {}; // Optional authority stays unchanged on an unsupported shape.
-    const auto read = json_visit_value_object(
-        data, {arrays.data, scan.count}, 64,
-        +[](void* opaque, JsonString name, JsonValue value) noexcept {
-            auto& fields = *static_cast<Fields*>(opaque);
-            if (json_name_is(name, utf8_literal("guilds"))) {
-                if (fields.guilds_seen)
-                    return false;
-                fields.guilds_seen = true;
-                fields.guilds = value;
-            } else if (json_name_is(name, utf8_literal("merged_members"))) {
-                if (fields.members_seen)
-                    return false;
-                fields.members_seen = true;
-                fields.members = value;
-            }
-            return true;
-        },
-        &fields);
-    if (!read.ok() || !fields.guilds_seen || !fields.members_seen)
-        return {};
+    // Optional authority stays unchanged on an unsupported shape.
+    protocol_detail::FieldSet<"guilds", "merged_members"> fields;
     MemberArrayCursor guilds, members;
-    if (!guilds.init(fields.guilds, records) || !members.init(fields.members, records) ||
-        guilds.count != members.count)
+    if (!scan.ok() || !protocol_detail::fields_at<64>({data.source, {arrays.data, scan.count}}, data, fields) ||
+        !fields[0].seen || !fields[1].seen || !guilds.init(fields[0].value, records) ||
+        !members.init(fields[1].value, records) || guilds.count != members.count)
         return {};
     JsonValue guild{}, member_rows{};
     while (guilds.next(&guild) && members.next(&member_rows)) {

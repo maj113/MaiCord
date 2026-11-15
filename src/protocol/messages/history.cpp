@@ -40,12 +40,13 @@ template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
     return {slice.data ? slice.data + used : nullptr, slice.count - used};
 }
 
-template <typename T> bool has_storage(Slice<T> slice) noexcept {
-    return slice.data || !slice.count;
-}
-
-template <typename T> bool is_present(Slice<T> slice) noexcept {
-    return slice.data;
+// Whether `check` holds for every array of the scratch.
+template <typename Check> bool every_array(const MessageHistoryRichScratch& s, Check check) noexcept {
+    return check(s.reactions) && check(s.attachments) && check(s.embeds) && check(s.embed_fields) &&
+           check(s.stickers) && check(s.components) && check(s.member_roles) && check(s.snapshot.attachments) &&
+           check(s.snapshot.embeds) && check(s.snapshot.embed_fields) && check(s.snapshot.stickers) &&
+           check(s.snapshot.components) && check(s.snapshot.mention_users) && check(s.poll.answers) &&
+           check(s.poll.answer_counts);
 }
 
 bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
@@ -126,23 +127,11 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
 } // namespace
 
 bool MessageHistoryRichCursor::valid() const noexcept {
-    return has_storage(scratch.reactions) && has_storage(scratch.attachments) && has_storage(scratch.embeds) &&
-           has_storage(scratch.embed_fields) && has_storage(scratch.stickers) && has_storage(scratch.components) &&
-           has_storage(scratch.member_roles) && has_storage(scratch.snapshot.attachments) &&
-           has_storage(scratch.snapshot.embeds) && has_storage(scratch.snapshot.embed_fields) &&
-           has_storage(scratch.snapshot.stickers) && has_storage(scratch.snapshot.components) &&
-           has_storage(scratch.snapshot.mention_users) && has_storage(scratch.poll.answers) &&
-           has_storage(scratch.poll.answer_counts);
+    return every_array(scratch, [](const auto& slice) noexcept { return slice.data || !slice.count; });
 }
 
 bool MessageHistoryRichCursor::present() const noexcept {
-    return is_present(scratch.reactions) || is_present(scratch.attachments) || is_present(scratch.embeds) ||
-           is_present(scratch.embed_fields) || is_present(scratch.stickers) || is_present(scratch.components) ||
-           is_present(scratch.member_roles) || is_present(scratch.snapshot.attachments) ||
-           is_present(scratch.snapshot.embeds) || is_present(scratch.snapshot.embed_fields) ||
-           is_present(scratch.snapshot.stickers) || is_present(scratch.snapshot.components) ||
-           is_present(scratch.snapshot.mention_users) || is_present(scratch.poll.answers) ||
-           is_present(scratch.poll.answer_counts);
+    return !every_array(scratch, [](const auto& slice) noexcept { return !slice.data; });
 }
 
 Slice<u64> MessageHistoryRichCursor::remaining_member_roles() const noexcept {

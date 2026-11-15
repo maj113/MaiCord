@@ -72,7 +72,7 @@ template <typename... Kinds> constexpr u32 member_kinds(Kinds... kinds) noexcept
     return packed;
 }
 
-// The members of one object that `names` (a MemberNames list) lists, each at most once and of its kind.
+// The members of one object that `names` (a NameTable) lists, each at most once and of its kind.
 struct Members {
     WebAuthnMfaError error;
     u32 fields; // 1 << position of every member seen
@@ -110,7 +110,7 @@ bool read_integer(const JsonValue& value, i32* output) noexcept {
 
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* members = static_cast<Members*>(opaque);
-    const u32 index = protocol_detail::member_index(name, members->names);
+    const u32 index = protocol_detail::table_index(name, members->names);
     if (index >= members->names[0]) {
         return true;
     }
@@ -152,7 +152,7 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
 template <protocol_detail::MemberName... Names>
 __forceinline WebAuthnMfaResult read_members(const Document& document, const JsonValue& value, u32 kinds,
                                              Members* members) noexcept {
-    members->names = protocol_detail::MemberNames<Names...>::data.bytes;
+    members->names = protocol_detail::NameTable<Names...>::data.bytes;
     members->kinds = kinds;
     return visit(document, value, visit_member, nullptr, members);
 }

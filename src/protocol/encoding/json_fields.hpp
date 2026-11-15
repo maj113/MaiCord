@@ -14,17 +14,17 @@ inline bool filled(JsonValue v) noexcept {
 // Fills a FieldSet from an object in one pass; a repeated named member fails.
 // An absent or null object leaves every field empty (no source text).
 __declspec(noinline) inline bool object_list(const JsonIndexedDocument& doc, const JsonValue& value, FieldValue* out,
-                                             const u8* list) noexcept {
+                                             const u8* table) noexcept {
     if (!filled(value)) {
-        for (u32 i = 0; i < list[0]; ++i)
+        for (u32 i = 0; i < table[0]; ++i)
             out[i] = FieldValue{};
         return true;
     }
-    return fields_n(doc, value, 64, out, list[0], list + 1);
+    return fields_table(doc, value, 64, out, table);
 }
 template <MemberName... Names>
 __forceinline bool object(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
-    return object_list(doc, value, set.fields, MemberNames<Names...>::data.bytes);
+    return object_list(doc, value, set.fields, NameTable<Names...>::data.bytes);
 }
 // An integer sent as a JSON number or as a snowflake string; absent or null is 0.
 __declspec(noinline) inline bool number(const JsonValue& v, u64* n) noexcept {

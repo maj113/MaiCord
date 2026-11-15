@@ -10,9 +10,9 @@ namespace embed_player_detail {
 
 using protocol_detail::FieldSet;
 using protocol_detail::MemberName;
-using protocol_detail::MemberNames;
+using protocol_detail::NameTable;
 using Field = protocol_detail::FieldValue;
-using protocol_detail::fields_n;
+using protocol_detail::field_named;
 
 struct Candidate {
     JsonString url;
@@ -50,6 +50,9 @@ bool is_text_chars(const Utf8View& view, const char* value, u32 bytes) noexcept;
 bool is_text_nocase_chars(const Utf8View& view, const char* value, u32 bytes) noexcept;
 JsonStringDecodeResult decode(const JsonString& value, char* out, u32 capacity) noexcept;
 bool visit_array(const JsonIndexedDocument& doc, const JsonValue& value, JsonArrayVisitor visitor, void* context) noexcept;
+// The value at the end of a path of member names from `value` (`table` is a NameTable). A value without source text
+// when a step is not an object or lacks the member.
+JsonValue child_path(const JsonIndexedDocument& doc, JsonValue value, const u8* table, u32 depth) noexcept;
 bool number(const Field& f, u32* out) noexcept;
 EmbedPlayerError index_json(const Utf8View& json, const Slice<u32>& scratch, JsonIndexedDocument* doc) noexcept;
 void sanitize_title(MediaTrackTitle* title) noexcept;
@@ -67,6 +70,10 @@ u64 stream_expiry_chars(const Utf8View& url, const char* key_data, u32 key_bytes
 bool twitter_location(Utf8View url, EmbedStreamLocation* out, u16* width=nullptr, u16* height=nullptr) noexcept;
 bool twitter_media(void* context,u32 index,JsonValue value) noexcept;
 bool twitter_variant(void* context,u32,JsonValue value) noexcept;
+template <MemberName... Names>
+__forceinline JsonValue child(const JsonIndexedDocument& doc, const JsonValue& parent, u32 depth = 48) noexcept {
+    return child_path(doc, parent, NameTable<Names...>::data.bytes, depth);
+}
 
 template <MemberName... Names>
 __forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {

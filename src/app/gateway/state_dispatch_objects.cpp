@@ -5,8 +5,6 @@
 namespace maicord {
 namespace {
 
-using protocol_detail::wide_member_index;
-
 static_assert(sizeof(GatewayClientStateMutation) == 168);
 static_assert(sizeof(GatewayClientRoleMutation) == 40);
 static_assert(sizeof(GatewayClientPermissionOverwriteMutation) == 32);
@@ -118,7 +116,7 @@ namespace {
 // Guild settings and member timeout keys. Null channel IDs and a null timeout
 // are explicit observations of "none".
 bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue value, bool* handled) noexcept {
-    const u32 index = wide_member_index<"pending", "mfa_level", "verification_level", "default_message_notifications",
+    const u32 index = member_index<"pending", "mfa_level", "verification_level", "default_message_notifications",
                                    "explicit_content_filter", "system_channel_id", "afk_channel_id", "afk_timeout",
                                    "communication_disabled_until">(name);
     if (index == 0) {
@@ -212,7 +210,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     // position, a future 64-bit flag) degrade to "absent" for that record.
     const bool array = value.kind == JsonValueKind::array;
     const bool object = value.kind == JsonValueKind::object;
-    switch (wide_member_index<"id", "name", "type", "guild_id", "parent_id", "flags", "position", "permissions",
+    switch (member_index<"id", "name", "type", "guild_id", "parent_id", "flags", "position", "permissions",
                          "last_message_id", "user", "roles", "channels", "members", "threads", "emojis",
                          "permission_overwrites", "features", "icon", "banner", "owner_id", "role_id", "color",
                          "colors", "tags", "hoist", "managed", "mentionable", "unicode_emoji", "allow", "deny",

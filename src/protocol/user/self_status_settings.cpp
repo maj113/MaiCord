@@ -273,29 +273,25 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
 bool self_status_settings_read_custom(const ConstSlice<u8>& group, SelfCustomStatus* output) noexcept {
     if (!byte_range_valid(group))
         return false;
-    reset_value(output);
     const Wire w{group, {}, group.count};
     u32 p = 0;
-    SelfCustomStatus last{};
-    bool found = false;
-    while (p < w.size) {
-        u32 f = 0, t = 0;
-        if (!proto_tag(w, p, w.size, f, t))
-            return false;
-        if (f != 2 || t != 2) {
-            if (!proto_skip(w, p, w.size, t, f))
-                return false;
-            continue;
+    // custom_message writes the whole output. The output is cleared here only when no message was read.
+    bool found = false, valid = true;
+    while (valid && p < w.size) {
+        u32 f = 0, t = 0, stop = 0;
+        if (!proto_tag(w, p, w.size, f, t)) {
+            valid = false;
+        } else if (f != 2 || t != 2) {
+            valid = proto_skip(w, p, w.size, t, f);
+        } else {
+            valid = proto_length(w, p, w.size, stop) && custom_message(w, p, stop, *output);
+            found = true;
+            p = stop;
         }
-        u32 stop = 0;
-        if (!proto_length(w, p, w.size, stop) || !custom_message(w, p, stop, last))
-            return false;
-        found = true;
-        p = stop;
     }
-    if (found)
-        copy_value(output, last);
-    return true;
+    if (!valid || !found)
+        reset_value(output);
+    return valid;
 }
 bool self_custom_status_active(const SelfCustomStatus& status, u64 unix_now_ms) noexcept {
     return status.present && (status.text_bytes || status.emoji_id || status.emoji_name_bytes) &&

@@ -113,6 +113,14 @@ struct RichText {
 bool value_u32(const JsonValue& value, u32* output) noexcept;
 bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText& text, Utf8View* value) noexcept;
 bool rich_url_valid(Utf8View value, bool attachment_allowed) noexcept;
+// JsonMemberVisitor that gathers a message's rich root members into a RootContext.
+bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept;
+// Decodes the rich fields of a message from the root members that visit_root gathered in a visit of `data`.
+// `result` is the result of that visit. Text goes behind *text_used in text_output.
+GatewayEventDecodeResult decode_rich_fields(const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
+                                            Slice<char> text_output, u32* text_used,
+                                            const GatewayMessageRichScratch& scratch, GatewayMessageEvent* output,
+                                            const RootContext& root, GatewayEventDecodeResult result) noexcept;
 bool visit_author(void* opaque, JsonString name, JsonValue value) noexcept;
 GatewayEventDecodeResult gather_array(const JsonValue& value, const JsonIndexedDocument& scratch,
                                       u32 maximum_depth, JsonValue* values, u32 capacity, u32 truncation,

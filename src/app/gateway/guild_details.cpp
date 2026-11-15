@@ -11,7 +11,6 @@ namespace maicord {
 namespace {
 
 using protocol_detail::member_index;
-using protocol_detail::wide_member_index;
 
 // In the order of the member names listed in gateway_guild_detail_visit.
 constexpr u16 kFields[] = {
@@ -149,7 +148,7 @@ bool visit_incident(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, JsonValue value) noexcept {
-    const u32 index = wide_member_index<"premium_tier", "premium_subscription_count", "system_channel_flags",
+    const u32 index = member_index<"premium_tier", "premium_subscription_count", "system_channel_flags",
                                    "rules_channel_id", "public_updates_channel_id", "safety_alerts_channel_id",
                                    "premium_progress_bar_enabled", "description", "vanity_url_code",
                                    "incidents_data", "member_count", "splash", "preferred_locale",

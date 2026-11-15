@@ -138,13 +138,8 @@ EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> sc
     if (!json.bytes) return E::unsupported;
     JsonIndexedDocument doc;
     if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
-    JsonValue value{json, 0, JsonValueKind::object};
-    const u8* name = MemberNames<"props", "pageProps", "state", "data", "entity">::data.bytes + 1;
-    for (u32 i = 0; i < 5; ++i, name += 1 + name[0]) {
-        Field entry{};
-        if (!fields_n(doc, value, 24, &entry, 1, name) || !entry.seen) return E::malformed;
-        value = entry.value;
-    }
+    const auto value = child<"props", "pageProps", "state", "data", "entity">(doc, {json, 0, JsonValueKind::object}, 24);
+    if (!value.source.data) return E::malformed;
     FieldSet<"type", "id", "isPlayable", "audioPreview", "uri", "isNineteenPlus"> track;
     if (!fields(doc, value, track) || !equal(track[0], episode ? utf8_literal("episode") : utf8_literal("track")) || !equal(track[1], id)) return E::malformed;
     bool playable = false, restricted = false;
@@ -242,20 +237,6 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
 }
 
 namespace {
-JsonValue child_path(const JsonIndexedDocument& doc, JsonValue value, const u8* list) noexcept {
-    const u8* names = list + 1;
-    for (u32 count = list[0]; count; --count, names += 1 + names[0]) {
-        Field f{};
-        if (!value.source.bytes || value.kind != JsonValueKind::object || !fields_n(doc, value, 48, &f, 1, names) || !f.seen)
-            return {{}, 0, JsonValueKind::null_value};
-        value = f.value;
-    }
-    return value;
-}
-template <MemberName... Names>
-__forceinline JsonValue child(const JsonIndexedDocument& doc, const JsonValue& parent) noexcept {
-    return child_path(doc, parent, MemberNames<Names...>::data.bytes);
-}
 bool queue_panel(const JsonIndexedDocument& doc, JsonValue root, JsonValue* panel) noexcept {
     auto next = child<"continuationContents", "playlistPanelContinuation">(doc, root);
     if (next.kind == JsonValueKind::object) { *panel = next; return true; }

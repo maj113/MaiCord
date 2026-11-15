@@ -15,11 +15,7 @@ namespace {
 GatewayClientDispatchRouteResult failure(GatewayEventDecodeError error,
     u32 offset = 0, JsonScanError scan = JsonScanError::none,
     JsonReadError read = JsonReadError::none) noexcept {
-    GatewayClientDispatchRouteResult result{};
-    result.error = GatewayClientDispatchRouteError::decode;
-    result.event_error = error; result.error_offset = offset;
-    result.scan_error = scan; result.read_error = read;
-    return result;
+    return {error, GatewayClientDispatchRouteError::decode, scan, read, offset};
 }
 bool reject(GatewayEventDecodeError* error,
     GatewayEventDecodeError value = GatewayEventDecodeError::invalid_data) noexcept {

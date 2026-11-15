@@ -53,6 +53,17 @@ JsonStringDecodeResult decode(const JsonString& value, char* out, u32 capacity) 
 bool visit_array(const JsonIndexedDocument& doc, const JsonValue& value, JsonArrayVisitor visitor, void* context) noexcept {
     return json_visit_indexed_array(doc, value, 24, visitor, context).ok();
 }
+JsonValue child_path(const JsonIndexedDocument& doc, JsonValue value, const u8* table, u32 depth) noexcept {
+    const char* text = reinterpret_cast<const char*>(table) + 1 + table[0];
+    for (u32 i = 0; i < table[0]; text += table[1 + i++]) {
+        Field f;
+        if (!value.source.bytes || value.kind != JsonValueKind::object ||
+            !field_named(doc, value, depth, text, table[1 + i], &f) || !f.seen)
+            return {{}, 0, JsonValueKind::null_value};
+        value = f.value;
+    }
+    return value;
+}
 bool number64(const Field& f, u64* out) noexcept {
     JsonString s{};
     return f.seen && (f.value.kind == JsonValueKind::string ?

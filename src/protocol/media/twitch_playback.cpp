@@ -30,7 +30,7 @@ u32 twitch_playback_body(Utf8View id, Slice<u8> output, bool live) noexcept {
 namespace {
 using protocol_detail::FieldSet;
 using protocol_detail::FieldValue;
-using protocol_detail::MemberNames;
+using protocol_detail::NameTable;
 template <protocol_detail::MemberName... Names>
 __forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
     return protocol_detail::fields_at<16>(doc, value, set);
@@ -53,8 +53,8 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     if (!fields(doc, {json, 0, JsonValueKind::object}, root)) return E::malformed;
     if (root[1].seen) return E::unavailable;
     FieldValue data;
-    if (!root[0].seen || !protocol_detail::fields_n(doc, root[0].value, 16, &data, 1,
-            (live ? MemberNames<"streamPlaybackAccessToken">::data.bytes : MemberNames<"videoPlaybackAccessToken">::data.bytes) + 1) ||
+    if (!root[0].seen || !protocol_detail::fields_table(doc, root[0].value, 16, &data,
+            live ? NameTable<"streamPlaybackAccessToken">::data.bytes : NameTable<"videoPlaybackAccessToken">::data.bytes) ||
         !data.seen) return E::malformed;
     if (data.value.kind == JsonValueKind::null_value) return E::unavailable;
     FieldSet<"signature", "value"> access; JsonString signature{}, token{};
@@ -72,8 +72,8 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     FieldValue claims[3];
     FieldSet<"forbidden"> authorization;
     u64 expires{}, identity{}, requested{}; bool forbidden = true;
-    if (!protocol_detail::fields_n(claims_doc, {token_json, 0, JsonValueKind::object}, 16, claims, 3,
-            (live ? MemberNames<"channel", "expires", "authorization">::data.bytes : MemberNames<"vod_id", "expires", "authorization">::data.bytes) + 1) ||
+    if (!protocol_detail::fields_table(claims_doc, {token_json, 0, JsonValueKind::object}, 16, claims,
+            live ? NameTable<"channel", "expires", "authorization">::data.bytes : NameTable<"vod_id", "expires", "authorization">::data.bytes) ||
         !claims[0].seen ||
         !claims[1].seen || !json_value_to_u64(claims[1].value, &expires) || !claims[2].seen ||
         !fields(claims_doc, claims[2].value, authorization) || !authorization[0].seen ||

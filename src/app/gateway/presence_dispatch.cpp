@@ -13,8 +13,11 @@ namespace {
 struct PresenceContext {
     GatewayClientPresenceUpdate value;
     JsonValue user;
+    // The first `activities` member. activities_repeated: the presence holds a second one.
+    JsonValue activities;
     GatewayEventDecodeError error;
     u8 fields;
+    bool activities_repeated;
 };
 
 bool mark(PresenceContext* context, u8 field) noexcept {
@@ -29,7 +32,7 @@ bool mark(PresenceContext* context, u8 field) noexcept {
 bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
     auto* context = static_cast<PresenceContext*>(opaque);
     bool valid = true;
-    switch (protocol_detail::member_index<"guild_id", "user", "status", "client_status">(key)) {
+    switch (protocol_detail::member_index<"guild_id", "user", "status", "client_status", "activities">(key)) {
     case 0:
         if (!mark(context, 1)) return false;
         valid = value.kind == JsonValueKind::null_value ||
@@ -53,6 +56,10 @@ bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
         // Per-platform detail is advisory: a malformed object leaves every
         // platform offline rather than dropping the presence.
         if (!client_status_decode(value, &context->value.client_status)) context->value.client_status = 0;
+        break;
+    case 4:
+        if (context->activities.source.data) context->activities_repeated = true;
+        else context->activities = value;
         break;
     default: break;
     }
@@ -83,7 +90,7 @@ GatewayEventDecodeResult read_object(const JsonIndexedDocument& document, JsonVa
 
 GatewayEventDecodeResult gateway_client_decode_presence(
     const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
-    GatewayClientPresenceUpdate* output, UserAppearance* appearance) noexcept {
+    GatewayClientPresenceUpdate* output, UserAppearance* appearance, JsonValue* activities) noexcept {
     if (maximum_depth == 0 || !data.source.data || data.source.bytes == 0)
         return {0, GatewayEventDecodeError::invalid_input};
     reset_value(output);
@@ -95,10 +102,10 @@ GatewayEventDecodeResult gateway_client_decode_presence(
     decoded = read_object(document, context.user, maximum_depth, true, &context);
     if (!decoded.ok()) return decoded;
     if ((context.fields & 8) == 0) return {0, GatewayEventDecodeError::missing_required_field};
-    if (appearance) {
-        reset_value(appearance); appearance->user_id = context.value.user_id; appearance->guild_id = context.value.guild_id;
-        if (!activity_decode(document, data, appearance)) return {0, GatewayEventDecodeError::invalid_data};
-    }
+    reset_value(appearance); appearance->user_id = context.value.user_id; appearance->guild_id = context.value.guild_id;
+    if (context.activities_repeated || !activity_decode_list(document, context.activities, appearance))
+        return {0, GatewayEventDecodeError::invalid_data};
+    *activities = context.activities;
     *output = context.value;
     return {};
 }

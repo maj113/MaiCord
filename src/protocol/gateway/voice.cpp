@@ -22,7 +22,7 @@ bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
     static constexpr u32 fields[] = {guild,    channel,   user,      session,    token,      endpoint,   1u << 6,
                                      1u << 7,  1u << 8,   1u << 9,   1u << 10,   1u << 11,   1u << 12,
                                      1u << 13}; // the last is gateway_voice_request_to_speak << 6
-    const u32 index = protocol_detail::wide_member_index<
+    const u32 index = protocol_detail::member_index<
         "guild_id", "channel_id", "user_id", "session_id", "token", "endpoint", "deaf", "mute", "self_deaf",
         "self_mute", "self_stream", "self_video", "suppress", "request_to_speak_timestamp">(key);
     u32 field = index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;

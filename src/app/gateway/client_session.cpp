@@ -20,21 +20,16 @@ void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* runtime,
         gateway_hand_over_token(client, runtime, &runtime->credential, token);
 }
 
-bool auth_session_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("auth_session_id_hash")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
-
 // AUTH_SESSION_CHANGE {auth_session_id_hash}: the settings store's session hash (the Devices list's current
 // session) follows it, as a partial settings update that carries the hash alone.
 void publish_auth_session_change(GatewayClient* client, GatewayClientRuntime* runtime,
                                  const GatewayEnvelope& envelope, u64 now_ms) noexcept {
     u32 structurals[16];
     JsonValue hash{};
+    GatewayNamedMember member{utf8_literal("auth_session_id_hash"), &hash};
     const JsonScanResult scan = json_scan_structurals_avx1(envelope.data.source, {structurals, 16});
     if (envelope.data.kind != JsonValueKind::object || !scan.ok() ||
-        !json_visit_value_object(envelope.data, {structurals, scan.count}, 4, auth_session_member, &hash).ok() ||
+        !json_visit_value_object(envelope.data, {structurals, scan.count}, 4, gateway_store_named_member, &member).ok() ||
         hash.kind != JsonValueKind::string)
         return;
     RelationshipStreamBinding binding{client, runtime};
