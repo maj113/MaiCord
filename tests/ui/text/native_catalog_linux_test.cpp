@@ -1,10 +1,18 @@
 // The native text catalog on Linux over the installed fonts (the counterpart of native_font_selection_cases.inc, which
 // runs against Segoe UI and Bahnschrift): family lookup through the system font locator, selection, the fallback
 // routes (fontconfig's order first, then the generated table), private font scopes, caching and failure handling.
-// argv[1] "--scan" replaces fontconfig by the directory scan. The assertions about particular families need the Ubuntu font packages (fonts-dejavu-core, fonts-noto-core,
+// argv[1] "--scan" replaces fontconfig by the directory scan, and adds a font the engine cannot read to the test's
+// private XDG_DATA_HOME (its family must be a cached miss); "--broken-face FONT" checks that a face the text engine
+// refuses falls back (broken_face); "--desktop-font" checks that a desktop interface font with an opsz axis is the
+// interface family (desktop_font). The assertions about particular families need the Ubuntu font packages (fonts-dejavu-core, fonts-noto-core,
 // fonts-noto-cjk, fonts-noto-color-emoji) and run when MAICORD_TEST_FONT_SET=ubuntu says so; the rest hold anywhere.
 #include "maicord/core/arena.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/os/file.hpp"
+#include "maicord/os/text.hpp"
 #include "maicord/platform/font/default_fonts.hpp"
+#include "maicord/platform/font/system_font_locator.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/text/opentype/bitmap_color.hpp"
 #include "maicord/ui/text/native_text_catalog.hpp"
@@ -16,6 +24,8 @@ namespace maicord {
 namespace {
 
 #include "../../../src/ui/text/generated/linux_fallback_data.inc"
+#include "../../generated/cff2_collection_fixture.inc"
+#include "../../generated/opsz_fixture.inc"
 
 u32 g_checks = 0;
 u32 g_failures = 0;
@@ -183,6 +193,51 @@ void test_policy_table() noexcept {
     }
 }
 
+// Writes `bytes` to `relative` (it starts with '/') under the directory the environment variable names: the test's
+// private XDG_DATA_HOME or XDG_CONFIG_HOME. False when the variable is not set.
+bool write_private_file(const char* variable, const wchar_t* relative, const u8* bytes, u32 size) noexcept {
+    const char* base = environment_get(variable);
+    if (!base || !*base)
+        return false;
+    wchar_t path[512];
+    u32 length = 0;
+    while (base[length])
+        ++length;
+    length = utf8_to_utf16(base, length, path, 400, true);
+    for (u32 i = 0; relative[i] && length < 511; ++i)
+        path[length++] = relative[i];
+    path[length] = 0;
+    // The private directory may not exist yet: each directory of the path, from the root down.
+    for (u32 i = 1; i < length; ++i) {
+        if (path[i] != L'/')
+            continue;
+        path[i] = 0;
+        dir_create(path);
+        path[i] = L'/';
+    }
+    u32 written = 0;
+    const FileHandle output = file_open(path, {FileAccess::write, FileCreate::create_always, 0, 0});
+    if (output == INVALID_HANDLE_VALUE)
+        return false;
+    const bool ok = file_write(output, bytes, size, &written) && written == size;
+    file_close(output);
+    return ok;
+}
+
+// Writes the CFF2 fixture collection with a CFF2 header size of 2: the directory scan names its family,
+// "MaiCord CFF2 Fixture", but the text engine cannot read the face.
+bool install_unreadable_font() noexcept {
+    static u8 bytes[sizeof(cff2_collection_fixture)];
+    copy_bytes(bytes, cff2_collection_fixture, sizeof(bytes));
+    SfntFace face{};
+    ConstSlice<u8> table{};
+    if (sfnt_open({bytes, sizeof(bytes)}, 0, &face) != SfntStatus::ok ||
+        sfnt_table(face, sfnt_tag('C', 'F', 'F', '2'), &table) != SfntStatus::ok)
+        return false;
+    const_cast<u8*>(table.data)[2] = 2;
+    return write_private_file("XDG_DATA_HOME", L"/fonts/maicord-qa-unreadable.ttc", bytes, sizeof(bytes));
+}
+
 bool run(bool scan) noexcept {
     test_policy_table();
     Fixture f{};
@@ -201,6 +256,7 @@ bool run(bool scan) noexcept {
     // --scan: the catalog's locator is the directory scan (no fontconfig), so every route is the generated table's.
     static SystemFontLocator forced_scan;
     if (scan) {
+        check(install_unreadable_font(), "unreadable_font_installed");
         forced_scan.state = 3;
         f.catalogs.locator = &forced_scan;
     }
@@ -303,6 +359,25 @@ bool run(bool scan) noexcept {
         native_font_instance_release(native_font_session_instances(f.session), emoji);
     }
 
+    // A variable family whose STAT names an axis that fvar does not vary (Ubuntu Sans and Noto Sans name ital) is
+    // the family itself where it is installed, not a fallback.
+    {
+        const NativeTextFontQuery variable = ascii_query("Ubuntu Sans");
+        SystemFontFile located;
+        if (f.catalogs.locator && system_font_locator_find(f.catalogs.locator, {variable.family, 400, false}, &located)) {
+            NativeFontInstanceHandle value{};
+            u32 scope = 99;
+            bool fallback = true;
+            check(native_text_catalog_select_query(&f.catalogs, variable, f.session, &f.scratch, &value, &source, nullptr,
+                                                   nullptr, &scope, &fallback) &&
+                      value.slot && !fallback && !scope,
+                  "variable_family_with_a_static_stat_axis");
+            native_font_instance_release(native_font_session_instances(f.session), value);
+        } else {
+            test_write_text("  Ubuntu Sans is not installed\n");
+        }
+    }
+
     // A family that is not installed is not another family.
     const NativeTextFontQuery missing = ascii_query("MaiCord QA absent family 8F41");
     NativeFontInstanceHandle absent{};
@@ -314,6 +389,24 @@ bool run(bool scan) noexcept {
     check(!native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source) &&
               f.catalogs.builds == previous_builds && f.catalogs.files == before,
           "missing_family_is_cached");
+    if (scan) {
+        // A family whose face the engine cannot read is skipped and counted, and the miss is cached: the next query
+        // opens neither the locator nor the file.
+        const NativeTextFontQuery unreadable = ascii_query("MaiCord CFF2 Fixture");
+        const u64 counted = f.catalogs.failures;
+        check(!native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source) &&
+                  !absent.slot && f.catalogs.failures == counted + 1,
+              "unreadable_family_fails");
+        const u64 builds = f.catalogs.builds;
+        check(!native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source) &&
+                  f.catalogs.builds == builds && f.catalogs.failures == counted + 1,
+              "unreadable_family_is_cached");
+        // The time of one query, for the log only: the tests assert counts, never times.
+        const u64 start = clock_now_microseconds();
+        for (u32 i = 0; i < 1000; ++i)
+            native_text_catalog_select_query(&f.catalogs, unreadable, f.session, &f.scratch, &absent, &source);
+        test_write_metric("  unreadable family query, nanoseconds=", clock_now_microseconds() - start);
+    }
     u32 chosen = 99;
     bool missing_family = false;
     check(native_text_catalog_select_query(&f.catalogs, missing, f.session, &f.scratch, &absent, &source, nullptr,
@@ -328,13 +421,157 @@ bool run(bool scan) noexcept {
     return g_failures == 0;
 }
 
+// --broken-face FONT: a copy of FONT (Orbitron) in $XDG_DATA_HOME/fonts, the xdg directory of
+// tests/fixtures/fonts/fonts.conf, renamed "QABroken" and with usWeightClass 0. fontconfig lists the face, and the text
+// engine refuses its OS/2 table as malformed. The family must then fall back as a family that is not installed does:
+// a face the client cannot use never makes the text system fail.
+bool broken_face(const char* font_path) noexcept {
+    static u8 bytes[65536];
+    wchar_t path[512];
+    u32 units = 0;
+    while (font_path[units])
+        ++units;
+    units = utf8_to_utf16(font_path, units, path, 511, true);
+    path[units] = 0;
+    u32 size = 0;
+    const FileHandle input = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead, 0});
+    check(input != INVALID_HANDLE_VALUE && file_read(input, bytes, sizeof(bytes), &size) && size > 12 && size < sizeof(bytes),
+          "broken_face_source");
+    file_close(input);
+    // The family name, in the UTF-16BE name records: "Orbitron" and "QABroken" have the same length.
+    const char from[] = "Orbitron", to[] = "QABroken";
+    u32 renamed = 0;
+    for (u32 i = 0; i + 16 <= size; ++i) {
+        u32 k = 0;
+        while (k < 8 && bytes[i + 2 * k] == 0 && bytes[i + 2 * k + 1] == static_cast<u8>(from[k]))
+            ++k;
+        if (k < 8)
+            continue;
+        for (k = 0; k < 8; ++k)
+            bytes[i + 2 * k + 1] = static_cast<u8>(to[k]);
+        ++renamed;
+    }
+    u32 weights = 0;
+    const u32 tables = size > 12 ? byte_load_be16(bytes + 4) : 0;
+    for (u32 i = 0; i < tables && 12 + i * 16 + 16 <= size; ++i) {
+        const u8* record = bytes + 12 + i * 16;
+        const u32 offset = byte_load_be32(record + 8);
+        if (byte_load_be32(record) == sfnt_tag('O', 'S', '/', '2') && offset + 6 <= size) {
+            bytes[offset + 4] = 0;
+            bytes[offset + 5] = 0;
+            ++weights;
+        }
+    }
+    check(renamed && weights == 1, "broken_face_made");
+    check(write_private_file("XDG_DATA_HOME", L"/fonts/broken.ttf", bytes, size), "broken_face_written");
+    if (g_failures)
+        return false;
+
+    Fixture f{};
+    struct Cleanup {
+        Fixture& f;
+        ~Cleanup() noexcept {
+            native_text_catalogs_release(&f.catalogs);
+            if (f.session)
+                native_font_session_release(&f.session);
+            arena_release(&f.scratch);
+        }
+    } cleanup{f};
+    check(native_font_session_create(&f.session) && arena_initialize(&f.scratch, 1024 * 1024, 0, 4096) &&
+              native_text_catalogs_initialize(&f.catalogs),
+          "setup");
+    const NativeTextFontQuery broken = ascii_query("QABroken");
+    NativeFontInstanceHandle value{};
+    NativeFontSelection source{};
+    u32 scope = 99;
+    bool fallback = false;
+    // The first query makes the locator; without fontconfig the directory scan refuses the face as the text engine
+    // does, and the case has nothing to show.
+    const bool selected = native_text_catalog_select_query(&f.catalogs, broken, f.session, &f.scratch, &value, &source,
+                                                           nullptr, nullptr, &scope, &fallback);
+    SystemFontFile located;
+    if (!f.catalogs.locator || !system_font_locator_find(f.catalogs.locator, {broken.family, 400, false}, &located)) {
+        test_write_text("  no fontconfig lists the broken face: skipped\n");
+    } else {
+        check(selected && value.slot && fallback && !scope, "broken_face_falls_back");
+        check(f.catalogs.failures != 0, "broken_face_counted");
+    }
+    native_font_instance_release(native_font_session_instances(f.session), value);
+    return g_failures == 0;
+}
+
+// --desktop-font: GTK's settings.ini under the test's XDG_CONFIG_HOME (which must lie in its XDG_DATA_HOME) names
+// "MaiCord Opsz Fixture", a font in $XDG_DATA_HOME/fonts with opsz and wght axes, as GNOME names Adwaita Sans. The
+// interface role must name that family, and the catalog must load it and not fall back.
+bool desktop_font() noexcept {
+    const char* data = environment_get("XDG_DATA_HOME");
+    const char* config = environment_get("XDG_CONFIG_HOME");
+    bool inside = data && config && *data;
+    for (u32 i = 0; inside && data[i]; ++i)
+        inside = config[i] == data[i];
+    check(inside, "desktop_font_private_config");
+    if (g_failures)
+        return false;
+    static constexpr char settings[] = "[Settings]\ngtk-font-name=MaiCord Opsz Fixture 11\n";
+    check(write_private_file("XDG_DATA_HOME", L"/fonts/maicord-opsz.ttf", opsz_fixture, sizeof(opsz_fixture)) &&
+              write_private_file("XDG_CONFIG_HOME", L"/gtk-3.0/settings.ini", reinterpret_cast<const u8*>(settings),
+                                 sizeof(settings) - 1),
+          "desktop_font_written");
+    if (g_failures)
+        return false;
+    const ConstSlice<u16> ui = default_font_name(DefaultFont::ui);
+    test_write_text("  interface role: ");
+    write_units(ui.data, ui.count);
+    test_write_text("\n");
+    static constexpr char expected[] = "MaiCord Opsz Fixture";
+    bool same = ui.count == sizeof(expected) - 1;
+    for (u32 i = 0; same && i < ui.count; ++i)
+        same = ui[i] == static_cast<u8>(expected[i]);
+    check(same, "desktop_font_is_interface_role");
+
+    Fixture f{};
+    struct Cleanup {
+        Fixture& f;
+        ~Cleanup() noexcept {
+            native_text_catalogs_release(&f.catalogs);
+            if (f.session)
+                native_font_session_release(&f.session);
+            arena_release(&f.scratch);
+        }
+    } cleanup{f};
+    check(native_font_session_create(&f.session) && arena_initialize(&f.scratch, 1024 * 1024, 0, 4096) &&
+              native_text_catalogs_initialize(&f.catalogs),
+          "setup");
+    NativeFontInstanceHandle value{};
+    NativeFontSelection source{};
+    u32 scope = 99;
+    bool fallback = true;
+    check(native_text_catalog_select_query(&f.catalogs, query(ui), f.session, &f.scratch, &value, &source, nullptr,
+                                           nullptr, &scope, &fallback) &&
+              value.slot && !fallback,
+          "desktop_font_loads");
+    native_font_instance_release(native_font_session_instances(f.session), value);
+    NativeTextFontRange range{};
+    check(native_text_catalog_range(&f.catalogs, query(ui), f.session, &f.scratch, utf8_literal("A"), &range) &&
+              range.match.index != native_fallback_missing,
+          "desktop_font_range");
+    const NativeSystemFontFile* file = file_of(f.catalogs, range.match.index);
+    write_choice("interface", file);
+    check(file && name_starts(file->catalog, expected), "desktop_font_draws_latin");
+    return g_failures == 0;
+}
+
 } // namespace
 } // namespace maicord
 
 MAICORD_TEST_ENTRY(maicord_text_catalog_entry) {
     using namespace maicord;
     const ProcessStartup& startup = process_startup();
-    const bool ok = run(startup.argc > 1 && equal(startup.argv[1], "--scan"));
+    const bool broken = startup.argc > 2 && equal(startup.argv[1], "--broken-face");
+    const bool desktop = startup.argc > 1 && equal(startup.argv[1], "--desktop-font");
+    const bool ok = broken    ? broken_face(startup.argv[2])
+                    : desktop ? desktop_font()
+                              : run(startup.argc > 1 && equal(startup.argv[1], "--scan"));
     test_write_text("checks=");
     test_write_u64(g_checks);
     test_write_text(ok ? " PASS native text catalog\n" : " FAIL native text catalog\n");

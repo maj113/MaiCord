@@ -34,6 +34,17 @@ void font(u8* p) noexcept {
 bool basic() noexcept {
     u8 bytes[font_size];font(bytes);SfntFace face{};CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);NativeFontCandidates source{};
     CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3&&source.axes.axis_count==2);
+    // STAT names more axes than fvar varies (Noto Sans and Ubuntu Sans name ital): a copy of STAT at the end with a third
+    // record. Its order is free, and every fvar axis still needs its STAT record.
+    {u8 wide[font_size+44];copy_bytes(wide,bytes,font_size);copy_bytes(wide+font_size,bytes+stat_at,36);clear_bytes(wide+font_size+36,8);
+        byte_store_be32(wide+36,font_size);byte_store_be32(wide+40,44);w16(wide+font_size+6,3);
+        byte_store_be32(wide+font_size+36,sfnt_tag('i','t','a','l'));w16(wide+font_size+40,258);SfntFace extra{};NativeFontCandidates more{};
+        CHECK(sfnt_open({wide,sizeof(wide)},0,&extra)==SfntStatus::ok);
+        CHECK(native_font_candidates_open(extra,&more)==SfntStatus::ok&&more.count==3&&more.axes.axis_count==2);
+        u8 record[8];copy_bytes(record,wide+font_size+20,8);copy_bytes(wide+font_size+20,wide+font_size+36,8);copy_bytes(wide+font_size+36,record,8);
+        CHECK(native_font_candidates_open(extra,&more)==SfntStatus::ok&&more.count==3);
+        byte_store_be32(wide+font_size+36,sfnt_tag('s','l','n','t'));CHECK(native_font_candidates_open(extra,&more)==SfntStatus::unsupported&&!more.count);
+        w16(wide+font_size+6,1);CHECK(native_font_candidates_open(extra,&more)==SfntStatus::unsupported&&!more.count);}
     NativeFontCandidate value{};FontAxisSetting settings[2]{};u32 count=99;
     CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.properties.weight==600&&value.properties.width==5);
     CHECK(native_font_candidate_settings(source,1,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==600&&settings[1].value==100);
@@ -51,8 +62,24 @@ bool basic() noexcept {
     CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.weight==400);
     font(bytes);byte_store_be32(bytes+fvar_at+72,600*65536+32768);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);byte_store_be32(bytes+fvar_at+76,80*65536);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
+#if defined(_WIN32)
+    // Windows refuses an axis other than wght and wdth, and a STAT record with another name ID than fvar.
     font(bytes);byte_store_be32(bytes+fvar_at+16,sfnt_tag('o','p','s','z'));byte_store_be32(bytes+stat_at+20,sfnt_tag('o','p','s','z'));CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);w16(bytes+stat_at+24,999);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
+#else
+    // An axis other than wght and wdth leaves the properties to OS/2; the candidate keeps the instance's coordinate.
+    font(bytes);byte_store_be32(bytes+fvar_at+16,sfnt_tag('o','p','s','z'));byte_store_be32(bytes+stat_at+20,sfnt_tag('o','p','s','z'));
+    CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3);
+    CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.properties.weight==400&&value.properties.width==5);
+    CHECK(native_font_candidate_settings(source,1,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==600);
+    // As in Adwaita Sans: wght and opsz axes, and STAT names opsz with its own name ID. A STAT record matches by tag.
+    font(bytes);byte_store_be32(bytes+fvar_at+36,sfnt_tag('o','p','s','z'));byte_store_be32(bytes+stat_at+28,sfnt_tag('o','p','s','z'));w16(bytes+stat_at+32,298);
+    CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3);
+    CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.properties.weight==600&&value.properties.width==5);
+    CHECK(native_font_candidate(source,2,&value)==SfntStatus::ok&&value.properties.weight==300&&value.properties.width==5);
+    CHECK(native_font_candidate_settings(source,2,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==300&&settings[1].value==75);
+    font(bytes);w16(bytes+stat_at+24,999);CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3);
+#endif
     font(bytes);byte_store_be32(bytes+28,sfnt_tag('S','U','A','T'));CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);w16(bytes+fvar_at+56,999);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);w16(bytes+os2_at+4,0);CHECK(native_font_candidates_open(face,&source)==SfntStatus::malformed&&!source.count);

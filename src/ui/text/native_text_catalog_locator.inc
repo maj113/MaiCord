@@ -9,7 +9,11 @@ bool system_file(NativeTextCatalogs& owner,const wchar_t* path,u32 index,const N
     if(!file)return catalog_failed(owner,0,{NativeFontError::capacity,SfntStatus::output_too_small,0});
     const auto result=load_face(owner,path,index,false,query,exact,scratch,&file->catalog);
     if(!result.ok()||!file->catalog.count){arena_rewind(&owner.storage,mark);
+        // A face the client cannot read or use is skipped, and the family falls back as a family that is not
+        // installed does. The miss is cached: a later query opens neither fontconfig nor the file again. Only a full
+        // arena or a file that changed fails the query, so that it runs again.
         if(result.error==NativeFontError::font&&result.font_status==SfntStatus::unsupported){++owner.unsupported;return true;}
+        if(result.error==NativeFontError::font||(result.error==NativeFontError::io&&result.native_error!=ERROR_RETRY)){++owner.failures;return true;}
         return result.ok()||catalog_failed(owner,0,result);
     }
     file->next=owner.files;file->first_candidate=owner.next_candidate;owner.next_candidate+=file->catalog.count;owner.files=file;*output=file;*fresh=true;return true;

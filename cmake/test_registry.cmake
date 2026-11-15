@@ -2925,6 +2925,15 @@ if(MAICORD_LINUX)
     endforeach()
     maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15 ENV ${maicord_font_set_environment}
         TEST maicord_native_text_catalog_scan --scan)
+    # A face fontconfig lists and the text engine refuses falls back: it never makes the text system fail.
+    maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15
+        ENV FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf
+        TEST maicord_native_text_catalog_broken_face --broken-face "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Orbitron.ttf")
+    # GTK names a desktop interface font with an opsz axis (as GNOME names Adwaita Sans): it is the interface family.
+    maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15
+        ENV FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf XDG_CURRENT_DESKTOP=GNOME
+            XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/maicord_native_text_catalog_desktop_font/config
+        TEST maicord_native_text_catalog_desktop_font --desktop-font)
 endif()
 maicord_font_test(MaiCordGposTests maicord_gpos_tests_entry text/opentype/gpos_test STANDALONE)
 # Basic, mark, cursive and ligature placement corpora in one run.

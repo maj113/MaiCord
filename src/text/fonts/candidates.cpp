@@ -10,6 +10,10 @@ i32 coordinate(const FontAxes& axes,u32 instance,u32 index,const FontAxis& axis)
     if(instance!=default_named)value=static_cast<i32>(byte_load_be32(axes.instances.data+instance*axes.instance_stride+4+index*4));
     return maximum(axis.minimum,minimum(axis.maximum,value));
 }
+// The WWS properties of a named instance (or of the default one). On Linux an axis other than wght and wdth (opsz in
+// Adwaita Sans, the interface font of GNOME 48) does not change them: the candidate keeps that axis at the instance's
+// coordinate, else at its default. Windows still refuses such a face (Segoe UI Variable among them), so that the faces
+// it draws do not change until the owner decides.
 SfntStatus properties(const NativeFontCandidates& source,u32 instance,NativeFontProperties* output) noexcept {
     auto result=source.base;
     for(u32 i=0;i<source.axes.axis_count;++i){FontAxis axis{};font_axis(source.axes,i,&axis);const i32 value=coordinate(source.axes,instance,i,axis);
@@ -17,7 +21,10 @@ SfntStatus properties(const NativeFontCandidates& source,u32 instance,NativeFont
         else if(axis.tag==sfnt_tag('w','d','t','h')){
             const i32 widths[]{50*65536,125*32768,75*65536,175*32768,100*65536,225*32768,125*65536,150*65536,200*65536};
             u32 width=0;while(width<9&&widths[width]!=value)++width;if(width==9)return SfntStatus::unsupported;result.width=static_cast<u8>(width+1);
-        }else return SfntStatus::unsupported;
+        }
+#if defined(_WIN32)
+        else return SfntStatus::unsupported;
+#endif
     }*output=result;return SfntStatus::ok;
 }
 SfntStatus stat_axes(const SfntFace& face,const FontAxes& axes) noexcept {
@@ -25,11 +32,19 @@ SfntStatus stat_axes(const SfntFace& face,const FontAxes& axes) noexcept {
     if(table.count<18)return SfntStatus::truncated;const auto* p=table.data;const u16 minor=byte_load_be16(p+2);
     if(byte_load_be16(p)!=1||minor>2)return SfntStatus::unsupported;if(minor&&table.count<20)return SfntStatus::truncated;
     const u32 stride=byte_load_be16(p+4),count=byte_load_be16(p+6),offset=byte_load_be32(p+8);
-    if(stride<8||count!=axes.axis_count)return SfntStatus::unsupported;
+    // STAT also names the family's axes that do not vary in this file (the ital axis of an upright face), so it can
+    // have more axes than fvar but never fewer.
+    if(stride<8||count<axes.axis_count)return SfntStatus::unsupported;
     if(offset<(minor?20u:18u))return SfntStatus::malformed;
     if(offset>table.count||static_cast<u64>(count)*stride>table.count-offset)return SfntStatus::truncated;
+    // On Linux a record matches its fvar axis by tag: STAT may give the axis its own name ID (Adwaita Sans names opsz
+    // 298 in STAT and 256 in fvar). Windows also compares the name ID, as above.
     for(u32 i=0;i<axes.axis_count;++i){FontAxis a{};font_axis(axes,i,&a);u32 matches=0;
+#if defined(_WIN32)
         for(u32 j=0;j<count;++j){const auto* record=p+offset+j*stride;if(byte_load_be32(record)==a.tag&&byte_load_be16(record+4)==a.name)++matches;}
+#else
+        for(u32 j=0;j<count;++j){const auto* record=p+offset+j*stride;if(byte_load_be32(record)==a.tag)++matches;}
+#endif
         if(matches!=1)return SfntStatus::unsupported;
     }return SfntStatus::ok;
 }
@@ -40,7 +55,7 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
     NativeFontCandidates result{};result.base={attributes.weight,static_cast<u8>(attributes.width),static_cast<u8>(attributes.selection&512?1:attributes.selection&1?2:0)};
     status=font_axes_open(face,&result.axes,work);if(status!=SfntStatus::ok)return status;
     if(!result.axes.axis_count){result.count=1;*output=result;return SfntStatus::ok;}
-    // The required variable profile has only weight and width axes.
+    // A variable face has at most two axes.
     if(result.axes.axis_count>2)return SfntStatus::unsupported;
     if(!spend(work,result.axes.axis_count*(result.axes.axis_count+1)/2+result.axes.axis_count*result.axes.axis_count))return SfntStatus::resource_limit;
     status=stat_axes(face,result.axes);if(status!=SfntStatus::ok)return status;
