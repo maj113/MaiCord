@@ -5,6 +5,7 @@
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/chat/messages/unread_divider_style.hpp"
 
 namespace maicord {
@@ -19,6 +20,20 @@ inline bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Sl
     scene->rows = rows;
     scene->selected_index = ~0u;
     return ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes);
+}
+
+// The shell text as a command stream. The shipping client builds it into a text output.
+inline bool shell_text_presentation_build(const UiScene& scene, const ChatStateStore& state,
+                                          const NavigationView& navigation, const Theme& theme,
+                                          const ShellNavigationScene& channel_scene,
+                                          const MessageComposerScene* composer_scene, const MemberListScene* member_scene,
+                                          const UiRect* composer_text_rectangle, UiTextCommandStream* stream,
+                                          const UserStore* users = nullptr, const GuildRailScene* guild_scene = nullptr,
+                                          u64 visual_selected_channel_id = 0) noexcept {
+    UiTextOutput output{stream, nullptr};
+    return shell_text_presentation_build_output(scene, state, navigation, theme, channel_scene, composer_scene,
+                                                member_scene, composer_text_rectangle, &output, users, guild_scene,
+                                                visual_selected_channel_id);
 }
 
 inline bool message_scene_initialize(MessageScene* scene, MessageTimeline* timeline,

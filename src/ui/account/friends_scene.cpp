@@ -327,12 +327,9 @@ bool valid_sections(const UiFriendsSections* sections, const UiFriendsSource* so
     }
     return end == (source ? source->count : 0);
 }
-Utf8View section_label(UiFriendsSectionKind kind) noexcept {
-    return kind == UiFriendsSectionKind::incoming ? utf8_literal("Received") : utf8_literal("Sent");
-}
 void section_heading(Entry& e, const UiFriendsSection& section) noexcept {
     u32 used = 0;
-    const auto label = section_label(section.kind);
+    const auto label = section.kind == UiFriendsSectionKind::incoming ? utf8_literal("Received") : utf8_literal("Sent");
     for (u32 i = 0; i < label.bytes; ++i)
         e.section_label[used++] = label.data[i];
     e.section_label[used++] = ' ';

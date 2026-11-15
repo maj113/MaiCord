@@ -127,8 +127,6 @@ bool shell_metrics_valid(const UiShellLayoutMetrics& metrics) noexcept {
            ui_extent_valid(metrics.navigation_width) && (!navigation || metrics.navigation_width > 0.0f) &&
            ui_extent_valid(metrics.member_sidebar_width) &&
            (!members || metrics.member_sidebar_width > 0.0f) &&
-           ui_extent_valid(metrics.navigation_min_viewport_width) &&
-           ui_extent_valid(metrics.member_min_viewport_width) &&
            ui_extent_valid(metrics.navigation_gutter_before) &&
            ui_extent_valid(metrics.content_gutter_before) && ui_extent_valid(metrics.title_bar_height) &&
            metrics.title_bar_height > 0.0f && ui_extent_valid(metrics.navigation_header_height) &&

@@ -6,12 +6,6 @@ namespace {
 using Kind = NavigationDragRowKind;
 using Drop = NavigationDropKind;
 
-bool guild_source(Kind kind) noexcept {
-    return kind == Kind::guild || kind == Kind::nested_guild;
-}
-bool channel_source(Kind kind) noexcept {
-    return kind == Kind::text || kind == Kind::voice;
-}
 // The row a pointer is over, splitting the gaps between rows evenly; the
 // first and last rows extend to the list ends.
 u32 row_at(ConstSlice<NavigationDragRow> rows, float y, float gap) noexcept {
@@ -42,8 +36,9 @@ void navigation_drag_press(NavigationDrag* drag, NavigationDragList list, u64 so
                            UiPoint point) noexcept {
     reset_value(drag);
     const bool draggable = source_id && list != NavigationDragList::none &&
-                           (list == NavigationDragList::guilds ? guild_source(kind) || kind == Kind::folder
-                                                               : channel_source(kind) || kind == Kind::category);
+                           (list == NavigationDragList::guilds
+                                ? kind == Kind::guild || kind == Kind::nested_guild || kind == Kind::folder
+                                : kind == Kind::text || kind == Kind::voice || kind == Kind::category);
     if (!draggable)
         return;
     drag->phase = NavigationDragPhase::armed;

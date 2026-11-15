@@ -5,6 +5,7 @@
 #include "maicord/app/guild/member_list_channel_binding.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 namespace {
@@ -41,7 +42,7 @@ bool text_contract(const D3D11Renderer& renderer, const MemberListScene& scene,
                                            {bytes, 8192}), "text_stream_initialize_failed") ||
         !paging_check(shell_text_presentation_build(*renderer.ui_scene, *renderer.chat_state,
             *renderer.navigation_view, kDefaultTheme, *renderer.shell_navigation_scene,
-            renderer.message_composer_scene, &scene, &stream), "shell_text_build_failed")) return false;
+            renderer.message_composer_scene, &scene, nullptr, &stream), "shell_text_build_failed")) return false;
     bool group = false, known = false, arrival = false;
     const auto* gap = wire_row(scene, 50002);
     if (!paging_check(gap != nullptr, "text_wire_50002_missing")) return false;

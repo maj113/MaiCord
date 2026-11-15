@@ -52,7 +52,7 @@ struct UiPollStyle {
     Utf8View question_fallback{utf8_literal("Poll")}, answer_fallback{utf8_literal("Answer")};
     Utf8View vote{utf8_literal("Vote")}, remove_vote{utf8_literal("Remove Vote")};
     Utf8View view_results{utf8_literal("Show results")}, back{utf8_literal("Go back to vote")};
-    Utf8View view_voters{utf8_literal("View voters")}, retry{utf8_literal("Retry")};
+    Utf8View retry{utf8_literal("Retry")};
     Utf8View single{utf8_literal("Select one answer")}, multi{utf8_literal("Select one or more answers")};
     Utf8View closed{utf8_literal("Poll closed")}, unavailable{utf8_literal("Poll unavailable")};
     Utf8View unknown_results{utf8_literal("Results unavailable")};

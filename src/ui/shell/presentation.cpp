@@ -154,9 +154,6 @@ bool paint_home_tile(PaintStream* stream, const UiRect& tile, bool accent, const
     return paint_stream_push_gradient(stream, tile, color_from_rgb24(kBrandMarkTop),
                                       color_from_rgb24(kBrandMarkBottom), rail_tile_radius(tile, theme));
 }
-Color home_mark_ink(bool accent, const Theme& theme) noexcept {
-    return home_brand_tile(accent, theme) ? color_from_rgb24(0xFFFFFF) : rail_tile_ink(accent, theme);
-}
 
 // MaiCord's mark stroked across a rail tile, the Home button's glyph.
 bool paint_brand_mark(PaintStream* stream, const UiRect& tile, Color color) noexcept {
@@ -498,7 +495,9 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                guild_scene ? &guild_scene->home_indicator : nullptr, home_selected,
                                home_hovered, false, theme.text_primary) ||
         !paint_home_tile(stream, home->rectangle, home_accent, theme) ||
-        !paint_brand_mark(stream, home->rectangle, home_mark_ink(home_accent, theme)))
+        !paint_brand_mark(stream, home->rectangle,
+                          home_brand_tile(home_accent, theme) ? color_from_rgb24(0xFFFFFF)
+                                                              : rail_tile_ink(home_accent, theme)))
         return false;
     const float separator_center = (home->rectangle.left + home->rectangle.right) * .5f;
     const float separator_top = home->rectangle.bottom + kUiGuildRailGap;

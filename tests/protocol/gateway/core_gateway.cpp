@@ -26,6 +26,7 @@
 #include "maicord/protocol/user/private_conversation.hpp"
 #include "maicord/core/win32_exception.hpp"
 #include "maicord/core/time.hpp"
+#include "../../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 namespace {
@@ -1042,7 +1043,7 @@ void test_chat_state() noexcept {
             Slice<UiTextCommand>{shell_text_commands, kMaximumShellChromeTextCommands},
             {shell_text_owned_bytes, sizeof(shell_text_owned_bytes)}) &&
         shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
-                                      shell_text_navigation_scene, &shell_text_stream);
+                                      shell_text_navigation_scene, nullptr, nullptr, nullptr, &shell_text_stream);
     const UiLayoutNode* shell_title =
         ui_scene_node(shell_text_scene, UiSemantic::title_bar);
     const UiLayoutNode* shell_title_label =
@@ -1234,7 +1235,7 @@ void test_chat_state() noexcept {
             .ok() &&
         shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
                                       shell_text_navigation_scene, &shell_composer_scene, nullptr,
-                                      &shell_text_stream);
+                                      nullptr, &shell_text_stream);
     const UiLayoutNode* shell_composer_edit =
         message_composer_scene_layout_node(shell_composer_scene, MessageComposerControl::edit);
     bool found_centered_composer_placeholder = false;
@@ -1260,7 +1261,7 @@ void test_chat_state() noexcept {
         message_composer_scene_update(&shell_composer_scene, &shell_composer_model, typing_viewport,
             true, 0, {}, &shell_composer_projection, utf8_literal("Someone is typing…")).ok() &&
         shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
-            shell_text_navigation_scene, &shell_composer_scene, nullptr, &shell_text_stream);
+            shell_text_navigation_scene, &shell_composer_scene, nullptr, nullptr, &shell_text_stream);
     bool typing_bright_above = false;
     for (u32 index = 0; index < shell_text_stream.count; ++index) {
         const UiTextCommand& command = shell_text_stream.storage[index];
@@ -1296,7 +1297,7 @@ void test_chat_state() noexcept {
     expect(ui_text_command_stream_initialize(&tiny_shell_text_stream,
                                              Slice<UiTextCommand>{tiny_shell_text_commands, 2}) &&
                !shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
-                                              shell_text_navigation_scene, &tiny_shell_text_stream) &&
+                                              shell_text_navigation_scene, nullptr, nullptr, nullptr, &tiny_shell_text_stream) &&
                tiny_shell_text_stream.count == 0,
            "shell_text_presentation_capacity_failure_is_atomic");
     bool friends_label_padded = false;
@@ -1310,7 +1311,7 @@ void test_chat_state() noexcept {
                                           friends_text_navigation->rectangle, 0.f)
                 .ok() &&
             shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
-                                          shell_text_navigation_scene, &shell_text_stream)) {
+                                          shell_text_navigation_scene, nullptr, nullptr, nullptr, &shell_text_stream)) {
             for (u32 index = 0; index < shell_text_stream.count; ++index) {
                 const auto& command = shell_text_commands[index];
                 if (command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::friends_button).slot &&

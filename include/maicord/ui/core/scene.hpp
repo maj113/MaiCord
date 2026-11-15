@@ -85,8 +85,6 @@ struct UiShellLayoutMetrics {
     float guild_rail_width;
     float navigation_width;
     float member_sidebar_width;
-    float navigation_min_viewport_width;
-    float member_min_viewport_width;
     float navigation_gutter_before;
     float content_gutter_before;
     float title_bar_height;
@@ -118,8 +116,6 @@ inline constexpr UiShellLayoutMetrics kGuildChannelShellLayoutMetrics{
     64.0f,
     240.0f,
     240.0f,
-    640.0f,
-    1050.0f,
     0.0f,
     0.0f,
     48.0f,
@@ -139,8 +135,6 @@ inline constexpr UiShellLayoutMetrics kFriendsShellLayoutMetrics{
     ui_shell_layout_navigation,
     64.0f,
     240.0f,
-    0.0f,
-    0.0f,
     0.0f,
     0.0f,
     0.0f,

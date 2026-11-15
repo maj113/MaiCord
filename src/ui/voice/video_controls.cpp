@@ -5,9 +5,6 @@
 
 namespace maicord {
 namespace {
-bool positive(float value) noexcept {
-    return paint_coordinate_valid(value) && value > 0;
-}
 const UiVideoControlDescriptor* find_control(const UiVideoControlsProjection& projection,
                                              UiVideoControl id) noexcept {
     for (const auto& descriptor : projection.controls)
@@ -81,7 +78,7 @@ void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours
     append_number(text, cursor, seconds % 60, true);
 }
 float ui_video_controls_height(const UiVideoControlsStyle& style, float width, bool collection) noexcept {
-    if (!positive(width) || width < style.minimum_width)
+    if (!paint_coordinate_valid(width) || width <= 0 || width < style.minimum_width)
         return 0;
     return 2 * style.padding + maximum(style.target, style.range_height) * (collection && !style.tracks_in_row ? 2 : 1);
 }

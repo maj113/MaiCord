@@ -14,9 +14,6 @@ constexpr float kNameHeight = 20, kChannelHeight = 18, kButtonHeight = 36, kLive
 constexpr float kCardHeight = kUiStreamCardPadding + kThumbnailHeight + 10 + kNameHeight + 2 + kChannelHeight + 12 +
                               kButtonHeight + kUiStreamCardPadding;
 constexpr UiHoverCardMotion kEntrance{{kUiStreamCardEntranceMs, UiMotionCurve::spring}, 0x5743'a8d0'0000'0001ull};
-UiRect offset(UiRect r, float dx) noexcept {
-    return {r.left + dx, r.top, r.right + dx, r.bottom};
-}
 // Settled card beside the anchor row: right of it when it fits, else left;
 // vertically centered on the row and kept inside the viewport.
 UiRect place(UiRect anchor, UiRect viewport) noexcept {
@@ -32,7 +29,8 @@ UiRect place(UiRect anchor, UiRect viewport) noexcept {
 void layout(UiStreamCardScene& s) noexcept {
     // The entrance slides in from the row's side.
     const float side = s.settled.left >= s.anchor.right ? -1.f : 1.f;
-    s.panel = offset(s.settled, side * kSlide * (1 - s.progress));
+    const float dx = side * kSlide * (1 - s.progress);
+    s.panel = {s.settled.left + dx, s.settled.top, s.settled.right + dx, s.settled.bottom};
     const auto p = s.panel;
     s.thumbnail = {p.left + kUiStreamCardPadding, p.top + kUiStreamCardPadding, p.right - kUiStreamCardPadding,
                    p.top + kUiStreamCardPadding + kThumbnailHeight};

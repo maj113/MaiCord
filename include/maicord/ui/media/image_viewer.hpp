@@ -146,6 +146,19 @@ float ui_image_viewer_actual_zoom(const UiImageViewer& viewer) noexcept;
 // fit), anchored at the pointer; any other zoom returns to fit.
 void ui_image_viewer_toggle_zoom(UiImageViewer* viewer, UiPoint anchor) noexcept;
 void ui_image_viewer_pan(UiImageViewer* viewer, UiPoint delta) noexcept;
+// The pointer steps that the media viewer and a media page share. The host captures the pointer after `zoomed`,
+// `button` (press) or `pan`, and adds one to the revision after `changed`.
+enum class UiImageViewerPointer : u8 { press, double_press, move, release };
+struct UiImageViewerPointerStep {
+    bool zoomed;  // A double click on the picture: the zoom toggled and a pan started.
+    bool button;  // A header button took the press or the release.
+    bool pan;     // A press on the picture started a pan.
+    bool changed; // The release changed a button's look.
+    i32 activate; // A release on the pressed button: its index. Else -1.
+};
+// over_image: the point is on the picture (press and double_press).
+UiImageViewerPointerStep ui_image_viewer_pointer(UiImageViewer* viewer, UiImageViewerPointer step, UiPoint point,
+                                                 bool over_image) noexcept;
 UiRect ui_image_viewer_button(const UiImageViewer& viewer, u32 index) noexcept;
 // Tooltip text: the action and its shortcut.
 Utf8View ui_image_viewer_tooltip(const UiImageViewer& viewer, u32 index) noexcept;

@@ -797,49 +797,22 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
     const bool image = !scene.video;
     const bool over_image = image && ui_rect_contains(scene.image, point.x, point.y) &&
                             ui_rect_contains(scene.body, point.x, point.y);
-    if (input_double(event) && over_image &&
-        !ui_widget_manager_hit_test(scene.widgets, point.x, point.y).generation) {
-        ui_image_viewer_toggle_zoom(&scene, point);
-        scene.dragging = true;
-        scene.pointer = point;
-        window_capture_pointer(g_app.window);
-        application_request_frame();
-        return true;
-    }
-    if (input_down(event)) {
-        scene.keyboard_focus = false;
-        if (const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::press, point);
-            button.handled) {
-            scene.focus = static_cast<u8>(scene.widgets.storage[button.target.slot].id - 10);
-            ++scene.revision;
+    if (input_down(event) || input_move(event) || input_release(event)) {
+        const auto step = ui_image_viewer_pointer(
+            &scene,
+            input_double(event)    ? UiImageViewerPointer::double_press
+            : input_down(event)    ? UiImageViewerPointer::press
+            : input_move(event)    ? UiImageViewerPointer::move
+                                   : UiImageViewerPointer::release,
+            point, over_image);
+        if (step.zoomed || (input_down(event) && (step.button || step.pan)))
             window_capture_pointer(g_app.window);
-        } else if (over_image) {
-            scene.dragging = true;
-            scene.pointer = point;
-            window_capture_pointer(g_app.window);
-        }
-        application_request_frame();
-        return true;
-    }
-    if (input_move(event)) {
-        if (ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, point).changed)
-            ++scene.revision;
-        if (scene.dragging) {
-            ui_image_viewer_pan(&scene, {point.x - scene.pointer.x, point.y - scene.pointer.y});
-            scene.pointer = point;
-        }
-        application_request_frame();
-        return true;
-    }
-    if (input_release(event)) {
-        const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::release, point);
-        scene.dragging = false;
-        if (captured)
+        if (input_release(event) && captured)
             application_release_capture();
-        if (button.changed)
+        if (step.changed)
             ++scene.revision;
-        if (button.activate)
-            activate(scene.widgets.storage[button.target.slot].id - 10);
+        if (step.activate >= 0)
+            activate(static_cast<u32>(step.activate));
         application_request_frame();
         return true;
     }

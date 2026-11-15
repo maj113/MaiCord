@@ -340,7 +340,7 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
                 }
             if (names_ink != 3 || friends.count != 3)
                 return fail(80 + phase);
-            if (!shell_text_presentation_build(shell, state, view, theme, navigation, &text))
+            if (!shell_text_presentation_build(shell, state, view, theme, navigation, nullptr, nullptr, nullptr, &text))
                 return fail(180 + phase);
             const auto* friends_button = node(shell, UiSemantic::friends_button);
             bool padded_friends_ink = false;
@@ -359,7 +359,7 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
             if (!padded_friends_ink)
                 return fail(190 + phase);
         } else {
-            if (!shell_text_presentation_build(shell, state, view, theme, navigation, &text))
+            if (!shell_text_presentation_build(shell, state, view, theme, navigation, nullptr, nullptr, nullptr, &text))
                 return fail(90 + phase);
             bool title_match = false, title = false, draft = false, pixels_ready = false;
             const auto expected = phase == 2 ? utf8_literal("Original DM") : utf8_literal("Original Group");

@@ -15,6 +15,7 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../../support/ui_scene_fixtures.hpp"
 
 namespace maicord::guild_banner_test {
 u32 failures = 0;

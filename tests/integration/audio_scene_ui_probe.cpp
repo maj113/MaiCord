@@ -424,7 +424,6 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
         const float scale = static_cast<float>(renderer.dpi) / 96;
         UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
         metrics.flags = narrow ? static_cast<u16>(ui_shell_layout_navigation) : u16{};
-        metrics.navigation_min_viewport_width = 0;
         // The real row reserves 96 DIPs for its avatar, gap and side padding.
         // A 280-DIP focused message pane therefore leaves a genuine 184-DIP
         // attachment: above the 160-DIP minimum and still compact.

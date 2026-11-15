@@ -6,7 +6,6 @@
 
 namespace maicord {
 struct PopupScene;
-struct UiEditGeometry;
 struct UiTextMeasureCache;
 
 enum class PopupMediaPresentationStatus : u8 {
@@ -27,7 +26,6 @@ struct PopupMediaCommand {
     // Corner radius of an avatar quad; zero keeps the round avatar mask.
     float corner_radius;
 };
-using PopupEditGeometry = UiEditGeometry;
 
 // measure (optional) lays out the command picker's usage chips.
 bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint,

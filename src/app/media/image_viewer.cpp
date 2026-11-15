@@ -1201,33 +1201,20 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
         application_video_viewer_activity();
     // A double click on an image toggles fit and actual size; elsewhere it is
     // another press.
-    if (input_double(event)) {
-        const auto hit = ui_widget_manager_hit_test(scene.widgets, point.x, point.y);
-        if (!hit.generation && over_image(scene, point)) {
-            ui_image_viewer_toggle_zoom(&scene, point);
-            scene.dragging = true;
-            scene.pointer = point;
-            window_capture_pointer(g_app.window);
-            application_request_frame();
-            return true;
-        }
-    }
     if (input_down(event)) {
-        pointer_tail = false;
-        scene.keyboard_focus = false;
-        if (const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::press, point);
-            button.handled) {
-            scene.focus = static_cast<u8>(scene.widgets.storage[button.target.slot].id - 10);
-            ++scene.revision;
+        const auto step = ui_image_viewer_pointer(
+            &scene, input_double(event) ? UiImageViewerPointer::double_press : UiImageViewerPointer::press, point,
+            over_image(scene, point));
+        if (step.zoomed || step.button) {
+            pointer_tail = pointer_tail && step.zoomed;
             window_capture_pointer(g_app.window);
             application_request_frame();
             return true;
         }
+        pointer_tail = false;
         if (video && application_video_viewer_pointer(VideoPointer::down, point))
             return true;
-        if (over_image(scene, point)) {
-            scene.dragging = true;
-            scene.pointer = point;
+        if (step.pan) {
             window_capture_pointer(g_app.window);
             // A fitted image has nothing to pan, so a button held on it shows the lens.
             application_image_zoom_viewer_pointer(point, true, ui_image_viewer_fitted(scene));
@@ -1238,29 +1225,22 @@ bool application_image_viewer_event(const WindowEvent& event) noexcept {
         return true;
     }
     if (event.type == EventType::pointer_move) {
-        if (const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, point);
-            button.changed)
-            ++scene.revision;
+        ui_image_viewer_pointer(&scene, UiImageViewerPointer::move, point, false);
         if (video)
             application_video_viewer_pointer(VideoPointer::move, point);
-        if (scene.dragging) {
-            ui_image_viewer_pan(&scene, {point.x - scene.pointer.x, point.y - scene.pointer.y});
-            scene.pointer = point;
-        }
         application_image_zoom_viewer_pointer(point, over_image(scene, point), g_app.image_zoom.held);
         application_request_frame();
         return true;
     }
     if (input_release(event)) {
-        const auto button = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::release, point);
-        if (video && !button.handled)
+        const auto step = ui_image_viewer_pointer(&scene, UiImageViewerPointer::release, point, false);
+        if (video && !step.button)
             application_video_viewer_pointer(VideoPointer::up, point);
-        scene.dragging = false;
         application_release_capture();
         application_image_zoom_viewer_pointer(point, over_image(scene, point), false);
-        if (button.activate)
-            activate(scene.widgets.storage[button.target.slot].id - 10);
-        if (button.changed)
+        if (step.activate >= 0)
+            activate(static_cast<u32>(step.activate));
+        if (step.changed)
             ++scene.revision;
         application_request_frame();
         return true;

@@ -547,6 +547,44 @@ void ui_image_viewer_pan(UiImageViewer* v, UiPoint delta) noexcept {
     arrange(v);
     ++v->revision;
 }
+UiImageViewerPointerStep ui_image_viewer_pointer(UiImageViewer* v, UiImageViewerPointer step, UiPoint point,
+                                                 bool over_image) noexcept {
+    UiImageViewerPointerStep result{false, false, false, false, -1};
+    const auto button_index = [&](UiWidgetHandle button) noexcept {
+        return static_cast<i32>(v->widgets.storage[button.slot].id - 10);
+    };
+    if (step == UiImageViewerPointer::move) {
+        if (ui_button_pointer(&v->widgets, UiButtonPointerEvent::move, point).changed)
+            ++v->revision;
+        if (v->dragging) {
+            ui_image_viewer_pan(v, {point.x - v->pointer.x, point.y - v->pointer.y});
+            v->pointer = point;
+        }
+    } else if (step == UiImageViewerPointer::release) {
+        const auto button = ui_button_pointer(&v->widgets, UiButtonPointerEvent::release, point);
+        v->dragging = false;
+        result.button = button.handled;
+        result.changed = button.changed;
+        if (button.activate)
+            result.activate = button_index(button.target);
+    } else if (step == UiImageViewerPointer::double_press && over_image &&
+               !ui_widget_manager_hit_test(v->widgets, point.x, point.y).generation) {
+        ui_image_viewer_toggle_zoom(v, point);
+        result.zoomed = v->dragging = true;
+        v->pointer = point;
+    } else {
+        v->keyboard_focus = false;
+        if (const auto button = ui_button_pointer(&v->widgets, UiButtonPointerEvent::press, point); button.handled) {
+            v->focus = static_cast<u8>(button_index(button.target));
+            ++v->revision;
+            result.button = true;
+        } else if (over_image) {
+            result.pan = v->dragging = true;
+            v->pointer = point;
+        }
+    }
+    return result;
+}
 UiRect ui_image_viewer_button(const UiImageViewer& v, u32 index) noexcept {
     // A page's Jump to message keeps its place while its message is unavailable.
     if (index >= ui_image_viewer_button_count ||

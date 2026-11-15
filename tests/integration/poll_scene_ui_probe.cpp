@@ -214,7 +214,6 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
                     height = static_cast<float>(renderer.height) / scale;
         auto metrics = kGuildChannelShellLayoutMetrics;
         metrics.flags = compact ? static_cast<u16>(ui_shell_layout_navigation) : u16{};
-        metrics.navigation_min_viewport_width = 0;
         metrics.navigation_width = compact ? width - metrics.guild_rail_width - 248 : 0;
         metrics.member_sidebar_width = metrics.composer_height = metrics.message_bottom_margin = 0;
         valid = require(

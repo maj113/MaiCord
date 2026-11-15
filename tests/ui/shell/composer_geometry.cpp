@@ -9,6 +9,7 @@
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
+#include "../../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 
@@ -578,7 +579,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         status &= result.ok() &&
                   (severity == 0 || (result.changed && scene.layout_passes == status_passes)) &&
                   shell_text_presentation_build(status_shell, state, status_navigation, kDefaultTheme,
-                                                status_channels, &scene, nullptr, &status_stream);
+                                                status_channels, &scene, nullptr, nullptr, &status_stream);
         const auto expected = severity ? kDefaultTheme.notification : kDefaultTheme.text_primary;
         bool found = false;
         for (u32 i = 0; i < status_stream.count; ++i) {
@@ -602,7 +603,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             .ok();
     for (const auto& theme : banner_themes) {
         readable_banner &= shell_text_presentation_build(status_shell, state, status_navigation, theme,
-                                                         status_channels, &scene, nullptr, &status_stream);
+                                                         status_channels, &scene, nullptr, nullptr, &status_stream);
         bool found = false;
         for (u32 i = 0; i < status_stream.count; ++i) {
             const auto& command = status_commands[i];
@@ -648,7 +649,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         paint_stream_release(&paint);
         painted = painted &&
                   shell_text_presentation_build(status_shell, state, status_navigation, kDefaultTheme,
-                                                status_channels, &scene, nullptr, &status_stream);
+                                                status_channels, &scene, nullptr, nullptr, &status_stream);
         bool label = false;
         for (u32 i = 0; painted && i < status_stream.count; ++i) {
             const auto& command = status_commands[i];

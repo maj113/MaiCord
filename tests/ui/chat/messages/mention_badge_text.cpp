@@ -4,6 +4,7 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
+#include "../../../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 namespace mention_text_probe {

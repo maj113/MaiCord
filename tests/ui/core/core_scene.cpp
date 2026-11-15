@@ -302,7 +302,7 @@ void test_ui_scene() noexcept {
     navigation_scroll = chrome_navigation_scene.scroll_dips;
     expect(chrome_navigation_ready && shell_paint_recorder_ready &&
                shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene,
-                                               &chrome_navigation_scene, kDefaultTheme, 1280.0f, 800.0f,
+                                               &chrome_navigation_scene, nullptr, nullptr, kDefaultTheme, 1280.0f, 800.0f,
                                                &shell_paint, &shell_regions) &&
                shell_paint.rejected == 0 && shell_paint.count >= 16 && navigation_scroll == 0.0f &&
                shell_regions.member_sidebar_visible && shell_regions.message_view.left == 304.0f &&
@@ -315,7 +315,7 @@ void test_ui_scene() noexcept {
         PaintStream square_paint{};
         bool same_geometry = paint_stream_initialize(&square_paint) &&
             shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene,
-                &chrome_navigation_scene, square_theme, 1280, 800, &square_paint, &shell_regions) &&
+                &chrome_navigation_scene, nullptr, nullptr, square_theme, 1280, 800, &square_paint, &shell_regions) &&
             square_paint.count == shell_paint.count;
         u32 changed_corners = 0;
         for (u32 i = 0; same_geometry && i < square_paint.count; ++i) {
@@ -341,7 +341,7 @@ void test_ui_scene() noexcept {
         PaintStream paint{};
         const auto& tokens = kDefaultTheme.tokens;
         const auto pill = [&](float width, const Color& fill) noexcept {
-            if (!shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene, &tall, kDefaultTheme, 1280,
+            if (!shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene, &tall, nullptr, nullptr, kDefaultTheme, 1280,
                                                  800, &paint, &shell_regions))
                 return false;
             u32 found = 0;

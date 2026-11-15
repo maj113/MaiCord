@@ -19,6 +19,7 @@
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 namespace ui_probe_detail {
@@ -5476,7 +5477,7 @@ bool probe_profile_card() noexcept {
                                           {member_text_bytes, 4096}) &&
         shell_text_presentation_build(g_probe.shell_scene, g_probe.chat_state, g_probe.navigation,
                                       kDefaultTheme, g_probe.shell_navigation_scene,
-                                      &g_probe.message_composer_scene, &members_scene, &member_text);
+                                      &g_probe.message_composer_scene, &members_scene, nullptr, &member_text);
     UiTextMeasureRequest measured_name{
         {0x50524F46494C45, 1, 0, 0, 0}, utf8_literal("Robin-san"), {}, {400, 40}, true, UiTextFace::normal};
     UiTextMeasureValue normal_width{}, custom_width{}, cached_width{};

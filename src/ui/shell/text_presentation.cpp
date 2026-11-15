@@ -993,20 +993,3 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
 }
 
 } // namespace maicord
-
-namespace maicord {
-bool shell_text_presentation_build(const UiScene& scene, const ChatStateStore& state,
-                                   const NavigationView& navigation, const Theme& theme,
-                                   const ShellNavigationScene& channel_scene,
-                                   const MessageComposerScene* composer_scene,
-                                   const MemberListScene* member_scene,
-                                   const UiRect* composer_text_rectangle, UiTextCommandStream* stream,
-                                   const UserStore* users,
-                                   const GuildRailScene* guild_scene,
-                                   u64 visual_selected_channel_id) noexcept {
-    UiTextOutput output{stream, nullptr};
-    return shell_text_presentation_build_output(scene, state, navigation, theme, channel_scene,
-                                                composer_scene, member_scene, composer_text_rectangle,
-                                                &output, users, guild_scene, visual_selected_channel_id);
-}
-} // namespace maicord

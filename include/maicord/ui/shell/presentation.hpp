@@ -72,7 +72,7 @@ bool shell_presentation_build_chrome(
     const MemberListScene* member_scene,
     const Theme& theme, float viewport_width, float viewport_height,
     PaintStream* stream, ShellPresentationRegions* regions,
-    const MessageComposerPresentationInput* composer_presentation,
+    const MessageComposerPresentationInput* composer_presentation = nullptr,
     u64 visual_selected_channel_id = 0, ShellTextMeasure measure = {}) noexcept;
 
 // Status badges are composited after avatar media so the avatar texture cannot
@@ -94,30 +94,5 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
                                                    PaintStream* stream, ShellTextMeasure measure = {}) noexcept;
 // Whether the banner shows behind the header (white header content).
 bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNavigationScene* channel_scene) noexcept;
-
-inline bool shell_presentation_build_chrome(
-    const UiScene& scene, const NavigationView* navigation,
-    const GuildRailScene* guild_scene,
-    const ShellNavigationScene* channel_scene,
-    const MessageComposerScene* composer_scene,
-    const MemberListScene* member_scene,
-    const Theme& theme, float viewport_width, float viewport_height,
-    PaintStream* stream, ShellPresentationRegions* regions) noexcept {
-    return shell_presentation_build_chrome(
-        scene, navigation, guild_scene, channel_scene, composer_scene,
-        member_scene, theme, viewport_width, viewport_height, stream, regions,
-        nullptr);
-}
-
-inline bool shell_presentation_build_chrome(
-    const UiScene& scene, const NavigationView* navigation,
-    const GuildRailScene* guild_scene,
-    const ShellNavigationScene* channel_scene,
-    const Theme& theme, float viewport_width, float viewport_height,
-    PaintStream* stream, ShellPresentationRegions* regions) noexcept {
-    return shell_presentation_build_chrome(
-        scene, navigation, guild_scene, channel_scene, nullptr, nullptr, theme,
-        viewport_width, viewport_height, stream, regions, nullptr);
-}
 
 } // namespace maicord

@@ -4,6 +4,7 @@
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 
 namespace maicord {
 namespace {
@@ -85,7 +86,7 @@ bool text_contract(const D3D11Renderer& renderer, const ThreadMembersFixture& f,
     if (!ui_text_command_stream_initialize(&stream, {commands, kMaximumShellChromeTextCommands}, {bytes, 8192}) ||
         !shell_text_presentation_build(*renderer.ui_scene, *renderer.chat_state,
             *renderer.navigation_view, kDefaultTheme, *renderer.shell_navigation_scene,
-            renderer.message_composer_scene, &f.scene, &stream)) return check(false, "text_build_failed");
+            renderer.message_composer_scene, &f.scene, nullptr, &stream)) return check(false, "text_build_failed");
     const Utf8View groups[] = {
         partial ? utf8_literal("MODERATORS \xE2\x80\x94 1 (partial)") : utf8_literal("MODERATORS \xE2\x80\x94 1"),
         partial ? utf8_literal("HELPERS \xE2\x80\x94 1 (partial)") : utf8_literal("HELPERS \xE2\x80\x94 1"),
