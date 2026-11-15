@@ -21,6 +21,7 @@ struct PlanData {
     bool variable;
     NativeRunPlanKind kind;
     NativeNominalPlan nominal;
+    NativeKerningPlan kerning;
     SfntFontLayoutMetrics layout_metrics;
     NativeRunPlanHandle parent;
     const SfntTrueType* bold_font;
@@ -61,6 +62,36 @@ SfntStatus bold_advance(void* context,u16 glyph,double* output) noexcept {
 }
 // Plan preparation runs once per font instance and kind (not per run): compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// Whether a prepared GPOS lookup can start at glyph: one of its first-input coverages holds the glyph.
+bool starts_at(const SfntGposExecutableLookup& lookup,u16 glyph) noexcept {
+    if(sfnt_lookup_bounds_exclude(lookup.bounds,glyph))return false;
+    const u32 count=lookup.type<=2?lookup.tables.basic.count:lookup.type<=6?lookup.tables.attachment.count:lookup.tables.context.count;
+    for(u32 i=0;i<count;++i){const auto& coverage=lookup.type<=2?lookup.tables.basic[i].coverage:lookup.type<=6?lookup.tables.attachment[i].coverage[0]:
+            sfnt_context_first_coverage(lookup.tables.context[i]);
+        if(sfnt_coverage_index(coverage,glyph)!=sfnt_not_covered)return true;}
+    return false;
+}
+// The kerning plan of a static text plan. substituted holds the ASCII offsets whose glyphs take part in GSUB.
+SfntStatus prepare_kerning(PlanData& p,const u64* substituted,Arena& state) noexcept {
+    const auto& plan=p.plans[0];auto& kerning=p.kerning;
+    const auto ready=[&](u32 i) noexcept {return ((kerning.ready[i/64]>>(i%64))&1)!=0;};
+    for(u32 i=0;i<p.nominal.ascii_count;++i){const u16 glyph=static_cast<u16>(p.nominal.ascii_first+i);const auto type=sfnt_gdef_glyph_class(plan.gdef,glyph);
+        if(((substituted[i/64]>>(i%64))&1)||glyph==plan.zwj||glyph==plan.zwnj||(type!=SfntGlyphClass::unassigned&&type!=SfntGlyphClass::base))continue;
+        bool other=false;
+        for(u32 r=0;r<plan.positioning_roots.count&&!other;++r){const auto* lookup=sfnt_gpos_lookup(*plan.positioning,plan.positioning_roots[r]);
+            other=!lookup||(lookup->type>2&&starts_at(*lookup,glyph));}
+        if(other)continue;
+        kerning.ready[i/64]|=1ull<<(i%64);if(type==SfntGlyphClass::base)kerning.base[i/64]|=1ull<<(i%64);
+    }
+    // Two passes over the roots: the first counts the lookups that start at a ready glyph, the second keeps them.
+    u32 count=0;Slice<u16> roots{};
+    for(u32 pass=0;pass<2;++pass){count=0;
+        for(u32 r=0;r<plan.positioning_roots.count;++r){const auto* lookup=sfnt_gpos_lookup(*plan.positioning,plan.positioning_roots[r]);if(!lookup||lookup->type>2)continue;
+            bool starts=false;for(u32 i=0;i<p.nominal.ascii_count&&!starts;++i)starts=ready(i)&&starts_at(*lookup,static_cast<u16>(p.nominal.ascii_first+i));
+            if(starts){if(pass)roots[count]=plan.positioning_roots[r];++count;}}
+        if(!pass){roots=take<u16>(state,count);if(!filled(roots))return SfntStatus::resource_limit;}}
+    kerning.roots={roots.data,roots.count};return SfntStatus::ok;
+}
 SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& native_font,PlanData& p,Arena& state,Arena& scratch,u32 work,usize state_limit,Arena*& substitutions) noexcept {
     const auto& cmap=native_font.cmap;const auto& font=*instance.geometry.font;const auto& face=font.face;ConstSlice<u8> bytes{};
     auto status=sfnt_horizontal_metrics_open(face,&p.metrics);if(status!=SfntStatus::ok)return status;
@@ -110,7 +141,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
     if(!p.variable&&p.nominal.ascii_count){auto table=take<u16>(state,p.nominal.ascii_count);if(!filled(table))return SfntStatus::resource_limit;
         for(u32 i=0;i<table.count;++i){double value=0;status=p.plans[0].advance(p.plans[0].metric_context,static_cast<u16>(p.nominal.ascii_first+i),&value);if(status!=SfntStatus::ok)return status;table[i]=static_cast<u16>(value);}
         p.nominal.ascii_advances=table.data;}
-    bool gpos_kern=false;u16 zwj=0,zwnj=0;
+    bool gpos_kern=false,reverse=false;u16 zwj=0,zwnj=0;u64 substituted[2]{};
     status=sfnt_cmap_glyph(cmap,0x200d,0,&zwj);if(status!=SfntStatus::ok)return status;
     status=sfnt_cmap_glyph(cmap,0x200c,0,&zwnj);if(status!=SfntStatus::ok)return status;
     for(auto& plan:p.plans){plan.zwj=zwj;plan.zwnj=zwnj;}
@@ -135,10 +166,15 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
             SfntNominalParticipationResult participation_result{};
             status=sfnt_nominal_participation_add(layout,p.metrics.glyph_count,participation,nominal_scratch,&participation_result,work,{},&source_cache,variations);
             if(status!=SfntStatus::ok)return status;
+            for(u32 i=0;!table&&i<p.nominal.ascii_count;++i){const u32 glyph=p.nominal.ascii_first+i;
+                if((participation[glyph/64]>>(glyph%64))&1)substituted[i/64]|=1ull<<(i%64);}
         }
         if(!table){status=deferred_substitutions(layout,gdef,p.metrics.glyph_count,work,state_limit,substitutions,p.substitutions);if(status!=SfntStatus::ok)return status;}
         for(u32 mode=0;!emoji&&mode<2;++mode){auto& plan=p.plans[mode];status=native_lookup_roots_prepare(layout,variations,sfnt_tag('l','a','t','n'),mode!=0,state,scratch,
             table?plan.positioning_roots:plan.substitution_roots,work);if(status!=SfntStatus::ok)return status;}
+        // The participation of the standard features leaves out reverse chaining substitution.
+        for(u32 i=0;!emoji&&!table&&i<p.plans[0].substitution_roots.count;++i){SfntLookup lookup{};
+            status=sfnt_layout_lookup(layout,p.plans[0].substitution_roots[i],&lookup);if(status!=SfntStatus::ok)return status;reverse|=lookup.type==8;}
         if(table){const auto first=p.plans[0].positioning_roots,second=p.plans[1].positioning_roots;auto roots=take<u16>(scratch,first.count+second.count);
             if(!filled(roots))return SfntStatus::output_too_small;
             copy_bytes(roots.data,first.data,first.count*sizeof(u16));if(second.count)copy_bytes(roots.data+first.count,second.data,second.count*sizeof(u16));
@@ -149,6 +185,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
     if(!emoji&&!gpos_kern){status=sfnt_table(face,sfnt_tag('k','e','r','n'),&bytes);
         if(status==SfntStatus::ok){if(sfnt_legacy_kern_open(bytes,participation))p.plans[0].legacy_kern=bytes;}
         else if(status!=SfntStatus::missing_table)return status;}
+    if(!emoji&&!reverse&&p.nominal.ascii_advances){status=prepare_kerning(p,substituted,state);if(status!=SfntStatus::ok)return status;}
     bool any=false;for(u32 i=0;i<nominal_words;++i)any=any||participation[i]!=0;
     if(any){auto retained=take<u64>(state,nominal_words);if(!filled(retained))return SfntStatus::resource_limit;
         copy_bytes(retained.data,participation.data,nominal_words*sizeof(u64));p.nominal.participation={retained.data,nominal_words};}
@@ -200,6 +237,9 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
 #pragma clang attribute pop
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle h,bool independent) noexcept {
     auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->plans[independent?1:0]:nullptr;
+}
+const NativeKerningPlan* native_run_plan_kerning(const NativeRunPlanStore& store,NativeRunPlanHandle h) noexcept {
+    auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->kerning:nullptr;
 }
 NativeNominalPlan native_run_plan_nominal(const NativeRunPlanStore& store,NativeRunPlanHandle h) noexcept {
     auto* p=slot(store,h);return p?reinterpret_cast<const PlanData*>(p->state.base)->nominal:NativeNominalPlan{};

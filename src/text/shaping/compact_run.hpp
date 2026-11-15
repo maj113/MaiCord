@@ -4,6 +4,9 @@ namespace maicord {
 // Internal publication of an already-shaped run. Only exact-prefix aliases of
 // corresponding rich buffers are supported; other overlaps violate the contract.
 SfntStatus compact_shape_result(const NativeAsciiStorage&,const SfntShapeRunResult&,NativeAsciiResult*) noexcept;
+// The copy step alone, for a frontend that checked the glyphs itself. Forward compaction is safe when the output
+// borrows the exact record-buffer prefix: a two-byte destination never overwrites a later 16-byte source.
+SfntStatus compact_publish(const NativeAsciiStorage&,u32 glyphs,u32 units,u64 operations,NativeAsciiResult*) noexcept;
 // Decodes text into the component storage, which script frontends borrow for
 // scalars until shaping opens the component forest.
 SfntStatus decode_run_scalars(const Utf8View& text,const SfntShapeStorage& storage,ConstSlice<u32>& scalars) noexcept;

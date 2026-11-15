@@ -454,6 +454,9 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     auto groups=take<StyledGroup>(owner.scratch,rtl||mixed?0:count);if(!rtl&&!mixed&&!groups.data)return false;
     const auto prefix=arena_mark(&owner.scratch);
     u32 at=0,units=0;UnicodeGraphemeState graphemes{};
+    // Text of printable ASCII, TAB, LF and CR that no LF follows takes the ASCII break rules below.
+    bool ascii=!mixed&&!rtl&&!alphabetic;
+    for(u32 i=0;ascii&&i<text.bytes;++i){const u8 c=static_cast<u8>(text.data[i]);ascii=c-32u<95u||c==9||c==10||(c==13&&(i+1==text.bytes||text.data[i+1]!='\n'));}
     const bool classify=!system.independent_letters&&(count>1||alphabetic);
     for(u32 i=0;i<count;++i){auto& span=resolved[i];span.first_unit=static_cast<u16>(units);
         u32 requested=span.flags&font_flags;if(text_system_fixed_weight(system,span.flags))requested&=~text_style_bold;
@@ -464,7 +467,8 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         const auto plan=classify&&!selected?native_run_plan_nominal(owner.store,span.binding()->plan):NativeNominalPlan{};
         const auto* instance=classify&&!selected?native_font_instance_get(*owner.store.instances,owner.store.slots[span.binding()->plan.slot-1].instance):nullptr;
         const auto* font=instance?native_font_get(*owner.store.instances->fonts,instance->face):nullptr;bool plain=font!=nullptr&&(continuity[i]&~7u)<128;
-        while(at<span.end_byte){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid||cp.width>span.end_byte-at)return false;
+        while(at<span.end_byte){const u8 lead=static_cast<u8>(text.data[at]);
+            const auto cp=lead<0x80?Utf8DecodeResult{lead,1,true}:utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid||cp.width>span.end_byte-at)return false;
             {const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
                 if(at==span.first_byte){continuity[i]|=boundary?2:0;
                     // The explicit font override separates a standalone skin
@@ -482,7 +486,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             // it is not rejected here. Nothing joins across a hard line break.
             if(!rtl&&!mixed&&!selected&&at==span.first_byte&&at&&((cp.codepoint==0x200c&&!text_browser_invisibles())||
                (cp.codepoint==0x200d&&text.data[at-1]!='\n'&&text.data[at-1]!='\r')||(cp.codepoint==10&&text.data[at-1]=='\r')))return false;
-            if(plain){u16 glyph=0;plain=nominal_scalar_is_simple(cp.codepoint);
+            if(plain){u16 glyph=0;plain=cp.codepoint<0x80?cp.codepoint-32u<95u:nominal_scalar_is_simple(cp.codepoint);
                 if(plain){const u32 offset=cp.codepoint-32u;if(offset<plan.ascii_count)glyph=static_cast<u16>(plan.ascii_first+offset);
                     else plain=sfnt_cmap_glyph(font->cmap,cp.codepoint,0,&glyph)==SfntStatus::ok;
                     plain=plain&&glyph&&(!plan.participation.count||!(plan.participation[glyph/64]&(1ull<<(glyph%64))));}}
@@ -645,7 +649,11 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         }
         // Font/script cuts do not establish paragraph boundary context. Analyze
         // once after joining source coordinates and attaching style metadata.
-        if(status==SfntStatus::ok)status=native_latin_paragraph_boundaries(text,{paragraph_buffers.clusters.data,shape.cluster_count},boundary_storage(runs));
+        // The ASCII rules give the breaks of unicode_line_breaks without a decode. They set the flags that the
+        // general function clears first: the shaped clusters have neither. Only the general function marks a CR
+        // whose LF is in the next cluster as the prefix of one line end, so text with CR LF keeps it.
+        if(status==SfntStatus::ok){if(ascii)native_ascii_paragraph_flags(text,{paragraph_buffers.clusters.data,shape.cluster_count});
+            else status=native_latin_paragraph_boundaries(text,{paragraph_buffers.clusters.data,shape.cluster_count},boundary_storage(runs));}
         if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
     }
     if(status!=SfntStatus::ok){++owner.execute_failed;return false;}
@@ -715,8 +723,9 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
     // Tracked Hebrew needs paragraph-end whitespace direction before spacing;
     // use the shared itemizer rather than the uniform-RTL shortcut.
     const bool rtl=!system.tracking&&(known?(cached.last_mode&16)!=0:hebrew_text(text));
+    // Printable ASCII, TAB, CR and LF hold no Hebrew, symbol or emoji item: itemized_text answers false for them.
     bool directional_emoji=false;
-    bool mixed=known?(cached.last_mode&32)!=0:!rtl&&itemized_text(text,&directional_emoji);bool directional=rtl||mixed;
+    bool mixed=known?(cached.last_mode&32)!=0:!rtl&&latin&&itemized_text(text,&directional_emoji);bool directional=rtl||mixed;
     if(directional&&editor&&system.independent_letters)return false;
     bool extended=directional,common=false,emoji=directional_emoji;
     if(known){extended|=(cached.last_mode&4)!=0;emoji=(cached.last_mode&2)!=0;}

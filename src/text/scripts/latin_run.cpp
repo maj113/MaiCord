@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/latin_run.hpp"
 #include "maicord/core/memory.hpp"
 #include "../opentype/nominal_placements.hpp"
+#include "../shaping/compact_run.hpp"
 #include "maicord/text/shaping/alphabetic_run.hpp"
 #include "maicord/text/opentype/lookup_plan.hpp"
 #include "maicord/text/scripts/syllabic_shape.hpp"
@@ -211,6 +212,18 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     const auto* instance=native_font_instance_get(*store.instances,store.slots[handle.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
     const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
     auto* scalars=reinterpret_cast<u32*>(s.shaping.components.data);const u64 capacity=static_cast<u64>(s.shaping.components.count)*sizeof(SfntComponentNode)/sizeof(u32);
+    // Printable ASCII in the plan's affine prefix with no participating glyph is a nominal run of one glyph and one
+    // cluster for each character: the passes below give the same glyphs, advances and sources. Any other text, and
+    // each storage that is too small, takes those passes, which also report the errors.
+    const auto nominal=native_run_plan_nominal(store,handle);
+    if(text.bytes&&!independent&&!force_shaping&&!rtl&&!hangul_pass&&nominal.glyph_limit&&nominal.ascii_advances&&text.bytes<=capacity&&
+       text.bytes<=minimum(minimum(s.mapped.count,s.shaping.targets.count),minimum(s.character_glyphs.count,minimum(s.glyphs.count,s.placements.count)))&&
+       nominal_ascii_prefix(text,nominal,_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(plan->units_per_em))),s.glyphs.data,s.placements.data,s.character_glyphs.data)==text.bytes){
+        *out={text.bytes,text.bytes,1,0,0};return SfntStatus::ok;}
+    // Printable ASCII that only pair and single positioning changes gives the passes' output without them. Forced
+    // shaping gives the same output.
+    if(text.bytes&&!independent&&!rtl&&!hangul_pass&&!profile&&!raw_output){const auto* kerning=native_run_plan_kerning(store,handle);
+        if(kerning&&kerned_ascii_run(*plan,nominal,*kerning,text,em,s,out,limits))return SfntStatus::ok;}
     const bool korean=profile&&profile->script_tag==sfnt_tag('h','a','n','g');
     const bool egyptian=profile&&profile->script_tag==sfnt_tag('e','g','y','p');
     const bool thai=profile&&(profile->script_tag==sfnt_tag('t','h','a','i')||profile->script_tag==sfnt_tag('l','a','o',' '));
@@ -269,7 +282,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     auto* control_sources=reinterpret_cast<u32*>(s.shaping.advances.data);
     if(controls){if(!control_sources||static_cast<u64>(s.shaping.advances.count)*sizeof(double)<static_cast<u64>(units)*sizeof(u32))return SfntStatus::output_too_small;for(u32 i=0;i<units;++i)control_sources[i]=0;}
     const bool hebrew=profile&&profile->script_tag==sfnt_tag('h','e','b','r');
-    const auto nominal=native_run_plan_nominal(store,handle);if(!nominal.glyph_limit)return SfntStatus::invalid_input;bool simple=!independent&&!force_shaping&&!marks;SfntGlyphClassMemo classes;
+    if(!nominal.glyph_limit)return SfntStatus::invalid_input;bool simple=!independent&&!force_shaping&&!marks;SfntGlyphClassMemo classes;
     // Reuse the plan's validated affine ASCII cmap prefix inside Latin text.
     // Accented scalars and fonts without that prefix keep ordinary cmap lookup.
     const auto map=[&](u32 scalar,u16* glyph,u32 selector=0) noexcept {
@@ -372,11 +385,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         }
     }
     if(raw_output){*raw_output=result;return SfntStatus::ok;}
-    if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count)return SfntStatus::output_too_small;
-    if(s.character_glyphs.data!=s.shaping.character_glyphs.data)copy_bytes(s.character_glyphs.data,s.shaping.character_glyphs.data,static_cast<usize>(units)*sizeof(u32));
-    if(s.placements.data!=s.shaping.placements.data)copy_bytes(s.placements.data,s.shaping.placements.data,static_cast<usize>(result.glyph_count)*sizeof(SfntPlacement));
-    for(u32 i=0;i<result.glyph_count;++i)s.glyphs[i]=s.shaping.glyphs[i].glyph.glyph;
-    *out={result.glyph_count,units,0,1,result.lookup_operations};return SfntStatus::ok;
+    return compact_publish(s,result.glyph_count,units,result.lookup_operations,out);
 }
 }
 SfntStatus native_latin_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* out,SfntShapeLimits limits) noexcept {

@@ -1,6 +1,7 @@
 #include "maicord/text/scripts/emoji_run.hpp"
 #include "maicord/core/memory.hpp"
 #include "../shaping/run_profile.hpp"
+#include "../shaping/compact_run.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
@@ -130,10 +131,6 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
     // Hidden controls become the space glyph without horizontal offset after positioning (finish_controls).
     if(controls)for(u32 i=0;i<result.glyph_count;++i)if(s.shaping.glyphs[i].glyph.reserved&1){s.shaping.glyphs[i].glyph.glyph=policy.space;s.shaping.placements[i].advance_offset=0;}
     if(reversed){status=native_direction::publish_left_to_right(text,units,s.shaping,result.glyph_count,limits.stage_work);if(status!=SfntStatus::ok)return status;}
-    if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count)return SfntStatus::output_too_small;
-    if(s.character_glyphs.data!=s.shaping.character_glyphs.data)copy_bytes(s.character_glyphs.data,s.shaping.character_glyphs.data,static_cast<usize>(units)*sizeof(u32));
-    if(s.placements.data!=s.shaping.placements.data)copy_bytes(s.placements.data,s.shaping.placements.data,static_cast<usize>(result.glyph_count)*sizeof(SfntPlacement));
-    for(u32 i=0;i<result.glyph_count;++i)s.glyphs[i]=s.shaping.glyphs[i].glyph.glyph;
-    *out={result.glyph_count,units,0,1,result.lookup_operations};return SfntStatus::ok;
+    return compact_publish(s,result.glyph_count,units,result.lookup_operations,out);
 }
 }

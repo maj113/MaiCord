@@ -17,6 +17,12 @@ struct NativeRunPlanStore {NativeFontInstanceStore* instances;Slice<NativeRunPla
 // holds that prefix's advances in font units, else it is null.
 struct NativeNominalPlan {ConstSlice<u64> participation;const u16* ascii_advances;u32 glyph_limit;u16 ascii_first,ascii_count;};
 static_assert(sizeof(NativeNominalPlan)==32);
+// The printable ASCII that a text plan can shape with the font's pair and single positioning alone. Bit i of ready
+// is U+0020+i in the affine prefix of a static font. The glyph of such a character takes part in no substitution of
+// the standard features and starts no other GPOS lookup of the plan. It is not a joiner glyph, and its GDEF class is
+// base (bit i of base) or none. roots are the single and pair lookups of the plan that start at one of these glyphs,
+// in plan order.
+struct NativeKerningPlan {u64 ready[2],base[2];ConstSlice<u16> roots;};
 // Text plans prepare Latin/en-US roots and nominal participation. Emoji plans
 // prepare Common roots for native_emoji_run only. Both typography modes share GSUB
 // (payloads loaded lazily), reachable GPOS lookups and the metric context. Script
@@ -40,6 +46,8 @@ const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeR
 // Base-feature participation is shared by both modes and all ranges in this
 // instance. Empty bits mean no participating glyphs; invalid handles return 0 limit.
 NativeNominalPlan native_run_plan_nominal(const NativeRunPlanStore& store,NativeRunPlanHandle handle) noexcept;
+// Null for an invalid handle. Emoji plans, fonts with variations and bold simulations have no ready characters.
+const NativeKerningPlan* native_run_plan_kerning(const NativeRunPlanStore& store,NativeRunPlanHandle handle) noexcept;
 const SfntFontLayoutMetrics* native_run_plan_metrics(const NativeRunPlanStore& store,NativeRunPlanHandle handle) noexcept;
 bool native_run_plan_retain(NativeRunPlanStore* store,NativeRunPlanHandle handle) noexcept;
 bool native_run_plan_release(NativeRunPlanStore* store,NativeRunPlanHandle handle) noexcept;

@@ -10,19 +10,7 @@ struct Reader {ConstSlice<u8> data;u32 at=0;bool word(u32* value) noexcept {if(d
 NativeFontFileSlot files[1];NativeFontFaceSlot faces[1];NativeFontInstanceSlot instances[1];NativeRunPlanSlot plans[1];
 NativeFontStore fonts{{files,1},{faces,1}};NativeFontInstanceStore font_instances{&fonts,{instances,1}};NativeRunPlanStore store{&font_instances,{plans,1}};
 Arena scratch{},state{};wchar_t temporary[MAX_PATH]{},font_path[32768];u8* input_file=nullptr;
-struct AsciiBuffers {
-    SfntClusterGlyph mapped[256];u16 glyphs[1024];SfntPlacement placements[1024];u32 map[256];
-    SfntComponentGlyph records[1024],replacements[1024];SfntComponentNode nodes[256];SfntComponentUndo journal[4096];
-    u64 bits[8],cursive_bits[16];u32 characters[256],targets[1024],positions[4096],rebased[4096],consumed[1024],gp_positions[4096];
-    SfntMarkAssociation associations[1024];double advances[1024],prefix[1024];u8 flags[1024];SfntPosition placed[1024];SfntPlacement output[1024];
-    SfntGsubExecutionFrame frames[64];SfntGposExecutionFrame gp_frames[64];SfntCursiveChainNode chains[1024];
-    NativeAsciiStorage storage() noexcept {return {{mapped,256},
-        {{records,1024},{nodes,256},{bits,8},{characters,256},{targets,1024},{associations,1024},{advances,1024},{flags,1024},{placed,1024},{output,1024},
-         {{frames,64},{positions,4096},{rebased,4096},{consumed,1024},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,4096}},
-         {{gp_frames,64},{gp_positions,4096},{cursive_bits,16},{prefix,1024},{chains,1024}}},
-        {glyphs,1024},{placements,1024},{map,256}};}
-    NativeAsciiStorage shared() noexcept {auto result=storage();result.mapped={reinterpret_cast<SfntClusterGlyph*>(result.shaping.positions.data),256};result.glyphs={reinterpret_cast<u16*>(result.shaping.glyphs.data),1024};result.placements=result.shaping.placements;result.character_glyphs=result.shaping.character_glyphs;return result;}
-} ascii_buffers;
+#include "ascii_buffers.inc"
 
 bool argument(const wchar_t** command,wchar_t* output,u32 available) noexcept {const wchar_t* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;
     while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(n+1==available)return false;output[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}output[n]=0;*command=p;return n!=0;}

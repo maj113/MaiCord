@@ -11,8 +11,15 @@ template<Geometry kind> SfntStatus geometry(const Utf8View& text,const NativeAsc
     if(units&&(!line.run.glyph_count||s.run.character_glyphs[0]))return SfntStatus::unsupported_sequence;
     // Accumulate in locals: stores to the cluster array must not force reloads of line fields or slice pointers.
     const auto glyph_ids=s.run.character_glyphs;const auto placements=s.run.placements;const auto clusters=s.clusters;const u32 glyph_count=line.run.glyph_count;
-    float pen=0,total=0;u32 byte=0,count=0,trailing=0,spaces=0,flags=native_line_ordered_x;
-    for(u32 at=0;at<units;){const u32 glyph=glyph_ids[at];u32 end=at+1;while(end<units&&glyph_ids[end]==glyph)++end;
+    float pen=0,total=0;u32 at=0,byte=0,count=0,trailing=0,spaces=0,flags=native_line_ordered_x;
+    // A nominal ASCII run maps each character to its own glyph (native_ascii_run): one cluster for each glyph.
+    if constexpr(kind==Geometry::printable_ascii)if(line.run.nominal_ranges){
+        if(units>clusters.count)return SfntStatus::output_too_small;
+        for(;at<units;++at){const float advance=placements[at].advance,left=pen,width=layout_add(0,advance);
+            pen=layout_add(pen,advance);total=layout_add(total,width);clusters[at]={at+1,left,width};
+            if(width<0||pen<left)flags&=~native_line_ordered_x;trailing=(trailing+1)&(0u-static_cast<u32>(text.data[at]==' '));}
+        count=units;spaces=trailing;}
+    while(at<units){const u32 glyph=glyph_ids[at];u32 end=at+1;while(end<units&&glyph_ids[end]==glyph)++end;
         const u32 glyph_end=end<units?glyph_ids[end]:glyph_count;
         if(glyph_end<=glyph||glyph_end>glyph_count)return SfntStatus::unsupported_sequence;
         if(count==clusters.count)return SfntStatus::output_too_small;

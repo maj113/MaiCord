@@ -51,6 +51,8 @@ struct Builder {
     }
 };
 }
+// alphabetic_run takes printable ASCII for simple without this lookup.
+static_assert(!nominal_page_index[0]&&nominal_page_words[0]==0xffffffff00000000ull&&nominal_page_words[1]==0x7fffffffffffffffull);
 bool nominal_scalar_is_simple(u32 scalar) noexcept {return scalar<65536 && ((scalar_word(scalar/64)>>(scalar%64))&1)!=0;}
 SfntStatus sfnt_nominal_sources(const SfntCmap& cmap,Slice<u64> bitmap,u64* used,u64 work) noexcept {
     u64 ignored=0;if(!used)used=&ignored;*used=0;if(!cmap.base.data || !cmap.glyph_count || (bitmap.count && !bitmap.data))return SfntStatus::invalid_input;
