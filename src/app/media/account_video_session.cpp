@@ -316,7 +316,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
             return result(AccountVideoError::release, audio.native_error, true);
         if (s->status.kind == AccountPlaybackKind::mp3) {
             mp3_decoder_release(&static_cast<Mp3Workspace*>(s->workspace)->decoder);
-        } else if (s->status.kind != AccountPlaybackKind::ogg_opus && !standalone(*s)) {
+        } else if (!standalone(*s)) {
             auto& w = *static_cast<Workspace*>(s->workspace);
             const auto decoder = w.opus ? AacDecodeResult{} : aac_decoder_release(&w.decoder);
             if (!decoder.ok())
@@ -329,16 +329,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
     return result(AccountVideoError::none, 0, true, true);
 }
 u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {
-    if (!s->workspace)
-        return 0;
-    if (s->status.kind == AccountPlaybackKind::wave_pcm)
-        return sizeof(PcmWorkspace);
-    if (s->status.kind == AccountPlaybackKind::mp3)
-        return static_cast<const Mp3Workspace*>(s->workspace)->allocation_bytes;
-    return s->status.kind == AccountPlaybackKind::ogg_opus
-               ? static_cast<const OpusWorkspace*>(s->workspace)->allocation_bytes
-               : static_cast<const Workspace*>(s->workspace)->opus ? kWorkspaceOpusOffset + sizeof(OpusPackets)
-                                                                    : sizeof(Workspace);
+    return s->workspace ? s->workspace->allocation_bytes : 0;
 }
 
 } // namespace maicord

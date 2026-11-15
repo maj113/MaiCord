@@ -9,6 +9,7 @@
 #include "../chat/search/search.hpp"
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
 
 #include "maicord/app/media/account_video_playback.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
@@ -139,6 +140,19 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
                                   bool snapshot = false,
                                   const ApplicationSearchSourceTicket* search_source = nullptr) noexcept;
 bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* url, u32* width, u32* height) noexcept;
+// The tier a video's poster is requested at: the inline card's. The viewer and a page then show the cached first
+// frame until decoded frames replace it under the same key.
+inline MediaResolutionTier video_poster_tier(u32 source_width, u32 source_height) noexcept {
+    float width = 400, height = 225;
+    if (source_width && source_height) {
+        const float scale = minimum(1.0f, minimum(550.0f / source_width, 350.0f / source_height));
+        width = source_width * scale;
+        height = source_height * scale;
+    }
+    return media_presentation_request(source_width, source_height, width, height, g_app.renderer.dpi,
+                                      media_preview_extent_cap(MediaAttachmentFormat::mp4))
+        .resolution;
+}
 bool request_video_source(const InlineMediaSource& source, bool* refresh, ApplicationVideo* playback) noexcept;
 bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 seek = 0, float volume = 1,
                         bool muted = false) noexcept;

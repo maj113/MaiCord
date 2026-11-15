@@ -394,15 +394,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
         GuildBannerMedia banner[2]{};
         const u32 banner_count = application_guild_banner_media(banner, 2);
         for (u32 i = 0; i < banner_count; ++i) {
-            ProfileMedia media{};
-            if (banner[i].url.bytes > sizeof(media.url.data))
-                continue;
-            copy_bytes(media.url.data, banner[i].url.data, banner[i].url.bytes);
-            media.url.bytes = static_cast<u16>(banner[i].url.bytes);
-            media.key = banner[i].key;
             AccountMediaRequestResult failed{};
-            if (!request_profile_media(media, &stop, banner[i].play,
-                                       &failed))
+            if (!request_url_picture(banner[i].key, banner[i].url, &stop, banner[i].play, &failed))
                 return false;
             if (banner[i].play && (failed.state == AccountMediaRequestState::failed ||
                                    failed.state == AccountMediaRequestState::unsupported))
@@ -524,11 +517,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 GameImageMedia icon;
                 if (!game_chip_icon_media(application_games(), span.target, &icon))
                     continue;
-                ProfileMedia media{};
-                media.key = icon.key;
-                media.url.bytes = static_cast<u16>(icon.url_bytes);
-                copy_bytes(media.url.data, icon.url, icon.url_bytes);
-                if (!proceed(request_profile_media(media, &stop)))
+                if (!proceed(request_url_picture(icon.key, icon.url_view(), &stop)))
                     return outcome;
                 continue;
             }
@@ -774,8 +763,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 return outcome;
         }
     }
-    // A held avatar (play false) keeps its current frame.
-    const auto request_avatar = [&](const UserRecord* user, bool play) noexcept {
+    // The avatar of a user the store holds. A held avatar (play false) keeps its current frame.
+    const auto request_avatar = [&](u64 user_id, bool play) noexcept {
+        const auto* user = user_store_find(application.account_ui->user_store, user_id);
         if (!user)
             return true;
         const Utf8View hash = user_store_avatar_hash(*user);
@@ -795,9 +785,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     const auto* covering_call = application.renderer.call_scene;
     const bool footer_covered = covering_call && covering_call->active && covering_call->fullscreen;
     // The official client's account panel requests a still (non-animated) avatar.
-    if (!proceed(footer_covered || request_avatar(user_store_find(application.account_ui->user_store,
-                                                                  application.account_ui->chat_state.self_user_id),
-                                                  false)))
+    if (!proceed(footer_covered || request_avatar(application.account_ui->chat_state.self_user_id, false)))
         return outcome;
     // Call view tiles show avatars until a camera picture is resident. A tile
     // drawing its picture (or a stream tile) shows no avatar, so an animated
@@ -814,14 +802,14 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                                  media_asset_call_video(tile_media.user_id, tile_media.video_ssrc))
                     .ok())
                 continue;
-            if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, call->tiles[i].user_id), true)))
+            if (!proceed(request_avatar(call->tiles[i].user_id, true)))
                 return outcome;
         }
     // Stage audience and hand-raise rows.
     if (const auto* call = application.renderer.call_scene; call && call->active) {
         UiCallTileMedia stage_avatar{};
         for (u32 i = 0; ui_call_scene_stage_avatar(*call, i, &stage_avatar); ++i)
-            if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, stage_avatar.user_id), true)))
+            if (!proceed(request_avatar(stage_avatar.user_id, true)))
                 return outcome;
     }
     // Go Live previews: the hover card and visible stream tiles.
@@ -851,7 +839,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
         u64 people[2]{};
         const u32 count = ui_private_row_group_members(application.account_ui->chat_state, channel_id, people);
         for (u32 j = 0; j < count; ++j) {
-            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), play))
+            if (!request_avatar(people[j], play))
                 return false;
             if (stop)
                 return true;
@@ -922,8 +910,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 if (!ui_rect_has_area(ui_rect_intersection(voice.avatar, scene.viewport)))
                     continue;
                 // Voice participant rows show still avatars in the official client.
-                if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, voice.state->user_id),
-                                            false)))
+                if (!proceed(request_avatar(voice.state->user_id, false)))
                     return outcome;
             }
         }
@@ -946,16 +933,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 MessageComponentMedia resolved{};
                 const auto* node = message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, c);
                 if (!node || !ui_rect_has_area(ui_rect_intersection(node->rectangle, scene.viewport)) ||
-                    !message_component_media_resolve(store, rich->components[c], &resolved) ||
-                    resolved.url.bytes > sizeof(ProfileMedia{}.url.data))
+                    !message_component_media_resolve(store, rich->components[c], &resolved))
                     continue;
-                ProfileMedia media{};
-                media.key = resolved.key;
-                copy_bytes(media.url.data, resolved.url.data, resolved.url.bytes);
-                media.url.bytes = static_cast<u16>(resolved.url.bytes);
-                media.rectangle = node->rectangle;
-                media.clip = scene.viewport;
-                if (!proceed(request_profile_media(media, &stop)))
+                if (!proceed(request_url_picture(resolved.key, resolved.url, &stop, true, nullptr, &node->rectangle)))
                     return outcome;
             }
             // Embed author/footer icons: proxied URLs, only while visible.
@@ -974,17 +954,12 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 message_rich_embed_footer_icon_rect(store, embed, row.rich_item_layout, e, node->content_rectangle,
                                                     &icons[1]);
                 for (u32 icon = 0; icon < 2; ++icon) {
-                    if (!urls[icon].bytes || urls[icon].bytes > sizeof(ProfileMedia{}.url.data) ||
-                        !ui_rect_has_area(ui_rect_intersection(icons[icon], scene.viewport)))
+                    if (!urls[icon].bytes || !ui_rect_has_area(ui_rect_intersection(icons[icon], scene.viewport)))
                         continue;
-                    ProfileMedia media{};
-                    media.key = message_component_media_key(hash64_bytes(kHash64Seed, urls[icon].data, urls[icon].bytes),
-                                                            message_rich_embed_icon_format(urls[icon]));
-                    copy_bytes(media.url.data, urls[icon].data, urls[icon].bytes);
-                    media.url.bytes = static_cast<u16>(urls[icon].bytes);
-                    media.rectangle = icons[icon];
-                    media.clip = scene.viewport;
-                    if (!proceed(request_profile_media(media, &stop)))
+                    const auto key =
+                        message_component_media_key(hash64_bytes(kHash64Seed, urls[icon].data, urls[icon].bytes),
+                                                    message_rich_embed_icon_format(urls[icon]));
+                    if (!proceed(request_url_picture(key, urls[icon], &stop, true, nullptr, &icons[icon])))
                         return outcome;
                 }
             }

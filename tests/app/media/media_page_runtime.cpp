@@ -655,13 +655,12 @@ bool application_open_content_url(const Utf8View& url) noexcept {
     opened_links += utf8_equal(url, {kLink, sizeof(kLink) - 1});
     return true;
 }
-bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool*, bool,
-                                                 AccountMediaRequestResult*) noexcept {
+bool ApplicationMediaPump::request_url_picture(const MediaAssetKey& key, const Utf8View& url, bool*, bool,
+                                               AccountMediaRequestResult*, const UiRect*, u64) noexcept {
     ++thumb_requests;
-    const Utf8View url = media.url.view();
     thumb_url_ok = thumb_url_ok && url.bytes == 48 && utf8_starts_with(url, utf8_literal("https://i.ytimg.com/vi/abcdefghij")) &&
-                   media_asset_key_equal(media.key, message_component_media_key(hash64_bytes(kHash64Seed, url.data, url.bytes),
-                                                                                MediaAttachmentFormat::jpeg));
+                   media_asset_key_equal(key, message_component_media_key(hash64_bytes(kHash64Seed, url.data, url.bytes),
+                                                                          MediaAttachmentFormat::jpeg));
     return true;
 }
 void application_image_viewer_close() noexcept {

@@ -748,19 +748,6 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     if (!message || !rich || !store || message->id != message_id || message->revision != revision ||
         rich->message_revision != revision || !application_channel_readable(g_app, message->channel_id))
         return false;
-    // Reuse the inline poster tier so the viewer shows the cached first frame
-    // until decoded frames replace it under the same key.
-    const auto tier = [](u32 source_width, u32 source_height) noexcept {
-        float width = 400, height = 225;
-        if (source_width && source_height) {
-            const float scale = minimum(1.0f, minimum(550.0f / source_width, 350.0f / source_height));
-            width = source_width * scale;
-            height = source_height * scale;
-        }
-        return media_presentation_request(source_width, source_height, width, height, g_app.renderer.dpi,
-                                          media_preview_extent_cap(MediaAttachmentFormat::mp4))
-            .resolution;
-    };
     MediaAssetKey selected{};
     bool provider = false;
     u32 start_seconds = 0;
@@ -772,7 +759,7 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
         selected = search ? media_asset_search_attachment(attachment.id, MediaAttachmentFormat::mp4,
                                                           MediaResolutionTier::px512, revision, snapshot)
                           : media_asset_attachment(attachment.id, MediaAttachmentFormat::mp4,
-                                                   tier(attachment.width, attachment.height));
+                                                   video_poster_tier(attachment.width, attachment.height));
     } else {
         MessageRichEmbedMediaSelection media{};
         if (index >= rich->embed_count || rich->embeds[index].type == GatewayMessageEmbedType::gifv ||
@@ -784,7 +771,7 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
         selected = search ? media_asset_search_embed(message_id, revision, index, media.resource, media.format,
                                                      media.animated, MediaResolutionTier::px512, snapshot)
                           : media_asset_embed(message_id, revision, index, media.resource, media.format,
-                                              media.animated, tier(media.media->width, media.media->height),
+                                              media.animated, video_poster_tier(media.media->width, media.media->height),
                                               snapshot);
     }
     if (!media_asset_key_valid(selected))

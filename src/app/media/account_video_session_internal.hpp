@@ -21,57 +21,61 @@ struct OpusPackets {
     i64 time;
     bool pending;
 };
-struct Workspace {
-    float ring[8192 * 2], pcm[kAacDecoderMaximumOutputBytes / 4];
+// What every workspace starts with: the ring the transport plays from, the transport, and the PCM the session
+// queued and still holds. The session reaches them the same way for every codec.
+struct AudioQueue {
+    float ring[8192 * 2];
+    MediaAudio audio{};
+    u64 source_frames{}, queued_frames{}, wanted_frames{};
+    u32 pending_offset{}, pending_frames{}, allocation_bytes{};
+    bool decoded_end{}, sealed{}, requested_play{};
+};
+struct Workspace : AudioQueue {
+    float pcm[kAacDecoderMaximumOutputBytes / 4];
     Mp4AudioDemuxer demux{};
     Mp4AudioSampleWindow window{};
     Mp4AudioTimeline timeline{};
     u32 packet_index{}, packet_count{}, channels{}, frames_per_packet{};
     AacDecoder decoder{};
-    MediaAudio audio{};
-    u64 source_frames{}, queued_frames{}, wanted_frames{}, silence_frames{};
-    u32 pending_offset{}, pending_frames{}, input_retries{}, preceding_frames{};
-    bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{}, seek_pending{};
+    u64 silence_frames{};
+    u32 input_retries{}, preceding_frames{};
+    bool reading{}, draining{}, seek_pending{};
     // Null for an AAC source.
     OpusPackets* opus{};
 };
 inline constexpr usize kWorkspaceOpusOffset = (sizeof(Workspace) + 63) & ~usize{63};
 
-struct OpusWorkspace {
-    float ring[8192 * 2], pcm[kOpusDecoderMaximumFrames * 2];
+struct OpusWorkspace : AudioQueue {
+    float pcm[kOpusDecoderMaximumFrames * 2];
     i16 pcm16[kOpusDecoderMaximumFrames * 2];
     u8 packet[kOggOpusMaximumPacketBytes];
     OggOpusDemuxer demux{};
     OpusDecoder decoder{};
-    MediaAudio audio{};
-    u64 first_frame{}, end_frame{}, source_frames{}, queued_frames{}, wanted_frames{};
-    u32 pending_offset{}, pending_frames{}, allocation_bytes{};
-    bool decoded_end{}, sealed{}, requested_play{};
+    u64 first_frame{}, end_frame{};
 };
 
-struct PcmWorkspace {
-    float ring[8192 * 2], pcm[kMediaAudioMaximumWriteFrames * 2];
-    MediaAudio audio{};
-    u64 first_frame{}, source_frames{}, queued_frames{}, wanted_frames{};
-    u32 pending_offset{}, pending_frames{};
-    bool decoded_end{}, sealed{}, requested_play{};
+struct PcmWorkspace : AudioQueue {
+    float pcm[kMediaAudioMaximumWriteFrames * 2];
+    u64 first_frame{};
 };
 
-struct Mp3Workspace {
-    PcmWorkspace pcm{};
+struct Mp3Workspace : PcmWorkspace {
     Mp3Stream demux{};
     Mp3SeekPoint points[kMp3DefaultSeekPoints]{};
     Mp3SeekIndex index{};
     Mp3Decoder decoder{};
-    u32 allocation_bytes{};
 };
 
-PcmWorkspace& pcm_owner(AccountVideoSession& s) noexcept;
-const PcmWorkspace& pcm_owner(const AccountVideoSession& s) noexcept;
-bool pcm_backed(const AccountVideoSession& s) noexcept;
-bool standalone(const AccountVideoSession& s) noexcept;
-MediaAudio* audio_owner(AccountVideoSession& s) noexcept;
-const MediaAudio* audio_owner(const AccountVideoSession& s) noexcept;
+// Short enough that a call costs more than the test: inline in both session units.
+inline bool pcm_backed(const AccountVideoSession& s) noexcept {
+    return s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3;
+}
+inline bool standalone(const AccountVideoSession& s) noexcept {
+    return s.status.kind != AccountPlaybackKind::mp4;
+}
+inline MediaAudio* audio_owner(const AccountVideoSession& s) noexcept {
+    return s.workspace ? &s.workspace->audio : nullptr;
+}
 bool thread(const AccountVideoSession& s) noexcept;
 AccountVideoResult result(AccountVideoError error, u32 native = 0, bool admitted = false,
                           bool completed = false) noexcept;

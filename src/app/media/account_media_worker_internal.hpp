@@ -26,10 +26,17 @@ __forceinline bool frame_available(const AccountMediaWorkerLane* lane) noexcept 
            lane->completed_result.state == AccountMediaRequestState::ready;
 }
 
-void store_phase(AccountMediaWorkerLane* lane, AccountMediaWorkerPhase phase) noexcept;
+__forceinline void store_phase(AccountMediaWorkerLane* lane, AccountMediaWorkerPhase phase) noexcept {
+    InterlockedExchange(&lane->phase, phase_value(phase));
+}
+__forceinline bool poster_phase(AccountMediaWorkerPhase phase) noexcept {
+    return phase == AccountMediaWorkerPhase::poster_present_pending ||
+           phase == AccountMediaWorkerPhase::poster_fence_wait ||
+           phase == AccountMediaWorkerPhase::poster_release_ready ||
+           phase == AccountMediaWorkerPhase::poster_releasing;
+}
 AccountMediaRequestResult request_result(AccountMediaRequestState state,
                                          AccountMediaError error = AccountMediaError::none) noexcept;
-bool poster_phase(AccountMediaWorkerPhase phase) noexcept;
 bool exact_local_request(const AccountMediaLocalPreviewRequest& request, bool uploaded) noexcept;
 bool exact_local_owner(const AccountMediaWorkItem& work, const AccountMediaLocalPreviewRequest& request) noexcept;
 AccountMediaRequestResult retry_wait_until(u64 retry_at_ms) noexcept;

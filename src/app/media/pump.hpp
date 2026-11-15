@@ -36,7 +36,16 @@ struct ApplicationMediaPump {
     }
 
     bool request_profile_media(const ProfileMedia& media, bool* stop, bool play = true,
-                               AccountMediaRequestResult* failure = nullptr) noexcept;
+                               AccountMediaRequestResult* failure = nullptr) noexcept {
+        return request_url_picture(media.key, media.url.view(), stop, play, failure, &media.rectangle,
+                                   media.playback_epoch);
+    }
+    // The request behind request_profile_media, for a picture whose URL the caller holds: no ProfileMedia to fill.
+    // `drawn` is where the picture shows (the failure log names its size). A URL longer than a ProfileMedia holds
+    // asks for nothing.
+    bool request_url_picture(const MediaAssetKey& key, const Utf8View& url, bool* stop, bool play = true,
+                             AccountMediaRequestResult* failure = nullptr, const UiRect* drawn = nullptr,
+                             u64 playback_epoch = 0) noexcept;
     // A profile card's avatar colours (banner fill, avatar theme): read when resident, else requested.
     bool read_avatar_colors(ProfileScene& scene, bool* stop) noexcept;
     // Go Live preview thumbnails shown by the stream card and call tiles.
@@ -85,13 +94,9 @@ struct ApplicationMediaPump {
     bool settings_avatar_is_current(const MediaAssetKey& key) const noexcept;
     bool request_settings_avatars() noexcept;
 
-    __declspec(noinline) bool animated_webp_frame_kind(AccountMediaFrameKind kind) noexcept;
-    __declspec(noinline) bool video_frame_kind(AccountMediaFrameKind kind) noexcept;
     __declspec(noinline) bool animation_frame_cache_descriptor(
         const AccountMediaFrame& frame, AnimationFrameCacheDescriptor* descriptor) noexcept;
     __declspec(noinline) void capture_animation_frame(const AccountMediaFrame& frame) noexcept;
-    __declspec(noinline) bool animation_frame_kind_compatible(AccountMediaFrameKind left,
-                                                              AccountMediaFrameKind right) noexcept;
     __declspec(noinline) MediaFrameUploadResult
     upload_account_media_frame(const AccountMediaFrame& frame) noexcept;
     __declspec(noinline) AnimationVisualState* find_animation_visual(const MediaAssetKey& key,

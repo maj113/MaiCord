@@ -528,22 +528,15 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
         if (avatar.media->key.kind == MediaAssetKind::profile_image) {
             // Default avatars: the hash carries the CDN path, fetched by URL
             // under the profile card's key; a game cover carries its full URL.
-            ProfileMedia media{};
-            media.key = avatar.media->key;
-            const Utf8View url = avatar.media->url;
-            if (url.bytes) {
-                if (url.bytes > sizeof(media.url.data))
-                    continue;
-                copy_bytes(media.url.data, url.data, url.bytes);
-                media.url.bytes = static_cast<u16>(url.bytes);
-            } else {
+            char joined[sizeof(ProfileMedia{}.url.data)];
+            Utf8View url = avatar.media->url;
+            if (!url.bytes) {
                 constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
-                copy_bytes(media.url.data, host.data, host.bytes);
-                copy_bytes(media.url.data + host.bytes, hash.data, hash.bytes);
-                media.url.bytes = static_cast<u16>(host.bytes + hash.bytes);
+                copy_bytes(joined, host.data, host.bytes);
+                copy_bytes(joined + host.bytes, hash.data, hash.bytes);
+                url = {joined, host.bytes + hash.bytes};
             }
-            if (!request_profile_media(media, &stop, false,
-                                       nullptr))
+            if (!request_url_picture(avatar.media->key, url, &stop, false))
                 return false;
             if (stop)
                 return true;
@@ -571,14 +564,8 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
                 return true;
             continue;
         }
-        if (url.bytes > sizeof(ProfileMedia{}.url.data))
-            continue;
-        ProfileMedia media{};
-        media.key = key;
-        copy_bytes(media.url.data, url.data, url.bytes);
-        media.url.bytes = static_cast<u16>(url.bytes);
         bool stop = false;
-        if (!request_profile_media(media, &stop, false, nullptr))
+        if (!request_url_picture(key, url, &stop, false))
             return false;
         if (stop)
             return true;

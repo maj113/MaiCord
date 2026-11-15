@@ -112,6 +112,12 @@ enum class AccountMediaFrameKind : u8 {
     lottie_paint = 13,
     audio_source = 14, // Metadata only; its encoded source stays with the worker.
 };
+constexpr bool animated_webp_frame_kind(AccountMediaFrameKind kind) noexcept {
+    return kind == AccountMediaFrameKind::animated_webp_rgba8 || kind == AccountMediaFrameKind::animated_webp_vp8;
+}
+constexpr bool video_frame_kind(AccountMediaFrameKind kind) noexcept {
+    return kind == AccountMediaFrameKind::video_nv12_gpu;
+}
 
 enum class AccountMediaSourceKind : u8 {
     none,

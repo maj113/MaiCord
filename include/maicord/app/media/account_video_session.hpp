@@ -10,6 +10,9 @@ namespace maicord {
 struct MediaAudioStatus;
 struct EncodedAudioMetadata;
 struct Mp4FragmentAudio;
+namespace account_video_session_detail {
+struct AudioQueue;
+}
 struct AccountVideoIdentity {
     u64 account_serial{}, message_id{}, content_identity{}, session_epoch{};
     u32 message_revision{};
@@ -119,7 +122,8 @@ bool account_video_qpc_position(i64 origin_100ns, u64 anchor, u64 now, u64 frequ
 // copy; this object rejects mismatched command/ack IDs.
 struct AccountVideoSession {
     Mp4Decoder* video{};
-    void* workspace{};
+    // Lazy: the audio transport and the decoder state of the session's codec.
+    account_video_session_detail::AudioQueue* workspace{};
     HANDLE lane_event{};
     Mp4AudioDemuxer audio_metadata{};
     AccountVideoStatus status{};

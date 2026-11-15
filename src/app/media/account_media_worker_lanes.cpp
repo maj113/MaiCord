@@ -7,10 +7,6 @@
 namespace maicord {
 namespace account_media_worker_detail {
 
-void store_phase(AccountMediaWorkerLane* lane, AccountMediaWorkerPhase phase) noexcept {
-    InterlockedExchange(&lane->phase, phase_value(phase));
-}
-
 AccountMediaRequestResult request_result(AccountMediaRequestState state,
                                          AccountMediaError error) noexcept {
     AccountMediaRequestResult result{};
@@ -36,13 +32,6 @@ constexpr u64 kLoopingVideoIdleMs = 1'500;
 
 } // namespace
 namespace account_media_worker_detail {
-
-bool poster_phase(AccountMediaWorkerPhase phase) noexcept {
-    return phase == AccountMediaWorkerPhase::poster_present_pending ||
-           phase == AccountMediaWorkerPhase::poster_fence_wait ||
-           phase == AccountMediaWorkerPhase::poster_release_ready ||
-           phase == AccountMediaWorkerPhase::poster_releasing;
-}
 
 bool exact_local_request(const AccountMediaLocalPreviewRequest& request, bool uploaded) noexcept {
     return request.owner_scope && request.owner_generation &&

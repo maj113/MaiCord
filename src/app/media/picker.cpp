@@ -147,6 +147,17 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
     g_app.media_picker->jump_section = pack_id;
     return repaint();
 }
+// Keeps the composer picker's tab and query for its next open, then starts `kind` with an empty query.
+static void replace_composer_view(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
+    const auto saved = message_composer_text(p.edit);
+    p.composer_kind = p.kind;
+    p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
+    CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
+    message_composer_clear(&p.edit);
+    p.kind = kind;
+    p.favorites_view = p.wanted = false;
+    p.due_at = 0;
+}
 bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor, bool autocomplete) noexcept {
     auto* open = g_app.media_picker;
     // Inline results hide while the expression picker is open.
@@ -167,15 +178,7 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
     if (fresh) {
         if (p.active)
             application_media_picker_close();
-        // Keep the composer picker's tab and query for its next open.
-        const auto saved = message_composer_text(p.edit);
-        p.composer_kind = p.kind;
-        p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
-        CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
-        message_composer_clear(&p.edit);
-        p.kind = kind;
-        p.favorites_view = p.wanted = false;
-        p.due_at = 0;
+        replace_composer_view(p, kind);
         p.inline_mode = p.active = true;
     }
     p.inline_anchor = anchor;
@@ -267,21 +270,14 @@ u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
     }
     return 0;
 }
-bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexcept {
-    auto* ui = g_app.account_ui;
-    if (!message_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed())
-        return false;
-    const auto* message = application_message_record(message_id);
-    const auto* channel = message ? chat_state_store_find_channel(ui->chat_state, message->channel_id) : nullptr;
-    if (!message || !channel || channel->id != ui->active_channel_id ||
-        message->delivery != MessageDeliveryState::authoritative)
-        return false;
+// The emoji popout of Add Reaction on a message of `channel`, or of a form field (`message_id` 0).
+static bool open_popout(UiRect anchor, u64 message_id, const ChannelRecord* channel, u64 field_owner) noexcept {
     auto* owner = ensure_owner();
     if (!owner)
         return false;
     auto& p = *owner;
-    // Add Reaction on the open popout's own message closes it, as in the official client.
-    if (p.active && p.scene.active && p.reaction_message_id == message_id) {
+    // The request for the popout that shows closes it, as in the official client.
+    if (p.active && p.scene.active && (message_id ? p.reaction_message_id == message_id : p.field_mode)) {
         application_media_picker_close();
         return true;
     }
@@ -290,24 +286,22 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
     rebind(p);
     if (p.generation == ~u32{0})
         return false;
-    // Keep the composer picker's query for its next open.
-    const auto saved = message_composer_text(p.edit);
-    p.composer_kind = p.kind;
-    p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
-    CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
-    message_composer_clear(&p.edit);
-    p.reaction_message_id = message_id;
+    replace_composer_view(p, UiMediaPickerKind::emoji);
     p.reaction_anchor = anchor;
-    p.reaction_scope = {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
-                        ui->chat_state.self_user_id, channel->id, channel->generation, message_id};
-    p.kind = UiMediaPickerKind::emoji;
-    p.favorites_view = p.wanted = false;
-    p.due_at = 0;
+    if (message_id) {
+        p.reaction_message_id = message_id;
+        p.reaction_scope = {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
+                            g_app.account_ui->chat_state.self_user_id, channel->id, channel->generation, message_id};
+    } else {
+        p.field_mode = true;
+        p.field_owner = field_owner;
+    }
     ++p.generation;
     p.active = true;
     application_gif_favorites_set_visible(false);
     application_emoji_preferences_open();
-    message_action_bar_close(&g_app.message_action_bar);
+    if (message_id)
+        message_action_bar_close(&g_app.message_action_bar);
     if (open_emoji_model(p)) {
         // The official client focuses the popout's search so typing filters at once.
         focus(p, true);
@@ -317,46 +311,18 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
     application_media_picker_close();
     return false;
 }
+bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexcept {
+    auto* ui = g_app.account_ui;
+    if (!message_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed())
+        return false;
+    const auto* message = application_message_record(message_id);
+    const auto* channel = message ? chat_state_store_find_channel(ui->chat_state, message->channel_id) : nullptr;
+    return message && channel && channel->id == ui->active_channel_id &&
+           message->delivery == MessageDeliveryState::authoritative && open_popout(anchor, message_id, channel, 0);
+}
 bool application_media_picker_open_field(UiRect anchor, u64 owner_id) noexcept {
-    if (!owner_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed(false, true))
-        return false;
-    auto* owner = ensure_owner();
-    if (!owner)
-        return false;
-    auto& p = *owner;
-    // The button on the open field popout toggles it shut.
-    if (p.active && p.scene.active && p.field_mode) {
-        application_media_picker_close();
-        return true;
-    }
-    if (p.active)
-        application_media_picker_close();
-    rebind(p);
-    if (p.generation == ~u32{0})
-        return false;
-    // Keep the composer picker's query for its next open.
-    const auto saved = message_composer_text(p.edit);
-    p.composer_kind = p.kind;
-    p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
-    CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
-    message_composer_clear(&p.edit);
-    p.field_mode = true;
-    p.field_owner = owner_id;
-    p.reaction_anchor = anchor;
-    p.kind = UiMediaPickerKind::emoji;
-    p.favorites_view = p.wanted = false;
-    p.due_at = 0;
-    ++p.generation;
-    p.active = true;
-    application_gif_favorites_set_visible(false);
-    application_emoji_preferences_open();
-    if (open_emoji_model(p)) {
-        focus(p, true);
-        if (repaint())
-            return true;
-    }
-    application_media_picker_close();
-    return false;
+    return owner_id && ui_rect_valid(anchor) && account_ready() && unobstructed(false, true) &&
+           open_popout(anchor, 0, nullptr, owner_id);
 }
 void application_media_picker_close_field() noexcept {
     if (g_app.media_picker && g_app.media_picker->field_mode)

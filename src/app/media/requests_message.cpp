@@ -16,13 +16,15 @@
 
 namespace maicord::app_detail {
 
-bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool* stop,
-                                                 bool play, AccountMediaRequestResult* failure) noexcept {
+bool ApplicationMediaPump::request_url_picture(const MediaAssetKey& key, const Utf8View& url, bool* stop, bool play,
+                                               AccountMediaRequestResult* failure, const UiRect* drawn,
+                                               u64 playback_epoch) noexcept {
     *stop = false;
-    const auto key = media.key;
+    if (url.bytes > sizeof(ProfileMedia{}.url.data))
+        return true;
     const bool resident = media_atlas_find(application.renderer.media_atlas, key).ok();
-    if (media.playback_epoch && resident)
-        animation_timeline_restart(&application.animations.timeline, key, media.playback_epoch, now_us);
+    if (playback_epoch && resident)
+        animation_timeline_restart(&application.animations.timeline, key, playback_epoch, now_us);
     if (!play && resident)
         return true;
     if (play && (key.flags & media_asset_flag_animated)) {
@@ -32,7 +34,7 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
         return true;
     if (visibility_only || asset_backed_off(key))
         return true;
-    const AccountMediaAttachmentRequest request{media.url.view(),
+    const AccountMediaAttachmentRequest request{url,
                                                 key,
                                                 0,
                                                 0,
@@ -55,9 +57,10 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
          requested.state == AccountMediaRequestState::unsupported) &&
         key.kind == MediaAssetKind::profile_image &&
         media_asset_failure_record(&application.media_failures, key, clock_monotonic_milliseconds())) {
+        const UiRect rectangle = drawn ? *drawn : UiRect{};
         const u64 values[]{static_cast<u64>(requested.state),        static_cast<u64>(requested.error),
-                           static_cast<u64>(requested.http_error),   static_cast<u64>(ui_rect_width(media.rectangle)),
-                           static_cast<u64>(ui_rect_height(media.rectangle)),
+                           static_cast<u64>(requested.http_error),   static_cast<u64>(ui_rect_width(rectangle)),
+                           static_cast<u64>(ui_rect_height(rectangle)),
                            static_cast<u64>(media_asset_embed_format(key)), media_asset_profile_effect_layer(key)};
         LogEvent("profile_media_request_failed")
             .fields("state\0error\0http_error\0drawn_dips\0drawn_height_dips\0format\0effect_slot", values)
@@ -174,15 +177,12 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_default_avatar(c
     // A default avatar is one of six shared pictures: skip it unless a visible surface shows it.
     if (visibility_only || !is_default_avatar_key(key) || !media_key_is_current(key))
         return true;
-    ProfileMedia media{};
-    media.key = key;
     constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
-    char path[kDefaultAvatarPathBytes];
+    char path[kDefaultAvatarPathBytes], url[host.bytes + kDefaultAvatarPathBytes];
     default_avatar_path(static_cast<u32>(key.id - kDefaultAvatarKeyBase), path);
-    copy_bytes(media.url.data, host.data, host.bytes);
-    copy_bytes(media.url.data + host.bytes, path, kDefaultAvatarPathBytes);
-    media.url.bytes = static_cast<u16>(host.bytes + kDefaultAvatarPathBytes);
-    return request_profile_media(media, stop_scan, false, nullptr);
+    copy_bytes(url, host.data, host.bytes);
+    copy_bytes(url + host.bytes, path, kDefaultAvatarPathBytes);
+    return request_url_picture(key, {url, sizeof(url)}, stop_scan, false);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_avatar_media(const MediaAssetKey& key,
@@ -865,11 +865,7 @@ bool ApplicationMediaPump::request_chip_guild_icons(bool search, bool* stop_scan
             GameImageMedia icon;
             if (!game_chip_icon_media(application_games(), semantic.target, &icon))
                 continue;
-            ProfileMedia media{};
-            media.key = icon.key;
-            media.url.bytes = static_cast<u16>(icon.url_bytes);
-            copy_bytes(media.url.data, icon.url, icon.url_bytes);
-            if (!request_profile_media(media, stop_scan))
+            if (!request_url_picture(icon.key, icon.url_view(), stop_scan))
                 return false;
             if (*stop_scan)
                 return true;

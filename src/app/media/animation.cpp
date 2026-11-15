@@ -58,16 +58,6 @@ void application_media_posters_presented(Application& application, bool succeede
         reset_value(&pending);
 }
 
-__declspec(noinline) bool ApplicationMediaPump::animated_webp_frame_kind(
-    AccountMediaFrameKind kind) noexcept {
-    return kind == AccountMediaFrameKind::animated_webp_rgba8 ||
-           kind == AccountMediaFrameKind::animated_webp_vp8;
-}
-
-__declspec(noinline) bool ApplicationMediaPump::video_frame_kind(AccountMediaFrameKind kind) noexcept {
-    return kind == AccountMediaFrameKind::video_nv12_gpu;
-}
-
 __declspec(noinline) bool ApplicationMediaPump::animation_frame_cache_descriptor(
     const AccountMediaFrame& frame, AnimationFrameCacheDescriptor* descriptor) noexcept {
     if (!descriptor || frame.cache_generation == 0 || frame.duration_us == 0 || frame.canvas_width == 0 ||
@@ -108,10 +98,6 @@ __declspec(noinline) void ApplicationMediaPump::capture_animation_frame(
     }
 }
 
-__declspec(noinline) bool ApplicationMediaPump::animation_frame_kind_compatible(
-    AccountMediaFrameKind left, AccountMediaFrameKind right) noexcept {
-    return left == right || (animated_webp_frame_kind(left) && animated_webp_frame_kind(right));
-}
 __declspec(noinline) bool ApplicationMediaPump::asset_backed_off(const MediaAssetKey& key) const noexcept {
     return application.media_failures.count &&
            media_asset_failure_blocked(application.media_failures, key, clock_monotonic_milliseconds());
@@ -162,6 +148,13 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
         (frame.row_pitch == 0 && !gpu_video) || frame.kind == AccountMediaFrameKind::none) {
         return reject_source();
     }
+    // The first frame of an animation that has at most `capacity` frames.
+    const auto first_frame = [&](u32 capacity) noexcept {
+        return frame.frame_index == 0 && frame.frame_count != 0 && frame.frame_count <= capacity &&
+               frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0;
+    };
+    const bool vp8_parts = frame.vp8_frame && frame.vp8_header && frame.vp8_modes && frame.vp8_coefficients &&
+                           frame.vp8_frame->width == frame.width && frame.vp8_frame->height == frame.height;
     MediaAtlasGpuResult uploaded{};
     const auto upload = [&]() noexcept {
         if (frame.kind == AccountMediaFrameKind::regional_flag_paint &&
@@ -192,35 +185,26 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
                            : renderer_upload_media_straight_rgba8(
                                  &application.renderer, frame.key, static_cast<u16>(frame.width),
                                  static_cast<u16>(frame.height), frame.row_pitch, frame.bytes);
-        } else if (frame.kind == AccountMediaFrameKind::vp8_keyframe && frame.vp8_frame && frame.vp8_header &&
-                   frame.vp8_modes && frame.vp8_coefficients && frame.vp8_frame->width == frame.width &&
-                   frame.vp8_frame->height == frame.height) {
+        } else if (frame.kind == AccountMediaFrameKind::vp8_keyframe && vp8_parts) {
             uploaded = renderer_upload_vp8_keyframe(&application.renderer, frame.key, *frame.vp8_frame,
                                                     *frame.vp8_header, *frame.vp8_modes,
                                                     *frame.vp8_coefficients, frame.bytes);
         } else if (frame.kind == AccountMediaFrameKind::apng_scanlines && frame.image &&
-                   frame.frame_index == 0 && frame.frame_count != 0 &&
-                   frame.frame_count <= kApngFrameCapacity && frame.duration_us != 0 &&
-                   frame.canvas_width != 0 && frame.canvas_height != 0) {
+                   first_frame(kApngFrameCapacity)) {
             uploaded = renderer_begin_apng(&application.renderer, frame.key, frame.canvas_width,
                                            frame.canvas_height, frame.apng_frame, *frame.image, frame.bytes);
         } else if (frame.kind == AccountMediaFrameKind::gif_indices && frame.gif_palette &&
-                   frame.frame_index == 0 && frame.frame_count != 0 && frame.frame_count <= kGifFrameCapacity &&
-                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
+                   first_frame(kGifFrameCapacity)) {
             uploaded =
                 renderer_begin_gif(&application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
                                    frame.gif_frame, *frame.gif_palette, frame.bytes);
-        } else if (frame.kind == AccountMediaFrameKind::animated_webp_rgba8 && frame.frame_index == 0 &&
-                   frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
-                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
+        } else if (frame.kind == AccountMediaFrameKind::animated_webp_rgba8 &&
+                   first_frame(kAnimatedWebpFrameCapacity)) {
             uploaded = renderer_begin_animated_webp(&application.renderer, frame.key, frame.canvas_width,
                                                     frame.canvas_height, frame.background_rgba,
                                                     frame.animated_webp_frame, frame.bytes);
-        } else if (frame.kind == AccountMediaFrameKind::animated_webp_vp8 && frame.vp8_frame &&
-                   frame.vp8_header && frame.vp8_modes && frame.vp8_coefficients && frame.frame_index == 0 &&
-                   frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
-                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0 &&
-                   frame.vp8_frame->width == frame.width && frame.vp8_frame->height == frame.height) {
+        } else if (frame.kind == AccountMediaFrameKind::animated_webp_vp8 && vp8_parts &&
+                   first_frame(kAnimatedWebpFrameCapacity)) {
             uploaded = renderer_begin_animated_webp_vp8(
                 &application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
                 frame.background_rgba, frame.animated_webp_frame, *frame.vp8_frame, *frame.vp8_header,
@@ -402,7 +386,8 @@ bool ApplicationMediaPump::animation_frame_is_current(const AnimationFrameAdvanc
                                                       const AccountMediaFrame& frame,
                                                       const AnimationVisualState& visual) noexcept {
     if (!animation_advance_is_current(advance, visual) ||
-        !animation_frame_kind_compatible(frame.kind, visual.kind) ||
+        (frame.kind != visual.kind &&
+         !(animated_webp_frame_kind(frame.kind) && animated_webp_frame_kind(visual.kind))) ||
         !media_asset_key_equal(frame.key, advance.key) ||
         frame.cache_generation != visual.cache_generation || frame.frame_index != advance.frame_index ||
         frame.content_identity != visual.content_identity)

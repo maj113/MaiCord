@@ -9,94 +9,19 @@ namespace maicord {
 namespace {
 
 static_assert(sizeof(Workspace) <= 84 * 1024);
-
 static_assert(sizeof(OpusWorkspace) <= 220 * 1024); // the decoder is part of it
-
 static_assert(sizeof(PcmWorkspace) <= 84 * 1024);
-
 static_assert(sizeof(Mp3Workspace) <= 96 * 1024);
 
-} // namespace
-namespace account_video_session_detail {
-
-PcmWorkspace& pcm_owner(AccountVideoSession& s) noexcept {
-    return s.status.kind == AccountPlaybackKind::mp3 ? static_cast<Mp3Workspace*>(s.workspace)->pcm
-                                                    : *static_cast<PcmWorkspace*>(s.workspace);
-}
-const PcmWorkspace& pcm_owner(const AccountVideoSession& s) noexcept {
-    return s.status.kind == AccountPlaybackKind::mp3 ? static_cast<const Mp3Workspace*>(s.workspace)->pcm
-                                                    : *static_cast<const PcmWorkspace*>(s.workspace);
-}
-bool pcm_backed(const AccountVideoSession& s) noexcept {
-    return s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3;
-}
-bool standalone(const AccountVideoSession& s) noexcept {
-    return s.status.kind != AccountPlaybackKind::mp4;
-}
-
-} // namespace account_video_session_detail
-namespace {
-
-const OggOpusDemuxer* opus_source(const AccountVideoSession& s) noexcept {
+inline const OggOpusDemuxer* opus_source(const AccountVideoSession& s) noexcept {
     return s.encoded_metadata ? &s.encoded_metadata->opus : nullptr;
 }
-u32 source_rate(const AccountVideoSession& s) noexcept {
+inline u32 source_rate(const AccountVideoSession& s) noexcept {
     return encoded_audio_rate(*s.encoded_metadata);
 }
-u64 source_total_frames(const AccountVideoSession& s) noexcept {
+inline u64 source_total_frames(const AccountVideoSession& s) noexcept {
     return encoded_audio_total_frames(*s.encoded_metadata);
 }
-
-} // namespace
-namespace account_video_session_detail {
-
-MediaAudio* audio_owner(AccountVideoSession& s) noexcept {
-    if (!s.workspace)
-        return nullptr;
-    if (s.status.kind == AccountPlaybackKind::ogg_opus)
-        return &static_cast<OpusWorkspace*>(s.workspace)->audio;
-    if (pcm_backed(s))
-        return &pcm_owner(s).audio;
-    return &static_cast<Workspace*>(s.workspace)->audio;
-}
-const MediaAudio* audio_owner(const AccountVideoSession& s) noexcept {
-    if (!s.workspace)
-        return nullptr;
-    if (s.status.kind == AccountPlaybackKind::ogg_opus)
-        return &static_cast<const OpusWorkspace*>(s.workspace)->audio;
-    if (pcm_backed(s))
-        return &pcm_owner(s).audio;
-    return &static_cast<const Workspace*>(s.workspace)->audio;
-}
-
-} // namespace account_video_session_detail
-namespace {
-
-u64 wanted_frames(const AccountVideoSession& s) noexcept {
-    if (pcm_backed(s))
-        return pcm_owner(s).wanted_frames;
-    return s.status.kind == AccountPlaybackKind::ogg_opus
-               ? static_cast<const OpusWorkspace*>(s.workspace)->wanted_frames
-               : static_cast<const Workspace*>(s.workspace)->wanted_frames;
-}
-bool& requested_play(AccountVideoSession& s) noexcept {
-    if (pcm_backed(s))
-        return pcm_owner(s).requested_play;
-    return s.status.kind == AccountPlaybackKind::ogg_opus
-               ? static_cast<OpusWorkspace*>(s.workspace)->requested_play
-               : static_cast<Workspace*>(s.workspace)->requested_play;
-}
-
-} // namespace
-namespace account_video_session_detail {
-
-bool thread(const AccountVideoSession& s) noexcept {
-    return s.initialized && s.thread_id == current_thread_id();
-}
-
-} // namespace account_video_session_detail
-namespace {
-
 bool identity_valid(const AccountVideoIdentity& id) noexcept {
     return id.account_serial && id.message_id && id.content_identity && id.session_epoch &&
            id.cache_generation && !id.reserved;
@@ -105,6 +30,9 @@ bool identity_valid(const AccountVideoIdentity& id) noexcept {
 } // namespace
 namespace account_video_session_detail {
 
+bool thread(const AccountVideoSession& s) noexcept {
+    return s.initialized && s.thread_id == current_thread_id();
+}
 AccountVideoResult result(AccountVideoError error, u32 native, bool admitted,
                           bool completed) noexcept {
     return {error, native, admitted, completed};
@@ -294,10 +222,9 @@ bool opus_window(AccountVideoSession& s, OpusWorkspace& w) noexcept {
     return true;
 }
 // Opens the audio transport at the session's current epoch and start position.
-bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 channels,
-                 u32 sample_rate) noexcept {
+bool start_audio(AccountVideoSession& s, AudioQueue* w, u32 channels, u32 sample_rate) noexcept {
     MediaAudioConfig config{};
-    config.pcm = {ring, 8192u * channels};
+    config.pcm = {w->ring, 8192u * channels};
     config.sample_rate = sample_rate;
     config.channels = channels;
     config.initial_epoch = s.playback_epoch;
@@ -305,7 +232,7 @@ bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 cha
     config.volume = s.status.muted ? 0 : s.status.desired_volume;
     config.gain = s.source_gain;
     config.refill_event = config.status_event = s.lane_event;
-    const auto started = media_audio_initialize(audio, config);
+    const auto started = media_audio_initialize(&w->audio, config);
     if (!started.ok())
         terminal(s, AccountVideoError::audio, started.native_error);
     return started.ok();
@@ -320,7 +247,7 @@ bool opus_workspace(AccountVideoSession& s) noexcept {
     s.workspace = w;
     w->allocation_bytes = sizeof(OpusWorkspace);
     opus_decoder_start(&w->decoder, source->channels, source->output_gain_q8);
-    if (!start_audio(s, &w->audio, w->ring, source->channels, kOggOpusSampleRate))
+    if (!start_audio(s, w, source->channels, kOggOpusSampleRate))
         return false;
     if (!opus_window(s, *w)) {
         if (s.status.error == AccountVideoError::none)
@@ -363,17 +290,17 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
         return false;
     }
     const u32 allocation = mp3 ? offset + state_bytes : sizeof(PcmWorkspace);
-    s.workspace = commit_pages(allocation);
-    if (!s.workspace) {
+    auto* w = static_cast<PcmWorkspace*>(commit_pages(allocation));
+    if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
     }
-    auto* w = &pcm_owner(s);
+    s.workspace = w;
+    w->allocation_bytes = allocation;
     if (mp3) {
-        auto& owner = *static_cast<Mp3Workspace*>(s.workspace);
-        owner.allocation_bytes = allocation;
+        auto& owner = *static_cast<Mp3Workspace*>(w);
         const auto decoded = mp3_decoder_initialize(&owner.decoder,
-            {reinterpret_cast<u8*>(s.workspace) + offset, state_bytes},
+            {reinterpret_cast<u8*>(w) + offset, state_bytes},
             source_rate(s), encoded_audio_channels(*s.encoded_metadata));
         if (decoded != Mp3Error::none) {
             terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded));
@@ -386,7 +313,7 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
             return false;
         }
     }
-    if (!start_audio(s, &w->audio, w->ring, encoded_audio_channels(*s.encoded_metadata), source_rate(s)))
+    if (!start_audio(s, w, encoded_audio_channels(*s.encoded_metadata), source_rate(s)))
         return false;
     if (!pcm_window(s, *w)) {
         if (s.status.error == AccountVideoError::none)
@@ -413,13 +340,14 @@ bool workspace(AccountVideoSession& s) noexcept {
         terminal(s, AccountVideoError::decoder);
         return false;
     }
-    auto* w = static_cast<Workspace*>(
-        commit_pages(format.opus ? kWorkspaceOpusOffset + sizeof(OpusPackets) : sizeof(Workspace)));
+    const u32 allocation = format.opus ? kWorkspaceOpusOffset + sizeof(OpusPackets) : sizeof(Workspace);
+    auto* w = static_cast<Workspace*>(commit_pages(allocation));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
     }
     s.workspace = w;
+    w->allocation_bytes = allocation;
     const auto asc = s.fragmented_audio ? format.configuration : mp4_audio_demux_asc(s.audio_metadata);
     const u32 rate = s.fragmented_audio ? format.sample_rate : s.audio_metadata.sample_rate;
     const u32 channels = s.fragmented_audio ? format.channels : s.audio_metadata.channels;
@@ -433,7 +361,7 @@ bool workspace(AccountVideoSession& s) noexcept {
             return false;
         }
     }
-    if (!start_audio(s, &w->audio, w->ring, channels, rate)) return false;
+    if (!start_audio(s, w, channels, rate)) return false;
     if (!audio_window(s, *w)) {
         terminal(s, AccountVideoError::timestamp);
         return false;
@@ -457,14 +385,14 @@ bool request_audio_state(AccountVideoSession& s) noexcept {
     // clock. This avoids advancing audio while the GPU is still in preroll.
     const bool play =
         account_video_audio_should_play(s.desired_play && !data_pending(s), s.seeking, s.video_seek_ready);
-    if (play == requested_play(s))
+    if (play == s.workspace->requested_play)
         return true;
     const auto value = play ? media_audio_play(audio_owner(s)) : media_audio_pause(audio_owner(s));
     if (!value.ok()) {
         terminal(s, AccountVideoError::audio, value.native_error);
         return false;
     }
-    requested_play(s) = play;
+    s.workspace->requested_play = play;
     return true;
 }
 bool video_seek(AccountVideoSession& s, i64 target) noexcept {
@@ -552,7 +480,7 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
             return false;
         }
         const bool window = pcm_backed(s)
-                                ? pcm_window(s, pcm_owner(s))
+                                ? pcm_window(s, *static_cast<PcmWorkspace*>(s.workspace))
                                 : s.status.kind == AccountPlaybackKind::ogg_opus
                                 ? opus_window(s, *static_cast<OpusWorkspace*>(s.workspace))
                                 : audio_window(s, *static_cast<Workspace*>(s.workspace));
@@ -587,7 +515,7 @@ void refresh(AccountVideoSession& s) noexcept {
                         minimum(s.status.duration_100ns, maximum(i64{0}, a.presentation_time_100ns));
                 else if (s.seeking)
                     s.status.position_100ns = s.seek_target;
-                const bool primed = a.written_frames || !wanted_frames(s);
+                const bool primed = a.written_frames || !s.workspace->wanted_frames;
                 const bool native_ready = s.desired_play ? (a.playing && a.clock_valid) || ended : a.paused;
                 if (s.seeking && s.video_seek_ready && primed && native_ready) {
                     s.seeking = s.status.seeking = false;
@@ -914,10 +842,9 @@ namespace {
 
 enum class OutputStep : u8 { proceed, again, stop, interrupted };
 // What the standalone codecs share in one service pass: cancellation, ring errors, writing the pending
-// PCM and sealing the stream. stop leaves the pass (waiting or failed); again repeats it.
-template <typename Workspace>
-OutputStep output_step(AccountVideoSession& s, Workspace& w, u32 channels, bool (*cancelled)(void*) noexcept,
-                       void* context, u32* writes) noexcept {
+// PCM (the workspace's `pcm`) and sealing the stream. stop leaves the pass (waiting or failed); again repeats it.
+OutputStep output_step(AccountVideoSession& s, AudioQueue& w, const float* pcm, u32 channels,
+                       bool (*cancelled)(void*) noexcept, void* context, u32* writes) noexcept {
     if (cancelled && cancelled(context))
         return OutputStep::interrupted;
     const auto audio = media_audio_status(&w.audio);
@@ -930,7 +857,7 @@ OutputStep output_step(AccountVideoSession& s, Workspace& w, u32 channels, bool 
             return OutputStep::stop;
         const u32 frames = minimum(kMediaAudioMaximumWriteFrames, minimum(audio.free_frames, w.pending_frames));
         const auto written = media_audio_write(&w.audio, s.playback_epoch,
-                                               {w.pcm + w.pending_offset * channels, frames * channels});
+                                               {pcm + w.pending_offset * channels, frames * channels});
         if (!written.ok()) {
             if (written.error != MediaAudioError::capacity)
                 terminal(s, AccountVideoError::audio, written.native_error);
@@ -966,11 +893,11 @@ bool pcm_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, void
                  bool* interrupted) noexcept {
     if (!workspace(s))
         return false;
-    auto& w = pcm_owner(s);
+    auto& w = *static_cast<PcmWorkspace*>(s.workspace);
     const u32 channels = encoded_audio_channels(*s.encoded_metadata);
     u32 blocks{}, writes{};
     while (blocks < 8 && writes < 4 && s.status.error == AccountVideoError::none) {
-        const auto step = output_step(s, w, channels, cancelled, context, &writes);
+        const auto step = output_step(s, w, w.pcm, channels, cancelled, context, &writes);
         if (step == OutputStep::interrupted) {
             *interrupted = true;
             return true;
@@ -1046,7 +973,7 @@ bool opus_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, voi
     auto& w = *static_cast<OpusWorkspace*>(s.workspace);
     u32 packets{}, writes{};
     while (packets < 8 && writes < 4 && s.status.error == AccountVideoError::none) {
-        const auto step = output_step(s, w, w.demux.channels, cancelled, context, &writes);
+        const auto step = output_step(s, w, w.pcm, w.demux.channels, cancelled, context, &writes);
         if (step == OutputStep::interrupted) {
             *interrupted = true;
             return true;
@@ -1154,6 +1081,22 @@ bool account_video_qpc_position(i64 origin, u64 anchor, u64 now, u64 frequency, 
     *position = origin + static_cast<i64>(elapsed);
     return true;
 }
+// The state every source starts from: a cleared session for `id` at its first epoch, with audio, on the calling
+// thread. `id` can be the identity of the session that this call clears.
+static AccountVideoResult begin_session(AccountVideoSession* s, const AccountVideoIdentity& id, HANDLE event,
+                                        i64 duration, i64 frequency) noexcept {
+    const auto identity = id;
+    reset_value(s);
+    s->lane_event = event;
+    s->status.identity = identity;
+    s->status.duration_100ns = duration;
+    s->status.has_audio = true;
+    s->status.playback_epoch = s->playback_epoch = 1;
+    s->qpc_frequency = static_cast<u64>(frequency);
+    s->thread_id = current_thread_id();
+    s->initialized = true;
+    return result(AccountVideoError::none, 0, true, true);
+}
 AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4Decoder* video,
                                                     const AccountVideoIdentity& id, HANDLE event,
                                                     Mp4SourceAvailability audio_availability, Mp4FragmentAudio* fragmented_audio) noexcept {
@@ -1187,21 +1130,13 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     const i64 frequency = clock_initialize().frequency;
     if (frequency <= 0)
         return result(AccountVideoError::clock);
-    const auto identity = id;
-    reset_value(s);
+    const auto begun = begin_session(s, id, event, duration, frequency);
     s->video = video;
-    s->lane_event = event;
     s->audio_metadata = audio;
     s->fragmented_audio = fragmented_audio;
-    s->status.identity = identity;
-    s->status.duration_100ns = duration;
     s->status.has_audio = error == Mp4DemuxError::none;
     s->status.live = movie.live;
-    s->status.playback_epoch = s->playback_epoch = 1;
-    s->qpc_frequency = static_cast<u64>(frequency);
-    s->thread_id = current_thread_id();
-    s->initialized = true;
-    return result(AccountVideoError::none, 0, true, true);
+    return begun;
 }
 AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession* s, Mp4FragmentAudio* audio,
     const AccountVideoIdentity& id, HANDLE event) noexcept {
@@ -1216,19 +1151,10 @@ AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoS
     const i64 frequency = clock_initialize().frequency;
     if (frequency <= 0)
         return result(AccountVideoError::clock);
-    const auto identity = id;
-    reset_value(s);
+    const auto begun = begin_session(s, id, event, window.duration_100ns, frequency);
     s->fragmented_audio = audio;
-    s->lane_event = event;
-    s->status.identity = identity;
-    s->status.duration_100ns = window.duration_100ns;
-    s->status.has_audio = true;
-    s->status.playback_epoch = s->playback_epoch = 1;
     s->video_eof = true;
-    s->qpc_frequency = static_cast<u64>(frequency);
-    s->thread_id = current_thread_id();
-    s->initialized = true;
-    return result(AccountVideoError::none, 0, true, true);
+    return begun;
 }
 AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s,
                                                           const EncodedAudioMetadata* metadata,
@@ -1251,27 +1177,18 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     case MediaAttachmentFormat::m4a: kind = AccountPlaybackKind::mp4; break;
     default: return result(AccountVideoError::invalid_input);
     }
+    const bool movie = kind == AccountPlaybackKind::mp4;
     const i64 frequency = clock_initialize().frequency;
-    if (kind == AccountPlaybackKind::mp4 && frequency <= 0)
+    if (movie && frequency <= 0)
         return result(AccountVideoError::clock);
-    const auto identity = id;
-    reset_value(s);
+    const auto begun = begin_session(s, id, event, static_cast<i64>(duration), movie ? frequency : 0);
     s->encoded_metadata = metadata;
-    s->lane_event = event;
-    s->status.identity = identity;
     s->status.kind = kind;
-    s->status.duration_100ns = static_cast<i64>(duration);
-    s->status.has_audio = true;
-    s->status.playback_epoch = s->playback_epoch = 1;
     s->video_eof = true;
-    if (kind == AccountPlaybackKind::mp4) {
-        // No picture decoder: the AAC workspace and its sample window drive playback.
+    // No picture decoder: the AAC workspace and its sample window drive playback.
+    if (movie)
         copy_value(&s->audio_metadata, metadata->m4a);
-        s->qpc_frequency = static_cast<u64>(frequency);
-    }
-    s->thread_id = current_thread_id();
-    s->initialized = true;
-    return result(AccountVideoError::none, 0, true, true);
+    return begun;
 }
 
 } // namespace maicord

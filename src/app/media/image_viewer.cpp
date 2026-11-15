@@ -473,19 +473,6 @@ Utf8View page_source_line(u64 channel_id, u64 author_id) noexcept {
         append({}, user_store_name(g_app.account_ui->user_store, *author));
     return {g_page_source_line, bytes};
 }
-// The tier a video's poster is requested at: the inline card's, so the page shows its cached first frame until
-// decoded frames replace it under the same key.
-MediaResolutionTier page_video_tier(u32 source_width, u32 source_height) noexcept {
-    float width = 400, height = 225;
-    if (source_width && source_height) {
-        const float scale = minimum(1.0f, minimum(550.0f / source_width, 350.0f / source_height));
-        width = source_width * scale;
-        height = source_height * scale;
-    }
-    return media_presentation_request(source_width, source_height, width, height, g_app.renderer.dpi,
-                                      media_preview_extent_cap(MediaAttachmentFormat::mp4))
-        .resolution;
-}
 // A page's title: the media's own, else its kind's name.
 Utf8View page_title(Utf8View title, MediaPageKind kind) noexcept {
     return title.bytes                  ? title
@@ -622,7 +609,7 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
             key = media_asset_attachment(attachment.id, audio, MediaResolutionTier::original);
         } else if (format == MediaAttachmentFormat::mp4) {
             kind = MediaPageKind::video;
-            key = fallback = media_asset_attachment(attachment.id, format, page_video_tier(attachment.width, attachment.height));
+            key = fallback = media_asset_attachment(attachment.id, format, video_poster_tier(attachment.width, attachment.height));
             if (attachment.width && attachment.height)
                 pixels = {static_cast<float>(attachment.width), static_cast<float>(attachment.height)};
         } else if (format != MediaAttachmentFormat::unknown && format != MediaAttachmentFormat::lottie) {
@@ -646,7 +633,7 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
             // A provider or direct video or audio; its playlist is recovered from the message as the player does.
             kind = media.format == MediaAttachmentFormat::mp4 ? MediaPageKind::video : MediaPageKind::audio;
             key = media_asset_embed(message_id, revision, index, media.resource, media.format, media.animated,
-                                    page_video_tier(media.media->width, media.media->height), snapshot);
+                                    video_poster_tier(media.media->width, media.media->height), snapshot);
             InlineMediaSource playing{};
             playing.key = key;
             playing.message_id = message_id;

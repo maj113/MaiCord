@@ -2267,14 +2267,14 @@ bool application_link_open(Utf8View, bool) noexcept {
     return true;
 }
 // The media pump's stand-ins: the track picture's requests, and the key whose request failed.
-bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool* stop, bool,
-                                                 AccountMediaRequestResult*) noexcept {
+bool ApplicationMediaPump::request_url_picture(const MediaAssetKey& key, const Utf8View& url, bool* stop, bool,
+                                               AccountMediaRequestResult*, const UiRect*, u64) noexcept {
     namespace test = video_focus_runtime_test;
     *stop = false;
     ++test::art_requests;
-    test::art_key = media.key;
-    test::art_url_bytes = minimum<u32>(media.url.bytes, sizeof(test::art_url));
-    copy_bytes(test::art_url, media.url.data, test::art_url_bytes);
+    test::art_key = key;
+    test::art_url_bytes = minimum<u32>(url.bytes, sizeof(test::art_url));
+    copy_bytes(test::art_url, url.data, test::art_url_bytes);
     return true;
 }
 bool ApplicationMediaPump::asset_backed_off(const MediaAssetKey& key) const noexcept {

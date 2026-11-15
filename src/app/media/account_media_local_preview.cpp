@@ -44,6 +44,24 @@ struct ThumbnailTarget {
         return true;
     }
 };
+// A local preview is one still frame: it has no animation to advance.
+void stage_still(AccountMedia* media, u16 cache_generation) noexcept {
+    media->frame_cache_generation = cache_generation;
+    media->frame_count = 1;
+    media->frame_index = 0;
+    media->frame_duration_us = 0;
+    media->frame_play_count = 1;
+}
+// The owner of the request and its key are the source of the frame the lane decodes next.
+void bind_owner(AccountMedia* media, const AccountMediaLocalPreviewRequest& request) noexcept {
+    media->active_catalog_scope = request.owner_scope;
+    media->active_catalog_generation = request.owner_generation;
+    media->active_source_message_id = request.key.id;
+    media->active_source_message_revision = request.key.variant;
+}
+bool push_thumbnail_row(void* context, u32, const u8* rgba) noexcept {
+    return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
+}
 AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const MediaAssetKey& key, const u8* rgba, u32 width,
                                                   u32 height) noexcept {
     const u32 bytes = width * height * 4u;
@@ -57,11 +75,7 @@ AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const Med
     stage_frame(media, key, bytes, 0, key.id, key.variant);
     media->frame_kind = AccountMediaFrameKind::straight_rgba8;
     mark_frame_ready(media, key);
-    media->frame_cache_generation = 0;
-    media->frame_count = 1;
-    media->frame_index = 0;
-    media->frame_duration_us = 0;
-    media->frame_play_count = 1;
+    stage_still(media, 0);
     return result(AccountMediaRequestState::ready);
 }
 enum class ThumbnailStep : u8 { decoded, legacy, memory, decode };
@@ -122,12 +136,7 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
             !local_thumbnail_begin(sink, layout.width, layout.height, kLocalPreviewThumbnailExtent, target->output,
                                    target->sums))
             return ThumbnailStep::memory;
-        const auto decoded = webp_thumbnail_decode(
-            layout, {base, layout.workspace_bytes},
-            [](void* context, u32, const u8* rgba) noexcept {
-                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
-            },
-            sink);
+        const auto decoded = webp_thumbnail_decode(layout, {base, layout.workspace_bytes}, push_thumbnail_row, sink);
         return decoded == WebpThumbnailError::none ? ThumbnailStep::decoded : ThumbnailStep::decode;
     }
     if (format == MediaAttachmentFormat::gif) {
@@ -174,11 +183,7 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
             return ThumbnailStep::memory;
         const auto decoded = jpeg_thumbnail_decode_rows(
             encoded, image, layout, {scratch_base, static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes)},
-            target->row,
-            [](void* context, u32, const u8* rgba) noexcept {
-                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
-            },
-            sink);
+            target->row, push_thumbnail_row, sink);
         if (!decoded.ok())
             return ThumbnailStep::decode;
         *orientation = static_cast<u8>(image.orientation);
@@ -213,10 +218,7 @@ AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const Acco
         // asks the lane to read the file.
         return format == MediaAttachmentFormat::jpeg ? legacy()
                                                      : result(AccountMediaRequestState::failed, AccountMediaError::cache);
-    media->active_catalog_scope = request.owner_scope;
-    media->active_catalog_generation = request.owner_generation;
-    media->active_source_message_id = key.id;
-    media->active_source_message_revision = key.variant;
+    bind_owner(media, request);
     LocalThumbnailSink sink{};
     ThumbnailTarget target{};
     u8 orientation = 1;
@@ -265,10 +267,7 @@ AccountMediaRequestResult account_media_decode_local_preview(AccountMedia* media
     }
     if (!stored.stored())
         return result(AccountMediaRequestState::failed, AccountMediaError::cache);
-    media->active_catalog_scope = request.owner_scope;
-    media->active_catalog_generation = request.owner_generation;
-    media->active_source_message_id = key.id;
-    media->active_source_message_revision = key.variant;
+    bind_owner(media, request);
     AccountMediaRequestResult decoded = result(AccountMediaRequestState::failed, AccountMediaError::decode);
     if (format == MediaAttachmentFormat::png) {
         CdnStaticPngResult value;
@@ -309,11 +308,7 @@ AccountMediaRequestResult account_media_decode_local_preview(AccountMedia* media
         encoded_media_cache_erase(media->pipeline.cache, key);
         return decoded;
     }
-    media->frame_cache_generation = stored.generation;
-    media->frame_count = 1;
-    media->frame_index = 0;
-    media->frame_duration_us = 0;
-    media->frame_play_count = 1;
+    stage_still(media, stored.generation);
     return result(AccountMediaRequestState::ready);
 }
 
@@ -367,6 +362,14 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
         reset_value<MediaAssetKey>(&media->active_key);
         return value;
     };
+    // A movie the decoder cannot show stays that way: the request is not tried again.
+    const auto undecodable = [&]() noexcept {
+        auto failure = video_failure(media->mp4_decoder);
+        failure.retry_at_ms = ~0ull;
+        if (failure.state == AccountMediaRequestState::failed)
+            failure.state = AccountMediaRequestState::unsupported;
+        return finish(failure);
+    };
     auto step = local_video_poster_prepare(source, &reader);
     if (step != LocalVideoPosterStep::ready)
         return finish(poster_failure(step));
@@ -374,18 +377,10 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
     const auto availability = progressive_source_reader(source, ProgressiveTrack::video);
     media->video_device = request.video_device;
     // Native extent: the renderer reduces the poster to a thumbnail on the GPU.
-    if (!mp4_decoder_initialize(ensure_mp4_decoder(media), bytes, 0, 0, request.video_device, availability)) {
-        auto failure = video_failure(media->mp4_decoder);
-        failure.retry_at_ms = ~0ull;
-        if (failure.state == AccountMediaRequestState::failed)
-            failure.state = AccountMediaRequestState::unsupported;
-        return finish(failure);
-    }
+    if (!mp4_decoder_initialize(ensure_mp4_decoder(media), bytes, 0, 0, request.video_device, availability))
+        return undecodable();
     media->active_key = request.key;
-    media->active_catalog_scope = request.owner_scope;
-    media->active_catalog_generation = request.owner_generation;
-    media->active_source_message_id = request.key.id;
-    media->active_source_message_revision = request.key.variant;
+    bind_owner(media, request);
     adopt_mp4_source(media);
     Mp4DecodedFrame decoded{};
     // Reordered streams may submit a few access units before the first
@@ -397,13 +392,8 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
         if (!local_video_poster_service(source, &reader, &step))
             return finish(poster_failure(step == LocalVideoPosterStep::ready ? LocalVideoPosterStep::malformed : step));
     }
-    if (!decoded.ok() || !decoded.gpu) {
-        auto failure = video_failure(media->mp4_decoder);
-        failure.retry_at_ms = ~0ull;
-        if (failure.state == AccountMediaRequestState::failed)
-            failure.state = AccountMediaRequestState::unsupported;
-        return finish(failure);
-    }
+    if (!decoded.ok() || !decoded.gpu)
+        return undecodable();
     // The poster never plays and the GPU holds the picture: drop the sample
     // payload, keeping only the pinned box headers and moov.
     progressive_source_trim(source);

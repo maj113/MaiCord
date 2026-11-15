@@ -368,12 +368,15 @@ static bool reserve_stream_fetches(AccountMedia* media) noexcept {
     media->progressive_audio = allocate_fetch();
     return media->progressive && media->progressive_audio;
 }
-// Applies a provider's retry-after wait to a failure, else `fallback_ms` (none when 0).
-static void provider_retry(AccountMediaRequestResult* failure, u64 now_ms, u32 retry_after_seconds,
-                           u64 fallback_ms) noexcept {
-    const u64 wait = retry_after_seconds ? u64{retry_after_seconds} * 1000 : fallback_ms;
+// A provider's failure in `state`, with its retry-after wait, else `fallback_ms` (none when 0).
+static AccountMediaRequestResult provider_failure(AccountMediaRequestState state, const EmbedResolveResult& resolved,
+                                                  u64 now_ms, u64 fallback_ms = 0,
+                                                  AccountMediaError error = AccountMediaError::http) noexcept {
+    auto failure = result(state, error);
+    const u64 wait = resolved.retry_after_seconds ? u64{resolved.retry_after_seconds} * 1000 : fallback_ms;
     if (wait)
-        failure->retry_at_ms = deadline_after(now_ms, wait);
+        failure.retry_at_ms = deadline_after(now_ms, wait);
+    return failure;
 }
 static AccountMediaRequestResult request_provider_media(AccountMedia*, const AccountMediaUrlRequest&,
                                                         u64, u64) noexcept;
@@ -658,12 +661,10 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         char track_url[128]; auto page = request.url; u16 selected = 0;
         if (collection) {
             const auto loaded = load_collection(media, request);
-            if (!loaded.ok()) {
-                auto failure = result(loaded.error == EmbedPlayerError::invalid_input ? AccountMediaRequestState::invalid :
-                    AccountMediaRequestState::failed, AccountMediaError::http);
-                provider_retry(&failure, now_ms, loaded.retry_after_seconds, kAccountMediaFailureRetryMs);
-                return failure;
-            }
+            if (!loaded.ok())
+                return provider_failure(loaded.error == EmbedPlayerError::invalid_input ? AccountMediaRequestState::invalid
+                                                                                         : AccountMediaRequestState::failed,
+                                        loaded, now_ms, kAccountMediaFailureRetryMs);
             auto& queue = *media->collection;
             selected = request.collection_track ? request.collection_track : queue.initial;
             if (selected > queue.count) return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
@@ -684,9 +685,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         const auto resolved = soundcloud_resolve(resolver, page, media->progressive);
         if (!resolved.ok()) {
             account_media_release_video(media);
-            auto failure = result(resolved.error == EmbedPlayerError::unsupported || resolved.error == EmbedPlayerError::not_embeddable
-                ? AccountMediaRequestState::unsupported : AccountMediaRequestState::failed, AccountMediaError::http);
-            provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
+            auto failure = provider_failure(resolved.error == EmbedPlayerError::unsupported || resolved.error == EmbedPlayerError::not_embeddable
+                ? AccountMediaRequestState::unsupported : AccountMediaRequestState::failed, resolved, now_ms);
             if (collection) {
                 media->collection->failed_track = selected;
                 media->collection->retry_at_ms = failure.retry_at_ms ? failure.retry_at_ms : deadline_after(now_ms, kAccountMediaFailureRetryMs);
@@ -700,20 +700,14 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
     }
     if (youtube_collection || apple_collection) {
         const auto loaded = load_collection(media, request);
-        if (!loaded.ok()) {
-            auto failure = result(AccountMediaRequestState::failed, AccountMediaError::http);
-            provider_retry(&failure, now_ms, loaded.retry_after_seconds, kAccountMediaFailureRetryMs);
-            return failure;
-        }
+        if (!loaded.ok())
+            return provider_failure(AccountMediaRequestState::failed, loaded, now_ms, kAccountMediaFailureRetryMs);
         const u16 wanted = request.collection_track ? request.collection_track : media->collection->initial;
         if (wanted == media->collection->count && media->collection->continuation_bytes) {
             auto extend = request; extend.collection_track = wanted;
             const auto next = load_collection(media, extend);
-            if (!next.ok()) {
-                auto failed = result(AccountMediaRequestState::failed, AccountMediaError::http);
-                provider_retry(&failed, now_ms, next.retry_after_seconds, kAccountMediaFailureRetryMs);
-                return failed;
-            }
+            if (!next.ok())
+                return provider_failure(AccountMediaRequestState::failed, next, now_ms, kAccountMediaFailureRetryMs);
         }
         auto& queue = *media->collection;
         const u16 selected = wanted;
@@ -733,6 +727,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             locator.provider = EmbedProvider::youtube_music;
         }
     } else if (media->collection) { release_collection(media->collection); media->collection = nullptr; }
+    const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
     if (locator.provider == EmbedProvider::steam || locator.provider == EmbedProvider::twitch_vod || locator.provider == EmbedProvider::twitch_live || locator.provider == EmbedProvider::vimeo) {
         const bool vimeo = locator.provider == EmbedProvider::vimeo;
         Utf8View privacy_hash{};
@@ -745,16 +740,16 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         if (!reserve_stream_fetches(media)) {
             account_media_release_video(media); return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         }
-        const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
         const auto resolved = vimeo ? vimeo_resolve(resolver, locator.id, height, unix_seconds, media->progressive, media->progressive_audio, {}, privacy_hash)
             : vod ? twitch_hls_resolve(resolver, locator.id, height, unix_seconds, media->progressive, media->progressive_audio, {}, live)
             : steam_resolve(resolver, steam.app, steam.movie, height, media->progressive, media->progressive_audio);
         if (!resolved.ok()) {
             account_media_release_video(media);
-            auto failure = result(resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
-                                                                                : AccountMediaRequestState::failed, AccountMediaError::http);
-            provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
-            return remember_failure(media, request.key, now_ms, failure);
+            return remember_failure(media, request.key, now_ms,
+                                    provider_failure(resolved.error == EmbedPlayerError::unsupported
+                                                         ? AccountMediaRequestState::unsupported
+                                                         : AccountMediaRequestState::failed,
+                                                     resolved, now_ms));
         }
         if (media->progressive_audio->state == ProgressiveVideoFetchState::empty) {
             pages_release(media->progressive_audio); media->progressive_audio = nullptr;
@@ -765,7 +760,6 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
     if (apple.id.bytes && (apple.video ? !request.progressive || request.image_type != CdnImageType::mp4
                                      : request.image_type != CdnImageType::m4a))
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
     // Only the YouTube resolver fills the offer.
     if (resolver) resolver->offer.count = 0;
     // Imgur's single-image MP4 mapping needs no metadata exchange. A resolved
@@ -803,22 +797,20 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         secure_clear_bytes(&streams,sizeof(streams));
         if(!live.ok()) {
             account_media_release_video(media);
-            auto failure=result(live.error==EmbedPlayerError::unsupported?AccountMediaRequestState::unsupported:AccountMediaRequestState::failed,
-                live.error==EmbedPlayerError::capacity?AccountMediaError::memory:AccountMediaError::http);
-            provider_retry(&failure, now_ms, live.retry_after_seconds, 0);
-            return remember_failure(media,request.key,now_ms,failure);
+            return remember_failure(media,request.key,now_ms,
+                provider_failure(live.error==EmbedPlayerError::unsupported?AccountMediaRequestState::unsupported:AccountMediaRequestState::failed,
+                    live,now_ms,0,live.error==EmbedPlayerError::capacity?AccountMediaError::memory:AccountMediaError::http));
         }
         return queue_progressive(media,request,now_ms,unix_seconds);
     }
     // An art track of YouTube Music resolves to its audio format alone.
     const bool sound_only = !preview && !streams.video.url_bytes;
     if (!resolved.ok() || ((preview || sound_only || !streams.combined) && !streams.audio.url_bytes)) {
-        auto failure = result(resolved.ok() || resolved.error == EmbedPlayerError::login_required ||
-                              resolved.error == EmbedPlayerError::not_embeddable ||
-                              resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
-                                                                                 : AccountMediaRequestState::failed,
-                              AccountMediaError::http);
-        provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
+        const auto failure = provider_failure(resolved.ok() || resolved.error == EmbedPlayerError::login_required ||
+                                              resolved.error == EmbedPlayerError::not_embeddable ||
+                                              resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
+                                                                                                 : AccountMediaRequestState::failed,
+                                              resolved, now_ms);
         secure_clear_bytes(&streams, sizeof(streams));
         return remember_failure(media, request.key, now_ms, failure);
     }
