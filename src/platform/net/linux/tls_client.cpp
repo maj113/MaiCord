@@ -1,16 +1,17 @@
-// tls_client.hpp on Linux: the TlsClient seam over the system OpenSSL's libssl with memory BIOs, so the connection
-// owns no socket: the caller's network layer carries the bytes exactly as it does for Schannel.
+// tls_client.hpp on Linux: the TlsClient seam over the system OpenSSL's libssl with a BIO of its own, so the
+// connection owns no socket: the caller's network layer carries the bytes exactly as it does for Schannel.
 //
 //   - One process-wide SSL_CTX (the counterpart of Schannel's shared credential): TLS 1.2 and up, peer
 //     verification always on, renegotiation refused, the distribution's trust store, a ClientHello shaped like
 //     Chrome's (configure_hello) with ALPN "http/1.1". It is created by the first client and kept for the life of
 //     the process; a failed creation is not remembered.
-//   - One SSL per client with a read BIO and a write BIO. Whole TLS records are fed to the read BIO one at a time,
-//     so `consumed` is exact (Schannel's SECBUFFER_EXTRA) and a record that follows the end of the handshake stays
-//     in the caller's queue for tls_client_decrypt. Output is drained from the write BIO after every call.
-//   - tls_client_decrypt works on one record per call and in place: the record is copied into the read BIO, then
-//     SSL_read writes the plaintext to the front of the same buffer (a record's plaintext is never longer than the
-//     record, so the copy is never overwritten before it is read).
+//   - One SSL per client with one BIO (bio_read, bio_write). Each call lends the BIO a Transfer: the record that
+//     OpenSSL reads in place from the caller's buffer, and the room that OpenSSL writes its records into. No memory
+//     BIO holds a copy between them. Whole TLS records are lent one at a time, so `consumed` is exact (Schannel's
+//     SECBUFFER_EXTRA) and a record that follows the end of the handshake stays in the caller's queue for
+//     tls_client_decrypt.
+//   - tls_client_decrypt works on one record per call and in place: OpenSSL reads the whole record into its own
+//     buffer, then SSL_read writes the plaintext to the front of the caller's buffer.
 //   - Records OpenSSL produces while decrypting (a key update answer, an alert) wait in `native.control` and go out
 //     in front of the next encrypt call's records; the 512 bytes of trailer beyond TLS's own 17 reserve room for them.
 //
@@ -19,6 +20,7 @@
 // openssl.hpp kFailure* reason of a library that cannot be used, 0x80000000 | the OpenSSL error-queue code.
 #include "maicord/platform/net/tls_client.hpp"
 #include "../../crypto/openssl/openssl.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/linux/calls.hpp"
@@ -174,6 +176,85 @@ bool configure_hello(const openssl::Ssl& library, void* context) noexcept {
            library.SSL_CTX_enable_ct(context, openssl::kCtValidationPermissive) == 1;
 }
 
+// What one call lends to the BIO of a client: the record that OpenSSL reads, and the room for the records that OpenSSL
+// writes. `staged` is plaintext in that room that OpenSSL did not encrypt yet (tls_client_encrypt_spans). `spill`
+// holds the records that would reach it, until the call ends.
+struct Transfer {
+    const u8* input;
+    u32 input_bytes;
+    u8* output;
+    u32 output_capacity;
+    u32 output_bytes;
+    const u8* staged;
+    u8* spill;
+    u32 spill_bytes;
+    bool overflow;
+};
+
+Transfer* transfer_of(void* bio) noexcept {
+    return static_cast<Transfer*>(openssl::ssl()->crypto.BIO_get_data(bio));
+}
+
+// Copies what is left of the lent record. -1 with no bytes left: the BIO's flags make that "retry".
+int bio_read(void* bio, char* buffer, int bytes) noexcept {
+    Transfer* transfer = transfer_of(bio);
+    const u32 count = minimum(static_cast<u32>(bytes), transfer->input_bytes);
+    if (count == 0)
+        return -1;
+    copy_bytes(buffer, transfer->input, count);
+    transfer->input += count;
+    transfer->input_bytes -= count;
+    return static_cast<int>(count);
+}
+
+// Appends to the lent room. Only the end of SSL_write shows that OpenSSL encrypted all the staged plaintext: one call
+// can write a key update before the data, or more than one data record. So a write that would reach the staged
+// plaintext, and each write after it, goes to a heap block. tls_client_encrypt_spans moves the block behind the
+// records in place. The records together must fit in the room, as before.
+int bio_write(void* bio, const char* data, int bytes) noexcept {
+    Transfer* transfer = transfer_of(bio);
+    const u32 count = static_cast<u32>(bytes);
+    const u32 room = transfer->output_capacity - transfer->output_bytes;
+    u8* target = transfer->output + transfer->output_bytes;
+    if (transfer->staged && !transfer->spill && target + count > transfer->staged) {
+        transfer->spill = static_cast<u8*>(heap_allocate(room));
+        transfer->overflow = !transfer->spill;
+    }
+    if (transfer->overflow || count > room - transfer->spill_bytes) {
+        transfer->overflow = true;
+        return -1;
+    }
+    if (transfer->spill) {
+        target = transfer->spill + transfer->spill_bytes;
+        transfer->spill_bytes += count;
+    } else {
+        transfer->output_bytes += count;
+    }
+    copy_bytes(target, data, count);
+    return bytes;
+}
+
+// OpenSSL flushes the BIO after each flight. Nothing is buffered here.
+long bio_ctrl(void*, int command, long, void*) noexcept {
+    return command == openssl::kBioCtrlFlush;
+}
+
+// The BIO method of every client, made with the context. Caller holds g_context_lock.
+void* g_bio_method;
+
+bool make_bio_method(const openssl::Crypto& library) noexcept {
+    if (!g_bio_method) {
+        void* method = library.BIO_meth_new(openssl::kBioTypeSourceSink, "maicord");
+        if (!method)
+            return false;
+        library.BIO_meth_set_write(method, reinterpret_cast<void*>(&bio_write));
+        library.BIO_meth_set_read(method, reinterpret_cast<void*>(&bio_read));
+        library.BIO_meth_set_ctrl(method, reinterpret_cast<void*>(&bio_ctrl));
+        g_bio_method = method;
+    }
+    return true;
+}
+
 // The process-wide context, created on first use.
 const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept {
     u32 reason = 0;
@@ -193,7 +274,7 @@ const openssl::Ssl* shared_context(void** context, TlsResult* failure) noexcept 
                                          openssl::kSslOptionNoRenegotiation | openssl::kSslOptionNoEncryptThenMac);
             library->SSL_CTX_ctrl(created, openssl::kSslCtrlMode, openssl::kSslModeReleaseBuffers, nullptr);
             library->SSL_CTX_set_verify(created, openssl::kSslVerifyPeer, nullptr);
-            if (!configure_hello(*library, created)) {
+            if (!configure_hello(*library, created) || !make_bio_method(library->crypto)) {
                 good = false;
                 *failure = result(TlsError::credential_acquire, openssl::error_status(library->crypto));
             } else if (!load_trust(*library, created)) {
@@ -227,36 +308,9 @@ bool record_header_valid(const u8* header) noexcept {
     return header[0] >= 20 && header[0] <= 23 && header[1] == 3 && record_length(header) <= kMaximumRecordBody;
 }
 
-// Moves everything the write BIO holds to `output`; false (and nothing moved) when it does not fit.
-bool drain(const openssl::Ssl& library, void* write_bio, u8* output, u32 capacity, u32* produced) noexcept {
-    const usize pending = library.crypto.BIO_ctrl_pending(write_bio);
-    if (pending > capacity)
-        return false;
-    *produced = 0;
-    while (*produced != pending) {
-        const int got = library.crypto.BIO_read(write_bio, output + *produced, static_cast<int>(pending - *produced));
-        if (got <= 0)
-            return false;
-        *produced += static_cast<u32>(got);
-    }
-    return true;
-}
-
-bool new_bios(const openssl::Crypto& library, void** read_bio, void** write_bio) noexcept {
-    *read_bio = library.BIO_new(library.BIO_s_mem());
-    *write_bio = library.BIO_new(library.BIO_s_mem());
-    if (!*read_bio || !*write_bio) {
-        if (*read_bio)
-            library.BIO_free(*read_bio);
-        if (*write_bio)
-            library.BIO_free(*write_bio);
-        *read_bio = *write_bio = nullptr;
-        return false;
-    }
-    // An empty read BIO must report "retry" (-1), not end of file (0), so that SSL asks for more input.
-    library.BIO_ctrl(*read_bio, openssl::kBioSetMemoryEofReturn, -1, nullptr);
-    library.BIO_ctrl(*write_bio, openssl::kBioSetMemoryEofReturn, -1, nullptr);
-    return true;
+// Lends `transfer` to the BIO of the client for one call into OpenSSL.
+void lend(const openssl::Ssl& library, const TlsClient* client, Transfer* transfer) noexcept {
+    library.crypto.BIO_set_data(client->native.bio, transfer);
 }
 
 // The host name as ASCII (IDNs arrive punycoded from URL parsing). False for an empty, long or non-ASCII name.
@@ -293,17 +347,18 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
         *status = kStatusInvalidArgument;
         return TlsError::invalid_argument;
     }
-    void* read_bio = nullptr;
-    void* write_bio = nullptr;
     void* ssl = library.SSL_new(context);
-    if (!ssl || !new_bios(library.crypto, &read_bio, &write_bio)) {
+    void* bio = ssl ? library.crypto.BIO_new(g_bio_method) : nullptr;
+    if (!bio) {
         *status = openssl::error_status(library.crypto);
         if (ssl)
             library.SSL_free(ssl);
         return TlsError::handshake;
     }
-    // SSL owns both BIOs from here on.
-    library.SSL_set_bio(ssl, read_bio, write_bio);
+    // A read with no record lent returns -1. These flags make OpenSSL ask for more input then, not report an error.
+    library.crypto.BIO_set_flags(bio, openssl::kBioFlagsRead | openssl::kBioFlagsShouldRetry);
+    // SSL owns the BIO from here on: one reference serves both directions.
+    library.SSL_set_bio(ssl, bio, bio);
     library.SSL_set_connect_state(ssl);
     bool good = true;
     if (is_ip_literal(host)) {
@@ -323,8 +378,7 @@ TlsError create_connection(const openssl::Ssl& library, void* context, TlsClient
         return TlsError::handshake;
     }
     client->native.ssl = ssl;
-    client->native.read_bio = read_bio;
-    client->native.write_bio = write_bio;
+    client->native.bio = bio;
     client->context_valid = true;
     return TlsError::none;
 }
@@ -397,6 +451,8 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
     bool called = false;
     bool finished = false;
     int error = openssl::kSslErrorWantRead;
+    Transfer transfer{nullptr, 0, outgoing.data, outgoing.count, 0, nullptr, nullptr, 0, false};
+    lend(*library, client, &transfer);
     for (;;) {
         const u32 remaining = incoming.count - consumed;
         bool has_record = false;
@@ -407,10 +463,8 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
             }
             const u32 record_bytes = kHeaderBytes + record_length(header);
             if (remaining >= record_bytes) {
-                if (library->crypto.BIO_write(client->native.read_bio, header, static_cast<int>(record_bytes)) !=
-                    static_cast<int>(record_bytes)) {
-                    return handshake_failure(TlsError::handshake, kStatusSsl | openssl::kSslErrorSsl);
-                }
+                transfer.input = header;
+                transfer.input_bytes = record_bytes;
                 consumed += record_bytes;
                 has_record = true;
             }
@@ -426,16 +480,19 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
             break;
         }
         error = library->SSL_get_error(ssl, returned);
-        if ((error != openssl::kSslErrorWantRead && error != openssl::kSslErrorWantWrite) || !has_record) {
+        if ((error != openssl::kSslErrorWantRead && error != openssl::kSslErrorWantWrite) || !has_record ||
+            transfer.input_bytes != 0) {
             break;
         }
     }
     const bool failed = !finished && error != openssl::kSslErrorWantRead && error != openssl::kSslErrorWantWrite;
-    // The status is read before the drain below; neither touches the other's state.
     const i32 failure_status = failed ? ssl_status(*library, ssl, error) : 0;
+    // A record that OpenSSL did not read stays with the caller.
+    if (!failed)
+        consumed -= transfer.input_bytes;
 
-    u32 produced = 0;
-    if (!drain(*library, client->native.write_bio, outgoing.data, outgoing.count, &produced)) {
+    const u32 produced = transfer.output_bytes;
+    if (transfer.overflow) {
         return handshake_failure(TlsError::output_too_small, kStatusBufferTooSmall);
     }
     if (failed) {
@@ -478,34 +535,41 @@ TlsResult tls_client_encrypt_spans(TlsClient* client, ConstSlice<ConstSlice<u8>>
     if (!library) {
         return result(TlsError::encrypt, kStatusLibrary | static_cast<i32>(openssl::kFailureLibrary));
     }
-    // The plaintext goes to the tail of the output, where SSL_write copies it from before the ciphertext is
-    // drained into the front.
+    // Queued control records first: OpenSSL produced them before this call's records.
     const u32 total = static_cast<u32>(plaintext_bytes);
-    u8* tail = output.data + output.count - total;
-    u32 offset = 0;
-    for (u32 span = 0; span < plaintext.count; ++span) {
-        copy_bytes(tail + offset, plaintext[span].data, plaintext[span].count);
-        offset += plaintext[span].count;
+    const u32 control = client->native.control_bytes;
+    copy_bytes(output.data, client->native.control, control);
+    Transfer transfer{nullptr, 0, output.data + control, output.count - control, 0, nullptr, nullptr, 0, false};
+    // One span outside the output is encrypted from where it is. Else the spans go to the tail of the output, and
+    // bio_write keeps the records that would reach them in a heap block until OpenSSL has encrypted them all.
+    const u8* source = plaintext[0].data;
+    if (plaintext.count != 1 || (source < output.data + output.count && source + total > output.data)) {
+        u8* tail = output.data + output.count - total;
+        u32 offset = 0;
+        for (u32 span = 0; span < plaintext.count; ++span) {
+            copy_bytes(tail + offset, plaintext[span].data, plaintext[span].count);
+            offset += plaintext[span].count;
+        }
+        source = tail;
+        transfer.staged = tail;
     }
+    lend(*library, client, &transfer);
     library->crypto.ERR_clear_error();
-    const int written = library->SSL_write(client->native.ssl, tail, static_cast<int>(total));
+    const int written = library->SSL_write(client->native.ssl, source, static_cast<int>(total));
+    if (transfer.spill) {
+        copy_bytes(transfer.output + transfer.output_bytes, transfer.spill, transfer.spill_bytes);
+        transfer.output_bytes += transfer.spill_bytes;
+        heap_free(transfer.spill);
+    }
+    if (transfer.overflow) {
+        return result(TlsError::output_too_small, kStatusBufferTooSmall);
+    }
     if (written != static_cast<int>(total)) {
         const i32 status = ssl_status(*library, client->native.ssl, library->SSL_get_error(client->native.ssl, written));
         return result(TlsError::encrypt, status);
     }
-    const usize pending = library->crypto.BIO_ctrl_pending(client->native.write_bio);
-    const u32 control = client->native.control_bytes;
-    if (control + pending > output.count) {
-        return result(TlsError::output_too_small, kStatusBufferTooSmall);
-    }
-    // Queued control records first; they were produced before this call's records.
-    copy_bytes(output.data, client->native.control, control);
-    u32 cipher_bytes = 0;
-    if (!drain(*library, client->native.write_bio, output.data + control, output.count - control, &cipher_bytes)) {
-        return result(TlsError::encrypt, kStatusSsl | openssl::kSslErrorSsl);
-    }
     client->native.control_bytes = 0;
-    *produced = control + cipher_bytes;
+    *produced = control + transfer.output_bytes;
     return result(TlsError::none, kTlsStatusOk);
 }
 
@@ -530,30 +594,20 @@ TlsDecryptResult tls_client_decrypt(TlsClient* client, Slice<u8> encrypted) noex
         return decrypt_failure(TlsError::decrypt, 0, kStatusLibrary | static_cast<i32>(openssl::kFailureLibrary));
     }
     void* ssl = client->native.ssl;
+    // Whatever OpenSSL writes while it reads (a key update answer, a close_notify reply) waits for the next encrypt.
+    Transfer transfer{encrypted.data, record_bytes, client->native.control + client->native.control_bytes,
+                      kTlsControlCapacity - client->native.control_bytes, 0, nullptr, nullptr, 0, false};
+    lend(*library, client, &transfer);
     library->crypto.ERR_clear_error();
-    if (library->crypto.BIO_write(client->native.read_bio, encrypted.data, static_cast<int>(record_bytes)) !=
-        static_cast<int>(record_bytes)) {
-        return decrypt_failure(TlsError::decrypt, 0, kStatusSsl | openssl::kSslErrorSsl);
-    }
     const int read = library->SSL_read(ssl, encrypted.data, static_cast<int>(record_bytes));
     const int error = read > 0 ? openssl::kSslErrorNone : library->SSL_get_error(ssl, read);
     const i32 status = read > 0 || error == openssl::kSslErrorWantRead || error == openssl::kSslErrorZeroReturn
                            ? kTlsStatusOk
                            : ssl_status(*library, ssl, error);
-
-    // Whatever OpenSSL wrote while reading (a key update answer, a close_notify reply) waits for the next encrypt.
-    const usize pending = library->crypto.BIO_ctrl_pending(client->native.write_bio);
-    if (pending != 0) {
-        if (client->native.control_bytes + pending > kTlsControlCapacity) {
-            return decrypt_failure(TlsError::decrypt, record_bytes, kStatusBufferTooSmall);
-        }
-        u32 moved = 0;
-        if (!drain(*library, client->native.write_bio, client->native.control + client->native.control_bytes,
-                   kTlsControlCapacity - client->native.control_bytes, &moved)) {
-            return decrypt_failure(TlsError::decrypt, record_bytes, kStatusSsl | openssl::kSslErrorSsl);
-        }
-        client->native.control_bytes += moved;
+    if (transfer.overflow) {
+        return decrypt_failure(TlsError::decrypt, record_bytes, kStatusBufferTooSmall);
     }
+    client->native.control_bytes += transfer.output_bytes;
     if (read > 0) {
         return TlsDecryptResult{{encrypted.data, static_cast<u32>(read)}, record_bytes, kTlsStatusOk, TlsError::none,
                                 TlsDecryptState::plaintext};

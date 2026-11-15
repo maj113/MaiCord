@@ -266,7 +266,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
         probe.signal(), "joined teardown fixture retains pending bank");
     const void* destroy_bank = r->extended_body;
     close_transport(r);
-    check(drained(r), "teardown connection has drained every borrow");
+    check(tls_stream_drained(&r->transport), "teardown connection has drained every borrow");
     destroy_client_storage(&probe.client, nullptr);
     probe.runtime = nullptr;
     check(!probe.client.runtime && freed(destroy_bank), "joined storage teardown releases pending extended bank");

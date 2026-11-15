@@ -29,6 +29,9 @@ struct Runtime {
     i64 started;
     u64 deadline, expected_bytes, notify_at;
     FileSnapshot destination;
+    // The record that the TLS stream decrypted in place. The stream reads no more input while the
+    // handler holds a part of it (pause), so the bytes stay where they are until pump takes them all.
+    const u8* plaintext;
     u32 head_bytes, path_units, plaintext_bytes, plaintext_offset, write_bytes;
     bool destination_exists, overwrite_authorized, tls_initialized;
     bool draining, stopping, published, plaintext_closed, response_failed;
@@ -37,7 +40,7 @@ struct Runtime {
     wchar_t stage[kHttpsFileDownloadMaximumPathUnits + 1];
     u8 head[kCdnMaximumTargetBytes + 512];
     u8 encrypted[128 * 1024], handshake[256 * 1024], record[64 * 1024];
-    u8 plaintext[64 * 1024], response_input[32 * 1024];
+    u8 response_input[32 * 1024];
 };
 void phase(HttpsFileDownload* owner, HttpsFileDownloadPhase value) noexcept {
     InterlockedExchange(&owner->phase, static_cast<LONG>(value));
@@ -89,7 +92,8 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
     return {ERROR_FILE_EXISTS, StagedFileError::create};
 }
 NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
-    if (r->staged.file.pending || (r->tls_initialized && !tls_stream_drained(&r->tls))) return {100, false};
+    // Each pending file or TLS operation ends with one completion, and the worker comes back here for it.
+    if (r->staged.file.pending || (r->tls_initialized && !tls_stream_drained(&r->tls))) return {INFINITE, false};
     if (r->draining || r->published) {
         const auto discarded = staged_file_discard(&r->staged);
         const u32 cleanup = discarded.ok() ? 0 : discarded.native_error;
@@ -109,7 +113,6 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
         if (!r->published) {
             r->published = true; r->draining = false;
             secure_clear_bytes(r->head, sizeof(r->head));
-            secure_clear_bytes(r->plaintext, sizeof(r->plaintext));
             phase(owner, HttpsFileDownloadPhase::complete); event_set(owner->notification);
         } else if (cleanup_changed) event_set(owner->notification);
     }
@@ -142,10 +145,10 @@ bool pump(Runtime* r) noexcept {
 }
 TlsStreamReadAction response(void* context, ConstSlice<u8> bytes, bool peer_closed) noexcept {
     auto* r = static_cast<Runtime*>(context);
-    if (r->plaintext_bytes || r->response.pending.count || bytes.count > sizeof(r->plaintext)) {
+    if (r->plaintext_bytes || r->response.pending.count) {
         r->response_failed = true; return TlsStreamReadAction::reject;
     }
-    copy_bytes(r->plaintext, bytes.data, bytes.count);
+    r->plaintext = bytes.data;
     r->plaintext_bytes = bytes.count; r->plaintext_offset = 0; r->plaintext_closed = peer_closed;
     if (!pump(r)) return TlsStreamReadAction::reject;
     if (r->response.pending.count || r->plaintext_bytes) return TlsStreamReadAction::pause;

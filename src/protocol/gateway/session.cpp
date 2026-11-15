@@ -317,6 +317,16 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
 }
 
 bool gateway_session_push(GatewaySession* session, ConstSlice<u8> plaintext) noexcept {
+    // While a binary frame's payload streams and no byte waits in the queue, gateway_session_next would first move
+    // the payload bytes to compressed storage. Push moves them there at once. A payload that does not fit takes the
+    // queue, so that the next step reports the overflow.
+    if (session->stream_remaining && !byte_queue_size(session->input)) {
+        const u32 take = minimum(plaintext.count, session->stream_remaining);
+        if (append_compressed(session, {plaintext.data, take})) {
+            session->stream_remaining -= take;
+            plaintext = {plaintext.data + take, plaintext.count - take};
+        }
+    }
     return byte_queue_append(&session->input, plaintext);
 }
 

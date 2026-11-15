@@ -44,18 +44,12 @@ RestEndpointKey endpoint_key(ConstSlice<u8> target) noexcept {
             hash64_counted_bytes(~kHash64Seed, target.data, bytes), bytes};
 }
 
-} // namespace rest_client_detail
-namespace {
-
-RestEndpointGateEntry* endpoint_entry(RestEndpointGate* gate, RestEndpointLease lease) noexcept {
+static RestEndpointGateEntry* endpoint_entry(RestEndpointGate* gate, RestEndpointLease lease) noexcept {
     if (!gate || !lease.generation || lease.index >= kRestEndpointGateCapacity)
         return nullptr;
     auto& entry = gate->entries[lease.index];
     return entry.generation == lease.generation && entry.in_flight ? &entry : nullptr;
 }
-
-} // namespace
-namespace rest_client_detail {
 
 EndpointGateResult endpoint_gate_acquire(RestEndpointGate* gate, RestEndpointKey key, u64 now_ms,
                                          RestEndpointLease* lease) noexcept {
@@ -102,11 +96,8 @@ EndpointGateResult endpoint_gate_acquire(RestEndpointGate* gate, RestEndpointKey
     return {EndpointGateKind::acquired, 0};
 }
 
-} // namespace rest_client_detail
-namespace {
-
-EndpointGateResult endpoint_gate_recheck(RestEndpointGate* gate, RestEndpointLease lease,
-                                         u64 now_ms) noexcept {
+static EndpointGateResult endpoint_gate_recheck(RestEndpointGate* gate, RestEndpointLease lease,
+                                                u64 now_ms) noexcept {
     const auto* entry = endpoint_entry(gate, lease);
     if (!entry)
         return {EndpointGateKind::error, 0};
@@ -114,16 +105,13 @@ EndpointGateResult endpoint_gate_recheck(RestEndpointGate* gate, RestEndpointLea
                                        : EndpointGateResult{EndpointGateKind::acquired, 0};
 }
 
-bool endpoint_gate_observe(RestEndpointGate* gate, RestEndpointLease lease, u64 deadline_ms) noexcept {
+static bool endpoint_gate_observe(RestEndpointGate* gate, RestEndpointLease lease, u64 deadline_ms) noexcept {
     auto* entry = endpoint_entry(gate, lease);
     if (!entry)
         return false;
     entry->retry_at_ms = maximum(entry->retry_at_ms, deadline_ms);
     return true;
 }
-
-} // namespace
-namespace rest_client_detail {
 
 bool endpoint_gate_release(RestEndpointGate* gate, RestEndpointLease* lease, u64 now_ms,
                            bool settled) noexcept {
@@ -139,22 +127,12 @@ bool endpoint_gate_release(RestEndpointGate* gate, RestEndpointLease* lease, u64
     return true;
 }
 
-} // namespace rest_client_detail
-namespace {
-
 struct RestLocalRates {
     RestRateScheduler scheduler;
     RestRateBucket buckets[kRateBucketCount];
     RestRateBinding bindings[kRateBindingCount];
     RestEndpointGate endpoint_gate;
 };
-
-} // namespace
-namespace rest_client_detail {
-
-RestRateScheduler* rate_scheduler(RestClientRuntime* runtime) noexcept {
-    return runtime->scheduler;
-}
 
 // Called with the shared lock held. IOCP signals coalesce; idle workers stay
 // asleep between real completions rather than polling each other's state.
@@ -177,7 +155,7 @@ void cancel_rate_lease(RestClientRuntime* runtime) noexcept {
     bool changed = endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease,
                                          clock_monotonic_milliseconds());
     if (runtime->transaction.lease.active) {
-        rest_rate_cancel(rate_scheduler(runtime), &runtime->transaction.lease);
+        rest_rate_cancel(runtime->scheduler, &runtime->transaction.lease);
         changed = true;
     }
     if (changed)
@@ -196,27 +174,21 @@ AccountRequirement required_action(RestClient* client) noexcept {
         read_acquire(client->shared ? &client->shared->required_action : &client->required_action));
 }
 
-} // namespace rest_client_detail
-namespace {
-
-constexpr u32 ordinary_fixed_storage_bytes(bool normal_user) noexcept {
+static constexpr u32 ordinary_fixed_storage_bytes(bool normal_user) noexcept {
     return kRestClientMaximumTargetBytes + kEncryptedInputBytes + kHandshakeOutputBytes +
            kRecordOutputBytes + kRestMaximumHeaderBytes + (normal_user ? kUserClientMetadataBytes : 0);
 }
 
 // The request, TLS input and record, the head, and the inflate scratch.
-constexpr u32 user_auth_secure_fixed_storage_bytes(u32 request_capacity) noexcept {
+static constexpr u32 user_auth_secure_fixed_storage_bytes(u32 request_capacity) noexcept {
     return request_capacity + kUserAuthEncryptedInputBytes +
            kUserAuthRecordOutputBytes + kRestMaximumHeaderBytes + kUserAuthMaximumResponseBytes;
 }
 
-inline u32 page_rounded_bytes(u64 raw) noexcept {
+static inline u32 page_rounded_bytes(u64 raw) noexcept {
     const u64 rounded = (raw + 4095ull) & ~4095ull;
     return rounded <= ~0u ? static_cast<u32>(rounded) : 0;
 }
-
-} // namespace
-namespace rest_client_detail {
 
 u32 user_auth_secure_bytes(u32 response_capacity, u32 request_capacity) noexcept {
     if (response_capacity < kRestClientMinimumResponseBytes ||
@@ -317,30 +289,16 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
         assign_user_metadata(runtime, cursor);
 }
 
-} // namespace rest_client_detail
-namespace {
-
-RestClientPhase load_phase(const RestClient* client) noexcept {
+static RestClientPhase load_phase(const RestClient* client) noexcept {
     return static_cast<RestClientPhase>(
         read_acquire(&client->phase));
 }
-
-RestClientError load_error(const RestClient* client) noexcept {
-    return static_cast<RestClientError>(
-        read_acquire(&client->error));
-}
-
-} // namespace
-namespace rest_client_detail {
 
 void publish_phase(RestClient* client, RestClientPhase phase) noexcept {
     InterlockedExchange(&client->phase, static_cast<LONG>(phase));
 }
 
-} // namespace rest_client_detail
-namespace {
-
-const char* phase_name(RestClientPhase phase) noexcept {
+static const char* phase_name(RestClientPhase phase) noexcept {
     switch (phase) {
     case RestClientPhase::queued: return "queued";
     case RestClientPhase::rate_wait: return "rate_wait";
@@ -355,9 +313,6 @@ const char* phase_name(RestClientPhase phase) noexcept {
     default: return "other";
     }
 }
-
-} // namespace
-namespace rest_client_detail {
 
 void trace_identity(TraceRecord& line, const RestClientRuntime* runtime, u64 request) noexcept {
     line.field("worker", runtime->trace_worker_id);
@@ -421,7 +376,7 @@ RestClientResult client_result(const RestClient* client) noexcept {
     RestClientResult value{};
     value.authentication_rejected = authentication_rejected(client);
     value.phase = load_phase(client);
-    value.error = load_error(client);
+    value.error = static_cast<RestClientError>(read_acquire(&client->error));
     value.native_error = static_cast<u32>(
         read_acquire(&client->native_error));
     value.connections = static_cast<u64>(
@@ -489,11 +444,8 @@ CookieRequest cookie_request(const RestClientRuntime* runtime) noexcept {
             true};
 }
 
-} // namespace rest_client_detail
-namespace {
-
 // The super properties and locale as the live metadata reports them for this request.
-void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
+static void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
     if (!runtime->metadata)
         return;
     const u32 bytes = client_session_metadata_request(
@@ -503,9 +455,6 @@ void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
     if (bytes)
         runtime->user_super_properties_bytes = bytes;
 }
-
-} // namespace
-namespace rest_client_detail {
 
 bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
     UserClientConfigurationStorage storage{};
@@ -576,19 +525,13 @@ void erase_command(RestClientRuntime* runtime, bool erase_body) noexcept {
     reset_value<RestClientCommand>(&runtime->command);
 }
 
-} // namespace rest_client_detail
-namespace {
-
-void erase_response_storage(RestClientRuntime* runtime) noexcept {
+static void erase_response_storage(RestClientRuntime* runtime) noexcept {
     secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
     if (runtime->response.http.body_bytes != 0) {
         secure_clear_bytes(runtime->response_body, runtime->response.http.body_bytes);
     }
     reset_value<RestResponse>(&runtime->response);
 }
-
-} // namespace
-namespace rest_client_detail {
 
 // A signed-out client's scratch lies in its locked storage, which erases it.
 void release_decompression(RestClientRuntime* runtime) noexcept {
@@ -679,11 +622,8 @@ u32 next_wait(const RestClientRuntime* runtime, u64 now_ms) noexcept {
     return deadline == 0 ? INFINITE : wait_milliseconds_until(now_ms, deadline);
 }
 
-} // namespace rest_client_detail
-namespace {
-
-void publish_completed(RestClient* client, RestClientRuntime* runtime,
-                       RestClientResponse response) noexcept {
+static void publish_completed(RestClient* client, RestClientRuntime* runtime,
+                              RestClientResponse response) noexcept {
     bool cancelled = false, active_cancel = false;
     if (!network_client_begin_publish(client, &cancelled, &active_cancel)) {
         return;
@@ -749,9 +689,6 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     event_set(client->response_event);
 }
 
-} // namespace
-namespace rest_client_detail {
-
 void publish_request_error(RestClient* client, RestClientRuntime* runtime,
                            RestClientError error, u32 native_error) noexcept {
     erase_response_storage(runtime);
@@ -761,16 +698,6 @@ void publish_request_error(RestClient* client, RestClientRuntime* runtime,
     response.reused_connection = runtime->transaction.reused_connection;
     publish_completed(client, runtime, response);
 }
-
-} // namespace rest_client_detail
-namespace {
-
-bool drained(const RestClientRuntime* runtime) noexcept {
-    return tls_stream_drained(const_cast<TlsStream*>(&runtime->transport));
-}
-
-} // namespace
-namespace rest_client_detail {
 
 void begin_drain(RestClient* client, RestClientRuntime* runtime, RestClientError error,
                  u32 native_error, bool cancelled) noexcept {
@@ -790,12 +717,9 @@ void begin_drain(RestClient* client, RestClientRuntime* runtime, RestClientError
     close_transport(runtime);
 }
 
-} // namespace rest_client_detail
-namespace {
-
 // Retries a bodyless GET the way the client's `retries` option does: after 1 s, 2 s, 4 s, then 5 s (the mean of its
 // jittered backoff from 500 ms capped at 5 s), counting the failed tries in X-Failed-Requests.
-bool schedule_retry(RestClient* client, RestClientRuntime* runtime, u64 now_ms) noexcept {
+static bool schedule_retry(RestClient* client, RestClientRuntime* runtime, u64 now_ms) noexcept {
     if (!runtime->command.retries_left || runtime->stopping)
         return false;
     --runtime->command.retries_left;
@@ -811,16 +735,13 @@ bool schedule_retry(RestClient* client, RestClientRuntime* runtime, u64 now_ms) 
 }
 
 // The failures the client retries: any but a cancellation, its own timeout or a local refusal.
-bool retryable_transport_error(RestClientError error) noexcept {
+static bool retryable_transport_error(RestClientError error) noexcept {
     return error == RestClientError::resolve || error == RestClientError::connect || error == RestClientError::tls ||
            error == RestClientError::send || error == RestClientError::receive || error == RestClientError::response;
 }
 
-} // namespace
-namespace rest_client_detail {
-
 NetworkWorkerStep finish_drain(RestClient* client, RestClientRuntime* runtime) noexcept {
-    if (!drained(runtime)) {
+    if (!tls_stream_drained(&runtime->transport)) {
         return NetworkWorkerStep{INFINITE, false};
     }
     if (runtime->stopping) {
@@ -838,10 +759,7 @@ NetworkWorkerStep finish_drain(RestClient* client, RestClientRuntime* runtime) n
     return NetworkWorkerStep{INFINITE, false};
 }
 
-} // namespace rest_client_detail
-namespace {
-
-void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) noexcept {
+static void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) noexcept {
     auto* runtime = static_cast<RestClientRuntime*>(opaque);
     if (!rest_transaction_commit_plaintext(&runtime->transaction, committed.count)) {
         runtime->write_commit_failed = true;
@@ -850,9 +768,6 @@ void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) noexcep
         secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
     }
 }
-
-} // namespace
-namespace rest_client_detail {
 
 TlsStreamReadAction response_plaintext_received(void* opaque, ConstSlice<u8> plaintext,
                                                 bool peer_closed) noexcept {
@@ -958,10 +873,10 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
         const u64 now_ms = clock_monotonic_milliseconds();
         const auto endpoint =
             endpoint_gate_recheck(runtime->endpoint_gate, runtime->endpoint_lease, now_ms);
-        const u64 reset = maximum(rate_scheduler(runtime)->global_reset_at_ms, endpoint.wait_until_ms);
+        const u64 reset = maximum(runtime->scheduler->global_reset_at_ms, endpoint.wait_until_ms);
         invalid_endpoint = endpoint.kind == EndpointGateKind::error;
         if (invalid_endpoint || reset > now_ms) {
-            rest_rate_cancel(rate_scheduler(runtime), &runtime->transaction.lease);
+            rest_rate_cancel(runtime->scheduler, &runtime->transaction.lease);
             endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms,
                                   invalid_endpoint);
             rate_changed(runtime);
@@ -1003,12 +918,9 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                                   request_plaintext_committed, runtime);
 }
 
-} // namespace rest_client_detail
-namespace {
-
-void prepare_response_metadata(RestClientRuntime* runtime,
-                               const RestRateObservation& observation,
-                               RestClientResponse* completed) noexcept {
+static void prepare_response_metadata(RestClientRuntime* runtime,
+                                      const RestRateObservation& observation,
+                                      RestClientResponse* completed) noexcept {
     const RateLimitHeaders& rate = runtime->response.parsed_head.rate;
     completed->rate = {rate.reset_after_ms, rate.retry_after_ms, rate.fields, rate.remaining};
     completed->retry_at_ms = observation.retry_at_ms;
@@ -1022,9 +934,6 @@ void prepare_response_metadata(RestClientRuntime* runtime,
     completed->global_rate_limit = observation.global;
     completed->reused_connection = runtime->transaction.reused_connection;
 }
-
-} // namespace
-namespace rest_client_detail {
 
 bool finalize_response(RestClient* client, RestClientRuntime* runtime,
                        const RestResponseStep& step, u64 now_ms) noexcept {
@@ -1090,17 +999,18 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
                                                   ? kHandshakeOutputBytes : runtime->response_capacity;
         }
         const i64 begin = clock_now();
+        // The smaller wire bytes move to the scratch, and the body inflates into the response storage.
+        copy_bytes(runtime->decompression, runtime->response_body, runtime->wire_body_bytes);
         // HTTP's deflate is the zlib format (RFC 9110 section 8.4.1.2).
-        const DeflateInputSpan wire{runtime->response_body, runtime->wire_body_bytes};
-        const Slice<u8> output{runtime->decompression, runtime->response_capacity};
+        const DeflateInputSpan wire{runtime->decompression, runtime->wire_body_bytes};
+        const Slice<u8> output{runtime->response_body, runtime->response_capacity};
         const auto inflated = gzip ? gzip_inflate({wire.data, wire.bytes}, output, &runtime->inflate_workspace)
                                    : zlib_inflate({&wire, 1}, output, ~0u, &runtime->inflate_workspace);
+        secure_clear_bytes(runtime->decompression, runtime->wire_body_bytes);
         if (!inflated.ok()) {
-            secure_clear_bytes(runtime->decompression, runtime->response_capacity);
+            secure_clear_bytes(runtime->response_body, runtime->response_capacity);
             return false;
         }
-        copy_bytes(runtime->response_body, runtime->decompression, inflated.output_bytes);
-        secure_clear_bytes(runtime->decompression, inflated.output_bytes);
         runtime->response.http.body_bytes = inflated.output_bytes;
         runtime->response.parsed_head.representation.content_encoding =
             RestContentEncoding::identity;
@@ -1146,7 +1056,7 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         cancel_rate_lease(runtime);
     else {
         RateLock guard(runtime);
-        observation = rest_rate_observe(rate_scheduler(runtime), &runtime->transaction.lease,
+        observation = rest_rate_observe(runtime->scheduler, &runtime->transaction.lease,
                                         runtime->response.parsed_head, rate_body_pointer, now_ms,
                                         clock_unix_milliseconds());
         endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);

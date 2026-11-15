@@ -188,7 +188,6 @@ struct RateLock {
     }
 };
 
-RestRateScheduler* rate_scheduler(RestClientRuntime* runtime) noexcept;
 void rate_changed(RestClientRuntime* runtime) noexcept;
 void cancel_rate_lease(RestClientRuntime* runtime) noexcept;
 bool authentication_rejected(const RestClient* client) noexcept;

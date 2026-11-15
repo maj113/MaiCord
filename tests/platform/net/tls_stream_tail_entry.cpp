@@ -49,6 +49,29 @@ bool coalesced(ConstSlice<u8> tail, bool pause, bool empty_first, TlsStreamError
         r.calls == (pause ? 2u : 1u) && !stream.connection.receive_pending;
     tls_stream_close(&stream); return ok && tls_stream_drained(&stream);
 }
+// A paused reader keeps a view of its plaintext instead of a copy: the bytes stay in place until resume.
+struct Keeper { const u8* kept; u32 calls; bool intact; };
+TlsStreamReadAction keeper(void* context, ConstSlice<u8> plaintext, bool) noexcept {
+    auto* k = static_cast<Keeper*>(context);
+    if (++k->calls == 1) {
+        k->kept = plaintext.count == 1 ? plaintext.data : nullptr;
+        return TlsStreamReadAction::pause;
+    }
+    k->intact &= k->kept && *k->kept == 'B';
+    return plaintext.count ? TlsStreamReadAction::complete : TlsStreamReadAction::continue_read;
+}
+bool paused_view() noexcept {
+    u8 encrypted[64]{}, token[64]{}, record[64]{}; TlsStream stream{}; Keeper k{nullptr, 0, true};
+    if (!tls_stream_initialize(&stream, L"localhost", {{encrypted, 64}, {token, 64}, {record, 64}})) return false;
+    const u8 records[4]{'A', 'B', 'A', 'C'};
+    if (!byte_queue_append(&stream.encrypted_input, {records, 4})) return false;
+    stream.state = TlsStreamState::ready;
+    const auto paused = tls_stream_start_read(&stream, keeper, &k);
+    const bool held = paused.kind == TlsStreamEventKind::read_paused && k.kept && *k.kept == 'B';
+    const auto resumed = tls_stream_resume_read(&stream);
+    const bool ok = held && resumed.ok() && resumed.kind == TlsStreamEventKind::read_complete && k.calls == 3 && k.intact;
+    tls_stream_close(&stream); return ok && tls_stream_drained(&stream);
+}
 bool fragmented(bool pause, bool eof) noexcept {
     // Real local TCP/IOCP owns the split record's receive buffer; only the
     // authenticated Schannel results are synthetic in this executable.
@@ -118,6 +141,7 @@ void tests() noexcept {
     }
     check(coalesced({close, 2}, false, false, TlsStreamError::none), "unpaused nonempty final body accepts authenticated shutdown");
     check(coalesced({}, true, false, TlsStreamError::none), "paused completion with no retained tail finishes without waiting for keepalive EOF");
+    check(paused_view(), "paused reader keeps its plaintext in place until resume");
 }
 } // namespace
 } // namespace maicord

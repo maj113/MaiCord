@@ -3,7 +3,7 @@
 #include "maicord/core/base.hpp"
 
 // The operating system's part of a TlsClient (tls_client.hpp). Windows keeps Schannel's two handles; Linux keeps
-// the OpenSSL connection and the two memory BIOs that carry its records (src/platform/net/linux/tls_client.cpp).
+// the OpenSSL connection and the BIO that carries its records (src/platform/net/linux/tls_client.cpp).
 
 namespace maicord {
 
@@ -28,8 +28,7 @@ inline constexpr u32 kTlsControlCapacity = 512;
 
 struct TlsNative {
     void* ssl;
-    void* read_bio;
-    void* write_bio;
+    void* bio;
     u32 control_bytes;
     u8 control[kTlsControlCapacity];
 };

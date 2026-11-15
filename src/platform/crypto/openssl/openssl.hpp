@@ -58,7 +58,10 @@ inline constexpr int kCtrlAeadSetTag = 0x11;       // EVP_CTRL_AEAD_SET_TAG
 inline constexpr int kSelectionPublicKey = 0x86;   // EVP_PKEY_PUBLIC_KEY
 inline constexpr int kKeyTypeEc = 408;             // EVP_PKEY_EC
 inline constexpr int kRsaOaepPadding = 4;          // RSA_PKCS1_OAEP_PADDING
-inline constexpr int kBioSetMemoryEofReturn = 130; // BIO_C_SET_BUF_MEM_EOF_RETURN
+inline constexpr int kBioTypeSourceSink = 0x0400;  // BIO_TYPE_SOURCE_SINK
+inline constexpr int kBioFlagsRead = 0x01;         // BIO_FLAGS_READ
+inline constexpr int kBioFlagsShouldRetry = 0x08;  // BIO_FLAGS_SHOULD_RETRY
+inline constexpr int kBioCtrlFlush = 11;           // BIO_CTRL_FLUSH
 inline constexpr int kSslCtrlMode = 33;            // SSL_CTRL_MODE
 inline constexpr int kSslCtrlSetHostname = 55;     // SSL_CTRL_SET_TLSEXT_HOSTNAME
 inline constexpr int kSslCtrlSetStatusType = 65;   // SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE
@@ -135,13 +138,14 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
     F(void, BN_clear_free, (void*))                                                                                    \
     F(void*, d2i_PrivateKey, (int, void**, const u8**, long))                                                          \
     F(int, i2d_PUBKEY, (const void*, u8**))                                                                            \
-    F(const void*, BIO_s_mem, (void))                                                                                  \
+    F(void*, BIO_meth_new, (int, const char*))                                                                         \
+    F(int, BIO_meth_set_write, (void*, void*))                                                                         \
+    F(int, BIO_meth_set_read, (void*, void*))                                                                          \
+    F(int, BIO_meth_set_ctrl, (void*, void*))                                                                          \
     F(void*, BIO_new, (const void*))                                                                                   \
-    F(int, BIO_free, (void*))                                                                                          \
-    F(long, BIO_ctrl, (void*, int, long, void*))                                                                       \
-    F(usize, BIO_ctrl_pending, (void*))                                                                                \
-    F(int, BIO_read, (void*, void*, int))                                                                              \
-    F(int, BIO_write, (void*, const void*, int))                                                                       \
+    F(void, BIO_set_data, (void*, void*))                                                                              \
+    F(void*, BIO_get_data, (void*))                                                                                    \
+    F(void, BIO_set_flags, (void*, int))                                                                               \
     F(void, X509_VERIFY_PARAM_set_hostflags, (void*, u32))                                                             \
     F(int, X509_VERIFY_PARAM_set1_ip_asc, (void*, const char*))                                                        \
     F(void*, X509_STORE_get0_objects, (void*))                                                                         \

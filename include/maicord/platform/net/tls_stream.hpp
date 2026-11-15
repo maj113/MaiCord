@@ -128,8 +128,8 @@ TlsStreamEvent tls_stream_start_write(TlsStream* stream, ConstSlice<ConstSlice<u
                                       void* callback_context = nullptr) noexcept;
 TlsStreamEvent tls_stream_start_read(TlsStream* stream, TlsStreamReadHandler read_handler,
                                      void* callback_context) noexcept;
-// A non-duplex callback may pause after consuming/copying its plaintext. No
-// further receive is posted and encrypted tail records are kept. Resume only
+// A non-duplex callback may pause. Its plaintext stays in place until resume or close,
+// so it need not copy it. No further receive is posted and encrypted tail records are kept. Resume only
 // after downstream borrowed buffers are released. Resume first calls the handler
 // with empty input (and EOF, if one was pending), then authenticates the kept tail.
 // Empty records/shutdown are allowed; extra application bytes fail. A fragmented

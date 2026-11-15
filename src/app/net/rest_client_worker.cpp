@@ -129,7 +129,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
         } else if (shared && mutation && shared->mutation_owner) {
             acquired.kind = RestRateAcquireKind::busy;
         } else {
-            acquired = rest_rate_acquire(rate_scheduler(runtime), runtime->command.route, now_ms);
+            acquired = rest_rate_acquire(runtime->scheduler, runtime->command.route, now_ms);
             if (shared && mutation && acquired.acquired_request())
                 shared->mutation_owner = client;
         }
@@ -173,7 +173,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
         RestRateLease lease = acquired.lease;
         {
             RateLock guard(runtime);
-            rest_rate_cancel(rate_scheduler(runtime), &lease);
+            rest_rate_cancel(runtime->scheduler, &lease);
             endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);
             rate_changed(runtime);
         }
@@ -372,19 +372,13 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
     client->runtime = nullptr;
 }
 
-} // namespace rest_client_detail
-namespace {
-
 // Releases the storage of a start that failed after allocating it and records the error.
-RestClientResult fail_start(RestClient* client, RestClientError error, u32 native_error) noexcept {
+static RestClientResult fail_start(RestClient* client, RestClientError error, u32 native_error) noexcept {
     destroy_client_storage(client, nullptr);
     InterlockedExchange(&client->error, static_cast<LONG>(error));
     InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
     return client_result(client);
 }
-
-} // namespace
-namespace rest_client_detail {
 
 RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                               RestAuthorization authorization,

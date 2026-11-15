@@ -643,6 +643,43 @@ bool retain_final_head(HttpResponseDecoder* decoder, ConstSlice<u8> head) noexce
     return true;
 }
 
+// Copies the body bytes of source to the body. *used counts the bytes of source that the body and its framing
+// took. False after a failure, which the decoder records.
+bool decode_body(HttpResponseDecoder* decoder, ConstSlice<u8> source, bool peer_closed, u32* used) noexcept {
+    const HttpBodyKind kind = http_response_body_kind(decoder->parsed_head, decoder->request_was_head);
+    if (kind == HttpBodyKind::content_length) {
+        *used = static_cast<u32>(
+            minimum<u64>(decoder->expected_body_bytes - decoder->body_bytes, static_cast<u64>(source.count)));
+        if (!decoder_copy_body(decoder, ConstSlice<u8>{source.data, *used}))
+            return decoder_failure(decoder, HttpResponseDecoderError::body_capacity), false;
+        if (decoder->body_bytes == decoder->expected_body_bytes)
+            decoder->state = HttpResponseDecoderState::complete;
+        return true;
+    }
+    if (kind == HttpBodyKind::chunked) {
+        for (*used = 0;;) {
+            const HttpChunkStep chunk = http_chunk_decode(
+                &decoder->chunk_decoder, ConstSlice<u8>{source.data + *used, source.count - *used});
+            if (!chunk.ok())
+                return decoder_failure(decoder, HttpResponseDecoderError::body_framing), false;
+            if (chunk.state == HttpChunkStepState::data && !decoder_copy_body(decoder, chunk.data))
+                return decoder_failure(decoder, HttpResponseDecoderError::body_capacity), false;
+            *used += chunk.consumed;
+            if (chunk.state != HttpChunkStepState::data) {
+                if (chunk.state == HttpChunkStepState::complete)
+                    decoder->state = HttpResponseDecoderState::complete;
+                return true;
+            }
+        }
+    }
+    *used = source.count;
+    if (!decoder_copy_body(decoder, source))
+        return decoder_failure(decoder, HttpResponseDecoderError::body_capacity), false;
+    if (peer_closed)
+        decoder->state = HttpResponseDecoderState::complete;
+    return true;
+}
+
 } // namespace
 
 bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> input_storage,
@@ -677,100 +714,68 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
             decoder->connection_reusable = false;
         return decoder_step(*decoder);
     }
-    if (!byte_queue_append(&decoder->input, input))
-        return decoder_failure(decoder, HttpResponseDecoderError::input_capacity);
     // More input is needed: a peer that closed first leaves the response truncated.
     const auto wait = [&]() noexcept {
         return peer_closed ? decoder_failure(decoder, HttpResponseDecoderError::unexpected_close)
                            : decoder_step(*decoder);
     };
-
-    for (;;) {
-        HttpBodyKind body_kind;
-        if (decoder->state == HttpResponseDecoderState::head) {
-            const ConstSlice<u8> readable = byte_queue_readable(decoder->input);
-            const HttpHeadResult parsed = decoder_parse_head(decoder, readable);
-            if (parsed.state == HttpParseState::need_more)
-                return wait();
-            if (!parsed.ok())
-                return decoder_failure(decoder, HttpResponseDecoderError::head);
-            if (parsed.head.status_code >= 100 && parsed.head.status_code < 200 && parsed.head.status_code != 101) {
-                if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes) ||
-                    ++decoder->informational_responses > 8)
-                    return decoder_failure(decoder, HttpResponseDecoderError::head);
-                continue;
-            }
-            if (!retain_final_head(decoder, ConstSlice<u8>{readable.data, parsed.head.header_bytes}))
-                return decoder_failure(decoder, HttpResponseDecoderError::head_capacity);
-            if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes))
-                return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
-            decoder->parsed_head = parsed.head;
-            decoder->connection_reusable = decoder_connection_reusable(parsed.head);
-            body_kind = http_response_body_kind(parsed.head, decoder->request_was_head);
-            if (parsed.head.status_code == 101)
-                return decoder_failure(decoder, HttpResponseDecoderError::unsupported_tunnel);
-            if (body_kind == HttpBodyKind::none) {
-                decoder->state = HttpResponseDecoderState::complete;
-                return decoder_step(*decoder);
-            }
-            if (body_kind == HttpBodyKind::content_length) {
-                if (parsed.head.content_length > decoder->body.count)
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
-                decoder->expected_body_bytes = parsed.head.content_length;
-            } else if (body_kind == HttpBodyKind::chunked) {
-                if (!http_chunk_decoder_initialize(&decoder->chunk_decoder, decoder->body.count, 8 * 1024,
-                                                   decoder->maximum_header_bytes, decoder->maximum_fields))
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
-            } else {
-                decoder->connection_reusable = false;
-            }
-            decoder->state = HttpResponseDecoderState::body;
-        } else {
-            body_kind = http_response_body_kind(decoder->parsed_head, decoder->request_was_head);
-        }
-
-        if (body_kind == HttpBodyKind::content_length) {
-            const u64 remaining = decoder->expected_body_bytes - decoder->body_bytes;
-            const ConstSlice<u8> readable = byte_queue_readable(decoder->input);
-            const u32 copied = static_cast<u32>(minimum<u64>(remaining, static_cast<u64>(readable.count)));
-            if (!decoder_copy_body(decoder, ConstSlice<u8>{readable.data, copied}) ||
-                !byte_queue_consume(&decoder->input, copied))
-                return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
-            if (decoder->body_bytes == decoder->expected_body_bytes) {
-                decoder->state = HttpResponseDecoderState::complete;
-                return decoder_step(*decoder);
-            }
-            return wait();
-        }
-        if (body_kind == HttpBodyKind::chunked) {
-            for (;;) {
-                const HttpChunkStep chunk =
-                    http_chunk_decode(&decoder->chunk_decoder, byte_queue_readable(decoder->input));
-                if (!chunk.ok())
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
-                if (chunk.state == HttpChunkStepState::data) {
-                    if (!decoder_copy_body(decoder, chunk.data) ||
-                        !byte_queue_consume(&decoder->input, chunk.consumed))
-                        return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
-                    continue;
-                }
-                if (!byte_queue_consume(&decoder->input, chunk.consumed))
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
-                if (chunk.state == HttpChunkStepState::complete) {
-                    decoder->state = HttpResponseDecoderState::complete;
-                    return decoder_step(*decoder);
-                }
-                return wait();
-            }
-        }
-
-        const ConstSlice<u8> readable = byte_queue_readable(decoder->input);
-        if (!decoder_copy_body(decoder, readable) || !byte_queue_consume(&decoder->input, readable.count))
-            return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
-        if (peer_closed)
-            decoder->state = HttpResponseDecoderState::complete;
-        return decoder_step(*decoder);
+    u32 used = 0;
+    if (decoder->state == HttpResponseDecoderState::body && byte_queue_size(decoder->input) == 0) {
+        // No framing bytes wait in the queue, so the body takes its bytes from the input. Only the rest is queued:
+        // a part of a chunk line, or bytes after the body.
+        if (!decode_body(decoder, input, peer_closed, &used))
+            return decoder_step(*decoder);
+        if (!byte_queue_append(&decoder->input, ConstSlice<u8>{input.data + used, input.count - used}))
+            return decoder_failure(decoder, HttpResponseDecoderError::input_capacity);
+        return decoder->state == HttpResponseDecoderState::complete ? decoder_step(*decoder) : wait();
     }
+    if (!byte_queue_append(&decoder->input, input))
+        return decoder_failure(decoder, HttpResponseDecoderError::input_capacity);
+
+    while (decoder->state == HttpResponseDecoderState::head) {
+        const ConstSlice<u8> readable = byte_queue_readable(decoder->input);
+        const HttpHeadResult parsed = decoder_parse_head(decoder, readable);
+        if (parsed.state == HttpParseState::need_more)
+            return wait();
+        if (!parsed.ok())
+            return decoder_failure(decoder, HttpResponseDecoderError::head);
+        if (parsed.head.status_code >= 100 && parsed.head.status_code < 200 && parsed.head.status_code != 101) {
+            if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes) ||
+                ++decoder->informational_responses > 8)
+                return decoder_failure(decoder, HttpResponseDecoderError::head);
+            continue;
+        }
+        if (!retain_final_head(decoder, ConstSlice<u8>{readable.data, parsed.head.header_bytes}))
+            return decoder_failure(decoder, HttpResponseDecoderError::head_capacity);
+        if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes))
+            return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
+        decoder->parsed_head = parsed.head;
+        decoder->connection_reusable = decoder_connection_reusable(parsed.head);
+        const HttpBodyKind body_kind = http_response_body_kind(parsed.head, decoder->request_was_head);
+        if (parsed.head.status_code == 101)
+            return decoder_failure(decoder, HttpResponseDecoderError::unsupported_tunnel);
+        if (body_kind == HttpBodyKind::none) {
+            decoder->state = HttpResponseDecoderState::complete;
+            return decoder_step(*decoder);
+        }
+        if (body_kind == HttpBodyKind::content_length) {
+            if (parsed.head.content_length > decoder->body.count)
+                return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
+            decoder->expected_body_bytes = parsed.head.content_length;
+        } else if (body_kind == HttpBodyKind::chunked) {
+            if (!http_chunk_decoder_initialize(&decoder->chunk_decoder, decoder->body.count, 8 * 1024,
+                                               decoder->maximum_header_bytes, decoder->maximum_fields))
+                return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
+        } else {
+            decoder->connection_reusable = false;
+        }
+        decoder->state = HttpResponseDecoderState::body;
+    }
+    if (!decode_body(decoder, byte_queue_readable(decoder->input), peer_closed, &used))
+        return decoder_step(*decoder);
+    if (!byte_queue_consume(&decoder->input, used))
+        return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
+    return decoder->state == HttpResponseDecoderState::complete ? decoder_step(*decoder) : wait();
 }
 
 } // namespace maicord

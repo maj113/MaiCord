@@ -59,7 +59,8 @@ void drain(HttpsFileUpload* upload, Runtime* r, HttpsFileUploadError error, u32 
     if (r->tls_initialized) tls_stream_close(&r->tls);
 }
 NetworkWorkerStep finish(HttpsFileUpload* upload, Runtime* r) noexcept {
-    if (r->file.pending || (r->tls_initialized && !tls_stream_drained(&r->tls))) return {100, false};
+    // Each pending file or TLS operation ends with one completion, and the worker comes back here for it.
+    if (r->file.pending || (r->tls_initialized && !tls_stream_drained(&r->tls))) return {INFINITE, false};
     if (r->draining) {
         r->result.elapsed_us = clock_microseconds(r->clock, r->started, clock_now());
         r->result.file_bytes = r->expected_bytes;

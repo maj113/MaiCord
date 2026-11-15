@@ -287,7 +287,7 @@ void bootstrap_cases() noexcept {
           "decrypting needs a finished handshake");
     tls_client_release(&client);
     check(!client.credentials_valid && !client.context_valid && !client.handshake_complete && !client.native.ssl &&
-              !client.native.read_bio && !client.native.write_bio,
+              !client.native.bio,
           "tls_client_release retires the connection");
     tls_client_release(&client);
     tls_client_release(nullptr);
@@ -603,6 +603,98 @@ void control_case(u16 port, const wchar_t* name) noexcept {
     close_session(connection);
 }
 
+// The --records case sends numbered lines of 64 bytes: "MC:00042:", 54 times one letter, a newline. The script
+// (tls_smoke.sh) makes the same lines and compares them with what the server printed.
+constexpr u32 kLineBytes = 64;
+constexpr u32 kLinesPerWrite = 192;
+constexpr u32 kWritesPerBatch = 3;
+
+// SSL_key_update of the libssl that the client loaded. The client never calls it, so its table does not hold it.
+int (*load_key_update() noexcept)(void*, int) {
+    int (*function)(void*, int) = nullptr;
+    SharedLibrary library{};
+    if (shared_library_open(&library, "libssl.so.4") || shared_library_open(&library, "libssl.so.3"))
+        shared_library_resolve(library, &function, sizeof(function), "SSL_key_update\0");
+    return function;
+}
+
+// One write of kLinesPerWrite lines from `first_line` on, as three spans, into an output of the smallest size the
+// client accepts and `extra` bytes. The spans are staged at the tail of that output, and the records reach them.
+bool send_lines(Connection& connection, u32 first_line, u32 extra) noexcept {
+    static u8 text[kLinesPerWrite * kLineBytes];
+    for (u32 line = 0; line != kLinesPerWrite; ++line) {
+        u8* at = text + line * kLineBytes;
+        u32 number = first_line + line;
+        copy_bytes(at, "MC:", 3);
+        for (u32 digit = 5; digit != 0; --digit, number /= 10)
+            at[2 + digit] = static_cast<u8>('0' + number % 10);
+        at[8] = ':';
+        for (u32 i = 9; i != kLineBytes - 1; ++i)
+            at[i] = static_cast<u8>('a' + (first_line + line) % 26);
+        at[kLineBytes - 1] = '\n';
+    }
+    const ConstSlice<u8> spans[]{{text, 100}, {text + 100, 4900}, {text + 5000, sizeof(text) - 5000}};
+    const u32 capacity = static_cast<u32>(connection.tls.stream_sizes.cbHeader) + sizeof(text) +
+                         connection.tls.stream_sizes.cbTrailer + extra;
+    u32 produced = 0;
+    const TlsResult encrypted = tls_client_encrypt_spans(&connection.tls, {spans, 3}, {g_record, capacity}, &produced);
+    if (!encrypted.ok())
+        explain("encrypt", encrypted.error, encrypted.native_status);
+    return encrypted.ok() && produced > sizeof(text) && produced <= capacity && send_all(connection.fd, g_record, produced);
+}
+
+// One SSL_write that makes more than one record, with the plaintext staged in the output (TLS 1.3). `variant`:
+//   plain     only the server's key update request between the two batches (its answer leaves before the data);
+//   update    the client also starts a key update before each write, so a KeyUpdate record leaves before the data;
+//   fragment  records of at most 512 bytes of plaintext: 24 records for each write.
+// The script sends the key update request and the line "go" after the first batch, compares the lines the server
+// printed, and ends the session. The session must stay open until then.
+void records_case(u16 port, const wchar_t* name, const char* variant) noexcept {
+    TlsError error = TlsError::none;
+    i32 status = 0;
+    Connection& connection = g_connection;
+    const bool opened = open_session(connection, port, name, &error, &status);
+    check(opened, "the handshake for the records case succeeds");
+    if (!opened) {
+        explain("handshake", error, status);
+        close_session(connection);
+        return;
+    }
+    int (*key_update)(void*, int) = nullptr;
+    if (text_equal(variant, "update")) {
+        key_update = load_key_update();
+        check(key_update != nullptr, "SSL_key_update is loaded");
+    }
+    // 24 records of 22 bytes more than their plaintext use the room that the client reserves for one record and the
+    // control bytes. The answer to the server's key update is one record more.
+    u32 extra = 0;
+    if (text_equal(variant, "fragment")) {
+        constexpr int kSetMaxSendFragment = 52; // SSL_CTRL_SET_MAX_SEND_FRAGMENT
+        check(openssl::ssl()->SSL_ctrl(connection.tls.native.ssl, kSetMaxSendFragment, 512, nullptr) == 1,
+              "the send fragment limit is set");
+        extra = 64;
+    }
+    u32 line = 0;
+    for (u32 batch = 0; batch != 2; ++batch) {
+        for (u32 write = 0; write != kWritesPerBatch; ++write, line += kLinesPerWrite) {
+            // SSL_KEY_UPDATE_NOT_REQUESTED. The first write after the server's request already owes an update, and
+            // OpenSSL then refuses a second one: only the first batch checks the result.
+            if (key_update)
+                check(key_update(connection.tls.native.ssl, 0) == 1 || batch != 0, "the client starts a key update");
+            check(send_lines(connection, line, extra), "a staged write of many lines is encrypted and sent");
+        }
+        u32 bytes = 0;
+        if (batch == 0)
+            check(read_until(connection, "go\n", &bytes), "the line after the server's key update is received");
+    }
+    u32 bytes = 0;
+    bool closed = false;
+    const bool read = read_response(connection, &bytes, &closed);
+    check(!read && !closed && connection.ended && connection.queued == 0,
+          "the session stays open until the server closes the connection");
+    close_session(connection);
+}
+
 // The handshake must fail; the bits of its native status that `mask` selects must be those of `expected_status`.
 void reject_case(u16 port, const wchar_t* name, u32 expected_status, u32 mask) noexcept {
     TlsError error = TlsError::none;
@@ -634,7 +726,7 @@ MAICORD_TEST_ENTRY(maicord_tls_client_entry) {
         test_exit(g_failures, "maicord_tls_client_bootstrap");
     }
     if (startup.argc < 4) {
-        test_write_line("usage: tls_client_linux --connect|--download|--reject|--rekey <port> <name> [<argument>]");
+        test_write_line("usage: tls_client_linux --connect|--download|--reject|--rekey|--records <port> <name> [<argument>]");
         test_process_exit(2);
     }
     const u16 port = static_cast<u16>(parse_number(startup.argv[2], 10));
@@ -655,6 +747,10 @@ MAICORD_TEST_ENTRY(maicord_tls_client_entry) {
     if (text_equal(mode, "--rekey")) {
         rekey_case(port, name);
         test_exit(g_failures, "maicord_tls_client_rekey");
+    }
+    if (text_equal(mode, "--records")) {
+        records_case(port, name, argument);
+        test_exit(g_failures, "maicord_tls_client_records");
     }
     if (text_equal(mode, "--reject") || text_equal(mode, "--reject-class")) {
         // --reject names the whole status, --reject-class only the bits that are set in it.

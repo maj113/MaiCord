@@ -7,9 +7,9 @@
 # the kernel picks (TLS 1.3 and TLS 1.2, each as a status page and as a file server), then runs the cases of
 # tests/platform/net/tls_client_linux.cpp against them with that certificate as the only trust (SSL_CERT_FILE, the
 # override the client honours): sessions by name and by address, a download of 100,000 bytes over many records, a host
-# name the certificate does not name, a certificate nobody trusts, and a server that only speaks TLS 1.1. Exits 77
-# (skipped) when there is no `openssl` command. Prints the failing case and the server logs, and exits 1, on any
-# failure.
+# name the certificate does not name, a certificate nobody trusts, a server that only speaks TLS 1.1, a key update and
+# a renegotiation request in mid-session, and writes that leave as several records. Exits 77 (skipped) when there is
+# no `openssl` command. Prints the failing case and the server logs, and exits 1, on any failure.
 set -u
 
 binary=$1
@@ -200,6 +200,52 @@ if start_driven control -tls1_2; then
     wait "$client" || { echo "FAIL: renegotiation session"; failed=1; }
 fi
 exec 3>&-
+
+# One write that leaves as several records while its plaintext waits in the output buffer (--records in
+# tls_client_linux.cpp): the server's key update request alone, the client's own key update before each write, and
+# records of 512 bytes. The client sends 2 batches of 576 numbered lines. After the first batch the server asks for a
+# key update and sends "go". Every line must arrive, in order, and the session must stay open until "Q".
+# The shell makes the expected lines itself: some distribution images have no awk and no cmp (diffutils).
+letter=0
+for c in a b c d e f g h i j k l m n o p q r s t u v w x y z; do
+    run=""
+    count=0
+    while [ "$count" -lt 54 ]; do
+        run="$run$c"
+        count=$((count + 1))
+    done
+    eval "run_$letter=\$run"
+    letter=$((letter + 1))
+done
+line=0
+while [ "$line" -lt 1152 ]; do
+    eval "run=\$run_$((line % 26))"
+    printf 'MC:%05d:%s\n' "$line" "$run"
+    line=$((line + 1))
+done > lines-expected
+for variant in plain update fragment; do
+    if start_driven "records$variant"; then
+        log="server-records$variant.log"
+        eval "port=\$port_records$variant"
+        "$binary" --records "$port" localhost "$variant" &
+        client=$!
+        if wait_for_line "$log" "$(sed -n 576p lines-expected)"; then
+            printf 'K\n' >&3
+            sleep 0.3
+            printf 'go\n' >&3
+            wait_for_line "$log" "$(sed -n 1152p lines-expected)" ||
+                { echo "FAIL: records ($variant), the server never read the last line"; failed=1; }
+        else
+            echo "FAIL: records ($variant), the server never read the first batch"
+            failed=1
+        fi
+        [ "$(grep '^MC:' "$log")" = "$(cat lines-expected)" ] ||
+            { echo "FAIL: records ($variant), the server did not read every line in order"; failed=1; }
+        printf 'Q\n' >&3
+        wait "$client" || { echo "FAIL: records ($variant) session"; failed=1; }
+    fi
+    exec 3>&-
+done
 
 [ "$failed" = 0 ] && echo "PASS maicord_tls_smoke"
 exit "$failed"
