@@ -208,8 +208,14 @@ void synthesize(float* x, float* const out[2], const float energy[2][kBands], u3
     for (u32 c = 0; c < stream_channels; ++c)
         denormalize(x + c * n, energy[c], start, end, lm, n, silence);
     if (channels == 2 && stream_channels == 1) {
+        // A transform reads the bins and the tail of the block before, kOverlap / 2 samples at `out`. A mono
+        // stream gives the two channels the same bins. With the same tail, the samples are the same.
+        const bool same = bytes_equal(out[0], out[1], kOverlap / 2 * sizeof(float));
         inverse_transform(x, out[0], transient, lm);
-        inverse_transform(x, out[1], transient, lm);
+        if (same)
+            copy_bytes(out[1], out[0], (n + kOverlap / 2) * static_cast<u32>(sizeof(float)));
+        else
+            inverse_transform(x, out[1], transient, lm);
     } else if (channels == 1 && stream_channels == 2) {
         for (u32 i = 0; i < n; ++i)
             x[i] = 0.5f * x[i] + 0.5f * x[n + i];
@@ -290,22 +296,35 @@ void emit(CeltDecoder& st, float* const out[2], i16* pcm, u32 n, const CeltFrame
     const u32 channels = st.channels;
     const bool accumulate = frame.accumulate, store = !frame.tap_only;
     const float gain = frame.gain;
-    for (u32 c = 0; c < channels; ++c) {
-        const float* const x = out[c];
-        float memory = st.emphasis[c];
-        i16* to = pcm + c;
-        for (u32 i = 0; i < n; ++i, to += channels) {
-            const float sample = x[i] + 1e-30f + memory;
-            memory = kEmphasis * sample;
-            const float total = accumulate ? sample + static_cast<float>(*to) : sample;
-            if (i - frame.tap_start < frame.tap_count)
-                frame.tap[(i - frame.tap_start) * channels + c] = total;
-            if (store)
-                *to = static_cast<i16>(
-                    _mm_cvt_ss2si(_mm_set_ss(clamp_value(total * gain, -32768.f, 32767.f))));
+    float* const tap = frame.tap;
+    const u32 tap_start = frame.tap_start, tap_count = frame.tap_count;
+    const auto finish = [&](float sample, u32 i, u32 c) __attribute__((always_inline)) noexcept {
+        i16* const to = pcm + i * channels + c;
+        const float total = accumulate ? sample + static_cast<float>(*to) : sample;
+        if (i - tap_start < tap_count)
+            tap[(i - tap_start) * channels + c] = total;
+        if (store)
+            *to = static_cast<i16>(_mm_cvt_ss2si(_mm_set_ss(clamp_value(total * gain, -32768.f, 32767.f))));
+    };
+    const float *const left = out[0], *const right = out[channels - 1];
+    float memory = st.emphasis[0], memory_right = st.emphasis[1];
+    // Each channel is one chain of sums, and each sum waits for the sum before it. The loop for two channels
+    // advances both chains in one pass, so the processor works on them at the same time.
+    if (channels == 2) {
+        for (u32 i = 0; i < n; ++i) {
+            const float sample = left[i] + 1e-30f + memory, sample_right = right[i] + 1e-30f + memory_right;
+            memory = kEmphasis * sample, memory_right = kEmphasis * sample_right;
+            finish(sample, i, 0), finish(sample_right, i, 1);
         }
-        st.emphasis[c] = memory;
+        st.emphasis[1] = memory_right;
+    } else {
+        for (u32 i = 0; i < n; ++i) {
+            const float sample = left[i] + 1e-30f + memory;
+            memory = kEmphasis * sample;
+            finish(sample, i, 0);
+        }
     }
+    st.emphasis[0] = memory;
 }
 
 // The fold that the next frame's overlap expects after a pitch concealment: the concealed samples beyond

@@ -107,15 +107,15 @@ struct RangeCoder {
         normalize();
         return symbol;
     }
-    // The same for a table of two symbols {first, 0}: true for the second symbol.
+    // The same for a table of two symbols {first, 0}: true for the second symbol. There is no branch on the
+    // symbol: a sign or a low bit is as probable as not, and the processor cannot predict it.
     bool binary(u32 first) noexcept {
         const u32 low = (range >> 8) * first;
-        const bool second = value < low;
-        if (!second)
-            value -= low;
-        range = second ? low : range - low;
+        const u32 second = 0u - static_cast<u32>(value < low); // all ones for the second symbol
+        value -= low & ~second;
+        range = (low & second) | ((range - low) & ~second);
         normalize();
-        return second;
+        return second != 0;
     }
     // 1 to 25 raw bits from the end of the frame.
     u32 raw(u32 bits) noexcept {

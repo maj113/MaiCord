@@ -7,7 +7,6 @@ namespace maicord {
 // switches, in-band FEC, loss concealment) to 48 kHz PCM16 in the channel count the caller asked for,
 // whatever the packet codes. No allocation: the state is this struct, and a call uses about 21 KB of the
 // caller's stack.
-inline constexpr u32 kOpusDecoderSampleRate = 48000;
 inline constexpr u32 kOpusDecoderMaximumFrames = 5760; // 120 ms, the longest packet
 inline constexpr u32 kOpusDecoderBytes = 26336;
 struct OpusDecoder {

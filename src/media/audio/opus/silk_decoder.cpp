@@ -202,13 +202,21 @@ void decode_pulses(RangeCoder& coder, i16* pulses, i32 signal, i32 offset, u32 f
     // Signs, by signal type, offset type and pulse count of the block.
     const u8* const sign_table = kSignIcdf + 7 * (offset + (signal << 1));
     const u32 sign_blocks = (frame_length + kShellBlock / 2) >> 4;
+    // Two mask bits for each of eight samples above zero.
+    const auto positive = [](const i16* at) noexcept {
+        const __m128i samples = _mm_loadu_si128(reinterpret_cast<const __m128i_u*>(at));
+        return static_cast<u32>(_mm_movemask_epi8(_mm_cmpgt_epi16(samples, _mm_setzero_si128())));
+    };
     for (u32 i = 0; i < sign_blocks; ++i)
         if (sums[i] > 0) {
             const u32 negative = sign_table[minimum(sums[i] & 0x1f, 6)];
             i16* const block = pulses + i * kShellBlock;
-            for (u32 j = 0; j < kShellBlock; ++j)
-                if (block[j] > 0 && !coder.binary(negative))
-                    block[j] = static_cast<i16>(-block[j]);
+            // One bit for each sample with pulses, so that the loop has no branch on a sample.
+            for (u32 left = (positive(block) | positive(block + 8) << 16) & 0x55555555u; left; left &= left - 1) {
+                i16& pulse = block[__builtin_ctz(left) >> 1];
+                const i32 negate = static_cast<i32>(coder.binary(negative)) - 1; // all ones: negative
+                pulse = static_cast<i16>((pulse ^ negate) - negate);
+            }
         }
 }
 

@@ -5,7 +5,6 @@ namespace maicord {
 // MaiCord's Opus encoder (RFC 6716): 48 kHz PCM16, mono or stereo, one 20 ms frame per packet, always coded
 // as full-band hybrid (SILK wideband plus CELT above 8 kHz) at a variable rate around the profile's. No
 // allocation: the state is this struct, and a call uses about 34 KB of the caller's stack.
-inline constexpr u32 kOpusEncoderSampleRate = 48000;
 inline constexpr u32 kOpusEncoderFrameSamples = 960;        // per channel; stereo PCM is interleaved
 inline constexpr u32 kOpusEncoderMaximumPacketBytes = 1275; // RFC 6716's bound for one frame
 inline constexpr u32 kOpusEncoderLookahead =

@@ -46,9 +46,6 @@ __forceinline F4 low4(F8 value) noexcept {
 __forceinline F4 high4(F8 value) noexcept {
     return __builtin_shufflevector(value, value, 4, 5, 6, 7);
 }
-__forceinline F8 join8(F4 low, F4 high) noexcept {
-    return __builtin_shufflevector(low, high, 0, 1, 2, 3, 4, 5, 6, 7);
-}
 // ((v0 + v2) + (v1 + v3)), and for eight lanes the two halves added first.
 __forceinline float sum4(F4 value) noexcept {
     const F4 pairs = value + __builtin_shufflevector(value, value, 2, 3, 2, 3);
