@@ -158,8 +158,13 @@ bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
 bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
                                       Arena* text_arena) noexcept {
     if (!text_arena || !text_arena->base || text_arena->reserved < kMessageStoreTextCommitStep ||
-        text_arena->reserved > ~0u || !arena_trim(text_arena, 0) ||
-        !arena_allocate(text_arena, kMessageStoreTextCommitStep, 1) ||
+        text_arena->reserved > ~0u)
+        return false;
+    // The first step stays committed. A trim to zero costs a decommit, a commit and four page faults at each
+    // channel switch, and then the store commits the same step again.
+    const usize kept = minimum<usize>(text_arena->offset, kMessageStoreTextCommitStep);
+    if (!arena_trim(text_arena, kept) ||
+        (kept < kMessageStoreTextCommitStep && !arena_allocate(text_arena, kMessageStoreTextCommitStep - kept, 1)) ||
         !message_store_initialize(store, records, order,
                                   {text_arena->base, static_cast<u32>(text_arena->reserved)}))
         return false;
@@ -356,20 +361,20 @@ bool message_store_set_delivery(MessageStore* store, u64 id, MessageDeliveryStat
     return true;
 }
 
-bool message_store_set_presentation_flags(MessageStore* store, u64 id, u32 flags) noexcept {
-    if (!store || (flags & ~kMessagePresentationKnownFlags) != 0) {
+bool message_store_set_presentation_flags(MessageStore* store, MessageHandle handle, u32 flags) noexcept {
+    if (!store || (flags & ~kMessagePresentationKnownFlags) != 0 || !message_store_resolve(*store, handle)) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(*store, id);
-    if (!found.ok()) {
-        return false;
-    }
-    MessageRecord& record = store->records[found.handle.slot];
+    MessageRecord& record = store->records[handle.slot];
     if (record.presentation_flags != flags) {
         record.presentation_flags = static_cast<u8>(flags);
         ++store->updated;
     }
     return true;
+}
+
+bool message_store_set_presentation_flags(MessageStore* store, u64 id, u32 flags) noexcept {
+    return store && message_store_set_presentation_flags(store, message_store_find(*store, id).handle, flags);
 }
 
 const MessageRecord* message_store_resolve(const MessageStore& store, MessageHandle handle) noexcept {
@@ -386,6 +391,14 @@ MessageHandle message_store_ordered_handle(const MessageStore& store, u32 order_
     }
     const u32 slot = store.order[order_index];
     return MessageHandle{slot, store.records[slot].generation};
+}
+
+const MessageRecord* message_store_ordered_record(const MessageStore& store, u32 order_index) noexcept {
+    if (!store.records || !store.order || order_index >= store.count || store.order[order_index] >= store.capacity) {
+        return nullptr;
+    }
+    const MessageRecord& record = store.records[store.order[order_index]];
+    return record.occupied && record.generation ? &record : nullptr;
 }
 
 Utf8View message_store_content(const MessageStore& store, MessageHandle handle) noexcept {

@@ -16,7 +16,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         input_event.notification_payload_bytes == 0 &&
         input_event.dispatch_payload_bytes == input_payload.count) {
         observe_sequence(pump, input_event);
-        ++pump->ignored;
         MessageEventPumpConsumeResult ignored{};
         ignored.kind = MessageEventPumpConsumeKind::ignored_dispatch;
         return ignored;
@@ -94,7 +93,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     if (event.kind == GatewayClientEventKind::ready && !pump->state && pump->thread_members)
         thread_member_store_reset_snapshot(pump->thread_members);
     if (event.kind != GatewayClientEventKind::dispatch) {
-        ++pump->lifecycle;
         result.kind = MessageEventPumpConsumeKind::lifecycle;
         result.repaint = result.repaint || lifecycle_repaints(event.kind);
         return result;
@@ -197,7 +195,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         const auto* guild = pump->state
             ? chat_state_store_find_guild(*pump->state, event.state.guild_id) : nullptr;
         if (!guild || guild->unavailable) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         const u32 revision = pump->state->channel_mutations;
@@ -226,7 +224,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     if (event.dispatch_kind == GatewayClientDispatchKind::read_state_snapshot ||
         event.dispatch_kind == GatewayClientDispatchKind::message_ack) {
         if (!pump->state || !pump->state->read_state) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         auto& reads = *pump->state->read_state;
@@ -288,7 +286,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     if (event.dispatch_kind == GatewayClientDispatchKind::thread_member_list_update ||
         event.dispatch_kind == GatewayClientDispatchKind::thread_members_update) {
         if (!pump->state) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         const u32 channel_revision = pump->state->channel_mutations;
@@ -318,7 +316,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         if (!thread_member_store_owns(*pump->thread_members, event.thread_members.guild_id,
                                       event.thread_members.thread_id) &&
             !authority.channels)
-            ignore(pump, &result);
+            ignore(&result);
         else
             result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint =
@@ -343,7 +341,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                  : nullptr;
         if (cached && cached->list_index == ~0u)
             guild_member_store_remove(pump->members, guild_id, user_id);
-        ++pump->applied;
         result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint = cached != nullptr;
         return result;
@@ -352,7 +349,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         voice_state_store_clear_guild(pump->voice_states, event.state.id);
     if (gateway_client_dispatch_is_state(event.dispatch_kind)) {
         if (!pump->state) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         const bool role_event = event.dispatch_kind == GatewayClientDispatchKind::guild_role_create ||
@@ -449,12 +446,12 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     if (event.dispatch_kind == GatewayClientDispatchKind::message_catchup_required) {
         pump->catchup_required = true;
         pump->timeline->newer_refetch_required = true;
-        ignore(pump, &result);
+        ignore(&result);
         return result;
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::typing_start) {
         if (!pump->typing) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         GatewayTypingStartEvent typing{};
@@ -465,14 +462,13 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         const TypingStoreResult observed = typing_store_start(
             pump->typing, typing.channel_id, typing.guild_id, typing.user_id, event.timestamp_ms);
         if (observed.error == TypingStoreError::capacity) {
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         if (!observed.ok()) {
             reject(pump, &result, MessageEventPumpRejectReason::typing, 2);
             return result;
         }
-        ++pump->applied;
         result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint = observed.changed;
         return result;
@@ -485,7 +481,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             return result;
         }
         result.repaint = pump->poll_vote_observe && pump->poll_vote_observe(pump->poll_vote_context, vote);
-        ++pump->applied;
         result.kind = MessageEventPumpConsumeKind::state_applied;
         return result;
     }
@@ -502,7 +497,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                        0, false);
             if (pump->inactive_observe)
                 pump->inactive_observe(pump->inactive_observe_context, event, payload, pump->content_access);
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
         const MessageStoreResult found = message_store_find(*pump->timeline->store, reaction.message_id);
@@ -512,7 +507,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             if (pump->reaction_observe)
                 pump->reaction_observe(pump->reaction_observe_context, reaction, MessageHandle{~u32{0}, 0},
                                        0, false);
-            ++pump->not_resident;
             result.kind = MessageEventPumpConsumeKind::not_resident;
             return result;
         }
@@ -523,7 +517,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             reject_resync(pump, &result, MessageEventPumpRejectReason::reaction_apply, static_cast<u8>(applied.error));
             return result;
         }
-        ++pump->applied;
         result.kind = MessageEventPumpConsumeKind::applied;
         result.repaint = true;
         if (pump->reaction_observe)
@@ -532,7 +525,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
         return result;
     }
     if (!is_message_dispatch(event.dispatch_kind)) {
-        ignore(pump, &result);
+        ignore(&result);
         return result;
     }
     const auto consume_message =
@@ -603,13 +596,15 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             }
             const GatewayMessageEvent& message = full ? *full : full_message;
             const u32 channel_mutations = pump->state->channel_mutations;
-            const auto* channel = chat_state_store_find_channel(*pump->state, message.channel_id);
-            read_badge = pump->read_badge
-                             ? pump->read_badge(pump->read_badge_context, event, payload)
-                             : ((presentation_mentioned ||
-                                 (channel && channel_is_private(channel->type) &&
-                                  event.message.type != 2 && !channel->notification_muted))
-                                    ? MessageReadBadge::mention : MessageReadBadge::none);
+            if (pump->read_badge) {
+                read_badge = pump->read_badge(pump->read_badge_context, event, payload);
+            } else {
+                // Without a policy, a mention and each message of an unmuted private channel count.
+                const auto* channel = chat_state_store_find_channel(*pump->state, message.channel_id);
+                if (presentation_mentioned || (channel && channel_is_private(channel->type) &&
+                                               event.message.type != 2 && !channel->notification_muted))
+                    read_badge = MessageReadBadge::mention;
+            }
             const bool acknowledge_self = event.message.type != 46;
             const bool noted =
                 chat_state_store_note_message(pump->state, message.channel_id, message.id,
@@ -634,7 +629,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             if (pump->inactive_observe)
                 pump->inactive_observe(pump->inactive_observe_context, event, payload,
                                        resolve_content_access(*pump, event));
-            ignore(pump, &result);
+            ignore(&result);
             return result;
         }
 
@@ -674,30 +669,30 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             }
             if (presentation_mention_known && (result.apply.kind == GatewayMessageApplyKind::created ||
                                                result.apply.kind == GatewayMessageApplyKind::updated)) {
-                const auto presentation_record =
-                    message_store_find(*pump->timeline->store, event.message.id);
+                // The apply returned the handle of this message.
                 const auto* presentation =
-                    presentation_record.ok()
-                        ? message_store_resolve(*pump->timeline->store, presentation_record.handle)
-                        : nullptr;
+                    message_store_resolve(*pump->timeline->store, result.apply.mutation.handle);
                 // Replayed creates can arrive after notification settings or
                 // relationships change; preserve the first receipt's decision.
                 const bool cache_badge = message_validated && presentation &&
                     !(presentation->presentation_flags & message_presentation_read_badge_known);
+                const u32 flags =
+                    !presentation ? 0u
+                                  : (presentation->presentation_flags & ~message_presentation_mentions_current_user) |
+                                        (presentation_mentioned ? message_presentation_mentions_current_user : 0u) |
+                                        (cache_badge ? message_presentation_read_badge_known : 0u) |
+                                        (cache_badge && read_badge != MessageReadBadge::none
+                                             ? message_presentation_read_badge : 0u);
+                // The store has nothing to change for flags that stay the same.
                 if (!presentation ||
-                    !message_store_set_presentation_flags(
-                        pump->timeline->store, event.message.id,
-                        (presentation->presentation_flags & ~message_presentation_mentions_current_user) |
-                            (presentation_mentioned ? message_presentation_mentions_current_user : 0u) |
-                            (cache_badge ? message_presentation_read_badge_known : 0u) |
-                            (cache_badge && read_badge != MessageReadBadge::none
-                                 ? message_presentation_read_badge : 0u))) {
+                    (flags != presentation->presentation_flags &&
+                     !message_store_set_presentation_flags(pump->timeline->store, result.apply.mutation.handle,
+                                                           flags))) {
                     reject_resync(pump, &result, MessageEventPumpRejectReason::message_presentation);
                     return result;
                 }
             }
             if (result.apply.kind == GatewayMessageApplyKind::deferred) {
-                ++pump->deferred;
                 pump->catchup_required = true;
                 result.kind = MessageEventPumpConsumeKind::deferred;
                 return result;
@@ -710,7 +705,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 reject_resync(pump, &result, MessageEventPumpRejectReason::message_deletions);
                 return result;
             }
-            ++pump->applied;
             result.kind = MessageEventPumpConsumeKind::applied;
             merge_invalidation(&result.invalidation, result.apply.invalidation);
             result.repaint = result.repaint || result.invalidation.count != 0;
@@ -723,7 +717,6 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 reject_resync(pump, &result, MessageEventPumpRejectReason::message_deletions);
                 return result;
             }
-            ++pump->not_resident;
             result.kind = MessageEventPumpConsumeKind::not_resident;
             return result;
         }
@@ -751,38 +744,15 @@ MessageRichReactionMutation message_reaction_mutation(const GatewayMessageReacti
 }
 
 const char* message_event_pump_reject_reason_name(MessageEventPumpRejectReason reason) noexcept {
-    using R = MessageEventPumpRejectReason;
-    switch (reason) {
-    case R::none: return "none";
-    case R::descriptor_payload_mismatch: return "descriptor_payload_mismatch";
-    case R::notification_sidecar: return "notification_sidecar";
-    case R::ready_state: return "ready_state";
-    case R::ready_voice_reset: return "ready_voice_reset";
-    case R::thread_scope: return "thread_scope";
-    case R::completion_payload: return "completion_payload";
-    case R::user_snapshot: return "user_snapshot";
-    case R::read_state: return "read_state";
-    case R::thread_authority: return "thread_authority";
-    case R::thread_members: return "thread_members";
-    case R::voice_states: return "voice_states";
-    case R::guild_membership: return "guild_membership";
-    case R::guild_state: return "guild_state";
-    case R::member_list: return "member_list";
-    case R::presence_payload: return "presence_payload";
-    case R::presence_status: return "presence_status";
-    case R::typing: return "typing";
-    case R::poll_vote: return "poll_vote";
-    case R::reaction_decode: return "reaction_decode";
-    case R::reaction_apply: return "reaction_apply";
-    case R::message_decode: return "message_decode";
-    case R::message_typing: return "message_typing";
-    case R::message_send: return "message_send";
-    case R::message_mentions: return "message_mentions";
-    case R::message_deletions: return "message_deletions";
-    case R::message_presentation: return "message_presentation";
-    case R::message_apply: return "message_apply";
-    }
-    return "unknown";
+    // In the order of MessageEventPumpRejectReason. The last entry names a value out of range.
+    static constexpr char kNames[] =
+        "none\0descriptor_payload_mismatch\0notification_sidecar\0ready_state\0ready_voice_reset\0thread_scope\0"
+        "completion_payload\0user_snapshot\0read_state\0thread_authority\0thread_members\0voice_states\0"
+        "guild_membership\0guild_state\0member_list\0presence_payload\0presence_status\0typing\0poll_vote\0"
+        "reaction_decode\0reaction_apply\0message_decode\0message_typing\0message_send\0message_mentions\0"
+        "message_deletions\0message_presentation\0message_apply\0unknown";
+    static_assert(static_cast<u32>(MessageEventPumpRejectReason::message_apply) == 27);
+    return c_string_list_entry(kNames, minimum<u32>(static_cast<u32>(reason), 28)).data;
 }
 
 MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, void* source,
@@ -824,7 +794,6 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
             break;
         }
         ++result.popped;
-        ++pump->drained;
         const MessageEventPumpConsumeResult consumed =
             message_event_pump_consume(pump, event, ConstSlice<u8>{payload.data, popped.payload_bytes});
         if (payload.data != pump->payload_scratch.data)
@@ -833,11 +802,9 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
             ++result.applied;
         } else if (consumed.kind == MessageEventPumpConsumeKind::deferred) {
             ++result.deferred;
-        } else if (consumed.kind == MessageEventPumpConsumeKind::not_resident) {
-            ++result.not_resident;
         } else if (consumed.kind == MessageEventPumpConsumeKind::rejected) {
             ++result.rejected;
-        } else {
+        } else if (consumed.kind != MessageEventPumpConsumeKind::not_resident) {
             ++result.ignored;
         }
         result.repaint = result.repaint || consumed.repaint;

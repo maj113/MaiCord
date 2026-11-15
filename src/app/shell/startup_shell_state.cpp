@@ -158,7 +158,7 @@ void capture_conversations(StartupShell* shell, const StartupShellStores& stores
 void capture_authors(StartupShell* shell, const StartupShellStores& stores, const MessageStore& messages) noexcept {
     u32 seen = 0;
     for (u32 index = messages.count; index != 0 && seen < kAuthorMessages; --index) {
-        const MessageRecord* record = message_store_resolve(messages, message_store_ordered_handle(messages, index - 1));
+        const MessageRecord* record = message_store_ordered_record(messages, index - 1);
         if (!record || record->channel_id != shell->channel_id || !record->author_id)
             continue;
         ++seen;

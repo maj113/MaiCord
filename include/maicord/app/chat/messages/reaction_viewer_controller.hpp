@@ -40,7 +40,6 @@ struct ReactionViewerControllerResult {
     ReactionViewerControllerError error;
     bool changed;
     bool stale;
-    bool retry_scheduled;
 
     constexpr bool ok() const noexcept {
         return error == ReactionViewerControllerError::none;

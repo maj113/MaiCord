@@ -430,7 +430,7 @@ u32 recent_authors(const MessageStore& messages, const GuildMemberStore& members
     u32 count = 0;
     for (u32 index = messages.count, scanned = 0;
          index-- && scanned < kMentionAuthorScanMaximum && count < kMentionAutocompleteLimit; ++scanned) {
-        const MessageRecord* record = message_store_resolve(messages, message_store_ordered_handle(messages, index));
+        const MessageRecord* record = message_store_ordered_record(messages, index);
         if (!record || record->channel_id != channel_id || !record->author_id)
             continue;
         bool seen = false;

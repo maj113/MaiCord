@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes));
+static_assert(sizeof(MessageEventPump) == 320 + sizeof(ReservedBytes));
 
 } // namespace
 namespace {
@@ -458,7 +458,9 @@ bool message_mentions_current_member(const ChatStateStore& state, const GatewayC
                                      ConstSlice<u8> payload, bool* mentioned) noexcept {
     *mentioned = (event.message.mention_flags & (gateway_client_message_mention_everyone |
                                                  gateway_client_message_mention_current_user)) != 0;
-    const ChannelRecord* channel = chat_state_store_find_channel(state, event.message.channel_id);
+    // Only a role mention needs the channel.
+    const ChannelRecord* channel =
+        event.message.mention_role_count ? chat_state_store_find_channel(state, event.message.channel_id) : nullptr;
     for (u32 index = 0; index < event.message.mention_role_count; ++index) {
         u64 role_id = 0;
         if (!gateway_client_event_message_mention_role_at(event, payload, index, &role_id)) {
@@ -588,8 +590,7 @@ bool invalidate_rejected_thread_authority(MessageEventPump* pump, const GatewayC
 }
 
 // An event this view has no use for.
-void ignore(MessageEventPump* pump, MessageEventPumpConsumeResult* result) noexcept {
-    ++pump->ignored;
+void ignore(MessageEventPumpConsumeResult* result) noexcept {
     result->kind = MessageEventPumpConsumeKind::ignored_dispatch;
 }
 
@@ -619,7 +620,7 @@ MessageEventPumpConsumeResult consume_voice_states(MessageEventPump* pump, const
     MessageEventPumpConsumeResult result{};
     const auto& snapshot = event.voice_states;
     if (!pump->voice_states) {
-        ignore(pump, &result);
+        ignore(&result);
         return result;
     }
     if (payload.count != snapshot.record_count * sizeof(GatewayClientVoiceStateRecord)) {
@@ -635,7 +636,6 @@ MessageEventPumpConsumeResult consume_voice_states(MessageEventPump* pump, const
         pump->voice_states->retained_guild = pump->state->selected_guild_id;
     // Overflow at the bound drops rows or evicts other guilds; the store counts them.
     voice_state_store_apply_batch(pump->voice_states, payload);
-    ++pump->applied;
     result.kind = MessageEventPumpConsumeKind::state_applied;
     result.repaint = revision != pump->voice_states->revision;
     return result;
@@ -714,7 +714,7 @@ __declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEvent
     // A guild-less friend presence is a different scope, not permission to
     // overwrite every cached guild status for that user.
     if (!pump->members || presence.guild_id == 0) {
-        ignore(pump, &result);
+        ignore(&result);
         return result;
     }
     const u32 presence_revision = pump->members->presence_revision;
@@ -723,7 +723,6 @@ __declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEvent
         reject(pump, &result, MessageEventPumpRejectReason::presence_status);
         return result;
     }
-    ++pump->applied;
     result.kind = MessageEventPumpConsumeKind::state_applied;
     result.repaint = result.repaint || (!filtered && presence_revision != pump->members->presence_revision);
     return result;

@@ -19,6 +19,13 @@ MessageTimelineApplyResult timeline_error(MessageTimelineError error) noexcept {
     return result;
 }
 
+// Counts a call that the timeline refused before it changed a row. `validation` is the validate_timeline result.
+MessageTimelineApplyResult reject_input(MessageTimeline* timeline, MessageTimelineError validation) noexcept {
+    if (timeline)
+        ++timeline->rejected;
+    return timeline_error(validation != MessageTimelineError::none ? validation : MessageTimelineError::invalid_input);
+}
+
 void install_removed_anchor_fallback(UiVariableList* list, UiScrollAnchor* anchor, bool removed_anchor,
                                      u32 removal_index) noexcept {
     if (!removed_anchor || list->count == 0) {
@@ -30,8 +37,8 @@ void install_removed_anchor_fallback(UiVariableList* list, UiScrollAnchor* ancho
     anchor->valid = true;
 }
 
-bool anchor_in_range(const UiScrollAnchor& anchor, u32 index, u32 count) noexcept {
-    return anchor.valid && anchor.index >= index && anchor.index - index < count;
+bool anchor_at(const UiScrollAnchor& anchor, u32 index) noexcept {
+    return anchor.valid && anchor.index == index;
 }
 
 // A deleted resident message a plugin keeps stays in the timeline as a tombstone; the row repaints in place.
@@ -129,7 +136,7 @@ bool evict_resident_edge(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 
         }
     }
     const u64 id = record->id;
-    const bool removed_anchor = anchor_in_range(*anchor, removal_index, 1);
+    const bool removed_anchor = anchor_at(*anchor, removal_index);
     if (!message_store_delete(timeline->store, id) ||
         (timeline->rich_store && !message_rich_store_delete(timeline->rich_store, id)) ||
         !ui_variable_list_remove(timeline->list, removal_index, 1, anchor)) {
@@ -229,7 +236,7 @@ u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept {
 const MessageRecord* message_timeline_authoritative_edge(const MessageStore& store, bool newest) noexcept {
     for (u32 i = 0; i < store.count; ++i) {
         const MessageRecord* record =
-            message_store_resolve(store, message_store_ordered_handle(store, newest ? store.count - 1 - i : i));
+            message_store_ordered_record(store, newest ? store.count - 1 - i : i);
         if (record && record->delivery == MessageDeliveryState::authoritative)
             return record;
     }
@@ -425,11 +432,7 @@ static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, con
                   : input.delivery == MessageDeliveryState::authoritative || input.delivery == MessageDeliveryState::retained) ||
         (attachments.count &&
          (!timeline->rich_store || !message_rich_store_validate_attachments(attachments)))) {
-        if (timeline) {
-            ++timeline->rejected;
-        }
-        return timeline_error(
-            validation != MessageTimelineError::none ? validation : MessageTimelineError::invalid_input);
+        return reject_input(timeline, validation);
     }
     const MessageStoreError input_error = message_store_validate_input(timeline->store, input);
     const MessageStoreResult existing = message_store_find(*timeline->store, input.id);
@@ -521,11 +524,7 @@ MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeli
                                                          u64 message_id) noexcept {
     const MessageTimelineError validation = validate_timeline(timeline);
     if (validation != MessageTimelineError::none || message_id == 0) {
-        if (timeline) {
-            ++timeline->rejected;
-        }
-        return timeline_error(
-            validation != MessageTimelineError::none ? validation : MessageTimelineError::invalid_input);
+        return reject_input(timeline, validation);
     }
     const MessageStoreResult found = message_store_find(*timeline->store, message_id);
     if (found.error == MessageStoreError::not_found) {
@@ -538,7 +537,7 @@ MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeli
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
     UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
-    const bool removed_anchor = anchor_in_range(anchor, found.order_index, 1);
+    const bool removed_anchor = anchor_at(anchor, found.order_index);
     if (!message_store_delete(timeline->store, message_id) ||
         (timeline->rich_store && !message_rich_store_delete(timeline->rich_store, message_id)) ||
         !ui_variable_list_remove(timeline->list, found.order_index, 1, &anchor)) {
@@ -628,11 +627,8 @@ static MessageTimelineApplyResult apply_decoded_message(
     MessageTimeline* timeline, const GatewayMessageEvent& message, bool create,
     MessageContentAvailability content_availability) noexcept {
     const auto validation = validate_timeline(timeline);
-    if (validation != MessageTimelineError::none) {
-        if (timeline)
-            ++timeline->rejected;
-        return timeline_error(validation);
-    }
+    if (validation != MessageTimelineError::none)
+        return reject_input(timeline, validation);
     MessageTimelineApplyResult result{};
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
@@ -647,22 +643,13 @@ static MessageTimelineApplyResult apply_decoded_message(
     const bool create_pressure = inserting && insertion_requires_eviction(*timeline, message.content.bytes);
     const bool update_pressure =
         !create && existing.ok() && update_requires_eviction(*timeline, message, existing.handle);
-    if (create_pressure || (inserting && timeline->newer_refetch_required)) {
-        result.mutation = message_reconcile_validate_create(timeline->store, message, content_availability);
-        if (!result.mutation.ok() ||
-            (inserting && message.content.bytes > timeline->store->text_capacity)) {
-            if (result.mutation.ok()) {
-                result.mutation.store_error = MessageStoreError::text_capacity;
-                result.mutation.error = MessageReconcileError::store_failure;
-            }
-            ++timeline->rejected;
-            result.error = MessageTimelineError::reconcile;
-            return result;
-        }
-    } else if (update_pressure) {
-        result.mutation = message_reconcile_validate_update(timeline->store, message, content_availability);
-        if (!result.mutation.ok() || (((message.fields & gateway_message_field_content) != 0) &&
-                                      message.content.bytes > timeline->store->text_capacity)) {
+    const bool validate_create = create_pressure || (inserting && timeline->newer_refetch_required);
+    if (validate_create || update_pressure) {
+        result.mutation = validate_create
+                              ? message_reconcile_validate_create(timeline->store, message, content_availability)
+                              : message_reconcile_validate_update(timeline->store, message, content_availability);
+        // An update has pressure only when it carries content, so both paths can compare the content size.
+        if (!result.mutation.ok() || message.content.bytes > timeline->store->text_capacity) {
             if (result.mutation.ok()) {
                 result.mutation.store_error = MessageStoreError::text_capacity;
                 result.mutation.error = MessageReconcileError::store_failure;
@@ -785,11 +772,7 @@ MessageTimelineApplyResult message_timeline_apply(
     const MessageTimelineError validation = validate_timeline(timeline);
     if (validation != MessageTimelineError::none || (!payload.data && payload.count != 0) ||
         (!bulk_ids.data && bulk_ids.count != 0)) {
-        if (timeline) {
-            ++timeline->rejected;
-        }
-        return timeline_error(
-            validation != MessageTimelineError::none ? validation : MessageTimelineError::invalid_input);
+        return reject_input(timeline, validation);
     }
 
     MessageTimelineApplyResult result{};
@@ -823,7 +806,7 @@ MessageTimelineApplyResult message_timeline_apply(
         UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
         const MessageStoreResult found = message_store_find(*timeline->store, message.id);
         const u32 removal_index = found.order_index;
-        const bool removed_anchor = found.ok() && anchor_in_range(anchor, removal_index, 1);
+        const bool removed_anchor = found.ok() && anchor_at(anchor, removal_index);
         if (found.ok()) {
             const MessageRecord* resident = message_store_resolve(*timeline->store, found.handle);
             if (resident && retain_resident(timeline, *resident, &result.invalidation, removal_index)) {
@@ -895,7 +878,7 @@ MessageTimelineApplyResult message_timeline_apply(
                 ++retained;
                 continue;
             }
-            const bool removed_anchor = anchor_in_range(anchor, found.order_index, 1);
+            const bool removed_anchor = anchor_at(anchor, found.order_index);
             const MessageReconcileResult deleted = message_reconcile_delete(
                 timeline->store, GatewayMessageDeleteEvent{bulk_ids[id_index], message.channel_id});
             if (!deleted.ok() ||

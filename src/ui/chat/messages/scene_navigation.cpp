@@ -5,7 +5,7 @@ namespace maicord {
 namespace {
 bool eligible(void* context, u32 index) noexcept {
     const auto& store = *static_cast<const MessageTimeline*>(context)->store;
-    return message_store_resolve(store, message_store_ordered_handle(store, index)) != nullptr;
+    return message_store_ordered_record(store, index) != nullptr;
 }
 UiListRowBounds bounds(void* context, u32 index) noexcept {
     const auto& list = *static_cast<const MessageTimeline*>(context)->list;
@@ -39,7 +39,7 @@ MessageSceneHit message_scene_navigate(MessageScene* scene, UiListMove move) noe
         current = ui_variable_list_range(*timeline.list, timeline.scroll_units, timeline.viewport_units, 0).first;
     const u32 index = ui_list_move(timeline.store->count, current, move, eligible, &timeline);
     if (index == kUiListNoSelection) return {};
-    const auto* record = message_store_resolve(*timeline.store, message_store_ordered_handle(*timeline.store, index));
+    const auto* record = message_store_ordered_record(*timeline.store, index);
     const u64 id = record ? record->id : 0;
     if (!id || !message_scene_reveal_message(scene, id)) return {};
     return {id, scene->widgets.focused, index};
@@ -55,7 +55,7 @@ MessageSceneHit message_scene_page(MessageScene* scene, bool reverse) noexcept {
     const auto target = ui_list_page(timeline.store->count, found.ok() ? found.order_index : kUiListNoSelection,
         timeline.scroll_units, timeline.viewport_units, timeline.list->total_units, reverse, bounds, eligible, &timeline);
     if (!target.ok()) return {};
-    const auto* record = message_store_resolve(*timeline.store, message_store_ordered_handle(*timeline.store, target.index));
+    const auto* record = message_store_ordered_record(*timeline.store, target.index);
     const u64 id = record ? record->id : 0;
     if (!id || !message_timeline_set_scroll(&timeline, target.scroll_units, false) ||
         !message_scene_update(scene, scene->viewport).ok() || !message_scene_focus_message(scene, id)) return {};

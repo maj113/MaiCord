@@ -181,6 +181,14 @@ void test_message_view_runtime() noexcept {
                    store.text_arena == &g_message_view_runtime.text_storage &&
                    g_message_view_runtime.text_storage.committed == kMessageStoreTextCommitStep,
                "message_view_runtime_reset_returns_text_pages");
+        // A reset of a store that holds one step of text keeps that step: no commit and no decommit.
+        const u32 commits = g_message_view_runtime.text_storage.commit_count;
+        expect(message_store_upsert(&store, MessageInput{1, 7, 1, 1, 0, {long_content, 4000}, 0}).ok() &&
+                   message_timeline_reset(&g_message_view_runtime.timeline) && store.count == 0 &&
+                   store.text_used == 0 && store.text_committed == kMessageStoreTextCommitStep &&
+                   g_message_view_runtime.text_storage.committed == kMessageStoreTextCommitStep &&
+                   g_message_view_runtime.text_storage.commit_count == commits,
+               "message_view_runtime_reset_keeps_first_text_step");
     }
     message_view_runtime_release(&g_message_view_runtime);
     expect(!g_message_view_runtime.initialized && !g_message_view_runtime.storage.base &&

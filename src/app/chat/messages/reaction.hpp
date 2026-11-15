@@ -22,21 +22,13 @@ enum class MessageReactionRequestPhase : u8 {
     retry_wait,
 };
 
+// The state of the reaction request in flight or next in the queue.
 struct MessageReactionRequest {
-    u64 channel_id;
     u64 message_id;
-    u64 emoji_id;
     u64 retry_at_ms;
-    u16 name_bytes;
-    MessageReactionType type;
     MessageReactionRequestPhase phase;
     u8 retries;
-    bool add;
-    bool animated;
-    char name[kMessageReactionMaximumEmojiNameBytes];
 };
-
-static_assert(sizeof(MessageReactionRequest) == 168);
 
 enum class ApplicationMessageReactionEnqueueResult : u8 {
     accepted,

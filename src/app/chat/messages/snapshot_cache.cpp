@@ -193,7 +193,7 @@ MessageSnapshotScratch* scratch(MessageSnapshotCache* cache) noexcept {
 }
 
 const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
-    return message_store_resolve(store, message_store_ordered_handle(store, index));
+    return message_store_ordered_record(store, index);
 }
 
 void scratch_clear(MessageSnapshotScratch* value) noexcept {

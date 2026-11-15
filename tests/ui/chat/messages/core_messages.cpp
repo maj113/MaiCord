@@ -2546,8 +2546,7 @@ void test_reaction_users_and_viewer() noexcept {
                                                          Slice<u32>{page_scratch, 256},
                                                          Slice<u32>{object_scratch, 128})
             : ReactionViewerControllerResult{};
-    expect(retry.ok() && retry.retry_scheduled &&
-               controller.phase == ReactionViewerRequestPhase::retry_wait &&
+    expect(retry.ok() && controller.phase == ReactionViewerRequestPhase::retry_wait &&
                reaction_viewer_controller_next_wake_at(controller) == limited.retry_at_ms,
            "reaction_viewer_controller_rate_limit_retry_contract");
 

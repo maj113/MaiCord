@@ -13,7 +13,7 @@ u64 next_epoch(u64 epoch) noexcept {
 }
 
 ReactionViewerControllerResult failure(ReactionViewerControllerError error, bool changed = false) noexcept {
-    return ReactionViewerControllerResult{error, changed, false, false};
+    return ReactionViewerControllerResult{error, changed, false};
 }
 
 void require_current_page(ReactionViewerController* controller) noexcept {
@@ -36,7 +36,7 @@ void restart_request(ReactionViewerController* controller) noexcept {
 ReactionViewerControllerResult stale_response(ReactionViewerController* controller) noexcept {
     reaction_viewer_set_loading(controller->viewer, false);
     require_current_page(controller);
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, true, false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, true};
 }
 
 ReactionViewerControllerResult retry_or_fail(ReactionViewerController* controller, u64 now_monotonic_ms,
@@ -54,7 +54,7 @@ ReactionViewerControllerResult retry_or_fail(ReactionViewerController* controlle
         controller->retry_at_ms = retry_at_ms;
         controller->phase = ReactionViewerRequestPhase::retry_wait;
         reaction_viewer_set_loading(controller->viewer, true);
-        return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, false, true};
+        return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, false};
     }
     controller->phase = ReactionViewerRequestPhase::idle;
     controller->retry_at_ms = 0;
@@ -93,8 +93,7 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
     }
     controller->epoch = next_epoch(controller->epoch);
     restart_request(controller);
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, opened.changed, false,
-                                          false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, opened.changed, false};
 }
 
 ReactionViewerControllerResult reaction_viewer_controller_close(
@@ -114,7 +113,7 @@ ReactionViewerControllerResult reaction_viewer_controller_close(
     if (controller->phase != ReactionViewerRequestPhase::submitted) {
         controller->phase = ReactionViewerRequestPhase::idle;
     }
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, changed, false, false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, changed, false};
 }
 
 ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerController* controller,
@@ -131,8 +130,7 @@ ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerC
         controller->epoch = next_epoch(controller->epoch);
         restart_request(controller);
     }
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, selected.changed, false,
-                                          false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, selected.changed, false};
 }
 
 bool reaction_viewer_controller_prepare_request(ReactionViewerController* controller, u64 now_monotonic_ms,
@@ -179,7 +177,7 @@ ReactionViewerControllerResult reaction_viewer_controller_mark_submitted(
     controller->request_epoch = epoch;
     controller->phase = ReactionViewerRequestPhase::submitted;
     reaction_viewer_set_loading(controller->viewer, true);
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, false, false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, true, false};
 }
 
 ReactionViewerControllerResult reaction_viewer_controller_submit_failed(
@@ -249,8 +247,7 @@ ReactionViewerControllerResult reaction_viewer_controller_accept_response(
     controller->phase = ReactionViewerRequestPhase::idle;
     controller->retry_at_ms = 0;
     controller->retry_attempt = 0;
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, accepted.changed, false,
-                                          false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, accepted.changed, false};
 }
 
 ReactionViewerControllerResult reaction_viewer_controller_request_more(
@@ -265,7 +262,7 @@ ReactionViewerControllerResult reaction_viewer_controller_request_more(
     if (requested && controller->phase == ReactionViewerRequestPhase::idle) {
         controller->phase = ReactionViewerRequestPhase::required;
     }
-    return ReactionViewerControllerResult{ReactionViewerControllerError::none, requested, false, false};
+    return ReactionViewerControllerResult{ReactionViewerControllerError::none, requested, false};
 }
 
 u64 reaction_viewer_controller_next_wake_at(const ReactionViewerController& controller) noexcept {

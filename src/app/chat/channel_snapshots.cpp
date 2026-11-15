@@ -179,22 +179,7 @@ bool application_channel_prefetch_response(const RestClientResponse& response, U
     const ConstSlice<GatewayMessageEvent> messages{scratch.messages.data, decoded.page.count};
     if (!message_history_observe_page(&ui->user_store, &ui->guild_member_store, &ui->chat_state, messages))
         return true;
-    MessagePollPageInput inputs[kMessageHistoryRequestLimit];
-    MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
-    u32 polls = 0;
-    for (u32 index = 0; index < messages.count && polls < kMessageHistoryRequestLimit; ++index) {
-        const GatewayMessageEvent& message = messages[index];
-        if (!(message.fields & gateway_message_field_poll))
-            continue;
-        const auto* existing = message_poll_store_find(ui->message_poll_store, message.id);
-        if (existing && existing->last_gateway_serial > ui->message_history_poll_serial)
-            continue;
-        tickets[polls] =
-            message_poll_store_result_ticket(ui->message_poll_store, message.id, ui->message_history_poll_serial);
-        inputs[polls] = {message.id, message.channel_id, &message.poll, 0, &tickets[polls]};
-        ++polls;
-    }
-    if (polls && !message_poll_store_apply_page(&ui->message_poll_store, {inputs, polls}).ok())
+    if (!application_message_history_publish_polls(*ui, messages))
         return true;
     if (!message_snapshot_cache_capture_page(&g_snapshots, channel_id, messages, &ui->chat_state,
                                              MessageContentAvailability::unknown,

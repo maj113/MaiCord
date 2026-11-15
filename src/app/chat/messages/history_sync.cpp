@@ -59,7 +59,7 @@ MessageHistoryApplyResult apply_error(MessageHistoryApplyError error, bool destr
 }
 
 const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexcept {
-    return message_store_resolve(store, message_store_ordered_handle(store, index));
+    return message_store_ordered_record(store, index);
 }
 
 MessageContentAvailability resolved_availability(const GatewayMessageEvent& message,
@@ -180,7 +180,6 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
             return true;
         }
     }
-    const ChannelRecord* channel = chat_state_store_find_channel(state, message.channel_id);
     const Utf8View content = message.content;
     for (u32 offset = 0; offset + 4u <= content.bytes; ++offset) {
         if (content.data[offset] != '<' || content.data[offset + 1u] != '@') {
@@ -203,9 +202,10 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
             !decimal_parse_padded(Utf8View{content.data + digits, cursor - digits}, &id) || id == 0) {
             continue;
         }
-        if ((!role && id == state.self_user_id) ||
-            (role && channel && channel->guild_id != 0 &&
-             chat_state_store_self_has_role(state, channel->guild_id, id))) {
+        // Only a role mention needs the channel: most messages have no mention at all.
+        const ChannelRecord* channel = role ? chat_state_store_find_channel(state, message.channel_id) : nullptr;
+        if (role ? channel && channel->guild_id != 0 && chat_state_store_self_has_role(state, channel->guild_id, id)
+                 : id == state.self_user_id) {
             return true;
         }
         offset = cursor;
@@ -273,16 +273,21 @@ template <class Machine> bool page_fail(Machine* machine, MessageHistoryCatchupF
 }
 
 // Shared REST completion of a catch-up or older page: transient failures retry, other failures
-// end the load, and a decoded page goes through apply_page.
-using PageApply = MessageHistoryApplyResult (*)(void* context, const MessageHistoryPage& page,
-                                                ConstSlice<GatewayMessageEvent> messages);
-MessageHistoryRestResult accept_page_rest(const PageLoad& load, const RestClientResponse& response,
-                                          const MessageHistoryDecodeScratch& scratch, u64 now_ms,
-                                          UserStore* users, GuildMemberStore* members, ChatStateStore* state,
-                                          MessageTimeline* timeline, PageApply apply_page, void* apply_context,
-                                          Utf8View body) noexcept {
+// end the load, and a decoded page goes to the apply of its load. `catchup` is null for an older page.
+MessageHistoryRestResult accept_page_rest(MessageHistoryCatchup* catchup, MessageEventPump* pump,
+                                          MessageHistoryOlder* older, MessageTimeline* timeline, UserStore* users,
+                                          GuildMemberStore* members, ChatStateStore* state,
+                                          const RestClientResponse& response, Utf8View body,
+                                          const MessageHistoryDecodeScratch& scratch,
+                                          MessageContentAvailability availability, u64 now_ms) noexcept {
+    const PageLoad load = catchup ? page_load(catchup) : page_load(older);
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
+    if ((catchup && !timeline) || *load.state != kPageAwaiting || (!body.data && body.bytes != 0) ||
+        response.body_bytes != body.bytes) {
+        result.error = MessageHistoryRestError::invalid_input;
+        return result;
+    }
     if (history_transient_failure(response)) {
         page_retry(load,
                    response.transport_ok() ? MessageHistoryCatchupFailure::http_status
@@ -320,7 +325,9 @@ MessageHistoryRestResult accept_page_rest(const PageLoad& load, const RestClient
         result.error = MessageHistoryRestError::decode;
         return result;
     }
-    result.apply = apply_page(apply_context, result.decode.page, decoded);
+    result.apply =
+        catchup ? message_history_catchup_apply_page(catchup, pump, result.decode.page, decoded, availability)
+                : message_history_older_apply_page(older, timeline, result.decode.page, decoded, availability);
     if (!result.apply.ok() || !message_history_apply_mention_flags(timeline, state, decoded)) {
         result.error = MessageHistoryRestError::apply;
         return result;
@@ -351,11 +358,14 @@ bool message_history_apply_mention_flags(MessageTimeline* timeline, const ChatSt
             continue;
         }
         const auto* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
-        if (!record || !message_store_set_presentation_flags(
-                               timeline->store, messages[index].id,
-                               (record->presentation_flags & ~message_presentation_mentions_current_user) |
-                               (history_message_mentions_current_member(*state, messages[index])
-                                   ? message_presentation_mentions_current_user : 0u))) {
+        if (!record)
+            return false;
+        const u32 flags = (record->presentation_flags & ~message_presentation_mentions_current_user) |
+                          (history_message_mentions_current_member(*state, messages[index])
+                               ? message_presentation_mentions_current_user : 0u);
+        // The store has nothing to change for a message whose flags stay the same.
+        if (flags != record->presentation_flags &&
+            !message_store_set_presentation_flags(timeline->store, found.handle, flags)) {
             return false;
         }
     }
@@ -476,19 +486,13 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
             ++removed_locals;
         }
     }
-    u32 eviction_count = store.count + incoming_count > resident_capacity
+    // Rows leave for the row capacity first, then until the text of the page fits.
+    const u32 overflow = store.count + incoming_count > resident_capacity
                              ? store.count + incoming_count - resident_capacity
                              : 0;
+    u32 eviction_count = 0;
     u64 live_after = store.text_used - store.text_wasted;
-    for (u32 index = 0; index < eviction_count; ++index) {
-        const u32 victim = direction == MessageHistoryDirection::newer ? index : store.count - 1 - index;
-        const MessageRecord* record = ordered_record(store, victim);
-        if (!record || record->content_bytes > live_after) {
-            return apply_error(MessageHistoryApplyError::reconcile);
-        }
-        live_after -= record->content_bytes;
-    }
-    while (incoming_bytes > store.text_capacity - live_after) {
+    while (eviction_count < overflow || incoming_bytes > store.text_capacity - live_after) {
         if (eviction_count >= store.count) {
             return apply_error(MessageHistoryApplyError::capacity);
         }
@@ -867,8 +871,16 @@ bool message_history_reply_queue(ReplyReferenceRefresh* refresh, const MessageTi
         refresh->retry_at_ms = 0;
     }
     if (refresh->state != AttachmentRefreshState::idle) return true;
-    for (u32 i = 0; i < timeline.store->count; ++i) {
-        const auto* record = ordered_record(*timeline.store, i);
+    // Each change to a message or its quote raises one of these counts. A timeline reset sets them to zero
+    // and raises the generation. While all of them and the completed mark stay, a scan that found no quote
+    // to refresh finds none again.
+    const MessageStore& store = *timeline.store;
+    const u64 mutations = u64{store.created} + store.updated + store.deleted + timeline.rich_store->updated +
+                          timeline.rich_store->deleted + 1;
+    if (refresh->quiet_mutations == mutations && refresh->quiet_generation == timeline.reset_generation &&
+        refresh->quiet_through_id == refresh->completed_through_id) return true;
+    for (u32 i = 0; i < store.count; ++i) {
+        const auto* record = ordered_record(store, i);
         if (!record || record->channel_id != channel_id || record->id <= refresh->completed_through_id ||
             record->content_availability != MessageContentAvailability::available ||
             record->delivery != MessageDeliveryState::authoritative) continue;
@@ -878,8 +890,11 @@ bool message_history_reply_queue(ReplyReferenceRefresh* refresh, const MessageTi
         refresh->message_id = record->id;
         refresh->reference_id = rich->reference.message_id;
         refresh->state = AttachmentRefreshState::request_required;
-        break;
+        return true;
     }
+    refresh->quiet_mutations = mutations;
+    refresh->quiet_through_id = refresh->completed_through_id;
+    refresh->quiet_generation = timeline.reset_generation;
     return true;
 }
 
@@ -1172,26 +1187,8 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
     MessageHistoryCatchup* catchup, MessageEventPump* pump, const RestClientResponse& response,
     const Utf8View& body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    if (!pump->timeline ||
-        catchup->state != MessageHistoryCatchupState::awaiting_page || (!body.data && body.bytes != 0) ||
-        response.body_bytes != body.bytes) {
-        MessageHistoryRestResult invalid{};
-        invalid.disposition = MessageHistoryRestDisposition::failed;
-        invalid.error = MessageHistoryRestError::invalid_input;
-        return invalid;
-    }
-    struct Apply {
-        MessageHistoryCatchup* catchup;
-        MessageEventPump* pump;
-        MessageContentAvailability availability;
-    } apply{catchup, pump, empty_content_availability};
-    return accept_page_rest(
-        page_load(catchup), response, scratch, now_ms, pump->users, pump->members, pump->state, pump->timeline,
-        [](void* context, const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
-            const auto& a = *static_cast<Apply*>(context);
-            return message_history_catchup_apply_page(a.catchup, a.pump, page, messages, a.availability);
-        },
-        &apply, body);
+    return accept_page_rest(catchup, pump, nullptr, pump->timeline, pump->users, pump->members, pump->state, response,
+                            body, scratch, empty_content_availability, now_ms);
 }
 
 MessageHistoryRestResult message_history_older_accept_rest(
@@ -1199,25 +1196,8 @@ MessageHistoryRestResult message_history_older_accept_rest(
     ChatStateStore* state, GuildMemberStore* members, const RestClientResponse& response,
     Utf8View body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    if (older->state != MessageHistoryOlderState::awaiting_page ||
-        (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
-        MessageHistoryRestResult invalid{};
-        invalid.disposition = MessageHistoryRestDisposition::failed;
-        invalid.error = MessageHistoryRestError::invalid_input;
-        return invalid;
-    }
-    struct Apply {
-        MessageHistoryOlder* older;
-        MessageTimeline* timeline;
-        MessageContentAvailability availability;
-    } apply{older, timeline, empty_content_availability};
-    return accept_page_rest(
-        page_load(older), response, scratch, now_ms, users, members, state, timeline,
-        [](void* context, const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
-            const auto& a = *static_cast<Apply*>(context);
-            return message_history_older_apply_page(a.older, a.timeline, page, messages, a.availability);
-        },
-        &apply, body);
+    return accept_page_rest(nullptr, nullptr, older, timeline, users, members, state, response, body, scratch,
+                            empty_content_availability, now_ms);
 }
 
 } // namespace maicord

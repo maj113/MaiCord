@@ -118,7 +118,6 @@ struct MessageReactionProjection {
     MessageReactionAuthority authority;
     bool desired_normal;
     bool desired_burst;
-    bool optimistic;
 };
 
 struct MessageReactionOutcome {

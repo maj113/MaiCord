@@ -222,6 +222,16 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
     check(message_history_reply_queue(&refresh, f.timeline, 7, 300) &&
               refresh.state == AttachmentRefreshState::idle,
           "live_reply_refresh_does_not_repeat_completed_request");
+    // A scan that found no quote runs again only after a message or a quote changes.
+    const u64 quiet = refresh.quiet_mutations;
+    reply.id = 110;
+    reply.reference.message_id = 91;
+    check(quiet != 0 && message_history_reply_queue(&refresh, f.timeline, 7, 301) &&
+              refresh.quiet_mutations == quiet && message_timeline_scroll_to_bottom(&f.timeline, &changed) &&
+              message_timeline_apply_created(&f.timeline, reply).ok() && record(110) &&
+              message_history_reply_queue(&refresh, f.timeline, 7, 302) && refresh.message_id == 110 &&
+              refresh.state == AttachmentRefreshState::request_required,
+          "live_reply_refresh_scans_again_after_a_message_changes");
     // A deletion/update that wins the race remains authoritative.
     partial.id = 109;
     partial.reference.message_id = 90;

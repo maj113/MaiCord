@@ -150,10 +150,14 @@ bool message_store_set_delivery(MessageStore* store, u64 id,
                                 MessageDeliveryState delivery) noexcept;
 bool message_store_set_presentation_flags(MessageStore* store, u64 id,
                                           u32 flags) noexcept;
+// The same for a caller that holds the handle: no search for the id.
+bool message_store_set_presentation_flags(MessageStore* store, MessageHandle handle, u32 flags) noexcept;
 const MessageRecord* message_store_resolve(const MessageStore& store,
                                            MessageHandle handle) noexcept;
 MessageHandle message_store_ordered_handle(const MessageStore& store,
                                            u32 order_index) noexcept;
+// The record at a position of the order: message_store_resolve of message_store_ordered_handle in one step.
+const MessageRecord* message_store_ordered_record(const MessageStore& store, u32 order_index) noexcept;
 Utf8View message_store_content(const MessageStore& store,
                                MessageHandle handle) noexcept;
 bool message_store_compact_in_place(MessageStore* store) noexcept;

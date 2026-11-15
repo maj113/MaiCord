@@ -2,8 +2,10 @@
 
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
+#include "maicord/sys/simd.hpp"
 
 // REST history/profile decode scratch carved out of AccountUiRuntime. Only the
 // callers that decode REST bodies include this; the runtime struct does not need it.
@@ -146,21 +148,30 @@ inline HistoryDecodeBodyShape application_message_body_shape(Utf8View body) noex
     HistoryDecodeBodyShape shape{};
     if (!body.data)
         return shape;
-    for (u32 i = 0; i < body.bytes; ++i) {
-        const char c = body.data[i];
-        if (c == '{') {
-            ++shape.objects;
-            continue;
+    const auto equal = [](const char* bytes, char value) noexcept {
+        return static_cast<u32>(_mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(bytes)), _mm_set1_epi8(value))));
+    };
+    // 16 bytes for each step. A step also reads the byte after them, so the last step reads a copy of the end
+    // of the body with zero bytes after it.
+    char end[32]{};
+    for (u32 i = 0; i < body.bytes; i += 16) {
+        const char* block = body.data + i;
+        if (body.bytes - i < 17) {
+            copy_bytes(end, block, body.bytes - i);
+            block = end;
         }
-        if (c == '\\' && i + 1 < body.bytes && body.data[i + 1] == 'u')
+        shape.objects += population_count(equal(block, '{'));
+        if (equal(block, '\\') & equal(block + 1, 'u'))
             shape.optional = 3;
-        if (c != '"' || shape.optional == 3)
-            continue;
-        if (body.bytes - i >= snapshot_key.bytes &&
-            bytes_equal(body.data + i, snapshot_key.data, snapshot_key.bytes))
-            shape.optional |= 2;
-        if (body.bytes - i >= poll_key.bytes && bytes_equal(body.data + i, poll_key.data, poll_key.bytes))
-            shape.optional |= 1;
+        // Only a quote before 'm' or 'p' can start one of the two keys.
+        for (u32 keys = equal(block, '"') & (equal(block + 1, 'm') | equal(block + 1, 'p')); keys; keys &= keys - 1) {
+            const u32 at = i + lowest_set_bit(keys);
+            const bool poll = body.data[at + 1] == 'p';
+            const Utf8View key = poll ? poll_key : snapshot_key;
+            if (body.bytes - at >= key.bytes && bytes_equal(body.data + at, key.data, key.bytes))
+                shape.optional |= poll ? 1 : 2;
+        }
     }
     return shape;
 }
@@ -223,6 +234,28 @@ inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHist
           history_decode_pool_slice<GatewayMessagePollAnswerCount>(s, counts, P::poll_counts)}},
         64};
     return true;
+}
+
+// Publishes the polls of one decoded history page. A poll that the Gateway changed after the request stays.
+// The message pool bounds a page to kMessageHistoryRequestLimit messages.
+inline bool application_message_history_publish_polls(AccountUiRuntime& ui,
+                                                      ConstSlice<GatewayMessageEvent> messages) noexcept {
+    MessagePollPageInput inputs[kMessageHistoryRequestLimit];
+    MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
+    u32 polls = 0;
+    for (u32 index = 0; index < messages.count && polls < kMessageHistoryRequestLimit; ++index) {
+        const GatewayMessageEvent& message = messages[index];
+        if (!(message.fields & gateway_message_field_poll))
+            continue;
+        const auto* existing = message_poll_store_find(ui.message_poll_store, message.id);
+        if (existing && existing->last_gateway_serial > ui.message_history_poll_serial)
+            continue;
+        tickets[polls] =
+            message_poll_store_result_ticket(ui.message_poll_store, message.id, ui.message_history_poll_serial);
+        inputs[polls] = {message.id, message.channel_id, &message.poll, 0, &tickets[polls]};
+        ++polls;
+    }
+    return message_poll_store_apply_page(&ui.message_poll_store, {inputs, polls}).ok();
 }
 
 } // namespace maicord::app_detail

@@ -473,12 +473,12 @@ bool application_read_state_eligible() noexcept {
     if (!read_ack_automatic_eligible(visibility))
         return false;
     const u64 now = clock_monotonic_milliseconds();
-    // Where the system cannot tell how long the user has been away, only the application's own activity decides.
-    const u32 system_idle = platform_settings_read().system_idle_ms;
     const bool locally_idle =
         !g_app.read_last_activity_ms ||
         (now >= g_app.read_last_activity_ms && now - g_app.read_last_activity_ms >= 600'000);
-    visibility.idle = locally_idle && system_idle >= 600'000;
+    // The system idle time matters only after ten minutes without activity in the application. Where the
+    // system cannot tell how long the user has been away, only the application's own activity decides.
+    visibility.idle = locally_idle && platform_settings_read().system_idle_ms >= 600'000;
     const auto* channel = chat_state_store_find_channel(
         g_app.account_ui->chat_state, g_app.account_ui->chat_state.selected_channel_id);
     visibility.manual_suppressed = channel && channel->read_auto_ack_suppressed;

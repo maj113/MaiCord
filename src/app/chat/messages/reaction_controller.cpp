@@ -147,7 +147,7 @@ MessageReactionProjection project_intent(const MessageReactionController& contro
                                          const MessageReactionTarget& target,
                                          const MessageReactionSource& source,
                                          const MessageReactionAuthority& authority) noexcept {
-    MessageReactionProjection projected{authority, authority.mine_normal, authority.mine_burst, false};
+    MessageReactionProjection projected{authority, authority.mine_normal, authority.mine_burst};
     for (u32 index = 0; index < controller.count; ++index) {
         const auto& entry = controller.entries[index];
         if (!emoji_equal(entry.target, target) || !source_equal(entry.source, source))
@@ -157,8 +157,6 @@ MessageReactionProjection project_intent(const MessageReactionController& contro
         else
             projected.desired_normal = entry.desired_mine;
     }
-    projected.optimistic = projected.desired_normal != projected.authority.mine_normal ||
-                           projected.desired_burst != projected.authority.mine_burst;
     return projected;
 }
 

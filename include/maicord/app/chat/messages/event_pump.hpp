@@ -118,7 +118,6 @@ struct MessageEventPumpDrainResult {
     u32 applied;
     u32 deferred;
     u32 ignored;
-    u32 not_resident;
     u32 rejected;
     u32 apply_failures;
     MessageEventPumpFailure failure;
@@ -203,13 +202,7 @@ struct MessageEventPump {
     Slice<u64> bulk_id_scratch;
     Slice<u64> guild_id_scratch;
     u64 last_sequence;
-    u32 drained;
-    u32 applied;
-    u32 deferred;
-    u32 ignored;
-    u32 not_resident;
     u32 rejected;
-    u32 lifecycle;
     // Guild presence appearance changes applied without any repaint.
     u32 presence_offscreen;
     // Message authors or members the user/member caches could not take; the

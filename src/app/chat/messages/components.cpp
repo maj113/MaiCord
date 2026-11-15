@@ -264,7 +264,7 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
         // Recent distinct authors of the open channel, newest first.
         const auto& messages = g_app.message_view.store;
         for (u32 i = messages.count; i != 0 && owner->choice_count < kSelectMaximumChoices; --i) {
-            const auto* record = message_store_resolve(messages, message_store_ordered_handle(messages, i - 1u));
+            const auto* record = message_store_ordered_record(messages, i - 1u);
             if (!record || !record->author_id || record->channel_id != message.record->channel_id)
                 continue;
             bool seen = false;

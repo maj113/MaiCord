@@ -27,7 +27,7 @@ UnreadBannerProjection unread_banner_project(const UnreadBannerInput& in) noexce
     u32 count = 0;
     u64 oldest_resident = 0;
     for (u32 i = 0; i < in.store->count; ++i) {
-        const auto* record = message_store_resolve(*in.store, message_store_ordered_handle(*in.store, i));
+        const auto* record = message_store_ordered_record(*in.store, i);
         if (!record || record->channel_id != in.channel_id || record->delivery != MessageDeliveryState::authoritative)
             continue;
         if (!oldest_resident)

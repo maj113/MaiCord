@@ -57,7 +57,7 @@ void merge_invalidation(MessageTimelineInvalidation* destination,
 MessageEventPumpConsumeResult consume_error(MessageEventPumpError error,
                                             MessageEventPumpRejectReason reason = {}) noexcept;
 bool invalidate_rejected_thread_authority(MessageEventPump* pump, const GatewayClientEvent& event) noexcept;
-void ignore(MessageEventPump* pump, MessageEventPumpConsumeResult* result) noexcept;
+void ignore(MessageEventPumpConsumeResult* result) noexcept;
 void reject(MessageEventPump* pump, MessageEventPumpConsumeResult* result, MessageEventPumpRejectReason reason,
             u8 detail = 0) noexcept;
 void reject_resync(MessageEventPump* pump, MessageEventPumpConsumeResult* result,

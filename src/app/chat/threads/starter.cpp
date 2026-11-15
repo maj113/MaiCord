@@ -13,7 +13,7 @@ bool thread_starter_project(const MessageStore& messages, const ChatStateStore& 
         return false;
     bool changed = false;
     for (u32 order = 0; order < messages.count; ++order) {
-        const auto* record = message_store_resolve(messages, message_store_ordered_handle(messages, order));
+        const auto* record = message_store_ordered_record(messages, order);
         if (!record || record->delivery != MessageDeliveryState::authoritative)
             continue;
         const auto* rich = message_rich_store_find(*rich_store, record->id);

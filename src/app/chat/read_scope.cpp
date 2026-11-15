@@ -94,10 +94,8 @@ bool read_scope_source(const ChatStateStore& state, ReadScopeKind kind, u64 id,
     source.id = id;
     source.guild_id = guild->id;
     source.guild_generation = guild->generation;
-    source.guild_revision = guild->revision;
     source.kind = kind;
     source.generation = category ? category->generation : guild->generation;
-    source.revision = category ? category->revision : guild->revision;
     source.effective_permissions = category ? category->effective_permissions : guild->base_permissions;
     source.actions = category ? category->actions : 0;
     *output = source;

@@ -371,7 +371,7 @@ void drop_tombstone_rows() noexcept {
     auto& timeline = g_app.message_view.timeline;
     if (!timeline.store || !timeline.list) return;
     for (u32 i = timeline.store->count; i; --i) {
-        const auto* record = message_store_resolve(*timeline.store, message_store_ordered_handle(*timeline.store, i - 1));
+        const auto* record = message_store_ordered_record(*timeline.store, i - 1);
         if (record && record->delivery == MessageDeliveryState::retained) message_timeline_remove_local(&timeline, record->id);
     }
 }
@@ -618,7 +618,7 @@ mc_status plugin_host_read_messages(u64 channel_id, u64 before, mc_message_ref* 
     const MessageStore& store = g_app.message_view.store;
     bool below = !before;
     for (u32 i = store.count; i-- > 0 && *count < capacity;) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i));
+        const MessageRecord* record = message_store_ordered_record(store, i);
         if (!record || !record->id || record->channel_id != channel_id) continue;
         if (!below) {
             below = record->id == before;

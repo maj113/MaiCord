@@ -102,7 +102,7 @@ void slowmode_start(u64 channel_id, u8 kind, u64 until_ms) noexcept {
 const MessageRecord* latest_message(u64 channel_id) noexcept {
     const MessageStore& store = g_app.message_view.store;
     for (u32 index = store.count; index-- > 0;) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, index));
+        const MessageRecord* record = message_store_ordered_record(store, index);
         if (record && record->channel_id == channel_id && record->delivery == MessageDeliveryState::authoritative)
             return record;
     }

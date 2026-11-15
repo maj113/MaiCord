@@ -1126,29 +1126,9 @@ static bool pump_message_history_main(bool admit) noexcept {
                             shortfall.fields("decoded\0inserted\0resident\0skipped\0evicted", fields);
                             shortfall.write(LogLevel::warning, "rest");
                         }
-                        MessagePollPageInput inputs[kMessageHistoryRequestLimit];
-                        MessagePollResultTicket tickets[kMessageHistoryRequestLimit];
-                        u32 poll_count = 0;
-                        auto& ui = *g_app.account_ui;
-                        for (u32 i = 0; i < accepted.decode.page.count; ++i) {
-                            const auto& message = scratch.messages[i];
-                            if (!(message.fields & gateway_message_field_poll))
-                                continue;
-                            const auto* existing =
-                                message_poll_store_find(ui.message_poll_store, message.id);
-                            if (existing && existing->last_gateway_serial > ui.message_history_poll_serial)
-                                continue;
-                            tickets[poll_count] = message_poll_store_result_ticket(
-                                ui.message_poll_store, message.id, ui.message_history_poll_serial);
-                            inputs[poll_count] = {message.id, message.channel_id, &message.poll, 0,
-                                                  &tickets[poll_count]};
-                            ++poll_count;
-                        }
-                        const auto applied_polls =
-                            message_poll_store_apply_page(&ui.message_poll_store, {inputs, poll_count});
-                        if (!applied_polls.ok()) {
+                        if (!application_message_history_publish_polls(
+                                *g_app.account_ui, {scratch.messages.data, accepted.decode.page.count}))
                             log_write(LogLevel::warning, "poll", "history_poll_publish_failed");
-                        }
                         if (!application_poll_synchronize())
                             return false;
                         const u64 channel_id = g_app.account_ui->active_channel_id;

@@ -167,7 +167,9 @@ void test_message_reaction_controller(void (*check)(bool, const char*) noexcept)
     ticket = fixture.send();
     result = message_reaction_controller_complete(&fixture.controller, ticket,
                                                   MessageReactionCompletion::terminal, 1);
-    check(result.kind == MessageReactionOutcomeKind::failed && !result.projection.optimistic &&
+    check(result.kind == MessageReactionOutcomeKind::failed &&
+              result.projection.desired_normal == result.projection.authority.mine_normal &&
+              result.projection.desired_burst == result.projection.authority.mine_burst &&
               result.projection.authority.normal == 4 && !fixture.controller.count,
           "reaction intent: terminal current failure restores retained authority only");
     fixture.reset();

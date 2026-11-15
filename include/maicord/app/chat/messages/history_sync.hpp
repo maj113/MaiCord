@@ -228,6 +228,10 @@ struct ReplyReferenceRefresh {
     u64 reference_id;
     u64 retry_at_ms;
     AttachmentRefreshState state;
+    // The basis of the last scan that found no quote to refresh (message_history_reply_queue).
+    u32 quiet_generation;
+    u64 quiet_mutations;
+    u64 quiet_through_id;
 };
 
 bool message_history_reply_queue(ReplyReferenceRefresh* refresh, const MessageTimeline& timeline,

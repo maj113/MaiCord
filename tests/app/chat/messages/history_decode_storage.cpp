@@ -296,6 +296,25 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         !(application_message_body_shape(utf8_literal(R"({"content":"ordinary"})")).optional & 2) &&
         application_message_body_shape(utf8_literal(R"({"a":{"b":"{"}})")).objects == 3,
         "optional admission conservatively includes escaped property names and counts every brace");
+    // The scan reads 16 bytes for each step. Each key, the escape and a brace must count at every offset in a
+    // step, also between quotes and backslashes that start nothing. The end of the body can cut a key or an escape.
+    constexpr Utf8View markers[] = {utf8_literal("\"poll\""), utf8_literal("\"message_snapshots\""),
+                                    utf8_literal("\\u"), utf8_literal("{")};
+    constexpr u8 marker_optional[] = {1, 2, 3, 0};
+    constexpr char filler[] = {'"', 'm', '"', 'p', '\\', 'x'};
+    bool every_offset = true;
+    for (u32 kind = 0; kind < 4; ++kind)
+        for (u32 offset = 0; offset < 40; ++offset) {
+            char body[80];
+            for (u32 i = 0; i < sizeof(body); ++i)
+                body[i] = filler[i % sizeof(filler)];
+            copy_bytes(body + offset, markers[kind].data, markers[kind].bytes);
+            const auto whole = application_message_body_shape({body, sizeof(body)});
+            const auto cut = application_message_body_shape({body, offset + markers[kind].bytes - 1});
+            every_offset = every_offset && whole.optional == marker_optional[kind] &&
+                           whole.objects == (kind == 3 ? 1u : 0u) && !cut.optional && !cut.objects;
+        }
+    check(every_offset, "optional admission finds each key, escape and brace at every offset of a 16-byte step");
     measurement("MEASURE history_snapshot_additional_committed_bytes=", committed_bytes(owner) - before_committed);
     application_history_decode_storage_release(ui);
     check(!owner.base && !committed_bytes(owner) && vm(base, MEM_FREE) &&

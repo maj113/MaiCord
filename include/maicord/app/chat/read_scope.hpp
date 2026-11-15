@@ -9,7 +9,6 @@ enum class ReadScopeKind : u8 {
 };
 struct ReadScopeSource {
     u64 id, guild_id;
-    u32 revision, guild_revision;
     u16 generation, guild_generation;
     ReadScopeKind kind;
     u64 effective_permissions;

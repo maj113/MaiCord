@@ -184,7 +184,7 @@ bool application_message_edit_available(u64 message_id) noexcept {
 u64 application_message_edit_latest_own() noexcept {
     const MessageStore& store = g_app.message_view.store;
     for (u32 index = store.count; index-- > 0;) {
-        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, index));
+        const MessageRecord* record = message_store_ordered_record(store, index);
         if (record && application_message_edit_available(record->id))
             return record->id;
     }

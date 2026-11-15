@@ -259,7 +259,7 @@ bool restore_current_source(const MessageReactionIntent& intent, bool* model_cha
         !same_handle(handle, intent.source.handle) || record->revision != intent.source.revision)
         return false;
     return project(intent.target,
-                   {intent.authority, intent.authority.mine_normal, intent.authority.mine_burst, false},
+                   {intent.authority, intent.authority.mine_normal, intent.authority.mine_burst},
                    model_changed);
 }
 void release_owner() noexcept {
@@ -345,16 +345,8 @@ void mirror() noexcept {
         if (!found)
             return;
     }
-    const auto& t = intent.target;
     auto& out = g_app.message_reaction;
-    out.channel_id = t.channel_id;
-    out.message_id = t.message_id;
-    out.emoji_id = t.emoji_id;
-    out.name_bytes = t.name_bytes;
-    copy_bytes(out.name, t.name, t.name_bytes);
-    out.type = t.type;
-    out.add = intent.desired_mine;
-    out.animated = t.animated;
+    out.message_id = intent.target.message_id;
     out.retries = intent.retries;
     out.retry_at_ms = intent.due_at_ms;
     out.phase = active ? MessageReactionRequestPhase::submitting
@@ -730,7 +722,7 @@ bool application_message_reaction_submit(u64 request_id, u64 now_ms) noexcept {
             return false;
         }
         MessageReactionProjection baseline{intent.authority, intent.authority.mine_normal,
-                                           intent.authority.mine_burst, false};
+                                           intent.authority.mine_burst};
         message_reaction_controller_cancel(&owner->controller, target.channel_id, target.message_id,
                                            &target);
         project(target, baseline);
