@@ -124,12 +124,6 @@ bool intersect_scissor(RECT* rectangle, const RECT* damage) noexcept {
     return rectangle->left < rectangle->right && rectangle->top < rectangle->bottom;
 }
 
-const UiLayoutNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
-    return renderer->ui_scene
-               ? ui_scene_node(*renderer->ui_scene, semantic)
-               : nullptr;
-}
-
 // State every pipeline shares: target, topology, rasterizer, blend, frame
 // constants (VS b0) and sampler. Text and media rely on it as much as paint does.
 void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission) noexcept {
@@ -426,8 +420,9 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
     const bool retained_content = content && renderer->uploaded_text_storage == renderer->content_text &&
                                   renderer->uploaded_text_rebuild == renderer->content_text->rebuilds &&
                                   renderer->uploaded_text_quad_count == quad_count;
-    const UiLayoutNode* title =
-        content || renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
+    const UiLayoutNode* title = content || renderer->login_visible || !renderer->ui_scene
+                                    ? nullptr
+                                    : ui_scene_node(*renderer->ui_scene, UiSemantic::title_bar);
     if (!content && !renderer->login_visible && !title) {
         return false;
     }
@@ -613,9 +608,7 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
     for (u32 index = first_batch; index < end_batch; ++index) {
         const PaintBatch& batch = renderer->paint_stream.batches[index];
         if (batch.first_quad > renderer->paint_stream.count ||
-            batch.quad_count > renderer->paint_stream.count - batch.first_quad ||
-            batch.first_quad > renderer->pipeline.ui_instance_capacity ||
-            batch.quad_count > renderer->pipeline.ui_instance_capacity - batch.first_quad)
+            batch.quad_count > renderer->paint_stream.count - batch.first_quad)
             return false;
         if (batch.quad_count == 0 || batch.clip_index >= renderer->paint_stream.clip_count) {
             continue;
@@ -766,9 +759,9 @@ void release_backdrop_target(D3D11Renderer* renderer) noexcept {
     gpu_release(renderer->settings_backdrop);
     renderer->settings_backdrop_valid = false;
 }
-// Clearing the swap chain target also wipes the caption; it redraws after
-// the stream.
-void clear_target(D3D11Renderer* renderer, const float color[4]) noexcept {
+// Clears the swap chain target to the theme's base. That also wipes the caption; it redraws after the stream.
+void clear_target(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
     gpu_clear_rtv(renderer->graphics.context, gpu_surface_target(&renderer->graphics.surface), color);
     d3d11_renderer_caption_invalidate(renderer);
 }
@@ -812,17 +805,10 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
         return true;
     // A shell that has not drawn yet leaves the theme's base. A backdrop from
     // before a resize stretches until the shell draws at the new size.
-    if (!renderer->settings_backdrop_valid) {
-        if (!damage) {
-            const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-            clear_target(renderer, color);
-        }
+    if (renderer->settings_backdrop_valid ? layer : !damage)
+        clear_target(renderer, theme);
+    if (!renderer->settings_backdrop_valid)
         return true;
-    }
-    if (layer) {
-        const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-        clear_target(renderer, color);
-    }
     void* mapped = gpu_map(renderer->graphics.context, renderer->settings_backdrop_quad, GpuMap::discard, nullptr);
     if (!mapped)
         return false;

@@ -150,9 +150,10 @@ MediaAtlasGpuResult run_atlas_upload(D3D11Renderer* renderer, bool preview,
     return uploaded;
 }
 
-// Animation entry points: the surface owning `key` is borrowed for `upload`.
+// Animation entry points: the surface owning `key` is borrowed for `upload`. A request that is not ready is rejected.
 MediaAtlasGpuResult run_animation_upload(D3D11Renderer* renderer, const MediaAssetKey& key, const char* failure_event,
                                          const AtlasUpload& upload) noexcept {
+    if (!media_request_ready(renderer, key)) return kRejectedMediaRequest;
     AnimationAtlasTarget target(renderer, key);
     if (!target.initialized.ok()) return target.initialized;
     const MediaAtlasGpuResult uploaded = upload.run(upload.context, target.atlas);
@@ -431,9 +432,6 @@ MediaAtlasGpuResult renderer_begin_apng(D3D11Renderer* renderer, MediaAssetKey k
                                         u16 canvas_height, const ApngFrame& frame,
                                         const PngImage& frame_image,
                                         ConstSlice<u8> reconstructed_scanlines) noexcept {
-    if (!media_request_ready(renderer, key)) {
-        return kRejectedMediaRequest;
-    }
     return upload_animation(renderer, key, "apng_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
             return media_atlas_gpu_begin_apng(&renderer->media_gpu, atlas, renderer->graphics.device,
@@ -446,7 +444,7 @@ MediaAtlasGpuResult renderer_advance_apng(D3D11Renderer* renderer, MediaAssetKey
                                           const ApngFrame& previous_frame, const ApngFrame& frame,
                                           const PngImage& frame_image,
                                           ConstSlice<u8> reconstructed_scanlines) noexcept {
-    if (!media_request_ready(renderer, key) || !renderer->media_gpu.surface) {
+    if (!renderer->media_gpu.surface) {
         return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, "apng_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
@@ -459,9 +457,6 @@ MediaAtlasGpuResult renderer_advance_apng(D3D11Renderer* renderer, MediaAssetKey
 MediaAtlasGpuResult renderer_begin_gif(D3D11Renderer* renderer, MediaAssetKey key, u16 canvas_width,
                                        u16 canvas_height, const GifFrame& frame, const GifPalette& palette,
                                        ConstSlice<u8> indices) noexcept {
-    if (!media_request_ready(renderer, key)) {
-        return kRejectedMediaRequest;
-    }
     return upload_animation(renderer, key, "gif_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
             return media_atlas_gpu_begin_gif(&renderer->media_gpu, atlas, renderer->graphics.device,
@@ -473,9 +468,6 @@ MediaAtlasGpuResult renderer_begin_gif(D3D11Renderer* renderer, MediaAssetKey ke
 MediaAtlasGpuResult renderer_advance_gif(D3D11Renderer* renderer, MediaAssetKey key,
                                          const GifFrame& previous_frame, const GifFrame& frame,
                                          const GifPalette& palette, ConstSlice<u8> indices) noexcept {
-    if (!media_request_ready(renderer, key)) {
-        return kRejectedMediaRequest;
-    }
     return upload_animation(renderer, key, "gif_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
         return media_atlas_gpu_advance_gif(&renderer->media_gpu, atlas, renderer->graphics.device,
                                            renderer->graphics.context1, key, previous_frame, frame, palette,
@@ -487,9 +479,6 @@ MediaAtlasGpuResult renderer_begin_animated_webp(D3D11Renderer* renderer, MediaA
                                                  u16 canvas_width, u16 canvas_height, u32 background_rgba,
                                                  const AnimatedWebpFrame& frame,
                                                  ConstSlice<u8> straight_rgba8) noexcept {
-    if (!media_request_ready(renderer, key)) {
-        return kRejectedMediaRequest;
-    }
     return upload_animation(renderer, key, "animated_webp_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
             return media_atlas_gpu_begin_animated_webp(&renderer->media_gpu, atlas, renderer->graphics.device,
@@ -503,9 +492,6 @@ MediaAtlasGpuResult renderer_advance_animated_webp(D3D11Renderer* renderer, Medi
                                                    const AnimatedWebpFrame& previous_frame,
                                                    const AnimatedWebpFrame& frame,
                                                    ConstSlice<u8> straight_rgba8) noexcept {
-    if (!media_request_ready(renderer, key)) {
-        return kRejectedMediaRequest;
-    }
     return upload_animation(renderer, key, "animated_webp_atlas_advance_failed",
         [&](MediaAtlas* atlas) noexcept {
             return media_atlas_gpu_advance_animated_webp(&renderer->media_gpu, atlas,
@@ -659,6 +645,11 @@ bool read_rgba(D3D11Renderer* renderer, MediaAssetKey key, bool preview, Slice<u
             u8* out = rgba.data + u64{y} * allocation.width * 4;
             for (u32 x = 0; x < allocation.width; ++x) {
                 const u32 a = row[x * 4 + 3];
+                // An opaque texel is its own straight colour: (c * 255 + 127) / 255 == c.
+                if (a == 255) {
+                    copy_bytes(out + x * 4, row + x * 4, 4);
+                    continue;
+                }
                 for (u32 c = 0; c < 3; ++c)
                     out[x * 4 + c] = a ? static_cast<u8>(minimum<u32>(255, (row[x * 4 + c] * 255u + a / 2) / a)) : 0;
                 out[x * 4 + 3] = static_cast<u8>(a);

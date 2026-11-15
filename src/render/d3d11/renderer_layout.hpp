@@ -3,7 +3,6 @@
 namespace maicord {
 
 struct D3D11Renderer;
-struct LoginView;
 struct RendererPresentationStamp;
 struct RendererShellSegment;
 struct Theme;

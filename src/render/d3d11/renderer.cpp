@@ -397,14 +397,13 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         renderer->begin_frame_permit = true;
     }
     const bool first_paint = renderer->painted_frames == 0;
-    const Clock clock = clock_initialize();
     const i64 paint_begin = first_paint ? clock_now() : 0;
     if (!d3d11_renderer_paint_layout(renderer, theme, current)) {
         note_device_failure(renderer);
         return false;
     }
     if (first_paint)
-        renderer->first_frame_cpu_us = clock_microseconds(clock, paint_begin, clock_now());
+        renderer->first_frame_cpu_us = clock_microseconds(clock_initialize(), paint_begin, clock_now());
     ++renderer->painted_frames;
     if (!renderer->present_required) {
         return true;

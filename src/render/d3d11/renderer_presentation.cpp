@@ -741,9 +741,10 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
     const RendererPresentationStamp structure = renderer_capture_presentation_stamp(*renderer, theme, true);
     const u64 text = text_signature(*renderer);
     const u64 layout = layout_signature(*renderer);
-    // Damage is staged on a copy so a rejected comparison leaves the tracker
-    // exactly as it was (the caller then invalidates the whole frame).
-    const PresentationDamageTracker staged = renderer->presentation_damage;
+    // The comparison adds damage only to the pending rectangle. A rejected comparison restores it
+    // (the caller then invalidates the whole frame).
+    const PresentationDamageRect pending = renderer->presentation_damage.pending;
+    const bool pending_valid = renderer->presentation_damage.pending_valid;
     const bool partial =
         diff.valid && !renderer->login_visible && renderer->content_text && paint.rejected == 0 &&
         paint.batch_count <= kMaxPaintBatches && paint.clip_count <= kMaxPaintClips &&
@@ -752,8 +753,10 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
         paint.batch_count == diff.frame.batch_count &&
         bytes_equal(paint.clips, diff.frame.clips, static_cast<usize>(paint.clip_count) * sizeof(PaintClip)) &&
         add_paint_damage(renderer, diff.frame) && add_media_damage(renderer, diff.frame);
-    if (!partial)
-        copy_value(&renderer->presentation_damage, staged);
+    if (!partial) {
+        renderer->presentation_damage.pending = pending;
+        renderer->presentation_damage.pending_valid = pending_valid;
+    }
     diff.valid = false;
     diff.pending = renderer_frame_copy_record(&diff.frame, *renderer);
     if (diff.pending) {

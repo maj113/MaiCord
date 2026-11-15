@@ -2378,8 +2378,6 @@ bool retained_root_is_opaque(const D3D11Renderer& renderer, float viewport_width
 } // namespace
 
 void d3d11_renderer_shell_segment_release(RendererShellSegment* segment) noexcept {
-    if (!segment)
-        return;
     renderer_frame_copy_release(&segment->frame);
     reset_value<RendererShellSegment>(segment);
 }

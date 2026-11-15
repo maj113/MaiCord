@@ -45,16 +45,11 @@ inline void draw_submission_begin(DrawSubmissionState* state) noexcept {
     reset_value<DrawSubmissionState>(state);
 }
 
-// Another user bound over the context: rebind everything at the next draw.
+// Another user bound over the context: rebind everything at the next draw. Only pipeline_bound stays.
 inline void draw_submission_reset(DrawSubmissionState* state) noexcept {
-    state->pipeline = DrawPipeline::none;
-    state->input_pipeline = DrawPipeline::none;
-    state->views_pipeline = DrawPipeline::none;
-    state->shared_bound = false;
-    state->scissor_valid = false;
-    state->blend_stale = false;
-    state->ps_frame_bound = false;
-    state->ps_slot1_valid = false;
+    const bool bound = state->pipeline_bound;
+    reset_value<DrawSubmissionState>(state);
+    state->pipeline_bound = bound;
 }
 
 // The background effect bound its shaders, pixel constant slot 0 and blend

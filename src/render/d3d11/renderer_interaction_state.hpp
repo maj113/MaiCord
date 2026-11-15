@@ -491,6 +491,18 @@ __declspec(noinline) inline u32 d3d11_renderer_frame_surfaces(const D3D11Rendere
     return renderer.poll_scene && d3d11_renderer_poll_shown(renderer, shown) ? shown | d3d11_surface_poll : shown;
 }
 
+// The widget manager in front of `front`: a profile card, then a popup, then a text form above it.
+__forceinline const UiWidgetManager* d3d11_renderer_front_over(const D3D11Renderer& renderer,
+                                                             const UiWidgetManager* front) noexcept {
+    if (d3d11_renderer_active(renderer.profile_scene))
+        front = &renderer.profile_scene->widgets;
+    if (d3d11_renderer_active(renderer.popup_scene))
+        front = &renderer.popup_scene->widgets;
+    if (d3d11_renderer_text_form_active(renderer))
+        front = &renderer.text_form->scene->widgets;
+    return front;
+}
+
 __declspec(noinline) inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Renderer& renderer,
                                                                                      u32 shown) noexcept {
     const auto* owner = renderer.focus_owner;
@@ -533,36 +545,14 @@ __declspec(noinline) inline const UiWidgetManager* d3d11_renderer_visible_focus_
                    : nullptr;
     // Inline results never take focus: the composer (and its popup) keep it.
     if ((shown & d3d11_surface_media_picker) &&
-        renderer.media_picker_scene->variant != UiMediaPickerVariant::inline_results) {
-        const UiWidgetManager* front = &renderer.media_picker_scene->widgets;
-        if (d3d11_renderer_active(renderer.profile_scene))
-            front = &renderer.profile_scene->widgets;
-        if (d3d11_renderer_active(renderer.popup_scene))
-            front = &renderer.popup_scene->widgets;
-        if (d3d11_renderer_text_form_active(renderer))
-            front = &renderer.text_form->scene->widgets;
-        return owner == front ? owner : nullptr;
-    }
-    if (d3d11_renderer_active(renderer.poll_voters_scene)) {
-        const UiWidgetManager* front = renderer.poll_voters_scene->owner.manager;
-        if (d3d11_renderer_active(renderer.profile_scene))
-            front = &renderer.profile_scene->widgets;
-        if (d3d11_renderer_active(renderer.popup_scene))
-            front = &renderer.popup_scene->widgets;
-        if (d3d11_renderer_text_form_active(renderer))
-            front = &renderer.text_form->scene->widgets;
-        return owner == front ? owner : nullptr;
-    }
-    if (d3d11_renderer_active(renderer.friends_requests_scene)) {
-        const UiWidgetManager* front = &renderer.friends_requests_scene->widgets;
-        if (d3d11_renderer_active(renderer.profile_scene))
-            front = &renderer.profile_scene->widgets;
-        if (d3d11_renderer_active(renderer.popup_scene))
-            front = &renderer.popup_scene->widgets;
-        if (d3d11_renderer_text_form_active(renderer))
-            front = &renderer.text_form->scene->widgets;
-        return owner == front ? owner : nullptr;
-    }
+        renderer.media_picker_scene->variant != UiMediaPickerVariant::inline_results)
+        return owner == d3d11_renderer_front_over(renderer, &renderer.media_picker_scene->widgets) ? owner : nullptr;
+    if (d3d11_renderer_active(renderer.poll_voters_scene))
+        return owner == d3d11_renderer_front_over(renderer, renderer.poll_voters_scene->owner.manager) ? owner
+                                                                                                         : nullptr;
+    if (d3d11_renderer_active(renderer.friends_requests_scene))
+        return owner == d3d11_renderer_front_over(renderer, &renderer.friends_requests_scene->widgets) ? owner
+                                                                                                         : nullptr;
     // The thread browser and Friends cover the chat column and the member list; a media page only the chat column.
     const bool members_covered =
         (shown & d3d11_surface_thread_browser) || d3d11_renderer_active(renderer.friends_scene);
