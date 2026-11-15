@@ -11,6 +11,7 @@
 #include "maicord/app/plugins/dispatch.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord::plugin_dev_tests {
 using namespace app_detail;
@@ -48,14 +49,36 @@ bool finished() noexcept { return phase() == CatalogPhase::done || phase() == Ca
 bool consent_or_finished() noexcept { return phase() == CatalogPhase::consent || finished(); }
 bool asks() noexcept { return phase() == CatalogPhase::consent; }
 
-// Polls until done says so (about ten seconds at most).
+// One turn of the client's loop for the catalog: wait on its handles (the worker, HTTP and the dev folders) for at
+// most its own timeout and at most until deadline, then poll. Without waiting, false when no handle is set and nothing
+// is due (then only a new event can change the state) and idle_returns is set.
+bool loop_turn(u64 deadline, bool idle_returns) noexcept {
+    const HANDLE all[]{application_catalog_notification(), application_catalog_http_notification(),
+                       application_catalog_dev_notification(0), application_catalog_dev_notification(1)};
+    HANDLE handles[4];
+    u32 count = 0;
+    for (const HANDLE handle : all)
+        if (handle) handles[count++] = handle;
+    const u64 now = clock_monotonic_milliseconds();
+    const u32 timeout = application_catalog_wait_timeout(now);
+    const bool set = count && WaitForMultipleObjects(count, handles, FALSE, 0) != WAIT_TIMEOUT;
+    if (!set && timeout == INFINITE && idle_returns) return false;
+    const DWORD wait = set ? 0 : static_cast<DWORD>(minimum<u64>(timeout, deadline > now ? deadline - now : 0));
+    if (count) WaitForMultipleObjects(count, handles, FALSE, wait);
+    else Sleep(wait);
+    application_catalog_poll();
+    return true;
+}
+
+// Runs the loop until done says so (ten seconds at most).
 template <typename F> bool settle(F&& done) noexcept {
-    for (u32 i = 0; i < 1000; ++i) {
-        application_catalog_poll();
-        if (done()) return true;
-        Sleep(10);
+    const u64 deadline = clock_monotonic_milliseconds() + 10'000;
+    application_catalog_poll();
+    while (!done()) {
+        if (clock_monotonic_milliseconds() >= deadline) return false;
+        loop_turn(deadline, false);
     }
-    return false;
+    return true;
 }
 
 PluginBinding* running() noexcept {
@@ -126,14 +149,15 @@ bool copy_over(const wchar_t* from, const wchar_t* to, bool one_more_byte = fals
     return ok;
 }
 
-// True when nothing changed (changed stayed false) over a short wait.
-template <typename F> bool stays(F&& changed, u32 polls = 40) noexcept {
-    for (u32 i = 0; i < polls; ++i) {
-        application_catalog_poll();
-        if (changed()) return false;
-        Sleep(10);
+// True when changed stays false until the catalog is quiet: no handle set and nothing due, so that the client's loop
+// would wait for a new event (ten seconds at most).
+template <typename F> bool stays(F&& changed) noexcept {
+    const u64 deadline = clock_monotonic_milliseconds() + 10'000;
+    application_catalog_poll();
+    while (!changed()) {
+        if (clock_monotonic_milliseconds() >= deadline || !loop_turn(deadline, true)) return true;
     }
-    return true;
+    return false;
 }
 
 void native(wchar_t* path) noexcept {

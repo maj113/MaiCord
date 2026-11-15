@@ -2108,7 +2108,7 @@ maicord_test(MaiCordGpuDeviceFloorProbe ONLY WINDOWS ENTRY maicord_gpu_device_fl
 maicord_test(MaiCordGpuEffectsProbe ONLY WINDOWS ENTRY maicord_gpu_effects_entry
     SOURCES tests/gpu/effects.cpp
     LIBS maicord_packages maicord_app_core maicord_platform
-    BUNDLE MaiCordGpuUnitTests TIMEOUT 60 LABELS gpu RESOURCE_LOCK native_gpu TEST maicord_gpu_effects)
+    BUNDLE MaiCordGpuUnitTests TIMEOUT 60 LABELS gpu RESOURCE_LOCK native_gpu_b TEST maicord_gpu_effects)
 if(MAICORD_LINUX)
     # The GPU tests of the Linux build. They need an EGL driver: Mesa's llvmpipe is the CI default, and a developer GPU
     # is selected the way the driver stack does it (on WSL: GALLIUM_DRIVER=d3d12 tools/build_linux.sh --test ...).
@@ -3112,7 +3112,7 @@ maicord_test(MaiCordComposerUiProbe ONLY WINDOWS WIN32 ENTRY maicord_composer_ui
         tests/support/pipeline_host_stubs.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    RESOURCE_LOCK native_gpu
+    RESOURCE_LOCK native_gpu_b
     TEST maicord_composer_ui_probe)
 maicord_test(MaiCordAccountLogoutUiProbe ONLY WINDOWS WIN32 ENTRY maicord_account_logout_ui_probe_entry
     SOURCES ${maicord_account_fake}
@@ -3136,10 +3136,11 @@ maicord_test(MaiCordScopedReadUiProbe ONLY WINDOWS WIN32 ENTRY maicord_scoped_re
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu_c)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
-# The GPU-locked probes run as three chains (native_gpu, native_gpu_b and native_gpu_c): this one, the longest, holds
-# native_gpu_b alone; frame damage, forum media, the full UI probe and the hardware stream decoders share native_gpu_c;
-# the many short probes share native_gpu. The suite's wall time is then the longest chain, not their sum. The pacing
-# probe holds all three: nothing else draws while it measures frame pacing.
+# The GPU-locked probes run as three chains (native_gpu, native_gpu_b and native_gpu_c), balanced by their times in a
+# full suite: this one, the editor and composer probes, the GPU effects and the inline media controls hold
+# native_gpu_b; frame damage, forum media, the full UI probe and the hardware stream decoders share native_gpu_c; the
+# many short probes share native_gpu. The suite's wall time is then the longest chain, not their sum. The pacing probe
+# holds all three: nothing else of them draws while it measures frame pacing.
 # Background canvases, Stars/Comets and package effects against CPU references; the samples rendered at 1440p.
 maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu_b)
@@ -3148,7 +3149,7 @@ maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE B
 maicord_ui_probe_test(maicord_frame_damage_probe UI_FRAME_DAMAGE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu_c)
 maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_PROBE BOOTSTRAP TIMEOUT 20 COST 50
-    RESOURCE_LOCK native_gpu)
+    RESOURCE_LOCK native_gpu_b)
 # Rail server icons through layout and present: static, animated at rest and
 # hovered, and still-loading icons must each build, queue the right resident
 # rendition and present (a failed build_layout presents nothing).
@@ -3157,7 +3158,7 @@ maicord_ui_probe_test(maicord_guild_rail_icon_probe UI_GUILD_RAIL_ICON_PROBE BOO
 # Profiles settings page, preview card, cropper and decoration picker; Ctrl+A over a multi-line Bio. Try It Out: every
 # name font with every effect at 100, 125 and 150 %, then 256 presses of Shuffle with a frame after each.
 maicord_ui_probe_test(maicord_profile_editor_ui_probe PROFILE_EDITOR_UI_PROBE BOOTSTRAP TIMEOUT 20
-    LABELS native-ui display RESOURCE_LOCK native_gpu)
+    LABELS native-ui display RESOURCE_LOCK native_gpu_b)
 # Rich presence cards in the profile popout and full profile.
 maicord_ui_probe_test(maicord_profile_activity_ui_probe PROFILE_ACTIVITY_UI_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
@@ -3227,8 +3228,9 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
 endforeach()
 # The sequence that hung an AMD GPU when the tile pool shrank under queued writes (profile cards opened in the frame
 # of a member-list upload burst): a GPU hang reproduction, so it runs on WARP with the debug layer only, never on the
-# hardware adapter, and any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it.
-maicord_ui_probe_test(maicord_profile_media_sequence_ui_probe UI_PROFILE_MEDIA_SEQUENCE_PROBE BOOTSTRAP WARP TIMEOUT 15
+# hardware adapter, and any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it. WARP draws on the CPU
+# (about 6 CPU s here), so a loaded machine stretches its wall time: it has the suite's 20 s limit.
+maicord_ui_probe_test(maicord_profile_media_sequence_ui_probe UI_PROFILE_MEDIA_SEQUENCE_PROBE BOOTSTRAP WARP TIMEOUT 20
     LABELS native-ui display)
 # The sign-in screen as the client starts it (first frame under the caption, window shown, the loop's first glyph
 # maintenance, an idle trim): every resident glyph reads back with coverage through a staging copy, and every sign-in

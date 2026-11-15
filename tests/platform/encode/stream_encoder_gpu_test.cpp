@@ -44,6 +44,7 @@ struct Collector {
 alignas(64) u8 g_unit_bytes[kUnitBytes];
 alignas(64) u8 g_pixels[kWidth * kHeight * 4];
 Collector g_collector;
+HANDLE g_unit_event; // Set after each unit and at the end: the waits below wake on it.
 
 void on_unit(void* context, const GpuStreamAccessUnit& unit) noexcept {
     auto* c = static_cast<Collector*>(context);
@@ -58,6 +59,7 @@ void on_unit(void* context, const GpuStreamAccessUnit& unit) noexcept {
         c->overflow = true;
     }
     ReleaseSRWLockExclusive(&c->lock);
+    SetEvent(g_unit_event);
 }
 
 void on_ended(void* context, GpuStreamEncoderEnd) noexcept {
@@ -65,6 +67,7 @@ void on_ended(void* context, GpuStreamEncoderEnd) noexcept {
     AcquireSRWLockExclusive(&c->lock);
     c->ended = true;
     ReleaseSRWLockExclusive(&c->lock);
+    SetEvent(g_unit_event);
 }
 
 u32 unit_count() noexcept {
@@ -74,11 +77,23 @@ u32 unit_count() noexcept {
     return count;
 }
 
-// Waits (bounded) for the encoder thread to deliver `count` units.
+// Waits until `done` holds, waking on each unit the encoder thread delivers. The 10 s limit only ends a hung encoder.
+template <typename Done>
+bool wait_until(Done done) noexcept {
+    const u64 deadline = clock_monotonic_milliseconds() + 10'000;
+    for (;;) {
+        if (done())
+            return true;
+        const u64 now = clock_monotonic_milliseconds();
+        if (now >= deadline)
+            return false;
+        WaitForSingleObject(g_unit_event, static_cast<DWORD>(deadline - now));
+    }
+}
+
+// Waits for the encoder thread to deliver `count` units.
 bool wait_units(u32 count) noexcept {
-    for (u32 i = 0; i < 1000 && unit_count() < count; ++i)
-        Sleep(1);
-    return unit_count() >= count;
+    return wait_until([count]() noexcept { return unit_count() >= count; });
 }
 
 // The capture's clock (the client clock in microseconds): the next picture at least a 60 fps interval after `last`.
@@ -456,19 +471,16 @@ int run_stream(ID3D11Device* device, ID3D11DeviceContext* context, GpuStreamCode
     }
     // The last pictures come out too: the stream did not stop part way.
     const u64 last_sent = first + u64{kStreamFrames - 6} * kStreamInterval;
-    for (u32 i = 0; i < 1000 && last_unit_time() < last_sent; ++i)
-        Sleep(1);
+    wait_until([last_sent]() noexcept { return last_unit_time() >= last_sent; });
     const u64 last_time = last_unit_time();
     // Drained: every accepted picture is a unit or was replaced while it waited, and the collector has them all (a
     // unit counts as encoded just before its callback runs, so the last one is in flight for a moment).
     GpuStreamEncoderStats stats{};
-    for (u32 i = 0; i < 2000; ++i) {
+    wait_until([&]() noexcept {
         stats = gpu_stream_encoder_stats(encoder);
         const u32 replaced = stats.dropped - (stats.submitted - accepted);
-        if (stats.encoded + replaced == accepted && unit_count() == stats.encoded)
-            break;
-        Sleep(1);
-    }
+        return stats.encoded + replaced == accepted && unit_count() == stats.encoded;
+    });
     if (failures || accepted < kStreamFrames * 3 / 4) {
         test_write_metric("submitted: ", stats.submitted);
         test_write_metric("dropped: ", stats.dropped);
@@ -531,6 +543,9 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_stream_encoder_gpu_tests_entry() noexcept {
     using namespace maicord;
+    g_unit_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!g_unit_event)
+        ExitProcess(1);
     ID3D11Device* device = nullptr;
     ID3D11DeviceContext* context = nullptr;
     constexpr D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};

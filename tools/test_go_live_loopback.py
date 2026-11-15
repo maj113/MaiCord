@@ -12,7 +12,6 @@ server saw the DAVE group of the two and media both ways. Exit 77 (skipped) with
 import concurrent.futures
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -29,12 +28,6 @@ def openssl():
     return git if os.path.exists(git) else None
 
 
-def free_port():
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
 def certificate(work, tool):
     cert, key = (os.path.join(work, name) for name in ("cert.pem", "key.pem"))
     if not os.path.exists(cert):
@@ -49,15 +42,17 @@ def run(exe, work, cert, key, case):
     codec, _, size = case.partition("-")
     log = os.path.join(work, f"server-{case}.log")
     open(log, "w").close()
-    port = free_port()
     environment = dict(os.environ, MAICORD_FAKE_STREAM_CODEC={"h264": "H264", "h265": "H265", "av1": "AV1"}[codec])
+    # Each server binds its own TCP port and names it: a port chosen here and bound later could go to two servers at
+    # once (Windows lets a second server bind a port that has SO_REUSEADDR), and one client then reaches the other.
     server = subprocess.Popen([sys.executable, "-B", os.path.join(HERE, "fake_discord_server.py"), "--cert", cert,
-                               "--key", key, "--port", str(port), "--log", log],
+                               "--key", key, "--port", "0", "--log", log],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment)
     try:
         first = server.stdout.readline().strip()
-        if first != "ready":
-            # Not "ready" means it exited (most often another fake server holds its UDP ports): show why.
+        ready, _, port = first.partition(" ")
+        if ready != "ready" or not port.isdigit():
+            # Not "ready PORT" means it exited: show why.
             return 1, [f"{case}: the fake server did not start\n{first}\n{server.stdout.read()}"]
         client = subprocess.run([exe], env=dict(os.environ, MAICORD_TEST_SERVER=f"127.0.0.1:{port}",
                                                 MAICORD_TEST_CA_FILE=cert, MAICORD_LOOPBACK_CODEC=codec,

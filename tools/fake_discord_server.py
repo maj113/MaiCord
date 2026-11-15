@@ -14,13 +14,14 @@ server (us-qa.discord.media: the voice gateway v9 and a UDP port its Ready names
 (no DAVE, which the voice channel demands) and echoes the client's Opus packets back as another participant. Go Live (ops
 18-22) has its own stream server (us-qa-stream.discord.media: voice gateway v9 with DAVE, and its own UDP port) relaying a
 stream to its viewers. Both UDP ports are ephemeral (the client takes them from Ready), so several fakes run at once.
+With --port 0 the TCP port is ephemeral too: the server binds it and prints it in its ready line.
 On Windows a client built with tools/build.ps1 -TestHooks needs no hosts file: MAICORD_TEST_SERVER=127.0.0.1:PORT answers
 every name lookup with this server (--port PORT) and MAICORD_TEST_CA_FILE=CERT.pem is the only certificate trust (CERT must
 cover discord.com, gateway.discord.gg, cdn.discordapp.com and media.discordapp.net); see CONTRIBUTING.md.
 
 Nothing here is Discord's protocol beyond what the client reads; an unknown request answers 404 and is logged as
 "<status> <method> <path>" to --log, which is how a missing route shows. Standard library only (voice needs the `cryptography`
-package for AES-GCM); prints "ready". MAICORD_FAKE_WORLD=DIR swaps the QA guild for a fuller made-up world (several guilds,
+package for AES-GCM); prints "ready PORT". MAICORD_FAKE_WORLD=DIR swaps the QA guild for a fuller made-up world (several guilds,
 people with avatars and profiles, a member list, direct messages): see tools/fake_discord_world.py.
 """
 import argparse
@@ -1964,7 +1965,7 @@ def main():
     stream_socket.bind(("127.0.0.1", 0))
     STREAM_UDP_PORT = stream_socket.getsockname()[1]
     threading.Thread(target=stream_udp, args=(stream_socket,), daemon=True).start()
-    print("ready", flush=True)
+    print(f"ready {server.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

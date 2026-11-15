@@ -191,13 +191,18 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             thread_creation_ui_adapter_flight(&flight, &id) && flight.operation == ThreadCreationOperation::reconcile &&
             thread_creation_ui_adapter_form() &&
             utf8_equal(thread_creation_ui_adapter_form()->scene.content.accept, utf8_literal("Check again")) &&
-            show(L"thread-creation-checking.bmp") && geometry() && warm(2), 11) ||
-        !require(thread_creation_ui_adapter_response(404) && thread_creation_ui_adapter_submit(81004) &&
-            thread_creation_ui_adapter_response(429) && !application_thread_creation_view().uncertain &&
-            application_thread_creation_view().can_retry && show(L"thread-creation-explicit-retry.bmp"), 12)) return false;
-    // The production floor is 50ms for this typed 429 receipt.
-    Sleep(60);
-    if (!require(thread_creation_ui_adapter_pointer(TextFormElement::accept) && thread_creation_ui_adapter_submit(81005) &&
+            show(L"thread-creation-checking.bmp") && geometry() && warm(2), 11)) return false;
+    // The production floor is 50 ms after the typed 429 receipt, on the tick clock. The submit times come from clock
+    // readings before and after the receipt, so no wall-clock wait decides the result.
+    u64 before_receipt = 0;
+    if (!require(thread_creation_ui_adapter_response(404) && thread_creation_ui_adapter_submit(81004) &&
+            (before_receipt = clock_monotonic_milliseconds(), thread_creation_ui_adapter_response(429)) &&
+            !application_thread_creation_view().uncertain && application_thread_creation_view().can_retry &&
+            show(L"thread-creation-explicit-retry.bmp"), 12)) return false;
+    const u64 after_receipt = clock_monotonic_milliseconds();
+    if (!require(thread_creation_ui_adapter_pointer(TextFormElement::accept) &&
+        !thread_creation_ui_adapter_submit(81005, before_receipt + 49) &&
+        thread_creation_ui_adapter_submit(81005, after_receipt + 50) &&
         thread_creation_ui_adapter_response(403) && !application_thread_creation_view().can_retry &&
         show(L"thread-creation-terminal.bmp") && thread_creation_ui_adapter_pointer(TextFormElement::cancel) &&
         !thread_creation_ui_adapter_form(), 13)) return false;

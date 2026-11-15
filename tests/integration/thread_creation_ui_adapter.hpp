@@ -18,7 +18,8 @@ bool thread_creation_ui_adapter_pointer(TextFormElement) noexcept;
 bool thread_creation_ui_adapter_pointer_down(TextFormElement) noexcept;
 bool thread_creation_ui_adapter_pointer_up() noexcept;
 bool thread_creation_ui_adapter_synchronize() noexcept;
-bool thread_creation_ui_adapter_submit(u64) noexcept;
+// Submits at `now` (clock_monotonic_milliseconds), or at the current time when `now` is zero.
+bool thread_creation_ui_adapter_submit(u64 id, u64 now = 0) noexcept;
 bool thread_creation_ui_adapter_response(u16, Utf8View = {}, RestClientError = RestClientError::none,
     u64 exact_id = 0) noexcept;
 bool thread_creation_ui_adapter_flight(ThreadCreationRequest*, u64*) noexcept;

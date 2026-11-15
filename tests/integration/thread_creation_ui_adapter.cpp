@@ -180,8 +180,12 @@ bool thread_creation_ui_adapter_pointer_up() noexcept {
 bool thread_creation_ui_adapter_synchronize() noexcept {
     return call(+[](void*) noexcept { return application_thread_creation_synchronize() && application_text_form_synchronize(); });
 }
-bool thread_creation_ui_adapter_submit(u64 id) noexcept {
-    return call(+[](void* opaque) noexcept { return application_thread_creation_submit(*static_cast<u64*>(opaque), clock_monotonic_milliseconds()); }, &id);
+bool thread_creation_ui_adapter_submit(u64 id, u64 now) noexcept {
+    struct Submit { u64 id, now; } submit{id, now ? now : clock_monotonic_milliseconds()};
+    return call(+[](void* opaque) noexcept {
+        const auto& s = *static_cast<Submit*>(opaque);
+        return application_thread_creation_submit(s.id, s.now);
+    }, &submit);
 }
 bool thread_creation_ui_adapter_response(u16 status, Utf8View body, RestClientError error, u64 exact_id) noexcept {
     if (!creation_adapter || !creation_adapter->flight_id) return false;
