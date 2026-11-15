@@ -99,13 +99,17 @@ void run(bool no_library) noexcept {
           "audio unavailable: notification audio initializes without a device");
     NotificationAudioRequest request{1, 0, 0.5f, {{g_clip, kClipFrames * 2}, kNotificationAudioAlternateRate, 0}};
     check(notification_audio_submit(&notification, request).ok(), "audio unavailable: a notification is accepted");
-    check(wait_until([&]() noexcept { return notification_audio_status(&notification).failed == 1; }, 3000),
+    // The UI asks the lock-free news word before each status read: the failure must show there first.
+    check(wait_until([&]() noexcept {
+              return notification_audio_status_pending(&notification) && notification_audio_status(&notification).failed == 1;
+          }, 3000),
           "audio unavailable: the notification fails once, as a counted device failure");
     const auto notification_status = notification_audio_status(&notification);
     check(notification_status.error == NotificationAudioError::device && notification_status.native_error != 0 &&
               !notification_status.stream_open && !notification_status.outstanding &&
               (!no_library || notification_status.native_error == expected),
           "audio unavailable: the notification status names the device error and holds no reservation");
+    check(!notification_audio_status_pending(&notification), "audio unavailable: a status read takes the news");
     check(test_window_posts() > 0 && test_window_last_cause() == wake_notifications,
           "audio unavailable: the failure wakes the window with the notification cause");
     check(notification_audio_release(&notification, 2000).ok() && !notification.runtime,

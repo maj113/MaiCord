@@ -9,6 +9,7 @@
 #include "../audio_support.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/thread.hpp"
 #include "pulse.hpp"
@@ -38,6 +39,8 @@ struct Runtime {
     NotificationAudioStatus status{}, last_notified{};
     u32 head{}, count{}, reserved{};
     bool stopping{}, wake_pending{};
+    // Set under the lock with each failed request and at the worker's end; the status read clears it in its hold.
+    volatile LONG attention{};
 };
 static_assert(sizeof(Runtime) <= 16 * 1024, "notification audio metadata remains bounded");
 // One playback stream of one source rate.
@@ -167,6 +170,7 @@ void failed_audio(Runtime& r, Transport& t, NotificationAudioError error, u32 na
         return;
     }
     add(r.status.failed, r.reserved);
+    r.attention = 1;
     clear_bytes(r.requests, sizeof(r.requests));
     r.head = r.count = r.reserved = 0;
     r.status.error = error;
@@ -206,6 +210,7 @@ void admit_requests(Runtime& r) noexcept {
                 add(r.status.canceled);
             else {
                 add(r.status.failed);
+                r.attention = 1;
                 r.status.error = prepared.ok() ? admitted.error : prepared.error;
                 r.status.native_error = 0;
             }
@@ -351,6 +356,7 @@ u32 worker_main(void* pointer) noexcept {
     r.status.stream_open = false;
     r.status.observed_epoch = r.status.desired_epoch;
     r.status.worker_exited = true;
+    r.attention = 1;
     notify_locked(r);
     ReleaseSRWLockExclusive(&r.lock);
     return 0;
@@ -504,9 +510,15 @@ NotificationAudioStatus notification_audio_status(const NotificationAudio* owner
     status.worker_started = true;
     status.stopping = r->stopping;
     r->wake_pending = false;
+    r->attention = 0;
     r->last_notified = r->status;
     ReleaseSRWLockExclusive(&r->lock);
     return status;
+}
+bool notification_audio_status_pending(const NotificationAudio* owner) noexcept {
+    const auto* r = owner && owner->initialized ? static_cast<const Runtime*>(owner->runtime) : nullptr;
+    // Plain reads: the worker sets both words under the lock, and only this UI thread writes `stopping`.
+    return r && (read_acquire(&r->attention) || *static_cast<const volatile bool*>(&r->wake_pending) || r->stopping);
 }
 NotificationAudioResult notification_audio_release(NotificationAudio* owner, u32 timeout) noexcept {
     if (!owner)

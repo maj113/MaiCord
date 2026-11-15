@@ -156,7 +156,7 @@ DWORD WINAPI capture_thread(void* parameter) noexcept {
         const DWORD waited = WaitForMultipleObjects(r.timer ? 4 : 3, events, FALSE, e.client ? 200 : 250);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED)
             break;
-        if (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged)
+        if (ReadAcquire(&e.notify->dirty) && (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged))
             close_stream(e);
         if (e.client) {
             const HRESULT drained = drain(r, e);

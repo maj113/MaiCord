@@ -231,12 +231,11 @@ void session_close(Session* session) noexcept {
 }
 
 bool session_ready(const Session& session) noexcept {
-    return session.loop && InterlockedCompareExchange(const_cast<volatile LONG*>(&session.context_state), 0, 0) ==
-                               kContextReady;
+    return session.loop && ReadAcquire(&session.context_state) == kContextReady;
 }
 
 LONG session_take_dirty(Session* session) noexcept {
-    return InterlockedExchange(&session->dirty, 0);
+    return ReadAcquire(&session->dirty) ? InterlockedExchange(&session->dirty, 0) : 0;
 }
 
 namespace {
@@ -313,7 +312,7 @@ bool track_wait_ready(Track* track, Waitable stop, u32 timeout_ms, u32* native_e
 }
 
 bool track_alive(const Track& track) noexcept {
-    const LONG state = InterlockedCompareExchange(const_cast<volatile LONG*>(&track.state), 0, 0);
+    const LONG state = ReadAcquire(&track.state);
     return track.stream && (state == kStreamCreating || state == kStreamReady);
 }
 

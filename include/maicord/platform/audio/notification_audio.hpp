@@ -69,6 +69,9 @@ NotificationAudioResult notification_audio_reset(NotificationAudio*,u64 new_epoc
 NotificationAudioStatus notification_audio_status(const NotificationAudio*) noexcept;
 // Status changes coalesce into one wake post. Call status after that wake;
 // it clears the coalescing bit. No polling or timer.
+// UI thread, with no lock: true when a status read has news (a posted wake, a failed request, the worker's end or a
+// release). A caller that looks on each loop turn asks this first, so the audio thread never waits for that look.
+bool notification_audio_status_pending(const NotificationAudio*) noexcept;
 // A successful release/join means the bank/context is no longer in use. On timeout or
 // error the runtime, thread and handles stay attached and release can be retried.
 // Never terminates the thread; reset/submit are rejected once stopping begins.

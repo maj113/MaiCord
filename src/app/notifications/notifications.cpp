@@ -204,6 +204,8 @@ void audio_observe(ApplicationNotifications& n) noexcept {
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     const auto state=n.fixture_audio_status(n.fixture_audio_context);
 #else
+    // The status read takes the audio thread's lock: ask first, with no lock, if it has news.
+    if(!notification_audio_status_pending(&n.audio)) return;
     const auto state=notification_audio_status(&n.audio);
 #endif
     // A request can fail on the worker after submit accepted it.

@@ -322,6 +322,7 @@ void test_native_notification_audio_faults(void(*check)(bool,const char*) noexce
         check(await(*f,[](const auto& s) noexcept {return s.failed==3&&!s.active&&!s.outstanding;})&&quiet(*f),"audio fault: padding/GetBuffer/ReleaseBuffer failure retires two active plus one queued reservation without retry spin");
         state=notification_audio_status(&f->owner);check(state.accepted==3&&state.failed==3&&!state.canceled&&!state.completed&&!state.queued&&!state.stream_open&&state.error==Error::stream&&state.native_error==static_cast<u32>(E_FAIL),
             "audio fault: transport failure counts and native error are exact and borrowed descriptors are erased");
+        check(!notification_audio_status_pending(&f->owner),"audio fault: a status read takes the news and a quiet worker gives no more");
         if(!finish(*f,check))return;
     }
     f=fresh();if(!f)return;arm(*f,resolve_stage);

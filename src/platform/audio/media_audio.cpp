@@ -122,7 +122,7 @@ HRESULT render(Runtime& r,Engine& e,u64 epoch,bool playing) noexcept {
             AcquireSRWLockExclusive(&r.lock);valid=!r.stopping&&r.desired_play&&r.status.desired_epoch==epoch&&r.ring.epoch==epoch;
             if(valid)valid=media_audio_ring_render(&r.ring,{reinterpret_cast<float*>(target)+at*r.config.channels,chunk*r.config.channels},r.config.gain)==chunk;
             ReleaseSRWLockExclusive(&r.lock);at+=chunk;}
-        AcquireSRWLockShared(&r.lock);valid=valid&&r.status.desired_epoch==epoch&&!r.stopping&&r.desired_play;ReleaseSRWLockShared(&r.lock);
+        // The last chunk tested the stop, the pause and the epoch in its hold: no second test here.
         h=e.render->ReleaseBuffer(frames,valid?0:AUDCLNT_BUFFERFLAGS_SILENT);if(FAILED(h))return h;
         if(!valid){
             // A pause/reset can arrive while COM owns its buffer. Do not count
@@ -133,8 +133,10 @@ HRESULT render(Runtime& r,Engine& e,u64 epoch,bool playing) noexcept {
             ReleaseSRWLockExclusive(&r.lock);return h;
         }
     }
-    AcquireSRWLockShared(&r.lock);const bool restart=!e.started&&r.desired_play&&!r.stopping&&r.status.desired_epoch==epoch&&r.ring.submitted>r.ring.consumed;
-    ReleaseSRWLockShared(&r.lock);
+    // `started` is the worker's own. A running stream needs no restart and no look at the ring.
+    bool restart=false;
+    if(!e.started){AcquireSRWLockShared(&r.lock);restart=r.desired_play&&!r.stopping&&r.status.desired_epoch==epoch&&r.ring.submitted>r.ring.consumed;
+        ReleaseSRWLockShared(&r.lock);}
     if(restart){
         if(!e.anchor_valid){u64 position{};h=e.clock->GetPosition(&position,nullptr);if(FAILED(h))return h;
             AcquireSRWLockShared(&r.lock);e.anchor_frames=r.ring.consumed;ReleaseSRWLockShared(&r.lock);e.anchor_position=position;e.anchor_valid=true;}
@@ -155,19 +157,24 @@ DWORD WINAPI worker(void* pointer) noexcept {
     if(FAILED(apartment)){AcquireSRWLockExclusive(&r.lock);r.failed=true;r.status.error=Error::device;r.status.native_error=static_cast<u32>(apartment);ReleaseSRWLockExclusive(&r.lock);}
     else for(;;){
         AcquireSRWLockShared(&r.lock);const bool stopping=r.stopping,playing=r.desired_play,failed=r.failed;
-        const u64 epoch=r.status.desired_epoch,serial=r.command_serial;const float volume=r.volume;ReleaseSRWLockShared(&r.lock);if(stopping)break;
-        if(r.observed!=epoch){close_client(e);close_callback(r,e);
+        const u64 epoch=r.status.desired_epoch,serial=r.command_serial;const float volume=r.volume;
+        bool available=r.ring.written!=r.ring.consumed;ReleaseSRWLockShared(&r.lock);if(stopping)break;
+        bool changed_state=r.observed!=epoch;
+        if(changed_state){close_client(e);close_callback(r,e);
             AcquireSRWLockExclusive(&r.lock);if(r.status.desired_epoch==epoch){r.observed=epoch;r.status.clock_valid=false;r.status.presentation_time_100ns=r.origin;
                 r.status.stream_open=false;r.status.playing=false;r.status.paused=!playing;r.status.ended=false;
                 // Closing prior-epoch error cannot contaminate the fresh epoch.
                 notify_locked(r);}
             ReleaseSRWLockExclusive(&r.lock);}
-        const LONG dirty=e.callback?InterlockedExchange(&e.callback->dirty,0):0;
-        if(dirty&&e.client&&((dirty&2)||changed(e))){
+        // The observer sets the command event after it stores `dirty`: a store after this read has a later turn.
+        const LONG dirty=e.callback&&ReadAcquire(&e.callback->dirty)?InterlockedExchange(&e.callback->dirty,0):0;
+        if(dirty&&e.client&&((dirty&2)||changed(e))){changed_state=true;
             u32 padding{};if(SUCCEEDED(e.client->GetCurrentPadding(&padding)))clock_snapshot(r,e,epoch,padding);
             close_client(e);close_callback(r,e);AcquireSRWLockExclusive(&r.lock);if(r.ring.epoch==epoch)media_audio_ring_rewind(&r.ring);ReleaseSRWLockExclusive(&r.lock);}
-        AcquireSRWLockShared(&r.lock);const bool current=r.status.desired_epoch==epoch&&r.observed==epoch&&!r.stopping;
-        const bool available=r.ring.written!=r.ring.consumed;ReleaseSRWLockShared(&r.lock);if(!current)continue;
+        // With no epoch change and no device change the worker did nothing since the first hold, and its values
+        // stand. A writer that comes later sets the command event, and the loop runs again.
+        if(changed_state){AcquireSRWLockShared(&r.lock);const bool current=r.status.desired_epoch==epoch&&r.observed==epoch&&!r.stopping;
+            available=r.ring.written!=r.ring.consumed;ReleaseSRWLockShared(&r.lock);if(!current)continue;}
         if(playing&&!failed&&available&&!e.client){const HRESULT h=open(r,e);if(FAILED(h))failure(r,e,epoch,serial,Error::device,h);}
         if(e.client){HRESULT h=S_OK;if(volume!=e.applied_volume){h=e.volume->SetMasterVolume(volume,nullptr);if(SUCCEEDED(h))e.applied_volume=volume;}
             if(SUCCEEDED(h))h=render(r,e,epoch,playing);if(FAILED(h))failure(r,e,epoch,serial,Error::stream,h);}
@@ -227,8 +234,9 @@ MediaAudioResult media_audio_write(MediaAudio* owner,u64 epoch,ConstSlice<float>
     if(!r)return media_audio_ring_write(&owner->ring,epoch,pcm);
     if(!disjoint(r,sizeof(*r),pcm.data,pcm.count*4))return fail(Error::invalid_input);
     AcquireSRWLockExclusive(&r->lock);MediaAudioResult result=r->stopping||r->status.worker_exited?fail(Error::stopped):media_audio_ring_write(&r->ring,epoch,pcm);
-    if(result.ok()){r->refill_pending=false;if(!SetEvent(r->command))result=fail(Error::event,GetLastError());}
-    ReleaseSRWLockExclusive(&r->lock);return result;
+    if(result.ok())r->refill_pending=false;ReleaseSRWLockExclusive(&r->lock);
+    // The set comes after the release: the worker that it wakes takes this lock first.
+    if(result.ok()&&!SetEvent(r->command))result=fail(Error::event,GetLastError());return result;
 }
 MediaAudioResult media_audio_end(MediaAudio* owner,u64 epoch) noexcept {
     if(!owner||!owner->initialized)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);

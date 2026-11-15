@@ -111,7 +111,7 @@ DWORD WINAPI audio_thread(void* parameter) noexcept {
         const DWORD waited = WaitForMultipleObjects(3, events, FALSE, 200);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED)
             break;
-        if (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged) {
+        if (ReadAcquire(&e.notify->dirty) && (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged)) {
             close_stream(e);
             continue;
         }
