@@ -68,7 +68,6 @@
 #include "../plugins/plugins.hpp"
 #include "surface_motion.hpp"
 #include "../account/application_account_module.hpp"
-#include "../chat/messages/interaction.hpp"
 #include "../account/profile.hpp"
 #include "../account/dm_profile.hpp"
 
@@ -236,14 +235,6 @@ bool application_loading_spinner_due(u64 now_ms) noexcept {
 }
 
 namespace {
-// Re-run WM_SETCURSOR after a frame changed the scene under a still pointer.
-inline void application_cursor_refresh(Window window) noexcept {
-    if (!g_application_cursor_refresh)
-        return;
-    g_application_cursor_refresh = false;
-    window_request_cursor_refresh(window);
-}
-
 // The step that rejected the last frame, logged with the failure count.
 const char* g_present_rejected_stage;
 bool present_rejected(const char* stage) noexcept {
@@ -450,8 +441,11 @@ bool application_present_frame() noexcept {
         frame_rate_presented(g_app.frame_rate, application_now_us());
     }
     record_first_present();
-    // A click or key may have moved a different target under a still pointer.
-    application_cursor_refresh(g_app.window);
+    // A click or key may have moved a different target under a still pointer: the system asks for the cursor again.
+    if (g_application_cursor_refresh) {
+        g_application_cursor_refresh = false;
+        window_request_cursor_refresh(g_app.window);
+    }
     // Screen reader snapshot and events; a flag test until a client connects.
     application_accessibility_frame_presented();
     return true;
@@ -493,7 +487,7 @@ void application_present_pending_frame() noexcept {
 void application_record_presentation_failure(const char* stage) noexcept {
     saturating_increment(g_app.presentation_failures);
     const u32 count = g_app.presentation_failures;
-    if (count == 1u || (count & (count - 1u)) == 0u) {
+    if (failure_log_due(count)) {
         LogEvent line(stage);
         line.field("presentation_failures", count);
         // The frame step that rejected (call, panels, renderer, ...).

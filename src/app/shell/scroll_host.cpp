@@ -35,7 +35,7 @@ bool finish_immediate_scroll(bool messages_changed) noexcept {
     if (!g_app.scroll_host.immediate)
         return true;
     if (g_app.reaction_viewer.active)
-        return refresh_reaction_viewer_presentation();
+        return refresh_account_frame();
     if (application_thread_browser_active())
         return application_thread_browser_refresh_after_scroll();
     return refresh_scrolled_projection(messages_changed);
@@ -546,7 +546,7 @@ bool tick_smooth_scrolls(u64 now_us) noexcept {
         return application_settings_synchronize() && application_theme_editor_synchronize() &&
                application_request_frame();
     if (g_app.reaction_viewer.active)
-        return refresh_reaction_viewer_presentation();
+        return refresh_account_frame();
     if (application_thread_browser_active())
         return application_thread_browser_refresh_after_scroll();
     return refresh_scrolled_projection(g_app.message_view.timeline.scroll_units != message_scroll_before,

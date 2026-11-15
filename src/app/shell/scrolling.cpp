@@ -144,8 +144,9 @@ static bool apply_scrollbar_pointer(float pointer_y) noexcept {
     }
     const float target =
         ui_scrollbar_scroll_from_pointer(geometry, pointer_y, g_app.scrollbar_thumb_grab_offset);
+    // The thumb tracks the pointer directly, in every list.
+    ui_scroll_host_cancel(&g_app.scroll_host);
     if (kind == ScrollbarDragKind::messages) {
-        ui_scroll_host_cancel(&g_app.scroll_host);
         const u64 current = g_app.message_view.timeline.scroll_units;
         const u64 desired = minimum(static_cast<u64>(ui_extent_units(target)),
                                     g_app.message_view.timeline.list->total_units);
@@ -160,15 +161,12 @@ static bool apply_scrollbar_pointer(float pointer_y) noexcept {
     }
     bool changed = false;
     if (kind == ScrollbarDragKind::popup) {
-        // The thumb tracks the pointer directly, like every other list.
-        ui_scroll_host_cancel(&g_app.scroll_host);
         if (g_app.popup_scene.picker_scroll_extent > 0) {
             if (!application_commands_scroll(false, target, &changed))
                 return false;
         } else if (!popup_scene_scroll(&g_app.popup_scene, target - g_app.popup_scene.scroll_offset, &changed))
             return false;
     } else if (kind == ScrollbarDragKind::channels) {
-        ui_scroll_host_cancel(&g_app.scroll_host);
         if (!g_app.account_ui) {
             return false;
         }
@@ -180,7 +178,6 @@ static bool apply_scrollbar_pointer(float pointer_y) noexcept {
         }
         changed = result.changed;
     } else {
-        ui_scroll_host_cancel(&g_app.scroll_host);
         const MemberListSceneResult result = member_list_scene_scroll(
             &g_app.member_list_scene, target - g_app.member_list_scene.scroll_dips);
         if (!result.ok()) {

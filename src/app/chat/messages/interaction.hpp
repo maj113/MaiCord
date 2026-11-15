@@ -34,7 +34,6 @@ bool application_tab_menu_open(u32 index, const UiRect& anchor) noexcept;
 bool application_tab_list_open(const UiRect& anchor) noexcept;
 bool open_reaction_picker(u64 message_id) noexcept;
 bool open_reaction_picker(u64 message_id, const UiRect& anchor) noexcept;
-bool refresh_reaction_viewer_presentation() noexcept;
 bool open_message_context_popup(u64 message_id, const UiRect& anchor) noexcept;
 // The message menu with a right-clicked attachment's media and link groups
 // (received_attachment_menu rows) before the developer-mode Copy ID. plugin

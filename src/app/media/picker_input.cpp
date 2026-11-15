@@ -481,13 +481,8 @@ bool inline_pointer(ApplicationMediaPicker& p, const WindowEvent& event) noexcep
     if (!application_pointer_event(event))
         return false;
     UiPoint point{};
-    if (event.type == EventType::cursor_query) {
-        if (!client_cursor_dip(event, &point))
-            return false;
-    } else if (event.type == EventType::wheel) {
-        point = client_wheel_dip(event);
-    } else
-        point = {client_dip_x(event), client_dip_y(event)};
+    if (!client_event_dip(event, &point))
+        return false;
     const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p.scene.panel, p.scene.viewport), x, y);
     if (event.type == EventType::cursor_query) {
@@ -580,18 +575,11 @@ bool application_media_picker_window_event(const WindowEvent& event) noexcept {
     }
     if (!application_pointer_event(event) && !p->scrollbar_dragging)
         return false;
+    if (event.type == EventType::context_menu && (event.flags & ev_keyboard) != 0)
+        return true;
     UiPoint point{};
-    if (event.type == EventType::cursor_query) {
-        if (!client_cursor_dip(event, &point))
-            return false;
-    } else if (event.type == EventType::wheel) {
-        point = client_wheel_dip(event);
-    } else if (event.type == EventType::context_menu) {
-        if ((event.flags & ev_keyboard) != 0)
-            return true;
-        point = client_context_dip(event);
-    } else
-        point = {client_dip_x(event), client_dip_y(event)};
+    if (!client_event_dip(event, &point))
+        return false;
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
     const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);

@@ -239,11 +239,9 @@ bool application_initialize_message_scene(Application& application) noexcept {
 }
 
 void application_release_widget_storage(Application& application) noexcept {
-    if (&application == &g_app) {
-        application_theme_editor_release();
-        application_tooltip_release();
-        release_overlay_owners();
-    }
+    application_theme_editor_release();
+    application_tooltip_release();
+    release_overlay_owners();
     message_scene_release(&application.message_scene);
     ui_widget_storage_release(&application.message_scene_storage);
     message_composer_scene_release(&application.message_composer_scene);
@@ -259,39 +257,33 @@ void application_release_widget_storage(Application& application) noexcept {
 void application_release_account_ui(Application& application) noexcept {
     // Account stop owns worker quiescence before this UI teardown. Startup
     // failures have not published a read-state request to the account owner.
-    if (&application == &g_app) {
-        application_custom_theme_cancel_interaction();
-        application_poll_release();
-        application_member_moderation_release();
-        application_tooltip_clear();
-        release_overlay_owners();
-        // Detach borrowed popup feedback while its retained owner is alive.
-        application_scoped_read_menu_clear();
-        if (application.scoped_read && application.popup_scene.active)
-            dismiss_popup();
-        application_scoped_read_release();
-    }
+    application_custom_theme_cancel_interaction();
+    application_poll_release();
+    application_member_moderation_release();
+    application_tooltip_clear();
+    release_overlay_owners();
+    // Detach borrowed popup feedback while its retained owner is alive.
+    application_scoped_read_menu_clear();
+    if (application.scoped_read && application.popup_scene.active)
+        dismiss_popup();
+    application_scoped_read_release();
     application_read_state_release(application);
-    if (&application == &g_app) {
-        application_friends_release();
-        application_theme_editor_release();
-        application_settings_release();
-    }
+    application_friends_release();
+    application_theme_editor_release();
+    application_settings_release();
     reset_value(&application.message_rejection);
     application.message_rejection_channel_id = 0;
     reset_value(&application.message_mutation_notice);
-    if (&application == &g_app) {
-        application_profile_release();
-        application_dm_profile_release();
-        application_game_profile_release();
-        application_game_lookup_release();
-        application_image_viewer_close();
-        application_text_form_close(false, false);
-        application_thread_creation_release();
-        application_forum_form_release();
-        application_forum_post_release();
-        application_composer_text_input_release();
-    }
+    application_profile_release();
+    application_dm_profile_release();
+    application_game_profile_release();
+    application_game_lookup_release();
+    application_image_viewer_close();
+    application_text_form_close(false, false);
+    application_thread_creation_release();
+    application_forum_form_release();
+    application_forum_post_release();
+    application_composer_text_input_release();
     application.image_viewer.scene.active = false;
     application.image_viewer.held_key = 0;
     application.renderer.image_viewer = nullptr;
@@ -319,10 +311,8 @@ void application_release_account_ui(Application& application) noexcept {
     message_composer_scene_set_caret_visible(&application.message_composer_scene, false);
     message_event_pump_reset(&application.message_pump);
     application.startup_shell_provisional = false;
-    if (&application == &g_app) {
-        application_channel_snapshots_reset();
-        application_startup_history_reset();
-    }
+    application_channel_snapshots_reset();
+    application_startup_history_reset();
     message_view_runtime_unbind_rich_store(&application.message_view);
     renderer_unbind_media_atlas(&application.renderer);
     application.renderer.message_measure_cache = nullptr;
@@ -344,14 +334,9 @@ void application_release_account_ui(Application& application) noexcept {
     reset_value<MediaUrlResolver>(&application.media_urls);
     reset_value<MessageDeleteRequest>(&application.message_delete);
     message_edit_runtime_release(&application.message_edit);
-    if (&application == &g_app) {
-        application_thread_actions_release();
-        reset_message_reaction();
-        application_message_history_reset_reaction_turn();
-    } else {
-        // The demand-backed reaction owner belongs only to the global host.
-        reset_value<MessageReactionRequest>(&application.message_reaction);
-    }
+    application_thread_actions_release();
+    reset_message_reaction();
+    application_message_history_reset_reaction_turn();
     application_commands_release();
     composer_autocomplete_release(&application.composer_autocomplete);
     message_media_controller_release(&application.message_media);

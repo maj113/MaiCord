@@ -1,5 +1,6 @@
 #include "startup_record.hpp"
 #include "../update/updates.hpp"
+#include "maicord/app/shell/processor_check.hpp"
 #include "maicord/core/log_event.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/os/thread.hpp"
@@ -18,22 +19,13 @@ constexpr const char* kComponent = "start";
 
 // The processor's brand string (CPUID leaves 0x80000002-0x80000004), without its padding.
 const char* cpu_brand(char (&brand)[49]) noexcept {
-    u32 registers[4]{};
-    const auto cpuid = [&](u32 leaf) noexcept {
-#if defined(_WIN32)
-        __cpuid(reinterpret_cast<int*>(registers), static_cast<int>(leaf));
-#else
-        __asm__ volatile("cpuid"
-                         : "=a"(registers[0]), "=b"(registers[1]), "=c"(registers[2]), "=d"(registers[3])
-                         : "a"(leaf), "c"(0u));
-#endif
-    };
+    u32 registers[4];
     brand[0] = brand[48] = 0;
-    cpuid(0x80000000u);
+    processor_identify(0x80000000u, registers);
     if (registers[0] < 0x80000004u)
         return brand;
     for (u32 leaf = 0; leaf < 3; ++leaf) {
-        cpuid(0x80000002u + leaf);
+        processor_identify(0x80000002u + leaf, registers);
         copy_bytes(brand + leaf * 16, registers, 16);
     }
     // Vendors pad the 48 bytes with spaces on either side.

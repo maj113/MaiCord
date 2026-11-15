@@ -32,6 +32,16 @@ inline UiPoint client_context_dip(const WindowEvent& event) noexcept {
     const double scale = 96.0 / maximum(g_app.renderer.dpi, 1u);
     return {static_cast<float>(event.pointer.x * scale), static_cast<float>(event.pointer.y * scale)};
 }
+// The point of any event with a position, each kind converted by its function above. False when a cursor query has
+// no position.
+inline bool client_event_dip(const WindowEvent& event, UiPoint* point) noexcept {
+    if (event.type == EventType::cursor_query)
+        return client_cursor_dip(event, point);
+    *point = event.type == EventType::wheel          ? client_wheel_dip(event)
+             : event.type == EventType::context_menu ? client_context_dip(event)
+                                                     : UiPoint{client_dip_x(event), client_dip_y(event)};
+    return true;
+}
 bool set_client_cursor(i32 pixel_x, i32 pixel_y) noexcept;
 bool handle_pane_resize_begin(const WindowEvent& event) noexcept;
 bool handle_pane_resize_drag(const WindowEvent& event) noexcept;

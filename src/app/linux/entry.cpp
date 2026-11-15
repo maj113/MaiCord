@@ -40,14 +40,7 @@ constexpr maicord::u32 kCommandLineCapacity = 4096;
 // `MaiCord --version`: the build's number and a line break on standard output, exit status 0. Nothing else is looked at,
 // so it works where the client cannot run (no io_uring, no display).
 bool version_requested(const maicord::ProcessStartup& startup) noexcept {
-    constexpr char kOption[] = "--version";
-    if (startup.argc != 2)
-        return false;
-    for (maicord::usize i = 0; i < sizeof(kOption); ++i) {
-        if (startup.argv[1][i] != kOption[i])
-            return false;
-    }
-    return true;
+    return startup.argc == 2 && maicord::c_string_equal(startup.argv[1], "--version");
 }
 
 [[noreturn]] void print_version() noexcept {

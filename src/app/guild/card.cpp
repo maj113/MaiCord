@@ -408,11 +408,8 @@ bool application_guild_card_window_event(const WindowEvent& event) noexcept {
     if (!move && !cursor && !press && !release && !secondary_press && !input_release(event, PointerButton::right))
         return false;
     UiPoint point{};
-    if (cursor) {
-        if (!client_cursor_dip(event, &point))
-            return false;
-    } else
-        point = {client_dip_x(event), client_dip_y(event)};
+    if (!client_event_dip(event, &point))
+        return false;
     const bool over = ui_guild_card_contains(c.scene, point.x, point.y);
     const auto hit = ui_guild_card_hit(c.scene, point.x, point.y);
     if (move) {

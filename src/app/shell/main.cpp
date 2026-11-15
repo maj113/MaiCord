@@ -89,12 +89,10 @@
 #include "maicord/platform/net/test_server.hpp"
 #endif
 
-#if defined(MAICORD_PERF_PROBE)
-#include "../../../tools/perf/perf_probe.hpp"
-#endif
 // Isolated probe builds never touch desktop integration, notifications,
 // updates or another running instance.
 #if defined(MAICORD_PERF_PROBE)
+#include "../../../tools/perf/perf_probe.hpp"
 #define MAICORD_ISOLATED_MAIN 1
 #endif
 
@@ -602,10 +600,8 @@ int application_run() noexcept {
         } else if (frame_timeout) {
             if (!g_app.frame_clock_timer_fallback) {
                 saturating_increment(g_app.frame_clock_timeouts);
-                const u32 count = g_app.frame_clock_timeouts;
-                if (count == 1u || (count & (count - 1u)) == 0u) {
-                    log_u64(LogLevel::warning, "render", "frame_clock_timeout_fallback", count);
-                }
+                if (failure_log_due(g_app.frame_clock_timeouts))
+                    log_u64(LogLevel::warning, "render", "frame_clock_timeout_fallback", g_app.frame_clock_timeouts);
             }
             g_app.frame_clock_timer_fallback = true;
             g_app.frame_clock_watchdog_at_us = restart_now_us + kFrameClockFallbackUs;
@@ -742,33 +738,16 @@ int application_run() noexcept {
             application_search_content_pump();
             g_app.frame_pending = g_app.frame_pending || repaint;
         }
-        if (!application_login_tick_backup_acknowledgement(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "backup_acknowledgement_refresh_failed");
-            exit_code = 6;
-            break;
-        }
-        if (!application_login_tick_auth_cooldown(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "auth_cooldown_refresh_failed");
-            exit_code = 6;
-            break;
-        }
-        if (!application_login_tick_recovery(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "recovery_cooldown_refresh_failed");
-            exit_code = 6;
-            break;
-        }
-        if (!application_login_tick_phone(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "phone_cooldown_refresh_failed");
-            exit_code = 6;
-            break;
-        }
-        if (!application_login_tick_reset(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "reset_cooldown_refresh_failed");
-            exit_code = 6;
-            break;
-        }
-        if (!application_login_tick_captcha(restart_now_ms)) {
-            log_write(LogLevel::error, "ui", "captcha_deadline_refresh_failed");
+        // The login timers, in order. The first one that cannot refresh its view ends the loop.
+        if (const char* failed =
+                !application_login_tick_backup_acknowledgement(restart_now_ms) ? "backup_acknowledgement_refresh_failed"
+                : !application_login_tick_auth_cooldown(restart_now_ms)        ? "auth_cooldown_refresh_failed"
+                : !application_login_tick_recovery(restart_now_ms)             ? "recovery_cooldown_refresh_failed"
+                : !application_login_tick_phone(restart_now_ms)                ? "phone_cooldown_refresh_failed"
+                : !application_login_tick_reset(restart_now_ms)                ? "reset_cooldown_refresh_failed"
+                : !application_login_tick_captcha(restart_now_ms)              ? "captcha_deadline_refresh_failed"
+                                                                               : nullptr) {
+            log_write(LogLevel::error, "ui", failed);
             exit_code = 6;
             break;
         }

@@ -311,10 +311,6 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
                          !applied || refresh_message_composer_ui());
 }
 
-bool refresh_reaction_viewer_presentation() noexcept {
-    return refresh_account_frame();
-}
-
 static bool dismiss_reaction_viewer() noexcept {
     ui_scroll_host_cancel(&g_app.scroll_host);
     if (!g_app.reaction_viewer.active) {
@@ -326,7 +322,7 @@ static bool dismiss_reaction_viewer() noexcept {
         log_u64(LogLevel::warning, "reaction_viewer", "close_error", static_cast<u64>(closed.error));
         return false;
     }
-    return !closed.changed || refresh_reaction_viewer_presentation();
+    return !closed.changed || refresh_account_frame();
 }
 
 bool handle_reaction_viewer_hover(float pointer_x, float pointer_y) noexcept {
@@ -337,7 +333,7 @@ bool handle_reaction_viewer_hover(float pointer_x, float pointer_y) noexcept {
     if (!reaction_viewer_set_hover(&g_app.reaction_viewer, pointer_x, pointer_y, &changed)) {
         return true;
     }
-    if (changed && !refresh_reaction_viewer_presentation()) {
+    if (changed && !refresh_account_frame()) {
         log_write(LogLevel::warning, "reaction_viewer", "hover_refresh_failed");
     }
     return true;
@@ -360,7 +356,7 @@ bool handle_reaction_viewer_click(float pointer_x, float pointer_y) noexcept {
             return true;
         }
         if (selected.changed) {
-            refresh_reaction_viewer_presentation();
+            refresh_account_frame();
             pump_message_history();
         }
     }
@@ -403,7 +399,7 @@ bool handle_reaction_viewer_key(u32 key) noexcept {
         }
     }
     if (changed) {
-        refresh_reaction_viewer_presentation();
+        refresh_account_frame();
     }
     return true;
 }

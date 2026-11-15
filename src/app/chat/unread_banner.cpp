@@ -274,11 +274,8 @@ bool application_unread_banner_window_event(const WindowEvent& event) noexcept {
         return false;
     }
     UiPoint point{};
-    if (cursor) {
-        if (!client_cursor_dip(event, &point))
-            return false;
-    } else
-        point = {client_dip_x(event), client_dip_y(event)};
+    if (!client_event_dip(event, &point))
+        return false;
     const float x = point.x, y = point.y;
     const auto action = ui_unread_banner_hit_test(g_banner, x, y);
     if (cursor) {

@@ -1099,15 +1099,9 @@ bool application_store_window_event(const WindowEvent& input) noexcept {
     if (step == PointerStep::none && !wheel)
         return false;
     g->last_input_ms = clock_monotonic_milliseconds();
-    float x = 0, y = 0;
-    if (wheel) {
-        const UiPoint point = client_wheel_dip(input);
-        x = point.x;
-        y = point.y;
-    } else {
-        x = client_dip_x(input);
-        y = client_dip_y(input);
-    }
+    UiPoint point{};
+    client_event_dip(input, &point);
+    const float x = point.x, y = point.y;
     // A release ends the press of whoever took it: Settings' own presses (the sidebar, the close button) get theirs.
     if (step == PointerStep::press)
         g->pressing = false;

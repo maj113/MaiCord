@@ -188,12 +188,8 @@ bool application_private_header_window_event(const WindowEvent& event) noexcept 
         return false;
     }
     UiPoint point{};
-    if (cursor) {
-        if (!client_cursor_dip(event, &point))
-            return false;
-    } else {
-        point = {client_dip_x(event), client_dip_y(event)};
-    }
+    if (!client_event_dip(event, &point))
+        return false;
     const bool over_card = ui_names_card_contains(header.card, point.x, point.y);
     UiPrivateHeaderIdentity identity{};
     const bool over = !over_card && identity_at(point.x, point.y, &identity);

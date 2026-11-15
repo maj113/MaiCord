@@ -757,8 +757,8 @@ bool application_media_page_window_event(const WindowEvent& event) noexcept {
     }
     if (!input_pointer(event))
         return false;
-    const UiPoint point = event.type == EventType::wheel ? client_wheel_dip(event)
-                                                          : UiPoint{client_dip_x(event), client_dip_y(event)};
+    UiPoint point{};
+    client_event_dip(event, &point);
     const bool inside = ui_rect_contains(scene.viewport, point.x, point.y);
     const bool captured = scene.dragging || scene.widgets.captured.generation;
     if (input_press(event) || input_double(event) || input_down(event, PointerButton::right) ||

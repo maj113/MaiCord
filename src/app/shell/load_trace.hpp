@@ -13,119 +13,20 @@ inline void application_trace_load_stage(const char* stage) noexcept {
                                  : 0);
     line.write("load_trace");
 }
+// The log name of each owner, in the order of the enum.
 inline const char* rest_owner_name(MessageHistoryRequestOwner owner) noexcept {
-    switch (owner) {
-    case MessageHistoryRequestOwner::none:
-        return "idle";
-    case MessageHistoryRequestOwner::private_conversation:
-        return "private_conversation";
-    case MessageHistoryRequestOwner::attachment_upload:
-        return "attachment_upload";
-    case MessageHistoryRequestOwner::typing:
-        return "typing";
-    case MessageHistoryRequestOwner::message_send:
-        return "message_send";
-    case MessageHistoryRequestOwner::message_delete:
-        return "message_delete";
-    case MessageHistoryRequestOwner::message_edit:
-        return "message_edit";
-    case MessageHistoryRequestOwner::message_reaction:
-        return "message_reaction";
-    case MessageHistoryRequestOwner::reaction_users:
-        return "reaction_users";
-    case MessageHistoryRequestOwner::reaction_tooltip:
-        return "reaction_tooltip";
-    case MessageHistoryRequestOwner::user_profile:
-        return "profile";
-    case MessageHistoryRequestOwner::commands:
-        return "commands";
-    case MessageHistoryRequestOwner::catchup:
-        return "history";
-    case MessageHistoryRequestOwner::message_jump:
-        return "message_jump";
-    case MessageHistoryRequestOwner::attachment_refresh:
-        return "attachment_refresh";
-    case MessageHistoryRequestOwner::reply_refresh:
-        return "reply_refresh";
-    case MessageHistoryRequestOwner::media_url_refresh:
-        return "media_url_refresh";
-    case MessageHistoryRequestOwner::older:
-        return "older_history";
-    case MessageHistoryRequestOwner::friends:
-        return "friends";
-    case MessageHistoryRequestOwner::read_state_ack:
-        return "read_state_ack";
-    case MessageHistoryRequestOwner::scoped_read:
-        return "scoped_read";
-    case MessageHistoryRequestOwner::message_search:
-        return "message_search";
-    case MessageHistoryRequestOwner::self_status:
-        return "self_status";
-    case MessageHistoryRequestOwner::media_catalog:
-        return "media_catalog";
-    case MessageHistoryRequestOwner::gif_favorites:
-        return "gif_favorites";
-    case MessageHistoryRequestOwner::emoji_preferences:
-        return "emoji_preferences";
-    case MessageHistoryRequestOwner::channel_overview:
-        return "channel_overview";
-    case MessageHistoryRequestOwner::pinned_messages:
-        return "pinned_messages";
-    case MessageHistoryRequestOwner::thread_browser:
-        return "thread_browser";
-    case MessageHistoryRequestOwner::thread_creation:
-        return "thread_creation";
-    case MessageHistoryRequestOwner::forum_post:
-        return "forum_post";
-    case MessageHistoryRequestOwner::poll:
-        return "poll";
-    case MessageHistoryRequestOwner::member_moderation:
-        return "member_moderation";
-    case MessageHistoryRequestOwner::guild_invite:
-        return "guild_invite";
-    case MessageHistoryRequestOwner::private_channel:
-        return "private_channel";
-    case MessageHistoryRequestOwner::search_navigation:
-        return "search_navigation";
-    case MessageHistoryRequestOwner::thread_actions:
-        return "thread_actions";
-    case MessageHistoryRequestOwner::channel_prefetch:
-        return "channel_prefetch";
-    case MessageHistoryRequestOwner::guild_notification_settings:
-        return "guild_notification_settings";
-    case MessageHistoryRequestOwner::custom_status:
-        return "custom_status";
-    case MessageHistoryRequestOwner::inbox_mentions:
-        return "inbox_mentions";
-    case MessageHistoryRequestOwner::stream_preview:
-        return "stream_preview";
-    case MessageHistoryRequestOwner::stage:
-        return "stage";
-    case MessageHistoryRequestOwner::message_components:
-        return "message_components";
-    case MessageHistoryRequestOwner::invite_cards:
-        return "invite_cards";
-    case MessageHistoryRequestOwner::activity_sharing:
-        return "activity_sharing";
-    case MessageHistoryRequestOwner::soundboard:
-        return "soundboard";
-    case MessageHistoryRequestOwner::dm_profile:
-        return "dm_profile";
-    case MessageHistoryRequestOwner::startup_history:
-        return "startup_history";
-    case MessageHistoryRequestOwner::expression_card:
-        return "expression_card";
-    case MessageHistoryRequestOwner::interaction_data:
-        return "interaction_data";
-    case MessageHistoryRequestOwner::game_lookup:
-        return "game_lookup";
-    case MessageHistoryRequestOwner::test_mode:
-        return "test_mode";
-    case MessageHistoryRequestOwner::user_settings:
-    case MessageHistoryRequestOwner::account_settings:
-    case MessageHistoryRequestOwner::count:
-        break;
-    }
-    return "unknown";
+    static constexpr char kNames[] =
+        "idle\0private_conversation\0attachment_upload\0typing\0message_send\0message_delete\0message_edit\0"
+        "message_reaction\0reaction_users\0profile\0commands\0history\0message_jump\0attachment_refresh\0"
+        "media_url_refresh\0older_history\0friends\0read_state_ack\0message_search\0self_status\0media_catalog\0"
+        "gif_favorites\0channel_overview\0reply_refresh\0pinned_messages\0search_navigation\0thread_actions\0"
+        "thread_browser\0thread_creation\0forum_post\0scoped_read\0poll\0member_moderation\0guild_invite\0"
+        "emoji_preferences\0channel_prefetch\0unknown\0unknown\0private_channel\0guild_notification_settings\0"
+        "custom_status\0inbox_mentions\0stream_preview\0stage\0message_components\0invite_cards\0activity_sharing\0"
+        "soundboard\0reaction_tooltip\0dm_profile\0startup_history\0expression_card\0interaction_data\0game_lookup\0"
+        "test_mode";
+    constexpr u32 kCount = static_cast<u32>(MessageHistoryRequestOwner::count);
+    static_assert(c_string_list_entry(kNames, kCount - 1).data + sizeof("test_mode") == kNames + sizeof(kNames));
+    return static_cast<u32>(owner) < kCount ? c_string_list_entry(kNames, static_cast<u32>(owner)).data : "unknown";
 }
 } // namespace maicord::app_detail
