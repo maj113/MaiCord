@@ -110,8 +110,12 @@ using Bank = TextBank;
 const ChatStateStore& state() noexcept;
 ChannelOverviewScope scope(u64 id) noexcept;
 bool manage(u64 id) noexcept;
-bool manage_channel(u64 id) noexcept;
-bool manage_overrides(u64 id) noexcept;
+// What the account may do to a channel that is not a text overview: change or delete it, and edit its overrides.
+// One permission computation gives the two answers.
+struct ChannelRights {
+    bool channel, overrides;
+};
+ChannelRights channel_rights(u64 id) noexcept;
 bool available() noexcept;
 bool editable() noexcept;
 using Editors = SettingsEditors<&owner, editable>;
@@ -148,11 +152,12 @@ struct HostedModal {
     bool (*owns_response)(u64 request_id) noexcept;
     bool (*response)(const RestClientResponse&, Utf8View) noexcept;
 };
+#define MAICORD_HOSTED_VIEW(name) \
+    application_##name##_active, application_##name##_close, application_##name##_release, \
+        application_##name##_synchronize, application_##name##_settings_layer, application_##name##_caret_wake
 #define MAICORD_HOSTED_MODAL(name) \
-    {application_##name##_active, application_##name##_close, application_##name##_release, \
-     application_##name##_synchronize, application_##name##_settings_layer, application_##name##_caret_wake, \
-     application_##name##_next_wake, application_##name##_submit, application_##name##_owns_response, \
-     application_##name##_response}
+    {MAICORD_HOSTED_VIEW(name), application_##name##_next_wake, application_##name##_submit, \
+     application_##name##_owns_response, application_##name##_response}
 constexpr HostedModal kModals[] = {
     MAICORD_HOSTED_MODAL(guild_settings),
     MAICORD_HOSTED_MODAL(poll_create),
@@ -160,17 +165,12 @@ constexpr HostedModal kModals[] = {
     MAICORD_HOSTED_MODAL(profile_editor),
     MAICORD_HOSTED_MODAL(guild_community),
     MAICORD_HOSTED_MODAL(report),
-    {application_custom_status_active, application_custom_status_close, application_custom_status_release,
-     application_custom_status_synchronize, application_custom_status_settings_layer,
-     application_custom_status_caret_wake, nullptr, nullptr, nullptr, nullptr},
-    {application_plugin_settings_active, application_plugin_settings_close, application_plugin_settings_release,
-     application_plugin_settings_synchronize, application_plugin_settings_settings_layer,
-     application_plugin_settings_caret_wake, nullptr, nullptr, nullptr, nullptr},
-    {application_game_profile_active, application_game_profile_close, application_game_profile_release,
-     application_game_profile_synchronize, application_game_profile_settings_layer,
-     application_game_profile_caret_wake, nullptr, nullptr, nullptr, nullptr},
+    {MAICORD_HOSTED_VIEW(custom_status)},
+    {MAICORD_HOSTED_VIEW(plugin_settings)},
+    {MAICORD_HOSTED_VIEW(game_profile)},
 };
 #undef MAICORD_HOSTED_MODAL
+#undef MAICORD_HOSTED_VIEW
 
 const HostedModal* active_modal() noexcept;
 

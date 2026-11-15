@@ -137,7 +137,6 @@ struct Owner : SettingsDialog {
     char size_error[192];
     char banks[2][1024];
     u32 bank_index;
-    u32 structurals[8192];
 };
 Owner* owner;
 u64 lifetime_serial;
@@ -829,13 +828,12 @@ bool visit_id(void* opaque, JsonString name, JsonValue value) noexcept {
     p.seen = !p.seen && json_value_to_snowflake(value, &p.id);
     return p.seen;
 }
-u64 created_id(Utf8View body) noexcept {
-    const auto scanned = json_scan_structurals_avx1(body, {owner->structurals, 8192});
+u64 created_id(Utf8View body, Slice<u32> scratch) noexcept {
+    const auto scanned = json_scan_structurals_avx1(body, scratch);
     if (!scanned.ok())
         return 0;
     IdParse p{};
-    return json_visit_root_object(body, {owner->structurals, scanned.count}, 32, visit_id, &p).ok() && p.seen ? p.id
-                                                                                                            : 0;
+    return json_visit_root_object(body, {scratch.data, scanned.count}, 32, visit_id, &p).ok() && p.seen ? p.id : 0;
 }
 Utf8View failure(const RestClientResponse& response) noexcept {
     if (!response.transport_ok())
@@ -1245,9 +1243,12 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
     p.request_id = 0;
     if (!p.scene.active)
         return true;
+    // A reply comes only from the history pump, which has an account UI. Each decode ends before this function
+    // returns, so the UI thread's shared JSON scratch serves.
+    const Slice<u32> scratch{g_app.account_ui->message_history_page_structurals, 8192};
     if (p.op == Op::invite) {
         // The decoder writes its output only on success.
-        if (ok && guild_admin_decode_invite(body, {p.structurals, 8192}, &p.invite).ok()) {
+        if (ok && guild_admin_decode_invite(body, scratch, &p.invite).ok()) {
             p.invite_valid = true;
             p.link_expiry = p.expiry;
             p.link_uses = p.uses;
@@ -1262,7 +1263,7 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
         return repaint();
     }
     if (p.op == Op::create) {
-        const u64 id = ok ? created_id(body) : 0;
+        const u64 id = ok ? created_id(body, scratch) : 0;
         if (id) {
             p.created_guild_id = id;
             p.created_at = clock_monotonic_milliseconds();

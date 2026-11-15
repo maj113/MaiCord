@@ -147,10 +147,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     } else if (id == control_banner_remove || id == control_splash_remove) {
         const bool banner = id == control_banner_remove;
         release_picked(banner ? &p.banner : &p.splash);
-        if (banner)
-            release_uri(&p.banner_uri, &p.banner_uri_bytes);
-        else
-            release_uri(&p.splash_uri, &p.splash_uri_bytes);
+        release_uri(banner ? &p.banner_uri : &p.splash_uri, banner ? &p.banner_uri_bytes : &p.splash_uri_bytes);
         const bool stored_image = (banner ? stored_banner() : stored_splash()).bytes != 0;
         (banner ? d.banner : d.splash) = stored_image ? GuildProfileImageEdit::remove : GuildProfileImageEdit::keep;
     } else if (id == control_vanity_remove && link_admin() && p.vanity_loaded) {
@@ -227,26 +224,6 @@ bool prepare_banner() noexcept {
     return true;
 }
 
-// A new invite splash is the file itself as a data URI.
-bool prepare_splash() noexcept {
-    auto& p = *owner;
-    if (p.splash_uri)
-        return true;
-    const auto kind = p.splash.info.source_kind;
-    const u32 bytes = p.splash.data ? guild_image_data_uri_bytes(kind, p.splash.bytes) : 0;
-    auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes))
-                      : nullptr;
-    if (!uri)
-        return false;
-    if (guild_image_write_data_uri(kind, {p.splash.data, p.splash.bytes}, {uri, bytes}) != bytes) {
-        pages_release(uri);
-        return false;
-    }
-    p.splash_uri = uri;
-    p.splash_uri_bytes = bytes;
-    return true;
-}
-
 } // namespace
 
 void release_uri(u8** uri, u32* bytes) noexcept {
@@ -256,6 +233,22 @@ void release_uri(u8** uri, u32* bytes) noexcept {
     }
     *uri = nullptr;
     *bytes = 0;
+}
+
+bool file_uri(const Picked& picked, u8** uri, u32* bytes) noexcept {
+    if (*uri)
+        return true;
+    const auto kind = picked.info.source_kind;
+    const u32 size = guild_image_data_uri_bytes(kind, picked.bytes);
+    auto* made = size ? static_cast<u8*>(commit_pages(size)) : nullptr;
+    if (!made || guild_image_write_data_uri(kind, {picked.data, picked.bytes}, {made, size}) != size) {
+        if (made)
+            pages_release(made);
+        return false;
+    }
+    *uri = made;
+    *bytes = size;
+    return true;
 }
 
 void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept {
@@ -285,7 +278,7 @@ bool boost_guild_patch(GuildSettingsPatch* patch) noexcept {
     auto& p = *owner;
     const auto& d = p.boost_draft;
     if ((d.banner == GuildProfileImageEdit::replace && !prepare_banner()) ||
-        (d.splash == GuildProfileImageEdit::replace && !prepare_splash()))
+        (d.splash == GuildProfileImageEdit::replace && !file_uri(p.splash, &p.splash_uri, &p.splash_uri_bytes)))
         return false;
     if (!guild_boost_patch(d, stored_banner(), stored_splash(),
                            {reinterpret_cast<const char*>(p.banner_uri), p.banner_uri_bytes},

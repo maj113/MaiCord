@@ -320,7 +320,6 @@ struct StoreLayoutInput {
     StorePageState* state;
     const UiStoreSearch* search;
     float width;
-    bool reduced_motion;
     // Retained markdown blocks (UiMarkdown*) of the open detail's About and What's new; null: plain text.
     const void* about;
     const void* changes;

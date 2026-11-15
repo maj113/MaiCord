@@ -18,11 +18,12 @@ constexpr u64 kBusyRetryMs = 250;
 
 struct Owner {
     InviteCardCache cache;
-    u32 decode_scratch[8192];
     u64 account_scope;
     u64 request_id;
     u64 retry_at_ms;
     u32 published_revision;
+    // The cache and guild list revisions that the `joined` flags come from.
+    u32 joined_revision, joined_guilds;
     char code[kGuildInviteCodeMaximumBytes];
     u8 code_bytes;
 };
@@ -87,19 +88,25 @@ void application_invite_cards_synchronize(u64 now_ms) noexcept {
         if (!owner_ensure(owner))
             return;
         owner->account_scope = application_account_scope();
-        message_scene_bind_invite_cards(&g_app.message_scene, &owner->cache);
     }
     if (g_app.message_scene.invite_cards != &owner->cache)
         message_scene_bind_invite_cards(&g_app.message_scene, &owner->cache);
     if (message_scene_bind_scheduled_events(&g_app.message_scene, application_guild_community_events()))
         refresh_account_text(true);
     visible_invites(true, now_ms);
-    for (u32 i = 0; i < kInviteCardCacheEntries; ++i) {
-        const auto& entry = owner->cache.entries[i];
-        if (entry.invite.guild_id)
-            invite_card_cache_set_joined(&owner->cache, i,
-                                         chat_state_store_find_guild(g_app.account_ui->chat_state,
-                                                                     entry.invite.guild_id) != nullptr);
+    // An entry gets or loses its guild only with a cache revision. The account joins or leaves one only with a
+    // guild mutation.
+    const u32 guilds = g_app.account_ui->chat_state.guild_mutations;
+    if (owner->joined_revision != owner->cache.revision || owner->joined_guilds != guilds) {
+        for (u32 i = 0; i < kInviteCardCacheEntries; ++i) {
+            const auto& entry = owner->cache.entries[i];
+            if (entry.invite.guild_id)
+                invite_card_cache_set_joined(&owner->cache, i,
+                                             chat_state_store_find_guild(g_app.account_ui->chat_state,
+                                                                         entry.invite.guild_id) != nullptr);
+        }
+        owner->joined_revision = owner->cache.revision;
+        owner->joined_guilds = guilds;
     }
     if (owner->published_revision != owner->cache.revision) {
         owner->published_revision = owner->cache.revision;
@@ -181,9 +188,11 @@ bool application_invite_cards_response(const RestClientResponse& response, Utf8V
         return true;
     owner->request_id = 0;
     GuildInvite decoded{};
+    // The owner lives only inside an account UI. The decode ends before this function returns.
     const auto outcome =
         response.transport_ok()
-            ? guild_invite_decode_response(response.status_code, body, {owner->decode_scratch, 8192}, &decoded)
+            ? guild_invite_decode_response(response.status_code, body,
+                                           {g_app.account_ui->message_history_page_structurals, 8192}, &decoded)
             : GuildInviteOutcome::unavailable;
     if (outcome == GuildInviteOutcome::rate_limited)
         owner->retry_at_ms = response.retry_at_ms ? response.retry_at_ms : clock_monotonic_milliseconds() + 2000;

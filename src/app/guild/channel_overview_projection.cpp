@@ -102,11 +102,11 @@ bool manage(u64 id) noexcept {
            c->permissions_resolved && (c->effective_permissions & required) == required &&
            (c->actions & actions) == actions;
 }
-bool manage_channel(u64 id) noexcept {
-    return channel_usable(id) && permission_has(self_permissions(id), kPermissionManageChannels);
-}
-bool manage_overrides(u64 id) noexcept {
-    return channel_usable(id) && permission_has(self_permissions(id), kPermissionManageRoles);
+ChannelRights channel_rights(u64 id) noexcept {
+    if (!channel_usable(id))
+        return {};
+    const PermissionSet mine = self_permissions(id);
+    return {permission_has(mine, kPermissionManageChannels), permission_has(mine, kPermissionManageRoles)};
 }
 bool available() noexcept {
     return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;

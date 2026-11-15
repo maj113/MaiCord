@@ -57,7 +57,6 @@ struct State {
     GameImageMedia games[kUiGuildCardGames + kUiGuildCardGamesMore];
     u32 games_revision;
     char games_more_names[384];
-    u32 scratch[8192];
 };
 State* g_card;
 
@@ -366,13 +365,15 @@ void application_guild_card_response(u64 guild_id, bool join, const RestClientRe
     if (!g_card || g_card->guild_id != guild_id || g_card->phase == Phase::closed)
         return;
     auto& c = *g_card;
-    if (ok && guild_profile_decode(body, {c.scratch, 8192}, &c.profile) && c.profile.id == guild_id) {
+    // The card lives only inside an account UI. Each decode ends before this function returns.
+    const Slice<u32> scratch{g_app.account_ui->message_history_page_structurals, 8192};
+    if (ok && guild_profile_decode(body, scratch, &c.profile) && c.profile.id == guild_id) {
         c.phase = Phase::ready;
         c.loaded_guild = guild_id;
         c.loaded_ms = clock_monotonic_milliseconds();
         resolve_media();
     } else {
-        const u64 code = response.transport_ok() ? guild_asset_error_code(body, {c.scratch, 8192}) : 0;
+        const u64 code = response.transport_ok() ? guild_asset_error_code(body, scratch) : 0;
         if (ok)
             log_write(LogLevel::warning, "guild_card", "profile_decode_failed");
         reset_value(&c.profile);

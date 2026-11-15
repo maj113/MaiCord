@@ -765,6 +765,9 @@ bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept;
 bool boost_guild_patch(GuildSettingsPatch* patch) noexcept;
 void boost_saved(Op op, bool ok, const Utf8View& body, u64 now) noexcept;
 void release_uri(u8** uri, u32* bytes) noexcept;
+// The picked file itself as a data URI in *uri, as the official image input reads it (no crop). The client makes it
+// one time. False: there is no file, or the system refused the memory.
+bool file_uri(const Picked& picked, u8** uri, u32* bytes) noexcept;
 
 // Members: the search request of the current filters and page, its
 // outcome, the debounced text and the bulk ban update.

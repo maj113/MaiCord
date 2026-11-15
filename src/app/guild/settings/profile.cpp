@@ -562,30 +562,13 @@ void server_profile_loaded(const GuildAdminProfile* profile) noexcept {
         load();
 }
 
-// A new custom banner is the file itself as a data URI, as the official image input reads it (no crop).
-bool prepare_custom_banner() noexcept {
-    auto& p = *owner;
-    if (p.custom_banner_uri)
-        return true;
-    const auto kind = p.custom_banner.info.source_kind;
-    const u32 bytes = guild_image_data_uri_bytes(kind, p.custom_banner.bytes);
-    auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes)) : nullptr;
-    if (!uri || guild_image_write_data_uri(kind, {p.custom_banner.data, p.custom_banner.bytes}, {uri, bytes}) != bytes) {
-        if (uri)
-            pages_release(uri);
-        return false;
-    }
-    p.custom_banner_uri = uri;
-    p.custom_banner_uri_bytes = bytes;
-    return true;
-}
-
 bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
                    Slice<GuildServerProfileTraitWrite> traits) noexcept {
     auto& p = *owner;
     const auto& d = p.profile_draft;
     if (!p.profile_loaded || (d.icon == GuildProfileImageEdit::replace && !prepare_icon()) ||
-        (d.custom_banner == GuildProfileImageEdit::replace && !prepare_custom_banner()))
+        (d.custom_banner == GuildProfileImageEdit::replace &&
+         !file_uri(p.custom_banner, &p.custom_banner_uri, &p.custom_banner_uri_bytes)))
         return false;
     if (!guild_server_profile_write(d, {reinterpret_cast<const char*>(p.icon_uri), p.icon_uri_bytes},
                                     {reinterpret_cast<const char*>(p.custom_banner_uri), p.custom_banner_uri_bytes},

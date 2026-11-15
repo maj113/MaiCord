@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "../shell/input.hpp"
 #include "../shell/state.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/guild/banner.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
@@ -13,15 +12,23 @@
 
 namespace maicord::app_detail {
 namespace {
+// What `still` and `moving` come from. The client makes them again only when one of these values changes.
+struct MediaSource {
+    u64 guild_id; // zero: no banner is shown
+    u32 dpi;
+    u8 hash_bytes;
+    bool eligible, gif;
+    char hash[kGuildIconHashMaximumBytes];
+};
 struct BannerState {
     UiGuildBannerAnimation animation;
     UiGuildBannerView view;
     UiGuildImageMedia still, moving;
-    u64 signature;
+    MediaSource source;
     MediaAssetKey retired, playing;
     float pointer_x, pointer_y;
     u32 revision;
-    bool shown, visible, animate, gif, pointer_inside, header_hovered;
+    bool media, shown, visible, animate, gif, pointer_inside, header_hovered;
 };
 BannerState g_banner;
 
@@ -37,10 +44,6 @@ const GuildRecord* selected_guild() noexcept {
 }
 bool inside(const UiRect& r) noexcept {
     return g_banner.pointer_inside && ui_rect_has_area(r) && ui_rect_contains(r, g_banner.pointer_x, g_banner.pointer_y);
-}
-void retire(MediaAssetKey key) noexcept {
-    if (media_asset_key_valid(key))
-        g_banner.retired = key;
 }
 } // namespace
 
@@ -65,33 +68,48 @@ void application_guild_banner_project(u64 now_ms) noexcept {
                                 message_rich_display().gifs == MessageMediaAnimation::always, now_ms);
     if (guild_id != b.view.guild_id)
         b.gif = false;
-    const u32 dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96;
-    bool media = shown && ui_guild_banner_media(guild_id, hash, dpi, false, false, &b.still);
-    if (!media)
-        reset_value(&b.still);
-    if (!(eligible && media && ui_guild_banner_media(guild_id, hash, dpi, true, b.gif, &b.moving)))
-        reset_value(&b.moving);
+    // Cleared whole, the padding too: the comparison reads every byte.
+    MediaSource source;
+    clear_bytes(&source, sizeof(source));
+    if (shown) {
+        source.guild_id = guild_id;
+        source.dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96;
+        source.hash_bytes = static_cast<u8>(hash.bytes);
+        source.eligible = eligible;
+        source.gif = b.gif;
+        copy_bytes(source.hash, hash.data, minimum<u32>(hash.bytes, sizeof(source.hash)));
+    }
+    if (!bytes_equal(&source, &b.source, sizeof(source))) {
+        copy_bytes(&b.source, &source, sizeof(source));
+        b.media = shown && ui_guild_banner_media(guild_id, hash, source.dpi, false, false, &b.still);
+        if (!b.media)
+            reset_value(&b.still);
+        if (!(eligible && b.media && ui_guild_banner_media(guild_id, hash, source.dpi, true, b.gif, &b.moving)))
+            reset_value(&b.moving);
+    }
     // A stopped animation (or one of a server no longer shown) gives its
     // playback back; the still stays resident.
     const MediaAssetKey playing = animate && media_asset_key_valid(b.moving.key) ? b.moving.key : MediaAssetKey{};
     if (media_asset_key_valid(b.playing) && !media_asset_key_equal(b.playing, playing))
-        retire(b.playing);
+        b.retired = b.playing;
     b.playing = playing;
-    b.shown = shown && media;
-    b.visible = b.shown && geometry.visible;
+    b.shown = shown && b.media;
     b.animate = media_asset_key_valid(playing);
-    b.header_hovered = header_hovered;
-    b.view = b.shown ? UiGuildBannerView{guild_id, b.animate ? b.moving.key : b.still.key, b.still.key}
-                     : UiGuildBannerView{};
-    u64 signature = hash64_bytes(kHash64Seed, &b.view, sizeof(b.view));
-    signature = hash64_mix(signature, (b.visible ? 1u : 0u) | (header_hovered ? 2u : 0u));
-    if (signature != b.signature) {
-        b.signature = signature;
+    const MediaAssetKey& shown_key = b.animate ? b.moving.key : b.still.key;
+    const UiGuildBannerView view = b.shown ? UiGuildBannerView{guild_id, shown_key, b.still.key} : UiGuildBannerView{};
+    const bool visible = b.shown && geometry.visible;
+    // The first projection also counts as a change.
+    if (!b.revision || view.guild_id != b.view.guild_id || !media_asset_key_equal(view.key, b.view.key) ||
+        !media_asset_key_equal(view.fallback, b.view.fallback) || visible != b.visible ||
+        header_hovered != b.header_hovered) {
         ++b.revision;
         // Starting an animation (or a new server) needs a media scan.
         g_app.message_media.scan_pending = true;
         application_request_frame();
     }
+    b.view = view;
+    b.visible = visible;
+    b.header_hovered = header_hovered;
     g_app.renderer.guild_banner = b.shown ? &b.view : nullptr;
     const float inset = b.shown ? kUiGuildBannerListInset : 0.f;
     const bool rebuild = scene.banner_inset != inset;

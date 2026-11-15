@@ -982,18 +982,8 @@ bool access_build(AccessStep step, GuildSettingsPatch* patch, GuildCommunityRequ
         }
         // A new banner travels as the file's data URI, a removed one as null.
         auto& p = *owner;
-        if (p.splash.set && !p.splash_uri) {
-            const auto kind = p.splash.info.source_kind;
-            const u32 bytes = guild_image_data_uri_bytes(kind, p.splash.bytes);
-            auto* uri = bytes ? static_cast<u8*>(commit_pages(bytes)) : nullptr;
-            if (!uri || guild_image_write_data_uri(kind, {p.splash.data, p.splash.bytes}, {uri, bytes}) != bytes) {
-                if (uri)
-                    pages_release(uri);
-                return false;
-            }
-            p.splash_uri = uri;
-            p.splash_uri_bytes = bytes;
-        }
+        if (p.splash.set && !file_uri(p.splash, &p.splash_uri, &p.splash_uri_bytes))
+            return false;
         if (p.splash.set || s.discovery_splash_clear) {
             patch->fields |= guild_settings_patch_discovery_splash;
             patch->discovery_splash = p.splash.set ? Utf8View{reinterpret_cast<const char*>(p.splash_uri),

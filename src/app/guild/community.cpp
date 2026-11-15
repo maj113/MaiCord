@@ -335,19 +335,11 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
             if (p.where == 2 && editor_slot(control_location) < 0)
                 bind_editor(2, control_location, {}, kScheduledEventLocationMaximum, false);
         }
-    } else if (id == control_channel) {
-        open_menu(Menu::channel, activation.anchor);
-        return;
-    } else if (id == control_day) {
-        open_menu(Menu::day, activation.anchor);
-        return;
-    } else if (id == control_time) {
-        open_menu(Menu::time, activation.anchor);
-        return;
-    } else if (id == control_duration) {
-        open_menu(Menu::duration, activation.anchor);
-        return;
     } else {
+        // The four drop-downs of the event form open their menu. No menu belongs to another control.
+        open_menu(id == control_channel ? Menu::channel : id == control_day ? Menu::day
+                  : id == control_time ? Menu::time : id == control_duration ? Menu::duration : Menu::none,
+                  activation.anchor);
         return;
     }
     p.failed = false;

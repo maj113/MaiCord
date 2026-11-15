@@ -261,7 +261,7 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
     st.tab = StoreTab::browse;
     st.chips = 0;
     ui_store_scene_begin(&g_scene);
-    StoreLayoutInput in{&g_model, &st, nullptr, 792, false, nullptr, nullptr};
+    StoreLayoutInput in{&g_model, &st, nullptr, 792, nullptr, nullptr};
     store_page_build(&g_scene, in);
     const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700});
     u32 cards = 0, switches = 0, installs = 0;
@@ -384,7 +384,7 @@ static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcep
         store_page_reset(&st, kind);
         st.tab = k < 3 ? StoreTab::browse : StoreTab::installed;
         ui_store_scene_begin(&g_scene);
-        StoreLayoutInput in{&g_model, &st, nullptr, ui_rect_width(page), false, nullptr, nullptr};
+        StoreLayoutInput in{&g_model, &st, nullptr, ui_rect_width(page), nullptr, nullptr};
         store_page_build(&g_scene, in);
         g_scene.active = ui_store_scene_commit(&g_scene, clip, page, settings.layout.modal);
         // The first grid row's start and end columns.
@@ -503,7 +503,7 @@ static void store_themes(void (*check)(bool, const char*) noexcept) noexcept {
     st.tab = StoreTab::installed;
     check(ui_store_scene_open(&g_scene), "store themes: scene opens");
     ui_store_scene_begin(&g_scene);
-    StoreLayoutInput in{&g_model, &st, nullptr, 792, false, nullptr, nullptr};
+    StoreLayoutInput in{&g_model, &st, nullptr, 792, nullptr, nullptr};
     store_page_build(&g_scene, in);
     const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700});
     u32 imports = 0, retries = 0, applied = 0, applies = 0, locals = 0;

@@ -52,6 +52,37 @@ u32 retry_delay(u32 failures) noexcept {
                    kMemberListSubscriptionRetryMinimumMs << minimum(failures - 1u, 4u));
 }
 
+// The member list id sorts the textual allow:/deny: entries lexicographically before
+// MurmurHash3 x86-32 (seed zero). Unrelated permission bits are excluded.
+// Not inline: only this part needs the sort buffer, and with it a stack probe.
+__declspec(noinline) u64 overwrite_list_id(const PermissionOverwriteRecord* overwrites, u32 total) noexcept {
+    VisibilityOverwrite entries[512];
+    u32 count = 0;
+    for (u32 i = 0; i < total; ++i) {
+        const auto& overwrite = overwrites[i];
+        const bool allow = (overwrite.allow & kPermissionViewChannel) != 0;
+        if (!allow && !(overwrite.deny & kPermissionViewChannel)) continue;
+        if (count == 512) return 0;
+        auto& entry = entries[count++];
+        const char* prefix = allow ? "allow:" : "deny:";
+        entry.bytes = allow ? 6 : 5;
+        for (u32 j = 0; j < entry.bytes; ++j) entry.text[j] = prefix[j];
+        entry.bytes = static_cast<u8>(entry.bytes + decimal_write(entry.text + entry.bytes, overwrite.id));
+    }
+    heap_sort_shared(entries, count, [](const VisibilityOverwrite& a, const VisibilityOverwrite& b) noexcept {
+        for (u32 i = 0; i < minimum(a.bytes, b.bytes); ++i)
+            if (a.text[i] != b.text[i]) return a.text[i] < b.text[i];
+        return a.bytes < b.bytes;
+    });
+    ListHash hash;
+    for (u32 i = 0; i < count; ++i) {
+        if (i) hash.append(',');
+        for (u32 j = 0; j < entries[i].bytes; ++j) hash.append(static_cast<u8>(entries[i].text[j]));
+    }
+    const u32 token = hash.finish();
+    return token ? token : kMemberListZeroHash;
+}
+
 } // namespace
 
 u64 member_list_channel_id(const ChatStateStore& state, u64 channel_id) noexcept {
@@ -78,34 +109,8 @@ u64 member_list_channel_id(const ChatStateStore& state, u64 channel_id) noexcept
         if (state.overwrites[channel->overwrite_offset + i].deny & kPermissionViewChannel)
             public_list = false;
     }
-    if (public_list) return kMemberListEveryone;
-    // The member list id sorts the textual allow:/deny: entries lexicographically before
-    // MurmurHash3 x86-32 (seed zero). Unrelated permission bits are excluded.
-    VisibilityOverwrite entries[512];
-    u32 count = 0;
-    for (u32 i = 0; i < channel->overwrite_count; ++i) {
-        const auto& overwrite = state.overwrites[channel->overwrite_offset + i];
-        const bool allow = (overwrite.allow & kPermissionViewChannel) != 0;
-        if (!allow && !(overwrite.deny & kPermissionViewChannel)) continue;
-        if (count == 512) return 0;
-        auto& entry = entries[count++];
-        const char* prefix = allow ? "allow:" : "deny:";
-        entry.bytes = allow ? 6 : 5;
-        for (u32 j = 0; j < entry.bytes; ++j) entry.text[j] = prefix[j];
-        entry.bytes = static_cast<u8>(entry.bytes + decimal_write(entry.text + entry.bytes, overwrite.id));
-    }
-    heap_sort_shared(entries, count, [](const VisibilityOverwrite& a, const VisibilityOverwrite& b) noexcept {
-        for (u32 i = 0; i < minimum(a.bytes, b.bytes); ++i)
-            if (a.text[i] != b.text[i]) return a.text[i] < b.text[i];
-        return a.bytes < b.bytes;
-    });
-    ListHash hash;
-    for (u32 i = 0; i < count; ++i) {
-        if (i) hash.append(',');
-        for (u32 j = 0; j < entries[i].bytes; ++j) hash.append(static_cast<u8>(entries[i].text[j]));
-    }
-    const u32 token = hash.finish();
-    return token ? token : kMemberListZeroHash;
+    return public_list ? kMemberListEveryone
+                       : overwrite_list_id(state.overwrites + channel->overwrite_offset, channel->overwrite_count);
 }
 
 u64 member_list_channel_cached_id(MemberListIdentityCache* cache,

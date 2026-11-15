@@ -779,14 +779,15 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
         if (st.link_dialog)
             l.phase = 0;
     }
+    const bool typing = g->editing && application_window_keyboard_focus();
     g->view = {message_composer_text(editor()), minimum(editor().anchor, editor().bytes), minimum(editor().caret, editor().bytes), g->editing,
-               g->editing && application_window_keyboard_focus(), g->editing && application_window_keyboard_focus()};
-    g->search = {&g->view, g->editing && application_window_keyboard_focus() ? &g_app.renderer.media_picker_edit_geometry : nullptr,
+               typing, typing};
+    g->search = {&g->view, typing ? &g_app.renderer.media_picker_edit_geometry : nullptr,
                  g->editing_action == kStoreLinkField ? utf8_literal("Paste an https:// link to a .maicord-theme.json or .mcfx")
                                                  : utf8_literal("Search"),
                  g->editing_action};
     g->scene.search = g->editing ? &g->search : nullptr;
-    StoreLayoutInput in{&m, &st, g->scene.search, ui_rect_width(g->host_page), application_reduced_motion(), g->about, g->changes};
+    StoreLayoutInput in{&m, &st, g->scene.search, ui_rect_width(g->host_page), g->about, g->changes};
     ui_store_scene_begin(&g->scene);
     store_page_build(&g->scene, in);
     UiRect modal = settings->layout.modal;

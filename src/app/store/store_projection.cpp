@@ -162,21 +162,6 @@ static u64 store_item_chips(const StoreItem& item, const StoreChips& chips) noex
     return bits;
 }
 
-// Within a group chips are OR, across groups AND.
-static bool store_chips_match(u64 selected, u64 item, const StoreChips& chips) noexcept {
-    if (!selected)
-        return true;
-    for (u32 group = 0; group < 3; ++group) {
-        u64 mask = 0;
-        for (u32 i = 1; i < chips.count; ++i)
-            if (chips.chips[i].group == group)
-                mask |= u64{1} << i;
-        if ((selected & mask) && !(selected & mask & item))
-            return false;
-    }
-    return true;
-}
-
 u64 store_chip_toggle(u64 selected, const StoreChips& chips, u32 index) noexcept {
     if (index == 0 || index >= chips.count)
         return 0;
@@ -187,12 +172,20 @@ void store_browse_list(const StoreModel& model, const StorePageState& state, con
                        StoreList* out) noexcept {
     out->count = out->total = 0;
     const Utf8View query{state.query, state.query_bytes};
+    // The selected chips of each group. Within a group chips are OR, across groups AND.
+    u64 wanted[3]{};
+    for (u32 i = 1; i < chips.count; ++i)
+        if (chips.chips[i].group < 3)
+            wanted[chips.chips[i].group] |= state.chips & (u64{1} << i);
+    const bool filtered = (wanted[0] | wanted[1] | wanted[2]) != 0;
     for (u32 i = 0; i < model.count; ++i) {
         const auto& item = model.items[i];
         if (item.kind != state.kind || item.item == ~0u)
             continue;
         ++out->total;
-        if (!store_chips_match(state.chips, store_item_chips(item, chips), chips) || !store_item_matches(item, query))
+        const u64 bits = filtered ? store_item_chips(item, chips) : 0;
+        if ((wanted[0] && !(wanted[0] & bits)) || (wanted[1] && !(wanted[1] & bits)) ||
+            (wanted[2] && !(wanted[2] & bits)) || !store_item_matches(item, query))
             continue;
         insert_sorted(model, out->order, &out->count, static_cast<u16>(i), state.kind, state.sort);
     }

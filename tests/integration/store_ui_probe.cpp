@@ -615,7 +615,7 @@ bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, const UiRect& vie
         if (block && ui_markdown_parse(block, f.model.details_markdown, text_size_md, ui_markdown_bank_scratch(f.bank)))
             about = block;
     }
-    StoreLayoutInput in{&f.model, &st, nullptr, ui_rect_width(rect), false, about, nullptr};
+    StoreLayoutInput in{&f.model, &st, nullptr, ui_rect_width(rect), about, nullptr};
     store_page_build(&f.store, in);
     f.store.active = true;
     if (!ui_store_scene_commit(&f.store, clip, rect, f.scene.layout.modal))

@@ -13,9 +13,11 @@
 namespace maicord::app_detail {
 
 bool application_channel_overview_open(u64 channel_id) noexcept {
+    const bool text = manage(channel_id);
+    const ChannelRights rights = channel_rights(channel_id);
     if (!available() || !g_app.renderer_ready || g_app.text_form || application_channel_overview_active() ||
         (owner && (owner->controller.request_id || owner->request_id)) || lifetime == ~u64{0} ||
-        !(manage(channel_id) || manage_channel(channel_id) || manage_overrides(channel_id)))
+        !(text || rights.channel || rights.overrides))
         return false;
     settings_modal_yield();
     if (!owner) {
@@ -38,10 +40,10 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     p.permission_observed = false;
     p.identity = scope(channel_id);
     p.type = channel->type;
-    p.text = channel->type == 0 && manage(channel_id);
-    p.can_overview = p.text || (channel_settings_supported(p.type) && manage_channel(channel_id));
-    p.can_permissions = manage_overrides(channel_id);
-    p.can_delete = manage_channel(channel_id);
+    p.text = channel->type == 0 && text;
+    p.can_overview = p.text || (channel_settings_supported(p.type) && rights.channel);
+    p.can_permissions = rights.overrides;
+    p.can_delete = rights.channel;
     p.loaded = p.fetch_failed = p.conflict = p.echo = false;
     p.op = Op::none;
     p.queued = p.failed = false;
@@ -139,18 +141,18 @@ bool application_channel_overview_synchronize() noexcept {
     auto& p = *owner;
     auto& c = p.controller;
     const auto current = scope(p.identity.channel_id);
+    const bool text = manage(current.channel_id);
+    const ChannelRights rights = channel_rights(current.channel_id);
     if (!channel_overview_scope_equal(current, p.identity) || !g_app.account_ui || g_app.login.visible ||
-        !(manage(current.channel_id) || manage_channel(current.channel_id) || manage_overrides(current.channel_id) ||
-          (p.text && c.active))) {
+        !(text || rights.channel || rights.overrides || (p.text && c.active))) {
         application_text_form_cancel_owner(form_valid);
         application_channel_overview_close(false);
         return true;
     }
     bool changed = false;
-    const bool permissions = manage_overrides(current.channel_id), deletable = manage_channel(current.channel_id);
-    if (permissions != p.can_permissions || deletable != p.can_delete) {
-        p.can_permissions = permissions;
-        p.can_delete = deletable;
+    if (rights.overrides != p.can_permissions || rights.channel != p.can_delete) {
+        p.can_permissions = rights.overrides;
+        p.can_delete = rights.channel;
         build_navigation();
         changed = true;
     }
@@ -159,9 +161,9 @@ bool application_channel_overview_synchronize() noexcept {
         const bool online = c.available, permission = c.can_manage;
         if (p.permission_observed) {
             p.permission_observed = false;
-            channel_overview_controller_reauthorize(&c, current, available(), manage(current.channel_id));
+            channel_overview_controller_reauthorize(&c, current, available(), text);
         } else
-            channel_overview_controller_authority(&c, current, available(), manage(current.channel_id));
+            channel_overview_controller_authority(&c, current, available(), text);
         changed = changed || phase != c.phase || online != c.available || permission != c.can_manage ||
                   p.projected_revision != c.revision;
     }
