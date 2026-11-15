@@ -12,6 +12,7 @@
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 
@@ -39,7 +40,22 @@ struct Audit {
     u32 login_starts, module_loads, path_resolves, password_submits, remote_starts;
     u16 stop_http_status;
     u64 stop_retry_at_ms;
+    // The login copy and cut checks: the field the key handler edits, and what the clipboard holds.
+    SecureEdit* active_edit;
+    char clipboard[64];
+    u32 clipboard_bytes, clipboard_writes;
 } audit{};
+// Ctrl held for one key: the handler reads it through GetKeyState, which follows the thread's keyboard state.
+bool control_key(u32 code) noexcept {
+    BYTE prior[256]{};
+    BYTE keys[256]{};
+    keys[static_cast<u32>(key::ctrl)] = 0x80;
+    if (!GetKeyboardState(prior) || !SetKeyboardState(keys))
+        return false;
+    const bool handled = application_login_handle_key(code);
+    SetKeyboardState(prior);
+    return handled;
+}
 u32 failures = 0;
 void check(bool condition, const char* label) noexcept {
     test_check(&failures, condition, label);
@@ -543,6 +559,31 @@ void run_auth_cooldown() noexcept {
               secure_edit_insert_utf8(&g_app.login.password, utf8_literal("fresh-test-password")) ==
                   SecureEditResult::changed,
           "auth cooldown: explicit replacement credentials remain in existing locked editors");
+    {
+        // Ctrl+C and Ctrl+X in the sign-in form: the login field's selection goes to the clipboard, and a cut removes
+        // it. A password never reaches the clipboard, and neither key changes it.
+        SecureEdit& login = g_app.login.login;
+        SecureEdit& password = g_app.login.password;
+        audit.active_edit = &login;
+        check(secure_edit_set_codepoint(&login, 0, false) == SecureEditResult::changed &&
+                  secure_edit_set_codepoint(&login, 5, true) == SecureEditResult::changed && control_key('C') &&
+                  audit.clipboard_writes == 1 && audit.clipboard_bytes == 5 && bytes_equal(audit.clipboard, "retry", 5) &&
+                  login.storage.bytes == 17,
+              "login copy: Ctrl+C writes the selection and keeps the text");
+        check(control_key('X') && audit.clipboard_writes == 2 && bytes_equal(audit.clipboard, "retry", 5) &&
+                  login.storage.bytes == 12 && bytes_equal(login.storage.data, "@example.com", 12),
+              "login cut: Ctrl+X writes the selection and removes it");
+        check(control_key('C') && audit.clipboard_writes == 2, "login copy: no selection writes nothing");
+        audit.active_edit = &password;
+        const u32 password_bytes = password.storage.bytes;
+        check(password.password && secure_edit_select_all(&password) == SecureEditResult::changed && control_key('C') &&
+                  control_key('X') && audit.clipboard_writes == 2 && password.storage.bytes == password_bytes,
+              "login copy: a password is never copied or cut");
+        audit.active_edit = nullptr;
+        check(secure_edit_select_all(&login) == SecureEditResult::changed &&
+                  secure_edit_insert_utf8(&login, utf8_literal("retry@example.com")) == SecureEditResult::changed,
+              "login copy: the login text is put back");
+    }
     g_app.login.focus = LoginControl::password;
     check(application_login_handle_key(key::enter) && !audit.login_starts && !audit.password_submits,
           "auth cooldown: returning to ordinary login cannot bypass the retained actor floor");
@@ -1132,6 +1173,8 @@ bool application_account_attach_if_present() noexcept {
     return true;
 }
 SecureEdit* application_active_login_edit() noexcept {
+    if (login_cancel_test::audit.active_edit)
+        return login_cancel_test::audit.active_edit;
     return g_app.login.initialized && g_app.login.visible && login_phone_editable(g_app.login.status) &&
         g_app.login.focus == LoginControl::phone_code ? &g_app.login.mfa : nullptr;
 }
@@ -1140,6 +1183,14 @@ bool application_login_position_edit(LoginControl, i32, i32, bool) noexcept { re
 } // namespace maicord::app_detail
 
 namespace maicord {
+// The login copy and cut checks read what the key handler wrote; the user's own clipboard is never touched.
+bool clipboard_write_utf8(const Utf8View& text) noexcept {
+    auto& audit = login_cancel_test::audit;
+    ++audit.clipboard_writes;
+    audit.clipboard_bytes = minimum<u32>(static_cast<u32>(text.bytes), sizeof(audit.clipboard));
+    copy_bytes(audit.clipboard, text.data, audit.clipboard_bytes);
+    return true;
+}
 // The CAPTCHA bridge never launches in this harness (no challenge is bridged).
 bool captcha_bridge_launch(Window, const SecureBuffer*) noexcept { return false; }
 bool browser_sign_in_launch(Window, const SecureBuffer* url) noexcept {

@@ -10,6 +10,7 @@
 #include "maicord/app/account/login/remote_auth_handshake.hpp"
 #include "maicord/app/account/login/remote_auth_client.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "maicord/platform/window/clipboard.hpp"
 
 namespace maicord::app_detail {
 namespace auth_detail {
@@ -1413,6 +1414,16 @@ bool application_login_handle_key(u32 key, bool repeated) noexcept {
     }
     if (control && key == 'V') {
         return application_login_paste();
+    }
+    if (control && (key == 'C' || key == 'X')) {
+        // A password, or a sign-in link that the field masks, never reaches the clipboard: a Windows password box
+        // refuses copy and cut too. A cut removes the selection as Backspace does.
+        const u32 first = minimum(edit->anchor, edit->caret);
+        const u32 last = maximum(edit->anchor, edit->caret);
+        if (edit->password || first == last ||
+            !clipboard_write_utf8({reinterpret_cast<const char*>(edit->storage.data) + first, last - first}) || key == 'C')
+            return true;
+        key = key::backspace;
     }
     const bool phone = login_phone_mode(g_app.login.status);
     const auto move = [&](SecureEditMove movement) noexcept {
