@@ -1137,9 +1137,17 @@ struct Writer {
     __declspec(noinline) void quoted(Utf8View text) noexcept {
         character('"');
         for (u32 i = 0; i < text.bytes; ++i) {
-            if (text.data[i] == '"' || text.data[i] == '\\')
+            const char c = text.data[i];
+            if (static_cast<u8>(c) < 0x20) {
+                // JSON refuses a raw control character in a string. The parser accepts an escaped one in a knob name.
+                this->text(utf8_literal("\\u00"));
+                character(ascii_hex_digit(static_cast<u8>(c) >> 4));
+                character(ascii_hex_digit(c & 15u));
+                continue;
+            }
+            if (c == '"' || c == '\\')
                 character('\\');
-            character(text.data[i]);
+            character(c);
         }
         character('"');
     }

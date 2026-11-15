@@ -401,6 +401,19 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
         parse({exported, packaged_bytes}, defaults, &reread).ok() && client_theme_document_equal(packaged, reread);
     check(packaged_ok && packaged_round_trip,
           "theme document: a package effect slug, knob values and universal settings parse and survive a rewrite");
+    // The parser accepts an escaped control character in a knob name. The canonical document escapes it too.
+    ClientThemeDocument control{}, control_again{};
+    u32 control_bytes = 0;
+    check(parse(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"rain-2\","
+                             "\"knobs\":{\"a\\rb\":1},\"follow\":{\"month\":\"a\\rb\"}}}"),
+                defaults, &control)
+                  .ok() &&
+              control.effect.knobs[0].id[1] == '\r' &&
+              client_theme_document_write(control, {exported, kClientThemeDocumentMaximumBytes}, &control_bytes).ok() &&
+              contains(exported, control_bytes, utf8_literal("\"a\\u000db\":1")) &&
+              parse({exported, control_bytes}, defaults, &control_again).ok() &&
+              client_theme_document_equal(control, control_again),
+          "theme document: a knob name with a control character survives a rewrite");
     check(refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"rain\",\"knobs\":{\"a\":1,\"a\":2}}}"), defaults) &&
               refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"universal\":{\"fps\":29}}}"), defaults) &&
               refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"universal\":{\"speed\":4}}}"), defaults) &&
