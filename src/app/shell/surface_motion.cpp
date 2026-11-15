@@ -214,10 +214,17 @@ u64 application_surface_motion_next_wake() noexcept {
     if (rail.active && !g_app.renderer.login_visible &&
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)) {
         wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.home_indicator));
-        for (u32 i = 0; i < rail.count; ++i)
-            wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.rows[i].indicator));
+        for (u32 i = 0; i < rail.count; ++i) {
+            // A pill at rest has no wake: only the moving ones are asked.
+            const auto& pill = rail.rows[i].indicator;
+            if (pill.height.active || pill.visibility.active)
+                wake = earliest_deadline(wake, guild_rail_indicator_next_wake(pill));
+        }
     }
     for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
+        // A slot at rest has no wake, so its surface is not observed.
+        if (!g_app.surface_motion.slots[i].motion.active)
+            continue;
         const auto surface = static_cast<RendererLayerSurface>(i);
         const auto current = observe(surface, allowed);
         if (!current.animate)

@@ -49,7 +49,9 @@ bool notification_sound_asset_gain(void* context,float nominal,float* gain) noex
     *gain=actual>1.0f?1.0f:actual;return true;
 }
 void notification_sound_assets_volume(NotificationSoundAssetBank* bank,u32 percent) noexcept {
-    if(bank && percent<=200) InterlockedExchange(&bank->output_percent,static_cast<LONG>(percent));
+    // The drain stores the volume on each turn of the main loop: write only a new value.
+    if(bank && percent<=200 && ReadAcquire(&bank->output_percent)!=static_cast<LONG>(percent))
+        InterlockedExchange(&bank->output_percent,static_cast<LONG>(percent));
 }
 void notification_sound_assets_release(NotificationSoundAssetBank* bank) noexcept {
     if(!bank) return;

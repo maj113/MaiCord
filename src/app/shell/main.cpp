@@ -473,7 +473,9 @@ int application_run() noexcept {
         push_handle(application_downloads_notification());
         push_handle(application_account_logout_notification());
         push_handle(application_account_switch_notification());
+        const u32 updates_handle_index = wait_handle_count;
         push_handle(application_updates_notification());
+        const bool updates_handle = wait_handle_count != updates_handle_index;
         push_handle(application_catalog_notification());
         push_handle(application_catalog_http_notification());
         push_handle(application_catalog_dev_notification(0));
@@ -567,7 +569,8 @@ int application_run() noexcept {
         poll_catalog();
         application_packages_poll();
         application_downloads_pump();
-        if (application_updates_poll() && g_app.window) {
+        // The update worker sets its event with each change of the view. The event stays set until a wait returns it.
+        if (updates_handle && wait_ready(waited, updates_handle_index) && application_updates_poll() && g_app.window) {
             // An update restart closes for real, never to the tray.
             application_desktop_request_quit();
             window_request_close(g_app.window);

@@ -750,13 +750,7 @@ bool application_private_channel_title_hit(float, float) noexcept {
 u16 application_message_action_bar_capabilities(u64) noexcept {
     return 0;
 }
-MessageProfileHit application_message_profile_hit_test(float, float) noexcept {
-    return {};
-}
-bool application_message_guild_tag_hit(float, float) noexcept {
-    return false;
-}
-bool application_message_command_chip_hit(float, float) noexcept {
+bool application_message_popout_target(float, float) noexcept {
     return false;
 }
 bool application_thread_browser_read_blocked() noexcept {

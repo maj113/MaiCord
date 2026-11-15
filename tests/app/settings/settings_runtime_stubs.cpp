@@ -215,24 +215,16 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
 // The isolated Settings host borrows the real shared author geometry instead
 // of linking the entire content activation controller. Count the boundary so
 // the opaque Settings cursor shield fails if it consults underlying profiles.
-// Server tag chips share the author line and the same shield.
-bool application_message_guild_tag_hit(float, float) noexcept {
-    ++settings_runtime_test::observed.profile_hits;
-    return false;
-}
-bool application_message_command_chip_hit(float, float) noexcept {
-    ++settings_runtime_test::observed.profile_hits;
-    return false;
-}
-MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept {
+// Server tag chips and command chips share the author line and the same shield.
+bool application_message_popout_target(float x, float y) noexcept {
     ++settings_runtime_test::observed.profile_hits;
     const auto& renderer = g_app.renderer;
     if (g_app.login.visible || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
-        return {};
+        return false;
     return message_author_hit_test(
         g_app.message_scene, *renderer.message_text, *renderer.chat_state, *renderer.user_store,
         renderer.member_list_scene ? renderer.member_list_scene->measure : nullptr, application_theme(), x,
-        y);
+        y).user_id != 0;
 }
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }

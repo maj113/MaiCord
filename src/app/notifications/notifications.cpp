@@ -726,10 +726,11 @@ bool application_notifications_gateway_pending(const Application* a) noexcept {
 u64 application_notifications_next_wake(const Application* a) noexcept {
     if(!a || !a->notifications) return 0;
     const auto& n=*a->notifications;
-    if(!n.ready || !n.live || n.snapshot || n.snapshot_failed || n.profile!=a->account.status.profile_id ||
-        !n.audio_preference || !audio_capacity(n,1)) return 0;
+    // The timer flag first: audio_capacity takes the audio worker's lock.
     u64 deadline{};
-    return notification_sound_throttle_deadline(n.sound_throttle,&deadline)?deadline:0;
+    if(!n.ready || !n.live || n.snapshot || n.snapshot_failed || n.profile!=a->account.status.profile_id ||
+        !n.audio_preference || !notification_sound_throttle_deadline(n.sound_throttle,&deadline) || !audio_capacity(n,1)) return 0;
+    return deadline;
 }
 void application_notifications_selection(Application* a) noexcept {
     if(!a || !a->notifications || !a->account_ui) return;
@@ -755,8 +756,8 @@ void application_notifications_drain(Application* a) noexcept {
     if(audio_can_resume) n.work_pending=true;
     const u64 now=sound_clock(n);
     u64 deadline{};
-    if(n.ready && n.live && !n.snapshot && !n.snapshot_failed && n.audio_preference && audio_capacity(n,1) &&
-        notification_sound_throttle_deadline(n.sound_throttle,&deadline) && now>=deadline) {
+    if(n.ready && n.live && !n.snapshot && !n.snapshot_failed && n.audio_preference &&
+        notification_sound_throttle_deadline(n.sound_throttle,&deadline) && now>=deadline && audio_capacity(n,1)) {
         const auto invocation=notification_sound_throttle_timer(&n.sound_throttle,now,n.audio_epoch);
         if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
     }

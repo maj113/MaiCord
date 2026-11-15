@@ -229,8 +229,7 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
         return true;
     cursor = UiCursor::hand;
     const auto message = message_scene_hit_test(g_app.message_scene, x, y);
-    if (application_message_profile_hit_test(x, y).user_id || application_message_guild_tag_hit(x, y) ||
-        application_message_command_chip_hit(x, y))
+    if (application_message_popout_target(x, y))
         return true;
     u32 reaction_index = 0;
     // Every emoji in body text is clickable (its popout), Unicode included.

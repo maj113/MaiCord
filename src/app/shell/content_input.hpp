@@ -52,10 +52,9 @@ bool handle_content_click(const WindowEvent& event) noexcept;
 // the click was consumed by the reveal.
 bool application_message_media_reveal_at(float x, float y) noexcept;
 MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept;
-// A server tag chip on an author line (it opens the server tag popout).
-bool application_message_guild_tag_hit(float x, float y) noexcept;
-// The slash command chip of a "<user> used <command>" header (a click opens its command card).
-bool application_message_command_chip_hit(float x, float y) noexcept;
+// A point that opens a popout on a click: an author, a reply's author, a server tag chip or the slash command chip
+// of a "<user> used <command>" header.
+bool application_message_popout_target(float x, float y) noexcept;
 bool handle_content_hover(const WindowEvent& event) noexcept;
 // Message pane targets a click would activate: inline players, polls, image
 // previews, replies, file cards and declared rich buttons. False defers to

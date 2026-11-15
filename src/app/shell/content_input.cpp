@@ -905,61 +905,81 @@ bool application_received_attachment_activate_focused() noexcept {
     return false;
 }
 
-MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept {
+namespace {
+// The interaction header under one point. The tests of one event share it, and the first that needs it finds it.
+struct HeaderHit {
+    float x, y;
+    bool found;
+    MessageInteractionHit hit;
+    // The caller holds the message text and the user store.
+    const MessageInteractionHit& get() noexcept {
+        const auto& renderer = g_app.renderer;
+        if (!found)
+            hit = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
+                                               renderer.message_measure_cache, application_theme(), x, y);
+        found = true;
+        return hit;
+    }
+};
+bool author_text_ready() noexcept {
     const auto& renderer = g_app.renderer;
-    if (g_app.login.visible || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
+    return !g_app.login.visible && renderer.message_text && renderer.chat_state && renderer.user_store;
+}
+MessageProfileHit profile_hit(HeaderHit& header) noexcept {
+    const auto& renderer = g_app.renderer;
+    if (!author_text_ready())
         return {};
     const auto author = message_author_hit_test(g_app.message_scene, *renderer.message_text, *renderer.chat_state,
                                                 *renderer.user_store, renderer.message_measure_cache,
-                                                application_theme(), x, y);
+                                                application_theme(), header.x, header.y);
     if (author.user_id)
         return author;
     // The "<user> used <command>" header and a reply's quoted author: the
     // avatar and name open that user.
-    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
-                                                     renderer.message_measure_cache, application_theme(), x, y);
-    if (header.target == MessageInteractionTarget::avatar || header.target == MessageInteractionTarget::name)
-        return {header.user_id, header.anchor};
+    const auto& hit = header.get();
+    if (hit.target == MessageInteractionTarget::avatar || hit.target == MessageInteractionTarget::name)
+        return {hit.user_id, hit.anchor};
     const auto quoted = message_reply_author_hit_test(g_app.message_scene, *renderer.message_text,
-                                                      renderer.message_measure_cache, x, y);
+                                                      renderer.message_measure_cache, header.x, header.y);
     return quoted.user_id ? MessageProfileHit{quoted.user_id, quoted.anchor} : MessageProfileHit{};
 }
-
-static MessageGuildTagHit message_guild_tag_hit(float x, float y) noexcept {
+// A server tag chip on an author line (it opens the server tag popout).
+MessageGuildTagHit guild_tag_hit(HeaderHit& header) noexcept {
     const auto& renderer = g_app.renderer;
-    if (g_app.login.visible || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
+    if (!author_text_ready())
         return {};
     const auto tag = message_author_guild_tag_hit_test(g_app.message_scene, *renderer.message_text,
                                                        *renderer.chat_state, *renderer.user_store,
-                                                       renderer.message_measure_cache, application_theme(), x, y);
+                                                       renderer.message_measure_cache, application_theme(), header.x,
+                                                       header.y);
     if (tag.guild_id)
         return tag;
     // The interaction header has its own server tag chip.
-    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
-                                                     renderer.message_measure_cache, application_theme(), x, y);
-    return header.target == MessageInteractionTarget::tag ? MessageGuildTagHit{header.guild_id, header.anchor}
-                                                          : MessageGuildTagHit{};
+    const auto& hit = header.get();
+    return hit.target == MessageInteractionTarget::tag ? MessageGuildTagHit{hit.guild_id, hit.anchor}
+                                                       : MessageGuildTagHit{};
 }
-
-bool application_message_guild_tag_hit(float x, float y) noexcept {
-    return message_guild_tag_hit(x, y).guild_id != 0;
-}
-
 // The slash command chip of a "<user> used <command>" header: the message
 // whose command card a click opens, or zero.
-static u64 command_chip_hit(float x, float y) noexcept {
+u64 command_chip_hit(HeaderHit& header) noexcept {
     const auto& renderer = g_app.renderer;
     if (g_app.login.visible || !g_app.account_ui || !renderer.message_text || !renderer.user_store)
         return 0;
-    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
-                                                     renderer.message_measure_cache, application_theme(), x, y);
-    const auto* record = header.target == MessageInteractionTarget::command ? application_message_record(header.message_id)
-                                                                          : nullptr;
+    const auto& hit = header.get();
+    const auto* record = hit.target == MessageInteractionTarget::command ? application_message_record(hit.message_id)
+                                                                       : nullptr;
     return record && message_interaction_chip(record->type) ? record->id : 0;
 }
+} // namespace
 
-bool application_message_command_chip_hit(float x, float y) noexcept {
-    return command_chip_hit(x, y) != 0;
+MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept {
+    HeaderHit header{x, y};
+    return profile_hit(header);
+}
+
+bool application_message_popout_target(float x, float y) noexcept {
+    HeaderHit header{x, y};
+    return profile_hit(header).user_id || guild_tag_hit(header).guild_id || command_chip_hit(header);
 }
 
 bool application_message_media_reveal_at(float x, float y) noexcept {
@@ -1048,8 +1068,8 @@ bool handle_content_click(const WindowEvent& event) noexcept {
         return false;
     const POINT point{static_cast<short>(event.pointer.x), static_cast<short>(event.pointer.y)};
     const float x = client_dip_x(event), y = client_dip_y(event);
-    if (const auto& renderer = g_app.renderer;
-        !g_app.login.visible && renderer.message_text && renderer.chat_state && renderer.user_store) {
+    HeaderHit header{x, y};
+    if (const auto& renderer = g_app.renderer; author_text_ready()) {
         const auto slot = message_author_plugin_hit_test(g_app.message_scene, *renderer.message_text,
                                                          *renderer.chat_state, *renderer.user_store,
                                                          renderer.message_measure_cache, application_theme(), x, y);
@@ -1059,14 +1079,14 @@ bool handle_content_click(const WindowEvent& event) noexcept {
             return true;
         }
         // A server tag chip opens the server tag popout, not the profile.
-        const auto tag = message_guild_tag_hit(x, y);
+        const auto tag = guild_tag_hit(header);
         if (tag.guild_id)
             return application_guild_card_open(tag.guild_id, tag.chip) || true;
         // A slash command chip opens (or closes) the command card.
-        if (const u64 chip_message = command_chip_hit(x, y))
+        if (const u64 chip_message = command_chip_hit(header))
             return application_interaction_card_toggle(chip_message);
     }
-    const auto profile = application_message_profile_hit_test(x, y);
+    const auto profile = profile_hit(header);
     if (profile.user_id)
         return application_profile_open(profile.user_id, profile.anchor);
     const MessageTextHit hit = renderer_content_hit_test(g_app.renderer, point.x, point.y);
