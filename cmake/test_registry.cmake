@@ -1180,6 +1180,10 @@ maicord_test(MaiCordChannelOverviewAccountTests ENTRY maicord_channel_overview_a
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_channel_overview_account)
 maicord_test(MaiCordPermissionComputeTests ENTRY maicord_permission_compute_entry SOURCES tests/model/guild/permission_compute.cpp
     BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_permission_compute)
+# The channel list of each server: random chat state mutations, with the list check after each step.
+maicord_test(MaiCordChannelListFuzzTests ENTRY maicord_channel_list_fuzz_entry
+    SOURCES tests/model/chat/channel_list_fuzz.cpp
+    BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_channel_list_fuzz)
 maicord_test(MaiCordCookieJarTests ENTRY maicord_cookie_jar_entry SOURCES tests/protocol/http/cookie_jar.cpp
     BUNDLE MaiCordModelTests TIMEOUT 10 TEST maicord_cookie_jar)
 maicord_test(MaiCordUserSettingsTests ENTRY maicord_user_settings_tests_entry SOURCES tests/protocol/user/settings_proto.cpp

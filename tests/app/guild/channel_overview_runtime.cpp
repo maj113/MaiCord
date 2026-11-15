@@ -10,6 +10,7 @@
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../../src/app/shell/state.hpp"
 #include "../../../src/app/shell/window_state.hpp"
+#include "../../support/chat_state_lists.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/text/edit_layout.hpp"
@@ -178,6 +179,7 @@ void run() noexcept {
     state.channels = &channel;
     state.channel_order = order;
     state.channel_count = state.channel_capacity = 1;
+    chat_state_store_link_lists(&state);
     state.roles = &role;
     state.overwrites = &overwrite;
     state.self_user_id = 50;
@@ -448,6 +450,7 @@ void run() noexcept {
     }
     channel.occupied = false;
     state.channel_count = 0;
+    chat_state_store_link_lists(&state);
     check(application_channel_overview_synchronize() && !application_channel_overview_active() &&
               !application_channel_overview_open(7),
           "Overview runtime: channel deletion retires owner and cached form cannot revive it");

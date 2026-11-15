@@ -5,6 +5,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
+#include "../support/chat_state_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -40,6 +41,7 @@ bool initialize(Fixture& f) noexcept {
     f.state.channels = &f.channel; f.state.channel_order = f.channel_order;
     f.state.channel_capacity = f.state.channel_count = 1;
     f.state.roles = &f.role; f.state.overwrites = &f.overwrite;
+    chat_state_store_link_lists(&f.state);
     return true;
 }
 u32 project(Fixture& f, u32 placement, u32 native_count) noexcept {

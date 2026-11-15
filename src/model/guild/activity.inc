@@ -9,6 +9,20 @@ ChannelRecord* mutable_channel(ChatStateStore* store, u64 channel_id) noexcept {
     return found ? &store->channels[found - store->channels] : nullptr;
 }
 
+// A guild's roles are one run [first, end) of the role table, which is sorted by (guild_id, id).
+struct RoleRun {
+    u32 first;
+    u32 end;
+};
+
+RoleRun guild_role_run(const ChatStateStore& store, u64 guild_id) noexcept {
+    const u32 first = sorted_lower_bound(
+        store.role_count, [&](u32 at) noexcept { return store.roles[at].guild_id < guild_id; });
+    const u32 count = sorted_lower_bound(
+        store.role_count - first, [&](u32 at) noexcept { return store.roles[first + at].guild_id == guild_id; });
+    return {first, first + count};
+}
+
 void adjust_guild_activity(GuildRecord* guild, bool old_unread, u32 old_mentions, bool new_unread,
                            u32 new_mentions) noexcept {
     if (!guild || (old_unread == new_unread && old_mentions == new_mentions)) {

@@ -385,8 +385,9 @@ bool plugin_host_read_guild(u64 guild_id, PluginGuildInput* out) noexcept {
         out->boost_count = details->premium_subscription_count;
         out->boost_tier = details->premium_tier;
     }
-    for (u32 i = 0; i < state.channel_count; ++i) {
-        const ChannelRecord& channel = state.channels[state.channel_order[i]];
+    for (auto* listed = chat_state_store_first_guild_channel(state, guild_id); listed;
+         listed = chat_state_store_next_guild_channel(state, *listed)) {
+        const ChannelRecord& channel = *listed;
         out->channel_count += channel.guild_id == guild_id && !channel_is_thread(channel.type) &&
                               chat_state_store_channel_visible(state, channel);
     }

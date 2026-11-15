@@ -4,6 +4,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
+#include "../../support/chat_state_lists.hpp"
 
 namespace maicord {
 namespace thread_pump_probe {
@@ -51,6 +52,7 @@ bool initialize() noexcept {
         f.channel_order[i] = static_cast<u16>(i);
     }
     f.state.channel_count = 4; f.state.selected_guild_id = 7; f.state.selected_channel_id = 81;
+    chat_state_store_link_lists(&f.state);
     f.pump = {}; f.pump.timeline = &f.timeline;
     return message_event_pump_set_state_store(&f.pump, &f.state, {f.guild_scratch, 1}) &&
         message_event_pump_set_member_store(&f.pump, &f.members) &&

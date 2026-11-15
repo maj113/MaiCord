@@ -283,10 +283,9 @@ void project(ApplicationThreadBrowser& value) noexcept {
     if (value.tab == UiThreadBrowserTab::active) {
         // Count and project one page directly. No fixed-size copy or truncation
         // of the Core active inventory, and no unchanged-frame iteration.
-        for (u32 i = 0; i < state.channel_count; ++i) {
-            const auto& row = state.channels[state.channel_order[i]];
-            if (eligible(value, row, true)) take(row);
-        }
+        for (auto* row = chat_state_store_first_guild_channel(state, value.scope.guild); row;
+             row = chat_state_store_next_guild_channel(state, *row))
+            if (eligible(value, *row, true)) take(*row);
         if (value.page_index && first >= value.total) {
             value.page_index = value.total ? (value.total - 1) / kUiThreadBrowserPageCapacity : 0;
             value.projected_channels = ~u32{0};
@@ -474,10 +473,9 @@ void project_forum(ApplicationThreadBrowser& value) noexcept {
         ++count;
     };
     if (value.tab == UiThreadBrowserTab::active) {
-        for (u32 i = 0; i < state.channel_count; ++i) {
-            const auto& row = state.channels[state.channel_order[i]];
-            if (eligible(value, row, true)) consider(row);
-        }
+        for (auto* row = chat_state_store_first_guild_channel(state, value.scope.guild); row;
+             row = chat_state_store_next_guild_channel(state, *row))
+            if (eligible(value, *row, true)) consider(*row);
         value.has_page = true;
     } else if (value.has_page) {
         const auto& page = value.banks[value.bank].page;

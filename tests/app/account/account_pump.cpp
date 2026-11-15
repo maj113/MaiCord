@@ -12,6 +12,7 @@
 #include "application_account_text_retry_runtime.hpp"
 #include "../../../src/app/chat/search/navigation.cpp"
 #include "../../support/application_action_captcha_stubs.hpp"
+#include "../../support/chat_state_lists.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 
 namespace maicord::app_detail {
@@ -455,6 +456,7 @@ void test_member_role_refresh() noexcept {
     channels[0].occupied = true;
     ui.chat_state.channel_count = 1;
     channel_order[0] = 0;
+    chat_state_store_link_lists(&ui.chat_state);
     ui.chat_state.selected_channel_id = 70;
     ui.chat_state.self_user_id = 42;
     event_pump.timeline = &timeline;

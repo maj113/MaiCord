@@ -5,13 +5,17 @@
 #include "maicord/model/voice/channel_info_store.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/heap_sort.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/sys/simd.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/display_order.hpp"
 #include "maicord/model/voice/state_store.hpp"
 #include "maicord/protocol/guild/folders.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
 #include "maicord/ui/guild/channel_controls.hpp"
+
+// Not machine-outlined: the outliner put a call into the loop over all channels (15 % of a rebuild).
+#pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
 namespace {
@@ -42,7 +46,38 @@ bool key_less(const ChannelSortKey& left, const ChannelSortKey& right) noexcept 
     return left.row_id < right.row_id;
 }
 
-bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
+u16 search_slot(const ChatStateStore& state, u64 channel_id) noexcept {
+    u32 low = 0;
+    u32 high = state.channel_count;
+    while (low < high) {
+        const u32 middle = low + (high - low) / 2;
+        if (state.channels[state.channel_order[middle]].id < channel_id)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    return low < state.channel_count && state.channels[state.channel_order[low]].id == channel_id
+               ? state.channel_order[low]
+               : static_cast<u16>(0xFFFF);
+}
+// The slots of the last channels that one rebuild searched. The channels of a server share a few parents, so
+// most searches of a rebuild repeat. An entry of zero bytes is empty: find_channel does not search the ID 0.
+struct SlotMemo {
+    u64 ids[64];
+    u16 slots[64];
+};
+const ChannelRecord* find_channel(const ChatStateStore& state, SlotMemo* memo, u64 channel_id) noexcept {
+    if (channel_id == 0)
+        return nullptr;
+    const u32 at = static_cast<u32>((channel_id * 0x9E3779B97F4A7C15ull) >> 58);
+    if (memo->ids[at] != channel_id) {
+        memo->ids[at] = channel_id;
+        memo->slots[at] = search_slot(state, channel_id);
+    }
+    return memo->slots[at] != 0xFFFF ? &state.channels[memo->slots[at]] : nullptr;
+}
+
+bool visual_key(const ChatStateStore& state, SlotMemo* memo, const ChannelRecord& channel,
                 ChannelSortKey* key) noexcept {
     if (!channel.occupied || channel.guild_id != state.selected_guild_id) {
         return false;
@@ -56,14 +91,11 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
         key->row_rank = 1;
         return true;
     }
-    const ChannelRecord* parent =
-        channel.parent_id != 0 ? chat_state_store_find_channel(state, channel.parent_id) : nullptr;
+    const ChannelRecord* parent = find_channel(state, memo, channel.parent_id);
     if (parent && parent->guild_id != channel.guild_id) {
         return false;
     }
-    const ChannelRecord* grandparent =
-        parent && parent->parent_id != 0 ? chat_state_store_find_channel(state, parent->parent_id)
-                                         : nullptr;
+    const ChannelRecord* grandparent = parent ? find_channel(state, memo, parent->parent_id) : nullptr;
     if (grandparent && grandparent->guild_id != channel.guild_id) {
         return false;
     }
@@ -96,23 +128,6 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
     return true;
 }
 
-u16 channel_slot(const ChatStateStore& state, u64 channel_id) noexcept {
-    u32 low = 0;
-    u32 high = state.channel_count;
-    while (low < high) {
-        const u32 middle = low + (high - low) / 2;
-        const u16 slot = state.channel_order[middle];
-        if (state.channels[slot].id < channel_id) {
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
-    }
-    return low < state.channel_count && state.channels[state.channel_order[low]].id == channel_id
-               ? state.channel_order[low]
-               : static_cast<u16>(0xFFFF);
-}
-
 // Projection state of each channel slot, kept in channel_visibility_scratch.
 constexpr u8 kListed = 1;          // the row is in the list
 constexpr u8 kCandidate = 2;       // passes every filter, before the collapse and thread rules
@@ -120,23 +135,33 @@ constexpr u8 kHasChildren = 4;     // category: owns a channel record, listed or
 constexpr u8 kHasListedChild = 8;  // category: a child row is listed
 constexpr u8 kCollapsedChild = 16; // category: a child is hidden only by the collapse
 constexpr u8 kHasThreadRow = 32;   // channel: a thread row is listed under it
+constexpr u8 kCategory = 64;       // a category of the selected server that is not obfuscated
+
+// Calls visit(slot) for each slot whose flags hold a bit of mask. It tests 16 slots in one step.
+template <typename Visit>
+__forceinline void for_each_flagged(const u8* flags, u32 slots, u8 mask, Visit visit) noexcept {
+    const __m128i wanted = _mm_set1_epi8(static_cast<char>(mask));
+    u32 slot = 0;
+    for (; slot + 16 <= slots; slot += 16) {
+        const __m128i held =
+            _mm_and_si128(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(flags + slot)), wanted);
+        u32 bits = ~static_cast<u32>(_mm_movemask_epi8(_mm_cmpeq_epi8(held, _mm_setzero_si128()))) & 0xFFFFu;
+        for (; bits; bits &= bits - 1)
+            visit(slot + lowest_set_bit(bits));
+    }
+    for (; slot < slots; ++slot)
+        if (flags[slot] & mask)
+            visit(slot);
+}
 
 // The slot of a listed guild category (a thread's parent's parent), or 0xFFFF.
-u16 category_slot(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
-    u16 slot = channel.parent_id != 0 ? channel_slot(state, channel.parent_id) : 0xFFFF;
-    if (slot == 0xFFFF || slot >= state.channel_capacity) {
-        return 0xFFFF;
-    }
-    if (state.channels[slot].type != 4 && channel_is_thread(channel.type) && state.channels[slot].parent_id != 0) {
-        slot = channel_slot(state, state.channels[slot].parent_id);
-        if (slot == 0xFFFF || slot >= state.channel_capacity) {
-            return 0xFFFF;
-        }
-    }
-    const ChannelRecord& category = state.channels[slot];
-    return category.type == 4 && category.guild_id == state.selected_guild_id &&
-                   (category.flags & kChannelObfuscatedFlag) == 0
-               ? slot
+u16 category_slot(const ChatStateStore& state, SlotMemo* memo, const ChannelRecord& channel) noexcept {
+    const ChannelRecord* category = find_channel(state, memo, channel.parent_id);
+    if (category && category->type != 4 && channel_is_thread(channel.type))
+        category = find_channel(state, memo, category->parent_id);
+    return category && category->type == 4 && category->guild_id == state.selected_guild_id &&
+                   (category->flags & kChannelObfuscatedFlag) == 0
+               ? static_cast<u16>(category - state.channels)
                : u16{0xFFFF};
 }
 
@@ -239,31 +264,32 @@ void publish_row(NavigationView* view, u32 index, const GuildViewRow& row, bool*
 // Conversations with a mention count, newest message first, as in the
 // official rail. A muted conversation only counts real pings and message
 // requests never count, so the count alone selects them.
-u32 build_conversation_pins(NavigationView* view, const ChatStateStore& state, bool* changed) noexcept {
-    const ChannelRecord* pins[kNavigationConversationPinMaximum];
-    const u32 limit = minimum(kNavigationConversationPinMaximum, view->guild_capacity - state.guild_count);
-    u32 count = 0;
-    for (u32 order = 0; order < state.channel_count && limit; ++order) {
-        const ChannelRecord& channel = state.channels[state.channel_order[order]];
-        if (!channel_is_private(channel.type) || !channel.mention_count ||
-            !chat_state_store_channel_visible(state, channel))
-            continue;
-        if (state.private_channels)
-            if (const auto* metadata = private_channel_store_find(*state.private_channels, channel.id);
-                metadata && private_channel_is_request(*metadata))
-                continue;
-        u32 at = count;
-        while (at && pins[at - 1]->last_message_id < channel.last_message_id)
-            --at;
-        if (at >= limit)
-            continue;
-        for (u32 i = minimum(count, limit - 1); i > at; --i)
-            pins[i] = pins[i - 1];
-        pins[at] = &channel;
-        count = minimum(count + 1, limit);
-    }
-    for (u32 i = 0; i < count; ++i) {
-        const ChannelRecord& channel = *pins[i];
+struct ConversationPins {
+    const ChannelRecord* channels[kNavigationConversationPinMaximum];
+    u32 count, limit;
+};
+// The rebuild calls this for each conversation that holds a mention count, in channel ID order.
+void add_conversation_pin(ConversationPins* pins, const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+    if (!chat_state_store_channel_visible(state, channel))
+        return;
+    if (state.private_channels)
+        if (const auto* metadata = private_channel_store_find(*state.private_channels, channel.id);
+            metadata && private_channel_is_request(*metadata))
+            return;
+    u32 at = pins->count;
+    while (at && pins->channels[at - 1]->last_message_id < channel.last_message_id)
+        --at;
+    if (at >= pins->limit)
+        return;
+    for (u32 i = minimum(pins->count, pins->limit - 1); i > at; --i)
+        pins->channels[i] = pins->channels[i - 1];
+    pins->channels[at] = &channel;
+    pins->count = minimum(pins->count + 1, pins->limit);
+}
+u32 publish_conversation_pins(NavigationView* view, const ChatStateStore& state, const ConversationPins& pins,
+                              bool* changed) noexcept {
+    for (u32 i = 0; i < pins.count; ++i) {
+        const ChannelRecord& channel = *pins.channels[i];
         GuildViewRow row{channel.id, channel.revision, channel.mention_count, channel.generation,
                          channel.id == state.selected_channel_id, false, true};
         row.folder_color = kGuildFolderNoColor;
@@ -272,7 +298,7 @@ u32 build_conversation_pins(NavigationView* view, const ChatStateStore& state, b
         row.avatar_shape = ui_private_avatar_shape(&state, channel.id, channel.type);
         publish_row(view, i, row, changed);
     }
-    return count;
+    return pins.count;
 }
 // Display order with folder headers after `first` leading rows. When headers
 // would not fit, the flat join order is used; it always fits because pins
@@ -291,15 +317,15 @@ u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, u32 firs
         folders = nullptr;
         count = 0;
         for (u32 order = 0; order < state.guild_count && order < kScratch; ++order)
-            display[count++] = {state.guilds[state.guild_order[order]].id, kGuildDisplayNoFolder};
+            display[count++] = {state.guilds[state.guild_order[order]].id, kGuildDisplayNoFolder,
+                                state.guild_order[order]};
     }
+    // Each entry names a live guild of `state` by its slot (both builds above take it from the state).
     u32 rows = first;
     for (u32 i = 0; i < count;) {
         const u16 folder = folders ? display[i].folder : kGuildDisplayNoFolder;
         if (folder == kGuildDisplayNoFolder) {
-            const auto* guild = chat_state_store_find_guild(state, display[i].guild_id);
-            if (guild)
-                publish_row(view, rows++, guild_row(state, *guild), changed);
+            publish_row(view, rows++, guild_row(state, state.guilds[display[i].slot]), changed);
             ++i;
             continue;
         }
@@ -318,10 +344,7 @@ u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, u32 firs
         header.folder_expanded = folder_expanded(*view, header.id);
         const u32 header_index = rows++;
         for (u32 j = i; j < end; ++j) {
-            const auto* guild = chat_state_store_find_guild(state, display[j].guild_id);
-            if (!guild)
-                continue;
-            auto row = guild_row(state, *guild);
+            auto row = guild_row(state, state.guilds[display[j].slot]);
             row.folder_id = header.id;
             row.folder_color = header.folder_color;
             row.folder_index = folder;
@@ -352,14 +375,13 @@ void sync_voice_revisions(NavigationView* view) noexcept {
 bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>& guild_rows,
                                 const Slice<ChannelViewRow>& channel_rows, const Slice<u16>& channel_scratch,
                                 const Slice<u8>& channel_visibility_scratch,
-                                const Slice<ChannelSortKey>& channel_sort_keys, bool sparse) noexcept {
+                                const Slice<ChannelSortKey>& channel_sort_keys) noexcept {
     if (!view || !guild_rows.data || guild_rows.count == 0 || !channel_rows.data ||
         channel_rows.count == 0 || !channel_scratch.data || channel_scratch.count != channel_rows.count ||
         !channel_visibility_scratch.data || channel_visibility_scratch.count == 0 ||
         channel_visibility_scratch.count > 65'535 || guild_rows.count > 65'535 ||
         channel_rows.count > 65'535 || !channel_sort_keys.data ||
-        channel_sort_keys.count != channel_rows.count ||
-        (sparse && (view->guild_count || view->channel_count))) {
+        channel_sort_keys.count != channel_rows.count) {
         return false;
     }
     reset_value<NavigationView>(view);
@@ -371,18 +393,6 @@ bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>&
     view->guild_capacity = guild_rows.count;
     view->channel_capacity = channel_rows.count;
     view->channel_visibility_capacity = channel_visibility_scratch.count;
-    if (sparse) return true;
-    for (u32 index = 0; index < guild_rows.count; ++index) {
-        reset_value<GuildViewRow>(&guild_rows[index]);
-    }
-    for (u32 index = 0; index < channel_rows.count; ++index) {
-        reset_value<ChannelViewRow>(&channel_rows[index]);
-        channel_scratch[index] = 0xFFFF;
-        reset_value<ChannelSortKey>(&channel_sort_keys[index]);
-    }
-    for (u32 index = 0; index < channel_visibility_scratch.count; ++index) {
-        channel_visibility_scratch[index] = 0;
-    }
     return true;
 }
 
@@ -399,15 +409,13 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
 
     // Slots at or above the bound are never occupied, so are never marked.
     const u32 slots = chat_state_store_channel_slot_bound(state);
-    for (u32 index = 0; index < slots; ++index) {
-        view->channel_visibility_scratch[index] = 0;
-    }
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        if (state.channel_order[order] >= state.channel_capacity) {
-            return view_error(view, NavigationViewError::invalid_input);
-        }
-    }
     u8* const flags = view->channel_visibility_scratch;
+    clear_bytes(flags, slots);
+    SlotMemo memo;
+    clear_bytes(memo.ids, sizeof(memo.ids));
+    ConversationPins pins;
+    pins.count = 0;
+    pins.limit = minimum(kNavigationConversationPinMaximum, view->guild_capacity - state.guild_count);
     // "Hide muted channels" drops own- or category-muted rows (a server-wide
     // mute alone does not count); the open channel and its category remain.
     const GuildRecord* selected_guild =
@@ -416,26 +424,33 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     // Channel opt-in ("Show all channels" off) lists opted-in channels only;
     // a category shows through its listed children.
     const bool opt_in = selected_guild && selected_guild->channel_opt_in;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const u16 slot = state.channel_order[order];
-        const ChannelRecord& channel = state.channels[slot];
-        if (channel.guild_id == state.selected_guild_id && channel.type != 4 && !channel_is_thread(channel.type)) {
-            const u16 owner = category_slot(state, channel);
+    // The parent of the open thread counts as open.
+    const ChannelRecord* open_channel = chat_state_store_find_channel(state, state.selected_channel_id);
+    const u64 open_thread_parent = open_channel && channel_is_thread(open_channel->type) ? open_channel->parent_id : 0;
+    // Marks one channel of the selected server's list. The passes after the walks read the marks.
+    const auto mark = [&](const ChannelRecord& channel) noexcept {
+        const u16 slot = static_cast<u16>(&channel - state.channels);
+        if (channel.guild_id != state.selected_guild_id)
+            return;
+        const bool thread = channel_is_thread(channel.type);
+        u16 owner = 0xFFFF;
+        if (channel.type == 4) {
+            if ((channel.flags & kChannelObfuscatedFlag) == 0)
+                flags[slot] |= kCategory;
+        } else if (!thread) {
+            owner = category_slot(state, &memo, channel);
             if (owner != 0xFFFF)
                 flags[owner] |= kHasChildren;
         }
-        if (hide_muted && channel.notification_dimmed && channel.id != state.selected_channel_id &&
-            channel.guild_id == state.selected_guild_id)
-            continue;
-        if (opt_in && !channel.opted_in && channel.id != state.selected_channel_id &&
-            channel.guild_id == state.selected_guild_id)
-            continue;
-        if (channel.guild_id != state.selected_guild_id ||
-            (channel_is_private(channel.type) && !state.home_selected) ||
+        if (hide_muted && channel.notification_dimmed && channel.id != state.selected_channel_id)
+            return;
+        if (opt_in && !channel.opted_in && channel.id != state.selected_channel_id)
+            return;
+        if ((channel_is_private(channel.type) && !state.home_selected) ||
             (channel.flags & kChannelObfuscatedFlag) != 0 ||
             (!chat_state_store_channel_visible(state, channel) &&
              !(view->show_hidden && chat_state_store_channel_hidden(state, channel)))) {
-            continue;
+            return;
         }
         // Message requests stay out of the conversation list (their page lists them); an open one stays while it
         // is the conversation shown.
@@ -443,47 +458,53 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             (channel.id != state.selected_channel_id || view->friends_mode)) {
             const auto* metadata = private_channel_store_find(*state.private_channels, channel.id);
             if (metadata && private_channel_is_request(*metadata))
-                continue;
+                return;
         }
         // Archived and unlisted threads (kept in state for discovery) stay off
         // the channel rail; the open conversation stays.
-        if (channel_is_thread(channel.type) && channel.id != state.selected_channel_id &&
+        if (thread && channel.id != state.selected_channel_id &&
             ((channel.thread_archived_known && channel.thread_archived) ||
              (channel.thread_active_known && !channel.thread_listed_active)))
-            continue;
+            return;
         flags[slot] |= kCandidate;
-    }
-
-    // Threads first: a listed thread keeps its parent in the list, and the
-    // parent of the open thread counts as open.
-    const ChannelRecord* open_channel = chat_state_store_find_channel(state, state.selected_channel_id);
-    const u64 open_thread_parent = open_channel && channel_is_thread(open_channel->type) ? open_channel->parent_id : 0;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const u16 slot = state.channel_order[order];
-        const ChannelRecord& thread = state.channels[slot];
-        if (!(flags[slot] & kCandidate) || !channel_is_thread(thread.type)) {
-            continue;
-        }
-        const u16 parent_slot = thread.parent_id != 0 ? channel_slot(state, thread.parent_id) : 0xFFFF;
-        if (parent_slot == 0xFFFF || parent_slot >= state.channel_capacity) {
-            continue;
-        }
-        const u16 owner = category_slot(state, thread);
-        if (thread_listed(state, thread, state.channels[parent_slot],
-                          owner != 0xFFFF && state.channels[owner].collapsed, open_thread_parent)) {
+        if (thread) {
+            // A listed thread keeps its parent in the list.
+            const ChannelRecord* parent = find_channel(state, &memo, channel.parent_id);
+            if (!parent)
+                return;
+            owner = category_slot(state, &memo, channel);
+            if (thread_listed(state, channel, *parent, owner != 0xFFFF && state.channels[owner].collapsed,
+                              open_thread_parent)) {
+                flags[slot] |= kListed;
+                flags[parent - state.channels] |= kHasThreadRow;
+            }
+        } else if (channel.type != 4 && (owner == 0xFFFF || !state.channels[owner].collapsed)) {
             flags[slot] |= kListed;
-            flags[parent_slot] |= kHasThreadRow;
+            if (owner != 0xFFFF)
+                flags[owner] |= kHasListedChild;
         }
+    };
+    // The private list gives the conversation pins and, with no server selected, the rows. Only the selected
+    // server's list is read for its rows, not every channel record.
+    for (auto* channel = chat_state_store_first_guild_channel(state, 0); channel;
+         channel = chat_state_store_next_guild_channel(state, *channel)) {
+        if (channel_is_private(channel->type) && channel->mention_count)
+            add_conversation_pin(&pins, state, *channel);
+        if (!state.selected_guild_id)
+            mark(*channel);
     }
-    // Channels. A collapsed category folds its channels away except the ones
-    // that matter now; what folds away keeps the header.
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const u16 slot = state.channel_order[order];
+    if (state.selected_guild_id)
+        for (auto* channel = chat_state_store_first_guild_channel(state, state.selected_guild_id); channel;
+             channel = chat_state_store_next_guild_channel(state, *channel))
+            mark(*channel);
+    // The channels that the pass above did not list: in a collapsed category, or not a candidate but the parent
+    // of a listed thread. A collapsed category folds its channels away except the ones that matter now. What
+    // folds away keeps the header.
+    for_each_flagged(flags, slots, kCandidate | kHasThreadRow, [&](u32 slot) noexcept {
         const ChannelRecord& channel = state.channels[slot];
-        if (channel_is_thread(channel.type) || channel.type == 4 || !(flags[slot] & (kCandidate | kHasThreadRow))) {
-            continue;
-        }
-        const u16 owner = category_slot(state, channel);
+        if ((flags[slot] & kListed) || channel_is_thread(channel.type) || channel.type == 4)
+            return;
+        const u16 owner = category_slot(state, &memo, channel);
         if (owner == 0xFFFF || !state.channels[owner].collapsed ||
             collapsed_keeps(state, channel, flags[slot], view->connected_voice_channel_id)) {
             flags[slot] |= kListed;
@@ -492,26 +513,23 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         } else {
             flags[owner] |= kCollapsedChild;
         }
-    }
+    });
     // Categories. A category lists while a child row does or the collapse is
     // all that hides one; an empty one stays for members who manage channels.
     constexpr u32 kManageView = channel_action_view | channel_action_manage_channel;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const u16 slot = state.channel_order[order];
-        const ChannelRecord& category = state.channels[slot];
-        if (category.type != 4 || category.guild_id != state.selected_guild_id ||
-            (category.flags & kChannelObfuscatedFlag) != 0) {
-            continue;
-        }
+    for_each_flagged(flags, slots, kCategory, [&](u32 slot) noexcept {
         const u8 own = flags[slot];
         if ((own & (kHasListedChild | kCollapsedChild)) ||
-            ((own & kCandidate) && !(own & kHasChildren) && (category.actions & kManageView) == kManageView)) {
+            ((own & kCandidate) && !(own & kHasChildren) && (state.channels[slot].actions & kManageView) == kManageView)) {
             flags[slot] |= kListed;
         }
-    }
+    });
     u32 channel_count = 0;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const u16 slot = state.channel_order[order];
+    // A listed slot outside the selected list is the parent of a listed thread in another server. That thread
+    // fails visual_key below, so the rebuild returns invalid_hierarchy as it did.
+    for (auto* channel = chat_state_store_first_guild_channel(state, state.selected_guild_id); channel;
+         channel = chat_state_store_next_guild_channel(state, *channel)) {
+        const u16 slot = static_cast<u16>(channel - state.channels);
         if (!(flags[slot] & kListed)) {
             continue;
         }
@@ -519,19 +537,27 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             return view_error(view, NavigationViewError::channel_capacity);
         }
         ChannelSortKey key{};
-        if (!visual_key(state, state.channels[slot], &key)) {
+        if (!visual_key(state, &memo, state.channels[slot], &key)) {
             return view_error(view, NavigationViewError::invalid_hierarchy);
         }
         // Rows and keys are sized for one projection, not every store slot.
         key.slot = slot;
-        view->channel_scratch[channel_count] = static_cast<u16>(channel_count);
+        // Binary insertion into the sorted row order: one side of each comparison stays this key. The keys
+        // are unique (row_id), so the order does not depend on the sort.
+        u32 low = 0, high = channel_count;
+        while (low < high) {
+            const u32 middle = (low + high) / 2;
+            if (key_less(key, view->channel_sort_keys[view->channel_scratch[middle]]))
+                high = middle;
+            else
+                low = middle + 1;
+        }
+        copy_bytes(view->channel_scratch + low + 1, view->channel_scratch + low,
+                   (channel_count - low) * static_cast<u32>(sizeof(u16)));
+        view->channel_scratch[low] = static_cast<u16>(channel_count);
         view->channel_sort_keys[channel_count] = key;
         ++channel_count;
     }
-    heap_sort(view->channel_scratch, channel_count,
-              [&](u16 left, u16 right) noexcept {
-                  return key_less(view->channel_sort_keys[left], view->channel_sort_keys[right]);
-              });
 
     // The events row leads a server's list when the host asks for it.
     const bool requests_lead = view->requests_row && state.home_selected;
@@ -547,8 +573,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     for (u32 order = 0; order < state.guild_count; ++order)
         if (state.guild_order[order] >= state.guild_capacity)
             return view_error(view, NavigationViewError::invalid_input);
-    const u32 pins = build_conversation_pins(view, state, &guild_changed);
-    const u32 guild_rows = build_guild_rows(view, state, pins, &guild_changed);
+    const u32 guild_rows =
+        build_guild_rows(view, state, publish_conversation_pins(view, state, pins, &guild_changed), &guild_changed);
     if (requests_lead) {
         ChannelViewRow row{};
         row.id = kNavigationRequestsRowId;
@@ -687,3 +713,4 @@ bool navigation_view_refresh_voice(NavigationView* view) noexcept {
     return changed;
 }
 } // namespace maicord
+#pragma clang attribute pop

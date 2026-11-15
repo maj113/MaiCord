@@ -409,8 +409,14 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
     } else if (filter.kind == UiSearchFilterKind::in) {
         const auto prefix = without_prefix(filter.prefix(), '#');
         const auto& state = g_app.account_ui->chat_state;
-        for (u32 i = 0; i < state.channel_count; ++i) {
-            const auto& c = state.channels[state.channel_order[i]];
+        // choice_channel takes only channels of the scope's server, so only its channel list is read.
+        const ChannelRecord* listed = nullptr;
+        if (s.scope != MessageSearchScope::channel)
+            listed = chat_state_store_first_guild_channel(state, s.scope_id);
+        else if (const auto* scoped = chat_state_store_find_channel(state, s.scope_id))
+            listed = chat_state_store_first_guild_channel(state, scoped->guild_id);
+        for (; listed; listed = chat_state_store_next_guild_channel(state, *listed)) {
+            const auto& c = *listed;
             ++b.scans;
             if (!choice_channel(s, c))
                 continue;
@@ -560,19 +566,28 @@ bool resolve_channel(void* opaque, Utf8View name, u64* id) noexcept {
     name = without_prefix(name, '#');
     const auto& state = g_app.account_ui->chat_state;
     u64 found = 0;
-    for (u32 i = 0; i < state.channel_count; ++i) {
-        const auto& channel = state.channels[state.channel_order[i]];
+    bool unique = true;
+    const auto check = [&](const ChannelRecord& channel) noexcept {
         if (s.scope == MessageSearchScope::guild && channel.guild_id != s.scope_id)
-            continue;
+            return;
         if (s.scope == MessageSearchScope::channel && channel.id != s.scope_id)
-            continue;
+            return;
         if (!channel_is_message_capable(channel.type) ||
             !utf8_equal(name, chat_state_store_channel_name(state, channel)))
-            continue;
-        if (found && found != channel.id)
-            return false;
+            return;
+        unique = unique && (!found || found == channel.id);
         found = channel.id;
+    };
+    if (s.scope == MessageSearchScope::guild) {
+        for (auto* channel = chat_state_store_first_guild_channel(state, s.scope_id); channel;
+             channel = chat_state_store_next_guild_channel(state, *channel))
+            check(*channel);
+    } else {
+        for (u32 i = 0; i < state.channel_count; ++i)
+            check(state.channels[state.channel_order[i]]);
     }
+    if (!unique)
+        return false;
     *id = found;
     return found != 0;
 }

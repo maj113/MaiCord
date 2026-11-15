@@ -52,8 +52,9 @@ ListPlace list_place(const ChatStateStore& state, const ChannelRecord& channel) 
 }
 bool categories(const ChatStateStore& state, u64 guild_id, Ordering* output) noexcept {
     output->count = 0;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const auto& channel = state.channels[state.channel_order[order]];
+    for (auto* listed_channel = chat_state_store_first_guild_channel(state, guild_id); listed_channel;
+         listed_channel = chat_state_store_next_guild_channel(state, *listed_channel)) {
+        const auto& channel = *listed_channel;
         if (channel.type != 4 || !listed(state, channel, guild_id))
             continue;
         if (output->count >= kMaximum)
@@ -70,8 +71,9 @@ bool group(const ChatStateStore& state, u64 guild_id, ChannelSortGroup kind, con
     if (!scratch.data)
         return false;
     Ordering& members = *scratch.data;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const auto& channel = state.channels[state.channel_order[order]];
+    for (auto* listed_channel = chat_state_store_first_guild_channel(state, guild_id); listed_channel;
+         listed_channel = chat_state_store_next_guild_channel(state, *listed_channel)) {
+        const auto& channel = *listed_channel;
         if (channel_sort_group(channel.type) != kind || !listed(state, channel, guild_id))
             continue;
         if (members.count >= kMaximum)

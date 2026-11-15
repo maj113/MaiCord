@@ -9,6 +9,7 @@
 #include "maicord/render/text/forum_post_surface.hpp"
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/chat_state_lists.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 
@@ -212,6 +213,7 @@ bool initialize() noexcept {
         fixture.channel_order[index] = static_cast<u16>(index);
     }
     ui.chat_state.channel_count = 4;
+    chat_state_store_link_lists(&ui.chat_state);
     ui.chat_state.selected_guild_id = 7;
     g_app.account.instance = &fixture.account_sentinel;
     g_account_fake.message_ack = submit;

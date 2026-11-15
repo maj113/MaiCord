@@ -174,15 +174,15 @@ struct NamePreflight {
     bool compacts;
 };
 
-bool preflight_live_name(const ChatStateStore& store, NamePreflight* budget, u32 offset,
-                         u32 bytes) noexcept {
+// Whether a live name lies in the used part of the active bank. It adds the name's bytes to *live.
+bool live_name_valid(const ChatStateStore& store, u32* live, u32 offset, u32 bytes) noexcept {
     if (bytes == 0)
         return true;
     const u32 base = active_name_base(store);
     if (offset < base || offset - base > store.name_used || bytes > store.name_used - (offset - base) ||
-        bytes > store.name_bank_bytes - budget->live)
+        bytes > store.name_bank_bytes - *live)
         return false;
-    budget->live += bytes;
+    *live += bytes;
     return true;
 }
 
@@ -198,30 +198,40 @@ bool preflight_header(const ChatStateStore& store) noexcept {
            store.name_used <= store.name_bank_bytes;
 }
 
+// Each name allocation adds its bytes to name_used. Each replaced or removed name adds its bytes to name_wasted, and
+// a compaction sets name_used to the live bytes and name_wasted to zero. So the live bytes are their difference,
+// and a batch that appends without a compaction needs no walk over every name.
 bool preflight_names(const ChatStateStore& store, NamePreflight* budget) noexcept {
-    if (!preflight_header(store))
+    if (!preflight_header(store) || store.name_wasted > store.name_used)
         return false;
-    *budget = NamePreflight{store.name_used, 0, store.name_used, false};
+    *budget = NamePreflight{store.name_used, store.name_used - store.name_wasted, store.name_used, false};
+    return true;
+}
+
+// A compaction copies each live name, so before one is admitted each name must lie in the used part of the active
+// bank, and their bytes must be the live bytes that the budget took from the counters.
+bool live_names_valid(const ChatStateStore& store) noexcept {
+    u32 live = 0;
     for (u32 order = 0; order < store.guild_count; ++order) {
         if (store.guild_order[order] >= store.guild_capacity)
             return false;
         const auto& record = store.guilds[store.guild_order[order]];
-        if (!preflight_live_name(store, budget, record.name_offset, record.name_bytes))
+        if (!live_name_valid(store, &live, record.name_offset, record.name_bytes))
             return false;
     }
     for (u32 order = 0; order < store.channel_count; ++order) {
         if (store.channel_order[order] >= store.channel_capacity)
             return false;
         const auto& record = store.channels[store.channel_order[order]];
-        if (!preflight_live_name(store, budget, record.name_offset, record.name_bytes))
+        if (!live_name_valid(store, &live, record.name_offset, record.name_bytes))
             return false;
     }
     for (u32 index = 0; index < store.role_count; ++index) {
         const auto& role = store.roles[index];
-        if (!preflight_live_name(store, budget, role.name_offset, role.name_bytes))
+        if (!live_name_valid(store, &live, role.name_offset, role.name_bytes))
             return false;
     }
-    return budget->live <= budget->used;
+    return live == store.name_used - store.name_wasted;
 }
 
 ChatStateStoreError preflight_channel_slot(const ChatStateStore& store, u64 id, bool* found,
@@ -259,23 +269,26 @@ ChatStateStoreError preflight_channel_slot(const ChatStateStore& store, u64 id, 
                                           : ChatStateStoreError::channel_capacity;
 }
 
-bool preflight_replace_name(const ChatStateStore& store, NamePreflight* budget, u32 old_offset,
-                            u16 old_bytes, Utf8View name) noexcept {
+// none, name_capacity, or invalid_input for a store whose live names fail the check before a compaction.
+ChatStateStoreError preflight_replace_name(const ChatStateStore& store, NamePreflight* budget, u32 old_offset,
+                                           u16 old_bytes, Utf8View name) noexcept {
     if (name.bytes == 0 || name_equals(store, old_offset, old_bytes, name))
-        return true;
+        return ChatStateStoreError::none;
     if (old_bytes > budget->live)
-        return false;
+        return ChatStateStoreError::name_capacity;
     // Allocation precedes retiring the old name, as allocate_name does.
     if (name.bytes > store.name_bank_bytes - budget->used) {
+        if (!budget->compacts && !live_names_valid(store))
+            return ChatStateStoreError::invalid_input;
         budget->used = budget->live;
         budget->compacts = true;
     }
     if (name.bytes > store.name_bank_bytes - budget->used)
-        return false;
+        return ChatStateStoreError::name_capacity;
     budget->used += name.bytes;
     budget->peak = maximum(budget->peak, budget->used);
     budget->live = budget->live - old_bytes + name.bytes;
-    return true;
+    return ChatStateStoreError::none;
 }
 
 // Backs every name byte an admitted batch writes, so applying it cannot fail
@@ -317,6 +330,90 @@ bool guild_icon_equals(const GuildRecord& record, Utf8View hash) noexcept {
 }
 
 #include "../guild/activity.inc"
+
+// The list that holds a guild's channels: the guild record's own, the private list for guild 0, else the
+// detached list.
+ChannelList& channel_list_of(ChatStateStore* store, GuildRecord* guild, u64 guild_id) noexcept {
+    return guild ? guild->channel_list : guild_id ? store->detached_channel_list : store->private_channel_list;
+}
+
+ChannelList& channel_list_of(ChatStateStore* store, u64 guild_id) noexcept {
+    return channel_list_of(store, mutable_guild(store, guild_id), guild_id);
+}
+
+void append_channel(ChatStateStore* store, ChannelList& list, u16 link) noexcept {
+    if (list.tail)
+        store->channels[list.tail - 1].guild_next = link;
+    else
+        list.head = link;
+    list.tail = link;
+}
+
+// Links the new record in `slot` (guild_next zero) into its list in ID order. A new channel or thread usually has
+// the largest ID of its guild, so the tail is tested first.
+void link_channel(ChatStateStore* store, ChannelList& list, u32 slot) noexcept {
+    ChannelRecord& channel = store->channels[slot];
+    const u16 link = static_cast<u16>(slot + 1);
+    if (!list.tail || store->channels[list.tail - 1].id < channel.id) {
+        append_channel(store, list, link);
+        return;
+    }
+    // The tail has a larger ID, so the walk stops before the end.
+    u16* at = &list.head;
+    while (store->channels[*at - 1].id < channel.id)
+        at = &store->channels[*at - 1].guild_next;
+    channel.guild_next = *at;
+    *at = link;
+}
+
+void unlink_channel(ChatStateStore* store, ChannelList& list, u32 slot) noexcept {
+    const u16 link = static_cast<u16>(slot + 1);
+    u16* at = &list.head;
+    u16 previous = 0;
+    while (*at != link) {
+        previous = *at;
+        at = &store->channels[*at - 1].guild_next;
+    }
+    *at = store->channels[slot].guild_next;
+    store->channels[slot].guild_next = 0;
+    if (list.tail == link)
+        list.tail = previous;
+}
+
+void reverse_channels(ChatStateStore* store, ChannelList& list) noexcept {
+    u16 previous = 0;
+    u16 link = list.head;
+    list.tail = link;
+    while (link) {
+        u16& next = store->channels[link - 1].guild_next;
+        const u16 following = next;
+        next = previous;
+        previous = link;
+        link = following;
+    }
+    list.head = previous;
+}
+
+// Moves the detached channels of a new guild record into its list, in their order.
+void adopt_channels(ChatStateStore* store, GuildRecord& guild) noexcept {
+    ChannelList& detached = store->detached_channel_list;
+    u16* at = &detached.head;
+    u16 previous = 0;
+    while (*at) {
+        ChannelRecord& channel = store->channels[*at - 1];
+        if (channel.guild_id != guild.id) {
+            previous = *at;
+            at = &channel.guild_next;
+            continue;
+        }
+        const u16 link = *at;
+        *at = channel.guild_next;
+        channel.guild_next = 0;
+        if (detached.tail == link)
+            detached.tail = previous;
+        append_channel(store, guild.channel_list, link);
+    }
+}
 
 bool guild_unavailable(const ChatStateStore& store, u64 guild_id) noexcept {
     const GuildRecord* guild = chat_state_store_find_guild(store, guild_id);
@@ -363,18 +460,27 @@ bool selectable_channel(const ChatStateStore& store, const ChannelRecord& channe
 const ChannelRecord* best_channel(const ChatStateStore& store, u64 guild_id,
                                          bool private_only = false) noexcept {
     const ChannelRecord* selected = nullptr;
-    for (u32 order = 0; order < store.channel_count; ++order) {
-        const ChannelRecord& candidate = store.channels[store.channel_order[order]];
+    const auto consider = [&](const ChannelRecord& candidate) noexcept {
         // A guild never lands on a voice channel's chat by itself; it opens
         // from the call view, a link or an explicit selection.
         if ((guild_id != 0 && candidate.guild_id != guild_id) ||
             (private_only && !channel_is_private(candidate.type)) || channel_is_voice_chat(candidate.type) ||
             !selectable_channel(store, candidate)) {
-            continue;
+            return;
         }
         if (!selected || better_channel(store, candidate, *selected)) {
             selected = &candidate;
         }
+    };
+    // better_channel is a total order, so the visit order does not change the result. Guild 0 gives the private
+    // list.
+    if (guild_id != 0 || private_only) {
+        for (auto* channel = chat_state_store_first_guild_channel(store, guild_id); channel;
+             channel = chat_state_store_next_guild_channel(store, *channel))
+            consider(*channel);
+    } else {
+        for (u32 order = 0; order < store.channel_count; ++order)
+            consider(store.channels[store.channel_order[order]]);
     }
     return selected;
 }
@@ -517,6 +623,8 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
+        // Channels that arrived before their guild record move into its list.
+        adopt_channels(store, record);
     } else if (replace_name) {
         store->name_wasted += record.name_bytes;
     }
@@ -586,9 +694,7 @@ static ChatStateStoreError preflight_guild_name(const ChatStateStore& store, con
         return ChatStateStoreError::guild_capacity;
     const auto& resident = store.guilds[slot];
     return preflight_replace_name(store, budget, found ? resident.name_offset : 0,
-                                  found ? resident.name_bytes : u16{0}, guild.name)
-               ? ChatStateStoreError::none
-               : ChatStateStoreError::name_capacity;
+                                  found ? resident.name_bytes : u16{0}, guild.name);
 }
 
 ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatStateStore& store,
@@ -606,10 +712,9 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
         return error;
 
     u32 old_roles = 0;
-    for (u32 index = 0; index < store.role_count; ++index) {
+    const RoleRun run = guild_role_run(store, guild.id);
+    for (u32 index = run.first; index < run.end; ++index) {
         const auto& role = store.roles[index];
-        if (role.guild_id != guild.id)
-            continue;
         ++old_roles;
         bool retained = false;
         for (u32 incoming = 0; incoming < role_count; ++incoming) {
@@ -635,9 +740,10 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
         if (!store.roles)
             continue;
         const auto* old = chat_state_store_find_role(store, guild.id, input.id);
-        if (!preflight_replace_name(store, &budget, old ? old->name_offset : 0,
-                                    old ? old->name_bytes : u16{0}, input.name))
-            return ChatStateStoreError::name_capacity;
+        if (const auto error = preflight_replace_name(store, &budget, old ? old->name_offset : 0,
+                                                      old ? old->name_bytes : u16{0}, input.name);
+            error != ChatStateStoreError::none)
+            return error;
     }
     return back_name_budget(store, budget);
 }
@@ -657,18 +763,16 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     // Full guild creation removes every target channel and role after the guild
     // upsert, then recreates incoming roles and channels in packet order.
     u32 old_roles = 0, old_channels = 0;
-    for (u32 index = 0; index < store.role_count; ++index) {
-        const auto& role = store.roles[index];
-        if (role.guild_id == guild.id) {
-            ++old_roles;
-            budget.live -= role.name_bytes;
-        }
+    const RoleRun run = guild_role_run(store, guild.id);
+    for (u32 index = run.first; index < run.end; ++index) {
+        ++old_roles;
+        budget.live -= store.roles[index].name_bytes;
     }
-    for (u32 order = 0; order < store.channel_count; ++order) {
-        const auto& channel = store.channels[store.channel_order[order]];
-        if (channel.guild_id == guild.id) {
+    for (auto* channel = chat_state_store_first_guild_channel(store, guild.id); channel;
+         channel = chat_state_store_next_guild_channel(store, *channel)) {
+        if (channel->guild_id == guild.id) {
             ++old_channels;
-            budget.live -= channel.name_bytes;
+            budget.live -= channel->name_bytes;
         }
     }
     if (store.roles && role_count > store.role_capacity - (store.role_count - old_roles))
@@ -682,8 +786,10 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
         if (!read_role(role_context, index, &input) || input.id == 0 || input.guild_id != guild.id ||
             !valid_name(input.name))
             return ChatStateStoreError::invalid_input;
-        if (store.roles && !preflight_replace_name(store, &budget, 0, 0, input.name))
-            return ChatStateStoreError::name_capacity;
+        if (const auto error = store.roles ? preflight_replace_name(store, &budget, 0, 0, input.name)
+                                           : ChatStateStoreError::none;
+            error != ChatStateStoreError::none)
+            return error;
     }
     for (u32 index = 0; index < channel_count; ++index) {
         ChannelInput input{};
@@ -693,8 +799,9 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
         const auto* old = chat_state_store_find_channel(store, input.id);
         if (old && old->guild_id != guild.id)
             return ChatStateStoreError::invalid_input;
-        if (!preflight_replace_name(store, &budget, 0, 0, input.name))
-            return ChatStateStoreError::name_capacity;
+        if (const auto error = preflight_replace_name(store, &budget, 0, 0, input.name);
+            error != ChatStateStoreError::none)
+            return error;
     }
     return back_name_budget(store, budget);
 }
@@ -721,8 +828,8 @@ ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& sto
     const auto& old = store.channels[slot];
     if (found && old.guild_id != input.guild_id)
         return ChatStateStoreError::invalid_input;
-    NamePreflight target{store.name_used, 0};
-    if (found && !preflight_live_name(store, &target, old.name_offset, old.name_bytes))
+    u32 target_live = 0;
+    if (found && !live_name_valid(store, &target_live, old.name_offset, old.name_bytes))
         return ChatStateStoreError::invalid_input;
     // Initialized model metadata is the contract. These paths cannot compact:
     // only the target name and free append tail matter, so unrelated live names
@@ -735,9 +842,7 @@ ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& sto
     if (!preflight_names(store, &budget))
         return ChatStateStoreError::invalid_input;
     return preflight_replace_name(store, &budget, found ? old.name_offset : 0,
-                                  found ? old.name_bytes : u16{0}, input.name)
-               ? ChatStateStoreError::none
-               : ChatStateStoreError::name_capacity;
+                                  found ? old.name_bytes : u16{0}, input.name);
 }
 
 // IDs of the batch seen so far, in an open-addressed table at most half full (zero marks a free slot;
@@ -774,9 +879,10 @@ ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStor
         const auto* old = chat_state_store_find_channel(store, input.id);
         if (!old && ++new_channels > store.channel_capacity - store.channel_count)
             return ChatStateStoreError::channel_capacity;
-        if (!preflight_replace_name(store, &budget, old ? old->name_offset : 0,
-                                    old ? old->name_bytes : u16{0}, input.name))
-            return ChatStateStoreError::name_capacity;
+        if (const auto error = preflight_replace_name(store, &budget, old ? old->name_offset : 0,
+                                                      old ? old->name_bytes : u16{0}, input.name);
+            error != ChatStateStoreError::none)
+            return error;
     }
     if (!back_channels(store, store.channel_count + new_channels))
         return ChatStateStoreError::channel_capacity;
@@ -817,6 +923,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
+        link_channel(store, channel_list_of(store, input.guild_id), slot);
         if (input.last_message_known) {
             record.last_message_id = input.last_message_id;
             record.last_read_message_id = input.id;
@@ -914,17 +1021,20 @@ bool chat_state_store_remove_channel(ChatStateStore* store, u64 channel_id) noex
     if (!found) {
         return false;
     }
-    ChannelRecord& record = store->channels[store->channel_order[order_index]];
+    const u32 slot = store->channel_order[order_index];
+    ChannelRecord& record = store->channels[slot];
     if (!read_state_remove_channel(store, record))
         return false;
     const ChannelActivity old = channel_activity(*store, record);
-    adjust_guild_activity(mutable_guild(store, record.guild_id), old.unread, old.mentions, false, 0);
+    GuildRecord* guild = mutable_guild(store, record.guild_id);
+    adjust_guild_activity(guild, old.unread, old.mentions, false, 0);
     if (old.unread || old.mentions != 0)
         ++store->activity_mutations;
     chat_state_store_clear_channel_overwrites(store, channel_id);
     if (store->private_channels)
         private_channel_store_remove(store->private_channels, channel_id);
     store->name_wasted += record.name_bytes;
+    unlink_channel(store, channel_list_of(store, guild, record.guild_id), slot);
     const u16 generation = next_generation(record.generation);
     reset_value<ChannelRecord>(&record);
     record.generation = generation;
@@ -970,12 +1080,17 @@ void chat_state_store_remove_guild_channels(ChatStateStore* store, u64 guild_id)
     if (!store || guild_id == 0) {
         return;
     }
-    for (u32 index = store->channel_count; index != 0; --index) {
-        const ChannelRecord& channel = store->channels[store->channel_order[index - 1]];
-        if (channel.guild_id == guild_id) {
+    // The removal keeps the descending ID order of the earlier walk over the ID order. Reversed, the list holds
+    // each channel to remove at its head, so each unlink is one step.
+    ChannelList& list = channel_list_of(store, guild_id);
+    reverse_channels(store, list);
+    for (u16 link = list.head; link;) {
+        const ChannelRecord& channel = store->channels[link - 1];
+        link = channel.guild_next;
+        if (channel.guild_id == guild_id)
             chat_state_store_remove_channel(store, channel.id);
-        }
     }
+    reverse_channels(store, list);
 }
 
 u32 chat_state_store_clear_private_channels(ChatStateStore* store) noexcept {
@@ -983,6 +1098,8 @@ u32 chat_state_store_clear_private_channels(ChatStateStore* store) noexcept {
         return 0;
     const u32 old_count = store->channel_count;
     u32 retained = 0;
+    // Each private channel goes, and with it the whole private list.
+    store->private_channel_list = {};
     for (u32 index = 0; index < old_count; ++index) {
         const u16 slot = store->channel_order[index];
         auto& channel = store->channels[slot];
@@ -1013,6 +1130,14 @@ u32 chat_state_store_clear_private_channels(ChatStateStore* store) noexcept {
     if (retained != old_count)
         chat_state_store_select_default(store);
     return old_count - retained;
+}
+
+const ChannelRecord* chat_state_store_first_guild_channel(const ChatStateStore& store, u64 guild_id) noexcept {
+    const GuildRecord* guild = guild_id ? chat_state_store_find_guild(store, guild_id) : nullptr;
+    const u16 head = guild ? guild->channel_list.head
+                     : guild_id ? store.detached_channel_list.head
+                                : store.private_channel_list.head;
+    return head ? &store.channels[head - 1] : nullptr;
 }
 
 void chat_state_store_clear_guilds(ChatStateStore* store) noexcept {
@@ -1072,6 +1197,21 @@ Utf8View chat_state_store_role_name(const ChatStateStore& store,
     return stored_name(store, record.id != 0 && store.names, record.name_offset, record.name_bytes);
 }
 
+// The role fields that each write of a role sets.
+static void set_role(RoleRecord& role, const RoleInput& input) noexcept {
+    role.permissions = input.permissions;
+    role.position = input.position;
+    role.color = input.color;
+    role.hoist = input.hoist;
+    role.managed = input.managed;
+    role.mentionable = input.mentionable;
+    role.has_icon = input.has_icon;
+    role.in_prompt = input.in_prompt;
+    role.linked = input.linked;
+    role.secondary_color = input.secondary_color;
+    role.tertiary_color = input.tertiary_color;
+}
+
 bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input) noexcept {
     if (!store || input.id == 0 || input.guild_id == 0 || !valid_name(input.name)) {
         return false;
@@ -1121,18 +1261,67 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
         role.name_offset = name_offset;
         role.name_bytes = static_cast<u16>(input.name.bytes);
     }
-    RoleRecord& role = store->roles[index];
-    role.permissions = input.permissions;
-    role.position = input.position;
-    role.color = input.color;
-    role.hoist = input.hoist;
-    role.managed = input.managed;
-    role.mentionable = input.mentionable;
-    role.has_icon = input.has_icon;
-    role.in_prompt = input.in_prompt;
-    role.linked = input.linked;
-    role.secondary_color = input.secondary_color;
-    role.tertiary_color = input.tertiary_color;
+    set_role(store->roles[index], input);
+    return true;
+}
+
+bool chat_state_store_insert_guild_roles(ChatStateStore* store, u64 guild_id, u32 role_count,
+                                         RoleInputRead read_role, const void* context) noexcept {
+    // Each case but the usual one inserts role by role, so a failure stops where upsert_role stops.
+    const auto one_by_one = [&]() noexcept {
+        for (u32 index = 0; index < role_count; ++index) {
+            RoleInput input{};
+            if (!read_role(context, index, &input) || !chat_state_store_upsert_role(store, input))
+                return false;
+        }
+        return true;
+    };
+    if (!store || !store->roles || role_count == 0 || role_count > kGuildRoleMaximum ||
+        role_count > store->role_capacity - store->role_count)
+        return one_by_one();
+    const RoleRun run = guild_role_run(*store, guild_id);
+    if (run.first != run.end)
+        return one_by_one();
+    u64 ids[kGuildRoleMaximum];
+    u32 name_bytes = 0;
+    for (u32 index = 0; index < role_count; ++index) {
+        RoleInput input{};
+        if (!read_role(context, index, &input) || input.id == 0 || input.guild_id != guild_id ||
+            !valid_name(input.name))
+            return one_by_one();
+        for (u32 earlier = 0; earlier < index; ++earlier)
+            if (ids[earlier] == input.id)
+                return one_by_one();
+        ids[index] = input.id;
+        name_bytes += input.name.bytes;
+    }
+    // The names fit the active bank without a compaction, so no name allocation below can fail.
+    if (name_bytes > store->name_bank_bytes - store->name_used ||
+        !back_names(*store, store->active_name_bank, store->name_used + name_bytes) ||
+        !chat_state_store_prepare_permissions(store, store->role_count + role_count, store->overwrite_count))
+        return one_by_one();
+    // One move opens the guild's run. Each role takes the place of its ID rank, and the names are allocated in
+    // packet order, so the table and the names equal those of the upserts.
+    RoleRecord* const run_start = store->roles + run.first;
+    copy_bytes(run_start + role_count, run_start,
+               (store->role_count - run.first) * static_cast<u32>(sizeof(RoleRecord)));
+    store->role_count += role_count;
+    for (u32 index = 0; index < role_count; ++index) {
+        RoleInput input{};
+        read_role(context, index, &input);
+        u32 rank = 0;
+        for (u32 other = 0; other < role_count; ++other)
+            rank += ids[other] < ids[index] ? 1u : 0u;
+        u32 name_offset = 0;
+        allocate_name(store, input.name, &name_offset);
+        RoleRecord& role = run_start[rank];
+        reset_value<RoleRecord>(&role);
+        role.id = input.id;
+        role.guild_id = guild_id;
+        role.name_offset = name_offset;
+        role.name_bytes = static_cast<u16>(input.name.bytes);
+        set_role(role, input);
+    }
     return true;
 }
 
@@ -1431,10 +1620,9 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
     if (!store || !store->channels || !store->channel_order)
         return;
     bool changed = false;
-    for (u32 order = 0; order < store->channel_count; ++order) {
-        auto& channel = store->channels[store->channel_order[order]];
+    const auto invalidate = [&](ChannelRecord& channel) noexcept {
         if (!channel.occupied || (guild_id && channel.guild_id != guild_id))
-            continue;
+            return;
         if (channel_is_thread_parent(channel.type) && channel.thread_listing_synced) {
             channel.thread_listing_synced = false;
             saturating_increment(channel.revision);
@@ -1443,7 +1631,7 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
         if (!channel_is_thread(channel.type) ||
             (!channel.thread_self_joined_known && !channel.thread_archived_known &&
              !channel.thread_locked_known && !channel.thread_active_known))
-            continue;
+            return;
         const ChannelActivity old = channel_activity(*store, channel);
         channel.thread_self_joined_known = false;
         channel.thread_archived_known = false;
@@ -1451,6 +1639,14 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
         channel.thread_active_known = false;
         finish_thread_authority_change(store, channel, old);
         changed = true;
+    };
+    if (guild_id) {
+        for (auto* channel = chat_state_store_first_guild_channel(*store, guild_id); channel;
+             channel = chat_state_store_next_guild_channel(*store, *channel))
+            invalidate(store->channels[channel - store->channels]);
+    } else {
+        for (u32 order = 0; order < store->channel_count; ++order)
+            invalidate(store->channels[store->channel_order[order]]);
     }
     if (changed)
         chat_state_store_select_default(store);

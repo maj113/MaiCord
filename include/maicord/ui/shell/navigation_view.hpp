@@ -184,14 +184,12 @@ struct NavigationViewResult {
     }
 };
 
-// `sparse` requires zero published guild and channel counts and writable
-// caller-owned arrays, and leaves array bytes unchanged: readers use
-// published row counts, and rebuild writes each new row and all required
-// scratch before use.
+// Leaves the bytes of the caller-owned arrays unchanged: readers use the published row counts, and the rebuild
+// writes each new row and all required scratch before use.
 bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>& guild_rows,
                                 const Slice<ChannelViewRow>& channel_rows, const Slice<u16>& channel_scratch,
-                                const Slice<u8>& channel_visibility_scratch, const Slice<ChannelSortKey>& channel_sort_keys,
-                                bool sparse = false) noexcept;
+                                const Slice<u8>& channel_visibility_scratch,
+                                const Slice<ChannelSortKey>& channel_sort_keys) noexcept;
 NavigationViewResult navigation_view_rebuild(NavigationView* view,
                                                             const ChatStateStore& state) noexcept;
 const GuildViewRow* navigation_view_find_guild(const NavigationView& view,

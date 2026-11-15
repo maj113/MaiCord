@@ -221,8 +221,9 @@ void build_conversation_unreads() noexcept {
     auto& s = g_app.account_ui->chat_state;
     const ChannelRecord* rows[kUnreadCapacity - 1];
     u32 count = 0;
-    for (u32 order = 0; order < s.channel_count; ++order) {
-        const auto& c = s.channels[s.channel_order[order]];
+    for (auto* listed = chat_state_store_first_guild_channel(s, 0); listed;
+         listed = chat_state_store_next_guild_channel(s, *listed)) {
+        const auto& c = *listed;
         if (!channel_is_private(c.type) || !c.mention_count || c.notification_muted ||
             !chat_state_store_channel_visible(s, c))
             continue;
@@ -261,8 +262,9 @@ void build_unreads() noexcept {
     inbox->unread_key = unread_key();
     const auto channels = [&](u64 guild_id) noexcept {
         u32 added = 0;
-        for (u32 order = 0; order < s.channel_count; ++order) {
-            const auto& c = s.channels[s.channel_order[order]];
+        for (auto* listed = chat_state_store_first_guild_channel(s, guild_id); listed;
+             listed = chat_state_store_next_guild_channel(s, *listed)) {
+            const auto& c = *listed;
             if (c.guild_id != guild_id || channel_is_private(c.type) || !chat_state_store_channel_unread(s, c))
                 continue;
             if (!added) {

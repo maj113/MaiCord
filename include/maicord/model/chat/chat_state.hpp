@@ -175,6 +175,13 @@ constexpr u32 thread_join_seconds_from_ms(u64 timestamp_ms) noexcept {
     return seconds > 0xFFFFFFFFull ? 0u : static_cast<u32>(seconds);
 }
 
+// A list of channel records in ascending ID order, linked through ChannelRecord::guild_next. Each link is a slot
+// plus one, so zero ends the list and a zeroed list is empty.
+struct ChannelList {
+    u16 head;
+    u16 tail;
+};
+
 struct GuildRecord {
     u64 id;
     u64 owner_id;
@@ -208,6 +215,9 @@ struct GuildRecord {
     // Guild banner hash (cdn /banners/{guild}/{hash}); a_ marks an animated one.
     char banner_hash[kGuildIconHashMaximumBytes];
     u8 banner_hash_bytes;
+    // The guild's channels. The store keeps the list for each mutation, so a reader of one guild does not read
+    // every channel record.
+    ChannelList channel_list;
     GuildSettings settings;
 };
 static_assert(sizeof(GuildSettings) == 32 && sizeof(GuildRecord) == 160);
@@ -221,7 +231,11 @@ struct ChannelRecord {
     u64 last_read_message_id;
     u64 member_list_id;
     u32 name_offset;
-    u32 overwrite_offset;
+    // The overwrite table holds at most 65,535 records, so an offset fits 16 bits.
+    u16 overwrite_offset;
+    // The next record of the same channel list (GuildRecord::channel_list, or the store's private or detached
+    // list), as a slot plus one. Zero ends the list.
+    u16 guild_next;
     union {
         u32 position;
         // Threads have no position: the word holds the current member's join
@@ -513,11 +527,16 @@ struct ChatStateStore {
     // Both fit existing tail padding.
     u16 guild_free_hint;
     u16 channel_free_hint;
+    // The private channels (guild 0).
+    ChannelList private_channel_list;
+    // The guild channels that arrived before their guild record. The store moves a guild's channels into its
+    // record's list when it creates the record.
+    ChannelList detached_channel_list;
     // Friends and their personal nicknames, which name one-to-one DMs (the
     // host sets it while the relationships are loaded, else null).
     const RelationshipStore* relationships;
 };
-static_assert(sizeof(ChatStateStore) == 336);
+static_assert(sizeof(ChatStateStore) == 344);
 
 enum class ChatStateStoreError : u8 {
     none,
@@ -640,6 +659,14 @@ const GuildRecord* chat_state_store_find_guild(const ChatStateStore& store,
                                                          u64 guild_id) noexcept;
 const ChannelRecord* chat_state_store_find_channel(const ChatStateStore& store,
                                                              u64 channel_id) noexcept;
+// The first record of the channel list that holds the guild's channels, in ascending ID order, or null. Guild 0
+// gives the private channels. The guilds without a record share the detached list, so a reader still compares
+// guild_id.
+const ChannelRecord* chat_state_store_first_guild_channel(const ChatStateStore& store, u64 guild_id) noexcept;
+inline const ChannelRecord* chat_state_store_next_guild_channel(const ChatStateStore& store,
+                                                                const ChannelRecord& channel) noexcept {
+    return channel.guild_next ? &store.channels[channel.guild_next - 1] : nullptr;
+}
 const RoleRecord* chat_state_store_find_role(const ChatStateStore& store, u64 guild_id,
                                                        u64 role_id) noexcept;
 Utf8View chat_state_store_guild_name(const ChatStateStore& store,
@@ -719,6 +746,10 @@ bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store
                                                         u32 overwrite_count) noexcept;
 void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) noexcept;
 bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input) noexcept;
+// The same store as chat_state_store_upsert_role for each role in packet order, with one move of the role table
+// when the guild holds no roles (GUILD_CREATE removes them first). False at the first role that upsert_role refuses.
+bool chat_state_store_insert_guild_roles(ChatStateStore* store, u64 guild_id, u32 role_count, RoleInputRead read_role,
+                                         const void* context) noexcept;
 bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_id) noexcept;
 bool chat_state_store_set_self_roles(ChatStateStore* store, u64 guild_id, u64 owner_id,
                                         u64 self_user_id, ConstSlice<u64> role_ids) noexcept;

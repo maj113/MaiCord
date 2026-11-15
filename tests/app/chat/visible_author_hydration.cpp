@@ -6,6 +6,7 @@
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "../../support/gateway_message_scratch.hpp"
+#include "../../support/chat_state_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -68,6 +69,7 @@ bool initialize() noexcept {
     f.channel.occupied = true;
     f.state.channel_count = 1;
     f.channel_order[0] = 0;
+    chat_state_store_link_lists(&f.state);
     f.state.selected_channel_id = 80;
     f.state.selected_guild_id = 7;
     f.state.self_user_id = 1;

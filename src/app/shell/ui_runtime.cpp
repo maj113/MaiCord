@@ -489,7 +489,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<ChannelViewRow>{runtime->navigation_channel_rows, kNavigationChannelRows},
             Slice<u16>{runtime->projection_scratch.navigation_channels, kNavigationChannelRows},
             Slice<u8>{runtime->navigation_visibility, kChatStateChannelCapacity},
-            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kNavigationChannelRows}, true) ||
+            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kNavigationChannelRows}) ||
         !message_event_pump_initialize(
             &application.message_pump, &application.message_view.timeline,
             Slice<u8>{runtime->event_payload_scratch, kGatewayClientDispatchPayloadCapacity},

@@ -143,8 +143,18 @@ void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) n
     if (!store || !store->emojis || !store->emoji_roles || guild_id == 0) {
         return;
     }
-    u32 output = 0;
-    for (u32 index = 0; index < store->emoji_count; ++index) {
+    // The records before the guild's first emoji, and their role IDs, stay in place: the role IDs are packed in
+    // record order.
+    u32 first = 0;
+    while (first < store->emoji_count && store->emojis[first].guild_id != guild_id)
+        ++first;
+    if (first == store->emoji_count) {
+        saturating_increment(store->emoji_mutations);
+        return;
+    }
+    const u32 role_start = store->emojis[first].role_offset;
+    u32 output = first;
+    for (u32 index = first; index < store->emoji_count; ++index) {
         const CustomEmojiRecord record = store->emojis[index];
         if (record.guild_id != guild_id) {
             store->emojis[output++] = record;
@@ -155,8 +165,8 @@ void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) n
     }
     store->emoji_count = output;
 
-    u32 role_output = 0;
-    for (u32 index = 0; index < store->emoji_count; ++index) {
+    u32 role_output = role_start;
+    for (u32 index = first; index < store->emoji_count; ++index) {
         CustomEmojiRecord& record = store->emojis[index];
         const u32 source = record.role_offset;
         for (u32 role = 0; role < record.role_count; ++role) {

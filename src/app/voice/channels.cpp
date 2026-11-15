@@ -123,10 +123,9 @@ void request_selected_guild() noexcept {
     if (!record || record->unavailable || !host.instance)
         return;
     bool voice = false;
-    for (u32 i = 0; i < state->channel_count && !voice; ++i) {
-        const auto& channel = state->channels[state->channel_order[i]];
-        voice = channel.guild_id == guild && channel.type == 2;
-    }
+    for (auto* channel = chat_state_store_first_guild_channel(*state, guild); channel && !voice;
+         channel = chat_state_store_next_guild_channel(*state, *channel))
+        voice = channel->guild_id == guild && channel->type == 2;
     if (!voice) {
         vc.skipped_guild = guild;
         vc.skipped_session = vc.session;

@@ -80,8 +80,9 @@ void capture_channels(StartupShell* shell, const ChatStateStore& state) noexcept
             add_channel(shell, state, *channel);
     // Channels before threads: a full table drops threads first.
     for (u32 pass = 0; pass < 2; ++pass)
-        for (u32 order = 0; order < state.channel_count; ++order) {
-            const ChannelRecord& channel = state.channels[state.channel_order[order]];
+        for (auto* listed = chat_state_store_first_guild_channel(state, shell->guild_id); listed;
+             listed = chat_state_store_next_guild_channel(state, *listed)) {
+            const ChannelRecord& channel = *listed;
             const bool thread = channel_is_thread(channel.type);
             if (thread != (pass == 1) || channel.guild_id != shell->guild_id ||
                 !chat_state_store_channel_visible(state, channel) || (thread && !thread_shown(channel)))
@@ -106,8 +107,9 @@ void capture_conversations(StartupShell* shell, const StartupShellStores& stores
     const ChannelRecord* newest[kStartupShellConversationCapacity];
     u64 keys[kStartupShellConversationCapacity];
     u32 count = 0;
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const ChannelRecord& channel = state.channels[state.channel_order[order]];
+    for (auto* listed = chat_state_store_first_guild_channel(state, 0); listed;
+         listed = chat_state_store_next_guild_channel(state, *listed)) {
+        const ChannelRecord& channel = *listed;
         if (!channel_is_private(channel.type) || !chat_state_store_channel_visible(state, channel))
             continue;
         const u64 key = conversation_recency(state, channel);
@@ -206,10 +208,7 @@ void startup_shell_capture(const StartupShellStores& stores, const MessageStore*
     GuildDisplayEntry rail[kRail];
     const u32 rows = guild_display_order_build(stores.folders, state, {rail, kRail});
     for (u32 row = 0; row < rows && s.guild_count < kStartupShellGuildCapacity; ++row) {
-        const GuildRecord* found = chat_state_store_find_guild(state, rail[row].guild_id);
-        if (!found)
-            continue;
-        const GuildRecord& guild = *found;
+        const GuildRecord& guild = state.guilds[rail[row].slot];
         StartupShellGuild& out = s.guilds[s.guild_count];
         out.id = guild.id;
         out.flags = static_cast<u8>((guild.unavailable ? startup_shell_guild_unavailable : 0) |

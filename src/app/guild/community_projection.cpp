@@ -846,8 +846,9 @@ void build_channels() noexcept {
     const u8 type = p.where == 0 ? 13 : 2;
     p.channel_count = 0;
     const auto& s = state();
-    for (u32 order = 0; order < s.channel_count && p.channel_count < kChannelChoices; ++order) {
-        const auto& channel = s.channels[s.channel_order[order]];
+    for (auto* listed = chat_state_store_first_guild_channel(s, p.guild_id);
+         listed && p.channel_count < kChannelChoices; listed = chat_state_store_next_guild_channel(s, *listed)) {
+        const auto& channel = *listed;
         if (channel.guild_id != p.guild_id || channel.type != type || !channel.permissions_resolved ||
             !(channel.effective_permissions & kPermissionViewChannel) || !chat_state_store_channel_visible(s, channel))
             continue;

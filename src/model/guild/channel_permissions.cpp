@@ -8,6 +8,8 @@
 namespace maicord {
 namespace {
 
+#include "activity.inc"
+
 bool permission_prefix_valid(const ChatStateStore& store) noexcept {
     return store.role_backed_count <= store.role_capacity &&
            store.overwrite_backed_count <= store.overwrite_capacity &&
@@ -18,19 +20,15 @@ bool permission_prefix_valid(const ChatStateStore& store) noexcept {
 }
 
 u32 guild_role_count(const ChatStateStore& store, u64 guild_id) noexcept {
-    u32 count = 0;
-    for (u32 index = 0; index < store.role_count; ++index) {
-        count += store.roles[index].guild_id == guild_id ? 1u : 0u;
-    }
-    return count;
+    const RoleRun run = guild_role_run(store, guild_id);
+    return run.end - run.first;
 }
 
 u32 guild_overwrite_count(const ChatStateStore& store, u64 guild_id) noexcept {
     u32 count = 0;
-    for (u32 order = 0; order < store.channel_count; ++order) {
-        const ChannelRecord& channel = store.channels[store.channel_order[order]];
-        count += channel.guild_id == guild_id ? channel.overwrite_count : 0u;
-    }
+    for (auto* channel = chat_state_store_first_guild_channel(store, guild_id); channel;
+         channel = chat_state_store_next_guild_channel(store, *channel))
+        count += channel->guild_id == guild_id ? channel->overwrite_count : 0u;
     return count;
 }
 
@@ -50,7 +48,8 @@ void self_permission_scope(const ChatStateStore& store, const GuildRecord& guild
     // drops the owner's exemption.
     const bool viewing = chat_state_store_viewing_as(store, guild.id);
     u32 count = 0;
-    for (u32 index = 0; index < store.role_count && count < kGuildRoleMaximum; ++index) {
+    const RoleRun run = guild_role_run(store, guild.id);
+    for (u32 index = run.first; index < run.end && count < kGuildRoleMaximum; ++index) {
         const RoleRecord& role = store.roles[index];
         if (role.guild_id == guild.id && role.id != guild.id && (viewing ? role.viewing : role.self_assigned))
             scope->role_ids[count++] = role.id;
@@ -111,8 +110,6 @@ bool channel_activity_visible(const ChatStateStore& store,
     return channel.last_message_id > (cursor ? cursor : channel.id);
 }
 
-#include "activity.inc"
-
 void collect_channel_activity(const ChatStateStore& store, const ChannelRecord& channel,
                               u32* unread, u32* mentions) noexcept {
     if (!chat_state_store_channel_visible(store, channel)) {
@@ -125,11 +122,8 @@ void collect_channel_activity(const ChatStateStore& store, const ChannelRecord& 
 // Recounts one guild after a guild-wide input of the unread predicate changed.
 void recount_guild_activity(ChatStateStore* store, GuildRecord* guild) noexcept {
     u32 unread = 0, mentions = 0;
-    for (u32 order = 0; order < store->channel_count; ++order) {
-        const ChannelRecord& channel = store->channels[store->channel_order[order]];
-        if (channel.guild_id == guild->id)
-            collect_channel_activity(*store, channel, &unread, &mentions);
-    }
+    for (u16 link = guild->channel_list.head; link; link = store->channels[link - 1].guild_next)
+        collect_channel_activity(*store, store->channels[link - 1], &unread, &mentions);
     if (guild->unread_channels != unread || guild->mention_count != mentions) {
         guild->unread_channels = unread;
         guild->mention_count = mentions;
@@ -587,17 +581,14 @@ void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) no
         guild->member_roles_known = false;
     if (!store->roles)
         return;
-    u32 output = 0;
-    for (u32 index = 0; index < store->role_count; ++index) {
-        if (store->roles[index].guild_id != guild_id) {
-            if (output != index) {
-                store->roles[output] = store->roles[index];
-            }
-            ++output;
-        } else {
-            store->name_wasted += store->roles[index].name_bytes;
-        }
-    }
+    const RoleRun run = guild_role_run(*store, guild_id);
+    if (run.first == run.end)
+        return;
+    for (u32 index = run.first; index < run.end; ++index)
+        store->name_wasted += store->roles[index].name_bytes;
+    copy_bytes(store->roles + run.first, store->roles + run.end,
+               (store->role_count - run.end) * static_cast<u32>(sizeof(RoleRecord)));
+    const u32 output = store->role_count - (run.end - run.first);
     for (u32 index = output; index < store->role_count; ++index) {
         reset_value<RoleRecord>(&store->roles[index]);
     }
@@ -656,10 +647,9 @@ bool chat_state_store_set_self_roles(ChatStateStore* store, u64 guild_id, u64 ow
     store->self_user_id = self_user_id;
     guild->owner_id = owner_id;
     guild->member_roles_known = true;
-    for (u32 index = 0; index < store->role_count; ++index) {
-        if (store->roles[index].guild_id == guild_id)
-            store->roles[index].self_assigned = false;
-    }
+    const RoleRun run = guild_role_run(*store, guild_id);
+    for (u32 index = run.first; index < run.end; ++index)
+        store->roles[index].self_assigned = false;
     for (u32 member_role = 0; member_role < role_ids.count; ++member_role) {
         const auto* role = chat_state_store_find_role(*store, guild_id, role_ids[member_role]);
         store->roles[role - store->roles].self_assigned = true;
@@ -722,7 +712,7 @@ bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channe
         }
     }
     if (channel->overwrite_count == 0) {
-        channel->overwrite_offset = insert;
+        channel->overwrite_offset = static_cast<u16>(insert);
     }
     store->overwrites[insert] =
         PermissionOverwriteRecord{input.id, input.allow, input.deny, input.type};
@@ -784,11 +774,9 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     }
     bool everyone_found = false;
     u64 base = 0;
-    for (u32 index = 0; index < store->role_count; ++index) {
+    const RoleRun run = guild_role_run(*store, guild_id);
+    for (u32 index = run.first; index < run.end; ++index) {
         const RoleRecord& role = store->roles[index];
-        if (role.guild_id != guild_id) {
-            continue;
-        }
         if (role.id == guild_id) {
             everyone_found = true;
             base |= role.permissions;
@@ -809,8 +797,8 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     bool changed = false;
     u32 activity_unread = 0;
     u32 activity_mentions = 0;
-    for (u32 order = 0; order < store->channel_count; ++order) {
-        ChannelRecord& channel = store->channels[store->channel_order[order]];
+    for (u16 link = guild->channel_list.head; link; link = store->channels[link - 1].guild_next) {
+        ChannelRecord& channel = store->channels[link - 1];
         if (channel.guild_id != guild_id || channel_is_thread(channel.type)) {
             continue;
         }
@@ -826,8 +814,8 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
         }
         collect_channel_activity(*store, channel, &activity_unread, &activity_mentions);
     }
-    for (u32 order = 0; order < store->channel_count; ++order) {
-        ChannelRecord& channel = store->channels[store->channel_order[order]];
+    for (u16 link = guild->channel_list.head; link; link = store->channels[link - 1].guild_next) {
+        ChannelRecord& channel = store->channels[link - 1];
         if (channel.guild_id != guild_id || !channel_is_thread(channel.type)) {
             continue;
         }

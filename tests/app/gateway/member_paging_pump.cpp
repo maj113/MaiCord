@@ -1,5 +1,6 @@
 #include "maicord/app/chat/messages/event_pump.hpp"
 #include "../../support/model_store_fixtures.hpp"
+#include "../../support/chat_state_lists.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/gateway/presence_coalescer.hpp"
@@ -55,6 +56,7 @@ bool initialize() noexcept {
     f.channel.occupied = true;
     f.state.channel_count = 1;
     f.channel_order[0] = 0;
+    chat_state_store_link_lists(&f.state);
     f.state.selected_guild_id = 7;
     f.state.selected_channel_id = 80;
     f.pump = {};

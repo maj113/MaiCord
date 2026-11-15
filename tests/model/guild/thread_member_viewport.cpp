@@ -3,6 +3,7 @@
 #include "maicord/model/guild/thread_member_store.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "../../support/chat_state_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -48,6 +49,7 @@ bool initialize() noexcept {
         f.channels[i].member_list_id = 123; f.channel_order[i] = static_cast<u16>(i);
     }
     f.state.channel_count = 3;
+    chat_state_store_link_lists(&f.state);
     return thread_member_store_select(&f.threads, 7, 81);
 }
 bool project() noexcept {

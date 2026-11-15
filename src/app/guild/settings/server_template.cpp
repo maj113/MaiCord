@@ -22,9 +22,9 @@ Utf8View description() noexcept {
 // The official page refuses to show templates to anyone who cannot see every channel.
 bool channels_visible() noexcept {
     const auto& s = state();
-    const u32 slots = chat_state_store_channel_slot_bound(s);
-    for (u32 i = 0; i < slots; ++i) {
-        const auto& c = s.channels[i];
+    for (auto* listed = chat_state_store_first_guild_channel(s, owner->guild_id); listed;
+         listed = chat_state_store_next_guild_channel(s, *listed)) {
+        const auto& c = *listed;
         if (c.occupied && c.guild_id == owner->guild_id && c.permissions_resolved &&
             !(c.effective_permissions & kPermissionViewChannel))
             return false;

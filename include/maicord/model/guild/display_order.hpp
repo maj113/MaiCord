@@ -12,6 +12,7 @@ inline constexpr u32 kGuildFolderFallbackNameBytes = 64;
 struct GuildDisplayEntry {
     u64 guild_id;
     u16 folder; // index into GuildFolderSettings::folders, or kGuildDisplayNoFolder
+    u16 slot;   // the guild's record in ChatStateStore::guilds of the state that built the list
 };
 
 // The sorted guild list. Folders without an id are single guilds; guilds

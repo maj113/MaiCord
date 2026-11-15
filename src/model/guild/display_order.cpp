@@ -4,19 +4,35 @@
 
 namespace maicord {
 namespace {
-bool placed(Slice<GuildDisplayEntry> output, u32 count, u64 id) noexcept {
-    for (u32 i = 0; i < count; ++i)
-        if (output[i].guild_id == id)
-            return true;
-    return false;
-}
-bool append(Slice<GuildDisplayEntry> output, u32* count, const ChatStateStore& state, u64 id,
+// The guilds already written: one bit for each record slot of the store. A slot past the bits takes the search
+// of the output.
+struct Placed {
+    static constexpr u32 kSlots = 1024;
+    u64 bits[kSlots / 64];
+
+    // Whether the guild in `slot` was written before. The call marks it.
+    bool mark(u32 slot, Slice<GuildDisplayEntry> output, u32 count, u64 id) noexcept {
+        if (slot < kSlots) {
+            const u64 bit = 1ull << (slot & 63);
+            const bool before = bits[slot >> 6] & bit;
+            bits[slot >> 6] |= bit;
+            return before;
+        }
+        for (u32 i = 0; i < count; ++i)
+            if (output[i].guild_id == id)
+                return true;
+        return false;
+    }
+};
+bool append(Slice<GuildDisplayEntry> output, u32* count, const ChatStateStore& state, Placed* placed, u64 id,
             u16 folder) noexcept {
-    if (!id || !chat_state_store_find_guild(state, id) || placed(output, *count, id))
+    const GuildRecord* guild = id ? chat_state_store_find_guild(state, id) : nullptr;
+    const u32 slot = guild ? static_cast<u32>(guild - state.guilds) : 0;
+    if (!guild || placed->mark(slot, output, *count, id))
         return true;
     if (*count >= output.count)
         return false;
-    output[(*count)++] = {id, folder};
+    output[(*count)++] = {id, folder, static_cast<u16>(slot)};
     return true;
 }
 } // namespace
@@ -26,34 +42,36 @@ u32 guild_display_order_build(const GuildFolderSettings* settings, const ChatSta
     if (!output.data || !state.guilds || !state.guild_order)
         return 0;
     u32 count = 0;
+    Placed placed{};
     const bool folders = settings && settings->present && settings->folder_count;
     if (folders) {
         for (u32 f = 0; f < settings->folder_count && f < kGuildFoldersMaximumFolders; ++f) {
             const auto& folder = settings->folders[f];
             const u32 end = minimum<u32>(folder.first_guild + folder.guild_count, settings->guild_id_count);
             for (u32 g = folder.first_guild; g < end; ++g)
-                if (!append(output, &count, state, settings->guild_ids[g],
+                if (!append(output, &count, state, &placed, settings->guild_ids[g],
                             folder.has_id ? static_cast<u16>(f) : kGuildDisplayNoFolder))
                     return count;
         }
     } else if (settings && settings->present) {
         for (u32 p = 0; p < settings->position_count && p < kGuildFoldersMaximumPositions; ++p)
-            if (!append(output, &count, state, settings->positions[p], kGuildDisplayNoFolder))
+            if (!append(output, &count, state, &placed, settings->positions[p], kGuildDisplayNoFolder))
                 return count;
     }
     // Unlisted guilds go to the top in reverse join order, as each is
     // inserted at index 0.
     for (u32 order = 0; order < state.guild_count; ++order) {
-        const u64 id = state.guilds[state.guild_order[order]].id;
-        if (placed(output, count, id) || count >= output.count)
+        const u32 slot = state.guild_order[order];
+        const u64 id = state.guilds[slot].id;
+        if (placed.mark(slot, output, count, id) || count >= output.count)
             continue;
         const bool listed = settings && settings->present && (folders || settings->position_count);
         if (!listed) {
-            output[count++] = {id, kGuildDisplayNoFolder};
+            output[count++] = {id, kGuildDisplayNoFolder, static_cast<u16>(slot)};
             continue;
         }
         copy_bytes(output.data + 1, output.data, count * static_cast<u32>(sizeof(GuildDisplayEntry)));
-        output[0] = {id, kGuildDisplayNoFolder};
+        output[0] = {id, kGuildDisplayNoFolder, static_cast<u16>(slot)};
         ++count;
     }
     return count;

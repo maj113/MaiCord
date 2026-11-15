@@ -77,8 +77,9 @@ u64 guild_context_invite_channel(const ChatStateStore& state, u64 guild_id, u64 
     // Lowest position first among text-like channels, then any voice channel.
     const ChannelRecord* best = nullptr;
     for (u32 pass = 0; pass < 2 && !best; ++pass)
-        for (u32 order = 0; order < state.channel_count; ++order) {
-            const auto& candidate = state.channels[state.channel_order[order]];
+        for (auto* listed = chat_state_store_first_guild_channel(state, guild_id); listed;
+             listed = chat_state_store_next_guild_channel(state, *listed)) {
+            const auto& candidate = *listed;
             if (!invite_target(state, &candidate, guild_id) || text_like(candidate.type) != (pass == 0))
                 continue;
             if (!best || candidate.position < best->position ||

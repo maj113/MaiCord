@@ -243,18 +243,16 @@ bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload,
     }
     bool everyone = false;
     if (offsets.count < event.state.role_count) return false;
+    u64 ids[kGuildRoleMaximum]; // Only the ids of the roles before `index` are read.
     for (u32 index = 0; index < event.state.role_count; ++index) {
         GatewayClientRoleMutation role{};
         Utf8View name{};
         if (!gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name) || name.bytes > 400) {
             return false;
         }
-        for (u32 previous = 0; previous < index; ++previous) {
-            GatewayClientRoleMutation other{};
-            Utf8View other_name{};
-            if (!gateway_client_event_guild_role_at(event, payload, offsets[previous], &other, &other_name) ||
-                other.id == role.id) return false;
-        }
+        for (u32 previous = 0; previous < index; ++previous)
+            if (ids[previous] == role.id) return false;
+        ids[index] = role.id;
         everyone = everyone || role.id == event.state.id;
     }
     return everyone;
@@ -415,10 +413,16 @@ bool apply_overwrites(ChatStateStore* store, u64 channel_id, ConstSlice<u8> payl
     return true;
 }
 
-u32 resident_guild_channels(const ChatStateStore& store, u64 guild_id) noexcept {
+// The guild's resident channels. *overwrites receives the count of their permission overwrites.
+u32 resident_guild_channels(const ChatStateStore& store, u64 guild_id, u32* overwrites) noexcept {
     u32 count = 0;
-    for (u32 order = 0; order < store.channel_count; ++order) {
-        count += store.channels[store.channel_order[order]].guild_id == guild_id ? 1u : 0u;
+    *overwrites = 0;
+    for (auto* listed = chat_state_store_first_guild_channel(store, guild_id); listed;
+         listed = chat_state_store_next_guild_channel(store, *listed)) {
+        const auto& channel = *listed;
+        if (channel.guild_id != guild_id) continue;
+        ++count;
+        *overwrites += channel.overwrite_count;
     }
     return count;
 }
@@ -427,15 +431,6 @@ u32 resident_guild_roles(const ChatStateStore& store, u64 guild_id) noexcept {
     u32 count = 0;
     for (u32 index = 0; index < store.role_count; ++index) {
         count += store.roles[index].guild_id == guild_id ? 1u : 0u;
-    }
-    return count;
-}
-
-u32 resident_guild_overwrites(const ChatStateStore& store, u64 guild_id) noexcept {
-    u32 count = 0;
-    for (u32 order = 0; order < store.channel_count; ++order) {
-        const auto& channel = store.channels[store.channel_order[order]];
-        if (channel.guild_id == guild_id) count += channel.overwrite_count;
     }
     return count;
 }
@@ -640,8 +635,9 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     // Complete inventory retires cached missing rows without fabricating archive
     // metadata or removing history. Membership negatives retain their stricter
     // archive guard because absence does not prove leaving an archived thread.
-    for (u32 i = 0; i < store->channel_count; ++i) {
-        const auto& channel = store->channels[store->channel_order[i]];
+    for (auto* resident = chat_state_store_first_guild_channel(*store, sync.guild_id); resident;
+         resident = chat_state_store_next_guild_channel(*store, *resident)) {
+        const auto& channel = *resident;
         if (channel.guild_id != sync.guild_id ||
             (sync.scope == GatewayClientThreadSyncScope::parents &&
              !id_in(payload, sync.parent_count, channel_is_thread(channel.type) ? channel.parent_id : channel.id)))
@@ -956,7 +952,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                             cursor != payload.count))) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
-                const u32 resident_channels = resident_guild_channels(*store, event.state.id);
+                u32 resident_overwrites = 0;
+                const u32 resident_channels = resident_guild_channels(*store, event.state.id, &resident_overwrites);
                 if (event.state.record_count >
                     store->channel_capacity - (store->channel_count - resident_channels))
                     return table_full(ChatStateStoreError::channel_capacity);
@@ -984,7 +981,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                     return table_full(admission);
                 if (!chat_state_store_prepare_permissions(store,
                     store->role_count - resident_guild_roles(*store, event.state.id) + event.state.role_count,
-                    store->overwrite_count - resident_guild_overwrites(*store, event.state.id) + event.state.overwrite_count))
+                    store->overwrite_count - resident_overwrites + event.state.overwrite_count))
                     return apply_error(ChatStateApplyError::capacity);
                 const ChatStateStoreResult guild = chat_state_store_upsert_guild(store, input);
                 if (!guild.ok()) {
@@ -1002,15 +999,9 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 store->selection_held = true;
                 chat_state_store_remove_guild_channels(store, event.state.id);
                 chat_state_store_remove_guild_roles(store, event.state.id);
-                for (u32 role_index = 0; role_index < event.state.role_count; ++role_index) {
-                    GatewayClientRoleMutation role{};
-                    Utf8View role_name{};
-                    if (!gateway_client_event_guild_role_at(event, payload, offsets[role_index],
-                                                            &role, &role_name) ||
-                        !chat_state_store_upsert_role(store, packed_role_input(event.state.id, role, role_name))) {
-                        return apply_error(ChatStateApplyError::capacity);
-                    }
-                }
+                if (!chat_state_store_insert_guild_roles(store, event.state.id, event.state.role_count,
+                                                         read_guild_role_input, &role_input))
+                    return apply_error(ChatStateApplyError::capacity);
                 cursor = channels_begin;
                 index = 0;
                 while (index < event.state.record_count) {
