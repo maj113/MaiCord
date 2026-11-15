@@ -207,10 +207,17 @@ struct Document {
     bool has_gradient(u32 index) const noexcept {
         return (leaf_records[index] & gradient_flag) != 0;
     }
-    u32 locate(u32 offset) const noexcept {
+    // The tokens of the objects and arrays read last, by source offset: value() notes each one it returns, so the
+    // reads of its members and elements that follow find it without a search. An empty slot answers offset 0, the root.
+    struct Located { u32 offset, token; } located[64];
+    static u32 located_slot(u32 offset) noexcept {return offset*0x9E3779B1u>>26;}
+    u32 locate(u32 offset) noexcept {
+        Located& slot=located[located_slot(offset)];
+        if(slot.offset==offset)return slot.token;
         u32 first=0,last=json.structurals.count;
         while(first<last){const u32 mid=first+(last-first)/2;
             if(json.structurals[mid]<offset)first=mid+1;else last=mid;}
+        slot={offset,first};
         return first;
     }
     void whitespace(u32& at) const noexcept {
@@ -219,11 +226,12 @@ struct Document {
     }
     // The complete document is validated once. Matched delimiters let property
     // reads skip subtrees without recursively revalidating their keyframes.
-    JsonValue value(u32& at,u32& token) const noexcept {
+    JsonValue value(u32& at,u32& token) noexcept {
         whitespace(at);const u32 begin=at;JsonValueKind kind{};
         const char c=json.input.data[at];
         if(c=='{' || c=='[' || c=='"') {
             kind=c=='{'?JsonValueKind::object:c=='['?JsonValueKind::array:JsonValueKind::string;
+            if(c!='"')located[located_slot(begin)]={begin,token};
             const u32 end=ends[token];at=json.structurals[end]+1;token=end+1;
         } else {
             kind=c=='n'?JsonValueKind::null_value:(c=='t'||c=='f')?JsonValueKind::boolean:JsonValueKind::number;
@@ -240,26 +248,20 @@ struct Document {
         while(json.input.data[json.structurals[token]]!='}') {
             const u32 start=json.structurals[token]+1,end=json.structurals[token+1];
             const JsonString key{{json.input.data+start,end-start},start,false};
-            token+=3;u32 at=json.structurals[token-1]+1;
-            const auto entry=value(at,token);
-            if(json_name_is(key,{name,n})) {if(found)return {};result=entry;found=true;}
+            token+=3;
+            if(json_name_is(key,{name,n})) {
+                if(found)return {};
+                u32 at=json.structurals[token-1]+1;result=value(at,token);found=true;
+            } else {
+                // Another member's value ends at its closing token. A number or a literal has none.
+                const char c=json.input.data[json.structurals[token]];
+                if(c=='{' || c=='[' || c=='"')token=ends[token]+1;
+            }
             if(json.input.data[json.structurals[token]]==',')++token;
         }
         return result;
     }
-    bool array(const JsonValue& input,Slice<JsonValue> output,u32* count) noexcept {
-        *count=0;if(input.kind!=JsonValueKind::array || !input.source.bytes)return false;
-        u32 token=locate(input.source_offset)+1,at=input.source_offset+1;
-        while(json.input.data[json.structurals[token]]!=']' || at<json.structurals[token]) {
-            whitespace(at);if(json.input.data[at]==']')break;
-            if(*count==output.count)return false;
-            output[(*count)++]=value(at,token);
-            if(json.input.data[json.structurals[token]]==','){at=json.structurals[token]+1;++token;}
-            else break;
-        }
-        return true;
-    }
-    // Element-by-element walk of an array: the tokens array() visits, without a materialized copy.
+    // Element-by-element walk of an array.
     struct Elements { u32 token, at; bool more; };
     Elements elements(const JsonValue& input) noexcept {
         if(input.kind!=JsonValueKind::array || !input.source.bytes)return {0,0,false};
@@ -273,6 +275,13 @@ struct Document {
         *item=value(e.at,e.token);
         if(json.input.data[json.structurals[e.token]]==','){e.at=json.structurals[e.token]+1;++e.token;}
         else e.more=false;
+        return true;
+    }
+    // The elements of an array in `output`; false when it has more than output.count.
+    bool array(const JsonValue& input,Slice<JsonValue> output,u32* count) noexcept {
+        *count=0;if(input.kind!=JsonValueKind::array || !input.source.bytes)return false;
+        JsonValue item{};
+        for(auto walk=elements(input);step(walk,&item);output[(*count)++]=item)if(*count==output.count)return false;
         return true;
     }
     // hidden_item: an item with "hd" set (item_kinds); never a "ty" code.
@@ -365,7 +374,8 @@ struct Document {
         return bezier(t,component_field(out,"y",dimension),component_field(in,"y",dimension,1));
     }
     float interpolated(const Sample& value,u32 dimension,float fallback=0) noexcept {
-        const float a=component(value.start,dimension,fallback),b=component(value.end,dimension,a);
+        const float a=component(value.start,dimension,fallback),
+                    b=value.end.source.data==value.start.source.data?a:component(value.end,dimension,a);
         return a+(b-a)*progress(value,dimension);
     }
     struct GradientComponents {
@@ -441,7 +451,8 @@ struct Document {
         if(x.source.bytes)return {scalar(x),animated_field(property,"y")};
         const auto value=sampled(property);
         const auto start = point_components(value.start, fallback);
-        const auto end = point_components(value.end, start);
+        // A constant point has one value for both ends: the second read would give the same numbers.
+        const auto end = value.end.source.data == value.start.source.data ? start : point_components(value.end, start);
         const auto to=get(value.key,"to"),ti=get(value.key,"ti");
         if(to.source.bytes && ti.source.bytes){const float t=progress(value),u=1-t;
             return {u*u*u*start.x+3*u*u*t*(start.x+component(to,0))+3*u*t*t*(end.x+component(ti,0))+t*t*t*end.x,
@@ -1090,7 +1101,7 @@ struct Document {
 };
 static_assert(offsetof(Document, leaf_records) == 104);
 static_assert(offsetof(Document, leaf_pool) == 2152);
-static_assert(sizeof(Document) == 747640);
+static_assert(sizeof(Document) == 748152);
 // A leaf's outline as glyph path commands; a figure is closed as a fill closes it.
 struct OutlineSink {
     GlyphOutline* out;
