@@ -2013,6 +2013,9 @@ int run_probe() noexcept {
     if (probe_option_enabled(L"MAICORD_UI_FRAME_DAMAGE_PROBE"))
         return finish_gate(initialize_fixture(true) && frame_damage_ui_probe(), "frame_damage_native_ui_passed",
                            "frame_damage_native_ui_failed", 307);
+    if (probe_option_enabled(L"MAICORD_UI_SCROLL_FADE_PROBE"))
+        return finish_gate(initialize_fixture(true) && scroll_fade_ui_probe(), "scroll_fade_native_ui_passed",
+                           "scroll_fade_native_ui_failed", 310);
     if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE"))
         return finish_gate(
             initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text),

@@ -228,57 +228,26 @@ void test_typing_strip(void (*check)(bool, const char*) noexcept) noexcept {
               f.timeline.follow_bottom,
           "typing_strip_scroll_anchor_unchanged_when_typing_stops_at_the_bottom");
 
-    // The fade behind the strip, painted in the composer overlay while the list is scrolled away from the newest
-    // message: transparent chat background to the chat background, then (while someone types) a solid band of it
-    // down to the list's bottom; it keeps the scrollbar's 16 DIP clear, and never touches the label's line.
+    // The composer overlay paints no fade and no band over the message list. While someone types it paints only
+    // the three dots inside the strip. While nobody types it paints nothing.
     PaintStream paint{};
-    const Theme& theme = kDefaultTheme;
-    Color clear = theme.base_low;
-    clear.alpha = 0;
     const MessageComposerPresentationInput no_input{};
-    const auto overlay = [&](bool away) noexcept {
-        const ShellTypingFade fade{rectangle_of(UiSemantic::message_view), away};
+    const auto overlay = [&]() noexcept {
         return paint_stream_reset(&paint, kWidth, kHeight) &&
-               shell_presentation_build_composer_overlay(&f.composer, no_input, theme, &paint, 96, nullptr, &fade);
+               shell_presentation_build_composer_overlay(&f.composer, no_input, kDefaultTheme, &paint, 96);
     };
-    const auto count_of = [&](float border_width) noexcept {
-        u32 found = 0;
-        for (u32 i = 0; i < paint.count; ++i)
-            found += paint.quads[i].border_width == border_width;
-        return found;
-    };
-    const auto has = [&](const UiRect& rectangle, const Color& fill) noexcept {
-        for (u32 i = 0; i < paint.count; ++i) {
-            const PaintQuad& q = paint.quads[i];
-            if (ui_rect_equal({q.left, q.top, q.right, q.bottom}, rectangle) && bytes_equal(&q.fill, &fill, sizeof(Color)))
-                return true;
-        }
-        return false;
-    };
-    const UiRect list = rectangle_of(UiSemantic::message_view);
-    const float scrollbar_edge = list.right - kUiTypingFadeRightInset;
-    bool faded = paint_stream_initialize(&paint) && update_composer(typers).ok();
+    bool painted = paint_stream_initialize(&paint) && update_composer(typers).ok();
     f.composer.typing_dots = true;
-    const float strip_top = message_composer_scene_layout_node(f.composer, MessageComposerControl::typing_indicator)
-                                ->rectangle.top;
-    // Someone types and the list is scrolled away: a 72 DIP gradient up to the strip's top, a solid band below it.
-    faded = faded && overlay(true) && count_of(-2) == 1 && strip_top < list.bottom &&
-            has({list.left, strip_top - kUiTypingFadeTyping, scrollbar_edge, strip_top}, clear) &&
-            has({list.left, strip_top, scrollbar_edge, list.bottom}, theme.base_low);
-    bool gradient_ends_opaque = false;
-    for (u32 i = 0; i < paint.count; ++i)
-        gradient_ends_opaque |= paint.quads[i].border_width == -2 &&
-                                bytes_equal(&paint.quads[i].border, &theme.base_low, sizeof(Color));
-    check(faded && gradient_ends_opaque,
-          "typing_strip_fade_while_typing_is_a_72_dip_gradient_into_the_chat_background_then_a_solid_band");
-    // At the bottom nothing is under the strip: no fade, only the three dots remain.
-    check(faded && overlay(false) && count_of(-2) == 0 && paint.count == kUiTypingDotCount,
-          "typing_strip_no_fade_at_the_bottom_of_the_list");
-    // Nobody types and the list is scrolled away: the plain 16 DIP fade at the list's bottom, no band, no dots.
+    const UiLayoutNode* row = message_composer_scene_layout_node(f.composer, MessageComposerControl::typing_indicator);
+    painted = painted && row && overlay() && paint.count == kUiTypingDotCount;
+    for (u32 i = 0; painted && i < paint.count; ++i) {
+        const PaintQuad& q = paint.quads[i];
+        painted = q.border_width != -2 && q.top >= row->rectangle.top &&
+                  q.bottom <= row->rectangle.bottom + kUiTypingLabelDrop;
+    }
+    check(painted, "typing_strip_overlay_while_typing_is_the_three_dots_inside_the_strip");
     f.composer.typing_dots = false;
-    check(update_composer({}).ok() && overlay(true) && count_of(-2) == 1 && paint.count == 1 &&
-              has({list.left, list.bottom - kUiTypingFadeIdle, scrollbar_edge, list.bottom}, clear),
-          "typing_strip_idle_fade_is_16_dips_at_the_list_bottom");
+    check(update_composer({}).ok() && overlay() && paint.count == 0, "typing_strip_overlay_without_typing_is_empty");
     // The label's line (the row's middle plus the drop) is centred 12 DIP above the surface, like the official
     // client's 24 DIP wrapper.
     const UiLayoutNode* label = message_composer_scene_layout_node(f.composer, MessageComposerControl::typing_indicator);

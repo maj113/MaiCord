@@ -1156,36 +1156,12 @@ UiRect caret_pixel_rectangle(const UiRect& caret, const UiRect& clip, u32 dpi) n
     const float bottom = floor_pixel(minimum(caret.bottom, clip.bottom) * scale + .5f);
     return bottom > top ? UiRect{x / scale, top / scale, (x + 1) / scale, bottom / scale} : UiRect{};
 }
-// The fade behind the typing strip, painted while the list is scrolled away: the official client's chat
-// gradient. Alone it is `kUiTypingFadeIdle` DIPs up to the list's bottom; while someone types it is
-// `kUiTypingFadeTyping` DIPs up to the strip's top, followed by a solid band of the background down to the
-// list's bottom, so no message shows through behind the label.
-static bool paint_typing_fade(const MessageComposerScene& scene, const ShellTypingFade& fade, const Theme& theme,
-                              PaintStream* paint) noexcept {
-    const UiRect& list = fade.list;
-    if (!fade.scrolled_away || !ui_rect_has_area(list) || ui_background_active(theme))
-        return true;
-    const auto* typing = message_composer_scene_layout_node(scene, MessageComposerControl::typing_indicator);
-    const bool typing_now = typing && scene.typing_dots && message_composer_scene_typing_label(scene).bytes != 0;
-    const float right = maximum(list.left, list.right - kUiTypingFadeRightInset);
-    const float strip_top = typing_now ? minimum(list.bottom, typing->rectangle.top) : list.bottom;
-    const UiRect ramp{list.left, maximum(list.top, strip_top - (typing_now ? kUiTypingFadeTyping : kUiTypingFadeIdle)),
-                      right, strip_top};
-    const Color solid = theme.base_low;
-    Color clear = solid;
-    clear.alpha = 0;
-    return (!ui_rect_has_area(ramp) || paint_stream_push_gradient(paint, ramp, clear, solid)) &&
-           (strip_top >= list.bottom || paint_stream_push(paint, {list.left, strip_top, right, list.bottom}, solid));
-}
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
                                                const MessageComposerPresentationInput& input,
                                                const Theme& theme, PaintStream* paint, u32 dpi,
-                                               UiTypingDotsPaint* dots, const ShellTypingFade* fade) noexcept {
+                                               UiTypingDotsPaint* dots) noexcept {
     if (dots)
         reset_value(dots);
-    // The fade goes first: the dots (and the label's text beneath this layer) stay clear of it.
-    if (scene && scene->active && fade && !paint_typing_fade(*scene, *fade, theme, paint))
-        return false;
     // Typing dots: always three quads, so a step patches only their geometry
     // (renderer_step_typing_dots).
     if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {

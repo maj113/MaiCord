@@ -1652,16 +1652,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (messages_visible && !content_hidden && !paint_chip_icons(renderer, theme, false))
         return layout_step_failed(__LINE__);
     UiTypingDotsPaint typing_dots{};
-    // Scrolled away from the newest message, the list's bottom fades behind the typing strip.
-    ShellTypingFade typing_fade{};
-    const UiLayoutNode* fade_list =
-        renderer->ui_scene ? ui_scene_node(*renderer->ui_scene, UiSemantic::message_view) : nullptr;
-    if (messages_visible && fade_list && message_scene->timeline)
-        typing_fade = {fade_list->rectangle, !message_scene->timeline->follow_bottom};
     if (!content_hidden &&
         !shell_presentation_build_composer_overlay(renderer->message_composer_scene, composer_presentation,
-                                                   theme, &renderer->paint_stream, renderer->dpi, &typing_dots,
-                                                   &typing_fade))
+                                                   theme, &renderer->paint_stream, renderer->dpi, &typing_dots))
         return layout_step_failed(__LINE__);
     renderer_record_typing_dots(renderer, typing_dots);
     renderer->overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);

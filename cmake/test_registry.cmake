@@ -3081,7 +3081,7 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/regional_flag_surfaces_probe.cpp tests/integration/inline_flags_probe.cpp
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
         tests/integration/background_theme_pixels.cpp tests/integration/background_effect_pixels.cpp
-        tests/integration/frame_damage_probe.cpp
+        tests/integration/frame_damage_probe.cpp tests/integration/scroll_fade_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
         tests/integration/resize_text_ui_probe.cpp
@@ -3199,6 +3199,10 @@ maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE B
 # and size changes) equals a full render of the same state, buffer age included.
 maicord_ui_probe_test(maicord_frame_damage_probe UI_FRAME_DAMAGE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu_c)
+# The message list draws no fade at its bottom: the rows above the composer show the same picture scrolled up as at
+# the bottom, under a package effect, under Stars and under the default theme.
+maicord_ui_probe_test(maicord_scroll_fade_probe UI_SCROLL_FADE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
+    RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_PROBE BOOTSTRAP TIMEOUT 20 COST 50
     RESOURCE_LOCK native_gpu_b)
 # Rail server icons through layout and present: static, animated at rest and
