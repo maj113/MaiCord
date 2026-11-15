@@ -54,7 +54,9 @@ PlatformSettings platform_settings_read() noexcept {
     settings.client_area_animation = g_cached.animation;
     settings.dark_scheme = g_cached.dark;
     LASTINPUTINFO input{sizeof(input), 0};
-    settings.system_idle_ms = GetLastInputInfo(&input) ? GetTickCount() - input.dwTime : kSystemIdleUnknown;
+    // dwTime is the low half of the tick count that GetTickCount64 returns whole.
+    settings.system_idle_ms =
+        GetLastInputInfo(&input) ? static_cast<DWORD>(GetTickCount64()) - input.dwTime : kSystemIdleUnknown;
     return settings;
 }
 

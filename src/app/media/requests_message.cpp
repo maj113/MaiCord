@@ -973,9 +973,9 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     if (path[builder.used - 1] != L'\\')
         builder.append(L"\\");
     builder.append(L"MaiCord");
-    dir_create(path);
+    const u32 application_end = builder.used;
     builder.append(L"\\notification-avatars");
-    dir_create(path);
+    const u32 directory_end = builder.used;
 #else
     // The files can be made again: they live in the cache directory ($XDG_CACHE_HOME/maicord/notification-avatars).
     wchar_t path[MAX_PATH]{};
@@ -992,6 +992,15 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
     // One file per user and avatar hash: an existing file already holds these pixels.
     FileStat cached{};
     if (!file_path_stat(path, &cached)) {
+#if defined(_WIN32)
+        // Only a new file needs its two directories. An avatar file that is there costs no create call.
+        path[application_end] = 0;
+        dir_create(path);
+        path[application_end] = L'\\';
+        path[directory_end] = 0;
+        dir_create(path);
+        path[directory_end] = L'\\';
+#endif
         const u32 pixels_bytes = resident.width * resident.height * 4u;
         const u64 png_bytes = clipboard_image_png_bytes(resident.width, resident.height);
         if (!png_bytes || png_bytes > 1u << 20)

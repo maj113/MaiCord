@@ -85,14 +85,24 @@ DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
 }
 
 bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
-    if (CreateDirectoryW(path, nullptr))
-        return true;
-    u32 error = GetLastError();
-    if (error == ERROR_ALREADY_EXISTS) {
-        const DWORD attributes = GetFileAttributesW(path);
-        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY))
+    // The directory is there at almost every call. The query alone costs a sixth of a refused create and the query.
+    DWORD attributes = GetFileAttributesW(path);
+    u32 error = 0;
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        if (CreateDirectoryW(path, nullptr))
             return true;
-        error = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_DIRECTORY;
+        error = GetLastError();
+        // Another thread or process made it between the two calls.
+        if (error == ERROR_ALREADY_EXISTS) {
+            attributes = GetFileAttributesW(path);
+            if (attributes == INVALID_FILE_ATTRIBUTES)
+                error = GetLastError();
+        }
+    }
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        if (attributes & FILE_ATTRIBUTE_DIRECTORY)
+            return true;
+        error = ERROR_DIRECTORY;
     }
     if (native_error)
         *native_error = error;

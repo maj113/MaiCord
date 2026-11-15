@@ -84,11 +84,16 @@ __forceinline bool file_read(FileHandle file, void* buffer, u32 bytes, u32* read
     return ok != 0;
 }
 
+// One system call: a read on a handle without FILE_FLAG_OVERLAPPED starts at the offset of the OVERLAPPED and waits.
+// The end of the file is then an error, where a read from the current position reads no bytes.
 inline bool file_read_at(FileHandle file, u64 offset, void* buffer, u32 bytes, u32* read) noexcept {
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    *read = 0;
-    return SetFilePointerEx(file, position, nullptr, FILE_BEGIN) != 0 && file_read(file, buffer, bytes, read);
+    OVERLAPPED start{};
+    start.Offset = static_cast<DWORD>(offset);
+    start.OffsetHigh = static_cast<DWORD>(offset >> 32);
+    DWORD count = 0;
+    const BOOL ok = ReadFile(file, buffer, bytes, &count, &start);
+    *read = count;
+    return ok != 0 || thread_last_error() == ERROR_HANDLE_EOF;
 }
 
 __forceinline bool file_write(FileHandle file, const void* buffer, u32 bytes, u32* written) noexcept {

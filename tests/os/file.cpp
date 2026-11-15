@@ -465,6 +465,21 @@ void test_directory_watch() noexcept {
     dir_watch_close(&watch);
 }
 
+// directory_ensure makes a missing directory, accepts one that is there and refuses a file of that name.
+void test_directory_ensure() noexcept {
+    wchar_t path[512];
+    file_path(L"ensured", path);
+    u32 error = 0;
+    check(directory_ensure(path, &error) && directory_ensure(path, &error) && error == 0,
+          "a directory is made, then found");
+    check(dir_remove(path) && write_text(L"ensured", "x") && !directory_ensure(path, &error),
+          "a file of the name is refused");
+#if defined(_WIN32)
+    check(error == ERROR_DIRECTORY, "the refusal names the cause");
+#endif
+    remove_file(L"ensured");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -491,6 +506,7 @@ MAICORD_TEST_ENTRY(maicord_os_file_entry) {
     test_mapping();
     test_delete_on_close();
     test_directory_watch();
+    test_directory_ensure();
     clear_scratch();
     test_exit(g_failures, "os_file");
 }

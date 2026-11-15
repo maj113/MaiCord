@@ -15,6 +15,11 @@
 
 #include "maicord/core/win32_kernel.hpp"
 
+#if defined(_WIN32)
+// <wdm.h>. MaiCord imports other ntdll functions, so the loader binds this one at no cost.
+extern "C" __declspec(dllimport) LONG WINAPI RtlGetVersion(OSVERSIONINFOW* lpVersionInformation);
+#endif
+
 namespace maicord {
 namespace {
 
@@ -25,9 +30,6 @@ UserClientConfigurationResult fail(UserClientConfigurationStorage* storage, User
     return UserClientConfigurationResult{native_error, error};
 }
 
-#if defined(_WIN32)
-using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*) noexcept;
-#endif
 SRWLOCK launch_lock = SRWLOCK_INIT;
 char launch_id[kGatewayUserLaunchIdBytes + 1]{};
 char launch_signature[kGatewayUserLaunchIdBytes + 1]{};
@@ -289,12 +291,9 @@ UserClientConfigurationResult user_client_configuration_initialize(
         host_locale, preferred, {storage->accept_language, kRestUserAcceptLanguageMaximumBytes});
     storage->timezone_bytes = host_iana_timezone({storage->timezone, sizeof(storage->timezone)});
 
-    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    const auto rtl_get_version =
-        ntdll ? reinterpret_cast<RtlGetVersionFunction>(GetProcAddress(ntdll, "RtlGetVersion")) : nullptr;
     OSVERSIONINFOW version{};
     version.dwOSVersionInfoSize = sizeof(version);
-    if (!rtl_get_version || rtl_get_version(&version) < 0)
+    if (RtlGetVersion(&version) < 0)
         return fail(storage, UserClientConfigurationError::version, thread_last_error());
     const u32 os_version_bytes =
         write_os_version(version, storage->os_version, static_cast<u32>(sizeof(storage->os_version)));
