@@ -48,16 +48,13 @@ struct Shaper {
     u8 broken,dotted,repha,stages; // repha: the category that stays before an inserted dotted circle (none: 255)
     bool split_matras,keep_split,zero_marks,use;
 };
-u8 khmer_of(u32 u) noexcept {return khmer_category(u);}
-u8 myanmar_of(u32 u) noexcept {return myanmar_category(u);}
-u8 use_of(u32 u) noexcept {return use_category(u);}
 // Khmer: split matras decompose (decompose_khmer) and do not recompose, marks keep their width. Myanmar: the
 // default composition. USE: split matras do not recompose; marks are zeroed by GDEF before positioning.
-constexpr Shaper khmer{khmer_of,khmer_column,khmer_next,khmer_outcome,khmer_stride,
+constexpr Shaper khmer{khmer_category,khmer_column,khmer_next,khmer_outcome,khmer_stride,
     khmer_broken,static_cast<u8>(K::dotted_circle),255,3,true,true,false,false};
-constexpr Shaper myanmar{myanmar_of,myanmar_column,myanmar_next,myanmar_outcome,myanmar_stride,
+constexpr Shaper myanmar{myanmar_category,myanmar_column,myanmar_next,myanmar_outcome,myanmar_stride,
     myanmar_broken,static_cast<u8>(M::dotted_circle),255,7,false,false,true,false};
-constexpr Shaper universal{use_of,use_column,use_next,use_outcome,use_stride,
+constexpr Shaper universal{use_category,use_column,use_next,use_outcome,use_stride,
     use_broken,static_cast<u8>(U::b),static_cast<u8>(U::r),7,false,true,true,true};
 const Shaper& shaper_of(SfntSyllabicScript script) noexcept {
     return script==SfntSyllabicScript::khmer?khmer:script==SfntSyllabicScript::myanmar?myanmar:universal;

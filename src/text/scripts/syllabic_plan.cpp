@@ -58,38 +58,14 @@ constexpr SfntJoinerFeature use_manual[]{{tag("akhn"),1},{tag("rphf"),1},{tag("p
     {tag("blwf"),1},{tag("half"),1},{tag("pstf"),1},{tag("vatu"),1},{tag("cjct"),1},{tag("abvs"),1},{tag("blws"),1},
     {tag("haln"),1},{tag("pres"),1},{tag("psts"),1}};
 template<class T,u32 N> constexpr ConstSlice<T> all(const T (&values)[N]) noexcept {return {values,N};}
-constexpr u16 unmasked=256,global=512;
-struct Selected {SfntFeature feature;u8 stage,mask;bool global;};
 struct Builder {
     const SfntLayout& layout;const SfntFeatureSubstitutions& variations;ConstSlice<Feature> features;bool independent;
     Slice<u16> scratch;Slice<SfntLookupStep> output;SfntLookupPlanResult& result;u64 work;Slice<u64> per_syllable;
-    Selected selected[32]{};u32 count=0;u8 stages=1;
+    SfntStagedFeature selected[32]{};u32 count=0;u8 stages=1;
     SfntStatus add(u16 index,u8 stage,u8 mask,bool all_syllables) noexcept {
         if(count==32)return SfntStatus::resource_limit;u32 found=0,used=0;auto& entry=selected[count];
         const auto status=sfnt_layout_feature(layout,index,variations,&found,&entry.feature,static_cast<u32>(minimum<u64>(work,0xffffffffu)),&used);
         work-=used;if(status!=SfntStatus::ok)return status;entry.stage=stage;entry.mask=mask;entry.global=all_syllables;++count;return SfntStatus::ok;
-    }
-    SfntStatus pass(bool write) noexcept {
-        u32 emitted=0;
-        if(write)for(u32 i=0;i<per_syllable.count;++i)per_syllable[i]=0;
-        for(u8 stage=0;stage<stages;++stage){
-            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
-            for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
-            for(u32 f=0;f<count;++f){
-                if(!spend(&work))return SfntStatus::resource_limit;const auto& s=selected[f];if(s.stage!=stage)continue;
-                const auto indices=s.feature.lookup_indices;if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
-                for(u32 i=0;i<indices.count/2;++i){const u16 lookup=byte_load_be16(indices.data+i*2);
-                    if(lookup<layout.lookup_count)scratch[lookup]|=(s.mask?s.mask:unmasked)|(s.global?global:0);}
-            }
-            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
-            for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]){
-                if(write){if(!spend(&work))return SfntStatus::resource_limit;
-                    output[emitted]={static_cast<u16>(i),static_cast<u8>(scratch[i]&unmasked?0:scratch[i]),stage};
-                    if(per_syllable.count&&!(scratch[i]&global))per_syllable[emitted>>6]|=1ull<<(emitted&63);}
-                ++emitted;
-            }
-        }
-        if(!write)result.lookup_count=emitted;return SfntStatus::ok;
     }
     SfntStatus run(ConstSlice<u32> scripts) noexcept {
         SfntLanguageSelection selection{};
@@ -111,10 +87,7 @@ struct Builder {
             const auto& f=features[at];if(independent&&(f.flags&optional))continue;
             status=add(index,f.stage,f.mask,!(f.flags&syllable));if(status!=SfntStatus::ok)return status;
         }
-        const u64 before=work;status=pass(false);if(status!=SfntStatus::ok)return status;
-        if(output.count<result.lookup_count||(per_syllable.count&&per_syllable.count<(result.lookup_count+63)/64))return SfntStatus::output_too_small;
-        if(work<before-work+result.lookup_count)return SfntStatus::resource_limit;
-        return pass(true);
+        return sfnt_staged_lookup_plan(layout,{selected,count},stages,255,scratch,output,per_syllable,result,work);
     }
 };
 }

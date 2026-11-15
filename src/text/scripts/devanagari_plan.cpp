@@ -3,7 +3,6 @@
 #include "../opentype/layout_language.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {namespace {
-constexpr u16 unmasked=256,global=512;
 constexpr u8 stage_count=static_cast<u8>(SfntDevanagariStage::count);
 struct Choice {u8 identity,stage,mask=0;};
 // HarfBuzz hb-ot-shaper-indic feature order and masks, plus the default features it keeps for Indic.
@@ -36,38 +35,15 @@ constexpr bool global_feature(u32 tag) noexcept {
     return tag==sfnt_tag('r','v','r','n')||tag==sfnt_tag('r','l','i','g')||tag==sfnt_tag('c','a','l','t')||
         tag==sfnt_tag('c','l','i','g')||tag==sfnt_tag('r','c','l','t');
 }
-struct Selected {SfntFeature feature;u8 stage,mask;bool global;};
 struct Builder {
     const SfntLayout& layout;const SfntFeatureSubstitutions& variations;Slice<u16> scratch;Slice<SfntLookupStep> output;
-    SfntLookupPlanResult& result;u64 work;Slice<u64> per_syllable{};Selected features[32]{};u32 count=0;u8 form=0;
+    SfntLookupPlanResult& result;u64 work;Slice<u64> per_syllable{};SfntStagedFeature features[32]{};u32 count=0;u8 form=0;
     SfntStatus add(u16 index,u8 stage,u8 mask) noexcept {
         if(count==32)return SfntStatus::resource_limit;u32 tag=0,used=0;auto& entry=features[count];
         const auto status=sfnt_layout_feature(layout,index,variations,&tag,&entry.feature,static_cast<u32>(minimum<u64>(work,0xffffffffu)),&used);
         work-=used;if(status!=SfntStatus::ok)return status;entry.stage=stage;entry.mask=mask;
         // A required feature of a tag outside the Indic set applies to the whole run.
         entry.global=global_feature(tag)||!choice(layout.kind,tag).identity;++count;return SfntStatus::ok;
-    }
-    SfntStatus pass(bool write) noexcept {
-        u32 emitted=0;const u8 stages=layout.kind==SfntLayoutKind::substitution&&!form?stage_count:1;
-        if(write)for(u32 i=0;i<per_syllable.count;++i)per_syllable[i]=0;
-        for(u8 stage=0;stage<stages;++stage){
-            if(stage==static_cast<u8>(SfntDevanagariStage::final_reorder))continue;
-            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
-            for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
-            for(u32 f=0;f<count;++f){
-                if(!spend(&work))return SfntStatus::resource_limit;const auto& selected=features[f];if(selected.stage!=stage)continue;
-                const auto indices=selected.feature.lookup_indices;if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
-                for(u32 i=0;i<indices.count/2;++i)scratch[byte_load_be16(indices.data+i*2)]|=(selected.mask?selected.mask:unmasked)|(selected.global?global:0);
-            }
-            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
-            for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]){
-                if(write){if(!spend(&work))return SfntStatus::resource_limit;
-                    output[emitted]={static_cast<u16>(i),static_cast<u8>(scratch[i]&unmasked?0:scratch[i]),static_cast<u8>(stage>static_cast<u8>(SfntDevanagariStage::final_reorder))};
-                    if(per_syllable.count&&!(scratch[i]&global))per_syllable[emitted>>6]|=1ull<<(emitted&63);}
-                ++emitted;
-            }
-        }
-        if(!write)result.lookup_count=emitted;return SfntStatus::ok;
     }
     SfntStatus run(u32 script_tag) noexcept {
         const u32 script[]{script_tag};SfntLanguageSelection selection{};
@@ -88,10 +64,8 @@ struct Builder {
             const u32 bit=1u<<selected.identity;if(seen&bit)continue;seen|=bit;
             status=add(index,form?0:selected.stage,form?0:selected.mask);if(status!=SfntStatus::ok)return status;
         }
-        const u64 before=work;status=pass(false);if(status!=SfntStatus::ok)return status;
-        if(output.count<result.lookup_count||(per_syllable.count&&per_syllable.count<(result.lookup_count+63)/64))return SfntStatus::output_too_small;
-        if(work<before-work+result.lookup_count)return SfntStatus::resource_limit;
-        return pass(true);
+        return sfnt_staged_lookup_plan(layout,{features,count},layout.kind==SfntLayoutKind::substitution&&!form?stage_count:1,
+            static_cast<u32>(SfntDevanagariStage::final_reorder),scratch,output,per_syllable,result,work);
     }
 };
 }

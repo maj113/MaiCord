@@ -110,4 +110,32 @@ __attribute__((minsize)) SfntStatus sfnt_manual_joiner_lookups(const SfntLayout&
     }
     return SfntStatus::ok;
 }
+SfntStatus sfnt_staged_lookup_plan(const SfntLayout& layout,ConstSlice<SfntStagedFeature> features,u32 stages,u32 skipped,Slice<u16> scratch,
+    Slice<SfntLookupStep> output,Slice<u64> per_syllable,SfntLookupPlanResult& result,u64& work) noexcept {
+    const u64 before=work;
+    for(u32 write=0;write<2;++write){u32 emitted=0;
+        if(write){if(output.count<result.lookup_count||(per_syllable.count&&per_syllable.count<(result.lookup_count+63)/64))return SfntStatus::output_too_small;
+            if(work<before-work+result.lookup_count)return SfntStatus::resource_limit;
+            for(u32 i=0;i<per_syllable.count;++i)per_syllable[i]=0;}
+        for(u32 stage=0;stage<stages;++stage){
+            if(stage==skipped)continue;
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
+            for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
+            for(u32 f=0;f<features.count;++f){
+                if(!spend(&work))return SfntStatus::resource_limit;const auto& s=features[f];if(s.stage!=stage)continue;
+                const auto indices=s.feature.lookup_indices;if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
+                for(u32 i=0;i<indices.count/2;++i){const u16 lookup=byte_load_be16(indices.data+i*2);
+                    if(lookup<layout.lookup_count)scratch[lookup]|=(s.mask?s.mask:sfnt_plan_unmasked)|(s.global?sfnt_plan_global:0);}
+            }
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
+            for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]){
+                if(write){if(!spend(&work))return SfntStatus::resource_limit;
+                    output[emitted]={static_cast<u16>(i),static_cast<u8>(scratch[i]&sfnt_plan_unmasked?0:scratch[i]),static_cast<u8>(skipped==255?stage:stage>skipped)};
+                    if(per_syllable.count&&!(scratch[i]&sfnt_plan_global))per_syllable[emitted>>6]|=1ull<<(emitted&63);}
+                ++emitted;
+            }
+        }
+        if(!write)result.lookup_count=emitted;}
+    return SfntStatus::ok;
+}
 }
