@@ -45,6 +45,7 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
+#include "maicord/ui/voice/panel.hpp"
 #include "maicord/core/time.hpp"
 
 namespace maicord {
@@ -754,6 +755,8 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
         (bar ? message_composer_scene_chrome_height(false, 0, nullptr, true) -
                    message_composer_scene_chrome_height(false, 0, nullptr, false)
              : 0.f);
+    // The typing strip draws over the bottom of the message list, as in the application.
+    metrics.composer_overlap = message_composer_scene_chrome_height(false, 0);
     metrics.revision += 10'000u + ui_extent_units(metrics.composer_height) + metrics.flags * 7u;
     message_scene_set_display(&f.messages, {0, false, MessageSceneClock::meridiem, g_reply_timestamps, true});
     if (!navigation_view_rebuild(&f.view, f.state).ok() ||
@@ -768,13 +771,20 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     projection.users = &f.users;
     projection.state = &f.state;
     projection.guild_id = kGuild;
+    // Send and Upload a File as the channel's permissions allow them, as the application derives them.
+    const ChannelViewRow* row = navigation_view_find_channel(f.view, kChannel);
+    const u32 actions = row ? row->actions : 0;
+    MessageComposerAttachmentInput attachments{};
+    attachments.can_attach = (actions & (channel_action_send_messages | channel_action_attach_files)) ==
+                             (channel_action_send_messages | channel_action_attach_files);
     if (!check(rail && channels && body && compose && pane, "shell_nodes_missing") ||
         !check(guild_rail_scene_update(&f.rail, &f.view, rail->rectangle, 0).ok(), "rail_update_failed") ||
         !check(shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok(),
                "channels_update_failed") ||
         !check(message_scene_update(&f.messages, body->rectangle).ok(), "messages_update_failed") ||
-        !check(message_composer_scene_update(&f.composer_scene, &f.composer, compose->rectangle, true, 0,
-                                             {}, &projection, typing)
+        !check(message_composer_scene_update(&f.composer_scene, &f.composer, compose->rectangle,
+                                             (actions & channel_action_send_messages) != 0, 0, {}, &projection,
+                                             typing, attachments)
                    .ok(),
                "composer_update_failed") ||
         !check(member_list_scene_update(&f.member_scene, &f.member_view, &f.members, &f.users, &f.state,
@@ -791,10 +801,12 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
                                                title->rectangle, &header),
                "search_update_failed"))
         return false;
-    // Built-in extras: reply previews show their time in the extras capture only; the typing names are bold.
+    // Built-in extras: reply previews show their time in the extras capture only. As in the application, the
+    // typing names are bold and collapse when they do not fit.
     f.composer_scene.typing_name_count = 0;
-    for (u32 i = 0; typed.ok() && typed.users <= 3 && i < typed.users; ++i)
+    for (u32 i = 0; typed.ok() && i < typed.named && i < 3; ++i)
         f.composer_scene.typing_names[f.composer_scene.typing_name_count++] = typing_names[i];
+    f.composer_scene.typing_collapsible = typed.ok() && typing.bytes != 0 && typed.users <= 3;
     if (!place_gifs(f, r))
         return false;
     r.search_scene = &f.search;
@@ -868,6 +880,8 @@ bool shot(Fixture& f, D3D11Renderer& r, const wchar_t* name, float phase = 6.f) 
         return check(false, "present_failed");
     const float black[4]{0, 0, 0, 1};
     r.graphics.context->ClearRenderTargetView(r.graphics.surface.target, black);
+    // The clear takes the caption's pixels too: draw the bar again even when it did not change.
+    d3d11_renderer_caption_invalidate(&r);
     if (!renderer_set_background_phase(&r, phase) ||
         !d3d11_renderer_draw_stream(&r, f.theme, true, true, nullptr, 10'000))
         return check(false, "draw_failed");
@@ -1014,7 +1028,8 @@ bool open_profile(Fixture& f, D3D11Renderer& r, bool modal) noexcept {
         else if (kind == ProfileMediaKind::activity_small)
             ok = upload_png(r, media.key, g_avatars[5], kAvatar, kAvatar);
         else
-            ok = upload_png(r, media.key, g_icons[1], kIcon, kIcon);
+            // Milo's server tag badge and the Member Since icon: both are MaiCord Lab, the first server.
+            ok = upload_png(r, media.key, g_icons[0], kIcon, kIcon);
         check(ok, "profile_media_failed");
     }
     renderer_set_layer_opacity(&r, RendererLayerSurface::profile, 1);
@@ -1034,7 +1049,7 @@ bool palette(void*, u64 id, u32 choice, BackgroundTheme* output) noexcept {
 }
 constexpr Utf8View kDevices[]{utf8_literal("Default"), utf8_literal("Speakers (Synthetic Audio)")};
 constexpr Utf8View kGames[]{utf8_literal("Lumen Drift")};
-constexpr Utf8View kThemes[]{utf8_literal("Light"), utf8_literal("Dark"), utf8_literal("AMOLED")};
+constexpr Utf8View kBrowseThemes[]{utf8_literal("Browse")};
 u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentation* looks) noexcept {
     const auto& nodes = settings_catalog_panel(static_cast<SettingsPanel>(panel)).nodes;
     u32 count = 0;
@@ -1060,8 +1075,6 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             c.choices = n.binding() == static_cast<u32>(SettingBinding::add_game)
                             ? ConstSlice<Utf8View>{kGames, 1}
                             : ConstSlice<Utf8View>{kDevices, 2};
-        if (n.kind == UiSettingsControlKind::palette && !c.choices.count)
-            c.choices = {kThemes, 3};
         if (n.kind == UiSettingsControlKind::slider && c.choices.count > 120)
             c.selected_choice = c.choices.count * 2 / 3;
         looks[count] = {
@@ -1073,6 +1086,13 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
         if (n.kind == UiSettingsControlKind::palette &&
             settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding()), &value))
             c.selected_choice = value.choice;
+        // "Your themes" with no theme installed: the application lists only the Browse tile, drawn as an arrow,
+        // and checks none.
+        if (n.binding() == static_cast<u32>(SettingBinding::installed_themes)) {
+            c.choices = {kBrowseThemes, 1};
+            c.selected_choice = kUiSettingsNoChoice;
+            looks[count].icon_plus_one = static_cast<u8>(static_cast<u8>(UiIcon::arrow_right) + 1);
+        }
         ++count;
     }
     return count;
@@ -1227,9 +1247,11 @@ bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {},
     const bool query = title.bytes != 0;
     if (list == CommandList::gif) {
         items[count++] = {title, 1, popup_item_command_section, 0};
-        command(items[count++], 2, utf8_literal("/gif"),
+        command(items[count], 2, utf8_literal("/gif"),
                 utf8_literal("Search Animated GIFs on the Web\x1F"
                              "Built-in\x1Fquery"));
+        // Query results show the app's picture: Built-in's is the command icon.
+        items[count++].presentation = ui_menu_row_presentation(UiIcon::command);
     } else if (list == CommandList::gif_option) {
         items[count++] = {utf8_literal("REQUIRED OPTIONS"), 1, popup_item_command_section, 0};
         items[count] = {utf8_literal("query"), 2, popup_item_enabled, 0};
@@ -1264,7 +1286,9 @@ bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {},
                    .ok(),
                "picker_open_failed"))
         return false;
-    f.popup.selected_index = query || list != CommandList::release ? 1 : 3;
+    // As in the application, query results focus their first row. The discovery list and the unset options list
+    // start without a selection.
+    f.popup.selected_index = query ? 1 : ~0u;
     renderer_set_layer_opacity(&r, RendererLayerSurface::popup, 1);
     return check(renderer_bind_popup_scene(&r, &f.popup), "picker_bind_failed");
 }
@@ -1401,17 +1425,18 @@ void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
             insert("/");
             open(Popup::discover, "", frame);
             break;
+        // The application writes the results' title in capitals, the query too.
         case 47:
             insert("g");
-            open(Popup::gif, "Commands matching /g", frame);
+            open(Popup::gif, "COMMANDS MATCHING /G", frame);
             break;
         case 49:
             insert("i");
-            open(Popup::gif, "Commands matching /gi", frame);
+            open(Popup::gif, "COMMANDS MATCHING /GI", frame);
             break;
         case 51:
             insert("f");
-            open(Popup::gif, "Commands matching /gif", frame);
+            open(Popup::gif, "COMMANDS MATCHING /GIF", frame);
             break;
         // The command is chosen: its option bar shows, with the required option listed.
         case 54:
@@ -1467,15 +1492,15 @@ void hero_loop(Fixture& f, D3D11Renderer& r, bool silk, float phase) noexcept {
             break;
         case 104:
             insert("r");
-            open(Popup::release, "Commands matching /r", frame);
+            open(Popup::release, "COMMANDS MATCHING /R", frame);
             break;
         case 106:
             insert("e");
-            open(Popup::release, "Commands matching /re", frame);
+            open(Popup::release, "COMMANDS MATCHING /RE", frame);
             break;
         case 108:
             insert("l");
-            open(Popup::release, "Commands matching /rel", frame);
+            open(Popup::release, "COMMANDS MATCHING /REL", frame);
             break;
         case kThinking:
             composing = false;
@@ -1936,6 +1961,10 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
     f.search_content.heading = f.search_content.placeholder = utf8_literal("Search MaiCord Lab");
     f.search_content.revision = 1;
     build_folders(f);
+    // The application always binds its voice view: the account panel shows the microphone and deafen buttons, and
+    // the connection card stays hidden while no call is up.
+    static constexpr UiVoicePanelView kNoCall{};
+    f.view.voice_panel = &kNoCall;
     f.gif_source = {nullptr, 0x72, 1, kGifTiles, 1, {}, gif_resolve};
     auto& gifs = f.gif_content;
     gifs.account_scope = f.gif_source.account_scope;
