@@ -708,10 +708,13 @@ function(maicord_order_tests_after_client)
     set(stamp "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/maicord_client_inputs.stamp")
     add_custom_command(OUTPUT "${stamp}" COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
         DEPENDS ${inputs} DEPENDS_EXPLICIT_ONLY VERBATIM)
+    # One target owns the stamp and the test targets depend on it. As a source of each test target, the stamp made
+    # CMake evaluate the client's object list one time for each of them (1,400 times in a generate step).
+    add_custom_target(maicord_client_inputs DEPENDS "${stamp}")
     foreach(target IN LISTS ARGN)
         get_target_property(type ${target} TYPE)
         if(type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY|STATIC_LIBRARY|OBJECT_LIBRARY)$")
-            target_sources(${target} PRIVATE "${stamp}")
+            add_dependencies(${target} maicord_client_inputs)
         endif()
     endforeach()
 endfunction()

@@ -13,13 +13,5 @@
         "MAICORD_UNWIND_TABLES": false
       }
     }
-  ],
-  "buildPresets": [
-    {
-      "name": "x64-release",
-      "configurePreset": "x64-release",
-      "targets": ["MaiCord"],
-      "jobs": 8
-    }
   ]
 }

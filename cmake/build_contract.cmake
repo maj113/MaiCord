@@ -73,6 +73,41 @@ function(maicord_llvm_options variable)
     endif()
 endfunction()
 
+# One compile and link with every option that the checks of this file ask for. The pinned toolchain takes them all:
+# its answers are then known and a fresh configure runs one check for them, not one for each (0.26 s each on Windows).
+# Another toolchain fails this check, or says that it does not know an option, and each check below then runs by
+# itself as before. An option that is not in this list also runs its own check.
+if(NOT MAICORD_UNWIND_TABLES AND NOT DEFINED MAICORD_LLVM_FORK_OPTIONS)
+    block()
+        set(options -x86-internal-cc -enable-ipra -x86-ipra-nocsr=false -x86-function-alignment=1)
+        if(MSVC)
+            set(answers MAICORD_LLVM_INTERNAL_CC MAICORD_LLVM_IPRA_MASKS MAICORD_LLVM_FUNCTION_ALIGNMENT MAICORD_LLD_BRANCH_RELAX)
+            list(TRANSFORM options PREPEND /clang:-mllvm= OUTPUT_VARIABLE compile)
+            list(TRANSFORM options PREPEND /mllvm: OUTPUT_VARIABLE link)
+            set(CMAKE_REQUIRED_LINK_OPTIONS ${link} /OPT:LLDBRANCHRELAX)
+            # lld-link refuses /OPT:LLDBRANCHRELAX with the /debug of a Debug try-compile.
+            set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
+        else()
+            set(answers MAICORD_CXX_NO_CXX26_EXTENSIONS_WARNING MAICORD_LLVM_IPRA_MASKS MAICORD_LLVM_FUNCTION_ALIGNMENT)
+            list(REMOVE_ITEM options -x86-internal-cc)
+            list(TRANSFORM options PREPEND -mllvm= OUTPUT_VARIABLE compile)
+            list(TRANSFORM options PREPEND LINKER:--mllvm= OUTPUT_VARIABLE link)
+            list(PREPEND compile -Wno-c++26-extensions)
+            if(NOT CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+                set(CMAKE_REQUIRED_LINK_OPTIONS -fuse-ld=lld ${link})
+            endif()
+        endif()
+        list(JOIN compile " " CMAKE_REQUIRED_FLAGS)
+        check_cxx_source_compiles("int main() { return 0; }" MAICORD_LLVM_FORK_OPTIONS
+            FAIL_REGEX "[Uu]nknown" "[Uu]nrecognized" "ignoring")
+        if(MAICORD_LLVM_FORK_OPTIONS)
+            foreach(answer IN LISTS answers)
+                set(${answer} 1 CACHE INTERNAL "Known from MAICORD_LLVM_FORK_OPTIONS")
+            endforeach()
+        endif()
+    endblock()
+endif()
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -146,6 +181,9 @@ else()
     set(MAICORD_BALANCED_OPTION /clang:-Os)
 endif()
 
+# The generators and checks of the build are Python scripts. This is the one search: each search starts Python 8 times.
+find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+
 # One policy owns every final image's freestanding, mitigation, dead-code and
 # link contract.
 add_library(maicord_link_contract INTERFACE)
@@ -153,7 +191,6 @@ if(MAICORD_LINUX)
     # The libc stub: libc.so.6 carrying the pinned symbol versions.
     set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")
     set(maicord_libc_stub_files "${MAICORD_LIBC_STUB_DIRECTORY}/libc.so.6")
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_custom_command(OUTPUT ${maicord_libc_stub_files}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
             --compiler "${CMAKE_C_COMPILER}" --output-directory "${MAICORD_LIBC_STUB_DIRECTORY}"

@@ -128,6 +128,15 @@ fi
 # The toolchain: --llvm-bin or MAICORD_LLVM_BIN, else the pinned release (fetched on first use), first on PATH so a
 # runner's own clang (ubuntu-24.04 ships 18) never wins.
 llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
+# WSL appends the Windows PATH. Each of those directories is a 9p lookup for every tool CMake searches: 1.65 of the 2.8
+# seconds of a configure (measured). The build runs no Windows program.
+if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    IFS=: read -r -a path_entries <<< "$PATH"
+    PATH=""
+    for entry in "${path_entries[@]}"; do
+        [[ "$entry" == /mnt/* ]] || PATH="${PATH:+$PATH:}$entry"
+    done
+fi
 export PATH="$llvm_bin:$PATH"
 tools=(cmake ninja python3)
 [ "$sync" = 1 ] && tools+=(rsync)

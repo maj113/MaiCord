@@ -5,7 +5,6 @@
 # Each include #embeds its byte arrays from .bin files written beside it, and ships the deflate streams of
 # tools/deflate_cache.txt (tools/optimal_deflate.py).
 
-find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
 set(MAICORD_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
 
