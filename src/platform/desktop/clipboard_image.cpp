@@ -4,6 +4,8 @@
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/crc32.hpp"
+#include "maicord/core/intrinsics.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"
 #endif
@@ -49,6 +51,38 @@ u64 zlib_bytes(u64 raw) noexcept {
     const u64 blocks = raw ? (raw + kStoredBlock - 1) / kStoredBlock : 1;
     return 2 + raw + 5 * blocks + 4;
 }
+// Adds `count` bytes to the two Adler-32 sums, which stay below 65521. A block of 32 bytes adds the sum of its bytes
+// to the first sum. It adds 32 times the first sum and the bytes with the weights 32 to 1 to the second sum. At most
+// 173 blocks go between two reductions, so that no lane and no sum wraps.
+MAICORD_HASWELL void adler32_update(u32* sum_a, u32* sum_b, const u8* data, u64 count) noexcept {
+    static constexpr u8 kWeights[32]{32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+                                     16, 15, 14, 13, 12, 11, 10, 9,  8,  7,  6,  5,  4,  3,  2,  1};
+    const __m256i weights = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kWeights));
+    const __m256i zero = _mm256_setzero_si256(), ones = _mm256_set1_epi16(1);
+    u64 a = *sum_a, b = *sum_b;
+    while (count >= 32) {
+        const u32 blocks = static_cast<u32>(minimum<u64>(count / 32, 173));
+        __m256i bytes = zero, before = zero, weighted = zero;
+        for (u32 i = 0; i != blocks; ++i, data += 32) {
+            const __m256i block = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(data));
+            before = _mm256_add_epi64(before, bytes);
+            bytes = _mm256_add_epi64(bytes, _mm256_sad_epu8(block, zero));
+            weighted = _mm256_add_epi32(weighted, _mm256_madd_epi16(_mm256_maddubs_epi16(block, weights), ones));
+        }
+        u64 wide[12];
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(wide), bytes);
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(wide + 4), before);
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(wide + 8), weighted);
+        b += u64{blocks} * 32 * a + 32 * (wide[4] + wide[5] + wide[6] + wide[7]);
+        for (u32 i = 8; i != 12; ++i) b += (wide[i] & 0xffffffffu) + (wide[i] >> 32);
+        a = (a + wide[0] + wide[1] + wide[2] + wide[3]) % 65521;
+        b %= 65521;
+        count -= u64{blocks} * 32;
+    }
+    for (; count; --count) { a += *data++; b += a; }
+    *sum_a = static_cast<u32>(a % 65521);
+    *sum_b = static_cast<u32>(b % 65521);
+}
 } // namespace
 u64 clipboard_image_png_bytes(u32 width, u32 height) noexcept {
     if (!extent_valid(width, height))
@@ -64,33 +98,26 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     u8* z = idat + 8;
     z[0] = 0x78; // deflate, 32 KiB window
     z[1] = 0x01; // no preset dictionary, fastest; 0x7801 % 31 == 0
-    u64 cursor = 2, emitted = 0;
-    u32 adler_a = 1, adler_b = 0;
-    u32 row = 0, column = 0; // column 0 is the filter byte, then RGBA bytes
-    const u32 row_bytes = 1 + width * 4;
-    do {
-        const u32 block = static_cast<u32>(minimum<u64>(kStoredBlock, raw - emitted));
-        store_header(z + cursor, block, emitted + block == raw);
-        cursor += 5;
-        for (u32 i = 0; i < block;) {
-            // With reduced initial sums and bytes <= 255, 5552 additions keep
-            // both Adler sums within u32. Include each row's zero filter byte.
-            const u32 end = i + minimum<u32>(5552, block - i);
-            for (; i < end; ++i) {
-                const u8 value = column ? rgba[u64{row} * stride + column - 1] : 0;
-                z[cursor++] = value;
-                adler_a += value;
-                adler_b += adler_a;
-                if (++column == row_bytes) {
-                    column = 0;
-                    ++row;
+    // The raw stream is a zero filter byte and the RGBA bytes for each row. It goes into stored blocks of 65535 bytes.
+    u64 cursor = 2, left = raw;
+    u32 room = 0, adler_a = 1, adler_b = 0;
+    const u8 no_filter = 0;
+    for (u32 row = 0; row < height; ++row) {
+        const ConstSlice<u8> parts[2]{{&no_filter, 1}, {rgba + u64{row} * stride, width * 4}};
+        for (const ConstSlice<u8>& part : parts) {
+            adler32_update(&adler_a, &adler_b, part.data, part.count);
+            for (u32 done = 0; done != part.count;) {
+                if (!room) {
+                    room = static_cast<u32>(minimum<u64>(kStoredBlock, left));
+                    store_header(z + cursor, room, room == left);
+                    cursor += 5;
                 }
+                const u32 count = minimum(part.count - done, room);
+                copy_bytes(z + cursor, part.data + done, count);
+                cursor += count; done += count; room -= count; left -= count;
             }
-            adler_a %= 65521;
-            adler_b %= 65521;
         }
-        emitted += block;
-    } while (emitted < raw);
+    }
     byte_store_be32(z + cursor, (adler_b << 16) | adler_a);
     u8* iend = chunk(idat, "IDAT", z, static_cast<u32>(zlib));
     chunk(iend, "IEND", nullptr, 0);
@@ -98,6 +125,11 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
 }
 // The DIB formats and the paste conversion are Windows' (the Wayland backend pastes PNG as it receives it).
 #if defined(_WIN32)
+// A 32-bit pixel with its bytes 0 and 2 exchanged: RGBA to BGRA and back.
+static u32 swap_red_blue(u32 pixel) noexcept {
+    const u32 outer = pixel & 0x00ff00ffu;
+    return (pixel & 0xff00ff00u) | (outer << 16) | (outer >> 16);
+}
 u64 clipboard_image_dib_bytes(u32 width, u32 height) noexcept {
     return extent_valid(width, height) ? sizeof(BITMAPV5HEADER) + u64{width} * height * 4 : 0;
 }
@@ -124,12 +156,8 @@ u64 clipboard_image_build_dib(const u8* rgba, u32 width, u32 height, u32 stride,
     for (u32 y = 0; y < height; ++y) {
         const u8* source = rgba + u64{height - 1 - y} * stride;
         u8* target = out + u64{y} * width * 4;
-        for (u32 x = 0; x < width; ++x) {
-            target[x * 4 + 0] = source[x * 4 + 2];
-            target[x * 4 + 1] = source[x * 4 + 1];
-            target[x * 4 + 2] = source[x * 4 + 0];
-            target[x * 4 + 3] = source[x * 4 + 3];
-        }
+        for (u32 x = 0; x < width; ++x)
+            byte_store_le32(target + u64{x} * 4, swap_red_blue(byte_load_le32(source + u64{x} * 4)));
     }
     return total;
 }
@@ -158,6 +186,7 @@ struct Dib {
     bool top_down;
     Channel red, green, blue, alpha;
     bool use_alpha;
+    bool plain; // 32 bits with the bytes blue, green, red and alpha or an unused byte: the BI_RGB layout
 };
 bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
     reset_value(out);
@@ -212,37 +241,64 @@ bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
     out->width = w; out->height = h; out->stride = static_cast<u32>(stride); out->bits = bits;
     out->top_down = height < 0;
     out->red = channel(masks[0]); out->green = channel(masks[1]); out->blue = channel(masks[2]); out->alpha = channel(masks[3]);
+    out->plain = bits == 32 && masks[0] == 0x00ff0000 && masks[1] == 0x0000ff00 && masks[2] == 0x000000ff &&
+                 (masks[3] == 0xff000000 || !masks[3]);
     return true;
 }
-void dib_row(const Dib& dib, u32 y, u8* rgba) noexcept {
+// Row y as `channels` bytes for each pixel: red, green, blue and, with four channels, alpha. The two common layouts
+// have loops without a branch for each pixel.
+void dib_row(const Dib& dib, u32 y, u8* output, u32 channels) noexcept {
     const u8* row = dib.pixels + u64{dib.top_down ? y : dib.height - 1 - y} * dib.stride;
+    const bool with_alpha = channels == 4;
+    if (dib.plain) {
+        // Four bytes go out for each pixel. With three channels the next pixel writes over the fourth byte, and the
+        // output has room for the fourth byte of the last pixel.
+        const u32 opaque = dib.use_alpha ? 0 : 0xff000000u;
+        for (u32 x = 0; x < dib.width; ++x)
+            byte_store_le32(output + u64{x} * channels, swap_red_blue(byte_load_le32(row + u64{x} * 4)) | opaque);
+        return;
+    }
+    if (dib.bits == 24) {
+        for (u32 x = 0; x < dib.width; ++x) {
+            const u8* p = row + u64{x} * 3;
+            u8* out = output + u64{x} * channels;
+            out[0] = p[2]; out[1] = p[1]; out[2] = p[0];
+            if (with_alpha) out[3] = 255;
+        }
+        return;
+    }
     for (u32 x = 0; x < dib.width; ++x) {
-        u8* out = rgba + u64{x} * 4;
+        u8* out = output + u64{x} * channels;
+        u8 alpha = 255;
         if (dib.bits <= 8) {
             const u32 bit = x * dib.bits;
             const u32 index = (row[bit >> 3] >> (8 - dib.bits - (bit & 7))) & ((1u << dib.bits) - 1u);
             const u8* entry = dib.palette + (index < dib.palette_count ? index : 0) * 4;
-            out[0] = entry[2]; out[1] = entry[1]; out[2] = entry[0]; out[3] = 255;
-        } else if (dib.bits == 24) {
-            const u8* p = row + u64{x} * 3;
-            out[0] = p[2]; out[1] = p[1]; out[2] = p[0]; out[3] = 255;
+            out[0] = entry[2]; out[1] = entry[1]; out[2] = entry[0];
         } else {
             const u32 pixel = dib.bits == 16 ? byte_load_le16(row + x * 2) : byte_load_le32(row + u64{x} * 4);
             out[0] = extract(pixel, dib.red); out[1] = extract(pixel, dib.green); out[2] = extract(pixel, dib.blue);
-            out[3] = dib.use_alpha ? extract(pixel, dib.alpha) : 255;
+            if (dib.use_alpha) alpha = extract(pixel, dib.alpha);
         }
+        if (with_alpha) out[3] = alpha;
     }
 }
 // ---- PNG with filtered rows and a fixed-Huffman LZ77 stream ------------------
+// The eight bits of a byte in the opposite order: Huffman codes go into the stream from their first bit.
+constexpr u32 reverse8(u32 byte) noexcept {
+    return static_cast<u32>(((byte * 0x80200802ull) & 0x0884422110ull) * 0x0101010101ull >> 32) & 0xff;
+}
+static_assert(reverse8(0x01) == 0x80 && reverse8(0x30) == 0x0c && reverse8(0xa5) == 0xa5 && reverse8(0xfe) == 0x7f);
 struct Bits {
     u8* out; u64 capacity, cursor; u64 buffer; u32 count;
-    void put(u32 value, u32 n) noexcept {
+    __forceinline void put(u32 value, u32 n) noexcept {
         buffer |= u64{value} << count; count += n;
         while (count >= 8) { if (cursor < capacity) out[cursor] = static_cast<u8>(buffer); ++cursor; buffer >>= 8; count -= 8; }
     }
-    void code(u32 value, u32 n) noexcept { u32 r = 0; for (u32 i = 0; i < n; ++i) r |= ((value >> i) & 1) << (n - 1 - i); put(r, n); }
-    void literal(u32 v) noexcept { if (v < 144) code(0x30 + v, 8); else code(0x190 + v - 144, 9); }
-    void symbol(u32 s) noexcept { if (s < 280) code(s - 256, 7); else code(0xc0 + s - 280, 8); }
+    // A code of at most 8 bits.
+    __forceinline void code(u32 value, u32 n) noexcept { put(reverse8(value) >> (8 - n), n); }
+    __forceinline void literal(u32 v) noexcept { if (v < 144) code(0x30 + v, 8); else put(reverse8((0x190 + v - 144) & 0xff) << 1 | 1, 9); }
+    __forceinline void symbol(u32 s) noexcept { if (s < 280) code(s - 256, 7); else code(0xc0 + s - 280, 8); }
     void flush() noexcept { if (count) put(0, 8 - count); }
 };
 constexpr u16 kLengthBase[29]{3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
@@ -250,15 +306,47 @@ constexpr u8 kLengthExtra[29]{0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,
 constexpr u16 kDistanceBase[30]{1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
 constexpr u8 kDistanceExtra[30]{0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
 constexpr u32 kWindow = 32768, kHashBits = 15, kChain = 12;
-// Returns bytes written; a result above capacity means it did not fit.
+// The index of the last entry of kLengthBase that is not above a match length of 3 to 258.
+constexpr u32 length_code(u32 length) noexcept {
+    const u32 m = length - 3;
+    if (m < 8) return m;
+    if (length == 258) return 28;
+    const u32 top = 31 - static_cast<u32>(__builtin_clz(m));
+    return 4 * (top - 1) + ((m >> (top - 2)) & 3);
+}
+// The index of the last entry of kDistanceBase that is not above a distance of 1 to 32768.
+constexpr u32 distance_code(u32 distance) noexcept {
+    const u32 m = distance - 1;
+    if (m < 4) return m;
+    const u32 top = 31 - static_cast<u32>(__builtin_clz(m));
+    return 2 * top + ((m >> (top - 1)) & 1);
+}
+static_assert([]() constexpr {
+    for (u32 i = 0; i != 29; ++i)
+        if (length_code(kLengthBase[i]) != i || (i != 28 && length_code(kLengthBase[i + 1] - 1u) != i)) return false;
+    for (u32 i = 0; i != 30; ++i)
+        if (distance_code(kDistanceBase[i]) != i || distance_code(i == 29 ? 32768u : kDistanceBase[i + 1] - 1u) != i) return false;
+    return true;
+}(), "the code formulas agree with the base tables");
+// The count of equal bytes at a and b, at most limit.
+__forceinline u32 match_length(const u8* a, const u8* b, u32 limit) noexcept {
+    u32 length = 0;
+    for (; length + 8 <= limit; length += 8)
+        if (const u64 difference = byte_load_le64(a + length) ^ byte_load_le64(b + length))
+            return length + lowest_set_bit(difference) / 8;
+    while (length < limit && a[length] == b[length]) ++length;
+    return length;
+}
+// Returns bytes written; a result above capacity means it did not fit. `data` has 1 readable byte after `count`.
 u64 deflate_fixed(const u8* data, u64 count, u8* out, u64 capacity, u32* head, u32* previous) noexcept {
     Bits bits{out, capacity, 0, 0, 0};
     bits.put(1, 1); bits.put(1, 2);
     clear_bytes(head, static_cast<u32>(sizeof(u32) << kHashBits));
-    const auto hash = [&](u64 at) noexcept {
-        return ((u32{data[at]} << 16) | (u32{data[at + 1]} << 8) | data[at + 2]) * 2654435761u >> (32 - kHashBits);
+    // The three bytes at `at` as one number, first byte highest.
+    const auto hash = [&](u64 at) __attribute__((always_inline)) noexcept {
+        return (byte_swap(byte_load_le32(data + at)) >> 8) * 2654435761u >> (32 - kHashBits);
     };
-    const auto insert = [&](u64 at) noexcept {
+    const auto insert = [&](u64 at) __attribute__((always_inline)) noexcept {
         if (at + 3 > count) return;
         const u32 h = hash(at);
         previous[at & (kWindow - 1)] = head[h];
@@ -273,16 +361,18 @@ u64 deflate_fixed(const u8* data, u64 count, u8* out, u64 capacity, u32* head, u
             while (candidate && chain--) {
                 const u64 at = candidate - 1;
                 if (position - at > kWindow) break;
-                u32 length = 0;
-                while (length < limit && data[at + length] == data[position + length]) ++length;
-                if (length > best) { best = length; distance = static_cast<u32>(position - at); if (length == limit) break; }
+                // A longer match also has the byte after the best length: most candidates fail this one compare.
+                if (data[at + best] == data[position + best]) {
+                    const u32 length = match_length(data + at, data + position, limit);
+                    if (length > best) { best = length; distance = static_cast<u32>(position - at); if (length == limit) break; }
+                }
                 candidate = previous[at & (kWindow - 1)];
             }
         }
         if (best >= 3) {
-            u32 l = 28; while (kLengthBase[l] > best) --l;
+            const u32 l = length_code(best);
             bits.symbol(257 + l); bits.put(best - kLengthBase[l], kLengthExtra[l]);
-            u32 d = 29; while (kDistanceBase[d] > distance) --d;
+            const u32 d = distance_code(distance);
             bits.code(d, 5); bits.put(distance - kDistanceBase[d], kDistanceExtra[d]);
             for (u32 i = 0; i < best; ++i) insert(position + i);
             position += best;
@@ -294,65 +384,101 @@ u64 deflate_fixed(const u8* data, u64 count, u8* out, u64 capacity, u32* head, u
     bits.symbol(256); bits.flush();
     return bits.cursor;
 }
-u8 paeth_predict(u8 a, u8 b, u8 c) noexcept {
-    const i32 p = i32{a} + b - c, pa = p > a ? p - a : a - p, pb = p > b ? p - b : b - p, pc = p > c ? p - c : c - p;
-    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+MAICORD_HASWELL __forceinline __m256i byte_distance(__m256i x, __m256i y) noexcept {
+    return _mm256_or_si256(_mm256_subs_epu8(x, y), _mm256_subs_epu8(y, x));
 }
-u8 predict(u8 filter, const u8* row, const u8* above, u32 x, u32 bpp) noexcept {
-    const u8 a = x >= bpp ? row[x - bpp] : 0, b = above ? above[x] : 0, c = above && x >= bpp ? above[x - bpp] : 0;
-    return filter == 0 ? 0 : filter == 1 ? a : filter == 2 ? b : filter == 3 ? static_cast<u8>((u32{a} + b) >> 1) : paeth_predict(a, b, c);
+// All ones in each byte where x is not above y, without a sign.
+MAICORD_HASWELL __forceinline __m256i not_above(__m256i x, __m256i y) noexcept {
+    return _mm256_cmpeq_epi8(_mm256_min_epu8(x, y), x);
 }
-// Chooses the filter with the smallest sum of signed residuals per row.
-void filter_row(const u8* row, const u8* above, u32 bytes, u32 bpp, u8* out) noexcept {
-    u64 best_cost = ~0ull; u8 best = 0;
-    for (u8 f = 0; f < 5; ++f) {
-        u64 cost = 0;
-        for (u32 x = 0; x < bytes; ++x) {
-            const u8 residual = static_cast<u8>(row[x] - predict(f, row, above, x, bpp));
-            cost += residual < 128 ? residual : 256u - residual;
+MAICORD_HASWELL __forceinline __m256i choose(__m256i mask, __m256i yes, __m256i no) noexcept {
+    return _mm256_xor_si256(no, _mm256_and_si256(_mm256_xor_si256(yes, no), mask));
+}
+// Chooses the filter with the smallest sum of signed residuals for the row and writes its residuals. `row` and
+// `above` each have 32 zero bytes before them: the pixel to the left of the first one. `candidates` holds five rows.
+MAICORD_HASWELL void filter_row(const u8* row, const u8* above, u32 bytes, u32 bpp, u8* candidates, u8* out) noexcept {
+    const __m256i zero = _mm256_setzero_si256(), one = _mm256_set1_epi8(1);
+    __m256i sums[5]{zero, zero, zero, zero, zero};
+    u32 x = 0;
+    for (; x + 32 <= bytes; x += 32) {
+        const __m256i current = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(row + x));
+        const __m256i a = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(row + x - bpp));
+        const __m256i b = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(above + x));
+        const __m256i c = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(above + x - bpp));
+        const __m256i average = _mm256_sub_epi8(_mm256_avg_epu8(a, b), _mm256_and_si256(_mm256_xor_si256(a, b), one));
+        // Paeth: pa = |b - c|, pb = |a - c|, pc = |(a - c) + (b - c)|. With two steps of one sign pc is their sum
+        // (255 when it is more: no pa or pb is above that). Else pc is the distance between pa and pb.
+        const __m256i pa = byte_distance(b, c), pb = byte_distance(a, c);
+        const __m256i opposite = _mm256_xor_si256(not_above(c, a), not_above(c, b));
+        const __m256i pc = choose(opposite, byte_distance(pa, pb), _mm256_adds_epu8(pa, pb));
+        const __m256i paeth =
+            choose(_mm256_and_si256(not_above(pa, pb), not_above(pa, pc)), a, choose(not_above(pb, pc), b, c));
+        const __m256i residuals[5]{current, _mm256_sub_epi8(current, a), _mm256_sub_epi8(current, b),
+                                   _mm256_sub_epi8(current, average), _mm256_sub_epi8(current, paeth)};
+        for (u32 f = 0; f != 5; ++f) {
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(candidates + u64{f} * bytes + x), residuals[f]);
+            sums[f] = _mm256_add_epi64(sums[f], _mm256_sad_epu8(_mm256_abs_epi8(residuals[f]), zero));
         }
-        if (cost < best_cost) { best_cost = cost; best = f; }
     }
+    u64 cost[5];
+    for (u32 f = 0; f != 5; ++f) {
+        u64 lanes[4];
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(lanes), sums[f]);
+        cost[f] = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    }
+    for (; x < bytes; ++x) {
+        const u8 a = (row + x)[-static_cast<i32>(bpp)], b = above[x], c = (above + x)[-static_cast<i32>(bpp)];
+        const i32 p = i32{a} + b - c, pa = p > a ? p - a : a - p, pb = p > b ? p - b : b - p, pc = p > c ? p - c : c - p;
+        const u8 predicted[5]{0, a, b, static_cast<u8>((u32{a} + b) >> 1), pa <= pb && pa <= pc ? a : pb <= pc ? b : c};
+        for (u32 f = 0; f != 5; ++f) {
+            const u8 residual = static_cast<u8>(row[x] - predicted[f]);
+            candidates[u64{f} * bytes + x] = residual;
+            cost[f] += residual < 128 ? residual : 256u - residual;
+        }
+    }
+    u8 best = 0;
+    for (u8 f = 1; f < 5; ++f) if (cost[f] < cost[best]) best = f;
     out[0] = best;
-    for (u32 x = 0; x < bytes; ++x) out[1 + x] = static_cast<u8>(row[x] - predict(best, row, above, x, bpp));
+    copy_bytes(out + 1, candidates + u64{best} * bytes, bytes);
 }
 DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcept {
     Dib dib = source;
     const u32 w = dib.width, h = dib.height;
-    u8* rows = commit_pages<u8>(u64{w} * 8);
+    // Two rows with 32 zero bytes before each (see filter_row), then the five filtered candidates of one row.
+    const u64 row_room = u64{w} * 4 + 64;
+    u8* rows = commit_pages<u8>(row_room * 2 + u64{w} * 20);
     if (!rows) return ERROR_NOT_ENOUGH_MEMORY;
-    // Alpha only counts when present and not uniformly zero (an unused byte).
+    u8* packed[2]{rows + 32, rows + 32 + row_room};
+    // Alpha only counts when present and not uniformly zero (an unused byte). It makes a fourth channel when one
+    // pixel is not opaque.
     bool translucent = false;
     if (dib.alpha.mask) {
         dib.use_alpha = true;
-        bool any = false;
-        for (u32 y = 0; y < h && !any; ++y) {
-            dib_row(dib, y, rows);
-            for (u32 x = 0; x < w; ++x) if (rows[x * 4 + 3]) { any = true; break; }
+        u8 some = 0, every = 255;
+        for (u32 y = 0; y < h; ++y) {
+            const u8* alpha = packed[0] + 3;
+            if (dib.plain) alpha = dib.pixels + u64{y} * dib.stride + 3;
+            else dib_row(dib, y, packed[0], 4);
+            for (u32 x = 0; x < w; ++x) { some |= alpha[u64{x} * 4]; every &= alpha[u64{x} * 4]; }
         }
-        dib.use_alpha = any;
-        for (u32 y = 0; any && y < h && !translucent; ++y) {
-            dib_row(dib, y, rows);
-            for (u32 x = 0; x < w; ++x) if (rows[x * 4 + 3] != 255) { translucent = true; break; }
-        }
+        dib.use_alpha = some != 0;
+        translucent = some && every != 255;
     }
     const u32 channels = translucent ? 4 : 3, row_bytes = w * channels;
     const u64 raw = u64{h} * (1 + row_bytes);
     const u64 stored = zlib_bytes(raw) - 6;
     const u64 png_capacity = 8 + 25 + 12 + 6 + stored + 12;
     const u64 tables = (sizeof(u32) << kHashBits) + sizeof(u32) * kWindow;
-    u8* filtered = commit_pages<u8>(tables + raw);
+    u8* filtered = commit_pages<u8>(tables + raw + 1); // deflate_fixed reads one byte after the data
     u8* png = filtered ? commit_pages<u8>(png_capacity) : nullptr;
     if (!png) { unreserve(filtered); unreserve(rows); return ERROR_NOT_ENOUGH_MEMORY; }
     auto* head = reinterpret_cast<u32*>(filtered);
     u8* data = filtered + tables;
-    u8* packed[2]{rows, rows + u64{w} * 4};
+    // The row above the first one is the second buffer, which is still zero.
     for (u32 y = 0; y < h; ++y) {
         u8* row = packed[y & 1];
-        dib_row(dib, y, row);
-        if (channels == 3)
-            for (u32 x = 0; x < w; ++x) { row[x * 3] = row[x * 4]; row[x * 3 + 1] = row[x * 4 + 1]; row[x * 3 + 2] = row[x * 4 + 2]; }
-        filter_row(row, y ? packed[(y + 1) & 1] : nullptr, row_bytes, channels, data + u64{y} * (1 + row_bytes));
+        dib_row(dib, y, row, channels);
+        filter_row(row, packed[(y + 1) & 1], row_bytes, channels, rows + row_room * 2, data + u64{y} * (1 + row_bytes));
     }
     unreserve(rows);
     u8* idat = write_header(png, w, h, channels == 4 ? 6 : 2);
@@ -372,11 +498,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         body = cursor;
     }
     u32 a = 1, b = 0;
-    for (u64 i = 0; i < raw;) {
-        const u64 end = minimum<u64>(raw, i + 5552);
-        for (; i < end; ++i) { a += data[i]; b += a; }
-        a %= 65521; b %= 65521;
-    }
+    adler32_update(&a, &b, data, raw);
     byte_store_be32(z + 2 + body, (b << 16) | a);
     const u64 zlib = 2 + body + 4;
     unreserve(filtered);

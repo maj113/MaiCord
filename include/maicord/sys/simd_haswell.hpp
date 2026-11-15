@@ -19,6 +19,8 @@ typedef int __v8si __attribute__((__vector_size__(32)));
 typedef short __v16hi __attribute__((__vector_size__(32)));
 typedef unsigned short __v16hu __attribute__((__vector_size__(32)));
 typedef unsigned char __v32qu __attribute__((__vector_size__(32)));
+typedef char __v32qi __attribute__((__vector_size__(32)));
+typedef signed char __v32qs __attribute__((__vector_size__(32)));
 
 #define MAICORD_SIMD_HASWELL                                                                                           \
     static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("avx2"), __min_vector_width__(256)))
@@ -126,6 +128,32 @@ MAICORD_SIMD_HASWELL __m256i _mm256_cvttps_epi32(__m256 __a) {
     return (__m256i)__builtin_ia32_cvttps2dq256((__v8sf)__a);
 }
 MAICORD_SIMD_HASWELL __m256 _mm256_div_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a / (__v8sf)__b); }
+MAICORD_SIMD_HASWELL __m256i _mm256_set1_epi8(char __b) {
+    return __extension__(__m256i)(__v32qi){__b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b,
+                                           __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b};
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_or_si256(__m256i __a, __m256i __b) { return (__m256i)((__v4du)__a | (__v4du)__b); }
+MAICORD_SIMD_HASWELL __m256i _mm256_xor_si256(__m256i __a, __m256i __b) { return (__m256i)((__v4du)__a ^ (__v4du)__b); }
+MAICORD_SIMD_HASWELL __m256i _mm256_sub_epi8(__m256i __a, __m256i __b) { return (__m256i)((__v32qu)__a - (__v32qu)__b); }
+MAICORD_SIMD_HASWELL __m256i _mm256_abs_epi8(__m256i __a) { return (__m256i)__builtin_elementwise_abs((__v32qs)__a); }
+MAICORD_SIMD_HASWELL __m256i _mm256_avg_epu8(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_pavgb256((__v32qu)__a, (__v32qu)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_adds_epu8(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_elementwise_add_sat((__v32qu)__a, (__v32qu)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_subs_epu8(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_elementwise_sub_sat((__v32qu)__a, (__v32qu)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_min_epu8(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_elementwise_min((__v32qu)__a, (__v32qu)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_cmpeq_epi8(__m256i __a, __m256i __b) {
+    return (__m256i)((__v32qi)__a == (__v32qi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_maddubs_epi16(__m256i __a, __m256i __b) {
+    return (__m256i)__builtin_ia32_pmaddubsw256((__v32qi)__a, (__v32qi)__b);
+}
 
 #undef MAICORD_SIMD_HASWELL
 

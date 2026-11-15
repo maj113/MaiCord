@@ -146,6 +146,56 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
     check(clipboard_paste_png(ClipboardPasteKind::png, {work, static_cast<u32>(png_bytes)}, png_bytes - 1, &png) == ERROR_FILE_TOO_LARGE && !png.data &&
               png.bytes == png_bytes,
           "oversized PNG reports the upload allowance and its size");
+    // A stored PNG of two deflate blocks: it decodes to the same pixels and keeps its pinned bytes (FNV-1a).
+    u8* wide_rgba = work + 600 * 1024;
+    for (u32 i = 0; i < 150 * 200 * 4; ++i) wide_rgba[i] = static_cast<u8>(i * 7 + i / 9);
+    png = {work, clipboard_image_encode_png(wide_rgba, 150, 200, 600, {work, 512 * 1024})};
+    auto stored = decode(png, scan, scan_capacity);
+    bool stored_same = stored.ok && stored.image.width == 150 && stored.image.height == 200 && png.bytes == 120273;
+    for (u32 i = 0; stored_same && i < 150 * 200; ++i) {
+        const u8* p = wide_rgba + i * 4;
+        stored_same = pixel_is(stored, i % 150, i / 150, p[0], p[1], p[2], p[3]);
+    }
+    u64 stored_hash = 1469598103934665603ull;
+    for (u64 i = 0; i < png.bytes; ++i) stored_hash = (stored_hash ^ work[i]) * 1099511628211ull;
+    check(stored_same && stored_hash == 5838453945971953731ull, "a stored PNG of two blocks round-trips with the pinned bytes");
+    png = {};
+    // Every row width from 1 to 45 pixels: rows shorter than one 32-byte vector, equal to it and with a tail. Each
+    // width as a stored PNG, and as a top-down DIB of 32 bits with alpha (four channels), with an unused fourth byte
+    // (three) and of 24 bits.
+    constexpr u32 kRows = 3;
+    bool widths_same = clipboard_image_encode_png(wide_rgba, 0, 1, 0, {work, 4096}) == 0;
+    for (u32 width = 1; widths_same && width <= 45; ++width) {
+        u8* pixels = work + 700 * 1024;
+        for (u32 i = 0; i < width * kRows * 4; ++i) pixels[i] = static_cast<u8>(i * 37 + width + (i >> 3) * 11);
+        pixels[3] = 7;
+        const auto same_pixels = [&](const Decoded& image, u32 channels) noexcept {
+            bool same = image.ok && image.image.width == width && image.image.height == kRows && image.image.channels == channels;
+            for (u32 i = 0; same && i < width * kRows; ++i) {
+                const u8* q = pixels + i * 4;
+                same = pixel_is(image, i % width, i / width, q[0], q[1], q[2], channels == 4 ? q[3] : 255);
+            }
+            return same;
+        };
+        png = {work, clipboard_image_encode_png(pixels, width, kRows, width * 4, {work, 64 * 1024})};
+        widths_same = same_pixels(decode(png, scan, scan_capacity), 4);
+        png = {};
+        for (u32 form = 0; widths_same && form < 3; ++form) {
+            const u32 bits = form == 2 ? 24 : 32, stride = (width * bits + 31) / 32 * 4;
+            const u32 at = dib_header(work, 40, static_cast<i32>(width), -static_cast<i32>(kRows), static_cast<u16>(bits), BI_RGB,
+                                      nullptr, nullptr, 0, nullptr, 0);
+            for (u32 i = 0; i < width * kRows; ++i) {
+                u8* p = work + at + (i / width) * stride + (i % width) * (bits / 8);
+                const u8* q = pixels + i * 4;
+                p[0] = q[2]; p[1] = q[1]; p[2] = q[0];
+                if (bits == 32) p[3] = form == 0 ? q[3] : 0;
+            }
+            widths_same = clipboard_paste_png(ClipboardPasteKind::dib, {work, at + stride * kRows}, 1u << 20, &png) == ERROR_SUCCESS &&
+                          same_pixels(decode(png, scan, scan_capacity), form == 0 ? 4 : 3);
+            clipboard_png_release(&png);
+        }
+    }
+    check(widths_same, "rows of 1 to 45 pixels convert exactly in every layout, and an empty image is refused");
     // Snipping Tool's CF_DIB: BITMAPINFOHEADER, BI_BITFIELDS, masks after the header, bottom-up, unused alpha.
     const u32 rgb_masks[3]{0x00ff0000, 0x0000ff00, 0x000000ff};
     u32 offset = dib_header(work, 40, 5, 3, 32, BI_BITFIELDS, nullptr, rgb_masks, 3, nullptr, 0);
@@ -239,6 +289,11 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
         }
         check(same && (pass || png.bytes < kWide * kTall * 3 / 8),
               pass ? "incompressible DIB still produces an exact PNG" : "DIB conversion deflates and round-trips exactly");
+        // The PNG goes to Discord as it is: a faster conversion keeps every byte (FNV-1a of the file).
+        u64 hash = 1469598103934665603ull;
+        for (u64 i = 0; i < png.bytes; ++i) hash = (hash ^ png.data[i]) * 1099511628211ull;
+        check(pass ? hash == 15560526484314000521ull && png.bytes == 67413 : hash == 16193588247255920943ull && png.bytes == 863,
+              "the converted PNG has the pinned bytes");
         clipboard_png_release(&png);
     }
     check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + kWide * kTall * 4}, 4096, &png) == ERROR_FILE_TOO_LARGE && !png.data &&
