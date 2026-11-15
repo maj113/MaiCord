@@ -212,12 +212,41 @@ void test_hairlines_and_spine(Check check) noexcept {
               middle.continue_bottom == 130 && kShellThreadSpineRadius == first.arc_end.x - first.arc_start.x,
           "chat_thread_spine_runs_under_the_parent_icon_and_curves_into_the_row");
 }
+
+// The item layout scans read eight floats for each step. Each slot must count, and the height sum keeps its bound.
+void test_item_layout_scans(Check check) noexcept {
+    float nan = 0.0f;
+    const u32 nan_bits = 0x7FC00000u;
+    copy_bytes(&nan, &nan_bits, sizeof(nan));
+    const float bad[]{nan, -1.0f, kMaximumUiCoordinate * 2.0f};
+    MessageRichItemLayout zero{}, probe{};
+    auto* values = reinterpret_cast<float*>(&probe);
+    bool slots = message_rich_item_layout_valid(zero) && message_rich_item_layout_equal(zero, probe);
+    for (u32 index = 0; index < sizeof(probe) / sizeof(float); ++index) {
+        for (const float value : bad) {
+            values[index] = value;
+            slots &= !message_rich_item_layout_valid(probe) && !message_rich_item_layout_equal(probe, zero);
+        }
+        values[index] = -0.0f;
+        slots &= message_rich_item_layout_valid(probe) && message_rich_item_layout_equal(probe, zero);
+        values[index] = 0.0f;
+    }
+    check(slots, "chat_item_layout_scans_test_each_slot");
+    const auto heights_valid = [&](float height) noexcept {
+        for (float& slot : probe.heights)
+            slot = height;
+        return message_rich_item_layout_valid(probe);
+    };
+    check(heights_valid(8'192.0f) && heights_valid(15'000.0f) && !heights_valid(20'000.0f),
+          "chat_item_layout_height_sum_keeps_its_bound");
+}
 } // namespace
 
 void test_chat_display(Check check) noexcept {
     test_rich_display(check);
     test_animation_policy(check);
     test_emoticons(check);
+    test_item_layout_scans(check);
     test_hairlines_and_spine(check);
 }
 } // namespace maicord

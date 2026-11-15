@@ -1,5 +1,6 @@
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"
+#include "../../../../src/ui/chat/messages/local_day.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/chat/messages/action_bar.hpp"
@@ -7,6 +8,7 @@
 #include "maicord/ui/chat/messages/unread_divider.hpp"
 #include "maicord/app/chat/messages/send_tracker.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/os/local_time.hpp"
 
 namespace maicord {
 namespace {
@@ -197,6 +199,113 @@ void test_pending_grouping(void (*check)(bool, const char*) noexcept) noexcept {
           "pending_reply_carries_its_quote_and_echo_keeps_header_and_height");
     message_scene_release(&f.scene);
 }
+
+// The first second of the local day that holds an instant, in the zone the test runs in.
+bool local_day_start(i64 unix_seconds, i64* start) noexcept {
+    CalendarTime local{};
+    if (!local_time_from_unix(unix_seconds, &local))
+        return false;
+    local.wHour = local.wMinute = local.wSecond = local.wMilliseconds = 0;
+    return local_time_to_unix(local, start);
+}
+
+// One author writes across two local midnights. A message of the next local day starts a group, also when it comes
+// one second after the last one. Noon of a day is on that date for every clock change.
+void test_local_day_grouping(void (*check)(bool, const char*) noexcept) noexcept {
+    i64 day = 0, first = 0, second = 0;
+    const bool days = local_day_start(1'700'000'000, &day) && local_day_start(day + 36 * 3'600, &first) &&
+        local_day_start(first + 36 * 3'600, &second) && first > day && second > first;
+    const i64 seconds[count]{first - 130, first - 70, first - 1, first, first + 60, second - 30, second - 1, second + 1};
+    const bool grouped[count]{false, true, true, false, true, false, true, false};
+    for (u32 owned = 0; owned < 2; ++owned) {
+        Fixture& f = fixture;
+        bool ready = days &&
+            message_store_initialize(&f.store, {f.records, count}, {f.order, count}, {f.text, sizeof(f.text)}) &&
+            message_rich_store_initialize(&f.rich, {f.rich_records, count}, {f.rich_order, count}, {f.rich_text, sizeof(f.rich_text)});
+        for (u32 i = 0; ready && i < count; ++i)
+            ready = message_store_upsert(&f.store, {100 + i, 7, 9, static_cast<u64>(seconds[i]) * 1'000ull, 0,
+                                                    utf8_literal("message"), 0}).ok();
+        ready = ready &&
+            ui_variable_list_initialize(&f.list, {f.heights, count}, {f.fenwick, count}, count, ui_extent_units(57)) &&
+            message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000), false) &&
+            message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+            (owned ? message_scene_initialize_owned(&f.scene, &f.timeline, count, count,
+                {f.widget_storage, widgets}, {f.nodes, widgets}) :
+                message_scene_initialize(&f.scene, &f.timeline, {f.rows, count}, {f.widget_storage, widgets}, {f.nodes, widgets})) &&
+            message_scene_update(&f.scene, {0, 0, 740, 1000}).ok();
+        for (u32 i = 0; ready && i < count; ++i) {
+            const auto* row = message_scene_find_row(f.scene, i);
+            ready = row && row->grouped == grouped[i];
+        }
+        check(ready, owned ? "local_day_owned_group_ends_at_local_midnight" : "local_day_borrowed_group_ends_at_local_midnight");
+        message_scene_release(&f.scene);
+    }
+}
+
+// A zone one hour east of UTC. Its clocks go one hour forward at `forward` and back at `back`. The date of a reading
+// is its local day number, so two readings have one calendar_date only when they are on one local day.
+struct ClockChangeZone {
+    u64 forward, back;
+    u32 conversions = 0;
+    bool operator()(u64 second, CalendarTime* out) noexcept {
+        ++conversions;
+        const u64 local = second + 3'600 + (second >= forward && second < back ? 3'600 : 0);
+        const u64 day = local / 86'400, into = local % 86'400;
+        *out = {static_cast<u16>(day >> 9), static_cast<u16>(day >> 5 & 15), 0, static_cast<u16>(day & 31),
+                static_cast<u16>(into / 3'600), static_cast<u16>(into / 60 % 60), static_cast<u16>(into % 60), 0};
+        return true;
+    }
+};
+
+// The dates of a run (local_day.hpp) against a conversion for each message, for pairs of messages as the group
+// test asks for them, in timeline order or against it.
+bool run_dates_match(ClockChangeZone zone, u64 first, u64 last, u64 step, bool backward) noexcept {
+    using namespace message_scene_detail;
+    ClockChangeZone reference = zone;
+    MessageLocalDay run;
+    bool same = true;
+    for (u64 at = first; same && at <= last; at += step) {
+        const u64 second = backward ? last - (at - first) : at;
+        const u64 pair[]{second, second + 61};
+        for (const u64 query : pair) {
+            CalendarTime local{};
+            u32 date = 0;
+            same = same && reference(query, &local) &&
+                   local_day_date(query, &run, &date,
+                                  [&](u64 value, CalendarTime* reading) noexcept { return zone(value, reading); }) &&
+                   date == calendar_date(local);
+        }
+    }
+    return same;
+}
+
+// The clocks change at 02:00, at local midnight, and 30 minutes after local midnight (the date goes back for a
+// time). Messages lie on the two sides of each change and of each midnight, one for each second near the changes.
+void test_clock_change_days(void (*check)(bool, const char*) noexcept) noexcept {
+    using namespace message_scene_detail;
+    constexpr u64 day = 86'400, midnight = 19'700 * day - 3'600;
+    const ClockChangeZone zones[]{{midnight + day + 7'200, midnight + 3 * day + 7'200},
+                                  {midnight + day, midnight + 3 * day - 3'600},
+                                  {midnight + day + 1'800, midnight + 3 * day - 1'800}};
+    bool same = true;
+    for (const auto& zone : zones)
+        for (u32 backward = 0; backward < 2; ++backward)
+            same = same && run_dates_match(zone, midnight - day, midnight + 5 * day, 419, backward != 0) &&
+                   run_dates_match(zone, zone.forward - 8'000, zone.forward + 8'000, 1, backward != 0) &&
+                   run_dates_match(zone, zone.back - 8'000, zone.back + 8'000, 1, backward != 0);
+    check(same, "local_day_run_gives_the_date_of_a_conversion_on_days_with_a_clock_change");
+    // Without a clock change the messages of a day cost two conversions.
+    ClockChangeZone plain{~0ull, ~0ull};
+    MessageLocalDay run;
+    bool dated = true;
+    for (u64 second = midnight; second < midnight + 6 * day; second += 45) {
+        u32 date = 0;
+        dated = dated && local_day_date(second, &run, &date, [&](u64 value, CalendarTime* reading) noexcept {
+                    return plain(value, reading);
+                }) && date == (second + 3'600) / day;
+    }
+    check(dated && plain.conversions == 12, "local_day_run_converts_two_times_for_the_messages_of_a_day");
+}
 }
 
 void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
@@ -350,5 +459,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         message_scene_release(&f.scene);
     }
     test_pending_grouping(check);
+    test_local_day_grouping(check);
+    test_clock_change_days(check);
 }
 } // namespace maicord

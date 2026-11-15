@@ -417,6 +417,9 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
 Utf8View message_rich_store_string(const MessageRichStore& store, MessageRichString value) noexcept;
 const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
                                                      u64 outer_message_id) noexcept;
+// The same for a caller that holds the outer record of the store: no search for the id.
+const MessageRichRecord* message_rich_store_snapshot_of(const MessageRichStore& store,
+                                                        const MessageRichRecord& outer) noexcept;
 bool message_rich_store_delete(MessageRichStore* store, u64 message_id) noexcept;
 bool message_rich_store_reset(MessageRichStore* store) noexcept;
 

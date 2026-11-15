@@ -25,12 +25,12 @@ float row_required_height(const MessageScene& scene, const MessageSceneRowWidget
                           const MessageRichRecord* rich) noexcept;
 const MessageRichRecord* snapshot_rich(const MessageScene& scene, u64 message_id) noexcept;
 bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) noexcept;
-bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept;
 void clear_materialization(MessageScene* scene) noexcept;
 u64 focused_message(const MessageScene& scene) noexcept;
 bool materialization_matches(const MessageScene& scene, u32 first, u32 count) noexcept;
-bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_index,
-                 bool preserve_measurement, bool* data_changed) noexcept;
+// Refreshes a retained row from its message and applies its layout specs.
+bool refresh_retained_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_index,
+                          bool* data_changed) noexcept;
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept;
 bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept;
 inline const UiThemeMetrics& metrics(const MessageScene& scene) noexcept {

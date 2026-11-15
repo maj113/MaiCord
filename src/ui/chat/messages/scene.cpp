@@ -15,8 +15,9 @@ inline constexpr u32 kMessageRootWidgetId = 1;
 MessageSceneResult scene_error(MessageScene* scene, MessageSceneError error) noexcept {
     return MessageSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0, false};
 }
+} // namespace
 
-void invalidate_geometry(MessageScene* scene) noexcept {
+void message_scene_invalidate_geometry(MessageScene* scene) noexcept {
     scene->prepared_signature = 0;
     scene->dirty = true;
     message_scene_detail::clear_measurements(scene);
@@ -35,7 +36,6 @@ void invalidate_geometry(MessageScene* scene) noexcept {
         row.measured_width = -1;
     }
 }
-} // namespace
 
 bool message_scene_bind_theme_styles(MessageScene* scene, const UiResolvedThemeStyles* styles) noexcept {
     const u32 revision = styles && styles->ready ? styles->geometry_revision : 0;
@@ -43,12 +43,8 @@ bool message_scene_bind_theme_styles(MessageScene* scene, const UiResolvedThemeS
         return false;
     scene->theme_styles = styles;
     scene->theme_geometry_revision = revision;
-    invalidate_geometry(scene);
+    message_scene_invalidate_geometry(scene);
     return true;
-}
-
-void message_scene_invalidate_geometry(MessageScene* scene) noexcept {
-    invalidate_geometry(scene);
 }
 
 MessageMediaPolicyResult message_scene_media_policy(const MessageScene& scene,
@@ -62,7 +58,7 @@ bool message_scene_set_media_policy(MessageScene* scene, const MessageMediaPolic
         scene->media_policy.revision == policy.revision)
         return false;
     scene->media_policy = policy;
-    invalidate_geometry(scene);
+    message_scene_invalidate_geometry(scene);
     return true;
 }
 
@@ -121,7 +117,7 @@ bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
     if (!message_media_reveal(&scene->media_reveals, reveal_key))
         return false;
     // Blocked notices and blur labels can differ in height from previews.
-    invalidate_geometry(scene);
+    message_scene_invalidate_geometry(scene);
     return true;
 }
 
@@ -134,7 +130,7 @@ bool message_scene_set_interaction(MessageScene* scene, const MessageSceneIntera
                                 (interaction.failed && current.message_id != interaction.message_id);
     scene->interaction = interaction;
     if (notice_changed)
-        invalidate_geometry(scene);
+        message_scene_invalidate_geometry(scene);
     else
         scene->dirty = true;
     return true;
@@ -166,7 +162,7 @@ bool message_scene_bind_invite_cards(MessageScene* scene, const InviteCardCache*
     if (!scene || scene->invite_cards == cache)
         return false;
     scene->invite_cards = cache;
-    invalidate_geometry(scene);
+    message_scene_invalidate_geometry(scene);
     return true;
 }
 
@@ -187,7 +183,7 @@ bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) n
          scene->display.compact_avatars == value.compact_avatars))
         return false;
     scene->display = value;
-    invalidate_geometry(scene);
+    message_scene_invalidate_geometry(scene);
     return true;
 }
 
@@ -754,10 +750,8 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         for (u32 local = 0; local < range.count; ++local) {
             if (unchanged && !scene->rows[local].poll_content_revision)
                 continue;
-            if (!refresh_row(scene, &scene->rows[local], range.first + local, true, &data_changed) ||
-                !apply_row_specs(scene, &scene->rows[local])) {
+            if (!refresh_retained_row(scene, &scene->rows[local], range.first + local, &data_changed))
                 return scene_error(scene, MessageSceneError::model);
-            }
         }
     } else {
         const u64 restore_focus = focused_message(*scene);
@@ -852,32 +846,25 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
                               scroll_only ? scroll_shift : 0.0f};
 }
 
+// A scroll of the timeline marks the scene for an update that can only move its rows.
+static bool note_scroll(MessageScene* scene, bool scrolled, const bool* changed) noexcept {
+    scene->scroll_dirty = scene->scroll_dirty || (scrolled && *changed);
+    return scrolled;
+}
+
 bool message_scene_scroll_by(MessageScene* scene, i64 delta_units, u64 bottom_tolerance_units,
                              bool* changed) noexcept {
-    if (!scene->timeline ||
-        !message_timeline_scroll_by(scene->timeline, delta_units, bottom_tolerance_units, changed)) {
-        return false;
-    }
-    scene->scroll_dirty = scene->scroll_dirty || *changed;
-    return true;
+    return note_scroll(scene, scene->timeline && message_timeline_scroll_by(scene->timeline, delta_units,
+                                                                           bottom_tolerance_units, changed),
+                       changed);
 }
 
 bool message_scene_scroll_to_start(MessageScene* scene, bool* changed) noexcept {
-    if (!scene->timeline ||
-        !message_timeline_scroll_to_start(scene->timeline, changed)) {
-        return false;
-    }
-    scene->scroll_dirty = scene->scroll_dirty || *changed;
-    return true;
+    return note_scroll(scene, scene->timeline && message_timeline_scroll_to_start(scene->timeline, changed), changed);
 }
 
 bool message_scene_scroll_to_bottom(MessageScene* scene, bool* changed) noexcept {
-    if (!scene->timeline ||
-        !message_timeline_scroll_to_bottom(scene->timeline, changed)) {
-        return false;
-    }
-    scene->scroll_dirty = scene->scroll_dirty || *changed;
-    return true;
+    return note_scroll(scene, scene->timeline && message_timeline_scroll_to_bottom(scene->timeline, changed), changed);
 }
 
 bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float reply_height,
@@ -1123,10 +1110,7 @@ MessageSceneHit message_scene_hit_test(const MessageScene& scene, float x, float
     const MessageSceneRowWidget* row = message_scene_resolve(scene, widget);
     if (!row)
         return {};
-    const auto divider = message_scene_unread_divider_rectangle(scene, *row);
-    if (ui_rect_has_area(divider) && ui_rect_contains(divider, x, y))
-        return {};
-    // The channel-beginning block is not part of the first message.
+    // The channel-beginning block and the unread divider are not part of the message: its rectangle starts below them.
     if (y < message_scene_message_rectangle(scene, *row).top)
         return {};
     // Rich children retain their own widget clipping during intrinsic-height

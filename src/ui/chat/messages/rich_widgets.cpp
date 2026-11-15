@@ -161,9 +161,6 @@ bool build_preflight(UiWidgetManager& manager, UiWidgetHandle parent, u32 row_wi
 } // namespace
 
 void message_rich_widgets_reset_handles(MessageSceneRowWidget* row) noexcept {
-    if (!row) {
-        return;
-    }
     row->attachments = ui_widget_invalid_handle();
     row->embeds = ui_widget_invalid_handle();
     row->stickers = ui_widget_invalid_handle();
@@ -209,11 +206,16 @@ bool message_rich_widgets_structure_matches(const MessageSceneRowWidget& row, co
 bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent, u32 row_widget_id,
                                 const MessageRichRecord* rich, MessageSceneRowWidget* row, u32 invites,
                                 bool edited) noexcept {
-    if (!manager || !row ||
-        !build_preflight(*manager, parent, row_widget_id, rich, row->poll_content_revision != 0, invites, edited)) {
+    if (!build_preflight(*manager, parent, row_widget_id, rich, row->poll_content_revision != 0, invites, edited))
         return false;
-    }
     message_rich_widgets_reset_handles(row);
+    row->reaction_button_count = rich ? rich->reaction_count : 0;
+    row->attachment_item_count = rich ? rich->attachment_count : 0;
+    row->embed_item_count = rich ? rich->embed_count : 0;
+    row->sticker_item_count = rich ? rich->sticker_count : 0;
+    row->component_item_count = rich ? rich->component_count : 0;
+    row->notice_item_count = rich && rich->truncations != 0 ? 1 : 0;
+    row->invite_item_count = static_cast<u8>(invites);
     if (row->poll_content_revision) {
         const auto poll =
             add_item(manager, parent, row_widget_id + kMessageSceneWidgetsPerContent - 1u, "Poll",
@@ -226,21 +228,16 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
             return false;
         row->poll = poll.handle;
     }
-    const u32 attachment_total = rich ? rich->attachment_count : 0;
-    const u32 embed_total = rich ? rich->embed_count : 0;
-    const u32 sticker_total = rich ? rich->sticker_count : 0;
-    const u32 component_total = rich ? rich->component_count : 0;
-    const u32 reaction_total = rich ? rich->reaction_count : 0;
     const UiWidgetResult attachments = add_group(manager, parent, row_widget_id + 6u, "Attachments",
-                                                 row->rich_layout.attachments, attachment_total != 0, false);
-    const UiWidgetResult embeds =
-        add_group(manager, parent, row_widget_id + 7u, "Embeds", row->rich_layout.embeds, embed_total != 0, false);
+                                                 row->rich_layout.attachments, row->attachment_item_count != 0, false);
+    const UiWidgetResult embeds = add_group(manager, parent, row_widget_id + 7u, "Embeds", row->rich_layout.embeds,
+                                            row->embed_item_count != 0, false);
     const UiWidgetResult stickers =
-        add_group(manager, parent, row_widget_id + 8u, "Stickers", row->rich_layout.stickers, sticker_total != 0,
-                  false, kDefaultMessageStickerLayoutMetrics.gap);
+        add_group(manager, parent, row_widget_id + 8u, "Stickers", row->rich_layout.stickers,
+                  row->sticker_item_count != 0, false, kDefaultMessageStickerLayoutMetrics.gap);
     const UiWidgetResult components =
         add_group(manager, parent, row_widget_id + 9u, "Components", row->rich_layout.components,
-                  component_total != 0, false, message_component_root_gap(rich));
+                  row->component_item_count != 0, false, message_component_root_gap(rich));
     const UiWidgetResult invite_group =
         add_group(manager, parent, row_widget_id + 13u, "Invites", row->rich_layout.invites, invites != 0, false,
                   kMessageInviteCardGap);
@@ -248,7 +245,7 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     const UiWidgetResult edited_group = add_group(manager, parent, row_widget_id + 14u, "Edited",
                                                   row->rich_layout.edited, edited, false);
     const UiWidgetResult reactions = add_group(manager, parent, row_widget_id + 10u, "Reactions",
-                                               row->rich_layout.reactions, reaction_total != 0, true);
+                                               row->rich_layout.reactions, row->reaction_button_count != 0, true);
     const UiWidgetResult notice =
         add_group(manager, parent, row_widget_id + 11u, "Notice", row->rich_layout.notice, true, false);
     const bool thread_card = row->rich_layout.thread > 0.0f;
@@ -266,7 +263,6 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     }
     row->invites = invite_group.handle;
     row->edited = edited_group.handle;
-    row->invite_item_count = static_cast<u8>(invites);
     row->thread = thread.handle;
     row->attachments = attachments.handle;
     row->embeds = embeds.handle;
@@ -274,12 +270,6 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     row->components = components.handle;
     row->reactions = reactions.handle;
     row->notice = notice.handle;
-    row->reaction_button_count = rich ? rich->reaction_count : 0;
-    row->attachment_item_count = rich ? rich->attachment_count : 0;
-    row->embed_item_count = rich ? rich->embed_count : 0;
-    row->sticker_item_count = rich ? rich->sticker_count : 0;
-    row->component_item_count = rich ? rich->component_count : 0;
-    row->notice_item_count = rich && rich->truncations != 0 ? 1 : 0;
     row->component_structure = message_component_structure(rich);
 
     for (u32 index = 0; index < row->reaction_button_count; ++index) {
@@ -312,18 +302,18 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     };
     for (u32 index = 0; index < row->attachment_item_count; ++index)
         if (!add_slot(attachments.handle, kMessageRichAttachmentItemOffset + index, "AttachmentItem",
-                      rich && rich->attachments[index].url.bytes != 0))
+                      rich->attachments[index].url.bytes != 0))
             return false;
     for (u32 index = 0; index < row->embed_item_count; ++index)
         if (!add_slot(embeds.handle, kMessageRichEmbedItemOffset + index, "EmbedItem",
-                      rich && rich->embeds[index].url.bytes != 0 && message_rich_display().embeds))
+                      rich->embeds[index].url.bytes != 0 && message_rich_display().embeds))
             return false;
     for (u32 index = 0; index < row->sticker_item_count; ++index)
         if (!add_slot(stickers.handle, kMessageRichStickerItemOffset + index, "StickerItem", true))
             return false;
     for (u32 index = 0; index < row->component_item_count; ++index) {
         const u32 slot = kMessageRichComponentItemOffset + index;
-        const bool interactive = rich && message_component_hit_target(rich->components[index]);
+        const bool interactive = message_component_hit_target(rich->components[index]);
         const u16 parent_index = rich->components[index].parent;
         const auto component_parent =
             parent_index == 0xFFFFu ? components.handle
@@ -338,9 +328,8 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
                           message_component_style(*rich, index, row->rich_item_layout),
                           {},
                           rich_id + slot}});
-        if (!item.ok()) {
+        if (!item.ok())
             return false;
-        }
         row->rich_items[slot] = item.handle;
     }
     for (u32 index = 0; index < row->invite_item_count; ++index)
@@ -351,9 +340,8 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
         const UiWidgetResult item =
             add_item(manager, notice.handle, rich_id + slot, "NoticeItem", UiWidgetKind::text,
                      ui_widget_enabled, row->rich_item_layout.heights[slot]);
-        if (!item.ok()) {
+        if (!item.ok())
             return false;
-        }
         row->rich_items[slot] = item.handle;
     }
     return true;
@@ -361,8 +349,7 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
 
 bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecord* rich,
                                 MessageSceneRowWidget* row) noexcept {
-    if (!manager || !row ||
-        !message_rich_widgets_structure_matches(*row, rich, row->poll_content_revision != 0,
+    if (!message_rich_widgets_structure_matches(*row, rich, row->poll_content_revision != 0,
                                                 row->invite_item_count, row->edited.slot != kInvalidUiWidgetSlot) ||
         !set_group_height(manager, row->edited, row->rich_layout.edited) ||
         !set_group_height(manager, row->invites, row->rich_layout.invites) ||
@@ -385,51 +372,44 @@ bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecor
             return false;
         poll->flags |= ui_widget_block_input;
     }
+    // The structure matches, so a row with items has a rich record with the same counts.
     for (u32 index = 0; index < row->reaction_button_count; ++index) {
-        if (!rich || !set_fixed_width(manager, row->reaction_buttons[index],
-                                      row->reaction_widths[index] > 0.0f
-                                          ? row->reaction_widths[index]
-                                          : message_rich_reaction_button_width(rich->reactions[index])) ||
+        if (!set_fixed_width(manager, row->reaction_buttons[index],
+                             row->reaction_widths[index] > 0.0f
+                                 ? row->reaction_widths[index]
+                                 : message_rich_reaction_button_width(rich->reactions[index])) ||
             !set_interaction(manager, row->reaction_buttons[index], message_rich_display().reactions)) {
             return false;
         }
     }
-    const u32 counts[6]{row->attachment_item_count, row->embed_item_count, row->sticker_item_count,
-                        row->component_item_count, row->notice_item_count, row->invite_item_count};
-    const MessageSceneRichItemKind kinds[6]{
-        MessageSceneRichItemKind::attachment, MessageSceneRichItemKind::embed,
-        MessageSceneRichItemKind::sticker, MessageSceneRichItemKind::component,
-        MessageSceneRichItemKind::notice, MessageSceneRichItemKind::invite};
-    for (u32 kind_index = 0; kind_index < 6; ++kind_index) {
-        for (u32 item = 0; item < counts[kind_index]; ++item) {
-            u32 slot = 0;
-            if (!message_rich_item_slot(kinds[kind_index], item, &slot) ||
-                !set_fixed_height(manager, row->rich_items[slot], row->rich_item_layout.heights[slot])) {
+    const u32 items[6][2]{{kMessageRichAttachmentItemOffset, row->attachment_item_count},
+                          {kMessageRichEmbedItemOffset, row->embed_item_count},
+                          {kMessageRichStickerItemOffset, row->sticker_item_count},
+                          {kMessageRichComponentItemOffset, row->component_item_count},
+                          {kMessageRichNoticeItemOffset, row->notice_item_count},
+                          {kMessageRichInviteItemOffset, row->invite_item_count}};
+    for (const auto& kind : items)
+        for (u32 slot = kind[0]; slot < kind[0] + kind[1]; ++slot)
+            if (!set_fixed_height(manager, row->rich_items[slot], row->rich_item_layout.heights[slot]))
                 return false;
-            }
-        }
-    }
     for (u32 index = 0; index < row->component_item_count; ++index) {
-        const bool interactive = rich && message_component_hit_target(rich->components[index]);
-        auto* node = ui_widget_manager_layout_node(manager, row->rich_items[kMessageRichComponentItemOffset + index]);
-        if (!node || !rich)
+        const UiWidgetHandle item = row->rich_items[kMessageRichComponentItemOffset + index];
+        auto* node = ui_widget_manager_layout_node(manager, item);
+        if (!node)
             return false;
         node->spec.style = message_component_style(*rich, index, row->rich_item_layout);
-        if (!set_interaction(manager, row->rich_items[kMessageRichComponentItemOffset + index],
-                             interactive)) {
+        if (!set_interaction(manager, item, message_component_hit_target(rich->components[index])))
             return false;
-        }
     }
     for (u32 index = 0; index < row->attachment_item_count; ++index) {
         if (!set_interaction(manager, row->rich_items[kMessageRichAttachmentItemOffset + index],
-                             rich && rich->attachments[index].url.bytes != 0))
+                             rich->attachments[index].url.bytes != 0))
             return false;
     }
     for (u32 index = 0; index < row->embed_item_count; ++index) {
-        const bool interactive = rich && rich->embeds[index].url.bytes != 0 && message_rich_display().embeds;
-        if (!set_interaction(manager, row->rich_items[kMessageRichEmbedItemOffset + index], interactive)) {
+        if (!set_interaction(manager, row->rich_items[kMessageRichEmbedItemOffset + index],
+                             rich->embeds[index].url.bytes != 0 && message_rich_display().embeds))
             return false;
-        }
     }
     return true;
 }

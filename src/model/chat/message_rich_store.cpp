@@ -1023,7 +1023,7 @@ bool message_rich_store_advance_revision(MessageRichStore* store, u64 message_id
         return false;
     auto& parent = store->records[found.slot];
     if (parent.has_forwarded_snapshot) {
-        if (!snapshot_of(*store, parent))
+        if (!message_rich_store_snapshot_of(*store, parent))
             return false;
         store->records[parent.forwarded_snapshot_slot].message_revision = next_revision;
     }
@@ -1158,8 +1158,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     return result;
 }
 
-namespace message_rich_store_detail {
-const MessageRichRecord* snapshot_of(const MessageRichStore& store, const MessageRichRecord& outer) noexcept {
+const MessageRichRecord* message_rich_store_snapshot_of(const MessageRichStore& store,
+                                                        const MessageRichRecord& outer) noexcept {
     if (!outer.has_forwarded_snapshot || outer.forwarded_snapshot_child ||
         outer.forwarded_snapshot_slot >= store.record_extent)
         return nullptr;
@@ -1169,14 +1169,13 @@ const MessageRichRecord* snapshot_of(const MessageRichStore& store, const Messag
                ? &child
                : nullptr;
 }
-} // namespace message_rich_store_detail
 
 const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
                                                      u64 outer_message_id) noexcept {
     if (!store.records || !store.order)
         return nullptr;
     const auto found = find_record(store, outer_message_id);
-    return found.found ? snapshot_of(store, store.records[found.slot]) : nullptr;
+    return found.found ? message_rich_store_snapshot_of(store, store.records[found.slot]) : nullptr;
 }
 
 MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 message_id,
@@ -1187,7 +1186,7 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         return {nullptr, MessageRichStoreError::invalid_input, false, false};
     const auto found = find_record(*store, message_id);
     const auto* outer = found.found ? &store->records[found.slot] : nullptr;
-    const auto* previous = outer ? snapshot_of(*store, *outer) : nullptr;
+    const auto* previous = outer ? message_rich_store_snapshot_of(*store, *outer) : nullptr;
     if (outer && outer->has_forwarded_snapshot && !previous)
         return {nullptr, MessageRichStoreError::corrupt_state, false, false};
     const bool supplied = (input.fields & gateway_message_field_message_snapshots) != 0;

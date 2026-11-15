@@ -1,5 +1,6 @@
 #include "scene_measurements.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord::message_scene_detail {
 namespace {
@@ -8,12 +9,15 @@ u32 item_slot(const MessageScene& scene, u32 slot, bool snapshot) noexcept {
     return snapshot ? slot + scene.timeline->store->capacity : slot;
 }
 
-// Every member is a float: a word per step, not a byte (this runs for every measured row).
+// Every member is a float: eight for each step, and the last step reads the last eight again (this runs for every
+// measured row).
 bool items_zero(const MessageSceneRichItemLayout& items) noexcept {
-    const auto* words = reinterpret_cast<const u32*>(&items);
-    u32 any = 0;
-    for (u32 i = 0; i < sizeof(items) / sizeof(u32); ++i) any |= words[i];
-    return any == 0;
+    constexpr u32 count = sizeof(items) / sizeof(float);
+    const auto* bytes = reinterpret_cast<const u8*>(&items);
+    __v8su any{};
+    for (u32 i = 0; i < count; i += 8)
+        any |= (__v8su)_mm256_loadu_ps(reinterpret_cast<const float*>(bytes + minimum(i, count - 8) * sizeof(float)));
+    return __builtin_reduce_or(any) == 0;
 }
 } // namespace
 

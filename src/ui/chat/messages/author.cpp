@@ -210,6 +210,9 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
 
 MessageProfileHit message_author_compact_hit(const MessageScene& scene, const MessageTextCommand& command,
                                              UiTextMeasureCache* cache, float x, float y) noexcept {
+    // The hit rectangle is inside the command's clip, so a point outside the clip needs no measurement.
+    if (!ui_rect_contains(command.clip, x, y))
+        return {};
     const auto* row = message_scene_resolve(scene, command.owner.handle);
     // The name is the first bold span: a plugin name prefix (a non-bold span), the author's avatar cell and the role
     // dot's cell (compact_content) may precede it.
@@ -261,8 +264,14 @@ MessageProfileHit message_author_compact_hit(const MessageScene& scene, const Me
     return {record->author_id, bounds};
 }
 
-// The row whose author line owns the command; null for grouped rows and foreign commands.
-static const MessageSceneRowWidget* command_row(const MessageScene& scene, const MessageTextCommand& c) noexcept {
+// The row whose author line owns the command and holds the point; null for grouped rows and foreign commands.
+// The layout clips each part of an author line to the command's clip, so only a command with the point in its clip
+// gets a layout. One copy serves the four hit tests.
+__declspec(noinline) static const MessageSceneRowWidget* command_row(const MessageScene& scene,
+                                                                     const MessageTextCommand& c, float x,
+                                                                     float y) noexcept {
+    if (!ui_rect_contains(c.clip, x, y))
+        return nullptr;
     const auto* row = message_scene_resolve(scene, c.owner.handle);
     return row && !row->grouped && c.owner.manager == &scene.widgets && c.owner.handle.slot == row->author.slot &&
                    c.owner.handle.generation == row->author.generation && c.message_id == row->message_id
@@ -289,7 +298,7 @@ MessageProfileHit message_author_hit_test(const MessageScene& scene,
     }
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = command_row(scene, command);
+        const auto* row = command_row(scene, command, x, y);
         if (!row || command.message_revision != row->message_revision)
             continue;
         MessageAuthorLayout header;
@@ -314,7 +323,7 @@ MessageGuildTagHit message_author_guild_tag_hit_test(const MessageScene& scene, 
         return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        if (!command_row(scene, command))
+        if (!command_row(scene, command, x, y))
             continue;
         MessageAuthorLayout header;
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) || !header.badge.leading ||
@@ -335,7 +344,7 @@ MessageAppCheckHit message_author_app_check_hit_test(const MessageScene& scene, 
         return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = command_row(scene, command);
+        const auto* row = command_row(scene, command, x, y);
         if (!row || command.message_revision != row->message_revision)
             continue;
         MessageAuthorLayout header;
@@ -356,7 +365,7 @@ MessagePluginSlotHit message_author_plugin_hit_test(const MessageScene& scene, c
         !ui_rect_contains(scene.viewport, x, y)) return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = command_row(scene, command);
+        const auto* row = command_row(scene, command, x, y);
         if (!row)
             continue;
         MessageAuthorLayout header;

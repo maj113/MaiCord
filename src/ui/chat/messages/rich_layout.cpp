@@ -8,6 +8,7 @@
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {
@@ -147,15 +148,33 @@ bool message_rich_layout_equal(const MessageRichLayout& left, const MessageRichL
            left.invites == right.invites && left.edited == right.edited;
 }
 
-// Every MessageRichItemLayout member is a float extent.
+// Every MessageRichItemLayout member is a float extent. The scans read eight floats for each step, and the last
+// step reads the last eight again.
 constexpr u32 kItemLayoutFloats = sizeof(MessageRichItemLayout) / sizeof(float);
-static_assert(sizeof(MessageRichItemLayout) == kItemLayoutFloats * sizeof(float));
+static_assert(sizeof(MessageRichItemLayout) == kItemLayoutFloats * sizeof(float) && kItemLayoutFloats >= 8);
+// The sum of item heights this small cannot pass kMaximumUiCoordinate: each step of the sum is at most a multiple
+// of the bound, and a float holds that multiple exactly.
+constexpr float kItemLayoutSmallExtent = 8'192.0f;
+static_assert(kMessageRichItemMaximum * kItemLayoutSmallExtent <= kMaximumUiCoordinate);
+
+// Eight floats of a layout made only of floats, from float index `at`. The pointer moves in bytes, then the load reads
+// floats.
+static __forceinline __m256 layout_floats(const void* layout, u32 at) noexcept {
+    return _mm256_loadu_ps(reinterpret_cast<const float*>(static_cast<const u8*>(layout) + at * sizeof(float)));
+}
 
 bool message_rich_item_layout_valid(const MessageRichItemLayout& layout) noexcept {
-    const auto* values = reinterpret_cast<const float*>(&layout);
-    for (u32 index = 0; index < kItemLayoutFloats; ++index)
-        if (!ui_extent_valid(values[index]))
-            return false;
+    __v8su valid = ~__v8su{}, small = ~__v8su{};
+    for (u32 index = 0; index < kItemLayoutFloats; index += 8) {
+        const __v8sf lane = (__v8sf)layout_floats(&layout, minimum(index, kItemLayoutFloats - 8));
+        // The tests of ui_extent_valid: a NaN fails the two comparisons.
+        valid &= (__v8su)((lane >= 0.0f) & (lane <= kMaximumUiCoordinate));
+        small &= (__v8su)(lane <= kItemLayoutSmallExtent);
+    }
+    if (!__builtin_reduce_and(valid))
+        return false;
+    if (__builtin_reduce_and(small))
+        return true;
     float total = 0.0f;
     for (float height : layout.heights)
         total += height;
@@ -164,12 +183,12 @@ bool message_rich_item_layout_valid(const MessageRichItemLayout& layout) noexcep
 
 bool message_rich_item_layout_equal(const MessageRichItemLayout& left,
                                     const MessageRichItemLayout& right) noexcept {
-    const auto* a = reinterpret_cast<const float*>(&left);
-    const auto* b = reinterpret_cast<const float*>(&right);
-    for (u32 index = 0; index < kItemLayoutFloats; ++index)
-        if (a[index] != b[index])
-            return false;
-    return true;
+    __v8su equal = ~__v8su{};
+    for (u32 index = 0; index < kItemLayoutFloats; index += 8) {
+        const u32 at = minimum(index, kItemLayoutFloats - 8);
+        equal &= (__v8su)((__v8sf)layout_floats(&left, at) == (__v8sf)layout_floats(&right, at));
+    }
+    return __builtin_reduce_and(equal) != 0;
 }
 
 bool message_rich_item_slot(MessageRichItemKind kind, u32 index, u32* slot) noexcept {

@@ -1,6 +1,7 @@
 #include "scene_internal.hpp"
 #include "maicord/ui/chat/messages/rich_widgets.hpp"
 #include "scene_measurements.hpp"
+#include "local_day.hpp"
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/os/local_time.hpp"
@@ -223,12 +224,22 @@ bool edited_tail(const MessageScene& scene, const MessageRecord& record) noexcep
            !plugin_folded(scene, record);
 }
 
-const MessageRichRecord* row_rich(const MessageScene& scene, const MessageRecord& record) noexcept {
-    if (plugin_folded(scene, record))
-        return nullptr;
+namespace {
+// The record that the rich store holds for a row, of any revision. Null for a row that a plugin folds.
+const MessageRichRecord* row_stored_rich(const MessageScene& scene, const MessageRecord& record) noexcept {
     const MessageRichStore* store = scene.timeline->rich_store;
-    const MessageRichRecord* rich = store ? message_rich_store_find(*store, record.id) : nullptr;
-    return rich && rich->message_revision == record.revision ? rich : nullptr;
+    return store && !plugin_folded(scene, record) ? message_rich_store_find(*store, record.id) : nullptr;
+}
+const MessageRichRecord* current_rich(const MessageRichRecord* stored, const MessageRecord& record) noexcept {
+    return stored && stored->message_revision == record.revision ? stored : nullptr;
+}
+// The forwarded snapshot of a stored record.
+const MessageRichRecord* stored_snapshot(const MessageScene& scene, const MessageRichRecord* stored) noexcept {
+    return stored ? message_rich_store_snapshot_of(*scene.timeline->rich_store, *stored) : nullptr;
+}
+} // namespace
+const MessageRichRecord* row_rich(const MessageScene& scene, const MessageRecord& record) noexcept {
+    return current_rich(row_stored_rich(scene, record), record);
 }
 
 const MessagePollRecord* row_poll(const MessageScene& scene, const MessageRecord& record) noexcept {
@@ -334,57 +345,33 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
     return true;
 }
 
-// local_time_from_unix rejects what it cannot convert (Windows: beyond year 9999).
-bool local_message_date(u64 timestamp_ms, u32* date) noexcept {
-    CalendarTime local{};
-    if (!local_time_from_unix(static_cast<i64>(timestamp_ms / 1'000ull), &local))
-        return false;
-    *date = static_cast<u32>(local.wYear) * 512u + static_cast<u32>(local.wMonth) * 32u + local.wDay;
-    return true;
+// The local date of a message (local_day.hpp). local_time_from_unix rejects what it cannot convert (Windows: beyond
+// year 9999).
+bool local_message_date(u64 timestamp_ms, MessageLocalDay* day, u32* date) noexcept {
+    return local_day_date(timestamp_ms / 1'000ull, day, date, [](u64 second, CalendarTime* local) noexcept {
+        return local_time_from_unix(static_cast<i64>(second), local);
+    });
 }
 
-struct MessageGroupDate {
-    u64 timestamp_ms;
-    u32 date;
-    bool ready = false;
-};
-
-bool message_group_neighbors(const MessageScene& scene, const MessageRecord& previous,
-                             const MessageRecord& current, MessageGroupDate* cached = nullptr) noexcept {
+bool message_group_neighbors(const MessageRecord& previous, const MessageRecord& current,
+                             const MessageRichRecord* current_rich, MessageLocalDay* day) noexcept {
     // System rows always stand alone and never start a group.
-    if (message_type_is_system(previous.type) || message_type_is_system(current.type)) {
-        if (cached) cached->ready = false;
+    if (message_type_is_system(previous.type) || message_type_is_system(current.type))
         return false;
-    }
     // Delivery state is not a boundary: a pending or failed send groups exactly
     // as its confirmed form will.
     if (previous.channel_id != current.channel_id || previous.author_id == 0 ||
         previous.author_id != current.author_id || previous.timestamp_ms == 0 ||
         current.timestamp_ms == 0 || current.timestamp_ms < previous.timestamp_ms ||
-        previous.content_availability != current.content_availability) {
-        if (cached) cached->ready = false;
+        previous.content_availability != current.content_availability)
         return false;
-    }
-    const MessageRichRecord* current_rich = row_rich(scene, current);
     // A reply starts a group; a subsequent plain message may continue it.
-    if (current_rich && message_rich_has_header(*current_rich)) {
-        if (cached) cached->ready = false;
+    if (current_rich && message_rich_has_header(*current_rich))
         return false;
-    }
     u32 previous_date = 0;
     u32 current_date = 0;
-    const bool previous_valid = cached && cached->ready && cached->timestamp_ms == previous.timestamp_ms
-                                    ? (previous_date = cached->date, true)
-                                    : local_message_date(previous.timestamp_ms, &previous_date);
-    if (cached) cached->ready = false;
-    if (!previous_valid || !local_message_date(current.timestamp_ms, &current_date))
-        return false;
-    if (cached) {
-        cached->timestamp_ms = current.timestamp_ms;
-        cached->date = current_date;
-        cached->ready = true;
-    }
-    return previous_date == current_date;
+    return local_message_date(previous.timestamp_ms, day, &previous_date) &&
+           local_message_date(current.timestamp_ms, day, &current_date) && previous_date == current_date;
 }
 
 bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, const MessageRichRecord* rich,
@@ -401,7 +388,8 @@ bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, cons
     const MessageStore& store = *scene.timeline->store;
     const MessageRecord* previous =
         message_store_resolve(store, message_scene_source_handle(scene, source_index - 1u));
-    if (!previous || !message_group_neighbors(scene, *previous, record)) {
+    MessageLocalDay day;
+    if (!previous || !message_group_neighbors(*previous, record, rich, &day)) {
         return false;
     }
 
@@ -416,7 +404,7 @@ bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, cons
         const MessageRecord* right =
             message_store_resolve(store, message_scene_source_handle(scene, run_first));
         if (!left || !right || right->id == scene.unread_first_message_id ||
-            !message_group_neighbors(scene, *left, *right)) {
+            !message_group_neighbors(*left, *right, row_rich(scene, *right), &day)) {
             break;
         }
         --run_first;
@@ -566,7 +554,8 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     const u32 source_count = message_scene_source_count(*scene);
     const MessageRichStore* rich_store = timeline.rich_store;
     const float width = available_text_width(*scene, viewport);
-    u64 epoch = hash_mix(kHash64Seed, ui_extent_units(width));
+    const u32 width_units = ui_extent_units(width);
+    u64 epoch = hash_mix(kHash64Seed, width_units);
     epoch = hash_mix(epoch, timeline.reset_generation);
     epoch = hash_mix(epoch, scene->theme_geometry_revision);
     epoch = hash_mix(epoch, scene->unread_revision);
@@ -623,7 +612,16 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     const MessageRecord* previous = nullptr;
     u64 group_start = 0;
     u64 previous_group_start = 0;
-    MessageGroupDate group_date;
+    MessageLocalDay day;
+    // The same for each message of the pass. The two entries are for an ungrouped and a grouped row.
+    const float minimum_height[2]{ungrouped_minimum(*scene), grouped_minimum(*scene)};
+    const float chrome_height[2]{
+        row_top_padding(*scene, false) + row_bottom_padding(*scene, false) + row_author_height(*scene, false),
+        row_top_padding(*scene, true) + row_bottom_padding(*scene, true) + row_author_height(*scene, true)};
+    const float card_height = result_card_leading(*scene) + result_card_trailing(*scene);
+    const float default_content = content_height(*scene), default_reply = reply_height(*scene);
+    const float snapshot_width = maximum(1.f, width - 2 * snapshot_padding(*scene));
+    const float divider_height = scene->unread_divider_style.height;
     for (u32 index = 0; index < source_count; ++index) {
         const MessageHandle handle = message_scene_source_handle(*scene, index);
         const MessageRecord* record = message_store_resolve(store, handle);
@@ -639,9 +637,10 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
                 return false;
             continue;
         }
-        const MessageRichRecord* rich = row_rich(*scene, *record);
+        const MessageRichRecord* stored = row_stored_rich(*scene, *record);
+        const MessageRichRecord* rich = current_rich(stored, *record);
         const bool divider = record->id == scene->unread_first_message_id;
-        const bool neighbors = previous && message_group_neighbors(*scene, *previous, *record, &group_date);
+        const bool neighbors = previous && message_group_neighbors(*previous, *record, rich, &day);
         const bool system = !scene->result_cards && message_type_is_system(record->type);
         const bool grouped = system || (!scene->result_cards && !divider && neighbors &&
                                         record->timestamp_ms - group_start < kMessageGroupIntervalMilliseconds);
@@ -658,17 +657,12 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
             // Borrowed scenes keep their measured row heights in the timeline even
             // after the widgets leave the viewport. A read-state change must not
             // replace them with body estimates, which can clamp a valid scroll anchor.
-            const float before = row_top_padding(*scene, previous_grouped) +
-                                 row_bottom_padding(*scene, previous_grouped) +
-                                 row_author_height(*scene, previous_grouped) +
-                                 (previous_divider ? scene->unread_prepared_height : 0);
-            const float after = row_top_padding(*scene, grouped) + row_bottom_padding(*scene, grouped) +
-                                row_author_height(*scene, grouped) +
-                                (divider ? scene->unread_divider_style.height : 0);
-            const float height = maximum(
-                (grouped ? grouped_minimum(*scene) : ungrouped_minimum(*scene)) +
-                    (divider ? scene->unread_divider_style.height : 0),
-                ui_extent_dips(ui_variable_list_item_units(*timeline.list, index)) + after - before);
+            const float before =
+                chrome_height[previous_grouped] + (previous_divider ? scene->unread_prepared_height : 0);
+            const float after = chrome_height[grouped] + (divider ? divider_height : 0);
+            const float height =
+                maximum(minimum_height[grouped] + (divider ? divider_height : 0),
+                        ui_extent_dips(ui_variable_list_item_units(*timeline.list, index)) + after - before);
             if (!ui_variable_list_set_height(timeline.list, index, ui_extent_units(height)))
                 return false;
             continue;
@@ -681,7 +675,7 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         key = hash_mix(key, handle.generation);
         key = hash_mix(key, record->revision);
         key = hash_mix(key, rich_layout_signature(rich));
-        key = hash_mix(key, ui_extent_units(width));
+        key = hash_mix(key, width_units);
         key = hash_mix(key, scene->theme_geometry_revision);
         // Compact group starts carry the author name inside the body text.
         if (scene->display.compact)
@@ -691,7 +685,7 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         if (cached->signature != key) {
             reset_value(cached);
             cached->signature = key;
-            cached->content_height = content_height(*scene);
+            cached->content_height = default_content;
             if (rich) {
                 MessageSceneRichItemLayout items;
                 message_rich_fill_item_layout(rich_store, rich, width, scene->theme_styles, items);
@@ -704,19 +698,16 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         cached->grouped = grouped;
         const float reply = !rich || !message_rich_has_header(*rich) ? 0.0f
                             : cached->measured                       ? cached->reply_height
-                                                                     : reply_height(*scene);
+                                                                     : default_reply;
         float poll_extent{};
         if (!poll_height(*scene, *record, handle, width, &poll_extent))
             return false;
         const float height =
-            result_card_leading(*scene) + result_card_trailing(*scene) + intro_index_height(*scene, index) +
-            (divider ? scene->unread_divider_style.height : 0) +
-            maximum(grouped ? grouped_minimum(*scene) : ungrouped_minimum(*scene),
-                    row_top_padding(*scene, grouped) + row_bottom_padding(*scene, grouped) +
-                        row_author_height(*scene, grouped) + reply + cached->content_height +
-                        cached->rich.total() + poll_extent +
-                        snapshot_estimated_height(scene, handle, snapshot_rich(*scene, record->id),
-                                                  maximum(1.f, width - 2 * snapshot_padding(*scene)), rich));
+            card_height + intro_index_height(*scene, index) + (divider ? divider_height : 0) +
+            maximum(minimum_height[grouped],
+                    chrome_height[grouped] + reply + cached->content_height + cached->rich.total() + poll_extent +
+                        snapshot_estimated_height(scene, handle, stored_snapshot(*scene, stored), snapshot_width,
+                                                  rich));
         if (!ui_variable_list_set_height(timeline.list, index, ui_extent_units(height)))
             return false;
     }
@@ -741,13 +732,16 @@ bool set_fixed_height(MessageScene* scene, UiWidgetHandle handle, float height) 
     return true;
 }
 
+// What refresh_row found for a row: its message and the record that the rich store holds for it.
+struct RowSource {
+    const MessageRecord* record;
+    const MessageRichRecord* stored;
+};
 } // namespace
-bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
-    const MessageRecord* record = message_store_resolve(*scene->timeline->store, row->message);
-    if (!record || record->id != row->message_id || row->source_index >= scene->timeline->list->count) {
-        return false;
-    }
-    const MessageRichRecord* rich = row_rich(*scene, *record);
+// After refresh_row: the row holds the message of `source`, and its index is inside the list.
+static bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row, const RowSource& source) noexcept {
+    const MessageRichRecord* stored = source.stored;
+    const MessageRichRecord* rich = current_rich(stored, *source.record);
     const float reply = row_reply_height(*scene, *row, rich);
     const float resident_height =
         ui_extent_dips(ui_variable_list_item_units(*scene->timeline->list, row->source_index));
@@ -782,7 +776,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
     avatar_node->spec.style.margin.top = row->grouped && !compact(*scene) ? 0.0f : reply;
     if (row->has_snapshot) {
         auto* child = const_cast<MessageSceneRowWidget*>(message_scene_snapshot_row(*scene, *row));
-        const auto* snapshot = snapshot_rich(*scene, row->message_id);
+        const auto* snapshot = stored_snapshot(*scene, stored);
         if (!child || !snapshot || !message_rich_widgets_apply(&scene->widgets, snapshot, child) ||
             !set_fixed_height(scene, child->widget,
                               row->snapshot_height - snapshot_following_gap(*scene, rich)) ||
@@ -817,8 +811,9 @@ bool row_identity_matches(const MessageScene& scene, const MessageSceneRowWidget
                           u32 source_index) noexcept {
     const MessageHandle handle = message_scene_source_handle(scene, source_index);
     const MessageRecord* record = message_store_resolve(*scene.timeline->store, handle);
-    const MessageRichRecord* rich = record ? row_rich(scene, *record) : nullptr;
-    const auto* snapshot = record ? snapshot_rich(scene, record->id) : nullptr;
+    const MessageRichRecord* stored = record ? row_stored_rich(scene, *record) : nullptr;
+    const MessageRichRecord* rich = record ? current_rich(stored, *record) : nullptr;
+    const auto* snapshot = stored_snapshot(scene, stored);
     const auto* child = message_scene_snapshot_row(scene, row);
     if (row.has_snapshot != (snapshot != nullptr) ||
         (snapshot && (!child || child->message_revision != record->revision ||
@@ -852,8 +847,8 @@ bool materialization_matches(const MessageScene& scene, u32 first, u32 count) no
     return true;
 }
 
-bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_index,
-                 bool preserve_measurement, bool* data_changed) noexcept {
+static bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_index,
+                        bool preserve_measurement, bool* data_changed, RowSource* source) noexcept {
     const MessageHandle handle = message_scene_source_handle(*scene, source_index);
     const MessageRecord* record = message_store_resolve(*scene->timeline->store, handle);
     if (!record) {
@@ -863,7 +858,9 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         row->message.generation != handle.generation || row->message_id != record->id ||
         row->message_revision != record->revision || record->revision == ~u32{0})
         row->invite_scan_negative = false;
-    const MessageRichRecord* rich = row_rich(*scene, *record);
+    const MessageRichRecord* stored = row_stored_rich(*scene, *record);
+    *source = {record, stored};
+    const MessageRichRecord* rich = current_rich(stored, *record);
     const u64 signature = rich_layout_signature(rich);
     const float width = available_text_width(*scene, scene->viewport);
     const auto* poll = row_poll(*scene, *record);
@@ -920,7 +917,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
             row_required_height(*scene, *child, nullptr) + snapshot_following_gap(*scene, rich);
     else
         row->snapshot_height =
-            snapshot_estimated_height(scene, handle, snapshot_rich(*scene, record->id),
+            snapshot_estimated_height(scene, handle, stored_snapshot(*scene, stored),
                                       maximum(1.f, width - 2 * snapshot_padding(*scene)), rich);
     if (text_identity_changed || !row->rich_layout_measured) {
         // A cached measurement overwrites both layouts below (restore_measurement).
@@ -946,6 +943,12 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     if (cached)
         message_scene_detail::restore_measurement(*scene, row, *cached);
     return true;
+}
+
+bool refresh_retained_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_index,
+                          bool* data_changed) noexcept {
+    RowSource source;
+    return refresh_row(scene, row, source_index, true, data_changed, &source) && apply_row_specs(scene, row, source);
 }
 
 namespace {
@@ -1008,11 +1011,13 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     row.content = ui_widget_invalid_handle();
     message_rich_widgets_reset_handles(&row);
     bool data_changed = false;
-    if (!refresh_row(scene, &row, source_index, preserve_measurement, &data_changed)) {
+    RowSource source;
+    if (!refresh_row(scene, &row, source_index, preserve_measurement, &data_changed, &source)) {
         return false;
     }
-    const MessageRecord* record = message_store_resolve(*scene->timeline->store, row.message);
-    const MessageRichRecord* rich = record ? row_rich(*scene, *record) : nullptr;
+    const MessageRecord* record = source.record;
+    const MessageRichRecord* stored = source.stored;
+    const MessageRichRecord* rich = current_rich(stored, *record);
     const float height = row_required_height(*scene, row, rich);
     if (source_index > (~0u - 2u) / kMessageSceneWidgetsPerRow) {
         return false;
@@ -1049,7 +1054,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     row.author = author.handle;
     row.content = content.handle;
     row.has_snapshot = false;
-    const MessageRichRecord* snapshot = snapshot_rich(*scene, row.message_id);
+    const MessageRichRecord* snapshot = stored_snapshot(*scene, stored);
     if (snapshot) {
         if (scene->snapshot_count >= scene->snapshot_rows.count) {
             if (!scene->owns_rows ||
@@ -1115,13 +1120,12 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             return false;
     }
     InviteLink invites[kMessageInviteCardMaximum];
-    const u32 invite_count =
-        record ? message_scene_invite_codes(*scene, *record, {invites, kMessageInviteCardMaximum}) : 0u;
+    const u32 invite_count = message_scene_invite_codes(*scene, *record, {invites, kMessageInviteCardMaximum});
     if (!message_rich_widgets_build(&scene->widgets, body.handle, id, rich, &row, invite_count,
-                                    record && edited_tail(*scene, *record))) {
+                                    edited_tail(*scene, *record))) {
         return false;
     }
-    return apply_row_specs(scene, &row);
+    return apply_row_specs(scene, &row, source);
 }
 } // namespace message_scene_detail
 } // namespace maicord
