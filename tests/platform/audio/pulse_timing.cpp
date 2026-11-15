@@ -22,6 +22,31 @@ struct FakeStream {
         played_frames += playable < queued ? playable : queued;
     }
 };
+
+// A server whose sink holds `latency_ms` of audio after it reads the stream's queue (WSLg's RDP sink reports 0.4 to
+// 1 s). It reads 10 ms in each tick, the audible position is the read position less the latency, and the read index
+// comes with a timing update once in 50 ticks. The client keeps a ring of 8192 frames, as the video session does, and
+// frees it with `release`. Its producer always has data, and its worker keeps 30 ms queued on the server. The result
+// is the count of ticks in which the server found less than 10 ms queued.
+template <typename Release> u32 starved_ticks(u32 latency_ms, Release release) noexcept {
+    constexpr u32 kRate = 48000, kRingFrames = 8192, kQueueFrames = 1440, kTickFrames = 480;
+    const u64 latency = pulse::frames_in_milliseconds(kRate, latency_ms);
+    u64 submitted = 0, read = 0, reported = 0, consumed = 0;
+    u32 starved = 0;
+    for (u32 tick = 0; tick < 300; ++tick) {
+        const u64 queued = submitted - read;
+        if (queued < kQueueFrames)
+            submitted = minimum(submitted + kQueueFrames - queued, consumed + kRingFrames);
+        if (submitted - read < kTickFrames)
+            ++starved;
+        read += minimum<u64>(kTickFrames, submitted - read);
+        if (tick % 50 == 49)
+            reported = read;
+        const u64 heard = read > latency ? read - latency : 0;
+        consumed = release(heard * 1'000'000 / kRate, u64{latency_ms} * 1000, reported, submitted, consumed);
+    }
+    return starved;
+}
 } // namespace
 
 void test_pulse_timing(Check check) noexcept {
@@ -44,11 +69,13 @@ void test_pulse_timing(Check check) noexcept {
     check(capture.maxlength == 3840 && capture.fragsize == 960 && capture.tlength == kInvalid &&
               capture.prebuf == kInvalid && capture.minreq == kInvalid,
           "pulse buffering: the voice capture buffer is 40 ms with 480-sample fragments, as the WASAPI capture buffer");
-    constexpr BufferAttr media = playback_attributes(44100, 8, kMediaBufferMs, kVoicePeriodMs);
+    constexpr BufferAttr media = media_attributes(44100, 8);
     constexpr BufferAttr notification = playback_attributes(44100, 4, kNotificationBufferMs, kVoicePeriodMs);
     check(media.tlength == 1764 * 8 && media.minreq == 441 * 8 && notification.tlength == 882 * 4 &&
               notification.minreq == 441 * 4 && media.tlength % 8 == 0 && notification.tlength % 4 == 0,
           "pulse buffering: media and notification attributes are whole frames of their own rate and format");
+    check(media.prebuf == kInvalid && media.maxlength == kInvalid && notification.prebuf == 0,
+          "pulse buffering: the media stream asks for the server's prebuffer, so a stream that runs dry drops nothing");
 
     // The timeline.
     check(frames_from_microseconds(1'000'000, 48000) == 48000 && frames_from_microseconds(10'000, 48000) == 480 &&
@@ -89,6 +116,23 @@ void test_pulse_timing(Check check) noexcept {
     check(played_frames(~u64{0} - 10, 1'000'000, 48000, ~u64{0}, 0) == ~u64{0},
           "pulse timeline: anchor plus advance saturates");
 
+    // The frames the server has read, which the ring frees. A ring freed only at the audible position holds the
+    // sink's latency too, and an 8192-frame ring is shorter than WSLg's latency.
+    const auto release = [](u64 stream_us, u64 sink_us, u64 read, u64 submitted_frames, u64 previous) noexcept {
+        return read_frames(0, stream_us, sink_us, read, 48000, submitted_frames, previous);
+    };
+    check(starved_ticks(600, release) == 0 && starved_ticks(20, release) == 0,
+          "pulse read position: a ring of 8192 frames keeps a server fed behind a 600 ms sink latency and a 20 ms one");
+    check(read_frames(1000, 100'000, 600'000, 48000, 48000, 1000 + 48100, 0) == 1000 + 48000,
+          "pulse read position: the read index stands in for an audible position that stands still");
+    check(read_frames(1000, 100'000, 600'000, 0, 48000, 1000 + 48100, 0) == 1000 + 33600 &&
+              read_frames(1000, 100'000, 600'000, 0, 48000, 1000 + 20000, 0) == 1000 + 20000 &&
+              read_frames(1000, 100'000, 600'000, 90000, 48000, 1000 + 48100, 0) == 1000 + 48100,
+          "pulse read position: between updates it is the audible position plus the sink latency, never past submitted");
+    check(read_frames(1000, 0, 0, 0, 48000, 5000, 3000) == 3000 &&
+              read_frames(~u64{0} - 10, ~u64{0}, ~u64{0}, ~u64{0}, 48000, ~u64{0}, 0) == ~u64{0},
+          "pulse read position: it never goes back, and the sums saturate");
+
     // Requests.
     check(request_frames(3840, 4, 4096) == 960 && request_frames(3840, 4, 480) == 480 && request_frames(3, 4, 480) == 0 &&
               request_frames(0, 4, 480) == 0 && request_frames(100, 0, 480) == 0 && request_frames(7, 4, 480) == 1,
@@ -116,6 +160,14 @@ void test_pulse_timing(Check check) noexcept {
     check(!retry_due(retry, 2'000'000) && !retry_due(retry, 2'999'999) && retry_due(retry, 3'000'000) &&
               retry_due(retry, 9'000'000),
           "pulse retry: a failed open is retried exactly after its delay");
+    check(media_open_retry_us(1) == 1'000'000 && media_open_retry_us(2) == 2'000'000 && media_open_retry_us(3) == 0 &&
+              media_open_retry_us(0) == 0 && kMediaOpenRetries == 2,
+          "pulse retry: the media stream retries a server twice, 1 s and then 2 s after a failure");
+    check(server_unreachable(kErrorServerTimeout) && server_unreachable(kErrorPulse | pulse::kErrorConnectionRefused) &&
+              !server_unreachable(kErrorPulse) && !server_unreachable(kErrorStopped) &&
+              !server_unreachable(kErrorLibraryMissing) && !server_unreachable(kErrorPulse | 1) &&
+              !server_unreachable(0),
+          "pulse retry: only a server that did not answer or refused the connection is tried again");
 
     // The end of a stream: the server's confirmation, or the grace period after the request, whichever comes first.
     const u64 requested_at = 10'000, deadline = requested_at + kDrainGraceMs;

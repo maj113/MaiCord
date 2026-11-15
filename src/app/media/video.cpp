@@ -36,6 +36,7 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     out.muted = playback.muted;
     out.error = video.presentation_failed || playback.error != AccountVideoError::none ||
                 playback.rejected_error != AccountVideoError::none;
+    out.sound_server = playback.error == AccountVideoError::sound_server;
     out.buffering = !out.error && (video.selecting || playback.buffering || playback.seeking);
     out.can_play = video.selected && video.status.selected && !video.selecting &&
                    !video.presentation_failed && !playback.release_pending &&
@@ -148,6 +149,7 @@ UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexc
     out.error = video.presentation_failed || playback.error != AccountVideoError::none ||
                 playback.rejected_error != AccountVideoError::none ||
                 (video.selected && video.status.selected && !observed);
+    out.sound_server = playback.error == AccountVideoError::sound_server;
     // Source readiness owns loading. Once observed, an ongoing seek/buffer
     // retains the real range and its capture; terminal errors own Retry.
     out.loading =

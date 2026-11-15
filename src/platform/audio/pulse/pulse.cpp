@@ -370,9 +370,20 @@ bool track_cork(Track* track, bool paused) noexcept {
     return true;
 }
 
-bool track_time(Track* track, u64* microseconds) noexcept {
+bool track_time(Track* track, u64* microseconds, TrackRead* read) noexcept {
     Lock lock(*track->session);
-    return g_api.pa_stream_get_time(track->stream, microseconds) == 0;
+    if (g_api.pa_stream_get_time(track->stream, microseconds) != 0)
+        return false;
+    if (read) {
+        *read = {};
+        // The mainloop thread updates the timing data. The lock keeps it still while the fields are copied.
+        if (const TimingInfo* timing = g_api.pa_stream_get_timing_info(track->stream)) {
+            read->sink_us = timing->sink_usec;
+            if (!timing->read_index_corrupt && timing->read_index > 0)
+                read->bytes = static_cast<u64>(timing->read_index);
+        }
+    }
+    return true;
 }
 
 bool track_set_volume(Track* track, float linear) noexcept {

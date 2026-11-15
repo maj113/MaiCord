@@ -76,6 +76,19 @@ struct ServerInfo {
     const char* default_sink_name;
     const char* default_source_name;
 };
+// The leading fields of pa_timing_info, up to the read index.
+struct TimingInfo {
+    i64 timestamp[2];
+    i32 synchronized_clocks;
+    u64 sink_usec;
+    u64 source_usec;
+    u64 transport_usec;
+    i32 playing;
+    i32 write_index_corrupt;
+    i64 write_index;
+    i32 read_index_corrupt;
+    i64 read_index;
+};
 
 // The layouts above are libpulse's; tools/check_pulse_abi.py compares these numbers with the installed headers.
 static_assert(sizeof(SampleSpec) == 12 && sizeof(BufferAttr) == 20 && sizeof(ChannelMap) == 132 &&
@@ -90,11 +103,16 @@ static_assert(__builtin_offsetof(SourceInfo, description) == 16 && __builtin_off
 static_assert(__builtin_offsetof(ServerInfo, server_name) == 24 && __builtin_offsetof(ServerInfo, sample_spec) == 32 &&
               __builtin_offsetof(ServerInfo, default_sink_name) == 48 &&
               __builtin_offsetof(ServerInfo, default_source_name) == 56);
+static_assert(__builtin_offsetof(TimingInfo, sink_usec) == 24 &&
+              __builtin_offsetof(TimingInfo, read_index_corrupt) == 64 &&
+              __builtin_offsetof(TimingInfo, read_index) == 72);
 
 inline constexpr u32 kInvalid = 0xFFFFFFFFu; // PA_INVALID_INDEX, and the "server default" of a buffer attribute
 
 inline constexpr i32 kSampleS16LE = 3;      // PA_SAMPLE_S16LE
 inline constexpr i32 kSampleFloat32LE = 5;  // PA_SAMPLE_FLOAT32LE
+
+inline constexpr u32 kErrorConnectionRefused = 6; // PA_ERR_CONNECTIONREFUSED
 
 inline constexpr i32 kContextNoAutospawn = 1; // PA_CONTEXT_NOAUTOSPAWN
 inline constexpr i32 kContextReady = 4;       // PA_CONTEXT_READY
@@ -180,6 +198,7 @@ using FreeCb = void (*)(void*) noexcept;
     F(Operation*, pa_stream_cork, (Stream*, i32, StreamSuccessCb, void*))                                              \
     F(Operation*, pa_stream_drain, (Stream*, StreamSuccessCb, void*))                                                  \
     F(i32, pa_stream_get_time, (Stream*, u64*))                                                                        \
+    F(const TimingInfo*, pa_stream_get_timing_info, (Stream*))                                                         \
     F(u32, pa_stream_get_index, (const Stream*))                                                                       \
     F(u32, pa_sw_volume_from_linear, (double))                                                                         \
     F(CVolume*, pa_cvolume_set, (CVolume*, u32, u32))

@@ -32,6 +32,8 @@ struct UiVideoPlaybackState {
     u16 collection_count, collection_track;
     bool collection_more;
     bool can_change_track;
+    // The error is the sound server's: it did not answer, also on the retries (Linux).
+    bool sound_server;
 };
 // Inline player metrics: a 32 DIP bar, 24 DIP glyphs in 32 DIP targets and
 // 12-13 DIP tabular time. Seek/volume keys step by the amounts below.
@@ -58,6 +60,7 @@ struct UiVideoControlsStyle {
     Utf8View mute{utf8_literal("Mute")}, unmute{utf8_literal("Unmute")};
     Utf8View unavailable_audio{utf8_literal("Audio unavailable")};
     Utf8View buffering{utf8_literal("Buffering…")}, error{utf8_literal("Playback unavailable")};
+    Utf8View sound_server{utf8_literal("Sound server not answering")};
     Utf8View expand{utf8_literal("Expand")}, collapse{utf8_literal("Exit expanded view")};
     Utf8View previous_track{utf8_literal("Previous track")}, next_track{utf8_literal("Next track")};
 };

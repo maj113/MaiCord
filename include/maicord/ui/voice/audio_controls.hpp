@@ -39,6 +39,8 @@ struct UiAudioPlaybackState {
     u32 volume;
     bool playing, muted, loading, error, can_play, can_seek, can_volume, can_download;
     bool has_duration, voice;
+    // The error is the sound server's: it did not answer, also on the retries (Linux).
+    bool sound_server;
     Utf8View title;
     // Decoded amplitudes, 0..255. The owner retains storage through paint/input.
     // Missing data uses a neutral seek rail, never a fabricated waveform.
@@ -56,6 +58,7 @@ struct UiAudioControlsStyle {
     Utf8View mute{utf8_literal("Mute")}, unmute{utf8_literal("Unmute")};
     Utf8View download{utf8_literal("Download")}, loading{utf8_literal("Loading audio…")};
     Utf8View error{utf8_literal("Can't play audio")}, voice_title{utf8_literal("Voice message")};
+    Utf8View sound_server{utf8_literal("Sound server not answering")};
 };
 
 inline constexpr UiAudioControlsStyle kDefaultUiAudioControlsStyle{};

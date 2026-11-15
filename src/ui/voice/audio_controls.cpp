@@ -201,7 +201,9 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
     download.label = style.download;
     download.enabled = state.can_download;
     auto& status = projection.controls[6];
-    status.label = state.error ? style.error : state.loading ? style.loading : Utf8View{};
+    status.label = state.error     ? (state.sound_server ? style.sound_server : style.error)
+                   : state.loading ? style.loading
+                                   : Utf8View{};
     status.hidden = status.label.bytes == 0;
     status.foreground = state.error ? ui_foreground_color(theme, theme.notification) : theme.text_secondary;
     auto& title = projection.controls[7];

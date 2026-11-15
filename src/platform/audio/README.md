@@ -13,8 +13,16 @@ bits of endpoint watching are in `endpoint_watch.hpp`; each backend fills them i
 - libpulse (`libpulse.so.0`: PulseAudio, pipewire-pulse, WSLg) is opened with `dlopen`; the declarations are
   `include/maicord/platform/audio/pulse/abi.hpp`, checked against libpulse-dev by `python tools/check_pulse_abi.py` (functions,
   constants, struct layouts).
-- With no libpulse or no server audio is an unavailable state (empty device lists, a `waiting` capture, a device error in the media
-  and notification status), never a crash.
+- With no libpulse or no server audio is an unavailable state (empty device lists, a `waiting` capture, a device error in the
+  notification status, a device or server error in the media status), never a crash.
+- The media worker keeps a frame in its ring until the server has read it, not until it is heard: WSLg's RDP sink reports
+  0.4 to 1 s of latency, more than the video session's ring of 8192 frames. Its stream asks for the server's prebuffer, so
+  a stream that runs dry waits and drops nothing.
+- When the server does not answer in 3 s or refuses the connection (WSLg's server stalls while its RDP sink waits for
+  Weston), the media worker tries two more times, 1 s and 2 s later, and shows buffering. A pause, a seek or a new play
+  cancels the retries. After the last one the error is `MediaAudioError::server`, which the player shows as "Sound server
+  not answering". `tools/test_pulse_stall.sh` runs `maicord_pulse_stall_*` against a private pulseaudio that the test
+  stops with SIGSTOP.
 - Tests: `maicord_audio_pure` (the transport arithmetic with an injected clock), `maicord_notification_audio` (logic shared with
   Windows), `maicord_audio_no_server` and `maicord_audio_no_library` (`MAICORD_PULSE_LIBRARY` names a library that does not exist;
   a test hook). `tools/test_pulse_audio.sh` runs the opt-in `maicord_pulse_loopback` and `maicord_video_playback_audio` against

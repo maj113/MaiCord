@@ -176,6 +176,24 @@ if(MAICORD_LINUX)
     if(NOT "$ENV{MAICORD_PULSE_INTEGRATION}")
         set_tests_properties(maicord_pulse_loopback PROPERTIES DISABLED TRUE)
     endif()
+    # The media worker against a server that stops answering, opt-in like the loopback test: configure with
+    # MAICORD_PULSE_STALL_INTEGRATION=1 (tools/test_pulse_stall.sh does, with a private pulseaudio that the test stops
+    # with SIGSTOP and lets go on with SIGCONT; MAICORD_TEST_PULSE_PID names it).
+    #
+    #   maicord_pulse_stall_recovers       two attempts fail, the server goes on, the second retry plays the tone
+    #   maicord_pulse_stall_gives_up       the first attempt and both retries fail: the error is the sound server
+    #   maicord_pulse_stall_cancel         a pause cancels the retries; a release during the wait joins at once
+    maicord_test(MaiCordPulseStallTests ENTRY maicord_pulse_stall_entry
+        SOURCES tests/platform/audio/pulse_stall.cpp tests/platform/audio/window_post_stub.cpp
+        LIBS maicord_audio_pulse maicord_core
+        TIMEOUT 20 LABELS integration TEST maicord_pulse_stall_recovers --recovers)
+    maicord_add_tests(MaiCordPulseStallTests TIMEOUT 20 LABELS integration TEST maicord_pulse_stall_gives_up --gives-up)
+    maicord_add_tests(MaiCordPulseStallTests TIMEOUT 20 LABELS integration TEST maicord_pulse_stall_cancel --cancel)
+    set(maicord_pulse_stall_tests maicord_pulse_stall_recovers maicord_pulse_stall_gives_up maicord_pulse_stall_cancel)
+    set_tests_properties(${maicord_pulse_stall_tests} PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK pulse_server)
+    if(NOT "$ENV{MAICORD_PULSE_STALL_INTEGRATION}")
+        set_tests_properties(${maicord_pulse_stall_tests} PROPERTIES DISABLED TRUE)
+    endif()
     # The AAC-LC decoder (src/media/audio/aac_lc.cpp) behind the decoder interface of the Linux build, against fixtures
     # from libavcodec's encoder and decoder (tools/generate_aac_fixtures.py): conformance to the reference decoder within
     # half a PCM16 step, the MP4 and ADTS paths, pulse data against the standard's IMDCT, the interface's lifecycle rules,

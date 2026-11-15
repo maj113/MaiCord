@@ -9,7 +9,7 @@ does:
   * every constant of abi.hpp whose comment names a libpulse macro or enumerator (`// PA_STREAM_READY`) is compiled
     against the real headers in a _Static_assert, so a value that differs fails;
   * the sizeof and offsetof numbers pinned by the static_asserts of abi.hpp are compiled against pa_sample_spec,
-    pa_buffer_attr, pa_channel_map, pa_cvolume, pa_sink_info, pa_source_info and pa_server_info;
+    pa_buffer_attr, pa_channel_map, pa_cvolume, pa_sink_info, pa_source_info, pa_server_info and pa_timing_info;
   * every function of the MAICORD_PULSE_FUNCTIONS table is found in the preprocessed headers, and its argument count
     and the kind (pointer, integer of a size, double, void) of its return type and every argument must be the
     declared one. The opaque structs and the callback typedefs are pointers in both.
@@ -39,7 +39,7 @@ shared.SCALARS.update({
 STRUCTS = {
     "SampleSpec": "pa_sample_spec", "BufferAttr": "pa_buffer_attr", "ChannelMap": "pa_channel_map",
     "CVolume": "pa_cvolume", "SinkInfo": "pa_sink_info", "SourceInfo": "pa_source_info",
-    "ServerInfo": "pa_server_info",
+    "ServerInfo": "pa_server_info", "TimingInfo": "pa_timing_info",
 }
 
 

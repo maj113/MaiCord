@@ -1,5 +1,6 @@
 // Audio with nothing to talk to must be a state, not a crash: the device lists are empty, the voice workers keep
-// retrying, the notification and media workers report a device error.
+// retrying, the notification worker reports a device error. The media worker reports a device error without
+// libpulse, and the sound server after its two retries without a server.
 //
 //   --no-server    libpulse loads but PULSE_SERVER names a socket nobody listens on (the case of a machine without
 //                  a sound server)
@@ -124,12 +125,17 @@ void run(bool no_library) noexcept {
     const float one[2]{0.25f, -0.25f};
     check(media_audio_write(&media, 1, {one, 2}).ok() && media_audio_play(&media).ok(),
           "audio unavailable: media audio accepts PCM and starts its worker");
-    check(wait_until([&]() noexcept { return media_audio_status(&media).error == MediaAudioError::device; }, 3000),
-          "audio unavailable: media audio reports a device error");
+    // Without libpulse the worker fails at once. Without a server, libpulse reports a refused connection, and the
+    // worker tries two more times, 1 s and 2 s later (timing.hpp: media_open_retry_us).
+    const MediaAudioError failure = no_library ? MediaAudioError::device : MediaAudioError::server;
+    check(wait_until([&]() noexcept { return media_audio_status(&media).error == failure; }, 6000),
+          no_library ? "audio unavailable: media audio reports a device error"
+                     : "audio unavailable: media audio reports the sound server after two retries");
     const auto media_status = media_audio_status(&media);
     check(!media_status.stream_open && !media_status.playing && !media_status.clock_valid &&
-              media_status.native_error != 0 && (!no_library || media_status.native_error == expected),
-          "audio unavailable: media status holds no stream, no clock and the native error");
+              media_status.native_error != 0 && (!no_library || media_status.native_error == expected) &&
+              media_status.open_attempts == (no_library ? 1u : 3u),
+          "audio unavailable: media status holds no stream, no clock, the native error and the attempts");
     check(media_audio_release(&media, 2000).ok() && !media.runtime, "audio unavailable: the media worker joins");
 }
 

@@ -7,7 +7,8 @@ namespace maicord {
 inline constexpr u32 kMediaAudioMinimumRingFrames=2048;
 inline constexpr u32 kMediaAudioMaximumRingFrames=16384;
 inline constexpr u32 kMediaAudioMaximumWriteFrames=2048;
-enum class MediaAudioError:u8 {none,invalid_input,stale_epoch,capacity,memory,event,thread,device,stream,clock,stopped,join_pending,wait,release,timeline};
+// server: the sound server did not answer or refused the connection, also on the retries (Linux only).
+enum class MediaAudioError:u8 {none,invalid_input,stale_epoch,capacity,memory,event,thread,device,stream,clock,stopped,join_pending,wait,release,timeline,server};
 struct MediaAudioResult {MediaAudioError error;u32 native_error;bool ok()const noexcept{return error==MediaAudioError::none;}};
 // Ring storage belongs to the caller: aligned, interleaved, finite float32 at the
 // native source rate, mono or stereo. The caller must serialize the pure helpers
@@ -54,6 +55,8 @@ struct MediaAudioStatus {
     u64 desired_epoch,observed_epoch,written_frames,submitted_frames,consumed_frames;
     i64 presentation_time_100ns;u64 clock_frequency;
     u32 free_frames,owned_handles,native_error,wake_error;MediaAudioError error;
+    // Connections to the sound server that the worker tried for the current play (Linux only, else 0).
+    u32 open_attempts;
     float desired_volume,applied_volume;bool volume_valid;
     bool playing,paused,buffering,ended,stream_open,worker_started,worker_exited,clock_valid;
 };

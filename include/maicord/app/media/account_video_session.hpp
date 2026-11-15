@@ -31,7 +31,9 @@ enum class AccountVideoError : u8 {
     audio,
     event,
     clock,
-    release
+    release,
+    // The sound server did not answer or refused the connection, also on the audio transport's retries.
+    sound_server
 };
 enum class AccountVideoCommand : u8 {
     play,

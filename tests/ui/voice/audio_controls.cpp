@@ -393,6 +393,11 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
     state.can_play = false;
     check(project(160) && !projection.controls[0].enabled && !ui_audio_action_current(state, request),
           "audio controls: withdrawn retry capability rejects both new input and a captured prior request");
+    check(utf8_equal(projection.controls[6].label, style.error), "audio controls: an error names playback in the status");
+    state.sound_server = true;
+    check(project(160) && utf8_equal(projection.controls[6].label, style.sound_server),
+          "audio controls: a sound server that did not answer names itself in the status instead");
+    state.sound_server = false;
     state.can_play = true;
     check(
         project(160) &&

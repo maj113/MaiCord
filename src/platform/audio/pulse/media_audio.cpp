@@ -5,8 +5,10 @@
 // The audible position is the stream's own timeline (track_time): it advances only while the stream plays queued
 // audio, so a producer that falls behind or a pause leaves the clock where it was, with no re-anchoring. Playback
 // that has reached the end of the ring is confirmed by a drain (or its grace period: some sinks never answer), since
-// the timeline stops short of the last frames by the device latency.
+// the timeline stops short of the last frames by the device latency. The ring keeps a frame until the server has
+// read it (timing.hpp: read_frames), not until it is heard: a sink's latency can be longer than the ring.
 #include "../audio_support.hpp"
+#include "maicord/core/log_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/os/thread.hpp"
@@ -47,6 +49,11 @@ struct Engine {
     bool started{}, drain_requested{};
     // When the pending drain stops being waited for (the monotonic millisecond clock).
     u64 drain_deadline_ms{};
+    // The connections tried for the current play, and the retries of a server that did not answer or refused
+    // (timing.hpp: media_open_retry_us). A pause, a seek or a new play cancels the retries.
+    u32 open_attempts{}, open_failures{};
+    pulse::RetrySchedule retry{};
+    u64 retry_serial{}, retry_epoch{};
     float scratch[kMediaAudioMaximumWriteFrames * 2]{};
 };
 // Whether the drain asked for at the end of the ring is over: confirmed, or past its grace period.
@@ -120,7 +127,7 @@ u32 open(Runtime& r, Engine& e) noexcept {
                              &error))
         return error;
     AcquireSRWLockExclusive(&r.lock);
-    // Whatever an earlier stream left submitted but unplayed is submitted again.
+    // Whatever an earlier stream left submitted but unread is submitted again.
     media_audio_ring_rewind(&r.ring);
     e.anchor_frames = r.ring.consumed;
     const float volume = r.volume;
@@ -131,8 +138,7 @@ u32 open(Runtime& r, Engine& e) noexcept {
         "music",
         {pulse::kSampleFloat32LE, r.config.sample_rate, static_cast<u8>(r.config.channels)},
         nullptr,
-        pulse::playback_attributes(r.config.sample_rate, bytes_per_frame, pulse::kMediaBufferMs,
-                                   pulse::kVoicePeriodMs),
+        pulse::media_attributes(r.config.sample_rate, bytes_per_frame),
         kPulseFlags,
         volume};
     if (!pulse::track_open_playback(&e.session, &e.track, config, &error) ||
@@ -144,10 +150,11 @@ u32 open(Runtime& r, Engine& e) noexcept {
     return 0;
 }
 
-// Moves ring.consumed to what the stream has played and publishes the presentation time.
+// Moves ring.consumed to what the server has read and publishes the presentation time.
 void clock_snapshot(Runtime& r, Engine& e, u64 epoch) noexcept {
     u64 microseconds = 0;
-    const bool known = e.track.stream && pulse::track_time(&e.track, &microseconds);
+    pulse::TrackRead read{};
+    const bool known = e.track.stream && pulse::track_time(&e.track, &microseconds, &read);
     const bool drained = drain_over(e);
     if (!known && !drained)
         return;
@@ -168,11 +175,13 @@ void clock_snapshot(Runtime& r, Engine& e, u64 epoch) noexcept {
         ReleaseSRWLockExclusive(&r.lock);
         return;
     }
-    const u64 played = drained ? r.ring.submitted
-                               : pulse::played_frames(e.anchor_frames, microseconds, rate, r.ring.submitted,
-                                                      r.ring.consumed);
+    const u64 taken = drained ? r.ring.submitted
+                              : pulse::read_frames(e.anchor_frames, microseconds, read.sink_us,
+                                                   read.bytes / pulse::frame_bytes(pulse::kSampleFloat32LE,
+                                                                                   r.config.channels),
+                                                   rate, r.ring.submitted, r.ring.consumed);
     const u64 old = r.ring.consumed;
-    r.ring.consumed = maximum(old, played);
+    r.ring.consumed = maximum(old, taken);
     r.status.clock_valid = true;
     r.status.clock_frequency = 1'000'000;
     r.status.presentation_time_100ns = r.origin + static_cast<i64>(content_time);
@@ -232,7 +241,7 @@ u32 render(Runtime& r, Engine& e, u64 epoch, bool playing) noexcept {
     }
     if (!valid) {
         // A pause or reset arrived while frames were being queued. They cannot be taken back, so the stream is
-        // dropped and the retained PCM is played again from the confirmed position.
+        // dropped and the retained PCM is played again from the position the server has read.
         close_track(e);
         AcquireSRWLockExclusive(&r.lock);
         if (r.ring.epoch == epoch) {
@@ -318,10 +327,31 @@ u32 worker(void* pointer) noexcept {
         ReleaseSRWLockShared(&r.lock);
         if (!current)
             continue;
-        if (playing && !failed && available && !e.track.stream) {
+        if (e.open_attempts && (!playing || serial != e.retry_serial || epoch != e.retry_epoch)) {
+            e.open_attempts = e.open_failures = 0;
+            e.retry = {};
+        }
+        if (playing && !failed && available && !e.track.stream &&
+            pulse::retry_due(e.retry, clock_monotonic_milliseconds() * 1000)) {
+            ++e.open_attempts;
+            e.retry_serial = serial;
+            e.retry_epoch = epoch;
             const u32 opened = open(r, e);
-            if (opened)
-                failure(r, e, epoch, serial, Error::device, opened);
+            const bool unreachable = opened && pulse::server_unreachable(opened);
+            const u64 delay = unreachable ? pulse::media_open_retry_us(++e.open_failures) : 0;
+            if (opened || e.open_attempts > 1) {
+                LogEvent line(opened ? "media_audio_open_failed" : "media_audio_opened");
+                line.field("attempt", e.open_attempts);
+                if (opened)
+                    line.error("native_error", opened).field("retry_ms", delay / 1000);
+                line.write(opened ? LogLevel::warning : LogLevel::info, "audio");
+            }
+            if (delay)
+                pulse::retry_after(&e.retry, clock_monotonic_milliseconds() * 1000, delay);
+            else if (opened)
+                failure(r, e, epoch, serial, unreachable ? Error::server : Error::device, opened);
+            else
+                e.open_failures = 0;
         }
         if (e.track.stream) {
             u32 error = 0;
@@ -346,6 +376,7 @@ u32 worker(void* pointer) noexcept {
             r.status.volume_valid = e.track.stream && e.applied_volume >= 0;
             r.status.paused = !r.desired_play && !r.failed;
             r.status.buffering = r.desired_play && !e.started && !r.ring.ended && !r.failed;
+            r.status.open_attempts = e.open_attempts;
             r.status.ended = r.ring.ended && r.ring.written == r.ring.consumed && !e.started;
             notify_locked(r);
         }
@@ -354,8 +385,13 @@ u32 worker(void* pointer) noexcept {
         if (repeat)
             continue;
         // The clock is read between write requests too, while audio plays: the wait times out after kClockPollMs.
+        // A retry of the connection ends the wait when it is due.
         const Waitable events[]{r.stop, r.command, r.render};
-        const u32 waited = wait_any(events, e.track.stream ? 3u : 2u, e.started ? kClockPollMs : INFINITE);
+        const u32 timeout = e.open_failures && !e.track.stream
+                                ? pulse::due_milliseconds(e.retry.not_before_us, clock_monotonic_milliseconds() * 1000)
+                            : e.started ? kClockPollMs
+                                        : INFINITE;
+        const u32 waited = wait_any(events, e.track.stream ? 3u : 2u, timeout);
         if (waited == WAIT_OBJECT_0)
             break;
         if (waited == WAIT_FAILED) {

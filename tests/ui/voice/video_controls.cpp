@@ -22,6 +22,12 @@ void test_collection_controls(void (*check)(bool, const char*) noexcept) noexcep
     check(ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection) && !projection.controls[7].enabled &&
         projection.controls[8].enabled && !projection.controls[0].enabled,
         "an unavailable first track keeps next-track navigation usable");
+    check(utf8_equal(projection.controls[5].label,utf8_literal("Playback unavailable")),"an error names playback in the status");
+    state.sound_server = true;
+    check(ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection) &&
+        utf8_equal(projection.controls[5].label,utf8_literal("Sound server not answering")),
+        "a sound server that did not answer names itself in the status instead");
+    state.sound_server = false;
     state.collection_track = 11;
     check(ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection) && !projection.controls[8].enabled,
         "last track disables next without wrapping the collection");

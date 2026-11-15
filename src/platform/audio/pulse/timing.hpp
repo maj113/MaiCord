@@ -50,6 +50,16 @@ constexpr BufferAttr playback_attributes(u32 rate, u32 bytes_per_frame, u32 buff
             frames_in_milliseconds(rate, period_ms) * bytes_per_frame, kInvalid};
 }
 
+// Buffer attributes of the media stream: playback_attributes with kMediaBufferMs and 10 ms requests, but with the
+// server's default prebuffer. Without a prebuffer, a stream that runs dry keeps its read index moving through
+// silence, and the server drops as much of the audio that comes after. With one, the stream stops until the
+// prebuffer is full again and then plays everything, and its audible position stops too.
+constexpr BufferAttr media_attributes(u32 rate, u32 bytes_per_frame) noexcept {
+    BufferAttr attributes = playback_attributes(rate, bytes_per_frame, kMediaBufferMs, kVoicePeriodMs);
+    attributes.prebuf = kInvalid;
+    return attributes;
+}
+
 // Buffer attributes of a record stream: at most `buffer_ms` queued on the server before it overruns, delivered in
 // fragments of `period_ms` (with PA_STREAM_ADJUST_LATENCY the fragment size sets the capture latency).
 constexpr BufferAttr record_attributes(u32 rate, u32 bytes_per_frame, u32 buffer_ms, u32 period_ms) noexcept {
@@ -77,6 +87,20 @@ constexpr u64 played_frames(u64 anchor, u64 stream_us, u32 rate, u64 submitted, 
     if (played > submitted)
         played = submitted;
     return played < previous ? previous : played;
+}
+
+// The frames of a stream that the server has read, which the client no longer needs to keep. The server reads a frame
+// one sink latency (`sink_us`) before the frame is heard, and WSLg's RDP sink reports 0.4 to 1 s. `stream_us` plus
+// `sink_us` is the read position between timing updates. `read` is the read index of the last update, in frames. It
+// stays right while the stream waits for data and its audible position stands still. The limits of played_frames
+// apply: the result never goes back and never passes `submitted`.
+constexpr u64 read_frames(u64 anchor, u64 stream_us, u64 sink_us, u64 read, u32 rate, u64 submitted,
+                          u64 previous) noexcept {
+    const u64 known = read > ~u64{0} - anchor ? ~u64{0} : anchor + read;
+    if (known > previous)
+        previous = known < submitted ? known : submitted;
+    return played_frames(anchor, stream_us > ~u64{0} - sink_us ? ~u64{0} : stream_us + sink_us, rate, submitted,
+                         previous);
 }
 
 // Whole frames to produce for a server request of `writable_bytes`, at most `limit` (0 when it asks for less than
@@ -112,6 +136,13 @@ constexpr bool retry_due(const RetrySchedule& schedule, u64 now_us) noexcept {
 }
 constexpr void retry_after(RetrySchedule* schedule, u64 now_us, u64 delay_us) noexcept {
     schedule->not_before_us = now_us + delay_us;
+}
+// The media worker tries a server that did not answer or refused (pulse.hpp: server_unreachable) two more times:
+// 1 s after the first failure and 2 s after the second. The delay after `failures` failed attempts, 0 when no retry
+// is left.
+inline constexpr u32 kMediaOpenRetries = 2;
+constexpr u64 media_open_retry_us(u32 failures) noexcept {
+    return failures && failures <= kMediaOpenRetries ? u64{1'000'000} << (failures - 1) : 0;
 }
 
 // The pieces a captured fragment is cut into for the sink (the voice engine takes up to one 10 ms frame at a

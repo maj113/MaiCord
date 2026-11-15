@@ -26,6 +26,11 @@ inline constexpr u32 kErrorLibraryMissing = kErrorPulse | 0xFF0u;
 inline constexpr u32 kErrorServerTimeout = kErrorPulse | 0xFF1u;
 // The caller's stop event fired during a wait.
 inline constexpr u32 kErrorStopped = kErrorPulse | 0xFF2u;
+// The errors of a server that did not answer in time or refused the connection. WSLg's server stalls this way while
+// its RDP sink waits for Weston, and each attempt waits in its listen queue until the queue is full and refuses.
+constexpr bool server_unreachable(u32 native_error) noexcept {
+    return native_error == kErrorServerTimeout || native_error == (kErrorPulse | kErrorConnectionRefused);
+}
 
 // libpulse, loaded on first use from any thread. Null when it is not installed (the reason is logged once).
 const Api* api() noexcept;
@@ -109,7 +114,14 @@ void track_drop(Track* track) noexcept;
 bool track_cork(Track* track, bool paused) noexcept;
 // The audible playback position in microseconds since the stream started; false until the server has reported
 // timing. The position does not advance while the stream is corked or has nothing to play.
-bool track_time(Track* track, u64* microseconds) noexcept;
+// With `read`, also what the server has read of the stream (timing.hpp: read_frames).
+struct TrackRead {
+    // The sink's latency: the server has read this much more than the audible position.
+    u64 sink_us;
+    // The read index of the last timing update, 0 when the server has not reported one.
+    u64 bytes;
+};
+bool track_time(Track* track, u64* microseconds, TrackRead* read = nullptr) noexcept;
 // Sets the stream's volume (linear, 1 = unity); false when the server did not accept the request.
 bool track_set_volume(Track* track, float linear) noexcept;
 // Asks the server to play out everything written so far; track.drained becomes 1 when it has. Some sinks (a PulseAudio

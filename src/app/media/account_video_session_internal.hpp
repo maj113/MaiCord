@@ -82,6 +82,10 @@ AccountVideoResult result(AccountVideoError error, u32 native = 0, bool admitted
 AccountVideoResult refused(AccountVideoSession* s, const AccountVideoIdentity& id, u64 serial,
                            AccountVideoError error, u32 native = 0) noexcept;
 void terminal(AccountVideoSession& s, AccountVideoError error, u32 native = 0) noexcept;
+// The playback error of a failed audio transport: the sound server, or the audio in general.
+constexpr AccountVideoError audio_failure(MediaAudioError error) noexcept {
+    return error == MediaAudioError::server ? AccountVideoError::sound_server : AccountVideoError::audio;
+}
 u32 delay(i64 duration) noexcept;
 bool qpc(u64* now) noexcept;
 bool data_pending(const AccountVideoSession& s) noexcept;

@@ -6,7 +6,8 @@
 //   voice enumeration   the null sink is listed (monitors are not offered as microphones), the default first
 //   voice output        a square wave to the sink by name, then by a name that does not exist (falls back)
 //   notifications       one clip at 44100 Hz and one at 48000 Hz, both completed and heard
-//   media               a stream at unity and at volume 0, the clock and the end of the stream, pause and resume
+//   media               a stream at unity and at volume 0, the clock and the end of the stream, pause and resume,
+//                       a producer that stops for a while (no audio is dropped)
 //   endpoint events     the sink list watcher reports a sink appearing and disappearing
 //
 // The waves are square so no maths library is needed: the recording is measured by its peak, the length of the
@@ -440,7 +441,8 @@ alignas(4) float g_media_ring[kMediaRingFrames * 2];
 
 // Plays `frames` of a 400 Hz square wave (amplitude 0.3 = 9830 in PCM16 terms) through a MediaAudio at `volume`; the
 // producer refills the ring as the playback frees it. Returns the final status. With `loud` the signal is a 400 Hz
-// sine at +4 dBFS (peak 1.585), as a decoder gives it for a loud track.
+// sine at +4 dBFS (peak 1.585), as a decoder gives it for a loud track. With `gap_ms` the producer stops at half the
+// frames until the server has read them, and then for `gap_ms` more, as a fetch that waits for the network does.
 struct MediaRun {
     MediaAudioStatus status;
     bool completed;
@@ -474,7 +476,7 @@ void show_run(const char* label, const MediaRun& run) noexcept {
     test_write_line(run.completed ? ", completed" : ", not completed");
 }
 
-MediaRun play_media(u32 frames, float volume, bool pause_midway, bool loud = false) noexcept {
+MediaRun play_media(u32 frames, float volume, bool pause_midway, bool loud = false, u32 gap_ms = 0) noexcept {
     // One period of the sine, by the recurrence s[n] = 2 cos(w) s[n - 1] - s[n - 2]. It needs no math library.
     float sine[120];
     double before_last = -0.0829469007703844, last = 0;
@@ -496,9 +498,10 @@ MediaRun play_media(u32 frames, float volume, bool pause_midway, bool loud = fal
     check(refill && media_audio_initialize(&media, config).ok(), "media audio: initializes");
     float chunk[2048 * 2];
     u32 written = 0;
+    bool gapped = !gap_ms;
     auto produce = [&]() noexcept {
-        while (written < frames) {
-            const u32 want = minimum<u32>(2048, frames - written);
+        while (written < (gapped ? frames : frames / 2)) {
+            const u32 want = minimum<u32>(2048, (gapped ? frames : frames / 2) - written);
             for (u32 i = 0; i < want; ++i)
                 chunk[2 * i] = chunk[2 * i + 1] =
                     loud ? sine[(written + i) % 120] : (written + i) % 120 < 60 ? 0.3f : -0.3f;
@@ -516,6 +519,10 @@ MediaRun play_media(u32 frames, float volume, bool pause_midway, bool loud = fal
     bool paused = false, resumed = !pause_midway;
     const u64 end = clock_monotonic_milliseconds() + 10000;
     while (clock_monotonic_milliseconds() < end) {
+        if (!gapped && written == frames / 2) {
+            gapped = wait_until([&]() noexcept { return media_audio_status(&media).consumed_frames == written; }, 3000);
+            settle(gap_ms);
+        }
         if (written < frames)
             producing = produce();
         else if (!media_audio_status(&media).ended && !media.ring.ended)
@@ -572,6 +579,20 @@ void media() noexcept {
     show_run("paused and resumed", paused);
     check(paused.completed && paused.status.error == MediaAudioError::none,
           "media audio: a paused and resumed stream still plays to its end");
+
+    // The producer stops for 250 ms after the server has read half the tone. The stream runs dry and must wait: the
+    // whole tone is heard (2 sign changes in each 120-frame period), later by the gap, and none of it is dropped.
+    check(quiet_recording(), "media audio: the recording restarts for the tone with a gap");
+    const MediaRun gap = play_media(28800, 1.0f, false, false, 250);
+    show_run("gap of 250 ms", gap);
+    settle(150);
+    const Measure gapped = measure_recording();
+    show("gap of 250 ms", gapped);
+    check(gap.completed && gap.status.error == MediaAudioError::none &&
+              gap.status.presentation_time_100ns == 6'000'000,
+          "media audio: a stream that runs dry plays to its end, and its clock ends at the tone's length");
+    check(near(gapped.changes, 480, 3) && gapped.span >= 28800 + kRate / 5,
+          "media audio: after the producer's gap the tone goes on where it stopped, with no audio dropped");
 
     // The client hands a sample above full scale to the server as it is. Each later conversion to 16 bits must
     // saturate. A conversion that wraps adds sign changes, so the pitch reads three times too high.

@@ -497,7 +497,7 @@ void refresh(AccountVideoSession& s) noexcept {
         if (auto* owner = audio_owner(s)) {
             const auto a = media_audio_status(owner);
             if (a.error != MediaAudioError::none && s.status.error == AccountVideoError::none)
-                terminal(s, AccountVideoError::audio, a.native_error);
+                terminal(s, audio_failure(a.error), a.native_error);
             const auto observation = account_video_audio_observation(a, s.playback_epoch);
             const bool current = observation.epoch_ready;
             s.audio_epoch_ready = current;
@@ -706,7 +706,7 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
         }
         const auto a = media_audio_status(&w.audio);
         if (a.error != MediaAudioError::none) {
-            terminal(s, AccountVideoError::audio, a.native_error);
+            terminal(s, audio_failure(a.error), a.native_error);
             break;
         }
         if (w.pending_frames) {
@@ -849,7 +849,7 @@ OutputStep output_step(AccountVideoSession& s, AudioQueue& w, const float* pcm, 
         return OutputStep::interrupted;
     const auto audio = media_audio_status(&w.audio);
     if (audio.error != MediaAudioError::none) {
-        terminal(s, AccountVideoError::audio, audio.native_error);
+        terminal(s, audio_failure(audio.error), audio.native_error);
         return OutputStep::stop;
     }
     if (w.pending_frames) {

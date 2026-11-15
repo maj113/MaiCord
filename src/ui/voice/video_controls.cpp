@@ -212,7 +212,7 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.controls[4].maximum = 100;
     projection.controls[4].hidden = !projection.volume_expanded;
     projection.controls[2].hidden = swap;
-    projection.controls[5].label = state.error       ? style.error
+    projection.controls[5].label = state.error       ? (state.sound_server ? style.sound_server : style.error)
                                    : state.buffering ? style.buffering
                                                      : Utf8View{};
     projection.controls[5].hidden = projection.controls[5].label.bytes == 0;
