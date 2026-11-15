@@ -276,22 +276,23 @@ bool seed_timeline(UiPoint* inside) noexcept {
 // A message's items as media pages (the menus' "Open in new tab"): kind, keys, URL, title and flags of attachments and
 // embeds, and no page for a file, a stale revision or an unknown item.
 struct ItemFixture {
-    MessageRecord records[4];
-    u32 order[4];
+    MessageRecord records[6];
+    u32 order[6];
     u8 text[512];
     MessageRichRecord rich_records[8];
-    u16 rich_order[4];
+    u16 rich_order[6];
     u8 rich_text[8192];
 } item_fixture;
+constexpr auto kMusicTrack = utf8_literal("https://music.youtube.com/watch?v=4jVlGPRjwOs");
 bool seed_items() noexcept {
     auto& f = item_fixture;
     auto& store = g_app.account_ui->message_rich_store;
-    if (!message_store_initialize(&g_app.message_view.store, {f.records, 4}, {f.order, 4}, {f.text, sizeof(f.text)}) ||
-        !message_rich_store_initialize(&store, {f.rich_records, 8}, {f.rich_order, 4},
+    if (!message_store_initialize(&g_app.message_view.store, {f.records, 6}, {f.order, 6}, {f.text, sizeof(f.text)}) ||
+        !message_rich_store_initialize(&store, {f.rich_records, 8}, {f.rich_order, 6},
                                        {f.rich_text, sizeof(f.rich_text)}))
         return false;
-    const auto apply = [&](u64 id, const GatewayMessageEvent& event) noexcept {
-        const auto inserted = message_store_upsert(&g_app.message_view.store, {id, 999, 3, 0, 0, utf8_literal(""), 0});
+    const auto apply = [&](u64 id, const GatewayMessageEvent& event, Utf8View text = utf8_literal("")) noexcept {
+        const auto inserted = message_store_upsert(&g_app.message_view.store, {id, 999, 3, 0, 0, text, 0});
         const auto* record = inserted.ok() ? message_store_resolve(g_app.message_view.store, inserted.handle) : nullptr;
         return record && message_rich_store_apply(&store, id, record->revision, event).ok();
     };
@@ -379,7 +380,36 @@ bool seed_items() noexcept {
     voice.id = 823;
     voice.fields = gateway_message_field_attachments;
     voice.attachments = {&attachments[4], 1};
-    return apply(820, files) && apply(821, gifv) && apply(822, embeds) && apply(823, voice);
+    // Discord's embed of a music.youtube.com link names www.youtube.com. Only the message text keeps the music host.
+    // Message 825 forwards the link: the snapshot has it, and the outer text names the youtube.com page.
+    GatewayMessageEmbed music{};
+    music.type = GatewayMessageEmbedType::video;
+    music.url = utf8_literal("https://www.youtube.com/watch?v=4jVlGPRjwOs");
+    music.title = utf8_literal("The Flute Track (Hard Version)");
+    music.provider_name = utf8_literal("YouTube");
+    music.video.url = utf8_literal("https://www.youtube.com/embed/4jVlGPRjwOs");
+    music.thumbnail.url = utf8_literal("https://i.ytimg.com/vi/4jVlGPRjwOs/maxresdefault.jpg");
+    music.thumbnail.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/track.jpg");
+    music.thumbnail.content_type = utf8_literal("image/jpeg");
+    music.thumbnail.width = music.video.width = 1280;
+    music.thumbnail.height = music.video.height = 720;
+    music.thumbnail.has_width = music.thumbnail.has_height = music.video.has_width = music.video.has_height = true;
+    GatewayMessageEvent track{};
+    track.id = 824;
+    track.fields = gateway_message_field_embeds;
+    track.embeds = {&music, 1};
+    GatewayMessageEvent forward{};
+    forward.id = 825;
+    forward.fields = gateway_message_field_message_snapshots | gateway_message_field_message_reference;
+    forward.reference.type = 1;
+    forward.reference.channel_id = 8;
+    forward.reference.message_id = 99;
+    forward.snapshot.present = true;
+    forward.snapshot.fields = gateway_message_field_content | gateway_message_field_embeds;
+    forward.snapshot.content = kMusicTrack;
+    forward.snapshot.embeds = {&music, 1};
+    return apply(820, files) && apply(821, gifv) && apply(822, embeds) && apply(823, voice) &&
+           apply(824, track, kMusicTrack) && apply(825, forward, music.url);
 }
 u32 live_revision(u64 id) noexcept {
     const auto found = message_store_find(g_app.message_view.store, id);
@@ -456,6 +486,15 @@ void item_page_source_tests() noexcept {
     check(application_image_viewer_item_page_source(820, live_revision(820), false, false, 932, &page) &&
               page.kind == MediaPageKind::audio && !page.art.bytes && !media_asset_key_valid(page.fallback),
           "Item pages: an audio attachment has no artwork");
+    for (u32 forwarded = 0; forwarded != 2; ++forwarded) {
+        const u64 id = forwarded ? 825 : 824;
+        check(application_image_viewer_item_page_source(id, live_revision(id), forwarded != 0, true, 0, &page) &&
+                  page.kind == MediaPageKind::video && (page.flags & media_page_provider) &&
+                  !(page.flags & media_page_playlist) && utf8_equal(page.link, kMusicTrack),
+              forwarded ? "Item pages: Open original of a forwarded music link behind a YouTube embed opens the "
+                          "snapshot's link"
+                        : "Item pages: Open original of a music link behind a YouTube embed opens the message's link");
+    }
 }
 void run() noexcept {
     check_media_context();
@@ -933,7 +972,8 @@ namespace video_detail {
 // What the player resolves for an embed: the playback URL its message's embed selects.
 bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* url, u32* width, u32* height) noexcept {
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = message_rich_store_find(store, source.message_id);
+    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message_id)
+                                       : message_rich_store_find(store, source.message_id);
     MessageRichEmbedMediaSelection media{};
     if (!rich || !source.embed || source.index >= rich->embed_count ||
         !message_rich_embed_playback_select(store, rich->embeds[source.index], &media))

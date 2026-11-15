@@ -5,6 +5,7 @@
 #include "maicord/app/net/cdn_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/os/thread.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
 #include "../../../src/app/media/account_media_internal.hpp"
 #include "../../support/test_output.hpp"
 
@@ -500,6 +501,16 @@ void music_kind() noexcept {
     check(resolve(Kind::late) == 2 && f.kinds == 7, "a kind that arrives after the wait keeps the video");
     check(resolve(Kind::art, false) == 2 && f.kinds == 7 && f.player.player == 8,
           "a YouTube link sends no kind request and keeps the video");
+    // Discord's embed of a music.youtube.com link names www.youtube.com. The request takes the message's link and its
+    // host chooses the route, as in request_provider_media.
+    constexpr auto embed = utf8_literal("https://www.youtube.com/embed/aB_01234-xy");
+    const auto route = [&](Utf8View content) noexcept {
+        return embed_provider(youtube_message_source(embed, content)) == EmbedProvider::youtube_music;
+    };
+    check(resolve(Kind::art, route(utf8_literal("https://music.youtube.com/watch?v=aB_01234-xy"))) == 1 && f.kinds == 8,
+          "a music link behind a YouTube embed asks for the kind and plays an art track as audio alone");
+    check(resolve(Kind::art, route(utf8_literal("https://www.youtube.com/watch?v=aB_01234-xy"))) == 2 && f.kinds == 8,
+          "a youtube.com link behind the same embed sends no kind request and keeps the video");
     f.player.login = true;
     EmbedStreams streams{};
     f.kind = Kind::art;

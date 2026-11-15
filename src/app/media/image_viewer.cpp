@@ -565,13 +565,13 @@ bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
             viewer.channel_id,
             viewer.message_id,
             viewer.message_revision};
-    // Open original leaves for the embed's own link (the page it describes, with the message's playlist), not the
-    // media it plays.
+    // Open original leaves for the embed's own link (the page it describes, with the message's playlist or music
+    // host), not the media it plays.
     if (embed)
-        out->link = youtube_collection_source(message_rich_store_string(store, rich.embeds[item->index].url),
-                                              viewer.attachment_snapshot
-                                                  ? message_rich_store_string(store, rich.snapshot.content)
-                                                  : message_store_content(*source.store, source.handle));
+        out->link = youtube_message_source(message_rich_store_string(store, rich.embeds[item->index].url),
+                                           viewer.attachment_snapshot
+                                               ? message_rich_store_string(store, rich.snapshot.content)
+                                               : message_store_content(*source.store, source.handle));
     return true;
 }
 bool application_image_viewer_item_page_source(u64 message_id, u32 revision, bool snapshot, bool embed, u64 item,
@@ -624,9 +624,9 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
         const auto& value = rich->embeds[index];
         flags |= media_page_embed;
         title = message_rich_store_string(store, value.title);
-        link = youtube_collection_source(message_rich_store_string(store, value.url),
-                                         snapshot ? message_rich_store_string(store, rich->snapshot.content)
-                                                  : message_store_content(g_app.message_view.store, found.handle));
+        link = youtube_message_source(message_rich_store_string(store, value.url),
+                                      snapshot ? message_rich_store_string(store, rich->snapshot.content)
+                                               : message_store_content(g_app.message_view.store, found.handle));
         MessageRichEmbedMediaSelection media{};
         if (value.type != GatewayMessageEmbedType::gifv && message_rich_embed_playback_select(store, value, &media) &&
             (media.format == MediaAttachmentFormat::mp4 || media_embed_audio_format_supported(media.format))) {

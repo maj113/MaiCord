@@ -459,7 +459,7 @@ YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
     if (prefix(result.list, utf8_literal("RD")) && !result.video.bytes) return {};
     return result;
 }
-Utf8View youtube_collection_source(Utf8View source, Utf8View content) noexcept {
+Utf8View youtube_message_source(Utf8View source, Utf8View content) noexcept {
     if (youtube_collection_locator(source).list.bytes) return source;
     const auto video = embed_video_locator(source);
     if ((video.provider != EmbedProvider::youtube && video.provider != EmbedProvider::youtube_music) ||
@@ -468,7 +468,8 @@ Utf8View youtube_collection_source(Utf8View source, Utf8View content) noexcept {
         return c <= 32 || c >= 127 || c == '<' || c == '>' || c == '(' || c == ')' ||
                c == '[' || c == ']' || c == '"' || c == '\'' || c == '`' || c == '*';
     };
-    Utf8View found{}, list{};
+    Utf8View found{}, list{}, music{};
+    bool youtube = false;
     for (u32 at = 0; at + 8 <= content.bytes;) {
         if ((at && !boundary(static_cast<u8>(content.data[at - 1]))) ||
             !ascii_equal_ignore_case({content.data + at, 8}, utf8_literal("https://"))) { ++at; continue; }
@@ -483,10 +484,17 @@ Utf8View youtube_collection_source(Utf8View source, Utf8View content) noexcept {
             if (found.bytes && !equal(list, queue.list)) return source;
             found = candidate;
             list = queue.list;
+        } else if (!queue.list.bytes) {
+            const auto single = embed_video_locator(candidate);
+            if (equal(single.id, video.id)) {
+                if (single.provider == EmbedProvider::youtube_music) music = candidate;
+                else if (single.provider == EmbedProvider::youtube) youtube = true;
+            }
         }
         at = end;
     }
-    return found.bytes ? found : source;
+    // A youtube.com link of the same video makes the host unclear. The embed URL then stays.
+    return found.bytes ? found : music.bytes && !youtube ? music : source;
 }
 EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
     Url parsed{};

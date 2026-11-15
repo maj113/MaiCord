@@ -5,9 +5,10 @@
 namespace maicord {
 struct YoutubeCollectionLocator { Utf8View list{}, video{}; };
 YoutubeCollectionLocator youtube_collection_locator(Utf8View) noexcept;
-// Restore a queue omitted by embed metadata, only for the same video and one
-// unambiguous list in the message. Borrows content; otherwise returns source.
-Utf8View youtube_collection_source(Utf8View source, Utf8View content) noexcept;
+// Restore what the embed URL of a YouTube video lost: a queue, only for the same video and one unambiguous list in
+// the message, else the music.youtube.com link of the same video. Discord's embed of that link names youtube.com.
+// A youtube.com link of the same video in the message keeps the embed URL. Borrows content; otherwise returns source.
+Utf8View youtube_message_source(Utf8View source, Utf8View content) noexcept;
 // Provider identity is routing information, not a claim that an iframe URL
 // contains decodable media. Direct video.proxy_url uses the native player.
 enum class EmbedProvider : u8 {

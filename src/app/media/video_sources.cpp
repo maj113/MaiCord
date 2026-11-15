@@ -427,10 +427,10 @@ bool resolve_message_video_url(const InlineMediaSource& source, Utf8View* out, u
         MessageRichEmbedMediaSelection media{};
         if (!message_rich_embed_playback_select(*store, rich->embeds[source.index], &media))
             return false;
-        // Embed URLs can lose the playlist query. Recover it from this exact
+        // Embed URLs can lose the playlist query and the music.youtube.com host. Recover them from this exact
         // message (or forwarded snapshot), never from another visible row.
         if (source.snapshot) content = message_rich_store_string(*store, rich->snapshot.content);
-        url = youtube_collection_source(media.source, content);
+        url = youtube_message_source(media.source, content);
         u8 target[kCdnMaximumTargetBytes];
         if (!parse_media_url(url, {target, sizeof(target)}).ok() && media.fallback_source.bytes &&
             parse_media_url(media.fallback_source, {target, sizeof(target)}).ok())

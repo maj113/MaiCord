@@ -252,13 +252,13 @@ bool initialize_scene(SceneFixture& fixture,
                       Utf8View source = utf8_literal("https://example.com/focus-fixture.mp4"),
                       bool forwarded = false, bool audio = false, bool voice = false,
                       MediaAttachmentFormat audio_format = MediaAttachmentFormat::ogg_opus,
-                      bool provider = false, MediaEmbedResource artwork = MediaEmbedResource::thumbnail, Utf8View shared_page = {}, bool canonical_queue = false) noexcept {
+                      bool provider = false, MediaEmbedResource artwork = MediaEmbedResource::thumbnail, Utf8View shared_page = {}, bool canonical_embed = false) noexcept {
     collection_selection = embed_collection_url(source); available_track = 1; fail_collection_track = false;
     auto& view = g_app.message_view;
     auto& rich = g_app.account_ui->message_rich_store;
     if (!message_store_initialize(&view.store, {fixture.record, 1}, {fixture.order, 1},
                                   {fixture.text, sizeof(fixture.text)}) ||
-        !message_store_upsert(&view.store, {1, 7, 9, 0, 0, (canonical_queue ? source : utf8_literal("")), 0}).ok() ||
+        !message_store_upsert(&view.store, {1, 7, 9, 0, 0, (canonical_embed ? source : utf8_literal("")), 0}).ok() ||
         !message_rich_store_initialize(&rich, {fixture.rich_record, 2}, {fixture.rich_order, 1},
                                        {fixture.rich_text, 512}) ||
         !ui_variable_list_initialize(&view.list, {fixture.heights, 1}, {fixture.fenwick, 1}, 1,
@@ -344,7 +344,7 @@ bool initialize_scene(SceneFixture& fixture,
             if (artwork == MediaEmbedResource::image) embed.image = embed.thumbnail;
             embed.thumbnail = {};
         }
-        if (canonical_queue) {
+        if (canonical_embed) {
             embed.url = utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0");
             embed.video.url = utf8_literal("https://www.youtube.com/embed/eyk25H75ld0");
             embed.type = GatewayMessageEmbedType::video;
@@ -709,10 +709,16 @@ void run_search_video() noexcept {
         application_video_close();
         selection_busy = false;
     }
+    // Discord's embed of a music.youtube.com link names www.youtube.com. The queue and the music host come from the
+    // message text, or from the forwarded snapshot when the outer text names another link.
     constexpr auto radio = utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs");
-    for (u32 forwarded = 0; forwarded != 2; ++forwarded) {
-        const auto updated = message_store_upsert(&bank.store, {1,7,9,0,0,
-            forwarded ? utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=PLwrong") : radio,0});
+    constexpr auto track = utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0");
+    for (u32 shape = 0; shape != 4; ++shape) {
+        const bool forwarded = (shape & 1) != 0, single = shape >= 2;
+        const auto link = single ? track : radio;
+        const auto outer = single ? utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0")
+                                  : utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=PLwrong");
+        const auto updated = message_store_upsert(&bank.store, {1,7,9,0,0, forwarded ? outer : link,0});
         search_view.handle = message_store_ordered_handle(bank.store,0);
         search_view.ticket.publication_revision = fixture.record[0].revision;
         GatewayMessageEmbed embed{};
@@ -732,21 +738,22 @@ void run_search_video() noexcept {
             event.reference.message_id = 99;
             event.snapshot.present = true;
             event.snapshot.fields = gateway_message_field_content | gateway_message_field_embeds;
-            event.snapshot.content = radio;
+            event.snapshot.content = link;
             event.snapshot.embeds = {&embed,1};
         } else event.embeds = {&embed,1};
         const bool applied = updated.ok() && message_rich_store_apply(&g_app.account_ui->message_rich_store,1,
             fixture.record[0].revision,event).ok();
         ++source.revision;
         target.source_revision = source.revision;
-        target.snapshot = forwarded != 0;
+        target.snapshot = forwarded;
         target.resource = MediaEmbedResource::video;
         const bool layout = applied && ui_search_scene_update(&scene,&source,&content,{0,0,1400,1200},{0,0,1400,48});
         selection_busy = true;
         const auto requests = account.network_requests;
         check(layout && application_video_open_search(target) && pump() &&
-              account.network_requests == requests + 1 && utf8_equal(account.last_request.signed_url,radio),
-              "Search canonical embeds recover queues only from the accepted message or forwarded snapshot");
+              account.network_requests == requests + 1 && utf8_equal(account.last_request.signed_url,link),
+              single ? "Search canonical embeds take the YouTube Music link from the accepted message or forwarded snapshot"
+                     : "Search canonical embeds recover queues only from the accepted message or forwarded snapshot");
         application_video_close();
         selection_busy = false;
     }
@@ -1755,21 +1762,23 @@ void run() noexcept {
         utf8_literal("https://music.youtube.com/playlist?list=OLAK5uy_nacpVF5ykESFyqIjhN1towfUdU2rUPqxY"),
         utf8_literal("https://music.youtube.com/playlist?list=PLQ73uMywXkLE"),
         utf8_literal("https://music.youtube.com/watch?v=j7bqDpjgM5M&list=RDAMVMj7bqDpjgM5M"),
+        utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0"),
         utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")};
     for (u32 provider = 0; provider < sizeof(provider_urls) / sizeof(provider_urls[0]); ++provider) {
         const auto provider_url = provider_urls[provider];
         const auto shared_page = utf8_equal(provider_url, utf8_literal("https://player.vimeo.com/video/22439234?autoplay=1"))
             ? utf8_literal("https://vimeo.com/22439234#t=5s") : Utf8View{};
-        const bool canonical_queue = provider + 1 == sizeof(provider_urls) / sizeof(provider_urls[0]);
+        // The last two links are in the message text only. Their embed names www.youtube.com, as Discord sends it.
+        const bool canonical_embed = provider + 2 >= sizeof(provider_urls) / sizeof(provider_urls[0]);
         live_selection = provider == 7 || provider == 8;
         const bool provider_scene = initialize_scene(fixture, provider_url, false, false, false,
-                                                    MediaAttachmentFormat::ogg_opus, true, MediaEmbedResource::thumbnail, shared_page, canonical_queue);
+                                                    MediaAttachmentFormat::ogg_opus, true, MediaEmbedResource::thumbnail, shared_page, canonical_embed);
         const auto* provider_record = message_rich_store_find(g_app.account_ui->message_rich_store, 1);
         const bool media_only = provider_record && message_rich_embed_media_only(provider_record->embeds[0]);
         const auto* provider_node = provider_scene ? message_scene_rich_item_layout_node(
             g_app.message_scene, g_app.message_scene.rows[0], MessageSceneRichItemKind::embed, 0) : nullptr;
         check(provider_node != nullptr, "provider runtime: poster has native message geometry");
-        if (provider_scene && !canonical_queue && youtube_collection_locator(provider_url).list.bytes) {
+        if (provider_scene && !canonical_embed && youtube_collection_locator(provider_url).list.bytes) {
             const auto& store = g_app.account_ui->message_rich_store;
             const auto* record = message_rich_store_find(store, 1);
             const auto& layout = g_app.message_scene.rows[0].rich_item_layout;
@@ -1828,7 +1837,7 @@ void run() noexcept {
             GpuVideoFrame provider_frame{};
             if (collection_selection) {
                 provider_frame.width = provider_frame.height = 720;
-                if (canonical_queue) provider_frame.width = 1280;
+                if (canonical_embed) provider_frame.width = 1280;
             }
             if (provider == 7 || provider == 8) {
                 provider_frame.width = 1920;
@@ -1906,6 +1915,14 @@ void run() noexcept {
                 g_app.video->source.host = VideoHost::viewer;
                 account.status.quality = {};
                 check(pump() && art_idle(), "track art: the viewer asks for none once the track has frames");
+            }
+            // The viewer of a music link behind a YouTube embed plays the message's link.
+            if (canonical_embed && !collection_selection) {
+                Utf8View viewer_url{};
+                bool viewer_provider = false;
+                check(application_video_viewer_url(&viewer_url, &viewer_provider) && viewer_provider &&
+                          utf8_equal(viewer_url, provider_url),
+                      "YouTube Music viewer: the expanded player keeps the music link of the message");
             }
             if (live_selection) {
                 const auto* controls = g_app.renderer.video_scene;

@@ -25,16 +25,30 @@ bool youtube_collection_tests(EmbedResolver* resolver) noexcept {
     check(utf8_equal(youtube_collection_locator(radio).video, utf8_literal("eyk25H75ld0")) &&
           utf8_equal(youtube_collection_locator(radio).list, utf8_literal("RDAMVMY5f3S26WwDs")),
           "current song and radio seed remain independent");
-    check(utf8_equal(youtube_collection_source(canonical, radio), radio) &&
-          utf8_equal(youtube_collection_source(canonical, utf8_literal("[Mix](https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs)")), radio) &&
-          utf8_equal(youtube_collection_source(canonical, utf8_literal("Mix: <https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs>.")), radio),
+    check(utf8_equal(youtube_message_source(canonical, radio), radio) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("[Mix](https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs)")), radio) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("Mix: <https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs>.")), radio),
           "canonical embed recovers the same video's radio from bare and formatted message links");
-    check(utf8_equal(youtube_collection_source(canonical, url), canonical) &&
-          utf8_equal(youtube_collection_source(radio, url), radio) &&
-          utf8_equal(youtube_collection_source(canonical, utf8_literal("https://example.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")), canonical) &&
-          utf8_equal(youtube_collection_source(canonical, utf8_literal("https://example.com/https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")), canonical) &&
-          utf8_equal(youtube_collection_source(canonical, utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=PL123 https://music.youtube.com/watch?v=eyk25H75ld0&list=PL456")), canonical),
+    check(utf8_equal(youtube_message_source(canonical, url), canonical) &&
+          utf8_equal(youtube_message_source(radio, url), radio) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://example.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")), canonical) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://example.com/https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")), canonical) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=PL123 https://music.youtube.com/watch?v=eyk25H75ld0&list=PL456")), canonical),
           "recovery refuses unrelated videos, foreign hosts, nested URLs and ambiguous lists, preserving explicit queues");
+    // Discord's embed of a music.youtube.com link names www.youtube.com. Only the message keeps the music host.
+    constexpr auto track = utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0");
+    constexpr auto watch = utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0");
+    check(utf8_equal(youtube_message_source(canonical, track), track) &&
+          utf8_equal(youtube_message_source(watch, utf8_literal("Listen: <https://music.youtube.com/watch?v=eyk25H75ld0>.")),
+                     utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0")) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0 https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")), radio),
+          "canonical embed recovers the same video's YouTube Music link and prefers a queue link of the video");
+    check(utf8_equal(youtube_message_source(canonical, watch), canonical) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://music.youtube.com/watch?v=CZQdi1sxd30")), canonical) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0 https://youtu.be/eyk25H75ld0")), canonical) &&
+          utf8_equal(youtube_message_source(canonical, utf8_literal("https://example.com/https://music.youtube.com/watch?v=eyk25H75ld0")), canonical) &&
+          utf8_equal(youtube_message_source(track, watch), track),
+          "a youtube.com link, another video, both hosts or a nested link keep the embed URL");
     u32 scratch[4096]; YoutubeCollectionPage page{};
     struct Names { u32 count{}, bytes{}; u16 last{}; } names{};
     const MediaTrackTitleSink sink{&names, +[](void* opaque,u16 index,const MediaTrackTitle& name) noexcept {
