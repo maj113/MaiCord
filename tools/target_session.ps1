@@ -20,7 +20,7 @@ function Invoke-OptInTarget {
     $outputs = @($binary, (Join-Path $cacheRoot "CMakeFiles\$Target.dir"))
     . (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 
-    $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
+    $mutex = [Threading.Mutex]::new($false, (& (Join-Path $PSScriptRoot 'build_lock_name.ps1') $cacheRoot))
     $locked = $false
     Push-Location $repository
     try {

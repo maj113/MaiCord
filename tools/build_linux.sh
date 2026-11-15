@@ -32,7 +32,11 @@
 #   Source    On a native Linux file system (ext4, xfs, btrfs, tmpfs, overlay: a Linux checkout, GitHub Actions) the
 #             checkout is built where it is. Where it sits on a Windows or network mount (WSL's /mnt/d is 9p, whose metadata
 #             operations make ninja and git 50-700x slower) it is rsynced to ext4 first (default ~/mc; setting
-#             MAICORD_LINUX_SOURCE always copies there; $CI never copies).
+#             MAICORD_LINUX_SOURCE always copies there; $CI never copies). For a checkout on a Windows drive, Windows
+#             PowerShell lists the files (tools/list_checkout_files.ps1) and rsync copies only those that changed since
+#             the last copy.
+#   Locks     A lock file beside the build directory, and one beside the source copy, make runs on them wait for each
+#             other. ~/.maicord-linux-test.lock makes the test runs of the machine wait for each other.
 #   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: clang and ld.lld, full LTO, IPRA,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
 #             (include/maicord/sys/linux for the kernel and glibc interface), -march=sandybridge -mtune=generic
@@ -128,6 +132,8 @@ fi
 # The toolchain: --llvm-bin or MAICORD_LLVM_BIN, else the pinned release (fetched on first use), first on PATH so a
 # runner's own clang (ubuntu-24.04 ships 18) never wins.
 llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
+# Windows PowerShell, when this is WSL: it lists a checkout on a Windows drive for the copy (sync_source).
+powershell="$(command -v powershell.exe 2>/dev/null || true)"
 # WSL appends the Windows PATH. Each of those directories is a 9p lookup for every tool CMake searches: 1.65 of the 2.8
 # seconds of a configure (measured). The build runs no Windows program.
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then
@@ -150,18 +156,57 @@ if [ "${clang_version%%.*}" != "$llvm_major" ]; then
 fi
 echo "Toolchain: clang $clang_version ($llvm_bin), $("$llvm_bin/ld.lld" --version | head -n 1), cmake $(cmake --version | head -n 1 | cut -d' ' -f3)"
 
-# Concurrent invocations queue for the single build directory.
-exec 9>"$HOME/.maicord-linux-build.lock"
-if ! flock -n 9; then
-    echo "Waiting for another MaiCord Linux build..."
-    flock 9
-fi
+# Runs on one build directory wait for each other, and so do runs that copy into one source directory. Runs on the
+# directories of another checkout do not wait. The lock files are beside the directories: the cleanup empties them.
+take_lock() {
+    mkdir -p "$(dirname "$2")"
+    eval "exec $1>\"\${2%/}.lock\""
+    if ! flock -n "$1"; then
+        echo "Waiting for another MaiCord Linux build of $2..."
+        flock "$1"
+    fi
+}
+[ "$sync" = 0 ] || take_lock 8 "$source_directory"
+take_lock 9 "$build_directory"
 
+# Copies the checkout to the source directory. rsync examines each of the 5,400 files through the mount: 4 to 10
+# seconds, also when nothing changed. For a checkout on a Windows drive, Windows lists the files in one second
+# (tools/list_checkout_files.ps1) and rsync then takes only the files whose time or size differs from the list of the
+# last copy. That list is a file of the copy: a full rsync, also one of an older script, removes it. A file that is
+# gone, a first copy, another checkout or any failure gives the full rsync.
+sync_source() {
+    local full=(rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log'
+        "$repository/" "$source_directory/")
+    local last="$source_directory/.maicord-checkout-files" listing windows
+    mkdir -p "$source_directory"
+    windows="$(wslpath -w "$repository" 2>/dev/null || true)"
+    if [ -z "$powershell" ] || ! [[ "$windows" =~ ^[A-Za-z]:\\ ]]; then
+        "${full[@]}"
+        return
+    fi
+    listing="$(mktemp)"
+    if ! "$powershell" -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+            -File "$windows\\tools\\list_checkout_files.ps1" -Root "$windows" < /dev/null | LC_ALL=C sort > "$listing" ||
+            ! [ -s "$listing" ]; then
+        rm -f "$listing"
+        "${full[@]}"
+        return
+    fi
+    if [ "$(head -n 1 "$last" 2>/dev/null)" = "$repository" ] &&
+            [ -z "$(LC_ALL=C comm -23 <(tail -n +2 "$last" | cut -d' ' -f3- | LC_ALL=C sort) \
+                <(cut -d' ' -f3- "$listing" | LC_ALL=C sort))" ] &&
+            LC_ALL=C comm -13 <(tail -n +2 "$last") "$listing" | cut -d' ' -f3- |
+                rsync -a --files-from=- "$repository/" "$source_directory/"; then
+        :
+    else
+        "${full[@]}"
+    fi
+    { echo "$repository"; cat "$listing"; } > "$last"
+    rm -f "$listing"
+}
 # A checkout on a slow mount is built from its ext4 copy; a run from that copy builds it in place.
 if [ "$sync" = 1 ] && [ "$repository" != "$(cd "$source_directory" 2>/dev/null && pwd -P || true)" ]; then
-    mkdir -p "$source_directory"
-    rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log' \
-        "$repository/" "$source_directory/"
+    sync_source
 fi
 
 elapsed() {
@@ -258,7 +303,14 @@ if [ "$run_tests" = 1 ]; then
         regex="^($(IFS='|'; echo "${chosen[*]}"))\$"
         arguments+=(--tests-regex "$regex")
     fi
+    # One test run at a time on the machine, as on Windows (tools/build.ps1).
+    exec 7>"$HOME/.maicord-linux-test.lock"
+    if ! flock -n 7; then
+        echo "Waiting for the MaiCord test run of another build directory..."
+        flock 7
+    fi
     started="$(date +%s%N)"
     ctest "${arguments[@]}"
+    flock -u 7
     elapsed "Tests passed in" "$started" ""
 fi

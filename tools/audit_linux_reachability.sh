@@ -36,7 +36,8 @@ done
 llvm_bin="$(bash "$repository/tools/resolve_llvm_toolchain.sh")"
 export PATH="$llvm_bin:$PATH"
 
-exec 9>"$HOME/.maicord-linux-build.lock"
+# Runs on this build directory wait for each other (the lock tools/build_linux.sh takes for its directories).
+exec 9>"${build_directory%/}.lock"
 flock 9
 mkdir -p "$source_directory"
 rsync -a --delete --exclude .git --exclude Analysis --exclude docs --exclude .claude --exclude '*.log' \

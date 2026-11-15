@@ -67,7 +67,7 @@ if ($AudioPlaybackProbe -and $TestNames) { $TestNames += 'maicord_account_audio_
 $repository = Split-Path -Parent $PSScriptRoot
 $build = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
 $client = Join-Path $build 'MaiCord.exe'
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
+$mutex = [Threading.Mutex]::new($false, (& "$PSScriptRoot\build_lock_name.ps1" $build))
 $locked = $false
 . (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -LlvmBin $LlvmBin
 $toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
@@ -92,7 +92,7 @@ function Invoke-Build([string[]]$Targets) {
 function Get-Regex([string[]]$Values) { '^(' + (($Values | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$' }
 
 try {
-    # Concurrent invocations queue for the single Release directory.
+    # Runs on this build directory wait for each other. Runs on the build directory of another checkout do not.
     try {
         if (!($locked = $mutex.WaitOne(0))) {
             Write-Host 'Waiting for another MaiCord Release build or test invocation...'
@@ -177,9 +177,7 @@ try {
                 Start-Sleep -Seconds 1
             }
         }
-        $arguments = @('--test-dir', $build, '--output-on-failure', '--parallel', [Math]::Max(1, [Math]::Min(16, [Environment]::ProcessorCount)),
-            # CTest stops every test at the deadline; the elapsed check below enforces it exactly.
-            '--stop-time', (Get-Date).AddSeconds($TestDeadlineSeconds + 1).ToString('HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture))
+        $arguments = @('--test-dir', $build, '--output-on-failure', '--parallel', [Math]::Max(1, [Math]::Min(16, [Environment]::ProcessorCount)))
         if ($VerbosePreference -eq 'Continue') { $arguments += '--verbose' }
         if ($skippedLabels) { $arguments += '--label-exclude', (Get-Regex $skippedLabels) }
         if ($TestNames -or $TestShard) { $arguments += '--tests-regex', (Get-Regex $selected.Name) }
@@ -195,11 +193,29 @@ try {
             $previous[$name] = [Environment]::GetEnvironmentVariable($name)
             [Environment]::SetEnvironmentVariable($name, $environment[$name])
         }
-        $timer = [Diagnostics.Stopwatch]::StartNew()
-        try { & ctest @arguments; $failed = $LASTEXITCODE } finally {
+        # One test run at a time on the machine: the tests share the GPU chains (RESOURCE_LOCK native_gpu), the audio
+        # endpoint, the input focus and the clipboard. A run on another build directory waits here, not for the build.
+        $testMutex = [Threading.Mutex]::new($false, 'Local\MaiCordTestRun')
+        $testLocked = $false
+        try {
+            try {
+                if (!($testLocked = $testMutex.WaitOne(0))) {
+                    Write-Host 'Waiting for the MaiCord test run of another build directory...'
+                    $testLocked = $testMutex.WaitOne([TimeSpan]::FromMinutes(45))
+                }
+            } catch [Threading.AbandonedMutexException] { $testLocked = $true }
+            if (!$testLocked) { throw 'Another MaiCord test run is still active after 45 minutes.' }
+            # CTest stops every test at the deadline; the elapsed check below enforces it exactly.
+            $arguments += '--stop-time', (Get-Date).AddSeconds($TestDeadlineSeconds + 1).ToString('HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            & ctest @arguments
+            $failed = $LASTEXITCODE
+            $seconds = $timer.Elapsed.TotalSeconds
+        } finally {
+            if ($testLocked) { $testMutex.ReleaseMutex() }
+            $testMutex.Dispose()
             foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
         }
-        $seconds = $timer.Elapsed.TotalSeconds
         if (Test-Path -LiteralPath $textReference) {
             # Groups that used a system font this machine has another version of are skipped, not failed: show the loss.
             $runs = @(Get-Content -LiteralPath $textReference | ForEach-Object { , [long[]]($_ -split ' ') })

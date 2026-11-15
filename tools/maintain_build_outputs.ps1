@@ -10,7 +10,7 @@ $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Pro
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 if (!(Test-Path -LiteralPath $releaseRoot)) { Write-Output 'No Release build exists.'; return }
 
-function Enter-ReleaseCleanupLock([string]$Name = 'Local\MaiCordReleaseBuild') {
+function Enter-ReleaseCleanupLock([string]$Name) {
     $mutex = [Threading.Mutex]::new($false, $Name)
     try {
         try { $locked = $mutex.WaitOne(0) }
@@ -27,7 +27,7 @@ try {
     # The supported wrapper holds this same mutex through build/test/cleanup.
     # Its synchronous script calls acquire it reentrantly; standalone cleanup
     # cannot classify or remove outputs while another wrapper owns the cache.
-    if ($Apply) { $cleanupMutex = Enter-ReleaseCleanupLock }
+    if ($Apply) { $cleanupMutex = Enter-ReleaseCleanupLock (& "$PSScriptRoot\build_lock_name.ps1" $releaseRoot) }
 
 # Whether an existing file or directory is a reparse point (missing: -1, false).
 function Test-ReparsePoint([string]$Path) {
