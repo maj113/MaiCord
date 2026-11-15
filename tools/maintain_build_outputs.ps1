@@ -83,10 +83,10 @@ if (Test-Path -LiteralPath $testingRoot -PathType Container) {
     [void]$ownedTestRoots.Add($testingRoot)
     Add-Tree $testingRoot
 }
-# Strict GUID sandbox names are explicitly authorized runner-owned cleanup.
+# The runner's profile (test-profile, and the GUID names of older runs) is explicitly authorized runner-owned cleanup.
 # Any surviving marker must still match this repository, including old runs.
 foreach ($profile in Get-ChildItem -LiteralPath $releaseRoot -Directory -Force) {
-    if ($profile.Name -notmatch '^\.?test-profile-[0-9a-f]{32}$') { continue }
+    if ($profile.Name -notmatch '^\.?test-profile(-[0-9a-f]{32})?$') { continue }
     $candidateProfile = Assert-ReleasePath $profile.FullName
     $marker = Assert-ReleasePath (Join-Path $candidateProfile '.maicord-test-profile')
     if ((Test-Path -LiteralPath $marker) -and

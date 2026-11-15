@@ -14,7 +14,8 @@ param(
     # it; with -ClientWaitSeconds they wait up to that long for it to appear (CI copies it in while the tests build).
     [switch]$SkipClient,
     [ValidateRange(0, 3600)][int]$ClientWaitSeconds = 0,
-    # Only these tests (with -Test).
+    # Only these tests (with -Test). The client links and is audited only when one of them uses it (the manifest's
+    # "client" column), or with -SizeReport.
     [string[]]$TestNames = @(),
     # CI shards (maicord-tests.txt, written by CMake): app = tests whose
     # executable links the application core or a shipping library or runs the
@@ -42,7 +43,8 @@ param(
     # directory reconfigures the build directory from scratch.
     [string]$LlvmBin = '',
     # Development only: keep objects, the ninja state and compile_commands.json for incremental builds and
-    # tools/check_sources.py. The next run without it restores the client-only build directory.
+    # tools/check_sources.py. The next run without it restores the client-only build directory. A kept run skips the
+    # configure when nothing it reads changed (Get-ConfigureKey).
     [switch]$KeepIntermediates,
     [hashtable]$PerfArguments = @{}
 )
@@ -77,10 +79,34 @@ function Invoke-Native([string]$Command, [string[]]$Arguments) {
     & $Command @Arguments
     if ($LASTEXITCODE) { throw "$Command failed ($LASTEXITCODE): $($Arguments[0..3] -join ' ') ..." }
 }
-function Invoke-Configure([string[]]$Options) {
+$configureKey = Join-Path $build 'maicord-configure-key.txt'
+function Get-ConfigureOptions([string[]]$Options) {
     if ($NoUpdater) { $Options += '-DMAICORD_UPDATE_REPOSITORY=', '-DMAICORD_UPDATE_PUBLIC_KEY=' }
     $Options += "-DCMAKE_EXPORT_COMPILE_COMMANDS=$(if ($KeepIntermediates) { 'ON' } else { 'OFF' })"
-    Invoke-Native cmake (@('-S', $repository, '--preset', 'x64-release') + $toolchainOptions + $Options)
+    @('-S', $repository, '--preset', 'x64-release') + $toolchainOptions + $Options
+}
+function Invoke-Configure([string[]]$Options) {
+    Remove-Item -LiteralPath $configureKey -ErrorAction SilentlyContinue
+    Invoke-Native cmake (Get-ConfigureOptions $Options)
+}
+# What a configure reads that the build rules of a kept build directory do not watch (build.ninja runs CMake again for a
+# changed CMake file): the options, the commit and the tags (the build identity, cmake/update_config.cmake), the file
+# list (file(GLOB) without CONFIGURE_DEPENDS), the presets and the environment. $null when git cannot answer.
+function Get-ConfigureKey([string[]]$Options) {
+    $parts = [Collections.Generic.List[string]]::new()
+    $parts.AddRange([string[]](Get-ConfigureOptions $Options))
+    foreach ($arguments in @(@('rev-parse', 'HEAD'), @('for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags'),
+            @('ls-files', '--cached', '--others', '--deleted', '--exclude-standard'))) {
+        $output = @(& git -C $repository @arguments)
+        if ($LASTEXITCODE) { return $null }
+        $parts.AddRange([string[]]$output)
+    }
+    $parts.Add([IO.File]::ReadAllText("$repository\CMakePresets.json"))
+    foreach ($variable in Get-ChildItem Env: | Where-Object { $_.Name -like 'MAICORD_*' -or $_.Name -eq 'PATH' } | Sort-Object Name) {
+        $parts.Add("$($variable.Name)=$($variable.Value)")
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($parts -join "`n"))) } finally { $hash.Dispose() }
 }
 function Invoke-Build([string[]]$Targets) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -123,42 +149,75 @@ try {
     }
 
     # The source rules (tools/check_source_rules.py: shader twins, theme literals, ...) run with the client's link, or alone.
-    $targets = @(if ($SkipClient) { 'maicord_source_rules' } else { 'MaiCord' })
+    $linkClient = !$SkipClient
     if ($Test -or $PerfProbe -or $StartupProbe) {
-        # A private LOCALAPPDATA/TEMP for the run, owned by this repository.
-        $testProfile = Join-Path $build ('test-profile-' + [guid]::NewGuid().ToString('N'))
+        # A private LOCALAPPDATA/TEMP for the run, owned by this repository. A profile that an interrupted run left goes first.
+        $testProfile = Join-Path $build 'test-profile'
+        $marker = Join-Path $testProfile '.maicord-test-profile'
+        if (Test-Path -LiteralPath $testProfile) {
+            if (!(Test-Path -LiteralPath $marker -PathType Leaf) -or [IO.File]::ReadAllText($marker).Trim() -ne $repository) {
+                throw "$testProfile belongs to another checkout."
+            }
+            Remove-Item -LiteralPath $testProfile -Recurse -Force
+        }
         [void](New-Item -ItemType Directory -Path "$testProfile\Temp")
-        [IO.File]::WriteAllText("$testProfile\.maicord-test-profile", $repository)
+        [IO.File]::WriteAllText($marker, $repository)
     }
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
     # The perf probe's sampler and allocation sites walk stacks through unwind tables.
-    Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
+    $options = @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
         "-DMAICORD_CLIENT_TEST_HOOKS=$(& $on $TestHooks)",
         "-DMAICORD_UNWIND_TABLES=$(& $on $PerfProbe)",
         "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",
-        "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })", "-DMAICORD_TEST_PROFILE_NAMES=$($TestNames -join ';')")
+        "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })")
+    # A kept build directory configures again only when the key of the last configure changed (Get-ConfigureKey). Ninja
+    # then builds build.ninja alone, which runs CMake again for a changed CMake file, before the test list is read.
+    $key = if ($KeepIntermediates) { Get-ConfigureKey $options }
+    if ($key -and (Test-Path -LiteralPath $cache) -and (Test-Path -LiteralPath (Join-Path $build 'build.ninja')) -and
+            (Test-Path -LiteralPath $configureKey) -and [IO.File]::ReadAllText($configureKey) -eq $key) {
+        Write-Host 'Configure skipped: no option, commit, tag, file name, preset or environment changed since the last one.'
+        $ninja = [regex]::Match([IO.File]::ReadAllText($cache), '(?m)^CMAKE_MAKE_PROGRAM:[A-Z]+=(.+?)\r?$').Groups[1].Value
+        Invoke-Native $ninja @('-C', $build, 'build.ninja')
+    } else {
+        Invoke-Configure $options
+        if ($key) { [IO.File]::WriteAllText($configureKey, $key) }
+    }
     $restoreClient = $StartupProbe.IsPresent
 
+    $targets = @()
     if ($Test) {
         # Opt-in labels run only when -TestNames names their tests (showcase: website screenshots).
         $skippedLabels = @($ExcludeTestLabels) + @(if (!$TestNames) { 'showcase' })
+        # Each line: name, CI shard, labels, executable target and "client" for a test that uses the client. The line
+        # number is the test's directory in the profile (cmake/tests.cmake).
+        $index = 0
         $catalog = foreach ($line in [IO.File]::ReadAllLines("$build\maicord-tests.txt")) {
-            $name, $shard, $labels, $target = $line.Split("`t")
-            [pscustomobject]@{ Name = $name; Shard = $shard; Labels = @($labels.Split(';') | Where-Object { $_ }); Target = $target }
+            $name, $shard, $labels, $target, $uses = $line.Split("`t")
+            [pscustomobject]@{ Name = $name; Shard = $shard; Labels = @($labels.Split(';') | Where-Object { $_ }); Target = $target
+                Client = $uses -ceq 'client'; Index = ++$index }
         }
         foreach ($name in $TestNames) { if ($catalog.Name -cnotcontains $name) { throw "Unknown registered test: $name" } }
         $selected = @($catalog | Where-Object {
             (!$TestNames -or $TestNames -ccontains $_.Name) -and (!$TestShard -or $TestShard -ccontains $_.Shard)
         })
         if ($TestShard -and !$selected) { throw "Test shard $($TestShard -join ', ') selects no tests." }
+        foreach ($entry in $selected) {
+            [void][IO.Directory]::CreateDirectory("$testProfile\$($entry.Index)\Temp")
+            [void][IO.Directory]::CreateDirectory("$testProfile\$($entry.Index)\Local")
+        }
         # Tests carrying a skipped label never run, so their executables are not built.
-        $targets += @($selected | Where-Object { !($_.Labels | Where-Object { $skippedLabels -ccontains $_ }) -and $_.Target } |
-            ForEach-Object Target | Sort-Object -Unique)
+        $run = @($selected | Where-Object { !($_.Labels | Where-Object { $skippedLabels -ccontains $_ }) })
+        $targets += @($run | Where-Object Target | ForEach-Object Target | Sort-Object -Unique)
+        if ($linkClient -and $TestNames -and !$SizeReport -and !($run | Where-Object Client)) {
+            $linkClient = $false
+            Write-Host 'MaiCord.exe not linked or audited: no named test uses the client. A run without -TestNames links it.'
+        }
     }
+    $targets = @(if ($linkClient) { 'MaiCord' } else { 'maicord_source_rules' }) + $targets
     if ($PerfProbe) { $targets += 'MaiCordPerfProbe' }
-    if ($targets) { Invoke-Build $targets }
+    Invoke-Build $targets
     if ($SizeReport -and !$SkipClient) {
         Invoke-Native python @("$PSScriptRoot\report_binary_size.py", $client)
     }

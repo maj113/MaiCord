@@ -706,15 +706,24 @@ function(maicord_order_tests_after_client)
         endif()
     endforeach()
 endfunction()
+# maicord_test_runs_client(<test>...): tests whose command runs the client itself, with no test executable of their own.
+# The test manifest marks them as maicord_test_uses_client() marks the tests of a target.
+function(maicord_test_runs_client)
+    foreach(test IN LISTS ARGN)
+        set_property(GLOBAL PROPERTY MAICORD_TEST_RUNS_CLIENT_${test} TRUE)
+    endforeach()
+endfunction()
 # maicord_write_test_manifest(<path> <test>...): one line per test for
-# tools/build.ps1: name, CI shard, labels and the executable target it runs,
-# tab-separated. Shard "app": the target links the application core or a
-# shipping library, or runs the shipping pair itself; "core": the rest, which
-# needs neither the client nor the application core.
+# tools/build.ps1: name, CI shard, labels, the executable target it runs and
+# "client" when the test uses the client (else nothing), tab-separated. Shard
+# "app": the target links the application core or a shipping library, or runs
+# the shipping pair itself; "core": the rest, which needs neither the client nor
+# the application core.
 function(maicord_write_test_manifest path)
     set(manifest)
     foreach(test IN LISTS ARGN)
         get_property(target GLOBAL PROPERTY MAICORD_TEST_TARGET_${test})
+        get_property(uses_client GLOBAL PROPERTY MAICORD_TEST_RUNS_CLIENT_${test})
         set(shard core)
         if(target)
             if(NOT DEFINED shard_${target})
@@ -734,9 +743,17 @@ function(maicord_write_test_manifest path)
                 endif()
             endif()
             set(shard ${shard_${target}})
+            get_target_property(client ${target} MAICORD_TEST_USES_CLIENT)
+            if(client)
+                set(uses_client TRUE)
+            endif()
+        endif()
+        set(client_column "")
+        if(uses_client)
+            set(client_column client)
         endif()
         get_property(labels TEST ${test} PROPERTY LABELS)
-        string(APPEND manifest "${test}\t${shard}\t${labels}\t${target}\n")
+        string(APPEND manifest "${test}\t${shard}\t${labels}\t${target}\t${client_column}\n")
     endforeach()
     file(WRITE "${path}" "${manifest}")
 endfunction()

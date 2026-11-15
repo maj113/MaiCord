@@ -744,6 +744,10 @@ if(MAICORD_LINUX)
     if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
         set_tests_properties(maicord_account_settings_ui_probe PROPERTIES DISABLED TRUE)
     endif()
+    maicord_test_runs_client(maicord_linux_client_text maicord_linux_client_version maicord_server_tag_ui_probe
+        maicord_friends_ui_probe maicord_go_live_ui_probe maicord_server_profile_ui_probe maicord_profile_editor_ui_probe
+        maicord_server_apps_ui_probe maicord_server_access_ui_probe maicord_game_mentions_ui_probe
+        maicord_app_settings_ui_probe maicord_account_settings_ui_probe)
 endif()
 # The delay-load helper (src/core/delay_load.cpp): imports by ordinal and by
 # name, a forwarded API-set export, and racing first calls.

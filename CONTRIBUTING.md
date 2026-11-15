@@ -32,6 +32,10 @@ the table and the rules of a run. `build.ps1`'s parameter block and `build_linux
 The suite must finish within **20 seconds**: shrink a slow test's input but keep the coverage that matters, and assert
 outputs and counts, never wall-clock times.
 
+A run with `-TestNames` links and audits the client only when a named test uses it (`USES_CLIENT` or
+`maicord_test_runs_client` in `cmake/test_registry.cmake`), and says so when it does not. A `-KeepIntermediates` run on
+Windows configures again only when an option, the commit, a tag, a file name, the presets or the environment changed.
+
 ### Windows
 
 - [Building from source](README.md#building-from-source) lists what to install: two Build Tools components (import

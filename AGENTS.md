@@ -13,7 +13,7 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
 |Windows|Linux||
 |---|---|---|
 |`-Test`|`--test`|also build and run the test suite|
-|`-TestNames a,b`|`--test-names a,b`|only these tests|
+|`-TestNames a,b`|`--test-names a,b`|only these tests; links the client only when one of them uses it|
 |`-SkipClient`|`--skip-client`|tests use the client already in the build directory|
 |`-KeepIntermediates`|`--keep-intermediates`|keep objects and `compile_commands.json` (incremental builds)|
 |`-SizeReport`|`--size-report`|print the client's sections and largest code|

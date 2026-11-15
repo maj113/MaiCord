@@ -1,21 +1,18 @@
 # Temporary deterministic tests of both systems, registered in cmake/test_registry.cmake. tools/build.ps1 -Test
 # (Windows) and tools/build_linux.sh --test (Linux) configure them, build and run the suite and remove every test output.
 set(MAICORD_TEST_TIMEOUT_SCALE 1 CACHE STRING "Multiplier applied to every per-test timeout (hosted CI runners)")
-set(MAICORD_TEST_PROFILE_NAMES "" CACHE STRING "Selected tests needing isolated profile directories; empty means all tests")
 option(MAICORD_TEST_AUDIO_PLAYBACK "Include the native WASAPI Opus playback contract" OFF)
 option(MAICORD_TEST_PREBUILT_CLIENT
     "Tests use the MaiCord.exe already in the build directory instead of building it" OFF)
-# tools/build.ps1 gives every selected test a private TEMP/TMP/LOCALAPPDATA in
-# a profile directory it owns inside the build directory.
+# tools/build.ps1 gives every test a private TEMP/TMP/LOCALAPPDATA in the profile directory test-profile, which it owns
+# inside the build directory. The name does not change between runs, so a kept build directory does not configure again
+# for a new profile.
 if(MAICORD_BUILD_TESTS AND MAICORD_TEST_PROFILE_DIRECTORY)
     file(REAL_PATH "${MAICORD_TEST_PROFILE_DIRECTORY}" maicord_test_profile)
     cmake_path(GET maicord_test_profile PARENT_PATH maicord_test_profile_parent)
     cmake_path(GET maicord_test_profile FILENAME maicord_test_profile_name)
-    string(LENGTH "${maicord_test_profile_name}" maicord_test_profile_name_length)
-    if(NOT maicord_test_profile_parent STREQUAL CMAKE_BINARY_DIR OR
-       NOT maicord_test_profile_name_length EQUAL 45 OR
-       NOT maicord_test_profile_name MATCHES "^test-profile-[0-9a-f]+$" OR
-       NOT EXISTS "${maicord_test_profile}/.maicord-test-profile")
+    if(NOT maicord_test_profile_parent STREQUAL CMAKE_BINARY_DIR OR NOT maicord_test_profile_name STREQUAL "test-profile"
+       OR NOT EXISTS "${maicord_test_profile}/.maicord-test-profile")
         message(FATAL_ERROR "Tests require an owned profile inside the single Release build.")
     endif()
     file(READ "${maicord_test_profile}/.maicord-test-profile" maicord_test_profile_owner)
@@ -27,7 +24,6 @@ endif()
 if(NOT MAICORD_BUILD_TESTS)
     file(REMOVE "${CMAKE_BINARY_DIR}/maicord-tests.txt" "${CMAKE_BINARY_DIR}/CTestTestfile.cmake")
     unset(MAICORD_TEST_PROFILE_DIRECTORY CACHE)
-    unset(MAICORD_TEST_PROFILE_NAMES CACHE)
     return()
 endif()
 
@@ -61,12 +57,19 @@ else()
     # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
     # temporaries are about 130 KB each), stays optimized, and so does the reference
     # driver of MaiCordNativeAppLineTests, the largest share of the suite's CPU time
-    # (its cases ran about 15% faster with it optimized).
+    # (its cases ran about 15% faster with it optimized). The test code of the background theme probe, the Arabic plan
+    # test and the glyph topology probe compares pixels or shaping plans in its own loops: unoptimized it took most of
+    # their time (the background probe ran on the suite's longest GPU chain).
     set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_test.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_scripts.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_editing.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/app_line_reference.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/app_line_reference.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_theme_probe.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_theme_pixels.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_effect_pixels.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/text/scripts/arabic_plan_test.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/glyph_topology_probe.cpp")
     set(maicord_unoptimized_sources)
     foreach(target IN LISTS maicord_test_targets)
         get_target_property(sources ${target} SOURCES)
@@ -117,11 +120,11 @@ foreach(maicord_registered_test IN LISTS maicord_registered_tests)
                 set_property(TEST ${maicord_registered_test} APPEND PROPERTY ENVIRONMENT "${maicord_variable}")
             endif()
         endforeach()
-    elseif(MAICORD_TEST_PROFILE_DIRECTORY AND
-           (NOT MAICORD_TEST_PROFILE_NAMES OR maicord_registered_test IN_LIST MAICORD_TEST_PROFILE_NAMES))
+    elseif(MAICORD_TEST_PROFILE_DIRECTORY)
+        # The directory of a test is its line in maicord-tests.txt. tools/build.ps1 creates the directories of the tests
+        # it runs, so a run of a few tests does not create one for each registered test.
         math(EXPR maicord_test_profile_index "${maicord_test_profile_index} + 1")
         set(maicord_test_directory "${maicord_test_profile}/${maicord_test_profile_index}")
-        file(MAKE_DIRECTORY "${maicord_test_directory}/Temp" "${maicord_test_directory}/Local")
         file(TO_NATIVE_PATH "${maicord_test_directory}/Temp" maicord_test_temp)
         file(TO_NATIVE_PATH "${maicord_test_directory}/Local" maicord_test_local)
         set_property(TEST ${maicord_registered_test} APPEND PROPERTY

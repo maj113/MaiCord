@@ -4,7 +4,7 @@
 #
 #   tools/build_linux.sh       configure, build the client (MaiCord), audit
 #   --test                     also build and run the registered tests with ctest
-#   --test-names a,b           only the tests named a and b (with --test)
+#   --test-names a,b           only the tests named a and b (with --test); the client links only when one of them uses it
 #   --test-shard app|core      only the tests of that CI shard (maicord-tests.txt, as -TestShard; with --test)
 #   --exclude-test-names a,b   not the tests named a and b (with --test; CI splits the Linux suite with it, so it has no
 #                              build.ps1 counterpart)
@@ -237,8 +237,11 @@ cmake -S "$source_directory" -B "$build_directory" -G Ninja \
     -DCMAKE_EXPORT_COMPILE_COMMANDS="$(on "$keep")"
 
 # The client (or, without it, the source rules it links after: tools/check_source_rules.py) and the executables of the
-# selected tests (maicord-tests.txt: name, shard, labels and target, tab-separated).
-if [ "$skip_client" = 1 ]; then targets=(maicord_source_rules); else targets=(MaiCord); fi
+# selected tests (maicord-tests.txt: name, shard, labels, target and "client" for a test that uses the client,
+# tab-separated). A run of named tests links the client only when one of them uses it.
+link_client=1
+[ "$skip_client" = 0 ] || link_client=0
+targets=()
 filtered=0
 [ "${#test_names[@]}" = 0 ] && [ -z "$test_shard" ] && [ "${#excluded_names[@]}" = 0 ] || filtered=1
 chosen=()
@@ -246,15 +249,20 @@ if [ "$run_tests" = 1 ]; then
     declare -A registered=() selected=() excluded=() built=()
     for name in "${test_names[@]}"; do selected[$name]=1; done
     for name in "${excluded_names[@]}"; do excluded[$name]=1; done
+    uses_client=0
     while IFS= read -r line; do
         name="${line%%$'\t'*}"
-        shard="${line#*$'\t'}"
-        shard="${shard%%$'\t'*}"
-        target="${line##*$'\t'}"
+        rest="${line#*$'\t'}"
+        shard="${rest%%$'\t'*}"
+        rest="${rest#*$'\t'}"
+        rest="${rest#*$'\t'}"
+        target="${rest%%$'\t'*}"
+        client="${rest#*$'\t'}"
         registered[$name]=1
         { [ "${#test_names[@]}" = 0 ] || [ -n "${selected[$name]:-}" ]; } && { [ -z "$test_shard" ] || [ "$shard" = "$test_shard" ]; } &&
             [ -z "${excluded[$name]:-}" ] || continue
         chosen+=("$name")
+        [ "$client" != client ] || uses_client=1
         if [ -n "$target" ] && [ -z "${built[$target]:-}" ]; then
             built[$target]=1
             targets+=("$target")
@@ -264,7 +272,12 @@ if [ "$run_tests" = 1 ]; then
         [ -n "${registered[$name]:-}" ] || { echo "Unknown registered test: $name" >&2; exit 2; }
     done
     [ "$filtered" = 0 ] || [ "${#chosen[@]}" -gt 0 ] || { echo "The test selection selects no tests." >&2; exit 2; }
+    if [ "$link_client" = 1 ] && [ "${#test_names[@]}" -gt 0 ] && [ "$size_report" = OFF ] && [ "$uses_client" = 0 ]; then
+        link_client=0
+        echo "MaiCord not linked or audited: no named test uses the client. A run without --test-names links it."
+    fi
 fi
+if [ "$link_client" = 1 ]; then targets=(MaiCord "${targets[@]}"); else targets=(maicord_source_rules "${targets[@]}"); fi
 started="$(date +%s%N)"
 cmake --build "$build_directory" --parallel "$jobs" --target "${targets[@]}"
 elapsed "Build" "$started" "($jobs workers)"
@@ -280,7 +293,7 @@ while IFS= read -r -d '' file; do
     if [ "$magic" = $'\x7fELF' ]; then images+=("$file"); fi
 done < <(find "$build_directory" -maxdepth 1 -type f -perm -u+x -print0)
 [ "${#images[@]}" = 0 ] || python3 -B "$source_directory/tools/audit_image.py" "${images[@]}"
-if [ "$skip_client" = 0 ]; then
+if [ "$link_client" = 1 ]; then
     client="$build_directory/MaiCord"
     musl_client="$(mktemp)"
     if ! python3 -B "$source_directory/tools/retarget_libc.py" --libc musl "$client" "$musl_client" ||
