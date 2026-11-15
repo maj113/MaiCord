@@ -1,12 +1,13 @@
 // The Khmer, Myanmar and Universal Shaping Engine shapers and the Hangul plan (MaiCordSyllabicShapeTests), checked
 // against HarfBuzz (tests/generated/syllabic_shape_fixture.inc, tools/font_reference/syllabic_fixtures.py). Without
 // MAICORD_SYLLABIC_OWNED the test runs the argument and Hangul plan units and replays the cluster-start corpora of
-// Sinhala, Khmer, Myanmar and Tibetan. With
+// Sinhala, Khmer, Myanmar and Tibetan. It also runs the Indic and Khmer syllable scanners on long joiner runs. With
 // MAICORD_SYLLABIC_OWNED=<script> it shapes that script on its Windows system font: plan preparation accounting and
 // failure atomicity, the compact output aliasing every input, malformed UTF-8 and limits, HarfBuzz's output for the
 // sample strings, and a font HarfBuzz shapes the script in with its default shaper or without the script's glyphs.
 #include "maicord/text/scripts/syllabic_shape.hpp"
 #include "maicord/text/shaping/cluster_run.hpp"
+#include "maicord/text/shaping/shape_run.hpp"
 #include "maicord/text/opentype/sfnt.hpp"
 #include "maicord/text/fonts/store.hpp"
 #include "maicord/core/arena.hpp"
@@ -14,6 +15,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/test_output.hpp"
+#include "../../../src/text/scripts/indic_syllables.hpp"
 namespace maicord {namespace {
 #include "../../generated/syllabic_shape_fixture.inc"
 u32 checks=0;
@@ -50,6 +52,54 @@ bool boundary_units() noexcept {
     const u32 surrogate[]{0xd800};CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{surrogate,1},{starts,1})==SfntStatus::invalid_input);
     CHECK(sfnt_syllabic_boundaries(SfntSyllabicScript::khmer,{ka,4},{starts,4})==SfntStatus::ok&&starts[0]==1&&!starts[1]&&!starts[2]&&!starts[3]);
     test_write_text("PASS syllabic boundary argument units\n");return true;
+}
+// A consonant and 65,535 joiners. The Indic scanner reads such a run once, not once for each joiner. Before, the time
+// grew with the square of the run length, and the test did not end in its time limit. Each case: the profile, the
+// scalars (a zero is none), the syllables, the Indic syllables, the broken clusters and the longest syllable.
+bool indic_joiner_runs() noexcept {
+    constexpr u32 n=65535;static char text[(n+3)*3];static IndicPiece pieces[n+8];
+    struct Case {SfntIndicProfile profile;u32 base,second,joiner,last,syllables,indic,broken,longest;};
+    const Case cases[]{{SfntIndicProfile::bengali,0x995,0,0x200d,0,n,1,0,2},{SfntIndicProfile::devanagari,0x915,0,0x200c,0,n+1,1,0,1},
+        {SfntIndicProfile::bengali,0x995,0x9cd,0x200d,0,n,1,0,3},{SfntIndicProfile::bengali,0x995,0,0x200d,0x981,n,1,1,2}};
+    for(const auto& c:cases){
+        u32 bytes=utf8_encode(c.base,text);if(c.second)bytes+=utf8_encode(c.second,text+bytes);
+        for(u32 i=0;i<n;++i)bytes+=utf8_encode(c.joiner,text+bytes);
+        if(c.last)bytes+=utf8_encode(c.last,text+bytes);
+        IndicReader reader{c.profile,{text,bytes},nullptr};u32 syllables=0,indic=0,broken=0,longest=0;
+        for(;;){u32 length=0;IndicSyllable outcome{};CHECK(indic_read_syllable(reader,{pieces,n+8},&length,&outcome)==SfntStatus::ok);if(!length)break;
+            ++syllables;indic+=outcome==IndicSyllable::indic;broken+=outcome==IndicSyllable::broken;longest=maximum(longest,length);}
+        CHECK(syllables==c.syllables&&indic==c.indic&&broken==c.broken&&longest==c.longest);}
+    test_write_text("PASS Indic joiner runs\n");return true;
+}
+// A Khmer consonant and 65,535 joiners go through the shaper, two times with each joiner. The font is made here: a
+// format 12 cmap of the Khmer block, the joiners and U+25CC, and advances only. Each joiner is a syllable and a
+// cluster of its own. The scanner reads such a run once, not once for each joiner. Before, the time grew with the
+// square of the run length (about 4 s for one run). Then the test did not end in its time limit.
+bool khmer_joiner_runs() noexcept {
+    constexpr u32 n=65535,capacity=2*n+64;
+    struct Storage {
+        SfntComponentGlyph glyphs[capacity];SfntComponentNode nodes[capacity];u64 bits[capacity/64+1];u32 characters[capacity],targets[capacity];
+        SfntMarkAssociation associations[capacity];double advances[capacity];u8 flags[capacity];SfntPosition positions[capacity];
+        SfntPlacement placements[capacity];SfntGsubExecutionFrame frames[8];u32 at[capacity],rebased[capacity],consumed[capacity];
+        alignas(16) u8 replacements[capacity*sizeof(SfntClusterGlyph)];SfntComponentUndo journal[64];char text[(n+1)*3];
+    };
+    static Storage s;
+    const u32 groups[3][3]{{0x1780,0x17ff,1},{0x200c,0x200d,129},{0x25cc,0x25cc,131}};u8 cmap[16+3*12]{};
+    byte_store_be32(cmap,0x000c0000u);byte_store_be32(cmap+4,sizeof(cmap));byte_store_be32(cmap+12,3);
+    for(u32 i=0;i<3;++i)for(u32 k=0;k<3;++k)byte_store_be32(cmap+16+i*12+k*4,groups[i][k]);
+    const SfntCmap font{{cmap,sizeof(cmap)},{},132,12};
+    SfntShapePlan plan{};plan.units_per_em=1000;plan.advance=+[](void*,u16 glyph,double* value) noexcept {*value=glyph;return SfntStatus::ok;};
+    const SfntShapeStorage storage{{s.glyphs,capacity},{s.nodes,capacity},{s.bits,capacity/64+1},{s.characters,capacity},{s.targets,capacity},
+        {s.associations,capacity},{s.advances,capacity},{s.flags,capacity},{s.positions,capacity},{s.placements,capacity},
+        {{s.frames,8},{s.at,capacity},{s.rebased,capacity},{s.consumed,capacity},{s.replacements,sizeof(s.replacements)},{s.journal,64}},{}};
+    const u32 joiners[]{0x200d,0x200c,0x200d,0x200c};
+    for(const u32 joiner:joiners){
+        u32 bytes=utf8_encode(0x1780,s.text);for(u32 i=0;i<n;++i)bytes+=utf8_encode(joiner,s.text+bytes);
+        SfntShapeRunResult result{};
+        SfntShapeLimits limits{};limits.stage_work=4000000;
+        CHECK(sfnt_syllabic_run(SfntSyllabicScript::khmer,plan,font,{s.text,bytes},1000,storage,&result,{},{},limits)==SfntStatus::ok);
+        CHECK(result.glyph_count==n+1&&result.source_units==n+1&&result.target_count==n+1&&s.glyphs[0].glyph.glyph==1);}
+    test_write_text("PASS Khmer joiner runs\n");return true;
 }
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 // hb-ot-shaper-hangul's plan on a first-party GSUB (hang: ccmp {3,1}, ljmo {2,1}, tjmo {0,2}, vjmo {3,2}): one stage
@@ -188,7 +238,7 @@ template<u32 A,u32 B> bool owned_script(NativeClusterScript script,const char* n
 }
 bool run() noexcept {
     wchar_t mode[16]{};const DWORD n=GetEnvironmentVariableW(L"MAICORD_SYLLABIC_OWNED",mode,16);
-    if(!n){bool ok=boundary_units()&&hangul_plan_units();for(const auto& c:corpora)ok=cluster_corpus(c)&&ok;return ok;}
+    if(!n){bool ok=boundary_units()&&indic_joiner_runs()&&khmer_joiner_runs()&&hangul_plan_units();for(const auto& c:corpora)ok=cluster_corpus(c)&&ok;return ok;}
     CHECK(n<16);
     const auto is=[&](const wchar_t* option) noexcept {u32 i=0;while(option[i]&&option[i]==mode[i])++i;return !option[i]&&!mode[i];};
     if(is(L"sinhala"))return owned_script(NativeClusterScript::sinhala,"Sinhala",L"Nirmala.ttc",L"segoeui.ttf",sinhala_samples,sinhala_samples_checksum,

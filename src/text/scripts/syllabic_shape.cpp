@@ -165,19 +165,36 @@ struct Text {
 // category) and a ZWNJ before a mark (find_syllables_use); they stay in the syllable around them.
 struct Scanner {
     const Shaper& shaper;Slice<Piece> pieces;u32 count;
+    // The pieces first to last that a scan read in machine state `state` with no end of a syllable after them. Such a
+    // state ends no syllable and takes each of these pieces back to itself (Khmer: a run of joiners). Slots in turn.
+    struct Run {u32 first,last;u8 state;};
+    Run failed[4];u32 slot;
     bool skipped(u32 i) const noexcept {
         if(!shaper.use)return false;const auto c=static_cast<U>(pieces[i].category);if(c==U::cgj)return true;if(c!=U::zwnj)return false;
         for(u32 j=i+1;j<count;++j)if(static_cast<U>(pieces[j].category)!=U::cgj)return unicode_mark(*unicode_properties(pieces[j].scalar));
         return false;
     }
+    // Piece i takes `state` back to itself. An earlier scan read it in this state and found no end of a syllable after
+    // it. This scan would read the same pieces in the same states, so it stops here with the same result. Else piece
+    // i joins this scan's run. A long run then costs one pass and not one pass for each piece.
+    __declspec(noinline) bool stop(Run& run,u8 state,u32 i) noexcept {
+        bool joined=run.state==state;for(u32 j=run.last+1;joined&&j<i;++j)joined=skipped(j);
+        for(auto& known:failed)if(known.state==state&&i>=known.first&&i<=known.last){if(joined)known.first=minimum(known.first,run.first);run.state=0;return true;}
+        if(joined)run.last=i;else run={i,i,state};
+        return false;
+    }
     // The longest syllable at p: its end and outcome. Characters the USE machine skips before the first syllable
     // form one of their own (HarfBuzz leaves them syllable zero, a virama-terminated cluster).
-    void scan(u32 p,u32* end,u8* outcome) const noexcept {
+    void scan(u32 p,u32* end,u8* outcome) noexcept {
         if(skipped(p)){u32 q=p;while(q<count&&skipped(q))++q;if(!p){*end=q;*outcome=use_virama;return;}}
-        u32 state=0,last=p;u8 found=0;
+        u32 state=0,last=p;u8 found=0;Run run{};
         for(u32 i=p;i<count;++i){if(skipped(i))continue;
-            const u8 next=shaper.next[state*shaper.stride+shaper.column[pieces[i].category]];if(!next)break;state=next;
+            const u8 next=shaper.next[state*shaper.stride+shaper.column[pieces[i].category]];if(!next)break;
+            if(next==state&&!shaper.outcome[state]&&stop(run,state,i))break;
+            state=next;
             if(const u8 result=shaper.outcome[state]){last=i+1;found=result;}}
+        // No syllable ended after the run: a later scan that reaches it in the same state stops there.
+        if(run.state&&run.first>=last){failed[slot]=run;slot=(slot+1)%4;}
         if(last==p){last=p+1;found=shaper.use?use_other:3;}
         while(last<count&&skipped(last))++last;
         *end=last;*outcome=found;
@@ -378,7 +395,7 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
         if(classes)return sfnt_gdef_glyph_class(plan.gdef,piece.glyph,memo);
         return unicode_properties(piece.scalar)->general_category()==UnicodeGeneralCategory::mn&&!default_ignorable(piece.scalar)?SfntGlyphClass::mark:SfntGlyphClass::base;
     };
-    const Scanner scanner{shaper,pieces,n};
+    Scanner scanner{shaper,pieces,n};
     u32 count=0,boundaries=0,last_start=0;u8 last_form=0; // last_form: 0 none, else a topographical mask
     for(u32 p=0;p<n;){u32 q=0;u8 type=0;scanner.scan(p,&q,&type);
         // Broken clusters get a dotted circle after any leading repha (hb_syllabic_insert_dotted_circles).
@@ -455,7 +472,7 @@ SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript script,ConstSlice<u32> sc
     Text prepared{shaper,script==SfntSyllabicScript::sinhala,nullptr,{pieces,1024}};
     const auto status=prepared.read({text,bytes});if(status!=SfntStatus::ok)return status;
     for(u32 i=0;i<prepared.count;++i)pieces[i].category=shaper.category(pieces[i].scalar);
-    const Scanner scanner{shaper,{pieces,prepared.count},prepared.count};
+    Scanner scanner{shaper,{pieces,prepared.count},prepared.count};
     // A syllable starts a cluster unless it begins inside a grapheme or before the previous cluster's start.
     for(u32 p=0,last=0;p<prepared.count;){u32 q=0;u8 type=0;scanner.scan(p,&q,&type);
         u32 first=pieces[p].source;for(u32 i=p+1;i<q;++i)first=minimum(first,pieces[i].source);

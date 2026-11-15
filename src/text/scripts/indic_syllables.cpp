@@ -210,13 +210,30 @@ SfntStatus IndicReader::build() noexcept {
 }
 SfntStatus indic_read_syllable(IndicReader& reader,Slice<IndicPiece> out,u32* length,IndicSyllable* outcome) noexcept {
     u32 state=0,count=0;*length=0;*outcome=IndicSyllable::none;IndicReaderMark end{};
+    // Two machine states end no syllable and take each joiner back to themselves. No other state loops without an end.
+    // `run` is the last joiners that this scan read in such a state, and out[start,next_index) holds them. A joiner is
+    // one piece with a source of its own, so its source names it.
+    constexpr u32 zwnj=static_cast<u32>(C::zwnj);static_assert(static_cast<u32>(C::zwj)==zwnj+1);
+    IndicReader::JoinerRun run{};u32 start=0,next_index=0;
     for(;;){IndicPiece piece;bool more=false;const auto status=reader.peek(&piece,&more);if(status!=SfntStatus::ok)return status;
         if(!more)break;
         const u8 next=indic_machine_next[state][static_cast<u8>(piece.category())];if(!next)break;
+        if(next==state&&!indic_machine_outcome[state]&&static_cast<u32>(piece.category())-zwnj<2u){
+            const u32 at=piece.source;const bool joined=run.state==state&&next_index==count;
+            // An earlier scan read this joiner in this state and found no end of a syllable after it. This scan would
+            // read the same pieces in the same states. It stops here with the same result, so that a long run of
+            // joiners costs one pass and not one pass for each joiner.
+            auto& known=reader.failed_runs_[reader.failed_runs_[0].state==state?0:1];
+            if(known.state==state&&at>=known.first&&at<=known.last){if(joined)known.first=minimum(known.first,run.first);run.state=0;break;}
+            if(joined)run.last=at;else{run={at,at,static_cast<u8>(state)};start=count;}
+            next_index=count+1;
+        }
         if(count==out.count)return SfntStatus::output_too_small;
         out[count++]=piece;reader.take();state=next;
         if(const u8 result=indic_machine_outcome[state]){*length=count;*outcome=static_cast<IndicSyllable>(result);end=reader.mark();}
     }
+    // No syllable ended after the run: a later scan that reaches it in the same state stops there.
+    if(run.state&&start>=*length)reader.failed_runs_[!reader.failed_runs_[0].state||reader.failed_runs_[0].state==run.state?0:1]=run;
     return *length<count?reader.resume(end):SfntStatus::ok;
 }
 }

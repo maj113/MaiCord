@@ -50,6 +50,7 @@ public:
     void take() noexcept {++read_;}
     IndicReaderMark mark() const noexcept {return {unit_byte_,unit_units_,unit_previous_,unit_before_,read_};}
     SfntStatus resume(const IndicReaderMark& mark) noexcept;
+    friend SfntStatus indic_read_syllable(IndicReader&,Slice<IndicPiece>,u32*,IndicSyllable*) noexcept;
 private:
     SfntStatus build() noexcept;
     SfntStatus mapped(u32 scalar,bool* present) const noexcept;
@@ -67,6 +68,10 @@ private:
     // marks is not sorted (HB_OT_SHAPE_MAX_COMBINING_MARKS); one more mark detects that, and a full
     // unit continues in the next one.
     IndicPiece unit_[40];
+    // The joiners (their sources first to last) that a scan read in machine state `state` with no end of a syllable
+    // after them (indic_read_syllable). One record for each of the machine's two states that loop on joiners.
+    struct JoinerRun {u32 first,last;u8 state;};
+    JoinerRun failed_runs_[2]{};
 };
 // Scans the longest syllable at the reader. Every scanned piece, lookahead included, is stored in out;
 // the first *length of them are the syllable, and the reader continues after it. Zero length means
