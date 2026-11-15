@@ -61,6 +61,18 @@ void flush_motion() noexcept {
     if (!pointer.motion_pending)
         return;
     pointer.motion_pending = false;
+    // A move that the pump did not take yet has no reader. The newer position replaces it, as Windows does with
+    // WM_MOUSEMOVE: a fast mouse sends many moves while one frame draws.
+    EventRing& ring = g.ring;
+    if (ring.tail != ring.head) {
+        WindowEvent& last = ring.events[(ring.tail - 1) % kRingCapacity];
+        if (last.type == EventType::pointer_move && last.pointer.buttons == pointer.buttons) {
+            last.pointer.x = pointer.x;
+            last.pointer.y = pointer.y;
+            last.time_ms = pointer.motion_time;
+            return;
+        }
+    }
     ring_push(pointer_event(EventType::pointer_move, pointer.motion_time));
 }
 

@@ -90,6 +90,16 @@ void dispatch(const WindowEvent& event) noexcept {
         pointer_cursor_query(event);
 }
 
+// Dispatches the queued display events. A failed connection ends the loop.
+void dispatch_queued() noexcept {
+    g_client.display_dispatch_pending(g.display);
+    connection_check();
+    if (g.failed && !g.quit) {
+        g.quit = true;
+        g.exit_code = 1;
+    }
+}
+
 } // namespace
 
 void post_drain() noexcept {
@@ -121,12 +131,7 @@ void display_poll_nonblocking() noexcept {
         if (ready > 0)
             g.failed = true;
     }
-    g_client.display_dispatch_pending(g.display);
-    connection_check();
-    if (g.failed && !g.quit) {
-        g.quit = true;
-        g.exit_code = 1;
-    }
+    dispatch_queued();
 }
 
 } // namespace maicord::wayland
@@ -159,14 +164,8 @@ bool idle_after_poll(Waitable waitable) noexcept {
 // the listeners asked (a configure's ack, a pong) is not flushed here: it goes out with the swap's commit, or with the
 // next window_wait's flush before it sleeps, whichever comes first in this loop turn.
 void display_dispatch_queued() noexcept {
-    if (!g.display || g.failed || g.read_prepared)
-        return;
-    g_client.display_dispatch_pending(g.display);
-    connection_check();
-    if (g.failed && !g.quit) {
-        g.quit = true;
-        g.exit_code = 1;
-    }
+    if (g.display && !g.failed && !g.read_prepared)
+        dispatch_queued();
 }
 
 // True when the flush could not send everything (the socket is full): the wait then looks again soon.
@@ -197,12 +196,7 @@ void window_wait_end(bool display_ready) noexcept {
             g_client.display_cancel_read(g.display);
         }
     }
-    g_client.display_dispatch_pending(g.display);
-    connection_check();
-    if (g.failed && !g.quit) {
-        g.quit = true;
-        g.exit_code = 1;
-    }
+    dispatch_queued();
 }
 
 } // namespace

@@ -6,6 +6,7 @@
 #include "maicord/platform/window/wayland/xkb.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "wayland_protocols.hpp"
+#include "xkb_test_api.hpp"
 
 // A second connection to the compositor that plays a pointer and a keyboard (Linux, tests only): the wlroots
 // virtual-pointer and virtual-keyboard protocols, which sway and the other wlroots compositors serve. The window
@@ -204,12 +205,13 @@ inline void keyboard_key(Injector* injector, u32 evdev, bool pressed) noexcept {
     zwp_virtual_keyboard_v1_key(injector->keyboard, now(injector), evdev,
                                 pressed ? wl_keyboard_key_state_pressed : wl_keyboard_key_state_released);
     const XkbApi* api = xkb_api();
-    if (api && injector->state) {
-        api->state_update_key(injector->state, evdev + kEvdevToXkb, pressed ? kXkbKeyDown : kXkbKeyUp);
+    const XkbTestApi* extra = xkb_test_api();
+    if (api && extra && injector->state) {
+        extra->state_update_key(injector->state, evdev + kEvdevToXkb, pressed ? kXkbKeyDown : kXkbKeyUp);
         zwp_virtual_keyboard_v1_modifiers(injector->keyboard, api->state_serialize_mods(injector->state, kXkbStateDepressed),
                                           api->state_serialize_mods(injector->state, kXkbStateLatched),
                                           api->state_serialize_mods(injector->state, kXkbStateModsLocked),
-                                          api->state_serialize_layout(injector->state, kXkbStateModsLocked));
+                                          extra->state_serialize_layout(injector->state, kXkbStateModsLocked));
     }
     sync(injector);
 }

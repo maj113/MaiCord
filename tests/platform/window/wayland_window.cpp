@@ -801,6 +801,38 @@ void test_pointer() noexcept {
     check(window_pointer_position(g_window, &x, &y) && absolute(x - 100) <= 1.5f && absolute(y - 80) <= 1.5f,
           "the pointer position is readable and inside");
 
+    // Moves that arrive between two pumps are one event at the newest position (17 events without the merge).
+    mark();
+    for (i32 step = 16; step >= 0; --step)
+        pointer_to(100 + step * 4, 80);
+    thread_sleep(100);
+    expect("the newest of the queued moves arrives", EventType::pointer_move, [](const Record& r) { return near_point(r, 100, 80); });
+    check(count_events(g_mark, EventType::pointer_move) == 1, "queued pointer moves are one event");
+
+    // A drag that is queued whole: only the moves with no other pointer event between them merge. The press and the
+    // release keep their own positions and their order.
+    mark();
+    pointer_to(120, 80);
+    inject::pointer_button(&g_injector, kBtnLeft, true);
+    pointer_to(140, 80);
+    pointer_to(160, 90);
+    inject::pointer_button(&g_injector, kBtnLeft, false);
+    pointer_to(100, 80);
+    thread_sleep(100);
+    expect("the pointer is back after the queued drag", EventType::pointer_move, [](const Record& r) {
+        return near_point(r, 100, 80) && r.event.pointer.buttons == 0;
+    });
+    const u32 drag_down = find_event(g_mark, EventType::pointer_down, [](const Record& r) { return near_point(r, 120, 80); });
+    const u32 drag_up = find_event(g_mark, EventType::pointer_up, [](const Record& r) { return near_point(r, 160, 90); });
+    const u32 drag_move = find_event(g_mark, EventType::pointer_move, [](const Record& r) { return (r.event.pointer.buttons & 1) != 0; });
+    check(drag_down != kNone && drag_up != kNone && drag_move != kNone && drag_down < drag_move && drag_move < drag_up &&
+              near_point(g_log[drag_move], 160, 90) &&
+              find_event(g_mark, EventType::pointer_move, [](const Record& r) { return near_point(r, 120, 80); }) < drag_down &&
+              count_events(g_mark, EventType::pointer_move) == 3,
+          "a queued drag is the move, the press, one merged move, the release and the move back");
+    expect("the capture of the queued drag ends", EventType::capture_lost, [](const Record&) { return true; });
+    settle(700);  // the next press is not a double click of this one
+
     // A click: press, release; the button reads as down while its press is handled, and is up after.
     mark();
     inject::pointer_button(&g_injector, kBtnLeft, true);
@@ -945,13 +977,14 @@ void test_pointer() noexcept {
 // The compositor serves `layout` (and variant) to the window: the keymap goes through a virtual keyboard.
 bool use_layout(const char* layout, const char* variant) noexcept {
     const wayland::XkbApi* api = wayland::xkb_api();
-    wayland::XkbContext* context = api ? api->context_new(0) : nullptr;
+    const wayland::XkbTestApi* extra = wayland::xkb_test_api();
+    wayland::XkbContext* context = api && extra ? api->context_new(0) : nullptr;
     if (!context)
         return false;
     api->context_set_log_level(context, wayland::kXkbLogLevelCritical);
     const wayland::XkbRuleNames names{"evdev", "pc105", layout, variant, nullptr};
-    wayland::XkbKeymap* keymap = api->keymap_new_from_names(context, &names, 0);
-    char* text = keymap ? api->keymap_get_as_string(keymap, wayland::kXkbKeymapFormatTextV1) : nullptr;
+    wayland::XkbKeymap* keymap = extra->keymap_new_from_names(context, &names, 0);
+    char* text = keymap ? extra->keymap_get_as_string(keymap, wayland::kXkbKeymapFormatTextV1) : nullptr;
     bool ok = false;
     if (text) {
         u32 length = 0;

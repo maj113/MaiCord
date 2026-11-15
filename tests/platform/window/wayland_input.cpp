@@ -9,6 +9,7 @@
 #include "maicord/platform/window/wayland/xkb.hpp"
 #include "maicord/platform/window/wayland/settings_map.hpp"
 #include "wayland_protocols.hpp"
+#include "xkb_test_api.hpp"
 #include "../../support/test_output.hpp"
 
 // The pure parts of the Wayland backend (src/platform/window/wayland): the key table, the character filter, the
@@ -498,7 +499,8 @@ struct Layout {
 Layout make_layout(const XkbApi& api, XkbContext* context, const char* layout, const char* variant) noexcept {
     const XkbRuleNames names{"evdev", "pc105", layout, variant, nullptr};
     Layout result{};
-    result.keymap = api.keymap_new_from_names(context, &names, 0);
+    const XkbTestApi* extra = xkb_test_api();
+    result.keymap = extra ? extra->keymap_new_from_names(context, &names, 0) : nullptr;
     if (result.keymap)
         result.state = api.state_new(result.keymap);
     return result;

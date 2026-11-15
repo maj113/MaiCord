@@ -48,9 +48,7 @@ struct XkbApi {
     void (*context_set_log_level)(XkbContext* context, int level) noexcept;
     XkbKeymap* (*keymap_new_from_buffer)(XkbContext* context, const char* buffer, usize length, int format,
                                          int flags) noexcept;
-    XkbKeymap* (*keymap_new_from_names)(XkbContext* context, const XkbRuleNames* names, int flags) noexcept;
     void (*keymap_unref)(XkbKeymap* keymap) noexcept;
-    char* (*keymap_get_as_string)(XkbKeymap* keymap, int format) noexcept;  // malloc'd: free() it
     int (*keymap_key_repeats)(XkbKeymap* keymap, u32 key) noexcept;
     int (*keymap_key_get_syms_by_level)(XkbKeymap* keymap, u32 key, u32 layout, u32 level,
                                         const u32** symbols) noexcept;
@@ -59,9 +57,7 @@ struct XkbApi {
     void (*state_unref)(XkbState* state) noexcept;
     int (*state_update_mask)(XkbState* state, u32 depressed, u32 latched, u32 locked, u32 depressed_layout,
                              u32 latched_layout, u32 locked_layout) noexcept;
-    int (*state_update_key)(XkbState* state, u32 key, int direction) noexcept;
     u32 (*state_serialize_mods)(XkbState* state, int components) noexcept;
-    u32 (*state_serialize_layout)(XkbState* state, int components) noexcept;
     u32 (*state_key_get_one_sym)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_utf32)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_layout)(XkbState* state, u32 key) noexcept;
