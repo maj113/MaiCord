@@ -103,7 +103,7 @@ bool application_forum_attachments_begin(const ApplicationForumPostTicket& ticke
         if (!reap(*forum_attachments)) return false;
     }
     if (forum_attachments) return source(*forum_attachments);
-    auto* owner = static_cast<ApplicationForumAttachments*>(commit_pages(sizeof(ApplicationForumAttachments)));
+    auto* owner = commit_pages<ApplicationForumAttachments>();
     if (!owner) return false;
     if (!message_attachment_drafts_initialize(&owner->drafts)) { pages_release(owner); return false; }
     const auto* p = parent(ticket);
@@ -359,7 +359,7 @@ bool application_forum_attachments_decode_media(Utf8View body, const ForumPostRe
     auto& owner = *forum_attachments;
     if (!owner.receipt) {
         owner.receipt_bytes = (2u * sizeof(ForumPostMediaSnapshot) + 4095u) & ~4095u;
-        owner.receipt = static_cast<ForumPostMediaSnapshot*>(commit_pages(owner.receipt_bytes));
+        owner.receipt = commit_pages<ForumPostMediaSnapshot>(owner.receipt_bytes);
         if (!owner.receipt) { owner.receipt_bytes = 0; return false; }
         // Two disjoint decoder banks share this single allocation and release.
         owner.transaction = owner.receipt + 1;

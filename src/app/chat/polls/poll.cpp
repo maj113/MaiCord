@@ -290,8 +290,7 @@ u64 theme_hash() noexcept {
 bool ensure_owner() noexcept {
     if (owner)
         return !owner->release_pending;
-    owner = static_cast<PollOwner*>(
-        commit_pages(sizeof(PollOwner)));
+    owner = commit_pages<PollOwner>();
     if (!owner)
         return false;
     poll_controller_initialize(&owner->controller);
@@ -356,8 +355,7 @@ u32 cache_slot(const MessagePollRecord& p, u32 answer) noexcept {
 }
 bool page_storage(u8 bank) noexcept {
     if (!owner->pages[bank])
-        owner->pages[bank] = static_cast<PollPage*>(
-            commit_pages(sizeof(PollPage)));
+        owner->pages[bank] = commit_pages<PollPage>();
     return owner->pages[bank] != nullptr;
 }
 Utf8View error_text(PollControllerError e) noexcept {
@@ -1184,8 +1182,7 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
             (answer && answer->count_known ? loaded < answer->count : users.count == flight.command.limit);
         const u32 slot = current ? cache_slot(*current, flight.command.answer_id) : kUiPollMaximumAnswers;
         if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && !value.voter_cache)
-            value.voter_cache = static_cast<PollVoterCache*>(
-                commit_pages(sizeof(PollVoterCache)));
+            value.voter_cache = commit_pages<PollVoterCache>();
         if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && value.voter_cache) {
             auto& cache = *value.voter_cache;
             if (cache.message_id != current->message_id) {

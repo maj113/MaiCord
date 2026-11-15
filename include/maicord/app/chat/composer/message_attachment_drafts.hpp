@@ -70,5 +70,4 @@ u32 message_attachment_drafts_remove_nonce(MessageAttachmentDraftStore* store, u
 bool message_attachment_drafts_reference(const MessageAttachmentDraftStore* store, u64 id, u32 attachment_id,
     UploadedAttachment* output) noexcept;
 bool message_attachment_drafts_remove(MessageAttachmentDraftStore* store, u64 id) noexcept;
-u32 message_attachment_drafts_reserved_bytes() noexcept;
 }

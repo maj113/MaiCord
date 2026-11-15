@@ -22,7 +22,6 @@
 #include "maicord/ui/chat/composer/autocomplete.hpp"
 #include "maicord/ui/chat/messages/action_bar.hpp"
 #include "maicord/ui/chat/messages/context_controller.hpp"
-#include "maicord/ui/text/regional_flag.hpp"
 #include "../../account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
@@ -107,12 +106,6 @@ bool synchronize_sticker_query(const UiRect& anchor) noexcept {
 bool composer_owns_popup() noexcept {
     return g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
            g_app.popup_owner_kind == PopupOwnerKind::commands;
-}
-void close_composer_popup() noexcept {
-    if (composer_owns_popup()) {
-        popup_scene_close(&g_app.popup_scene);
-        set_popup_owner(PopupOwnerKind::none);
-    }
 }
 
 bool synchronize_autocomplete() noexcept {
@@ -236,6 +229,12 @@ bool synchronize_autocomplete() noexcept {
 
 } // namespace
 
+void close_composer_popup() noexcept {
+    if (composer_owns_popup()) {
+        popup_scene_close(&g_app.popup_scene);
+        set_popup_owner(PopupOwnerKind::none);
+    }
+}
 bool refresh_active_autocomplete() noexcept {
     const bool shown = composer_owns_popup() && g_app.popup_scene.active;
     // An '@' query in a guild also re-runs while closed: members the gateway
@@ -355,7 +354,7 @@ bool stop_local_typing(u64 channel_id) noexcept {
     return true;
 }
 
-bool note_local_typing_input() noexcept {
+static bool note_local_typing_input() noexcept {
     if (!g_app.account_ui || g_app.message_edit.editor_active ||
         g_app.account.status.required_action != AccountRequirement::none) {
         return true;

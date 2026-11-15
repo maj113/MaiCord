@@ -30,15 +30,8 @@ struct Search {
 };
 Search g_search;
 
-bool composer_popup() noexcept {
-    return g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
-           g_app.popup_owner_kind == PopupOwnerKind::commands;
-}
 void close_popup() noexcept {
-    if (composer_popup()) {
-        popup_scene_close(&g_app.popup_scene);
-        set_popup_owner(PopupOwnerKind::none);
-    }
+    close_composer_popup();
     g_search.shown_count = 0;
 }
 

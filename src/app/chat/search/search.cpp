@@ -107,8 +107,7 @@ bool capture_poll_tickets(ApplicationSearch& s) noexcept {
         return true;
     if (!store.records || store.count > store.capacity || store.count > 65535)
         return false;
-    s.submitted_poll_tickets = static_cast<MessagePollResultTicket*>(
-        commit_pages(usize{store.count} * sizeof(MessagePollResultTicket)));
+    s.submitted_poll_tickets = commit_pages<MessagePollResultTicket>(usize{store.count} * sizeof(MessagePollResultTicket));
     if (!s.submitted_poll_tickets)
         return false;
     s.submitted_poll_count = store.count;
@@ -473,8 +472,7 @@ MessageTextPresentation* application_search_message_text_presentation() noexcept
     if (!s || !application_search_rich_timeline())
         return nullptr;
     if (!s->text_owner) {
-        s->text_owner = static_cast<SearchTextOwner*>(
-            commit_pages(sizeof(SearchTextOwner)));
+        s->text_owner = commit_pages<SearchTextOwner>();
         if (!s->text_owner)
             return nullptr;
         auto& o = *s->text_owner;
@@ -606,8 +604,7 @@ bool application_search_synchronize() noexcept {
     }
     auto* s = g_app.search;
     if (!s) {
-        s = static_cast<ApplicationSearch*>(
-            commit_pages(sizeof(ApplicationSearch)));
+        s = commit_pages<ApplicationSearch>();
         if (!s)
             return false;
         if (!message_composer_initialize(&s->edit, {s->query_text, sizeof(s->query_text)})) {
@@ -621,9 +618,9 @@ bool application_search_synchronize() noexcept {
     current_scope(*s);
     synchronize_privacy(*s);
     recent_load(*s);
-    const bool heading_changed = heading(*s);
     ApplicationThreadBrowserSearchScope threads{};
     const bool thread_scoped = thread_scope(*s, &threads);
+    const bool heading_changed = heading(*s, thread_scoped ? &threads : nullptr);
     // Message filters, recent message searches and the results pane do not
     // apply to thread names; the browser's own list shows those results.
     if (thread_scoped)
@@ -815,7 +812,9 @@ bool application_search_synchronize() noexcept {
                                    g_app.account_ui->navigation_view, application_theme(), now_seconds)
                                    .ok())
             return false;
-        s->text_owner->input_signature = search_text_signature(*s, *scene);
+        // An unchanged frame keeps the signature that the check above compared.
+        if (changed)
+            s->text_owner->input_signature = search_text_signature(*s, *scene);
         if (!renderer_bind_search_message_text_presentation(&g_app.renderer, presentation, &s->bank->users,
                                                             &g_app.account_ui->text_measure_cache))
             return false;
@@ -915,14 +914,9 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
     bool valid = false;
     if (response.transport_ok() && response.status_code == 200) {
         bank_release(s->candidate);
-        s->candidate = static_cast<SearchBank*>(
-            commit_pages(sizeof(SearchBank)));
-        auto* scratch = static_cast<SearchDecodeScratch*>(
-            commit_pages(sizeof(SearchDecodeScratch)));
-        auto* text = body.bytes && body.bytes <= search_bank_text_limit
-                         ? static_cast<char*>(
-                               commit_pages(body.bytes))
-                         : nullptr;
+        s->candidate = commit_pages<SearchBank>();
+        auto* scratch = commit_pages<SearchDecodeScratch>();
+        auto* text = body.bytes && body.bytes <= search_bank_text_limit ? commit_pages<char>(body.bytes) : nullptr;
         if (s->candidate && scratch && text && bank_initialize(*s->candidate)) {
             decoded = decode_message_search_page(
                 body, s->controller.query,

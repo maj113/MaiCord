@@ -10,6 +10,8 @@ namespace maicord::app_detail {
 enum class PopupOwnerKind : u8;
 
 void set_popup_owner(PopupOwnerKind owner) noexcept;
+// Closes the popup when the composer owns it (autocomplete or commands).
+void close_composer_popup() noexcept;
 bool refresh_message_composer_ui() noexcept;
 bool refresh_active_autocomplete() noexcept;
 // The ':' emoji query whose sticker suggestions show (Show stickers in autocomplete results) is still the draft's.
@@ -31,7 +33,6 @@ void application_member_query_note(u64 guild_id, u64 channel_id, Utf8View query)
 // Withdraws Search suggestions without cancelling a newer composer query.
 void application_member_query_cancel() noexcept;
 bool stop_local_typing(u64 channel_id) noexcept;
-bool note_local_typing_input() noexcept;
 bool composer_apply_result(MessageComposerResult result, bool content_input = false) noexcept;
 
 } // namespace maicord::app_detail

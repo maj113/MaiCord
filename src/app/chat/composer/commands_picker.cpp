@@ -14,14 +14,9 @@ namespace {
 u32 query_score(const Entry& entry, Utf8View query) noexcept {
     const auto& command = *entry.command;
     const Utf8View name = command.name;
-    u32 score = ~0u;
-    if (entry.app) {
-        const Utf8View section = section_name(*entry.app);
-        score = starts_with_ignore_case(section, query)  ? 5
-                : ascii_contains_ignore_case(section, query) ? 6
-                : fuzzy_ignore_case(query, section)          ? 11
-                                                             : ~0u;
-    }
+    // A match of the command name wins. It reads no section name and no option.
+    if (starts_with_ignore_case(name, query))
+        return 0;
     // The text after the first space (empty without one); *word ends at that space.
     const auto after_word = [](Utf8View text, u32* word) noexcept {
         u32 at = 0;
@@ -32,7 +27,18 @@ u32 query_score(const Entry& entry, Utf8View query) noexcept {
     };
     u32 first_word = 0, name_word = 0;
     const Utf8View rest = after_word(query, &first_word), name_rest = after_word(name, &name_word);
-    const Utf8View head{query.data, first_word};
+    if (starts_with_ignore_case(name, {query.data, first_word}) && starts_with_ignore_case(name_rest, rest))
+        return 1;
+    if (ascii_contains_ignore_case(name, query))
+        return 2;
+    u32 score = ~0u;
+    if (entry.app) {
+        const Utf8View section = section_name(*entry.app);
+        score = starts_with_ignore_case(section, query)  ? 5
+                : ascii_contains_ignore_case(section, query) ? 6
+                : fuzzy_ignore_case(query, section)          ? 11
+                                                             : ~0u;
+    }
     // Option names: prefix 3 (alone or after the command name), substring 4,
     // fuzzy 10.
     OptionMatch options{entry.index, name, query, ~0u};
@@ -57,16 +63,12 @@ u32 query_score(const Entry& entry, Utf8View query) noexcept {
                 return true;
             },
             &options);
-    const u32 command_score =
-        starts_with_ignore_case(name, query)                                                        ? 0
-        : starts_with_ignore_case(name, head) && starts_with_ignore_case(name_rest, rest)           ? 1
-        : ascii_contains_ignore_case(name, query)                                                  ? 2
-        : options.score <= 4                                                                       ? options.score
-        : ascii_contains_ignore_case(command.description, query)                                   ? 7
-        : fuzzy_ignore_case(query, name)                                                           ? 9
-        : options.score == 10                                                                      ? 10
-        : fuzzy_ignore_case(query, command.description)                                            ? 12
-                                                                                                   : ~0u;
+    const u32 command_score = options.score <= 4                                         ? options.score
+                              : ascii_contains_ignore_case(command.description, query) ? 7
+                              : fuzzy_ignore_case(query, name)                         ? 9
+                              : options.score == 10                                    ? 10
+                              : fuzzy_ignore_case(query, command.description)          ? 12
+                                                                                       : ~0u;
     return minimum(score, command_score);
 }
 // Account frecency score (hundredths) of a command, 0 when never used.
@@ -81,7 +83,6 @@ namespace commands_detail {
 bool project(const Utf8View& input) noexcept {
     auto& c = *commands;
     const PickerQuery query = picker_query(input);
-    arena_release(&c.projection);
     c.entries = nullptr;
     c.rail = c.body = nullptr;
     c.count = c.rail_count = c.body_count = 0;
@@ -90,20 +91,32 @@ bool project(const Utf8View& input) noexcept {
     const CommandIndex* plugin_index = plugin_commands_index();
     const u32 capacity = c.index[0].command_count + c.index[1].command_count +
                          (builtins ? builtins->command_count : 0) + (plugin_index ? plugin_index->command_count : 0);
-    // Candidates, their ranks and the apps, then the rows and both section lists.
-    const usize bytes = static_cast<usize>(capacity) * (2 * sizeof(Entry) + 2 * sizeof(u32) + sizeof(void*)) +
+    // A table of the candidates by id: a power of two, at least two slots for each command.
+    u32 table = 1;
+    while (table < 2 * capacity)
+        table <<= 1;
+    // Candidates, their ranks, frecency scores and the apps, then the rows, both section lists and the table.
+    const usize bytes = static_cast<usize>(capacity) * (2 * sizeof(Entry) + 3 * sizeof(u32) + sizeof(void*)) +
                         static_cast<usize>(capacity + 3) * 2 * sizeof(Section) + frequently_shown * sizeof(Entry) +
-                        4096;
-    if (!arena_initialize(&c.projection, bytes, 0, 4096))
-        return false;
+                        static_cast<usize>(table) * sizeof(u32) + 4096;
+    // A large enough arena of the last projection serves again. Its pages stay committed.
+    if (c.projection.reserved >= bytes)
+        arena_reset(&c.projection);
+    else {
+        arena_release(&c.projection);
+        if (!arena_initialize(&c.projection, bytes, 0, 4096))
+            return false;
+    }
     Entry* candidates = arena_allocate<Entry>(&c.projection, maximum(1u, capacity));
     u32* ranks = arena_allocate<u32>(&c.projection, maximum(1u, capacity));
     u32* order = arena_allocate<u32>(&c.projection, maximum(1u, capacity));
+    i32* frecencies = arena_allocate<i32>(&c.projection, maximum(1u, capacity));
     const CommandApplication** apps = arena_allocate<const CommandApplication*>(&c.projection, maximum(1u, capacity));
     c.entries = arena_allocate<Entry>(&c.projection, capacity + frequently_shown);
     c.rail = arena_allocate<Section>(&c.projection, capacity + 3);
     c.body = arena_allocate<Section>(&c.projection, capacity + 3);
-    if (!candidates || !ranks || !order || !apps || !c.entries || !c.rail || !c.body)
+    u32* slots_by_id = arena_allocate_zero<u32>(&c.projection, table);
+    if (!candidates || !ranks || !order || !frecencies || !apps || !c.entries || !c.rail || !c.body || !slots_by_id)
         return false;
     u32 candidate_count = 0, app_count = 0;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, c.channel);
@@ -117,10 +130,12 @@ bool project(const Utf8View& input) noexcept {
             if (source_pointer != plugin_index && channel && channel->permissions_resolved &&
                 !(channel->effective_permissions & (1ull << 31)))
                 continue;
+            // The index comes from the network: the same command can be in it two times.
+            u32 slot = static_cast<u32>(hash64_mix(kHash64Seed, command.id)) & (table - 1);
             bool duplicate = false;
-            for (u32 j = 0; j < candidate_count && !duplicate; ++j)
-                duplicate = candidates[j].command->id == command.id &&
-                            utf8_equal(candidates[j].command->name, command.name);
+            for (; slots_by_id[slot] && !duplicate; slot = (slot + 1) & (table - 1))
+                duplicate = candidates[slots_by_id[slot] - 1].command->id == command.id &&
+                            utf8_equal(candidates[slots_by_id[slot] - 1].command->name, command.name);
             if (duplicate)
                 continue;
             const auto* app = find_app(source, command.application_id);
@@ -132,6 +147,7 @@ bool project(const Utf8View& input) noexcept {
             if (!seen)
                 apps[app_count++] = app;
             candidates[candidate_count++] = {&command, &source, app};
+            slots_by_id[slot] = candidate_count;
         }
     // Apps by section name; Built-in comes last.
     heap_sort_shared(apps, app_count, [](const CommandApplication* a, const CommandApplication* b) noexcept {
@@ -155,6 +171,8 @@ bool project(const Utf8View& input) noexcept {
     c.discovery = !query.text.bytes;
     if (!c.discovery) {
         // Query results: ranked by score, then frecency, then name, at most twenty.
+        // A kept candidate searches the account's frecency entries one time at most.
+        constexpr i32 unknown = static_cast<i32>(0x80000000u);
         u32 kept = 0;
         for (u32 n = 0; n < candidate_count; ++n) {
             const auto& name = candidates[n].command->name;
@@ -167,27 +185,25 @@ bool project(const Utf8View& input) noexcept {
             if (score == ~0u)
                 continue;
             ranks[kept] = score;
+            frecencies[kept] = unknown;
             order[kept++] = n;
         }
-        struct Rank {
-            const Entry* candidates;
-            const u32* scores;
-            const u32* order;
-            u64 guild;
-        } rank{candidates, ranks, order, c.guild};
         u32 slots[query_limit + 1];
         u32 slot_count = 0;
+        const auto frecency = [&](u32 at) noexcept {
+            if (frecencies[at] == unknown)
+                frecencies[at] = frecency_score(*candidates[order[at]].command, c.guild);
+            return frecencies[at];
+        };
         // Keep the best twenty with an insertion pass (positions into order/ranks).
-        const auto better = [&rank](u32 a, u32 b) noexcept {
-            if (rank.scores[a] != rank.scores[b])
-                return rank.scores[a] < rank.scores[b];
-            const auto& x = rank.candidates[rank.order[a]];
-            const auto& y = rank.candidates[rank.order[b]];
-            const i32 fx = frecency_score(*x.command, rank.guild), fy = frecency_score(*y.command, rank.guild);
+        const auto better = [&](u32 a, u32 b) noexcept {
+            if (ranks[a] != ranks[b])
+                return ranks[a] < ranks[b];
+            const i32 fx = frecency(a), fy = frecency(b);
             if (fx != fy)
                 return fx > fy;
-            const i32 names = compare_names(x.command->name, y.command->name);
-            return names ? names < 0 : rank.order[a] < rank.order[b];
+            const i32 names = compare_names(candidates[order[a]].command->name, candidates[order[b]].command->name);
+            return names ? names < 0 : order[a] < order[b];
         };
         for (u32 n = 0; n < kept; ++n) {
             u32 at = slot_count < query_limit ? slot_count++ : query_limit;
@@ -418,6 +434,12 @@ u32 chip_at(const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
             return n;
     return no_option;
 }
+const CommandArgumentSpan* slot_span(const CommandArgumentSpan* spans, u32 count, u32 slot) noexcept {
+    for (u32 n = 0; n < count; ++n)
+        if (spans[n].slot == slot)
+            return spans + n;
+    return nullptr;
+}
 bool option_end_at(const Utf8View& input, u32 at) noexcept {
     return at + kCommandOptionEndBytes <= input.bytes &&
            bytes_equal(input.data + at, kCommandOptionEnd, kCommandOptionEndBytes);
@@ -444,9 +466,7 @@ void check_options(const CommandArgumentSpan* spans, u32 count, u32 active_slot,
     const auto list = command_options();
     for (u32 slot = 0; slot < list.count; ++slot) {
         auto& state = c.option_states[slot];
-        const CommandArgumentSpan* span = nullptr;
-        for (u32 n = 0; n < count && !span; ++n)
-            span = spans[n].slot == slot ? spans + n : nullptr;
+        const CommandArgumentSpan* span = slot_span(spans, count, slot);
         const Utf8View value = span ? span->value : Utf8View{};
         const u64 hash = span ? hash64_bytes(kHash64Seed, value.data, value.bytes) | 1 : 0;
         const bool check = validate_all || (slot == c.previous_slot && c.previous_slot != active_slot) ||
@@ -634,12 +654,10 @@ void render_options(PopupItem* items, u32* count, const CommandArgumentSpan* spa
     for (u32 pass = 0; pass < 2; ++pass) {
         bool titled = false;
         for (u32 slot = 0; slot < list.count && *count < 31; ++slot) {
-            bool present = false;
-            for (u32 n = 0; n < typed && !present; ++n)
-                present = spans[n].slot == slot;
             char storage[128];
             const auto name = field_text(*c.selected.index, list.options[slot], "name", {storage, sizeof(storage)});
-            if (present || option_flag(list.options[slot], "required") != (pass == 0) || name.bytes < query.bytes ||
+            if (slot_span(spans, typed, slot) || option_flag(list.options[slot], "required") != (pass == 0) ||
+                name.bytes < query.bytes ||
                 !utf8_equal({name.data, query.bytes}, query))
                 continue;
             if (!titled) {
@@ -662,6 +680,18 @@ void render_options(PopupItem* items, u32* count, const CommandArgumentSpan* spa
 } // namespace
 namespace commands_detail {
 
+// Opens the commands popup over the composer with no selected row.
+static bool open_list(const UiLayoutNode& surface, ConstSlice<PopupItem> items, float fraction,
+                      float rail_fraction) noexcept {
+    const UiRect anchor = surface.rectangle;
+    if (!popup_scene_open(&g_app.popup_scene, PopupKind::autocomplete, commands->channel, items, anchor,
+                          application_viewport_dips(), ui_rect_width(anchor), true, fraction, rail_fraction)
+             .ok())
+        return false;
+    set_popup_owner(PopupOwnerKind::commands);
+    g_app.popup_scene.selected_index = ~0u;
+    return true;
+}
 float list_item_height(const PopupItem& item) noexcept {
     return (item.flags & popup_item_command_section) ? kCommandTitleHeight
            : popup_item_placeholder(item)            ? kCommandGenericLoadingHeight
@@ -708,14 +738,8 @@ bool render_command(const UiLayoutNode& surface) noexcept {
         hide_popup();
         return builtin_command_results(c.selected.command, query, surface.rectangle);
     }
-    const UiRect viewport = application_viewport_dips();
-    const UiRect anchor = surface.rectangle;
-    const auto result = popup_scene_open(&g_app.popup_scene, PopupKind::autocomplete, c.channel, {items, count},
-                                         anchor, viewport, ui_rect_width(anchor), true, c.offset, 0);
-    if (!result.ok())
+    if (!open_list(surface, {items, count}, c.offset, 0))
         return false;
-    set_popup_owner(PopupOwnerKind::commands);
-    g_app.popup_scene.selected_index = ~0u;
     // The keyboard row counts the list's actionable rows from one.
     if (c.keyboard_row != no_row && c.option_count) {
         c.keyboard_row = minimum(maximum(c.keyboard_row, 1u), c.option_count);
@@ -1001,14 +1025,8 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
             ++count;
         }
     }
-    const UiRect viewport = application_viewport_dips();
-    const UiRect anchor = surface.rectangle;
-    const auto result = popup_scene_open(&g_app.popup_scene, PopupKind::autocomplete, c.channel, {items, count},
-                                         anchor, viewport, ui_rect_width(anchor), true, fraction, rail_fraction);
-    if (!result.ok())
+    if (!open_list(surface, {items, count}, fraction, rail_fraction))
         return false;
-    set_popup_owner(PopupOwnerKind::commands);
-    g_app.popup_scene.selected_index = ~0u;
     // The thin scrollbar shows where the virtual list stands.
     g_app.popup_scene.picker_scroll_offset = c.offset;
     g_app.popup_scene.picker_scroll_extent = body_extent(c);

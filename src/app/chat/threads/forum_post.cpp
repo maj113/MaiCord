@@ -876,11 +876,7 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         application_forum_attachments_lock(forum_ticket(owner), false);
         if (flight.metadata_epoch != owner.metadata_epoch ||
             !forum_parent_authority_current(owner.source.parent, flight.parent_authority)) {
-            forum_fail(
-                owner,
-                utf8_literal(
-                    "Your post may exist. Check posts before retrying."),
-                true);
+            forum_fail(owner, utf8_literal("Your post may exist. Check posts before retrying."), true);
             return true;
         }
         owner.starter_stale = flight.changed_messages_all;
@@ -894,26 +890,16 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         if (owner.known_created)
             forum_fail(owner, utf8_literal("Post created, but couldn't be opened. Try again or view posts."));
         else
-            forum_fail(
-                owner,
-                utf8_literal("Couldn't open your post. Check the posts list."),
-                true);
+            forum_fail(owner, utf8_literal("Couldn't open your post. Check the posts list."), true);
         return true;
     }
     if (response.transport_ok() && response.status_code == 400 && response.rejection.has_code &&
         (response.rejection.code == 50035 || response.rejection.code == 40066 ||
          response.rejection.code == 40067)) {
         owner.metadata_ready = false;
-        forum_fail(
-            owner,
-            utf8_literal(
-                "Couldn't create the post. Check the title, message and tags."));
+        forum_fail(owner, utf8_literal("Couldn't create the post. Check the title, message and tags."));
     } else
-        forum_fail(
-            owner,
-            utf8_literal(
-                "Your post may exist. Check posts before retrying."),
-            true);
+        forum_fail(owner, utf8_literal("Your post may exist. Check posts before retrying."), true);
     return true;
 }
 u64 application_forum_post_next_wake() noexcept {

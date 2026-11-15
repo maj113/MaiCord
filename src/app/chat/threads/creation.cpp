@@ -14,8 +14,6 @@
 #include "maicord/core/time.hpp"
 #include "../../account/account_access.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord::app_detail {
 namespace {
 using Phase = ApplicationThreadCreationPhase;
@@ -334,6 +332,22 @@ ApplicationThreadCreationView application_thread_creation_view() noexcept {
         {owner.name, owner.name_bytes}, owner.status, owner.revision, owner.phase, current, owner.error,
         can_submit, can_retry, current && owner.phase != Phase::settled && owner.phase != Phase::cancelled, owner.uncertain};
 }
+// Queues the creation, or fails it when the account cannot create a thread now.
+static bool admit(CreationOwner& owner, bool retry) noexcept {
+    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance) {
+        fail(owner, utf8_literal("Can't create threads while offline."), retry && owner.uncertain); return false;
+    }
+    if (g_app.account.status.required_action != AccountRequirement::none) {
+        fail(owner, utf8_literal("Verify your account to create threads."), owner.uncertain, true); return false;
+    }
+    if (application_thread_create_cooldown_active(owner.source.parent)) {
+        fail(owner, utf8_literal("Slowmode is on. Wait a moment before creating another thread."), owner.uncertain);
+        return false;
+    }
+    if (!retry) owner.uncertain = owner.uncertain || ledger_contains(owner, owner.source.message);
+    queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
+    return true;
+}
 bool application_thread_creation_name_submit(const ApplicationThreadCreationTicket& value, Utf8View name) noexcept {
     if (!application_thread_creation_current(value) || !application_thread_creation_view().can_submit) return false;
     auto& owner = *creation_owner;
@@ -348,35 +362,11 @@ bool application_thread_creation_name_submit(const ApplicationThreadCreationTick
     if (!valid) { fail(owner, utf8_literal("Thread names must be 1–100 characters on one line."), owner.uncertain, false, true); return false; }
     copy_bytes(owner.name, name.data, name.bytes);
     owner.name_bytes = name.bytes;
-    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance) {
-        fail(owner, utf8_literal("Can't create threads while offline.")); return false;
-    }
-    if (g_app.account.status.required_action != AccountRequirement::none) {
-        fail(owner, utf8_literal("Verify your account to create threads."), owner.uncertain, true); return false;
-    }
-    if (application_thread_create_cooldown_active(owner.source.parent)) {
-        fail(owner, utf8_literal("Slowmode is on. Wait a moment before creating another thread."), owner.uncertain);
-        return false;
-    }
-    owner.uncertain = owner.uncertain || ledger_contains(owner, owner.source.message);
-    queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
-    return true;
+    return admit(owner, false);
 }
 bool application_thread_creation_retry(const ApplicationThreadCreationTicket& value) noexcept {
     if (!application_thread_creation_current(value) || !application_thread_creation_view().can_retry) return false;
-    auto& owner = *creation_owner;
-    if (!g_app.account.status.running || g_app.account.stop_failed || !g_app.account.instance) {
-        fail(owner, utf8_literal("Can't create threads while offline."), owner.uncertain); return false;
-    }
-    if (g_app.account.status.required_action != AccountRequirement::none) {
-        fail(owner, utf8_literal("Verify your account to create threads."), owner.uncertain, true); return false;
-    }
-    if (application_thread_create_cooldown_active(owner.source.parent)) {
-        fail(owner, utf8_literal("Slowmode is on. Wait a moment before creating another thread."), owner.uncertain);
-        return false;
-    }
-    queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
-    return true;
+    return admit(*creation_owner, true);
 }
 bool application_thread_creation_synchronize() noexcept {
     auto* owner = creation_owner;

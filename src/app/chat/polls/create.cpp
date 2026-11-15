@@ -401,29 +401,26 @@ bool application_poll_create_submit(u64 now) noexcept {
         g_app.details_request_owner != MessageHistoryRequestOwner::none || (owner->retry_at && owner->retry_at > now))
         return false;
     auto& p = *owner;
-    if (!scope_current() || !connected()) {
-        p.queued = false;
-        p.failed = true;
-        p.status = utf8_literal("This poll couldn't be sent.");
-        repaint();
-        return false;
+    bool sent = scope_current() && connected();
+    if (sent) {
+        const u64 id = application_next_request_id();
+        const auto submitted = account_module_poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
+        if (submit_busy(submitted, p.retry_at, now, 50))
+            return true;
+        sent = submitted.ok();
+        if (sent) {
+            p.request_id = id;
+            g_app.details_request_owner = MessageHistoryRequestOwner::channel_overview;
+            g_app.details_request_id = id;
+        }
     }
-    const u64 id = application_next_request_id();
-    const auto submitted = account_module_poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
-    if (submit_busy(submitted, p.retry_at, now, 50))
-        return true;
     p.queued = false;
-    if (!submitted.ok()) {
+    if (!sent) {
         p.failed = true;
         p.status = utf8_literal("This poll couldn't be sent.");
-        repaint();
-        return false;
     }
-    p.request_id = id;
-    g_app.details_request_owner = MessageHistoryRequestOwner::channel_overview;
-    g_app.details_request_id = id;
     repaint();
-    return true;
+    return sent;
 }
 
 bool application_poll_create_owns_response(u64 request_id) noexcept {

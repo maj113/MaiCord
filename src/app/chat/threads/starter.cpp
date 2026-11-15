@@ -7,8 +7,21 @@ namespace {
 u64 sync_signature;
 } // namespace
 
-bool thread_starter_project(const MessageStore& messages, const ChatStateStore& state,
-                            MessageRichStore* rich_store) noexcept {
+bool application_thread_starters_sync() noexcept {
+    if (!g_app.account_ui)
+        return false;
+    auto& ui = *g_app.account_ui;
+    const auto& messages = g_app.message_view.store;
+    const auto& state = ui.chat_state;
+    auto* rich_store = &ui.message_rich_store;
+    u64 signature = hash64_mix(kHash64Seed, ui.active_channel_id);
+    signature = hash64_mix(signature, messages.created);
+    signature = hash64_mix(signature, messages.updated);
+    signature = hash64_mix(signature, messages.deleted);
+    signature = hash64_mix(signature, state.channel_mutations);
+    if (signature == sync_signature)
+        return false;
+    sync_signature = signature;
     if (!rich_store->records)
         return false;
     bool changed = false;
@@ -35,21 +48,5 @@ bool thread_starter_project(const MessageStore& messages, const ChatStateStore& 
         changed |= message_rich_store_apply(rich_store, record->id, record->revision, event).ok();
     }
     return changed;
-}
-
-bool application_thread_starters_sync() noexcept {
-    if (!g_app.account_ui)
-        return false;
-    auto& ui = *g_app.account_ui;
-    const auto& messages = g_app.message_view.store;
-    u64 signature = hash64_mix(kHash64Seed, ui.active_channel_id);
-    signature = hash64_mix(signature, messages.created);
-    signature = hash64_mix(signature, messages.updated);
-    signature = hash64_mix(signature, messages.deleted);
-    signature = hash64_mix(signature, ui.chat_state.channel_mutations);
-    if (signature == sync_signature)
-        return false;
-    sync_signature = signature;
-    return thread_starter_project(messages, ui.chat_state, &ui.message_rich_store);
 }
 } // namespace maicord::app_detail

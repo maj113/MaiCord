@@ -4,8 +4,6 @@
 #include "../../shell/state.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/protocol/guild/channel_overview.hpp"
 #include "../channel_authority.hpp"
@@ -170,8 +168,7 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
         return Admission::coalesced;
     }
     if (!owner) {
-        owner = static_cast<ThreadOwner*>(
-            commit_pages(sizeof(ThreadOwner)));
+        owner = commit_pages<ThreadOwner>();
         if (!owner)
             return Admission::storage;
     }
@@ -324,8 +321,7 @@ bool application_thread_actions_admission_status(const ApplicationThreadActionTi
         !application_thread_actions_current(source))
         return false;
     if (!owner) {
-        owner = static_cast<ThreadOwner*>(
-            commit_pages(sizeof(ThreadOwner)));
+        owner = commit_pages<ThreadOwner>();
         if (!owner)
             return false;
         owner->source = source;

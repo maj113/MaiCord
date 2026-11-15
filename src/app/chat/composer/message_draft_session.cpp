@@ -228,20 +228,15 @@ bool message_draft_session_configure(MessageDraftSession& session, MessageDraftS
         session.cleanup_required = loaded.discarded != 0;
         const u64 counts[] = {loaded.records, loaded.discarded, loaded.bytes};
         LogEvent("loaded").fields("records\0discarded_blank_records\0bytes", counts).write(LogLevel::info, "draft");
-        message_draft_session_observe(session, drafts, now_ms);
-        return true;
-    }
-    if ((loaded.error == MessageDraftPersistenceError::open &&
-         win32_error_is_missing_file(loaded.native_error)) ||
-        loaded.error == MessageDraftPersistenceError::version) {
+    } else if ((loaded.error == MessageDraftPersistenceError::open &&
+                win32_error_is_missing_file(loaded.native_error)) ||
+               loaded.error == MessageDraftPersistenceError::version)
         log_write(LogLevel::info, "draft", "store_absent");
-        message_draft_session_observe(session, drafts, now_ms);
-        return true;
-    }
-    LogEvent("load_failed")
-        .field("error", static_cast<u64>(loaded.error))
-        .error("native_error", static_cast<u32>(loaded.native_error))
-        .write(LogLevel::warning, "draft");
+    else
+        LogEvent("load_failed")
+            .field("error", static_cast<u64>(loaded.error))
+            .error("native_error", static_cast<u32>(loaded.native_error))
+            .write(LogLevel::warning, "draft");
     message_draft_session_observe(session, drafts, now_ms);
     return true;
 }

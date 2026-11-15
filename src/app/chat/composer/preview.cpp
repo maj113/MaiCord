@@ -137,8 +137,6 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
     for (u32 index = 0; index < minimum(count, kAttachmentUploadMaximumCount); ++index) {
         const u64 id = ids[index];
         const auto* record = message_attachment_drafts_get(&state->drafts, id);
-        if (!record)
-            continue;
         ComposerPreviewEntry* entry = nullptr;
         for (auto& slot : owner->entries)
             if (slot.occupied && !slot.retired && slot.draft_id == id) {

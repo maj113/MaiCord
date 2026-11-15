@@ -56,13 +56,12 @@ void current_scope(ApplicationSearch& s) noexcept {
                        : utf8_literal("Select a channel to search.");
     s.scene.scroll_dips = 0;
 }
-bool heading(ApplicationSearch& s) noexcept {
+bool heading(ApplicationSearch& s, const ApplicationThreadBrowserSearchScope* threads) noexcept {
     Utf8View label = utf8_literal("Search");
     Utf8View prefix = utf8_literal("Search ");
-    ApplicationThreadBrowserSearchScope threads{};
-    if (thread_scope(s, &threads)) {
-        prefix = threads.forum ? utf8_literal("Search posts in ") : utf8_literal("Search threads in ");
-        label = threads.parent_name;
+    if (threads) {
+        prefix = threads->forum ? utf8_literal("Search posts in ") : utf8_literal("Search threads in ");
+        label = threads->parent_name;
     } else if (g_app.account_ui && s.scope_id) {
         const auto& state = g_app.account_ui->chat_state;
         if (s.scope == MessageSearchScope::guild) {

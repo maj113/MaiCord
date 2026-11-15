@@ -132,8 +132,7 @@ MessageDraftPersistenceResult message_drafts_encode(u64 profile_id, const Messag
         return failure(MessageDraftPersistenceError::capacity);
     }
     const u32 total = static_cast<u32>(total64);
-    auto* file_bytes =
-        static_cast<u8*>(commit_pages(total));
+    auto* file_bytes = commit_pages<u8>(total);
     if (!file_bytes) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
@@ -306,8 +305,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         return failure(MessageDraftPersistenceError::capacity);
     }
     const u32 scratch_bytes = static_cast<u32>(scratch64);
-    auto* scratch =
-        static_cast<u8*>(commit_pages(scratch_bytes));
+    auto* scratch = commit_pages<u8>(scratch_bytes);
     if (!scratch) {
         return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }

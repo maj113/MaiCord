@@ -4,7 +4,6 @@
 #include "../../shell/owner.hpp"
 #include "browser.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../shell/content_point.hpp"
 #include "../../net/rest_rate_retry.hpp"
 #include "../../shell/state.hpp"
 #include "../composer/text_input.hpp"

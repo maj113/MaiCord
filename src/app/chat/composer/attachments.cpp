@@ -52,11 +52,16 @@ bool remove_draft(ApplicationAttachments* state, u64 id) noexcept {
 void close_any_popup() noexcept {
     if (g_app.popup_scene.active) { popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none); }
 }
+// The draft when the active channel owns it and no send holds it, else null.
+MessageAttachmentDraft* editable(ApplicationAttachments* state, u64 id) noexcept {
+    auto* record = message_attachment_drafts_get(&state->drafts, id);
+    return record && record->channel_id == g_app.account_ui->active_channel_id &&
+           record->phase != MessageAttachmentDraftPhase::queued ? record : nullptr;
+}
 bool description_owner_valid(TextFormOwnerKey key) noexcept {
-    const auto* state = g_app.attachments;
-    if (!current(state) || state->profile_id != key.scope || g_app.account_ui->active_channel_id != key.collection) return false;
-    const auto* record = message_attachment_drafts_get(&state->drafts, key.item);
-    return record && record->channel_id == key.collection && record->phase != MessageAttachmentDraftPhase::queued;
+    auto* state = g_app.attachments;
+    return current(state) && state->profile_id == key.scope && g_app.account_ui->active_channel_id == key.collection &&
+           editable(state, key.item);
 }
 bool save_description(TextFormOwnerKey key, Utf8View text) noexcept {
     if (!description_owner_valid(key)) return false;
@@ -70,11 +75,6 @@ bool save_filename(TextFormOwnerKey key, Utf8View text) noexcept {
     for (u32 i = 0; i < text.bytes; ++i)
         if (text.data[i] == '/' || text.data[i] == '\\') return false;
     return message_attachment_drafts_rename(&g_app.attachments->drafts, key.item, text);
-}
-bool record_editable(const ApplicationAttachments* state, u64 id) noexcept {
-    const auto* record = message_attachment_drafts_get(&state->drafts, id);
-    return record && record->channel_id == g_app.account_ui->active_channel_id &&
-           record->phase != MessageAttachmentDraftPhase::queued;
 }
 UiComposerAttachmentPhase tile_phase(MessageAttachmentDraftPhase phase) noexcept {
     switch (phase) {
@@ -101,7 +101,7 @@ bool preparing(const ApplicationAttachments* state, u64 channel_id) noexcept {
 inline constexpr u64 kPreparingTileId = ~0ull;
 ApplicationAttachments* ensure() noexcept {
     if (g_app.attachments) return current(g_app.attachments) ? g_app.attachments : nullptr;
-    auto* state = static_cast<ApplicationAttachments*>(commit_pages(sizeof(ApplicationAttachments)));
+    auto* state = commit_pages<ApplicationAttachments>();
     if (!state) return nullptr;
     if (!message_attachment_drafts_initialize(&state->drafts)) { pages_release(state); return nullptr; }
     state->profile_id = g_app.account.status.profile_id;
@@ -154,8 +154,8 @@ bool open_menu(const ConstSlice<PopupItem>& items) noexcept {
     return refresh_account_frame();
 }
 bool show_file(ApplicationAttachments* state, u64 id) noexcept {
-    const auto* record = message_attachment_drafts_get(&state->drafts, id);
-    if (!record || record->channel_id != g_app.account_ui->active_channel_id || record->phase == MessageAttachmentDraftPhase::queued) {
+    const auto* record = editable(state, id);
+    if (!record) {
         close_menu(); return refresh_message_composer_ui();
     }
     ProtocolWriter writer{{reinterpret_cast<u8*>(state->menu_labels[0]), sizeof(state->menu_labels[0])}, 0};
@@ -195,9 +195,9 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
     const u32 count = minimum(kAttachmentUploadMaximumCount, message_attachment_drafts_channel(&state->drafts,
         g_app.account_ui->active_channel_id, {ids, kAttachmentUploadMaximumCount}));
     state->tile_count = 0;
+    u32 ready = 0, failed = 0, changed_sources = 0; double bytes = 0, total = 0;
     for (u32 i = 0; i < count; ++i) {
         const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
-        if (!record) continue;
         const Utf8View filename = message_attachment_drafts_filename(&state->drafts, ids[i]);
         const auto preview = application_composer_preview_view(ids[i]);
         auto& tile = state->tiles[state->tile_count++];
@@ -215,6 +215,10 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         tile.animated = application_composer_preview_format(filename) == MediaAttachmentFormat::gif;
         tile.can_retry = retryable(*record);
         tile.duration_ms = application_attachment_probe_duration(ids[i]);
+        ready += record->phase == MessageAttachmentDraftPhase::ready;
+        failed += record->phase == MessageAttachmentDraftPhase::failed;
+        changed_sources += record->phase == MessageAttachmentDraftPhase::failed && record->failure == MessageAttachmentDraftFailure::source_changed;
+        bytes += static_cast<double>(record->uploaded_bytes); total += static_cast<double>(record->source.bytes);
     }
     if (preparing(state, g_app.account_ui->active_channel_id) &&
         state->tile_count < kUiComposerAttachmentMaximum) {
@@ -229,18 +233,10 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         return input;
     }
     if (!count) return input;
-    u32 ready = 0, failed = 0, changed_sources = 0; double bytes = 0, total = 0;
-    for (u32 i = 0; i < count; ++i) {
-        const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
-        ready += record->phase == MessageAttachmentDraftPhase::ready;
-        failed += record->phase == MessageAttachmentDraftPhase::failed;
-        changed_sources += record->phase == MessageAttachmentDraftPhase::failed && record->failure == MessageAttachmentDraftFailure::source_changed;
-        bytes += static_cast<double>(record->uploaded_bytes); total += static_cast<double>(record->source.bytes);
-    }
     ProtocolWriter writer{{reinterpret_cast<u8*>(state->label), sizeof(state->label)}, 0};
     if (count == 1) {
-        if (message_attachment_drafts_get(&state->drafts, ids[0])->spoiler) protocol_writer_append_literal(&writer, "Spoiler: ");
-        append_name(&writer, message_attachment_drafts_filename(&state->drafts, ids[0]), 96);
+        if (state->tiles[0].spoiler) protocol_writer_append_literal(&writer, "Spoiler: ");
+        append_name(&writer, state->tiles[0].filename, 96);
     }
     else { protocol_writer_append_u64(&writer, count); protocol_writer_append_literal(&writer, " attachments"); }
     if (changed_sources) protocol_writer_append_literal(&writer, " · Changed. Remove and add it again.");
@@ -396,8 +392,8 @@ bool application_attachment_action(u32 action) noexcept {
     }
     if (action == popup_action_attachment_spoiler || action == popup_action_attachment_remove) {
         const u64 id = state->detail_id;
-        const auto* record = message_attachment_drafts_get(&state->drafts, id);
-        if (!record || record->channel_id != g_app.account_ui->active_channel_id || record->phase == MessageAttachmentDraftPhase::queued) {
+        const auto* record = editable(state, id);
+        if (!record) {
             close_menu(); return refresh_message_composer_ui();
         }
         if (action == popup_action_attachment_spoiler) {
@@ -577,12 +573,9 @@ bool application_clear_channel_attachments() noexcept {
     const u32 count = message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id,
         {ids, kAttachmentUploadMaximumCount});
     bool removed = false;
-    for (u32 i = 0; i < count; ++i) {
-        const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
-        // Queued drafts already belong to a send.
-        if (!record || record->phase == MessageAttachmentDraftPhase::queued) continue;
+    // The list has no queued draft: a queued draft belongs to a send.
+    for (u32 i = 0; i < count; ++i)
         removed = remove_draft(state, ids[i]) || removed;
-    }
     if (removed) state->notice_bytes = 0;
     return removed;
 }
@@ -709,7 +702,7 @@ bool focus_strip(u32 index) noexcept {
 } // namespace
 bool application_attachment_remove(u64 id) noexcept {
     auto* state = strip_state();
-    if (!state || !record_editable(state, id)) return false;
+    if (!state || !editable(state, id)) return false;
     if (state->detail_id == id) close_menu();
     if (!remove_draft(state, id)) return false;
     state->notice_bytes = 0;
@@ -718,26 +711,26 @@ bool application_attachment_remove(u64 id) noexcept {
 }
 bool application_attachment_toggle_spoiler(u64 id) noexcept {
     auto* state = strip_state();
-    if (!state || !record_editable(state, id)) return false;
-    const auto* record = message_attachment_drafts_get(&state->drafts, id);
+    const auto* record = state ? editable(state, id) : nullptr;
+    if (!record) return false;
     return message_attachment_drafts_set_spoiler(&state->drafts, id, !record->spoiler) && refresh_message_composer_ui();
 }
 bool application_attachment_retry(u64 id) noexcept {
     auto* state = strip_state();
-    if (!state || !record_editable(state, id)) return false;
-    auto* record = message_attachment_drafts_get(&state->drafts, id);
-    if (!retryable(*record)) return false;
+    auto* record = state ? editable(state, id) : nullptr;
+    if (!record || !retryable(*record)) return false;
     requeue(*record); ++state->drafts.revision;
     return refresh_message_composer_ui() && pump_message_history();
 }
 bool application_attachment_modify(u64 id, UiRect anchor) noexcept {
     auto* state = strip_state();
-    if (!state || !record_editable(state, id)) return false;
+    const auto* record = state ? editable(state, id) : nullptr;
+    if (!record) return false;
     ProtocolWriter writer{{reinterpret_cast<u8*>(state->menu_labels[0]), sizeof(state->menu_labels[0])}, 0};
     append_name(&writer, message_attachment_drafts_filename(&state->drafts, id), 240);
     PopupItem items[kAttachmentModifyMenuItems];
-    const u32 count = attachment_modify_menu({state->menu_labels[0], writer.used},
-        message_attachment_drafts_get(&state->drafts, id)->description_bytes != 0, {items, kAttachmentModifyMenuItems});
+    const u32 count = attachment_modify_menu({state->menu_labels[0], writer.used}, record->description_bytes != 0,
+        {items, kAttachmentModifyMenuItems});
     if (!count) return false;
     if (!ui_rect_has_area(anchor)) {
         const auto* node = message_composer_scene_layout_node(g_app.message_composer_scene, MessageComposerControl::attachments);

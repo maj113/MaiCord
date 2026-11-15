@@ -296,6 +296,15 @@ bool settle(ApplicationTextForm* form) noexcept {
         refresh(form);
     return true;
 }
+// The open form. Null when no form is open or when the client closed a form that its owner left.
+ApplicationTextForm* current_form() noexcept {
+    auto* form = g_app.text_form;
+    if (form && !valid(form)) {
+        application_text_form_close(false);
+        return nullptr;
+    }
+    return form;
+}
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
     if (form != g_app.text_form)
@@ -627,8 +636,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     }
     const usize owner_bytes =
         sizeof(ApplicationTextForm) + (request.login_owner ? sizeof(LoginFormMeasureStorage) : 0);
-    auto* form = static_cast<ApplicationTextForm*>(
-        commit_pages(owner_bytes));
+    auto* form = commit_pages<ApplicationTextForm>(owner_bytes);
     if (!form) {
         if (request.login_owner)
             renderer_release_login_form_text(&g_app.renderer);
@@ -726,21 +734,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             secure_text_store_unbind(&g_app.login.text_store);
             secure_text_store_set_window_focus(&g_app.login.text_store, false);
         }
-    } else {
-        application_composer_text_input_suspend();
-        form->previous_composer_focus = g_app.message_composer.focused;
-        ui_scroll_host_cancel(&g_app.scroll_host);
-        end_message_text_selection();
-        end_message_composer_pointer_selection();
-        end_scrollbar_drag();
-        end_pane_resize();
-        stop_local_typing(g_app.message_composer.channel_id);
-        g_app.message_composer.focused = false;
-        ++g_app.message_composer.revision;
-        reset_message_composer_caret_timing(false);
-        popup_scene_close(&g_app.popup_scene);
-        set_popup_owner(PopupOwnerKind::none);
-    }
+    } else
+        form->previous_composer_focus = application_form_take_input();
     g_app.text_form = form;
     if (application_key_down(key::enter))
         g_app.text_form_held_key = key::enter;
@@ -859,18 +854,8 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
         secure_edit_release(&form->edit);
     SecureZeroMemory(form, sizeof(*form));
     pages_release(form);
-    if (restore && previous.manager) {
-        auto* manager = const_cast<UiWidgetManager*>(previous.manager);
-        if (ui_widget_manager_focus(manager, previous.handle) ||
-            ui_widget_manager_input_enabled(*manager, manager->focused)) {
-            g_app.context_focus = manager;
-            if (composer && manager == &g_app.message_composer_scene.widgets) {
-                g_app.message_composer.focused = true;
-                ++g_app.message_composer.revision;
-                reset_message_composer_caret_timing(true);
-            }
-        }
-    }
+    if (restore)
+        application_form_restore_focus(previous, composer);
     if (rebuild && !forum_parent.serial && g_app.renderer_ready && g_app.account_ui)
         refresh_account_text(true);
     if (closed)
@@ -880,6 +865,34 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     application_request_frame();
 }
 
+bool application_form_take_input() noexcept {
+    const bool composer = g_app.message_composer.focused;
+    application_composer_text_input_suspend();
+    ui_scroll_host_cancel(&g_app.scroll_host);
+    end_message_text_selection();
+    end_message_composer_pointer_selection();
+    end_scrollbar_drag();
+    end_pane_resize();
+    stop_local_typing(g_app.message_composer.channel_id);
+    g_app.message_composer.focused = false;
+    ++g_app.message_composer.revision;
+    reset_message_composer_caret_timing(false);
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+    return composer;
+}
+void application_form_restore_focus(const UiWidgetReference& previous, bool composer) noexcept {
+    auto* manager = const_cast<UiWidgetManager*>(previous.manager);
+    if (!manager || (!ui_widget_manager_focus(manager, previous.handle) &&
+                     !ui_widget_manager_input_enabled(*manager, manager->focused)))
+        return;
+    g_app.context_focus = manager;
+    if (composer && manager == &g_app.message_composer_scene.widgets) {
+        g_app.message_composer.focused = true;
+        ++g_app.message_composer.revision;
+        reset_message_composer_caret_timing(true);
+    }
+}
 bool application_text_form_forum_child(const ApplicationForumPostTicket& ticket) noexcept {
     if (!ticket.serial || !g_app.text_form)
         return false;
@@ -905,13 +918,9 @@ void application_text_form_theme_changed() noexcept {
     form->scene.layout_signature = 0;
 }
 bool application_text_form_synchronize() noexcept {
-    auto* form = g_app.text_form;
+    auto* form = current_form();
     if (!form)
         return true;
-    if (!valid(form)) {
-        application_text_form_close(false);
-        return true;
-    }
     const bool styles_changed = text_form_bind_theme_styles(&form->scene, application_theme().styles);
     const bool measure_changed = text_form_bind_measure_revision(&form->scene,
                                                                 renderer_text_measure_revision(g_app.renderer));
@@ -935,14 +944,10 @@ bool application_text_form_synchronize() noexcept {
 bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     if (ui_input_consume_key_tail(&g_app.text_form_held_key, {kind, code, repeated}))
         return true;
-    auto* form = g_app.text_form;
-    if (!form)
+    if (!g_app.text_form)
         return false;
-    if (!valid(form)) {
-        application_text_form_close(false);
-        return true;
-    }
-    if (!settle(form))
+    auto* form = current_form();
+    if (!form || !settle(form))
         return true;
     if (kind == UiInputKind::system_key_down)
         return code != key::f4 && code != key::space;
@@ -1039,14 +1044,8 @@ bool application_text_form_filter(const WindowEvent& event) noexcept {
     UiInputEvent held{};
     if (application_held_key_event(g_app.text_form_held_key, event, &held))
         return application_text_form_input(held.kind, held.code, held.repeated);
-    auto* form = g_app.text_form;
-    if (!form)
-        return false;
-    if (!valid(form)) {
-        application_text_form_close(false);
-        return false;
-    }
-    if (!settle(form))
+    auto* form = current_form();
+    if (!form || !settle(form))
         return false;
     return form->editable && !form->request.confirmation_only && secure_text_store_filter_key(&form->store, event);
 }
@@ -1054,13 +1053,9 @@ bool application_text_form_filter(const WindowEvent& event) noexcept {
 bool application_text_form_window_event(const WindowEvent& event) noexcept {
     if (input_focus_lost(event) || event.type == EventType::cancel_input)
         g_app.text_form_held_key = 0;
-    auto* form = g_app.text_form;
+    auto* form = current_form();
     if (!form)
         return false;
-    if (!valid(form)) {
-        application_text_form_close(false);
-        return false;
-    }
     if (!settle(form))
         return true;
     // Content-pixel position of a pointer event, in DIPs.
@@ -1261,13 +1256,9 @@ bool application_text_form_window_event(const WindowEvent& event) noexcept {
     }
 }
 void application_text_form_tick(u64 now_ms) noexcept {
-    auto* form = g_app.text_form;
+    auto* form = current_form();
     if (!form)
         return;
-    if (!valid(form)) {
-        application_text_form_close(false);
-        return;
-    }
     if (form->blink_at_ms && now_ms >= form->blink_at_ms) {
         form->caret_visible = !form->caret_visible;
         form->blink_at_ms = now_ms + form->blink_ms;

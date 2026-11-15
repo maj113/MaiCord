@@ -234,6 +234,8 @@ bool option_flag(JsonValue option, const char* key) noexcept;
 u64 option_type(const CommandIndex& index, JsonValue option) noexcept;
 u32 typed_options(const Utf8View& input, Slice<CommandArgumentSpan> spans) noexcept;
 u32 chip_at(const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept;
+// The typed span of an option slot, or null.
+const CommandArgumentSpan* slot_span(const CommandArgumentSpan* spans, u32 count, u32 slot) noexcept;
 bool option_end_at(const Utf8View& input, u32 at) noexcept;
 Utf8View caret_word(Utf8View input, u32 caret) noexcept;
 ConstSlice<CommandAcceptedChoice> accepted_choices() noexcept;

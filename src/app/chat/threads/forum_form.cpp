@@ -246,9 +246,10 @@ bool refresh(ApplicationForumForm* f) noexcept {
     application_request_frame();
     return ok;
 }
-bool current_layout(ApplicationForumFormField* field) noexcept {
+// The layout node of the field when the text layout of the field is current, else null.
+const UiLayoutNode* current_node(ApplicationForumFormField* field) noexcept {
     if (!field || !valid(field->owner) || field->owner->child_suspended || !g_app.window)
-        return false;
+        return nullptr;
     const auto& layout = field->owner->surface.layouts[field->index];
     const auto* node = forum_post_node(field->owner->scene,
                                        field->index ? ForumPostElement::body : ForumPostElement::title);
@@ -256,25 +257,22 @@ bool current_layout(ApplicationForumFormField* field) noexcept {
            layout.viewport_left == node->content_rectangle.left &&
            layout.viewport_top == node->content_rectangle.top &&
            layout.width == ui_rect_width(node->content_rectangle) &&
-           layout.height == ui_rect_height(node->content_rectangle);
+           layout.height == ui_rect_height(node->content_rectangle) ? node : nullptr;
 }
 bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
-    auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field))
-        return false;
-    const auto* node = forum_post_node(field->owner->scene,
-                                       field->index ? ForumPostElement::body : ForumPostElement::title);
-    return text_store_geometry(node->content_rectangle, output);
+    const auto* node = current_node(static_cast<ApplicationForumFormField*>(context));
+    return node && text_store_geometry(node->content_rectangle, output);
 }
 bool point_geometry(void* context, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field))
+    if (!current_node(field))
         return false;
     return text_store_point_geometry(field->owner->surface.layouts[field->index], client, round, position, inside);
 }
 bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangle, bool* clipped) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field))
+    const auto* node = current_node(field);
+    if (!node)
         return false;
     TextEditMetric metrics[kTextEditSelectionCapacity];
     u32 count = 0;
@@ -283,8 +281,6 @@ bool range_geometry(void* context, u32 first, u32 last, SecureTextRect* rectangl
         !count)
         return false;
     UiRect bounds = text_metrics_bounds(metrics, count);
-    const auto* node = forum_post_node(field->owner->scene,
-                                       field->index ? ForumPostElement::body : ForumPostElement::title);
     const auto clip = node->content_rectangle;
     *clipped = bounds.left < clip.left || bounds.top < clip.top || bounds.right > clip.right ||
                bounds.bottom > clip.bottom;
@@ -360,18 +356,8 @@ void dispose(bool restore, bool rebuild, bool cancel) noexcept {
         secure_edit_release(&field.edit);
     SecureZeroMemory(f, sizeof(*f));
     pages_release(f);
-    if (can_restore && previous.manager) {
-        auto* manager = const_cast<UiWidgetManager*>(previous.manager);
-        if (ui_widget_manager_focus(manager, previous.handle) ||
-            ui_widget_manager_input_enabled(*manager, manager->focused)) {
-            g_app.context_focus = manager;
-            if (composer && manager == &g_app.message_composer_scene.widgets) {
-                g_app.message_composer.focused = true;
-                ++g_app.message_composer.revision;
-                reset_message_composer_caret_timing(true);
-            }
-        }
-    }
+    if (can_restore)
+        application_form_restore_focus(previous, composer);
     if (rebuild && g_app.renderer_ready && g_app.account_ui)
         refresh_account_text(true);
     if (cancel)
@@ -517,8 +503,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     if (owner || g_app.text_form || !g_app.renderer_ready || !g_app.account_ui || g_app.login.visible ||
         !application_forum_post_current(ticket))
         return false;
-    auto* f = static_cast<ApplicationForumForm*>(
-        commit_pages(sizeof(ApplicationForumForm)));
+    auto* f = commit_pages<ApplicationForumForm>();
     if (!f)
         return false;
     f->ticket = ticket;
@@ -551,20 +536,8 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     }
     auto* prior = g_app.context_focus ? g_app.context_focus : &g_app.message_composer_scene.widgets;
     f->previous_focus = {prior, prior->focused};
-    f->previous_composer_focus = g_app.message_composer.focused;
-    application_composer_text_input_suspend();
     ui_button_keyboard_cancel(&g_app.button_keyboard);
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    end_message_text_selection();
-    end_message_composer_pointer_selection();
-    end_scrollbar_drag();
-    end_pane_resize();
-    stop_local_typing(g_app.message_composer.channel_id);
-    g_app.message_composer.focused = false;
-    ++g_app.message_composer.revision;
-    reset_message_composer_caret_timing(false);
-    popup_scene_close(&g_app.popup_scene);
-    set_popup_owner(PopupOwnerKind::none);
+    f->previous_composer_focus = application_form_take_input();
     owner = f;
     g_app.context_focus = &f->scene.widgets;
     f->surface.scene = &f->scene;

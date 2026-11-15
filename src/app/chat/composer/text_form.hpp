@@ -123,6 +123,11 @@ struct ApplicationColorPickerRequest {
 bool application_color_picker_open(const ApplicationColorPickerRequest& request) noexcept;
 // Screen readers set a colour picker's slider under `point` (the square's saturation in 0-100, the hue in 0-360).
 bool application_text_form_set_slider(UiPoint point, double value) noexcept;
+// A modal form takes the input from the chat surface. Text input, drags, typing and the popup end, and the draft
+// loses the focus. Returns whether the draft had the focus.
+bool application_form_take_input() noexcept;
+// A closed form returns the focus to `previous`. `composer` says that the draft had the focus before the form.
+void application_form_restore_focus(const UiWidgetReference& previous, bool composer) noexcept;
 bool application_text_form_forum_child(const ApplicationForumPostTicket&) noexcept;
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept;
 void application_text_form_close(bool restore_focus = true, bool redraw = true) noexcept;

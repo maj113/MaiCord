@@ -1041,6 +1041,19 @@ void run() noexcept {
     if (ready) {
         composer_slowmode_cases();
         test_invite_retry(check);
+        // The server index and the user index can hold the same command. The picker lists it one time.
+        application_commands_release();
+        popup_scene_close(&g_app.popup_scene);
+        set_popup_owner(PopupOwnerKind::none);
+        edit({});
+        edit(utf8_literal("/"));
+        check(application_commands_submit(900000) && operation == 0, "shared command: server index");
+        respond(200, fixture_index);
+        check(application_commands_submit(900001) && operation == 1, "shared command: user index");
+        respond(200, fixture_index);
+        edit(utf8_literal("/wordle"));
+        check(action_named(utf8_literal("/wordle")) && !action_named(utf8_literal("/wordle"), 1),
+              "a command in the server index and in the user index shows one row");
     }
     application_commands_release(); popup_scene_release(&g_app.popup_scene);
     message_composer_scene_release(&g_app.message_composer_scene); message_composer_release(&composer);

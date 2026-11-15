@@ -30,16 +30,6 @@
 
 namespace maicord::app_detail {
 namespace {
-bool forward_edit() noexcept {
-    return application_message_forward_edit_focused();
-}
-bool quick_edit() noexcept {
-    return application_quick_switcher_edit_focused();
-}
-bool overview_edit() noexcept {
-    return application_channel_overview_edit_focused();
-}
-
 void cancel_native_groups(TextInputTarget target) noexcept {
     application_message_forward_edit_cancel_native_group(target);
     application_quick_switcher_edit_cancel_native_group(target);
@@ -52,66 +42,67 @@ void cancel_native_groups(TextInputTarget target) noexcept {
 bool profile_edit() noexcept {
     return g_app.profile && g_app.profile->scene.active && g_app.profile->scene.edit.active;
 }
-bool friends_edit() noexcept {
-    return !(g_app.profile && g_app.profile->scene.active) && application_friends_active() &&
-           application_friends_search_model();
+// The field that takes native text input. The first field that matches wins.
+enum class Field : u8 { forward, quick, overview, profile, friends, gallery, search, composer };
+// The field below the forward dialog, the quick switcher and the channel overview.
+Field base_field() noexcept {
+    if (profile_edit())
+        return Field::profile;
+    if (!(g_app.profile && g_app.profile->scene.active) && application_friends_active() &&
+        application_friends_search_model())
+        return Field::friends;
+    if (application_media_picker_edit_focused() && application_media_picker_edit_model())
+        return Field::gallery;
+    return application_search_edit_focused() && application_search_edit_model() ? Field::search : Field::composer;
 }
-bool gallery_edit() noexcept {
-    return !profile_edit() && !friends_edit() && application_media_picker_edit_focused() &&
-           application_media_picker_edit_model();
+Field field() noexcept {
+    return application_message_forward_edit_focused()      ? Field::forward
+           : application_quick_switcher_edit_focused()     ? Field::quick
+           : application_channel_overview_edit_focused()   ? Field::overview
+                                                           : base_field();
 }
-bool search_edit() noexcept {
-    return !gallery_edit() && !profile_edit() && !friends_edit() && application_search_edit_focused() &&
-           application_search_edit_model();
-}
-bool plain_edit() noexcept {
-    return forward_edit() || quick_edit() || overview_edit() || profile_edit() || friends_edit() ||
-           gallery_edit() || search_edit();
-}
-const TextEditLayoutOwner& edit_layout() noexcept {
-    return forward_edit()
+const TextEditLayoutOwner& edit_layout(Field f) noexcept {
+    return f == Field::forward
                ? (application_message_forward_caption_focused() ? g_app.renderer.popup_edit_layout
                                                                 : g_app.renderer.media_picker_layout)
-           : quick_edit()    ? g_app.renderer.media_picker_layout
-           : overview_edit() ? g_app.renderer.media_picker_layout
-           : profile_edit()  ? g_app.renderer.profile_edit_layout
-           : gallery_edit()  ? g_app.renderer.media_picker_layout
-           : search_edit()   ? g_app.renderer.search_layout
-                             : g_app.renderer.composer_layout;
+           : f == Field::quick || f == Field::overview || f == Field::gallery ? g_app.renderer.media_picker_layout
+           : f == Field::profile ? g_app.renderer.profile_edit_layout
+           : f == Field::search  ? g_app.renderer.search_layout
+                                 : g_app.renderer.composer_layout;
 }
-MessageComposer& edit_model() noexcept {
-    return forward_edit()    ? *application_message_forward_edit_model()
-           : quick_edit()    ? *application_quick_switcher_edit_model()
-           : overview_edit() ? *application_channel_overview_edit_model()
-           : profile_edit()  ? *application_profile_edit_model()
-           : friends_edit()  ? *application_friends_search_model()
-           : gallery_edit()  ? *application_media_picker_edit_model()
-           : search_edit()   ? *application_search_edit_model()
-                             : g_app.message_composer;
+MessageComposer& edit_model(Field f) noexcept {
+    return f == Field::forward    ? *application_message_forward_edit_model()
+           : f == Field::quick    ? *application_quick_switcher_edit_model()
+           : f == Field::overview ? *application_channel_overview_edit_model()
+           : f == Field::profile  ? *application_profile_edit_model()
+           : f == Field::friends  ? *application_friends_search_model()
+           : f == Field::gallery  ? *application_media_picker_edit_model()
+           : f == Field::search   ? *application_search_edit_model()
+                                  : g_app.message_composer;
 }
-TextInputTarget edit_target() noexcept {
-    return forward_edit()    ? application_message_forward_edit_target()
-           : quick_edit()    ? application_quick_switcher_edit_target()
-           : overview_edit() ? application_channel_overview_edit_target()
-           : friends_edit()  ? application_friends_search_target()
-           : gallery_edit()  ? application_media_picker_edit_target()
-           : search_edit()   ? application_search_edit_target()
-                             : message_composer_input_target(&edit_model());
+TextInputTarget edit_target(Field f) noexcept {
+    return f == Field::forward    ? application_message_forward_edit_target()
+           : f == Field::quick    ? application_quick_switcher_edit_target()
+           : f == Field::overview ? application_channel_overview_edit_target()
+           : f == Field::friends  ? application_friends_search_target()
+           : f == Field::gallery  ? application_media_picker_edit_target()
+           : f == Field::search   ? application_search_edit_target()
+                                  : message_composer_input_target(&edit_model(f));
 }
-UiRect edit_bounds() noexcept {
-    if (forward_edit())
+UiRect edit_bounds(Field f) noexcept {
+    if (f == Field::forward)
         return application_message_forward_edit_bounds();
-    if (quick_edit())
+    if (f == Field::quick)
         return application_quick_switcher_edit_bounds();
-    if (overview_edit())
+    if (f == Field::overview)
         return application_channel_overview_edit_bounds();
-    if (profile_edit())
+    if (f == Field::profile)
         return g_app.profile->scene.edit_content;
-    if (friends_edit() && g_app.renderer.friends_scene)
+    if (f == Field::friends && g_app.renderer.friends_scene)
         return ui_friends_scene_edit_field(*g_app.renderer.friends_scene).text;
-    if (gallery_edit())
+    if (f == Field::gallery)
         return application_media_picker_edit_bounds();
-    if (search_edit())
+    if (f == Field::search)
         return application_search_edit_bounds();
     const auto* node =
         message_composer_scene_layout_node(g_app.message_composer_scene, MessageComposerControl::edit);
@@ -124,11 +115,11 @@ bool eligible() noexcept {
     if (application_downloads_active())
         return false;
     if (application_message_forward_active())
-        return g_app.window && forward_edit() && application_window_keyboard_focus();
+        return g_app.window && application_message_forward_edit_focused() && application_window_keyboard_focus();
     if (application_quick_switcher_active())
-        return g_app.window && quick_edit() && application_window_keyboard_focus();
+        return g_app.window && application_quick_switcher_edit_focused() && application_window_keyboard_focus();
     if (g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)
-        return overview_edit() && !g_app.text_form && !g_app.popup_scene.active &&
+        return application_channel_overview_edit_focused() && !g_app.text_form && !g_app.popup_scene.active &&
                application_window_keyboard_focus();
     if (!g_app.window || !g_app.renderer_ready || !g_app.account_ui || g_app.login.visible ||
         g_app.text_form || g_app.image_viewer.scene.active || g_app.reaction_viewer.active)
@@ -137,7 +128,7 @@ bool eligible() noexcept {
         return profile_edit() && application_profile_edit_focused() &&
                !g_app.popup_scene.active && application_window_keyboard_focus();
     if (application_friends_active())
-        return friends_edit() && application_friends_search_focused() && !g_app.popup_scene.active &&
+        return base_field() == Field::friends && application_friends_search_focused() && !g_app.popup_scene.active &&
                application_window_keyboard_focus();
     if (g_app.renderer.friends_scene && g_app.renderer.friends_scene->active)
         return false;
@@ -146,13 +137,12 @@ bool eligible() noexcept {
     if (g_app.renderer.call_scene && g_app.renderer.call_scene->active && !g_app.renderer.call_scene->chat_open)
         return false;
     if (application_media_picker_active())
-        return gallery_edit() && application_window_keyboard_focus();
+        return base_field() == Field::gallery && application_window_keyboard_focus();
     // The thread browser covers the composer; the header search bar is the
     // only text field while it is open.
-    if (application_thread_browser_active())
-        return search_edit() && !g_app.popup_scene.active && application_window_keyboard_focus();
-    if (search_edit())
-        return !g_app.popup_scene.active && application_window_keyboard_focus();
+    const bool search = base_field() == Field::search;
+    if (application_thread_browser_active() || search)
+        return search && !g_app.popup_scene.active && application_window_keyboard_focus();
     return g_app.message_composer.focused && g_app.message_composer_scene.active &&
            g_app.message_composer.channel_id &&
            message_composer_scene_focused_control(g_app.message_composer_scene) ==
@@ -161,54 +151,60 @@ bool eligible() noexcept {
                                           g_app.popup_owner_kind == PopupOwnerKind::commands)) &&
            application_window_keyboard_focus();
 }
-bool current_owner(const ApplicationComposerTextInput* input) noexcept {
-    return input && input == g_app.composer_text_input && eligible() && input->target == edit_target() &&
-           text_input_ready(input->target);
+// Whether input still owns the focused field. *f receives that field.
+bool current_owner(const ApplicationComposerTextInput* input, Field* f) noexcept {
+    if (!input || input != g_app.composer_text_input || !eligible())
+        return false;
+    *f = field();
+    return input->target == edit_target(*f) && text_input_ready(input->target);
 }
-bool current_layout() noexcept {
-    const auto& layout = edit_layout();
+bool current_layout(Field f) noexcept {
+    const auto& layout = edit_layout(f);
     // The message draft is chat text; the other fields are the interface's.
-    const auto system = plain_edit() ? g_app.renderer.glyph_text.system
-                                     : renderer_text_system(&g_app.renderer, ui_text_face_chat(UiTextFace::normal));
+    const bool plain = f != Field::composer;
+    const auto system = plain ? g_app.renderer.glyph_text.system
+                              : renderer_text_system(&g_app.renderer, ui_text_face_chat(UiTextFace::normal));
     if (!text_edit_layout_current_font(layout, system))
         return false;
-    if (plain_edit()) {
-        const auto text = message_composer_text(edit_model());
-        if (layout.text_bytes != text.bytes || layout.text_signature != text_edit_signature(text))
-            return false;
-        if (forward_edit() || quick_edit() || overview_edit() || friends_edit() || gallery_edit() ||
-            search_edit()) {
-            const auto bounds = edit_bounds();
-            u32 anchor = 0, caret = 0;
-            if (!ui_rect_has_area(bounds) ||
-                !utf8_utf16_position_for_byte_offset(text, edit_model().anchor, &anchor) ||
-                !utf8_utf16_position_for_byte_offset(text, edit_model().caret, &caret) ||
-                layout.anchor != anchor || layout.caret_offset != caret ||
-                layout.viewport_left != bounds.left || layout.viewport_top != bounds.top ||
-                layout.width != ui_rect_width(bounds) || layout.height != ui_rect_height(bounds))
-                return false;
-        }
+    if (!plain)
+        return g_app.message_composer_scene.model == &g_app.message_composer &&
+               text_composer_layout_current(layout, g_app.message_composer_scene, system);
+    const auto& model = edit_model(f);
+    const auto text = message_composer_text(model);
+    if (layout.text_bytes != text.bytes || layout.text_signature != text_edit_signature(text))
+        return false;
+    if (f == Field::profile)
         return true;
-    }
-    return g_app.message_composer_scene.model == &edit_model() &&
-           text_composer_layout_current(layout, g_app.message_composer_scene, system);
+    const auto bounds = edit_bounds(f);
+    u32 anchor = 0, caret = 0;
+    return ui_rect_has_area(bounds) && utf8_utf16_position_for_byte_offset(text, model.anchor, &anchor) &&
+           utf8_utf16_position_for_byte_offset(text, model.caret, &caret) && layout.anchor == anchor &&
+           layout.caret_offset == caret && layout.viewport_left == bounds.left &&
+           layout.viewport_top == bounds.top && layout.width == ui_rect_width(bounds) &&
+           layout.height == ui_rect_height(bounds);
 }
-void project(ApplicationComposerTextInput* input) noexcept {
+// Whether input owns the focused field and the layout of that field is current.
+bool current_view(void* opaque, Field* f) noexcept {
+    return current_owner(static_cast<ApplicationComposerTextInput*>(opaque), f) && current_layout(*f);
+}
+void project(ApplicationComposerTextInput* input, Field f) noexcept {
     secure_text_store_composition(input->store, &input->composition);
-    if (plain_edit())
+    if (f != Field::composer)
         return;
     auto& scene = g_app.message_composer_scene;
     scene.composition = {input->composition.spans,
                          input->composition.active ? input->composition.span_count : 0};
     ++scene.composition_revision;
 }
+bool field_geometry(void* opaque, Field* f, SecureTextStoreGeometry* output) noexcept {
+    if (!current_view(opaque, f))
+        return false;
+    const auto bounds = edit_bounds(*f);
+    return ui_rect_has_area(bounds) && g_app.renderer.dpi && text_store_geometry(bounds, output);
+}
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
-    if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
-        return false;
-    const auto bounds = edit_bounds();
-    if (!ui_rect_has_area(bounds) || !g_app.renderer.dpi)
-        return false;
-    return text_store_geometry(bounds, output);
+    Field f;
+    return field_geometry(opaque, &f, output);
 }
 void changed(void* context) noexcept {
     auto* input = static_cast<ApplicationComposerTextInput*>(context);
@@ -218,20 +214,22 @@ void changed(void* context) noexcept {
     if (input->busy)
         return;
     input->dirty = false;
-    if (!current_owner(input))
+    Field f;
+    if (!current_owner(input, &f))
         return;
-    const bool content = input->observed_text_revision != edit_model().text_revision;
-    input->observed_text_revision = edit_model().text_revision;
-    project(input);
+    const u32 text_revision = edit_model(f).text_revision;
+    const bool content = input->observed_text_revision != text_revision;
+    input->observed_text_revision = text_revision;
+    project(input, f);
     input->busy = true;
-    const bool refreshed = forward_edit()    ? application_message_forward_edit_changed(content)
-                           : quick_edit()    ? application_quick_switcher_edit_changed()
-                           : overview_edit() ? application_channel_overview_edit_changed(content)
-                           : profile_edit()  ? application_profile_refresh_message()
-                           : friends_edit()  ? application_friends_search_changed(content)
-                           : gallery_edit()  ? application_media_picker_edit_changed(content)
-                           : search_edit()   ? application_search_edit_changed()
-                                             : composer_apply_result(MessageComposerResult::changed, content);
+    const bool refreshed = f == Field::forward    ? application_message_forward_edit_changed(content)
+                           : f == Field::quick    ? application_quick_switcher_edit_changed()
+                           : f == Field::overview ? application_channel_overview_edit_changed(content)
+                           : f == Field::profile  ? application_profile_refresh_message()
+                           : f == Field::friends  ? application_friends_search_changed(content)
+                           : f == Field::gallery  ? application_media_picker_edit_changed(content)
+                           : f == Field::search   ? application_search_edit_changed()
+                                                  : composer_apply_result(MessageComposerResult::changed, content);
     if (g_app.composer_text_input == input)
         input->busy = false;
     if (!refreshed)
@@ -239,12 +237,13 @@ void changed(void* context) noexcept {
     application_request_frame();
 }
 bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* position, bool* inside) noexcept {
-    if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
+    Field f;
+    if (!current_view(opaque, &f))
         return false;
     const auto& scene = g_app.message_composer_scene;
-    const auto& layout = edit_layout();
-    const auto model = message_composer_text(edit_model());
-    const bool plain = plain_edit();
+    const auto& layout = edit_layout(f);
+    const auto model = message_composer_text(edit_model(f));
+    const bool plain = f != Field::composer;
     u32 hit = 0, byte = 0;
     const auto display = plain ? model : message_composer_scene_display_text(scene);
     if (!text_store_point_geometry(layout, client, round, &hit, inside) ||
@@ -255,16 +254,17 @@ bool point_geometry(void* opaque, SecureTextPoint client, bool round, u32* posit
     return utf8_utf16_position_for_byte_offset(model, byte, position);
 }
 bool range_geometry(void* opaque, u32 first, u32 last, SecureTextRect* output, bool* clipped) noexcept {
-    if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
+    Field f;
+    if (!current_view(opaque, &f))
         return false;
     const auto& scene = g_app.message_composer_scene;
-    const auto& layout = edit_layout();
-    const auto bounds = edit_bounds();
+    const auto& layout = edit_layout(f);
+    const auto bounds = edit_bounds(f);
     if (!layout.active || !ui_rect_has_area(bounds))
         return false;
-    const bool plain = plain_edit();
+    const bool plain = f != Field::composer;
     u32 begin = 0, end = 0;
-    const auto model = message_composer_text(edit_model());
+    const auto model = message_composer_text(edit_model(f));
     if (!utf8_byte_offset_for_utf16_position(model, first, &begin) ||
         !utf8_byte_offset_for_utf16_position(model, last, &end))
         return false;
@@ -309,9 +309,10 @@ bool range_geometry(void* opaque, u32 first, u32 last, SecureTextRect* output, b
 } // namespace
 bool application_composer_text_input_range_bounds(Utf8View text, u32 begin, u32 end, UiRect* output) noexcept {
     auto* input = g_app.composer_text_input;
-    if (!output || !input || !current_owner(input) || !g_app.renderer.dpi)
+    Field f;
+    if (!output || !current_owner(input, &f) || !g_app.renderer.dpi)
         return false;
-    const auto model = message_composer_text(edit_model());
+    const auto model = message_composer_text(edit_model(f));
     u32 first = 0, last = 0;
     if (model.bytes != text.bytes || !bytes_equal(model.data, text.data, text.bytes) ||
         !utf8_utf16_position_for_byte_offset(model, minimum(begin, model.bytes), &first) ||
@@ -363,7 +364,7 @@ bool application_composer_text_input_synchronize() noexcept {
     }
     auto* input = g_app.composer_text_input;
     if (!input) {
-        input = static_cast<ApplicationComposerTextInput*>(commit_pages(sizeof(ApplicationComposerTextInput)));
+        input = commit_pages<ApplicationComposerTextInput>();
         if (!input)
             return false;
         g_app.composer_text_input = input;
@@ -375,12 +376,14 @@ bool application_composer_text_input_synchronize() noexcept {
     if (input->busy || input->failed)
         return true;
     input->busy = true;
-    const auto target = edit_target();
+    const Field f = field();
+    const auto& model = edit_model(f);
+    const auto target = edit_target(f);
     if (target != input->target) {
         cancel_native_groups(input->target);
         input->target = target;
         input->geometry_valid = false;
-        input->observed_text_revision = edit_model().text_revision;
+        input->observed_text_revision = model.text_revision;
         if (!secure_text_store_bind_target(&input->store, target, SecureTextInputScope::text) ||
             !secure_text_store_attach(&input->store)) {
             input->failed = true;
@@ -388,12 +391,12 @@ bool application_composer_text_input_synchronize() noexcept {
             log_write(LogLevel::warning, "ui", "composer_native_text_unavailable");
         } else {
             secure_text_store_set_window_focus(&input->store, true);
-            project(input);
+            project(input, f);
         }
     }
     // Application edits have already committed their draft/typing state.
     if (!input->dirty)
-        input->observed_text_revision = edit_model().text_revision;
+        input->observed_text_revision = model.text_revision;
     secure_text_store_synchronize(&input->store);
     input->busy = false;
     if (input->dirty)
@@ -404,19 +407,19 @@ void application_composer_text_input_notify_layout() noexcept {
     auto* input = g_app.composer_text_input;
     if (!input || !input->target || input->busy || input->failed)
         return;
+    Field f;
     SecureTextStoreGeometry current{};
-    if (!geometry(input, &current))
+    if (!field_geometry(input, &f, &current))
         return;
-    const auto& scene = g_app.message_composer_scene;
-    const auto& layout = edit_layout();
-    const u32 revision = forward_edit()    ? g_app.renderer.message_forward_scene->revision
-                         : quick_edit()    ? g_app.renderer.quick_switcher_scene->revision
-                         : overview_edit() ? g_app.renderer.settings_scene->revision
-                         : profile_edit()  ? g_app.profile->scene.revision
-                         : friends_edit()  ? g_app.renderer.friends_scene->revision
-                         : gallery_edit()  ? g_app.renderer.media_picker_scene->revision
-                         : search_edit()   ? g_app.renderer.search_scene->revision
-                                           : scene.observed_revision;
+    const auto& layout = edit_layout(f);
+    const u32 revision = f == Field::forward    ? g_app.renderer.message_forward_scene->revision
+                         : f == Field::quick    ? g_app.renderer.quick_switcher_scene->revision
+                         : f == Field::overview ? g_app.renderer.settings_scene->revision
+                         : f == Field::profile  ? g_app.profile->scene.revision
+                         : f == Field::friends  ? g_app.renderer.friends_scene->revision
+                         : f == Field::gallery  ? g_app.renderer.media_picker_scene->revision
+                         : f == Field::search   ? g_app.renderer.search_scene->revision
+                                                : g_app.message_composer_scene.observed_revision;
     if (input->geometry_valid && input->observed_layout_revision == revision &&
         input->observed_layout_builds == layout.builds &&
         bytes_equal(&current, &input->observed_geometry, sizeof(current)))
@@ -428,8 +431,9 @@ void application_composer_text_input_notify_layout() noexcept {
     secure_text_store_notify_layout(&input->store);
 }
 bool application_composer_text_input_composing() noexcept {
+    Field f;
     auto* input = g_app.composer_text_input;
-    return current_owner(input) && secure_text_store_composing(input->store);
+    return current_owner(input, &f) && secure_text_store_composing(input->store);
 }
 bool application_composer_text_input_filter(const WindowEvent& event) noexcept {
     if (application_downloads_filter(event))

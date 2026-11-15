@@ -272,10 +272,11 @@ bool application_commands_send(bool* handled) noexcept {
         return false;
     if (blocked)
         return true;
+    // One buffer serves the local command and the interaction: the two paths never run together.
+    char options[16384];
+    ProtocolWriter writer{{reinterpret_cast<u8*>(options), sizeof(options)}, 0};
+    const u32 start = c.selected.command->name.bytes + 1;
     if (local_command_application(c.selected.command->application_id)) {
-        char options[16384];
-        ProtocolWriter writer{{reinterpret_cast<u8*>(options), sizeof(options)}, 0};
-        const u32 start = c.selected.command->name.bytes + 1;
         if (input.bytes < start || !command_arguments(*c.selected.index, *c.selected.command,
                                                       {input.data + start, input.bytes - start}, &writer, &c.error,
                                                       {}, {}, {}, nullptr, accepted_choices()))
@@ -353,9 +354,6 @@ bool application_commands_send(bool* handled) noexcept {
         for (u32 n = 0; n < upload_count; ++n)
             files[n] = uploads[n].filename;
     }
-    char options[16384];
-    ProtocolWriter writer{{reinterpret_cast<u8*>(options), sizeof(options)}, 0};
-    const u32 start = c.selected.command->name.bytes + 1;
     CommandAttachmentPlan plan{};
     if (input.bytes < start ||
         !command_arguments(*c.selected.index, *c.selected.command,

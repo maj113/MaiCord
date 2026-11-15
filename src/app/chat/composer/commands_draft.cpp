@@ -64,7 +64,7 @@ void echo_write(Echo& echo, Utf8View content, u32 flags, MessageDeliveryState de
 u64 echo_author(u64 application_id, const CommandApplication* app) noexcept {
     const u64 author = app && app->bot_id ? app->bot_id : application_id;
     auto& users = g_app.account_ui->user_store;
-    const Utf8View name = app ? (app->bot_name.bytes ? app->bot_name : app->name) : Utf8View{};
+    const Utf8View name = app ? section_name(*app) : Utf8View{};
     if (!user_store_find(users, author) && name.bytes && user_store_upsert(&users, author, name).ok() &&
         app->avatar.bytes)
         user_store_set_avatar(&users, author, app->avatar);
@@ -397,10 +397,7 @@ MessageComposerResult set_up_command() noexcept {
     } added[25];
     u32 added_count = 0;
     for (u32 slot = 0; slot < list.count; ++slot) {
-        bool present = false;
-        for (u32 n = 0; n < typed && !present; ++n)
-            present = spans[n].slot == slot;
-        if (present || !option_flag(list.options[slot], "required"))
+        if (slot_span(spans, typed, slot) || !option_flag(list.options[slot], "required"))
             continue;
         added[added_count] = {slot, {}};
         if (leftover.bytes && option_type(*c.selected.index, list.options[slot]) != 11) {
@@ -544,10 +541,7 @@ bool send_check(bool* blocked) noexcept {
     char added[1024];
     ProtocolWriter w{{reinterpret_cast<u8*>(added), sizeof(added)}, 0};
     for (u32 slot = 0; slot < list.count; ++slot) {
-        bool present = false;
-        for (u32 n = 0; n < count && !present; ++n)
-            present = spans[n].slot == slot;
-        if (present || !c.option_states[slot].error.bytes)
+        if (slot_span(spans, count, slot) || !c.option_states[slot].error.bytes)
             continue;
         char storage[128];
         const auto name = field_text(*c.selected.index, list.options[slot], "name", {storage, sizeof(storage)});

@@ -9,8 +9,7 @@ namespace commands_detail {
 Commands* commands;
 Commands* ensure_commands() noexcept {
     if (!commands)
-        commands = static_cast<Commands*>(
-            commit_pages(sizeof(Commands)));
+        commands = commit_pages<Commands>();
     return commands;
 }
 
@@ -57,8 +56,7 @@ namespace commands_detail {
 
 Frecency* ensure_frecency() noexcept {
     if (!frecency)
-        frecency = static_cast<Frecency*>(
-            commit_pages(sizeof(Frecency)));
+        frecency = commit_pages<Frecency>();
     if (frecency)
         frecency_store_read(*frecency);
     return frecency;

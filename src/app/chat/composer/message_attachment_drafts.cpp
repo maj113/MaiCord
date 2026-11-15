@@ -28,11 +28,10 @@ bool commit(MessageAttachmentDraftStore* store, MessageAttachmentDraft* record, 
     return true;
 }
 }
-u32 message_attachment_drafts_reserved_bytes() noexcept { return kPayloadBytes * kMessageAttachmentDraftCapacity; }
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept {
     if (store->payload) return false;
     reset_value(store);
-    store->payload = static_cast<u8*>(pages_reserve(message_attachment_drafts_reserved_bytes()));
+    store->payload = static_cast<u8*>(pages_reserve(kPayloadBytes * kMessageAttachmentDraftCapacity));
     return store->payload != nullptr;
 }
 void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexcept {

@@ -193,7 +193,8 @@ bool context_current(const ApplicationSearch& s) noexcept;
 bool source_current(void* opaque) noexcept;
 void retire_actions(ApplicationSearch& s) noexcept;
 void current_scope(ApplicationSearch& s) noexcept;
-bool heading(ApplicationSearch& s) noexcept;
+// threads: the thread browser scope of the field, or null.
+bool heading(ApplicationSearch& s, const ApplicationThreadBrowserSearchScope* threads) noexcept;
 bool choices_current(void* opaque) noexcept;
 bool channel_usable(const ChannelRecord& c) noexcept;
 bool channel_view_denied(const ChatStateStore& state, const ChannelRecord& c) noexcept;
