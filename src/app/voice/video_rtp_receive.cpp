@@ -89,7 +89,7 @@ void start(VideoRtpStream& stream, u16 sequence, u64 now_us) noexcept {
     stream.references_lost = true; // No keyframe yet.
     stream.started = true;
     stream.consecutive_late = 0;
-    stream.next_nack_us = stream.oldest_missing_us = 0;
+    stream.next_nack_us = stream.oldest_missing_us = stream.scan_base = 0;
     stream.last_packet_us = now_us;
 }
 void restart(VideoRtpStream& stream, u16 sequence, u64 now_us) noexcept {
@@ -258,7 +258,8 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
             continue;
         }
         const u32 timestamp = head.timestamp;
-        u64 sequence = stream.base;
+        // A packet that an earlier pass saw inside this unit stays there: the pass continues after it.
+        u64 sequence = stream.scan_base == stream.base ? stream.scan_next : stream.base;
         bool complete = false, blocked = false;
         u64 end = 0;
         while (sequence <= stream.highest) {
@@ -281,6 +282,8 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
             }
             ++sequence;
         }
+        stream.scan_base = stream.base;
+        stream.scan_next = sequence;
         if (waiting) {
             // A whole unit is opened by the sink now, so a sender's DAVE counters are consumed in arrival order
             // (its audio is opened as it arrives); the sink holds the result and gets the unit again after the wait.

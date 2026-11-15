@@ -34,15 +34,11 @@ struct VoiceJitterSlot {
     bool used;
     u8 data[kVoiceJitterPacketBytes];
 };
-struct VoiceJitterStats {
-    u64 late, duplicate, rejected, trimmed;
-};
 // Per-SSRC adaptive buffer ordered by RTP sequence. Timestamps feed the
 // RFC 3550 interarrival jitter estimate that selects the 40-80 ms target.
 // Not synchronized: the owner serializes push (network) and pop (playout).
 struct VoiceJitterBuffer {
     VoiceJitterSlot slots[kVoiceJitterSlots];
-    VoiceJitterStats stats;
     u64 last_arrival_us;
     u32 last_timestamp, jitter_us, frame_us, target, count, underrun;
     u16 next_sequence, last_sequence, last_played;

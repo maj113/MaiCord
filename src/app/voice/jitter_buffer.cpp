@@ -77,7 +77,6 @@ VoiceJitterFrame take(VoiceJitterBuffer& buffer) noexcept {
 
 void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
     clear(*buffer);
-    reset_value(&buffer->stats);
     buffer->started = buffer->has_last = buffer->has_played = false;
     buffer->jitter_us = 0;
     buffer->frame_us = kDefaultFrameUs;
@@ -86,10 +85,8 @@ void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
 
 VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 timestamp, ConstSlice<u8> packet,
                                   u64 arrival_us) noexcept {
-    if (!packet.data || !packet.count || packet.count > kVoiceJitterPacketBytes) {
-        ++buffer->stats.rejected;
+    if (!packet.data || !packet.count || packet.count > kVoiceJitterPacketBytes)
         return VoiceJitterPush::rejected;
-    }
     if (!buffer->started) {
         buffer->started = true;
         buffer->next_sequence = sequence;
@@ -104,10 +101,8 @@ VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 t
         const bool unplayed = !buffer->has_played || distance(buffer->last_played, sequence) > 0;
         const bool fits = !buffer->count || distance(sequence, buffer->last_sequence) <
                                                 static_cast<i32>(kVoiceJitterSlots);
-        if (buffer->playing || !unplayed || !fits) {
-            ++buffer->stats.late;
+        if (buffer->playing || !unplayed || !fits)
             return VoiceJitterPush::late;
-        }
         buffer->next_sequence = sequence;
         ahead = 0;
     }
@@ -118,10 +113,8 @@ VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 t
         result = VoiceJitterPush::resync;
     }
     auto& value = slot(*buffer, sequence);
-    if (value.used) {
-        ++buffer->stats.duplicate;
+    if (value.used)
         return VoiceJitterPush::duplicate;
-    }
     value.used = true;
     value.sequence = sequence;
     value.timestamp = timestamp;
@@ -144,10 +137,8 @@ VoiceJitterFrame voice_jitter_pop(VoiceJitterBuffer* buffer) noexcept {
     }
     // Shed latency beyond the target, preferring the 3-byte silence frames.
     while (buffer->count > buffer->target + 2 && holds(*buffer, buffer->next_sequence) &&
-           (slot(*buffer, buffer->next_sequence).bytes <= 3 || buffer->count > buffer->target + 4)) {
+           (slot(*buffer, buffer->next_sequence).bytes <= 3 || buffer->count > buffer->target + 4))
         take(*buffer);
-        ++buffer->stats.trimmed;
-    }
     if (holds(*buffer, buffer->next_sequence))
         return take(*buffer);
     frame.sequence = buffer->next_sequence;

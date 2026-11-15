@@ -100,9 +100,11 @@ struct VideoRtpStream {
     u32 last_sender_report, prev_timestamp, last_timestamp, last_transit, jitter_timestamp;
     u32 consecutive_late, capacity; // capacity: allocated slots, a power of two up to kVideoRtpPacketSlots.
     i32 jitter_q4;
+    u64 opened_base, opened_end;
+    // The packets [scan_base, scan_next) are in the unit that starts at scan_base and do not end it.
+    u64 scan_base, scan_next;
     bool started, prev_known, prev_marker, has_last_timestamp, has_transit;
     bool opened_early; // The whole first unit [opened_base, opened_end] was already offered to the sink (early).
-    u64 opened_base, opened_end;
     bool keyframe_needed, keyframe_seen, references_lost;
     VideoRtpStreamStats stats;
 };
