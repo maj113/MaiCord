@@ -1281,7 +1281,7 @@ void test_secure_text_store() noexcept {
                secure_edit_assign(&edit, Utf8View{initial, static_cast<u32>(sizeof(initial))}) ==
                    SecureEditResult::changed &&
                secure_text_store_initialize(
-                   &store, SecureTextStoreConfig{reinterpret_cast<HWND>(1), secure_text_store_test_geometry,
+                   &store, SecureTextStoreConfig{reinterpret_cast<Window>(1), secure_text_store_test_geometry,
                                                  secure_text_store_test_changed, &context}) &&
                secure_text_store_bind(&store, &edit, SecureTextInputScope::login_name),
            "secure_text_store_core_initialize_and_bind");

@@ -150,7 +150,7 @@ struct AsyncSink final : ITextStoreACPSink {
 void test_deferred_async_lock(void (*check)(bool,const char*) noexcept) noexcept {
     SecureTextStore store{}; SecureEdit edit{}, next{}; AsyncSink sink;
     const bool ready = secure_edit_initialize(&edit,32,false) && secure_edit_initialize(&next,32,false) &&
-        secure_text_store_initialize(&store,{reinterpret_cast<HWND>(1)}) &&
+        secure_text_store_initialize(&store,{reinterpret_cast<Window>(1)}) &&
         secure_text_store_bind(&store,&edit,SecureTextInputScope::text);
     check(ready,"TSF deferred async-lock fixture initialized");
     if (ready) {
@@ -185,7 +185,7 @@ void test_tsf_end_edit(void (*check)(bool,const char*) noexcept) noexcept {
     u32& changes = notifications.count;
     const bool ready = SUCCEEDED(initialized) && window && secure_edit_initialize(&edit,32,false) &&
         secure_edit_initialize(&replacement,32,false) && secure_edit_assign(&edit,utf8_literal("abcd")) ==
-        SecureEditResult::changed && secure_text_store_initialize(&store,{window,bounds,changed,&notifications}) &&
+        SecureEditResult::changed && secure_text_store_initialize(&store,{reinterpret_cast<Window>(window),bounds,changed,&notifications}) &&
         secure_text_store_bind(&store,&edit,SecureTextInputScope::text) && secure_text_store_attach(&store);
     check(ready,"TSF end-edit genuine hidden-window context attached");
     ITfThreadMgr* manager = nullptr; ITfDocumentMgr* document = nullptr; ITfContext* context = nullptr;
@@ -298,7 +298,7 @@ void test_tsf_end_edit(void (*check)(bool,const char*) noexcept) noexcept {
                 com_release(end_edit); com_release(owner);
                 const bool notification_ready = secure_edit_initialize(&edit,32,false) &&
                     secure_edit_assign(&edit,utf8_literal("abcd")) == SecureEditResult::changed &&
-                    secure_text_store_initialize(&store,{window,bounds,changed,&notifications}) &&
+                    secure_text_store_initialize(&store,{reinterpret_cast<Window>(window),bounds,changed,&notifications}) &&
                     secure_text_store_bind(&store,&edit,SecureTextInputScope::text) && secure_text_store_attach(&store);
                 check(notification_ready,"TSF RequestLock notification-release fixture attached");
                 if (notification_ready) {

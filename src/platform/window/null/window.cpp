@@ -122,11 +122,11 @@ NativeWindow window_surface_native(Window window) noexcept {
 }
 
 // The text input protocol, as a request log: the tests of the text store read what it asked for.
-bool window_wayland_text_input_available(NativeWindow window) noexcept {
+bool window_wayland_text_input_available(Window window) noexcept {
     return window && g.probe.text_input_available;
 }
 
-bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept {
+bool window_wayland_text_input_enable(Window window, const TextInputRequest& request) noexcept {
     if (!window_wayland_text_input_available(window))
         return false;
     NullWindowProbe& probe = g.probe;
@@ -146,7 +146,7 @@ bool window_wayland_text_input_enable(NativeWindow window, const TextInputReques
     return true;
 }
 
-void window_wayland_text_input_disable(NativeWindow window) noexcept {
+void window_wayland_text_input_disable(Window window) noexcept {
     if (window_wayland_text_input_available(window))
         g.probe.text_input_enabled = false;
 }

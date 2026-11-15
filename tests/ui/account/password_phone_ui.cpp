@@ -212,7 +212,7 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         clicked == 5 && inside, "the right side of an empty sixth cell selects its independent slot");
     secure_edit_clear(&edit);
     SecureTextStore store{}; PhoneTsf geometry{&edit}; PhoneSink sink;
-    const bool bound = secure_text_store_initialize(&store, {reinterpret_cast<HWND>(1), PhoneTsf::bounds, nullptr, &geometry, PhoneTsf::range, PhoneTsf::point}) &&
+    const bool bound = secure_text_store_initialize(&store, {reinterpret_cast<Window>(1), PhoneTsf::bounds, nullptr, &geometry, PhoneTsf::range, PhoneTsf::point}) &&
         secure_text_store_bind_target(&store, app_detail::application_phone_input_target(&edit), SecureTextInputScope::digits);
     check(bound, "phone TSF binds the digit-validating target with no new native window");
     if (bound) {

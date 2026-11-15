@@ -3,6 +3,7 @@
 
 #include "maicord/core/heap.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/platform/window/win32.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
 #include "maicord/sys/crt.hpp"
@@ -667,7 +668,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (view != kSecureTextView || !window) {
             return E_INVALIDARG;
         }
-        *window = static_cast<HWND>(config.window);
+        *window = win32_hwnd(config.window);
         return S_OK;
     }
 
@@ -854,7 +855,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool attach(bool draining = false) noexcept {
-        if (!edit || !IsWindow(static_cast<HWND>(config.window))) return false;
+        if (!edit || !IsWindow(win32_hwnd(config.window))) return false;
         if (!draining && (unsafe_teardown() || deferred_queued)) { queue_deferred(deferred_reset | deferred_attach); return true; }
         if (thread_manager) {
             return true;
@@ -882,14 +883,14 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return false;
         }
         ITfDocumentMgr* previous = nullptr;
-        if (FAILED(thread_manager->AssociateFocus(static_cast<HWND>(config.window), document_manager, &previous))) {
+        if (FAILED(thread_manager->AssociateFocus(win32_hwnd(config.window), document_manager, &previous))) {
             com_release(previous);
             detach();
             return false;
         }
         previous_document_manager = previous;
         focus_associated = true;
-        if (GetFocus() == static_cast<HWND>(config.window) && FAILED(thread_manager->SetFocus(document_manager))) {
+        if (GetFocus() == win32_hwnd(config.window) && FAILED(thread_manager->SetFocus(document_manager))) {
             detach();
             return false;
         }
@@ -908,7 +909,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (focus_associated && thread_manager) {
             ITfDocumentMgr* replaced = nullptr;
             if (SUCCEEDED(
-                    thread_manager->AssociateFocus(static_cast<HWND>(config.window), previous_document_manager, &replaced))) {
+                    thread_manager->AssociateFocus(win32_hwnd(config.window), previous_document_manager, &replaced))) {
                 com_release(replaced);
             }
         }
@@ -1320,7 +1321,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     // A handle the system does not know (a test's) has its client at the screen origin.
     bool client_origin(POINT* origin) const noexcept {
         *origin = {};
-        ClientToScreen(static_cast<HWND>(config.window), origin);
+        ClientToScreen(win32_hwnd(config.window), origin);
         return true;
     }
 
@@ -1533,8 +1534,8 @@ bool secure_text_store_filter_key(SecureTextStore* store, const WindowEvent& eve
     const MSG& message = *message_pointer;
     if (message.message != WM_KEYDOWN && message.message != WM_KEYUP) return false;
     auto* value = implementation(store);
-    if (!value || !value->edit || !value->keystroke_manager || message.hwnd != static_cast<HWND>(value->config.window) ||
-        GetFocus() != static_cast<HWND>(value->config.window)) return false;
+    if (!value || !value->edit || !value->keystroke_manager || message.hwnd != win32_hwnd(value->config.window) ||
+        GetFocus() != win32_hwnd(value->config.window)) return false;
     // Native text services may call back into the host. Keep this object and
     // its loaded TSF module alive if that callback closes or rebinds the field.
     value->AddRef();
@@ -1544,7 +1545,7 @@ bool secure_text_store_filter_key(SecureTextStore* store, const WindowEvent& eve
     const bool down = message.message == WM_KEYDOWN;
     const HRESULT tested = down ? value->keystroke_manager->TestKeyDown(message.wParam, message.lParam, &eaten) :
         value->keystroke_manager->TestKeyUp(message.wParam, message.lParam, &eaten);
-    bool consumed = value->detach_after_key || value->edit != edit || GetFocus() != static_cast<HWND>(value->config.window);
+    bool consumed = value->detach_after_key || value->edit != edit || GetFocus() != win32_hwnd(value->config.window);
     if (!consumed && tested == S_OK && eaten) {
         eaten = FALSE;
         const HRESULT dispatched = down ? value->keystroke_manager->KeyDown(message.wParam, message.lParam, &eaten) :

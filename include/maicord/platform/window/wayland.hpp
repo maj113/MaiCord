@@ -49,11 +49,11 @@ struct TextInputRequest {
     bool sensitive;  // a password or secret: hidden text, no learning, no surrounding text
     i32 x, y, width, height;  // the caret's rectangle in client pixels
 };
-// The window is named by its surface (window_surface_native), as the text store holds it.
-bool window_wayland_text_input_available(NativeWindow window) noexcept;
+// The window is the application's Window, as the text store holds it.
+bool window_wayland_text_input_available(Window window) noexcept;
 // Enables or updates text input for the focused field; applied at once, or when the window gets text focus.
-bool window_wayland_text_input_enable(NativeWindow window, const TextInputRequest& request) noexcept;
-void window_wayland_text_input_disable(NativeWindow window) noexcept;
+bool window_wayland_text_input_enable(Window window, const TextInputRequest& request) noexcept;
+void window_wayland_text_input_disable(Window window) noexcept;
 
 // What clipboard_capture_attachment found: files (their paths, as dropped files) or a PNG image.
 enum class ClipboardCaptureKind : u8 { files, image_png };

@@ -329,7 +329,7 @@ bool run() noexcept {
                     continue;
                 }
                 CHECK(assigned <= TextInputResult::changed && f.refresh());
-                CHECK(secure_text_store_initialize(&f.store, {reinterpret_cast<HWND>(1), Fixture::bounds,
+                CHECK(secure_text_store_initialize(&f.store, {reinterpret_cast<Window>(1), Fixture::bounds,
                                                               Fixture::changed, &f, Fixture::range,
                                                               Fixture::point}) &&
                       secure_text_store_bind(&f.store, &f.edit, SecureTextInputScope::text));

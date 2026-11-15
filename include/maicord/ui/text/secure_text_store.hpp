@@ -41,7 +41,7 @@ using SecureTextStorePointFunction = bool (*)(void*, SecureTextPoint, bool round
     u32* position, bool* inside) noexcept;
 
 struct SecureTextStoreConfig {
-    NativeWindow window;  // the platform's window handle (window_surface_native)
+    Window window;  // the application's window: each system's store finds its native handle from it
     SecureTextStoreGeometryFunction geometry;
     SecureTextStoreChangedFunction changed;
     void* context;

@@ -91,7 +91,7 @@ HRESULT point_queries(ITextStoreACP* acp) noexcept {
 void test_point_queries(void (*check)(bool,const char*) noexcept) noexcept {
     SecureEdit edit{}; SecureTextStore store{};
     const bool ready = secure_edit_initialize(&edit,32,false) &&
-        secure_text_store_initialize(&store,{reinterpret_cast<HWND>(1),point_bounds,nullptr,nullptr,nullptr,point_hit}) &&
+        secure_text_store_initialize(&store,{reinterpret_cast<Window>(1),point_bounds,nullptr,nullptr,nullptr,point_hit}) &&
         secure_text_store_bind(&store,&edit,SecureTextInputScope::text);
     check(ready,"TSF point fixture");
     if (ready) {
@@ -117,7 +117,7 @@ void test_text_composition_history(void (*check)(bool, const char*) noexcept) no
     SecureTextStore store{};
     const bool initialized = secure_edit_initialize(&edit, 32, false) && secure_edit_enable_history(&edit, 64) &&
         secure_edit_initialize(&second, 32, false) && secure_edit_enable_history(&second, 64) &&
-        secure_text_store_initialize(&store, {reinterpret_cast<HWND>(1), nullptr, nullptr, nullptr, range_geometry}) &&
+        secure_text_store_initialize(&store, {reinterpret_cast<Window>(1), nullptr, nullptr, nullptr, range_geometry}) &&
         secure_text_store_bind(&store, &edit, SecureTextInputScope::text);
     check(initialized, "composition history fixture initializes");
     auto* acp = static_cast<ITextStoreACP*>(secure_text_store_test_interface(&store));

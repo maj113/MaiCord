@@ -64,7 +64,7 @@ void run() noexcept {
     check(secure_edit_initialize(&edit, 256, false) && secure_edit_assign(&edit, utf8_literal("hello")) ==
                                                            SecureEditResult::changed,
           "ime store: the edit holds its text");
-    check(secure_text_store_initialize(&store, {&window_marker, nullptr, changed, nullptr, range_geometry, nullptr}),
+    check(secure_text_store_initialize(&store, {reinterpret_cast<Window>(&window_marker), nullptr, changed, nullptr, range_geometry, nullptr}),
           "ime store: initializes");
     check(!secure_text_store_ime_event(ime(EventType::ime_commit, nullptr, 0)),
           "ime store: no field holds the text input before one is bound");
