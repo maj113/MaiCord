@@ -454,6 +454,8 @@ RestClientSubmitResult account_module_guild_admin(void* instance, const GuildAdm
 // Desired guild voice channel; a zero channel leaves. The worker serializes Opcode 4.
 bool account_module_voice_request(void*, const GatewayVoiceStateUpdate*) noexcept;
 bool account_module_voice_snapshot(void*, GatewayClientVoiceSnapshot*) noexcept;
+// Changes when the voice or stream snapshot changes (gateway_client_voice_revision). Read it before the snapshots.
+u32 account_module_voice_revision(void* instance) noexcept;
 // Loopback browser CAPTCHA bridge for the current login challenge. Start
 // only on explicit user action; the URL holds the single-use state.
 AccountLoginStatus account_module_login_start_captcha_bridge(void* instance, u64 generation, u32 timeout_ms) noexcept;

@@ -2,6 +2,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -221,7 +222,7 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
         return;
     video_rtp_set_local_ssrc(&sink->rtp, connection->media.ssrc);
     for (auto& pending : sink->pending_keyframes)
-        if (const u32 ssrc = static_cast<u32>(InterlockedExchange(&pending, 0));
+        if (const u32 ssrc = read_acquire(&pending) ? static_cast<u32>(InterlockedExchange(&pending, 0)) : 0;
             ssrc && video_rtp_request_keyframe(&sink->rtp, ssrc))
             ++sink->keyframe_requests;
     // A stream ends when its SSRC no longer maps to that user's video (leave,

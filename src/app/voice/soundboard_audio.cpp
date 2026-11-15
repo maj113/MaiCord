@@ -391,7 +391,8 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
         ReleaseSRWLockExclusive(mixer->lock.native());
         return active;
     }
-    const u32 board = static_cast<u32>(100 + mixer->volume_delta);
+    // One read for the period: the UI thread writes the word without the lock (soundboard_mixer_set_volume).
+    const u32 board = static_cast<u32>(100 + *static_cast<const volatile i32*>(&mixer->volume_delta));
     for (u32 v = 0; v < mixer->count;) {
         auto& voice = mixer->voices[v];
         // At most 65536 * 100 * 200 / 10000 = 2^17.
@@ -415,9 +416,9 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
 }
 
 void soundboard_mixer_set_volume(SoundboardMixer* mixer, u32 percent) noexcept {
-    AcquireSRWLockExclusive(mixer->lock.native());
-    mixer->volume_delta = static_cast<i32>(minimum(percent, kSoundboardVolumeMaximumPercent)) - 100;
-    ReleaseSRWLockExclusive(mixer->lock.native());
+    // One aligned word that the render reads one time for each period: the audio thread never waits for this write.
+    *static_cast<volatile i32*>(&mixer->volume_delta) =
+        static_cast<i32>(minimum(percent, kSoundboardVolumeMaximumPercent)) - 100;
 }
 
 void soundboard_mixer_stop(SoundboardMixer* mixer, u64 user_id) noexcept {

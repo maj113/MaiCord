@@ -27,13 +27,13 @@ void wake_worker(const VoiceSend& send) noexcept {
 // state machine and (for voice) the encoder, then into the queue.
 void process(VoiceSend& send, u64 now_us) noexcept {
     auto& s = *send.shared;
-    if (s.framer.count < kVoiceFrameSamples) { // Most wakes buffer no whole frame: skip the lock and the key probe.
+    if (s.framer.count < kVoiceFrameSamples) { // Most wakes buffer no whole frame: skip the key probe.
         s.wake_us = 0;                         // As voice_framer_pop: wait for audio.
         return;
     }
-    AcquireSRWLockShared(s.control_lock.native());
-    const VoiceSendControl c = s.control;
-    ReleaseSRWLockShared(s.control_lock.native());
+    const LONG64 word = read_acquire(&s.control);
+    VoiceSendControl c;
+    copy_bytes(&c, &word, sizeof(c));
     const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(s, c.key);
     bool queued = false;
     u64 index = 0;
@@ -148,9 +148,9 @@ void voice_send_close(VoiceSend* send) noexcept {
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept {
     if (!send || !send->shared)
         return;
-    AcquireSRWLockExclusive(send->shared->control_lock.native());
-    send->shared->control = control;
-    ReleaseSRWLockExclusive(send->shared->control_lock.native());
+    LONG64 word = 0;
+    copy_bytes(&word, &control, sizeof(word));
+    write_release(&send->shared->control, word);
 }
 
 void voice_send_push(void* context, ConstSlice<i16> mono, u64 now_us) noexcept {
@@ -164,7 +164,7 @@ void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) n
     copy_value(&send->settings, settings);
     send->settings.input_device[kVoiceDeviceIdCharacters - 1] = 0;
     send->settings.output_device[kVoiceDeviceIdCharacters - 1] = 0;
-    ++send->revision;
+    write_release(&send->revision, send->revision + 1);
     ReleaseSRWLockExclusive(send->lock.native());
 }
 
@@ -199,7 +199,7 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
         send->speaking_on = send->speaking_off_pending = false;
     }
     auto* s = send->shared;
-    if (s && InterlockedExchange(&s->end_lost, 0))
+    if (s && read_acquire(&s->end_lost) && InterlockedExchange(&s->end_lost, 0))
         send->speaking_off_pending = send->speaking_on;
     while (s) {
         const u32 read = static_cast<u32>(read_acquire(&s->read));
@@ -253,16 +253,18 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
                       bool media_ready, NetworkLoop* loop, NetworkSignal* signal) noexcept {
     send->loop = loop;
     send->signal = signal;
-    AcquireSRWLockExclusive(send->lock.native());
-    if (send->revision != send->applied_revision || !send->configured) {
+    // Settings change a few times in a session: only a new revision takes the lock. A configure whose revision is not
+    // visible yet wakes the worker after it releases the lock, and that drive applies it.
+    if (read_acquire(&send->revision) != send->applied_revision || !send->configured) {
+        AcquireSRWLockExclusive(send->lock.native());
         if (send->configured || send->revision)
             copy_value(&send->applied, send->settings);
         else
             send->applied = voice_audio_settings_defaults();
         send->applied_revision = send->revision;
         send->configured = true;
+        ReleaseSRWLockExclusive(send->lock.native());
     }
-    ReleaseSRWLockExclusive(send->lock.native());
     const auto& a = send->applied;
     const u32 flags = voice.setup.flags;
     // Stage: audience is suppressed; an invited speaker (unsuppressed with a

@@ -1085,6 +1085,31 @@ void subscription_once(void (*check)(bool, const char*) noexcept) noexcept {
     client.worker.thread = nullptr;
     client.runtime = nullptr;
 }
+
+// A user volume from the UI thread changes only the wanted table. The worker step copies it into the playback that
+// the render reads, so the audio thread never waits for the UI thread.
+void user_audio_through_worker(void (*check)(bool, const char*) noexcept) noexcept {
+    client.runtime = &runtime;
+    const auto& playback = runtime.voice_receive.playback;
+    const bool stored = gateway_client_voice_user_audio(&client, 11, 50, true) &&
+                        gateway_client_voice_user_audio(&client, 22, 150, false) &&
+                        !gateway_client_voice_user_audio(&client, 33, 201, false);
+    const bool waits = stored && read_acquire(&runtime.users_pending) && !playback.user_count;
+    apply_user_audio(&runtime);
+    const bool applied = playback.user_count == 2 && playback.users[0].user_id == 11 &&
+                         playback.users[0].gain_percent == 50 && playback.users[0].muted &&
+                         playback.users[1].user_id == 22 && playback.users[1].gain_percent == 150 &&
+                         !read_acquire(&runtime.users_pending);
+    gateway_client_voice_user_audio(&client, 11, 100, false);
+    const bool kept = playback.user_count == 2;
+    apply_user_audio(&runtime);
+    const bool removed = kept && playback.user_count == 1 && playback.users[0].user_id == 22;
+    gateway_client_voice_user_audio(&client, 22, 100, false);
+    apply_user_audio(&runtime);
+    check(waits && applied && removed && !playback.user_count,
+          "Gateway user volume: the UI thread writes the wanted table, the worker step gives it to the playback");
+    client.runtime = nullptr;
+}
 } // namespace ready_probe
 void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_probe;
@@ -1124,6 +1149,7 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     token_refresh(check);
     auth_session_change(check);
     subscription_once(check);
+    user_audio_through_worker(check);
     release();
     check(!runtime.structural_scratch.arena.base && !runtime.structural_scratch.capacity &&
         !runtime.structural_scratch.reserved_capacity, "Gateway index teardown releases and clears the owner descriptor");

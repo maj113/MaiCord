@@ -145,6 +145,7 @@ struct AccountUiRuntime {
     TypingStore typing_store;
     VoiceStateStore voice_states;
     GatewayClientVoiceSnapshot voice_session;
+    u32 voice_revision; // The publication count of voice_session (account_module_voice_revision).
     MemberListView member_list;
     NavigationView navigation_view;
     MessageTextPresentation message_text;

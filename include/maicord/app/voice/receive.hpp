@@ -56,7 +56,6 @@ void voice_receive_stop(VoiceReceive* receive) noexcept;
 // Sorted speaking users; also schedules the wake-up when the set next changes.
 u32 voice_receive_speaking(VoiceReceive* receive, Slice<u64> users, u64 now_ms) noexcept;
 u64 voice_receive_deadline(const VoiceReceive& receive) noexcept;
-bool voice_receive_set_user(VoiceReceive* receive, u64 user_id, u32 gain_percent, bool muted) noexcept;
 // Output endpoint and volume; a changed endpoint reopens running output.
 void voice_receive_configure(VoiceReceive* receive, const VoiceAudioSettings& settings) noexcept;
 } // namespace maicord

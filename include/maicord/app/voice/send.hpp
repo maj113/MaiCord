@@ -21,13 +21,14 @@ struct VoiceSendPacket {
     VoiceTransmitAction action;
     u8 opus[kOpusEncoderMaximumPacketBytes];
 };
-// Worker -> capture thread, read once per frame under the shared lock.
+// Worker -> capture thread: one word, which the capture thread reads once per frame without a lock.
 struct VoiceSendControl {
     u16 gain_percent, release_ms;
     VoiceInputMode mode;
     u8 sensitivity, key;
-    bool automatic, send;
+    bool automatic : 1, send : 1;
 };
+static_assert(sizeof(VoiceSendControl) == sizeof(LONG64));
 struct VoiceSendStatusCells {
     volatile LONG level, threshold, transmitting, announced, round_trip;
 };
@@ -39,7 +40,9 @@ struct VoiceSend {
     VoiceSendShared* shared;
     SrwLock lock; // Guards settings/revision (UI writes) and capture_visible (status reads).
     VoiceAudioSettings settings;
-    u32 revision, applied_revision;
+    // The UI thread writes `revision` under the lock. The worker reads it without the lock to see a change.
+    volatile LONG revision;
+    LONG applied_revision;
     bool capture_visible;
     VoiceSendStatusCells cells;
     volatile LONG64 sent_packets;

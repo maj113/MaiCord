@@ -182,6 +182,12 @@ bool account_module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* o
     ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_snapshot(gateway, output);
 }
+u32 account_module_voice_revision(void* instance) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    ensure_video_frames(runtime, gateway);
+    return gateway ? gateway_client_voice_revision(gateway) : 0;
+}
 bool account_module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;

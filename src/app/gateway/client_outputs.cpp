@@ -72,6 +72,11 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;
     }
+    // The UI thread writes the revision under subscription_lock and then wakes the worker. A revision that this read
+    // misses has a later drive. So an unchanged revision needs no lock.
+    const u32 seen = static_cast<const volatile u32&>(runtime->subscription_revision);
+    if (seen == 0 || seen == runtime->sent_subscription_revision)
+        return OutboundDrive::idle;
     GatewayGuildSubscription subscription;
     AcquireSRWLockShared(&runtime->subscription_lock);
     const u32 revision = runtime->subscription_revision;
@@ -126,6 +131,10 @@ OutboundDrive drive_member_subscription(GatewayClientRuntime* runtime, u64 now_m
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;
     }
+    // As drive_guild_subscription: an unchanged revision needs no lock.
+    const u32 seen = static_cast<const volatile u32&>(runtime->members_revision);
+    if (seen == 0 || seen == runtime->sent_members_revision)
+        return OutboundDrive::idle;
     GatewayGuildSubscription subscription;
     AcquireSRWLockShared(&runtime->subscription_lock);
     const u32 revision = runtime->members_revision;
@@ -168,13 +177,16 @@ OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* ru
         return OutboundDrive::idle;
     gateway_voice_expire(&runtime->voice, now_ms);
     GatewayVoiceStateUpdate desired{};
-    AcquireSRWLockExclusive(&runtime->voice_lock);
-    const bool requested = runtime->voice_request_pending;
+    // The UI thread sets the flag under voice_lock and then wakes the worker. A flag that this read misses was set
+    // after it, and its wake drives again. So only a set flag needs the lock.
+    bool requested = static_cast<const volatile bool&>(runtime->voice_request_pending);
     if (requested) {
+        AcquireSRWLockExclusive(&runtime->voice_lock);
+        requested = runtime->voice_request_pending;
         desired = runtime->desired_voice;
         runtime->voice_request_pending = false;
+        ReleaseSRWLockExclusive(&runtime->voice_lock);
     }
-    ReleaseSRWLockExclusive(&runtime->voice_lock);
     if (requested) {
         gateway_voice_request(&runtime->voice, desired);
         if (!runtime->voice.setup.user_id) {
@@ -209,15 +221,21 @@ OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* r
         return OutboundDrive::idle;
     apply_go_live(client, runtime, now_ms);
     auto* control = &runtime->stream.control;
-    AcquireSRWLockExclusive(&runtime->voice_lock);
-    const bool requested = runtime->stream_request_pending;
-    const GatewayStreamKey desired = runtime->desired_stream;
-    runtime->stream_request_pending = false;
-    const bool volume = runtime->stream_volume_pending;
-    if (volume)
-        gateway_stream_session_set_volume(&runtime->stream, runtime->desired_stream_volume);
-    runtime->stream_volume_pending = false;
-    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    bool requested = false, volume = false;
+    GatewayStreamKey desired{};
+    // As drive_voice_output: the UI thread sets the two flags under voice_lock and then wakes the worker.
+    if (static_cast<const volatile bool&>(runtime->stream_request_pending) ||
+        static_cast<const volatile bool&>(runtime->stream_volume_pending)) {
+        AcquireSRWLockExclusive(&runtime->voice_lock);
+        requested = runtime->stream_request_pending;
+        desired = runtime->desired_stream;
+        runtime->stream_request_pending = false;
+        volume = runtime->stream_volume_pending;
+        if (volume)
+            gateway_stream_session_set_volume(&runtime->stream, runtime->desired_stream_volume);
+        runtime->stream_volume_pending = false;
+        ReleaseSRWLockExclusive(&runtime->voice_lock);
+    }
     if (volume && !requested)
         publish_voice_snapshot(client, runtime);
     if (requested) {

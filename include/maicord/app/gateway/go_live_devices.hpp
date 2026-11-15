@@ -13,6 +13,9 @@ namespace maicord {
 struct GoLiveDevices {
     SrwLock lock; // device, encoder and media, read by the capture and encoder threads
     GpuDevice* device; // Referenced.
+    // The codecs `device` can encode, with bit 31 set, or 0 while nobody asked since the device changed. Written
+    // under the lock, read without it: the Gateway worker asks in each voice drive.
+    volatile LONG encodable;
     ScreenCapture* capture;
     StreamAudioCapture audio;
     GpuStreamEncoder* encoder;

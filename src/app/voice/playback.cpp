@@ -229,16 +229,14 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
 }
 
 void voice_playback_set_deafened(VoicePlayback* playback, bool deafened) noexcept {
+    if (deafened == playback->deafened) // Only this function writes the flag, on the worker.
+        return;
     AcquireSRWLockExclusive(playback->lock.native());
-    if (deafened && !playback->deafened && playback->streams)
-        for (u32 i = 0; i < playback->stream_count; ++i) {
-            auto& stream = playback->streams[i];
-            const bool active = stream.active;
-            restart(stream);
-            stream.active = active;
-        }
+    if (deafened && playback->streams)
+        for (u32 i = 0; i < playback->stream_count; ++i)
+            restart(playback->streams[i]);
     // Deafening ends playing sounds instead of resuming them later.
-    SoundboardMixer* effects = deafened && !playback->deafened ? playback->effects : nullptr;
+    SoundboardMixer* effects = deafened ? playback->effects : nullptr;
     playback->deafened = deafened;
     ReleaseSRWLockExclusive(playback->lock.native());
     soundboard_mixer_stop(effects, 0);
@@ -254,30 +252,40 @@ SoundboardMixer* voice_playback_effects(VoicePlayback* playback) noexcept {
     return *static_cast<SoundboardMixer* const volatile*>(&playback->effects); // one pointer: the lock added nothing
 }
 
-bool voice_playback_set_user(VoicePlayback* playback, u64 user_id, u32 gain_percent, bool muted) noexcept {
+bool voice_user_audio_set(VoiceUserAudio* users, u32* count, u64 user_id, u32 gain_percent, bool muted) noexcept {
     if (!user_id || gain_percent > kVoiceGainMaximumPercent)
         return false;
-    AcquireSRWLockExclusive(playback->lock.native());
     u32 index = 0;
-    while (index < playback->user_count && playback->users[index].user_id != user_id)
+    while (index < *count && users[index].user_id != user_id)
         ++index;
-    bool stored = true;
     if (gain_percent == kVoiceGainDefaultPercent && !muted) {
-        if (index < playback->user_count)
-            playback->users[index] = playback->users[--playback->user_count];
-    } else if (index < playback->user_count || playback->user_count < kVoicePlaybackUsers) {
-        if (index == playback->user_count)
-            ++playback->user_count;
-        playback->users[index] = {user_id, gain_percent, muted};
-    } else
-        stored = false;
+        if (index < *count)
+            users[index] = users[--*count];
+        return true;
+    }
+    if (index == *count) {
+        if (*count == kVoicePlaybackUsers)
+            return false;
+        ++*count;
+    }
+    users[index] = {user_id, gain_percent, muted};
+    return true;
+}
+
+void voice_playback_set_users(VoicePlayback* playback, ConstSlice<VoiceUserAudio> users) noexcept {
+    const u32 count = minimum(users.count, kVoicePlaybackUsers);
+    AcquireSRWLockExclusive(playback->lock.native());
+    copy_bytes(playback->users, users.data, count * static_cast<u32>(sizeof(VoiceUserAudio)));
+    playback->user_count = count;
     ReleaseSRWLockExclusive(playback->lock.native());
-    return stored;
 }
 
 void voice_playback_set_master(VoicePlayback* playback, u32 gain_percent) noexcept {
+    const i32 delta = static_cast<i32>(minimum(gain_percent, kVoiceGainMaximumPercent)) - 100;
+    if (delta == playback->master_delta) // Only this function writes the value, on the worker.
+        return;
     AcquireSRWLockExclusive(playback->lock.native());
-    playback->master_delta = static_cast<i32>(minimum(gain_percent, kVoiceGainMaximumPercent)) - 100;
+    playback->master_delta = delta;
     ReleaseSRWLockExclusive(playback->lock.native());
 }
 

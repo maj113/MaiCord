@@ -6,8 +6,7 @@
 
 namespace maicord {
 struct VoiceSendShared {
-    SrwLock control_lock;
-    VoiceSendControl control;
+    volatile LONG64 control; // The bytes of a VoiceSendControl.
     bool (*probe)(void*, u8) noexcept;
     void* probe_context;
     volatile LONG write, read, end_lost;

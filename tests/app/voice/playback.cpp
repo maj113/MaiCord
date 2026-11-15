@@ -129,6 +129,14 @@ u64 render(Run& run, i16* output, u32 frames) noexcept {
     }
     return level;
 }
+// The worker's path: the user table rule, then the copy that the render reads.
+bool set_user(VoicePlayback& playback, u64 user_id, u32 gain_percent, bool muted) noexcept {
+    static VoiceUserAudio table[kVoicePlaybackUsers];
+    static u32 count;
+    const bool stored = voice_user_audio_set(table, &count, user_id, gain_percent, muted);
+    voice_playback_set_users(&playback, {table, count});
+    return stored;
+}
 void test_playback(Check check) noexcept {
     static VoicePlayback playback;
     static i16 a[9600], b[9600], both[9600];
@@ -144,8 +152,8 @@ void test_playback(Check check) noexcept {
     feed(run, 1, 11, Kind::celt, 0, 6);
     const u64 level_a = render(run, a, 4800);
     // Mix at 50 % so neither speaker alone reaches the soft-clip knee.
-    voice_playback_set_user(&playback, 11, 50, false);
-    voice_playback_set_user(&playback, 22, 50, false);
+    set_user(playback, 11, 50, false);
+    set_user(playback, 22, 50, false);
     voice_playback_clear(&playback);
     feed(run, 1, 11, Kind::celt, 0, 6);
     const u64 half = render(run, a, 4800);
@@ -160,13 +168,13 @@ void test_playback(Check check) noexcept {
     for (u32 i = 0; i < 9600; ++i)
         mixed = mixed && both[i] == voice_mixer_soft_clip(i32{a[i]} + b[i]);
     check(mixed, "Voice playback: two speakers mix sample-exactly through the soft clipper");
-    voice_playback_set_user(&playback, 22, 100, false);
-    check(voice_playback_set_user(&playback, 11, 200, false) && !voice_playback_set_user(&playback, 11, 201, false),
+    set_user(playback, 22, 100, false);
+    check(set_user(playback, 11, 200, false) && !set_user(playback, 11, 201, false),
           "Voice playback: per-user gain accepts 0-200 %");
     voice_playback_clear(&playback);
     feed(run, 1, 11, Kind::celt, 0, 6);
     const u64 loud = render(run, b, 4800);
-    voice_playback_set_user(&playback, 11, 100, true);
+    set_user(playback, 11, 100, true);
     voice_playback_clear(&playback);
     feed(run, 1, 11, Kind::celt, 0, 6);
     const u64 muted = render(run, b, 4800);
@@ -176,7 +184,7 @@ void test_playback(Check check) noexcept {
     check(loud > level_a && half * 200 >= level_a * 95 && half * 200 <= level_a * 105 && !muted && !muted_speaking &&
               playback.user_count == 1,
           "Voice playback: 50 % gain halves, 200 % is louder, local mute is silent and hides speaking");
-    voice_playback_set_user(&playback, 11, 100, false);
+    set_user(playback, 11, 100, false);
     check(!playback.user_count,
           "Voice playback: default settings remove the user entry");
 

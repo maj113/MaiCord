@@ -29,8 +29,8 @@ struct VoicePlaybackStream {
 struct VoicePlaybackStats {
     u64 decoded, concealed, recovered, dropped;
 };
-// Shared by the network worker (push), the audio thread (render) and the UI
-// (per-user settings); every entry point takes the one short lock. Streams
+// Shared by the network worker (push, settings) and the audio thread (render); every entry point takes the one short
+// lock. The UI thread never takes it: user volumes reach the worker first (gateway_client_voice_user_audio). Streams
 // (each with its decoder) and the mix accumulator live in one block reserved
 // only between initialize and release; settings and the lock are always valid.
 // Streams [0, stream_count) are committed: a call commits one stream per
@@ -63,7 +63,10 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
 // Deafened playback renders silence, stops decoding and drops queued audio;
 // packets still update speaking state.
 void voice_playback_set_deafened(VoicePlayback* playback, bool deafened) noexcept;
-bool voice_playback_set_user(VoicePlayback* playback, u64 user_id, u32 gain_percent, bool muted) noexcept;
+// The rule of a user table: default settings remove the entry. False for a gain above 200 % or a full table.
+bool voice_user_audio_set(VoiceUserAudio* users, u32* count, u64 user_id, u32 gain_percent, bool muted) noexcept;
+// Worker: replaces the user table that the render reads (at most kVoicePlaybackUsers entries).
+void voice_playback_set_users(VoicePlayback* playback, ConstSlice<VoiceUserAudio> users) noexcept;
 // Installs (null removes) the soundboard mixer; deafening stops its voices.
 void voice_playback_set_effects(VoicePlayback* playback, SoundboardMixer* effects) noexcept;
 SoundboardMixer* voice_playback_effects(VoicePlayback* playback) noexcept;

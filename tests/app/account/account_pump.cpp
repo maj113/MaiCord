@@ -1037,6 +1037,46 @@ void test_poll_gateway_receipts() noexcept {
     g_app.plugin_account_scope_serial = old_scope; g_app.window = win32_window(old_window); g_app.frame_pending = false; reset_counts();
 }
 
+// The pump copies the voice snapshot only for a new publication count of the account.
+u32 voice_publication, voice_copies;
+bool voice_readable;
+u32 voice_revision(void*) noexcept {
+    return voice_publication;
+}
+bool voice_snapshot(void*, GatewayClientVoiceSnapshot* output) noexcept {
+    ++voice_copies;
+    if (voice_readable) {
+        *output = {};
+        output->generation = voice_publication;
+    }
+    return voice_readable;
+}
+void test_voice_snapshot_revision() noexcept {
+    auto& ui = *g_app.account_ui;
+    g_account_fake.voice_revision = voice_revision;
+    g_account_fake.voice_snapshot = voice_snapshot;
+    voice_readable = true;
+    const bool unpublished = application_pump_account() && application_pump_account() && !voice_copies;
+    voice_publication = 7;
+    const bool first = application_pump_account() && application_pump_account() && voice_copies == 1 &&
+                       ui.voice_session.generation == 7;
+    voice_readable = false;
+    voice_publication = 9;
+    const bool failed = application_pump_account() && application_pump_account() && voice_copies == 3 &&
+                        ui.voice_session.generation == 7;
+    voice_readable = true;
+    const bool second = application_pump_account() && application_pump_account() && voice_copies == 4 &&
+                        ui.voice_session.generation == 9;
+    check(unpublished, "voice_snapshot_with_no_publication_is_not_copied");
+    check(first, "voice_snapshot_is_copied_one_time_for_a_publication");
+    check(failed, "voice_snapshot_copy_that_fails_runs_again_in_each_pump");
+    check(second, "voice_snapshot_is_copied_again_for_the_next_publication");
+    g_account_fake.voice_revision = nullptr;
+    g_account_fake.voice_snapshot = nullptr;
+    ui.voice_session = {};
+    ui.voice_revision = 0;
+}
+
 u32 run_account_pump_tests() noexcept {
     g_app.account_ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -1077,6 +1117,7 @@ u32 run_account_pump_tests() noexcept {
     test_member_role_refresh();
     test_message_navigation_lifecycle();
     test_poll_gateway_receipts();
+    test_voice_snapshot_revision();
     reset_counts();
     check(application_pump_account() && refreshes == 1 && forced == 0 && history_calls == 1 && order_ok,
           "unchanged_account_state_keeps_conditional_refresh");

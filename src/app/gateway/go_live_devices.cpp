@@ -1,4 +1,5 @@
 #include "maicord/app/gateway/go_live_devices.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/wait.hpp"
@@ -71,11 +72,21 @@ GpuDevice* retain_device(GoLiveDevices& d) noexcept {
 } // namespace
 
 u32 go_live_producer_encodable(void* context, bool* known) noexcept {
-    GpuDevice* device = retain_device(of(context));
+    auto& d = of(context);
+    if (const LONG cached = read_acquire(&d.encodable)) {
+        *known = true;
+        return static_cast<u32>(cached) & 0x7FFFFFFFu;
+    }
+    GpuDevice* device = retain_device(d);
     *known = device != nullptr;
     if (!device)
         return 0;
     const u32 codecs = gpu_stream_encoder_codecs(device);
+    // The reference keeps the address of `device` its own, so an equal pointer is the device that was asked.
+    AcquireSRWLockExclusive(d.lock.native());
+    if (d.device == device)
+        write_release(&d.encodable, static_cast<LONG>(codecs | 0x80000000u));
+    ReleaseSRWLockExclusive(d.lock.native());
     gpu_release(device);
     return codecs;
 }
@@ -198,6 +209,7 @@ void go_live_devices_set_device(GoLiveDevices* devices, GpuDevice* device) noexc
     AcquireSRWLockExclusive(devices->lock.native());
     GpuDevice* previous = devices->device;
     devices->device = device;
+    write_release(&devices->encodable, 0);
     ReleaseSRWLockExclusive(devices->lock.native());
     if (previous)
         gpu_release(previous);

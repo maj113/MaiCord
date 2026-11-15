@@ -152,8 +152,11 @@ bool gateway_client_request_voice_state(GatewayClient* client,
                                         const GatewayVoiceStateUpdate& state) noexcept;
 bool gateway_client_voice_snapshot(const GatewayClient* client,
                                    GatewayClientVoiceSnapshot* output) noexcept;
-// Local playback volume (0-200 %) and mute for one remote user; applies
-// immediately to the mix. Not sent to the server and not persisted here.
+// The publication count of the voice, video, stream and Go Live snapshots: it changes with each change of one of
+// them. Zero: nothing was published. No lock: a caller compares it with the value it read before its last copies.
+u32 gateway_client_voice_revision(const GatewayClient* client) noexcept;
+// Local playback volume (0-200 %) and mute for one remote user; the worker
+// applies it to the mix after its next wake. Not sent to the server and not persisted here.
 bool gateway_client_voice_user_audio(GatewayClient* client, u64 user_id, u32 gain_percent, bool muted) noexcept;
 // Microphone, output and input-mode settings; the worker applies the latest.
 bool gateway_client_voice_audio_configure(GatewayClient* client, const VoiceAudioSettings& settings) noexcept;

@@ -10,6 +10,7 @@
 #include "maicord/app/voice/send.hpp"
 
 #include "maicord/core/byte_queue.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/reserved_bytes.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/time.hpp"
@@ -157,6 +158,9 @@ struct GatewayClientRuntime {
     GatewayVoiceStateUpdate desired_voice;
     GatewayClientVoiceSnapshot voice_snapshot;
     GatewayClientVoiceVideoSnapshot voice_video_snapshot; // Under voice_lock.
+    // A new value for each publication of the four snapshots, never zero. The worker writes it under voice_lock. A
+    // reader that sees its last value again has current copies.
+    volatile LONG voice_revision;
     // UI-requested stopped video users (under voice_lock), applied by the worker.
     u64 video_unwanted[kVoiceVideoUnwantedUsers];
     u32 video_unwanted_count;
@@ -166,6 +170,14 @@ struct GatewayClientRuntime {
     bool stream_wants_dirty;
     GatewayVideoFrames video_frames; // Under voice_lock; installed by the worker.
     bool video_frames_dirty;
+    // Set under voice_lock with each of the three dirty flags above. The worker reads it without the lock.
+    volatile LONG video_wants_pending;
+    // The user volumes that the UI thread wants, under voice_lock. The UI thread never takes the playback lock: the
+    // worker copies this table into the playback (apply_user_audio). users_pending is set under voice_lock with each
+    // change, and the worker reads it without the lock.
+    VoiceUserAudio desired_users[kVoicePlaybackUsers];
+    u32 desired_user_count;
+    volatile LONG users_pending;
     bool voice_request_pending;
     // Go Live watch. UI requests are under voice_lock; the session is worker-owned.
     GatewayStreamSession stream;
@@ -407,6 +419,8 @@ void publish_failure(GatewayClient* client, GatewayClientError error, u32 native
 void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
+// Worker: copies a changed user volume table into the playback.
+void apply_user_audio(GatewayClientRuntime* runtime) noexcept;
 // Worker: installs the Go Live producers and applies queued UI commands.
 void apply_go_live(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept;
 

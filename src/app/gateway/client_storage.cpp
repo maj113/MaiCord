@@ -662,15 +662,20 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
     const auto stream = gateway_stream_session_snapshot(runtime->stream, runtime->self_user_id);
     GoLiveSnapshot live{};
     const bool live_changed = gateway_go_live_publish(&runtime->go_live, &live);
+    // Only the worker writes the four snapshots: it compares them without the lock and takes it for a change.
+    if (snapshot == runtime->voice_snapshot && video == runtime->voice_video_snapshot &&
+        stream == runtime->stream_snapshot && !live_changed)
+        return;
     AcquireSRWLockExclusive(&runtime->voice_lock);
-    const bool changed = !(snapshot == runtime->voice_snapshot) || !(video == runtime->voice_video_snapshot) ||
-                         !(stream == runtime->stream_snapshot) || live_changed;
     copy_value(&runtime->voice_snapshot, snapshot);
     copy_value(&runtime->voice_video_snapshot, video);
     copy_value(&runtime->stream_snapshot, stream);
     copy_value(&runtime->go_live_snapshot, live);
+    // The count is one for the process: a new runtime never repeats a value that a reader holds from an old one.
+    static volatile LONG publications;
+    write_release(&runtime->voice_revision, InterlockedIncrement(&publications));
     ReleaseSRWLockExclusive(&runtime->voice_lock);
-    if (changed && client->notification_event)
+    if (client->notification_event)
         event_set(client->notification_event);
 }
 
@@ -723,7 +728,11 @@ void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noe
     video.wake_context = client;
     runtime->stream.receive.video.wake = wake_voice_worker;
     runtime->stream.receive.video.wake_context = client;
+    // The UI thread wakes the worker after it sets the flag, so a request that is not visible here has a later drive.
+    if (!read_acquire(&runtime->video_wants_pending))
+        return;
     AcquireSRWLockExclusive(&runtime->voice_lock);
+    write_release(&runtime->video_wants_pending, 0);
     if (runtime->video_unwanted_dirty) {
         copy_bytes(video.unwanted, runtime->video_unwanted, runtime->video_unwanted_count * static_cast<u32>(sizeof(u64)));
         video.unwanted_count = runtime->video_unwanted_count;
@@ -749,17 +758,37 @@ void apply_video_wants(GatewayClient* client, GatewayClientRuntime* runtime) noe
     }
 }
 
+void apply_user_audio(GatewayClientRuntime* runtime) noexcept {
+    // The UI thread wakes the worker after it sets the word, so a change that is not visible here has a later event.
+    if (!read_acquire(&runtime->users_pending))
+        return;
+    // A copy on the stack: the UI thread never waits for the playback lock through voice_lock.
+    VoiceUserAudio users[kVoicePlaybackUsers];
+    AcquireSRWLockExclusive(&runtime->voice_lock);
+    write_release(&runtime->users_pending, 0);
+    const u32 count = runtime->desired_user_count;
+    copy_bytes(users, runtime->desired_users, count * static_cast<u32>(sizeof(VoiceUserAudio)));
+    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    voice_playback_set_users(&runtime->voice_receive.playback, {users, count});
+}
+
 void apply_go_live(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     GoLiveCommand commands[kGatewayGoLiveCommands];
-    AcquireSRWLockExclusive(&runtime->voice_lock);
-    if (runtime->go_live_backend_dirty) {
-        runtime->go_live.backend_context = runtime->go_live_backend;
-        runtime->go_live_backend_dirty = false;
+    u32 count = 0;
+    // The UI thread queues a command or sets the backend under voice_lock and then wakes the worker. A change that
+    // these reads miss came after them, and its wake drives again. So only a change needs the lock.
+    if (static_cast<const volatile u32&>(runtime->go_live_command_count) ||
+        static_cast<const volatile bool&>(runtime->go_live_backend_dirty)) {
+        AcquireSRWLockExclusive(&runtime->voice_lock);
+        if (runtime->go_live_backend_dirty) {
+            runtime->go_live.backend_context = runtime->go_live_backend;
+            runtime->go_live_backend_dirty = false;
+        }
+        count = runtime->go_live_command_count;
+        copy_bytes(commands, runtime->go_live_commands, count * static_cast<u32>(sizeof(GoLiveCommand)));
+        runtime->go_live_command_count = 0;
+        ReleaseSRWLockExclusive(&runtime->voice_lock);
     }
-    const u32 count = runtime->go_live_command_count;
-    copy_bytes(commands, runtime->go_live_commands, count * static_cast<u32>(sizeof(GoLiveCommand)));
-    runtime->go_live_command_count = 0;
-    ReleaseSRWLockExclusive(&runtime->voice_lock);
     auto& live = runtime->go_live;
     live.wake = wake_voice_worker;
     live.wake_context = client;

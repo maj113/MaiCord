@@ -890,11 +890,14 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
     notify_consumer(client, runtime);
     if (step.exit)
         return step;
+    // User volumes apply also outside a call: the playback keeps them for the next one.
+    apply_user_audio(runtime);
     // Main dispatch first: an endpoint/token replacement or leave in this
     // completion must invalidate the old voice attempt before further sends.
     const bool sending = !runtime->stopping && voice_send_active(runtime->voice_send);
-    if (runtime->voice.requested || !voice_connection_drained(runtime->voice_connection) ||
-        runtime->voice_connection.command.data || runtime->voice_receive.media_revision || sending) {
+    const bool voice = runtime->voice.requested || !voice_connection_drained(runtime->voice_connection) ||
+                       runtime->voice_connection.command.data || runtime->voice_receive.media_revision || sending;
+    if (voice) {
         runtime->voice_connection.video_decodable = voice_video_sink_decodable(runtime->voice_receive.video);
         voice_connection_drive(&runtime->voice_connection, runtime->voice.setup, loop, event.now_ms);
         apply_video_wants(client, runtime);
@@ -906,17 +909,17 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
                              loop, &runtime->voice_send_signal);
             voice_receive_configure(&runtime->voice_receive, runtime->voice_send.applied);
         }
-        publish_voice_snapshot(client, runtime);
     }
-    if (gateway_stream_session_busy(runtime->stream)) {
+    const bool watching = gateway_stream_session_busy(runtime->stream);
+    if (watching)
         gateway_stream_session_drive(&runtime->stream, runtime->voice, loop, runtime->voice_send.applied,
                                      event.now_ms);
-        publish_voice_snapshot(client, runtime);
-    }
-    if (gateway_go_live_busy(runtime->go_live)) {
+    const bool live = gateway_go_live_busy(runtime->go_live);
+    if (live)
         gateway_go_live_drive(&runtime->go_live, runtime->voice, loop, event.now_ms);
+    // One snapshot for the three drives of this event.
+    if (voice || watching || live)
         publish_voice_snapshot(client, runtime);
-    }
     drive_client_activity(runtime, event.now_ms);
     notify_consumer(client, runtime);
     return {next_worker_wait(client, runtime, event.now_ms),

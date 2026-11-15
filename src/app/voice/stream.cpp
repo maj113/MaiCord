@@ -36,6 +36,7 @@ constexpr u16 kVolumeSteps = kGatewayStreamVolumeMaximum + 1; // 0..200 %.
 struct StreamUi {
     StreamPreviewCache previews;
     GatewayClientStreamSnapshot snapshot;
+    u32 revision; // The publication count of `snapshot`.
     StreamWatchView view;
     GatewayStreamKey requested, pending;
     u64 requested_ms, pending_ms, ended_ms;
@@ -313,8 +314,12 @@ void application_stream_pump() noexcept {
     const u64 now = now_ms();
     auto& host = g_app.account;
     GatewayClientStreamSnapshot snapshot{};
-    if (host.instance && account_module_stream_snapshot(host.instance, &snapshot))
+    // As the voice snapshot in the account pump: the copy runs only for a new publication count.
+    const u32 revision = host.instance ? account_module_voice_revision(host.instance) : 0;
+    if (host.instance && revision != stream.revision && account_module_stream_snapshot(host.instance, &snapshot)) {
         stream.snapshot = snapshot;
+        stream.revision = revision;
+    }
     // A watch waiting for its join.
     if (valid(stream.pending)) {
         if (in_channel(stream.pending.channel_id))
@@ -586,6 +591,7 @@ void application_stream_release() noexcept {
     release_press();
     stream_preview_clear(&stream.previews);
     reset_value(&stream.snapshot);
+    stream.revision = 0; // The next pump copies the snapshot again.
     reset_value(&stream.view);
     stream.requested = stream.pending = {};
     stream.menu_tile = 0;

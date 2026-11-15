@@ -11,6 +11,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -554,13 +555,13 @@ HANDLE application_packages_notification() noexcept {
 }
 
 void application_packages_poll() noexcept {
-    if (InterlockedExchange(&g.changed, 0)) {
+    if (read_acquire(&g.changed) && InterlockedExchange(&g.changed, 0)) {
         application_custom_theme_rescan();
         application_request_frame();
     }
     auto& s = g.session;
     if (s.phase == PackagePhase::working && s.thread) {
-        if (InterlockedCompareExchange(&s.finished, 0, 0))
+        if (read_acquire(&s.finished))
             finish_fetch();
     } else if (s.phase == PackagePhase::ready && s.effect_trial) {
         // The renderer's verdict on the candidate's shader arrives a frame or two after the trial starts.

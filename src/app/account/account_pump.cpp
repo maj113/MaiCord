@@ -626,7 +626,13 @@ bool drain_account_events() noexcept {
     if (g_app.account_ui) {
         GatewayClientVoiceSnapshot voice{};
         auto& ui = *g_app.account_ui;
-        if (account_module_voice_snapshot(host.instance, &voice) && !(voice == ui.voice_session)) {
+        // The worker counts each publication. The count is read before the copy, so a copy that is newer than its
+        // count only makes the next pump copy again. A failed copy keeps the old count and the next pump tries again.
+        const u32 revision = account_module_voice_revision(host.instance);
+        const bool copied = revision != ui.voice_revision && account_module_voice_snapshot(host.instance, &voice);
+        if (copied)
+            ui.voice_revision = revision;
+        if (copied && !(voice == ui.voice_session)) {
             ui.voice_session = voice;
             const u64 call = gateway_voice_call_channel(voice);
             // The account panel shows guild voice channels only.

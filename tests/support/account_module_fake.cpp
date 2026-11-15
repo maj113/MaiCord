@@ -436,6 +436,9 @@ bool account_module_voice_request(void* instance, const GatewayVoiceStateUpdate*
 bool account_module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* snapshot) noexcept {
     return run<bool>(g_account_fake.voice_snapshot, instance, snapshot);
 }
+u32 account_module_voice_revision(void* instance) noexcept {
+    return run<u32>(g_account_fake.voice_revision, instance);
+}
 AccountLoginStatus account_module_login_start_captcha_bridge(void* instance, u64 generation,
                                                              u32 timeout_ms) noexcept {
     return run<AccountLoginStatus>(g_account_fake.login_start_captcha_bridge, instance, generation, timeout_ms);

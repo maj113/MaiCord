@@ -121,10 +121,6 @@ u64 voice_receive_deadline(const VoiceReceive& receive) noexcept {
     return earliest_deadline(receive.speaking_deadline_ms, voice_video_sink_deadline(receive.video));
 }
 
-bool voice_receive_set_user(VoiceReceive* receive, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    return voice_playback_set_user(&receive->playback, user_id, gain_percent, muted);
-}
-
 void voice_receive_configure(VoiceReceive* receive, const VoiceAudioSettings& settings) noexcept {
     voice_playback_set_master(&receive->playback, settings.output_gain_percent);
     if (voice_device_id_equal(settings.output_device, receive->output_device))

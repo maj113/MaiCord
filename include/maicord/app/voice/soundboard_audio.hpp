@@ -61,8 +61,8 @@ struct SoundboardVoice {
     u32 gain_q16; // The sound's own volume (per-mille) in Q16.
 };
 // Shared by the module (play/stop/settings) and an audio thread (render);
-// every entry point takes the one short lock. Zero-initialized is valid
-// (empty, volume 100 %).
+// play, stop and render take the one short lock. The volume is one word with no lock.
+// Zero-initialized is valid (empty, volume 100 %).
 struct SoundboardMixer {
     SrwLock lock;
     SoundboardVoice voices[kSoundboardVoices];

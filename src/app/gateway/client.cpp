@@ -164,7 +164,10 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
 
 bool gateway_client_take_refreshed_credential(GatewayClient* client, SecureBuffer* output) noexcept {
     auto* runtime = user_runtime(client);
-    if (!runtime || !output || output->data)
+    // A token arrives a few times in a session. The worker sets the notification event after it stores one, so a
+    // pump that reads null here has a later pump.
+    if (!runtime || !output || output->data ||
+        !*static_cast<u8* const volatile*>(&runtime->refreshed_credential.data))
         return false;
     AcquireSRWLockExclusive(&runtime->resume_lock);
     const bool taken = runtime->refreshed_credential.data &&
@@ -555,11 +558,26 @@ bool gateway_client_voice_snapshot(const GatewayClient* client,
                                    GatewayClientVoiceSnapshot* output) noexcept {
     return copy_snapshot(client, &GatewayClientRuntime::voice_snapshot, output);
 }
+u32 gateway_client_voice_revision(const GatewayClient* client) noexcept {
+    auto* runtime = user_runtime(client);
+    return runtime ? static_cast<u32>(read_acquire(&runtime->voice_revision)) : 0;
+}
 
 bool gateway_client_voice_user_audio(GatewayClient* client, u64 user_id, u32 gain_percent, bool muted) noexcept {
     auto* runtime = user_runtime(client);
-    // Settings live beside the playback lock, so this is safe from the UI thread.
-    return runtime && voice_receive_set_user(&runtime->voice_receive, user_id, gain_percent, muted);
+    if (!runtime)
+        return false;
+    // The table and its word change under voice_lock, which the audio thread never takes. The worker copies the
+    // table into the playback after this wake (apply_user_audio). A worker that starts later finds the word set.
+    AcquireSRWLockExclusive(&runtime->voice_lock);
+    const bool stored =
+        voice_user_audio_set(runtime->desired_users, &runtime->desired_user_count, user_id, gain_percent, muted);
+    if (stored)
+        write_release(&runtime->users_pending, 1);
+    ReleaseSRWLockExclusive(&runtime->voice_lock);
+    if (stored && client->worker.thread)
+        wake_worker(client, &runtime->voice_signal);
+    return stored;
 }
 
 bool gateway_client_voice_audio_configure(GatewayClient* client, const VoiceAudioSettings& settings) noexcept {
@@ -640,6 +658,7 @@ bool gateway_client_voice_video_wanted(GatewayClient* client, u64 user_id, bool 
         if (wanted ? runtime->stream_unwanted_owner == owner : runtime->stream_unwanted_owner != owner) {
             runtime->stream_unwanted_owner = wanted ? 0 : owner;
             runtime->stream_wants_dirty = true;
+            write_release(&runtime->video_wants_pending, 1);
         }
         ReleaseSRWLockExclusive(&runtime->voice_lock);
         wake_worker(client, &runtime->voice_send_signal);
@@ -656,6 +675,7 @@ bool gateway_client_voice_video_wanted(GatewayClient* client, u64 user_id, bool 
             runtime->video_unwanted[runtime->video_unwanted_count++] = user_id;
     }
     runtime->video_unwanted_dirty = true;
+    write_release(&runtime->video_wants_pending, 1);
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     if (ok)
         wake_worker(client, &runtime->voice_send_signal);
@@ -685,19 +705,16 @@ bool gateway_client_set_video_frames(GatewayClient* client, const GatewayVideoFr
     AcquireSRWLockExclusive(&runtime->voice_lock);
     runtime->video_frames = frames;
     runtime->video_frames_dirty = true;
+    write_release(&runtime->video_wants_pending, 1);
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     wake_worker(client, &runtime->voice_send_signal);
     return true;
 }
 
+// Only the owner thread writes the sink and the backend (the two setters), so its own reads need no lock.
 bool gateway_client_has_video_frames(const GatewayClient* client, const void* context) noexcept {
-    if (!client || !client->runtime)
-        return false;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    AcquireSRWLockShared(&runtime->voice_lock);
-    const bool installed = runtime->video_frames.context == context;
-    ReleaseSRWLockShared(&runtime->voice_lock);
-    return installed;
+    return client && client->runtime &&
+           static_cast<GatewayClientRuntime*>(client->runtime)->video_frames.context == context;
 }
 
 bool gateway_client_go_live(GatewayClient* client, const GoLiveCommand& command) noexcept {
@@ -735,13 +752,7 @@ bool gateway_client_set_go_live_backend(GatewayClient* client, void* context) no
 }
 
 bool gateway_client_has_go_live_backend(const GatewayClient* client) noexcept {
-    if (!client || !client->runtime)
-        return false;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    AcquireSRWLockShared(&runtime->voice_lock);
-    const bool installed = runtime->go_live_backend != nullptr;
-    ReleaseSRWLockShared(&runtime->voice_lock);
-    return installed;
+    return client && client->runtime && static_cast<GatewayClientRuntime*>(client->runtime)->go_live_backend;
 }
 
 bool gateway_client_attach_soundboard(GatewayClient* client, SoundboardMixer* mixer) noexcept {
@@ -751,10 +762,9 @@ bool gateway_client_attach_soundboard(GatewayClient* client, SoundboardMixer* mi
     auto& playback = runtime->voice_receive.playback;
     if (voice_playback_effects(&playback) != mixer)
         voice_playback_set_effects(&playback, mixer);
-    AcquireSRWLockShared(playback.lock.native());
-    const bool live = playback.block != nullptr;
-    ReleaseSRWLockShared(playback.lock.native());
-    return live;
+    // One pointer that only the worker writes: the UI thread reads it with no lock, so the audio thread never waits
+    // behind this read. The lock gave no newer value: the worker can change the pointer after the release.
+    return *static_cast<u8* const volatile*>(&playback.block) != nullptr;
 }
 
 } // namespace maicord

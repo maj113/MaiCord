@@ -86,6 +86,7 @@ struct AccountFake {
     decltype(&account_module_guild_admin) guild_admin;
     decltype(&account_module_voice_request) voice_request;
     decltype(&account_module_voice_snapshot) voice_snapshot;
+    decltype(&account_module_voice_revision) voice_revision;
     decltype(&account_module_login_start_captcha_bridge) login_start_captcha_bridge;
     decltype(&account_module_login_captcha_bridge_status) login_captcha_bridge_status;
     decltype(&account_module_login_copy_captcha_bridge_url) login_copy_captcha_bridge_url;
