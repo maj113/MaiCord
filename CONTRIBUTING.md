@@ -252,7 +252,8 @@ with the area's design and test notes.
 [AGENTS.md](AGENTS.md#code-rules) states every rule in a line; these need more.
 
 - **System declarations.** Everything compiles with `-nostdinc` and without unwind tables. Intrinsics go
-  in `include/maicord/sys/simd.hpp` as clang defines them; only the reference oracles and the Opus conformance run use the SDK
+  in `include/maicord/sys/simd.hpp` as clang defines them, and the AVX2 ones of `MAICORD_HASWELL` functions in
+  `include/maicord/sys/simd_haswell.hpp`; only the reference oracles and the Opus conformance run use the SDK
   headers (`MAICORD_SDK_INCLUDES`). New Win32 imports need a reason.
 - **No unwind tables.** Frame-based exception dispatch stops at the first MaiCord frame, so the tests report crashes from a
   vectored handler and crash-dump stacks through MaiCord code are heuristic. Only the perf probe, which walks stacks

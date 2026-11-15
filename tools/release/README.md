@@ -7,7 +7,7 @@ any Windows machine with Python 3.10 or newer will do.
 
 | File | Purpose |
 | --- | --- |
-| `maicord_release.py` | `version`, `identity`, `release`, `preview`, `changelogs`, `channels`, `verify`, `portable`, `notes`, `checksums` subcommands |
+| `maicord_release.py` | `version`, `identity`, `release`, `linux`, `preview`, `changelogs`, `channels`, `verify`, `portable`, `notes`, `checksums` subcommands |
 | `update_channels.ps1` | Checks out the `update-channels` branch, runs `channels`, replaces the branch with one commit of the new site |
 | `cng_p256.py` | ECDSA P-256 key generation, signing and verification through CNG |
 | `generate_update_key.py` | Creates a signing key pair and prints the public key forms |
@@ -293,10 +293,10 @@ cmake --preset x64-release -DMAICORD_UPDATE_REPOSITORY=owner/repo -DMAICORD_UPDA
 
 Client behaviour:
 
-- It checks about 1–3 minutes after start, then every 24 hours ±1 hour, and
-  when you select **Check now**. Failures back off exponentially from five
-  minutes to 24 hours. `Retry-After` and an exhausted `x-ratelimit-reset` are
-  honoured.
+- It checks 5 to 15 seconds after the first frame (1 to 3 minutes after start when no frame comes), then at the
+  interval of Settings > Updates (every hour, 4 hours, 12 hours or once a day; 4 hours by default) with 10% jitter,
+  at most 1 hour, and when you select **Check now**. Failures back off exponentially from five minutes to that
+  interval. `Retry-After` and an exhausted `x-ratelimit-reset` are honoured.
 - Requests use HTTPS only and follow at most five redirects. Manifests,
   changelogs and preview packages come from `<owner>.github.io`, which may
   redirect only to itself. Release packages start at `github.com`, which may

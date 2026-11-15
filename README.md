@@ -3,7 +3,7 @@
 <img src=".github/assets/banner.svg" alt="MaiCord, a native Discord client for Windows and Linux" width="100%">
 
 **Written from scratch in C++ and drawn on the GPU.**<br>
-No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
+No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/maj113/MaiCord/total)](https://github.com/maj113/MaiCord/releases)
@@ -33,7 +33,7 @@ No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
 
 - **Native.** Freestanding C++23 (no STL, CRT, exceptions or RTTI). MaiCord shapes and rasterizes its own text and
   draws its own interface with Direct3D 11 on Windows and OpenGL ES on Wayland.
-- **Small.** One executable of about 6.5 MB on each system, and a download of 5.2 MB on Windows.
+- **Small.** One executable of about 6.5 MB on each system, and a download of 5.4 MB on Windows.
 - **Quiet.** Nothing redraws while nothing changes: no CPU time measured over 20 s of idle.
 - **Yours.** Themes, GPU background effects and native plugins, from a reviewed catalog or your own files.
 
@@ -42,7 +42,7 @@ No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
 
 | | Windows | Linux |
 | --- | --- | --- |
-| Download | 5.2 MB zip, portable | 5.3 MB tarball or 5.9 MB AppImage |
+| Download | 5.4 MB zip, portable | 5.4 MB tarball or 6.0 MB AppImage |
 | Executable | one 6.46 MB EXE | one 6.47 MB program |
 | On disk | the EXE plus its profile fonts and license notices, ~9 MB together | the same, ~9 MB together |
 | Dependencies | only DLLs that ship with Windows | the C library, and what a desktop has: OpenSSL, Wayland, EGL and GLES |
@@ -52,7 +52,7 @@ No Electron, no browser engine: one ~6.4 MB program on Windows and on Linux.
 
 Measured on one machine (Ryzen 7 5800X, Radeon RX 9070 XT): a Release build on Windows, and the Linux build in WSL2
 under headless sway, each on a fresh profile at the signed-out screen, with the idle figures over 20 seconds. The
-executable sizes are 0.8.0's, the downloads and the Linux figures 0.7.0's, and the Windows startup, idle and memory
+executable sizes and the downloads are 0.8.0's, the Linux figures 0.7.0's, and the Windows startup, idle and memory
 figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 
 </details>
@@ -276,11 +276,12 @@ details.
 ### Requirements
 
 <details>
-<summary><b>Windows</b>: Windows 10 version 1809 or later, or Windows 11, 64-bit, and a Direct3D 11 GPU with Tiled Resources Tier 1 and a WDDM 2.0 driver</summary>
+<summary><b>Windows</b>: Windows 10 version 1809 or later, or Windows 11, 64-bit, an Intel Haswell, AMD Excavator or Zen processor or newer, and a Direct3D 11 GPU with Tiled Resources Tier 1 and a WDDM 2.0 driver</summary>
 
 - Windows 10 version 1809 or later, or Windows 11, 64-bit
-- A processor from 2013 or later with AVX2: Intel Haswell, AMD Excavator or Zen, or newer. MaiCord refuses to start on
-  an older processor and says so
+- An Intel Haswell (2013) or AMD Excavator (2015) or Zen (2017) processor, or newer. On Intel that is a 4th generation
+  Core i3, i5 or i7 (i3/i5/i7-4xxx) or newer; many Pentium, Celeron and Atom models, newer ones too, are not enough.
+  MaiCord refuses to start on an older processor and says so
 - A GPU with Direct3D 11 (feature level 11_0) and Tiled Resources Tier 1 (Direct3D 11.2)
 - A graphics driver of WDDM 2.0 or newer, with Direct3D 11 fences: the GPU maker's current Windows 10 driver for every
   GPU above is one (NVIDIA Fermi and later, AMD GCN and later, Intel Broadwell and later)
@@ -289,19 +290,21 @@ details.
 </details>
 
 <details>
-<summary><b>Linux</b>: x86-64, Linux 6.1+, a Wayland session, glibc 2.34+ or musl</summary>
+<summary><b>Linux</b>: x86-64 (Intel Haswell, AMD Excavator or Zen, or newer), Linux 6.1+, a Wayland session, glibc 2.34+ or musl</summary>
 
-- x86-64 with AVX2 (a processor from 2013 or later, as on Windows), and Linux 6.1 or newer: the network loop runs on
-  io_uring, so a system that disables it (`kernel.io_uring_disabled`, Docker's and Podman's default seccomp profile) is
-  refused at startup with the cause named. Stock Ubuntu 22.04 and RHEL 9 kernels are older than 6.1
+- An x86-64 processor as on Windows (Intel Haswell, AMD Excavator or Zen, or newer), and Linux 6.1 or
+  newer: the network loop runs on io_uring, so a system that disables it (`kernel.io_uring_disabled`, Docker's and
+  Podman's default seccomp profile) is refused at startup with the cause named. Stock Ubuntu 22.04 and RHEL 9 kernels
+  are older than 6.1
 - glibc 2.34 or newer, or musl (Alpine, Void, Chimera). The release is checked in containers of Ubuntu 22.04, Debian 12,
   AlmaLinux 9, Fedora, Arch, NixOS, Alpine, Void and Chimera
 - A Wayland compositor: there is no X11 backend. MaiCord draws its own title bar, so it needs no server-side
-  decorations. It has been run on sway and Weston
+  decorations. It has been run on sway, Weston and KDE Plasma (KWin)
 - A GPU driver with OpenGL ES 3.1 over EGL, `GL_EXT_blend_func_extended` and image copies (Mesa, or NVIDIA)
 - OpenSSL 3 or 4, libwayland, libxkbcommon and EGL/GLES; used when present: PulseAudio or PipeWire's Pulse server
-  (voice), fontconfig, Hunspell or Enchant (spellcheck), libfido2 (security keys), VA-API (video), speech-dispatcher,
-  and the desktop portals and a Secret Service (notifications, file dialogs, saved sign-ins)
+  (sound), fontconfig, Hunspell or Enchant (spellcheck), libfido2 (security keys), VA-API, OpenH264 and dav1d (video),
+  PipeWire (screen sharing), speech-dispatcher, and the desktop portals and a Secret Service (notifications, file
+  dialogs, saved sign-ins)
 
 </details>
 

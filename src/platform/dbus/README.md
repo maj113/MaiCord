@@ -43,8 +43,8 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 - `maicord_dbus_wire` needs no bus.
 - `tools/test_dbus.sh` starts private `dbus-daemon`s (`tools/dbus_test_bus.sh`: no service activation) with
   `tests/platform/dbus/mock_services.py` (python3-dbus, python3-gi; libdbus decodes every request and the tests spell out what it
-  saw) and a bare one, and runs the connection, service, secure-buffer and no-service tests (`maicord_dbus_*`,
-  `maicord_secure_buffer_service`, `maicord_linux_notifications_mock`); they skip (77) without the bus.
+  saw) and a bare one, and runs the connection, service, secure-buffer and no-service tests (`maicord_dbus_*`, among them
+  `maicord_dbus_secure_buffer`, and `maicord_linux_notifications_mock`); they skip (77) without the bus.
   `MAICORD_NOTIFICATION_BACKEND` and the test-only `MAICORD_INSTANCE_BACKEND=socket|bus` are set by the script.
 - `tools/test_dbus_real.sh`: the clients against xdg-desktop-portal with its GTK backend and gnome-keyring on a private bus
   (needs a graphical session; not in CI).

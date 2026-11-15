@@ -42,7 +42,8 @@ Server = https://maj113.github.io/MaiCord/repo/arch/$arch
 signed too, so the stricter line works, and `Required DatabaseOptional` would only loosen it. The last three versions stay in the
 repository (`sudo pacman -U https://maj113.github.io/MaiCord/repo/arch/x86_64/maicord-<version>-1-x86_64.pkg.tar.zst` to go back).
 
-All of these need kernel 6.1 or newer, Wayland, and the system libraries listed under *What the program opens*. The installer,
+All of these need an Intel Haswell, AMD Excavator or Zen processor or newer, kernel 6.1 or newer, Wayland, and the
+system libraries listed under *What the program opens*. The installer,
 the AppImage and the tarball need no package manager; the others are updated by it. The repository rows work once the owner has
 done the steps in *Owner checklist* below (the Arch repository with the next release); the AUR packages wait for the AUR to
 accept new accounts again.
@@ -129,7 +130,7 @@ information into the runtime's `.upd_info` section, the bytes `appimagetool` wri
   the in-app updates are; the release's `SHA256SUMS` and build provenance attestation cover the file for anyone who checks.
 * **Start-up.** The FUSE mount and `AppRun` (a shell script that `exec`s the program) add about 6 ms to a launch (a stand-in that exits
   at once: 1.3 ms directly, 7.5 ms through the AppImage, on a busy machine); nothing after. `APPIMAGE_EXTRACT_AND_RUN=1` also writes the
-  whole image to `$TMPDIR` on every launch, which costs more (the program is 6.3 MB).
+  whole image to `$TMPDIR` on every launch, which costs more (the program is 6.5 MB).
 
 ## The one-line installer
 
@@ -257,8 +258,9 @@ cmake --build BUILD
 ### What the program opens
 
 `libssl.so.4` or `libssl.so.3` (OpenSSL 4 or 3), `libwayland-client/-egl/-cursor`, `libxkbcommon`, `libEGL`/`libGLESv2` are required; `libpulse`, `fontconfig`,
-hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers, `libpipewire-0.3` (Go Live screen sharing and stream
-audio) and the portals and Secret Service over D-Bus are used when present.
+hunspell or enchant, `libfido2`, speech-dispatcher, VA-API drivers, `libopenh264` and `libdav1d` (H.264 and AV1 video
+without VA-API), `libpipewire-0.3` (Go Live screen sharing and stream audio) and the portals and Secret Service over
+D-Bus are used when present.
 
 ## Channels: who acts, what they build
 

@@ -86,15 +86,16 @@ segmenter.
 
 ## Bidirectional ordering
 
-`bidi.hpp` provides classification, a P1 paragraph-boundary helper, P2-I2
-paragraph resolution and L1/L2 ordering for a caller-chosen line range
-([UAX #9 revision 51](https://www.unicode.org/reports/tr9/tr9-51.html)). Shaping,
+`bidi.hpp` provides a P1 paragraph-boundary helper and L1/L2 ordering for a caller-chosen line range
+([UAX #9 revision 51](https://www.unicode.org/reports/tr9/tr9-51.html)). P2-I2 paragraph resolution is
+`bidi_resolve_tailored` in `detail/bidi_internal.hpp`: it resolves bracket pairs by their surroundings, as the
+platform text stack lays out message text, not by N0. `tests/support/bidi_conformance.hpp` runs the same core with N0. Shaping,
 combining-glyph handling, glyph mirroring, line breaking and newline or caret
 policy are outside it; source text is never changed.
 
 - Each input needs a 16-byte working cell and one u32 scratch index. Explicit
-  levels use a fixed stack and brackets a 63-entry one; no heap allocation or
-  recursion.
+  levels use a fixed stack and bracket matching holds at most 61 open brackets; no heap
+  allocation or recursion.
 - Line output keeps the paragraph's resolved levels, so another wrap range can be
   reordered without another bidi pass. Line levels need one byte per input
   position; the scratch buffer can hold the visual indices.

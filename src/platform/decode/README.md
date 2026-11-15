@@ -74,6 +74,6 @@ not run by the build) write the fixtures.
 
 No test decodes through a real VA-API driver (vgem has none; Mesa's d3d12 VA driver does not initialize on WSL's vgem node
 here). To validate on hardware: decode on Intel (iHD, Gen9 and Gen12+ with media compression), AMD (radeonsi) and NVIDIA
-(nvidia-vaapi-driver, `nvidia-drm.modeset=1`), check the log lines at start (the vendor string, `vaapi_codecs`,
-`vaapi_features`: bit 0 10-bit, 1 timed sync, 2 stable exports), watch for `dmabuf_modifier_unusable`, and compare a live
+(nvidia-vaapi-driver, `nvidia-drm.modeset=1`), check the log lines at start (the vendor string, then `vaapi_ready` with its
+`codecs` and `features` fields: bit 0 10-bit, 1 timed sync, 2 stable exports), watch for `dmabuf_modifier_unusable`, and compare a live
 stream with the software tier.

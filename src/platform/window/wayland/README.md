@@ -41,6 +41,8 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 - Features are optional: every protocol except wl_compositor 4, wl_shm and xdg_wm_base is bound when present and silently absent
   otherwise; the call then returns false or does nothing. Never fail the window for a missing integration protocol.
 - Values the compositor sends are applied at the xdg `configure` ack, never in the middle of a sequence.
+- A pointer move replaces the last queued event when that event is a move with the same buttons (`pointer.cpp`), so a
+  pump gets one move at the newest position. Any other event between two moves keeps them apart.
 - `window_pump` after a `window_wait` reads only what that wait saw ready: the wait read the display itself, and the session
   bus, instance socket and bus extras it saw idle are not read again (`connection_process(..., readable)`). Descriptors are
   level-triggered, so whatever arrives later makes the next wait return at once; a pump without a wait before it reads all.
@@ -58,7 +60,7 @@ kept in `Backend` (`backend.hpp`), destroyed in `disconnect`.
 | text-input-v3, wl_data_device | IME, clipboard, drag and drop |
 | xdg-activation-v1 | `window_request_attention` (own token), `window_wayland_activate` (the token of a notification click or a second launch) |
 | zwp_idle_inhibit | `window_wayland_set_idle_inhibit`: screen stays on while the call view is open |
-| ext-idle-notify-v1 | `window_wayland_watch_idle`: `PlatformSettings::system_idle_ms` (presence idle, read acks); v2's input-only notification when offered; GNOME has none |
+| ext-idle-notify-v1 | `window_wayland_watch_idle`: `PlatformSettings::system_idle_ms` (presence idle, read acks); `window_wayland_idle_changes` counts the compositor's idle events, so the presence check needs no timer; v2's input-only notification when offered; GNOME has none |
 | xdg-foreign-v2 (exporter) | the window's handle goes to `dbus::portal_set_parent_window`; FileChooser, OpenURI and GlobalShortcuts send it as `parent_window` |
 | xdg-system-bell-v1 | `desktop_alert_beep` |
 | xdg-toplevel-icon-v1 | `window_set_icon` (the theme-coloured mark), KWin and labwc |
