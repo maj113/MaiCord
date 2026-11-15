@@ -2,17 +2,13 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/byte_range.hpp"
-#include "maicord/core/memory.hpp"
+#include "text_match.hpp"
 
 namespace maicord {
 namespace {
+using namespace media_detail;
 using E = DashManifestError;
 constexpr u32 maximum_bytes = 64 * 1024, maximum_segments = 8192;
-bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes == bytes && bytes_equal(a.data, b, bytes); }
-// The front ends are inlined so that a literal argument travels as a pointer and a length.
-__forceinline bool equal(const Utf8View& a, const Utf8View& b) noexcept {
-    return equal_chars(a, b.data, b.bytes);
-}
 bool name_char(char c) noexcept { return ascii_is_alnum(c) || c == '_' || c == '-' || c == '.' || c == ':'; }
 bool name_start(char c) noexcept { return (ascii_is_alnum(c) && !ascii_is_digit(c)) || c == '_'; }
 bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {

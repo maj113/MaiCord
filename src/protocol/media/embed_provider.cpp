@@ -2,24 +2,12 @@
 #include "maicord/protocol/media/embed_player.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/memory.hpp"
+#include "text_match.hpp"
 #include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
-// The Utf8View front ends are inlined so that a literal argument travels as a pointer and a length.
-bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
-    return a.bytes == bytes && (!bytes || bytes_equal(a.data, b, bytes));
-}
-__forceinline bool equal(const Utf8View& a, const Utf8View& b) noexcept {
-    return equal_chars(a, b.data, b.bytes);
-}
-bool prefix_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
-    return a.bytes >= bytes && bytes_equal(a.data, b, bytes);
-}
-__forceinline bool prefix(const Utf8View& a, const Utf8View& b) noexcept {
-    return prefix_chars(a, b.data, b.bytes);
-}
+using namespace media_detail;
 struct Url { Utf8View host, path, query, fragment; };
 bool parse(Utf8View text, Url* out) noexcept {
     if (!text.data || text.bytes > 2048 || text.bytes < 9 ||
@@ -49,12 +37,14 @@ bool host_chars(const Url& u, const char* value, u32 bytes) noexcept { return as
 __forceinline bool host(const Url& u, const Utf8View& value) noexcept {
     return host_chars(u, value.data, value.bytes);
 }
-// Rows of [provider][host name][NUL], ended by a zero provider byte: one table instead of a call per host.
+// Rows of [provider][length][host name], ended by a zero provider byte: one table instead of a call per host.
+// The length lets the search pass a row without a read of its name. The search runs for each visible embed.
 template <usize N> struct HostRow { char bytes[N]; };
 template <usize N> consteval HostRow<N + 1> row(EmbedProvider provider, const char (&host)[N]) noexcept {
     HostRow<N + 1> result{};
     result.bytes[0] = static_cast<char>(provider);
-    for (usize i = 0; i < N; ++i) result.bytes[i + 1] = host[i];
+    result.bytes[1] = static_cast<char>(N - 1);
+    for (usize i = 0; i + 1 < N; ++i) result.bytes[i + 2] = host[i];
     return result;
 }
 template <usize... Ns> struct HostTable { char bytes[(Ns + ... + 1)]; };
@@ -86,10 +76,9 @@ constexpr auto kHosts = table(
     row(P::playstation, "sessionshare.sp-int.playstation.com"));
 EmbedProvider provider(const Url& u) noexcept {
     for (const char* at = kHosts.bytes; *at;) {
-        const auto found = static_cast<EmbedProvider>(*at++);
-        const u32 bytes = c_string_length(at);
-        if (ascii_equal_ignore_case(u.host, {at, bytes})) return found;
-        at += bytes + 1;
+        const u32 bytes = static_cast<u8>(at[1]);
+        if (bytes == u.host.bytes && ascii_equal_ignore_case(u.host, {at + 2, bytes})) return static_cast<EmbedProvider>(*at);
+        at += bytes + 2;
     }
     constexpr auto amazon = utf8_literal("music.amazon.");
     if (u.host.bytes > amazon.bytes && ascii_equal_ignore_case({u.host.data, amazon.bytes}, amazon))
