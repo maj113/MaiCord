@@ -149,7 +149,7 @@ function Invoke-Probe([string]$RunProfile) {
 }
 
 function ConvertFrom-Report([string]$Text) {
-    $report = @{ phases = @{}; memory = @{}; detail = @{}; owners = @{}; modules = @(); sites = @(); hot = @(); threads = @(); fields = @(); stages = @(); marks = @(); lines = @{}; st = @{} }
+    $report = @{ phases = @{}; memory = @{}; detail = @{}; owners = @{}; modules = @(); sites = @(); calls = @(); hot = @(); threads = @(); fields = @(); data = @(); stages = @(); marks = @(); lines = @{}; st = @{} }
     foreach ($line in $Text -split "`r?`n") {
         if (!$line) { continue }
         $parts = $line -split ' '
@@ -164,8 +164,10 @@ function ConvertFrom-Report([string]$Text) {
             'memory_detail' { $report.detail[$values.snapshot] = $values }
             'module' { $report.modules += , $values }
             'site' { $report.sites += , $values }
+            'va_site' { $report.calls += , $values }
             'hot' { $report.hot += , $values }
             'ui_field' { $report.fields += , $values }
+            'data_pages' { $report.data += , $values }
             'stage' { $report.stages += , $values }
             'MAICORD_STARTUP_MARK' { $report.marks += , $values }
             'thread' { $report.threads += , $values }
@@ -578,6 +580,12 @@ foreach ($site in $warm[0].sites | Select-Object -First 25) {
     $frames = @($site.frames -split '/' | ForEach-Object { Resolve-Rva ([Convert]::ToUInt64($_.Substring(2), 16)) })
     Write-Host ('  {0,8} commit{1,8} PWS{2,5}x  {3}' -f $site.commit_kb, $site.pws_kb, $site.regions, ($frames -join ' < '))
 }
+Write-Host ''
+Write-Host 'client VirtualAlloc calls after startup (first warm run; calls by phase, committed KiB in all phases):'
+foreach ($site in $warm[0].calls | Where-Object { $_.phases -and $_.phases -notmatch '^startup:\d+$' }) {
+    $frames = @($site.frames -split '/' | ForEach-Object { Resolve-Rva ([Convert]::ToUInt64($_.Substring(2), 16)) })
+    Write-Host ('  {0,8} KiB  {1}  {2}' -f $site.commit_kb, $site.phases, ($frames -join ' < '))
+}
 if ($ownerLines['end/gpu_resource']) {
     Write-Host ''
     Write-Host 'largest live GPU resources (end; KiB, size, DXGI format, bind flags, creating call):'
@@ -633,6 +641,34 @@ Write-Host ''
 Write-Host 'AccountUiRuntime members (end, largest resident first):'
 foreach ($field in $warm[0].fields | Sort-Object { -[double]$_.resident_kb } | Select-Object -First 14) {
     Write-Host ('  {0,-40}{1,8} KiB{2,8} KiB resident' -f $field.name, $field.kb, $field.resident_kb)
+}
+# Each written page of the image's data sections, charged to the symbols that lie in it. A symbol's size is the
+# distance to the next symbol of the map.
+if ($symbols -and $warm[0].data) {
+    $written = @{}
+    $total = 0
+    foreach ($run in $warm[0].data) {
+        $begin = [Convert]::ToUInt64($run.rva.Substring(2), 16)
+        $end = $begin + 4096 * [UInt64]$run.pages
+        $total += $end - $begin
+        $low = 0; $high = $symbols.Count - 1; $index = 0
+        while ($low -le $high) {
+            $mid = [int][Math]::Floor(($low + $high) / 2)
+            if ($symbols[$mid].Rva -le $begin) { $index = $mid; $low = $mid + 1 } else { $high = $mid - 1 }
+        }
+        for (; $index -lt $symbols.Count -and $symbols[$index].Rva -lt $end; $index++) {
+            $next = if ($index + 1 -lt $symbols.Count) { $symbols[$index + 1].Rva } else { $end }
+            $bytes = [Math]::Min($next, $end) - [Math]::Max($symbols[$index].Rva, $begin)
+            if ($bytes -gt 0) { $written[$index] = [double]$written[$index] + $bytes }
+        }
+    }
+    Write-Host ''
+    Write-Host ('written image data (end): {0} KiB; the largest symbols (written KiB of symbol KiB):' -f [int]($total / 1024))
+    foreach ($entry in $written.GetEnumerator() | Sort-Object { -$_.Value } | Select-Object -First 30) {
+        $symbol = $symbols[$entry.Key]
+        $size = if ($entry.Key + 1 -lt $symbols.Count) { $symbols[$entry.Key + 1].Rva - $symbol.Rva } else { 0 }
+        Write-Host ('  {0,7:N0} of {1,7:N0}  {2}' -f ($entry.Value / 1024), ($size / 1024), $symbol.Name)
+    }
 }
 Write-Host ''
 Write-Host 'threads (whole run; idle = context switches in the final idle phase; stack = reserve/commit KiB at last sample):'

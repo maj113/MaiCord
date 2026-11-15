@@ -539,6 +539,33 @@ void report_sites(const MemorySnapshot& snapshot) noexcept {
     }
 }
 
+void report_call_sites() noexcept {
+    for (u32 i = 0; i < g_call_site_count; ++i) {
+        const CallSite& site = g_call_sites[i];
+        g_out.s("va_site frames=");
+        for (u32 f = 0; f < kSiteFrames; ++f) {
+            if (f)
+                g_out.s("/");
+            const u64 frame = site.frames[f];
+            g_out.hex(frame >= g_image_base && frame < g_image_base + 0x10000000ull ? frame - g_image_base : 0);
+        }
+        g_out.kv("commit_kb", site.commit_bytes / 1024);
+        g_out.s(" phases=");
+        bool first = true;
+        for (u32 p = 0; p < static_cast<u32>(Phase::report); ++p) {
+            if (!site.calls[p])
+                continue;
+            if (!first)
+                g_out.s(",");
+            first = false;
+            g_out.s(kPhaseNames[p]);
+            g_out.s(":");
+            g_out.n(site.calls[p]);
+        }
+        g_out.s("\n");
+    }
+}
+
 } // namespace perf_probe_detail
 
 namespace {
@@ -1059,6 +1086,50 @@ void report_account_ui_fields() noexcept {
     g_fields.kv("components", components);
     g_fields.kv("component_max", component_max);
     g_fields.s("\n");
+}
+
+// The written pages of the image's data sections, as runs of pages. The runner charges them to the symbols of
+// the link map: a static array costs memory only for the pages that the client writes.
+void report_image_data_pages() noexcept {
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(g_image_base);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(g_image_base + dos->e_lfanew);
+    const u64 end = g_image_base + nt->OptionalHeader.SizeOfImage;
+    static PSAPI_WORKING_SET_EX_INFORMATION info[512];
+    u64 run = 0, run_pages = 0;
+    const auto flush = [&]() noexcept {
+        if (run_pages) {
+            g_fields.s("data_pages rva=");
+            g_fields.hex(run - g_image_base);
+            g_fields.kv("pages", run_pages);
+            g_fields.s("\n");
+        }
+        run_pages = 0;
+    };
+    for (u64 at = g_image_base; at < end;) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (!VirtualQuery(reinterpret_cast<void*>(at), &region, sizeof(region)) || !region.RegionSize)
+            break;
+        const u64 region_end = at + region.RegionSize;
+        // A copy-on-write page of the image becomes PAGE_READWRITE when the client writes it.
+        for (u64 page = at; (region.Protect & PAGE_READWRITE) && page < region_end;) {
+            u32 count = 0;
+            for (; count < 512 && page < region_end; page += 4096)
+                info[count++].VirtualAddress = reinterpret_cast<void*>(page);
+            if (!K32QueryWorkingSetEx(GetCurrentProcess(), info, static_cast<DWORD>(count * sizeof(info[0]))))
+                break;
+            for (u32 i = 0; i < count; ++i) {
+                if (!info[i].VirtualAttributes.Valid || info[i].VirtualAttributes.Shared) {
+                    flush();
+                    continue;
+                }
+                if (!run_pages)
+                    run = reinterpret_cast<u64>(info[i].VirtualAddress);
+                ++run_pages;
+            }
+        }
+        flush();
+        at = region_end;
+    }
 }
 
 } // namespace perf_probe_detail

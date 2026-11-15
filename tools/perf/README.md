@@ -143,6 +143,12 @@ focused window (it pauses media animations only after a real deactivation).
   files. Heap blocks above the heap's virtual-memory threshold count as heap memory.
   Synthetic module and probe memory are reported separately. Each heap and the
   largest write-combined and other private regions are listed.
+- **VirtualAlloc calls:** each client `VirtualAlloc` call by its first four caller frames, with the calls in each
+  phase and the bytes it committed. A snapshot shows only the regions that exist at its time. This table also shows a
+  region that the client makes and frees inside one phase. The runner lists the call stacks that run after `startup`.
+- **Written image data** (end): the private pages of the image's data sections, charged to the symbols of the link
+  map. The size of a symbol is the distance to the next symbol. A static array uses memory only for the pages that the
+  client writes.
 - **GPU resources:** live and created bytes of the buffers, 2D textures and swap chain
   buffers the client created, by usage (sizes from the descriptions; driver padding and
   internal allocations excluded), at the first present, the shell and the end, and the

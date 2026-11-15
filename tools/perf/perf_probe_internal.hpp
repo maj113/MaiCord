@@ -289,6 +289,17 @@ const char* const kPhaseNames[] = {"startup",     "history",     "idle_static", 
                                    "idle_fx",     "theme",       "call_open",   "call_30fps",  "call_5fps",
                                    "idle_final",  "idle_hidden", "report",      "done"};
 
+// Every VirtualAlloc call of the client by call stack and phase. A snapshot shows only the regions that live at
+// its time: a region that the client makes and releases inside one phase is in no snapshot.
+struct CallSite {
+    u64 frames[kSiteFrames];
+    u64 commit_bytes;
+    u32 calls[static_cast<u32>(Phase::count)];
+};
+constexpr u32 kCallSiteCapacity = 512;
+extern CallSite g_call_sites[kCallSiteCapacity];
+extern u32 g_call_site_count;
+
 // Retained text and paint work: parser runs against cache hits, content text
 // streams rebuilt (and how many kept the shell's glyphs), paint streams rebuilt,
 // GPU instance bytes uploaded, member rows resolved for media and shell
@@ -491,6 +502,8 @@ void report_modules(const MemorySnapshot& snapshot) noexcept;
 
 void report_sites(const MemorySnapshot& snapshot) noexcept;
 
+void report_call_sites() noexcept;
+
 struct ProfileEntry {
     u32 key; // function begin RVA in the probe image, or 0x80000000 | module index
     u32 self;
@@ -522,6 +535,8 @@ void report_threads() noexcept;
 void report_account_ui_fields_text() noexcept;
 
 void report_account_ui_fields() noexcept;
+
+void report_image_data_pages() noexcept;
 
 } // namespace perf_probe_detail
 

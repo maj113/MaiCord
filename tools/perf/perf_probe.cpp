@@ -1037,6 +1037,7 @@ bool probe_step_phases(int* exit_code) noexcept {
             take_snapshot(2);
             collect_threads(false);
             report_account_ui_fields();
+            report_image_data_pages();
             begin_phase(Phase::idle_hidden);
             ShowWindow(win32_hwnd(g_app.window), SW_SHOWMINNOACTIVE);
             // A minimized client may not wake for many seconds; the phase
@@ -1111,6 +1112,7 @@ void probe_finish(int exit_code) noexcept {
         report_modules(*g_snapshots[2]);
         report_sites(*g_snapshots[2]);
     }
+    report_call_sites();
     report_threads();
     report_account_ui_fields_text();
     for (u32 p = 0; p < static_cast<u32>(Phase::report); ++p)

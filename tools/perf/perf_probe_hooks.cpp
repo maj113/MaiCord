@@ -326,6 +326,8 @@ u32 g_tracked_count = 0;
 u32 g_tracked_overflow = 0;
 SRWLOCK g_tracked_lock = SRWLOCK_INIT;
 u64 g_image_base = 0;
+CallSite g_call_sites[kCallSiteCapacity];
+u32 g_call_site_count = 0;
 
 u32 tracked_lower_bound(u64 base) noexcept {
     u32 low = 0, high = g_tracked_count;
@@ -380,22 +382,41 @@ void track_release(void* address) noexcept {
     ReleaseSRWLockExclusive(&g_tracked_lock);
 }
 
+void count_call(void* const* frames, u64 commit_bytes) noexcept {
+    AcquireSRWLockExclusive(&g_tracked_lock);
+    u32 at = 0;
+    while (at < g_call_site_count && memcmp(g_call_sites[at].frames, frames, sizeof(g_call_sites[at].frames)) != 0)
+        ++at;
+    if (at < kCallSiteCapacity) {
+        CallSite& site = g_call_sites[at];
+        if (at == g_call_site_count) {
+            memcpy(site.frames, frames, sizeof(site.frames));
+            ++g_call_site_count;
+        }
+        site.commit_bytes += commit_bytes;
+        ++site.calls[static_cast<u32>(g_probe.phase)];
+    }
+    ReleaseSRWLockExclusive(&g_tracked_lock);
+}
+
 LPVOID WINAPI hook_virtual_alloc(LPVOID address, SIZE_T bytes, DWORD type, DWORD protect) noexcept {
     LPVOID result = g_virtual_alloc(address, bytes, type, protect);
     InterlockedIncrement64(&g_alloc.virtual_alloc_calls);
+    void* frames[kSiteFrames + 1]{};
+    RtlCaptureStackBackTrace(1, kSiteFrames, frames, nullptr);
+    u64 rounded = 0;
     if (result) {
         if (type & MEM_COMMIT) {
-            const u64 rounded = (bytes + 4095) & ~4095ull;
+            rounded = (bytes + 4095) & ~4095ull;
             InterlockedAdd64(&g_alloc.virtual_commit_bytes, static_cast<LONG64>(rounded));
             InterlockedAdd64(&g_alloc.virtual_commit_waste, static_cast<LONG64>(rounded - bytes));
         }
         if ((type & MEM_RESERVE) && !address) {
             InterlockedAdd64(&g_alloc.virtual_reserve_bytes, static_cast<LONG64>((bytes + 65535) & ~65535ull));
-            void* frames[kSiteFrames + 1]{};
-            RtlCaptureStackBackTrace(1, kSiteFrames, frames, nullptr);
             track_reserve(result, bytes, frames);
         }
     }
+    count_call(frames, rounded);
     return result;
 }
 BOOL WINAPI hook_virtual_free(LPVOID address, SIZE_T bytes, DWORD type) noexcept {
