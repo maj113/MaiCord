@@ -129,6 +129,8 @@ struct NetworkAddressHints {
     addrinfoexW* ai_next;
 };
 
+// A socket operation that finished at once waits in the loop's ready list (network_loop_poll): `overlapped.hEvent`,
+// which the system no longer reads then, is the link to the next one.
 struct NetworkOperation {
     NetworkOverlapped overlapped;
     void* owner;
@@ -155,6 +157,10 @@ struct NetworkLoop {
     // Removed from the port by the last wait, not yet returned by a poll: batch[batch_next, batch_count).
     u32 batch_next;
     u32 batch_count;
+    // Operations put in the ready list since the last wait on the port.
+    u32 ready_since_wait;
+    NetworkOperation* ready_head;
+    NetworkOperation* ready_tail;
     NetworkCompletionEntry batch[kNetworkLoopBatch];
 };
 #else
@@ -262,6 +268,8 @@ void network_file_close(NetworkFile* file) noexcept;
 struct NetworkConnection {
 #if defined(_WIN32)
     SOCKET socket;
+    // The loop, when an operation of the socket that finishes at once queues no packet in the port; else null.
+    NetworkLoop* loop;
 #else
     // The descriptor + 1; 0 when there is none.
     u32 socket;
@@ -295,6 +303,8 @@ inline constexpr u32 kNetworkDatagramReceiveSlots = 8;
 struct NetworkDatagram {
 #if defined(_WIN32)
     SOCKET socket;
+    // As in NetworkConnection.
+    NetworkLoop* loop;
 #else
     // The descriptor + 1; 0 when there is none.
     u32 socket;

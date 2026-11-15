@@ -108,10 +108,12 @@ void socket_close(Socket* socket_value) noexcept {
     *socket_value = {};
 }
 
+// The watch is a manual-reset event, as WSACreateEvent makes one. The kernel32 calls do the work of the WSA event
+// calls, and MaiCord imports them already.
 bool socket_watch_open(SocketWatch* watch) noexcept {
     *watch = {};
-    watch->waitable = WSACreateEvent();
-    return watch->waitable != WSA_INVALID_EVENT;
+    watch->waitable = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    return watch->waitable != nullptr;
 }
 
 bool socket_watch_attach(SocketWatch* watch, Socket* socket_value, u32 mask) noexcept {
@@ -128,12 +130,12 @@ bool socket_watch_poll(SocketWatch* watch, const Socket& socket_value, u32* even
 }
 
 void socket_watch_reset(SocketWatch* watch) noexcept {
-    WSAResetEvent(watch->waitable);
+    ResetEvent(watch->waitable);
 }
 
 void socket_watch_close(SocketWatch* watch) noexcept {
-    if (watch->waitable != WSA_INVALID_EVENT) {
-        WSACloseEvent(watch->waitable);
+    if (watch->waitable != nullptr) {
+        CloseHandle(watch->waitable);
     }
     *watch = {};
 }

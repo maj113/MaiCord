@@ -54,6 +54,35 @@ void publish_addresses(NetworkResolver* resolver) noexcept {
 
 } // namespace
 
+bool network_socket_skip_port(SOCKET socket) noexcept {
+    SOCKET base = INVALID_SOCKET;
+    DWORD returned = 0;
+    return WSAIoctl(socket, SIO_BASE_HANDLE, nullptr, 0, &base, sizeof(base), &returned, nullptr, nullptr) == 0 &&
+           base == socket &&
+           SetFileCompletionNotificationModes(reinterpret_cast<HANDLE>(socket), FILE_SKIP_COMPLETION_PORT_ON_SUCCESS |
+                                                                                    FILE_SKIP_SET_EVENT_ON_HANDLE);
+}
+
+void network_operation_finished(NetworkLoop* loop, NetworkOperation* operation, u32 transferred,
+                                bool after_port) noexcept {
+    operation->overlapped.Internal = 0;
+    // The port also gets its turn: after a batch of ready operations with no wait on it, the next ones go through it.
+    if ((after_port || loop->ready_since_wait >= kNetworkLoopBatch) &&
+        PostQueuedCompletionStatus(loop->completion_port, transferred, reinterpret_cast<ULONG_PTR>(operation->owner),
+                                   native(&operation->overlapped))) {
+        return;
+    }
+    ++loop->ready_since_wait;
+    operation->overlapped.InternalHigh = transferred;
+    operation->overlapped.hEvent = nullptr;
+    if (loop->ready_tail) {
+        loop->ready_tail->overlapped.hEvent = operation;
+    } else {
+        loop->ready_head = operation;
+    }
+    loop->ready_tail = operation;
+}
+
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
     if (!loop) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
@@ -177,7 +206,8 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
     connection->receive_operation.buffer.buf = reinterpret_cast<char*>(buffer.data);
     connection->receive_operation.buffer.len = buffer.count;
     connection->receive_pending = true;
-    const i32 started = WSARecv(connection->socket, native(&connection->receive_operation.buffer), 1, nullptr,
+    DWORD transferred = 0;
+    const i32 started = WSARecv(connection->socket, native(&connection->receive_operation.buffer), 1, &transferred,
                                 &connection->receive_operation.receive_flags,
                                 native(&connection->receive_operation.overlapped), nullptr);
     if (started == SOCKET_ERROR) {
@@ -186,6 +216,8 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
             connection->receive_pending = false;
             return failure(NetworkError::receive_start, native_error);
         }
+    } else if (connection->loop) {
+        network_operation_finished(connection->loop, &connection->receive_operation, transferred, false);
     }
     return success();
 }
@@ -200,7 +232,8 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
     connection->send_operation.buffer.buf = reinterpret_cast<char*>(const_cast<u8*>(buffer.data));
     connection->send_operation.buffer.len = buffer.count;
     connection->send_pending = true;
-    const i32 started = WSASend(connection->socket, native(&connection->send_operation.buffer), 1, nullptr, 0,
+    DWORD transferred = 0;
+    const i32 started = WSASend(connection->socket, native(&connection->send_operation.buffer), 1, &transferred, 0,
                                 native(&connection->send_operation.overlapped), nullptr);
     if (started == SOCKET_ERROR) {
         const i32 native_error = WSAGetLastError();
@@ -208,6 +241,8 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
             connection->send_pending = false;
             return failure(NetworkError::send_start, native_error);
         }
+    } else if (connection->loop) {
+        network_operation_finished(connection->loop, &connection->send_operation, transferred, false);
     }
     return success();
 }
@@ -320,32 +355,45 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
 
-    // One wait removes every completion already queued, up to a batch; the polls after it return them in the port's
-    // order without a system call, as GetQueuedCompletionStatus would have one per call.
-    if (loop->batch_next == loop->batch_count) {
-        ULONG removed = 0;
-        if (!GetQueuedCompletionStatusEx(loop->completion_port, native(loop->batch), kNetworkLoopBatch, &removed,
-                                         timeout_milliseconds, FALSE)) {
-            const i32 native_error = static_cast<i32>(thread_last_error());
-            if (native_error == WAIT_TIMEOUT) {
-                result.state = NetworkPollState::timeout;
+    // The order of a poll's sources: the batch that the last wait removed from the port, then the ready list, then
+    // one wait, which removes every completion already queued, up to a batch. Only the wait is a system call.
+    NetworkOperation* operation = nullptr;
+    ULONG_PTR completion_key = 0;
+    DWORD transferred = 0;
+    if (loop->batch_next == loop->batch_count && loop->ready_head) {
+        operation = loop->ready_head;
+        loop->ready_head = static_cast<NetworkOperation*>(operation->overlapped.hEvent);
+        if (!loop->ready_head) {
+            loop->ready_tail = nullptr;
+        }
+        completion_key = reinterpret_cast<ULONG_PTR>(operation->owner);
+        transferred = static_cast<DWORD>(operation->overlapped.InternalHigh);
+    } else {
+        if (loop->batch_next == loop->batch_count) {
+            ULONG removed = 0;
+            loop->ready_since_wait = 0;
+            if (!GetQueuedCompletionStatusEx(loop->completion_port, native(loop->batch), kNetworkLoopBatch, &removed,
+                                             timeout_milliseconds, FALSE)) {
+                const i32 native_error = static_cast<i32>(thread_last_error());
+                if (native_error == WAIT_TIMEOUT) {
+                    result.state = NetworkPollState::timeout;
+                    return result;
+                }
+                result.completion.native_error = native_error;
                 return result;
             }
-            result.completion.native_error = native_error;
+            loop->batch_next = 0;
+            loop->batch_count = removed;
+        }
+        const NetworkCompletionEntry& entry = loop->batch[loop->batch_next++];
+        if (!entry.lpOverlapped) {
+            result.completion.native_error = 0;
             return result;
         }
-        loop->batch_next = 0;
-        loop->batch_count = removed;
+        operation = reinterpret_cast<NetworkOperation*>(entry.lpOverlapped);
+        completion_key = entry.lpCompletionKey;
+        transferred = entry.dwNumberOfBytesTransferred;
     }
-    const NetworkCompletionEntry& entry = loop->batch[loop->batch_next++];
-    const ULONG_PTR completion_key = entry.lpCompletionKey;
-    OVERLAPPED* overlapped = native(entry.lpOverlapped);
-    if (!overlapped) {
-        result.completion.native_error = 0;
-        return result;
-    }
-
-    auto* operation = reinterpret_cast<NetworkOperation*>(overlapped);
     const auto owned = [&](const auto* owner) noexcept {
         return owner && operation->generation == owner->generation &&
                completion_key == reinterpret_cast<ULONG_PTR>(owner);
@@ -387,9 +435,9 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
     }
 
     // The request's status, which GetQueuedCompletionStatus turned into its result and last error.
-    const NTSTATUS status = static_cast<NTSTATUS>(overlapped->Internal);
+    const NTSTATUS status = static_cast<NTSTATUS>(operation->overlapped.Internal);
     const bool succeeded = status >= 0;
-    result.completion.transferred = entry.dwNumberOfBytesTransferred;
+    result.completion.transferred = transferred;
     result.completion.native_error = succeeded ? 0 : static_cast<i32>(RtlNtStatusToDosError(status));
     result.completion.kind = operation->kind;
     result.completion.succeeded = succeeded;
@@ -434,6 +482,9 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         if (succeeded &&
             setsockopt(connection->socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, nullptr, 0) == 0) {
             connection->state = NetworkConnectionState::connected;
+            if (network_socket_skip_port(connection->socket)) {
+                connection->loop = loop;
+            }
         } else {
             if (succeeded) {
                 result.completion.succeeded = false;
@@ -446,7 +497,7 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         connection->receive_pending = false;
         if (!succeeded) {
             connection->state = NetworkConnectionState::failed;
-        } else if (entry.dwNumberOfBytesTransferred == 0) {
+        } else if (transferred == 0) {
             connection->state = NetworkConnectionState::peer_closed;
         }
         break;

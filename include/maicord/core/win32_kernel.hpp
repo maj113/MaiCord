@@ -152,6 +152,8 @@
 #define FILE_FLAG_SEQUENTIAL_SCAN 0x08000000
 #define FILE_FLAG_BACKUP_SEMANTICS 0x02000000
 #define FILE_FLAG_OPEN_REPARSE_POINT 0x00200000
+#define FILE_SKIP_COMPLETION_PORT_ON_SUCCESS 0x1
+#define FILE_SKIP_SET_EVENT_ON_HANDLE 0x2
 #define GMEM_MOVEABLE 0x0002
 #define GMEM_ZEROINIT 0x0040
 #define GMEM_INVALID_HANDLE 0x8000
@@ -603,6 +605,7 @@ extern "C" __declspec(dllimport) BOOL WINAPI CreateHardLinkW(LPCWSTR lpFileName,
 // <winbase.h>
 extern "C" __declspec(dllimport) BOOL WINAPI GetFileInformationByHandleEx(HANDLE hFile,
     FILE_INFO_BY_HANDLE_CLASS FileInformationClass, LPVOID lpFileInformation, DWORD dwBufferSize);
+extern "C" __declspec(dllimport) BOOL WINAPI SetFileCompletionNotificationModes(HANDLE FileHandle, UCHAR Flags);
 
 // <stringapiset.h>
 extern "C" __declspec(dllimport) int WINAPI CompareStringOrdinal(LPCWCH lpString1, int cchCount1, LPCWCH lpString2,

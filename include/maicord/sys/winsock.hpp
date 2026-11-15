@@ -23,6 +23,7 @@
 #define AF_INET6 23
 #define TCP_NODELAY 0x0001
 #define IOC_WS2 0x08000000
+#define _WSAIOR(x,y) (IOC_OUT|(x)|(y))
 #define _WSAIORW(x,y) (IOC_INOUT|(x)|(y))
 #define SIO_GET_EXTENSION_FUNCTION_POINTER _WSAIORW(IOC_WS2,6)
 #define INADDR_LOOPBACK 0x7f000001
@@ -47,9 +48,7 @@
 #define SOL_SOCKET 0xffff
 
 // <WinSock2.h>
-#define WSAEVENT HANDLE
 #define WSA_IO_PENDING (ERROR_IO_PENDING)
-#define WSA_INVALID_EVENT ((WSAEVENT)NULL)
 #define SD_SEND 0x01
 #define WSA_FLAG_OVERLAPPED 0x01
 #define WSA_FLAG_NO_HANDLE_INHERIT 0x80
@@ -63,6 +62,7 @@
 // <MSWSock.h>
 #define SO_UPDATE_CONNECT_CONTEXT 0x7010
 #define WSAID_CONNECTEX {0x25a207b9,0xddf3,0x4660,{0x8e,0xe9,0x76,0xe5,0x8c,0x74,0x06,0x3e}}
+#define SIO_BASE_HANDLE _WSAIOR(IOC_WS2,34)
 
 typedef unsigned short u_short;
 typedef unsigned long u_long;
@@ -208,8 +208,6 @@ extern "C" __declspec(dllimport) int WINAPI WSAStartup(WORD wVersionRequested, L
 extern "C" __declspec(dllimport) int WINAPI WSACleanup();
 extern "C" __declspec(dllimport) void WINAPI WSASetLastError(int iError);
 extern "C" __declspec(dllimport) int WINAPI WSAGetLastError();
-extern "C" __declspec(dllimport) BOOL WINAPI WSACloseEvent(HANDLE hEvent);
-extern "C" __declspec(dllimport) HANDLE WINAPI WSACreateEvent();
 extern "C" __declspec(dllimport) int WINAPI WSAEnumNetworkEvents(SOCKET s, HANDLE hEventObject,
     LPWSANETWORKEVENTS lpNetworkEvents);
 extern "C" __declspec(dllimport) int WINAPI WSAEventSelect(SOCKET s, HANDLE hEventObject, long lNetworkEvents);
@@ -219,7 +217,6 @@ extern "C" __declspec(dllimport) int WINAPI WSAIoctl(SOCKET s, DWORD dwIoControl
 extern "C" __declspec(dllimport) int WINAPI WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
     LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
     LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
-extern "C" __declspec(dllimport) BOOL WINAPI WSAResetEvent(HANDLE hEvent);
 extern "C" __declspec(dllimport) int WINAPI WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
     LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
     LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);

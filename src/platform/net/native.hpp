@@ -36,6 +36,16 @@ inline ADDRINFOEXW* native(NetworkAddressHints* value) noexcept {
     return reinterpret_cast<ADDRINFOEXW*>(value);
 }
 
+// Makes the operations of `socket` that finish at once queue no completion packet (and set no event) from now on.
+// False leaves the socket as it is: the call failed, or a layered provider gave the socket a handle of its own, and
+// its operations queue the packet with either mode.
+bool network_socket_skip_port(SOCKET socket) noexcept;
+
+// An operation that finished at once on such a socket: a poll of `loop` returns it as it returns the port's packets.
+// `after_port` is for an operation that must follow a completion the port can hold: it goes through the port.
+void network_operation_finished(NetworkLoop* loop, NetworkOperation* operation, u32 transferred,
+                                bool after_port) noexcept;
+
 // The sockaddr of `address` in `storage` and its byte count; 0 for an address that is neither IPv4 nor IPv6.
 inline i32 socket_address(const NetworkAddress& address, sockaddr_storage* storage) noexcept {
     clear_bytes(storage, sizeof(*storage));

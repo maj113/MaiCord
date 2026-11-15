@@ -342,6 +342,42 @@ void test_datagrams(NetworkLoop* loop) noexcept {
           "a zero-length send");
     check(receive_datagram(&peer, &watch, heard, sizeof(heard), &count, nullptr) && count == 0, "the peer hears it");
 
+    // Reads that find their datagrams already there finish at once. They complete after the read that was posted
+    // before them, in the order of the datagrams.
+    check(network_datagram_receive_slot(&datagram, 2, {third, sizeof(third)}).ok(), "post a read that waits");
+    check(udp_peer_send_to(peer, "aa", 2, from) == 2 && udp_peer_send_to(peer, "bbb", 3, from) == 3 &&
+              udp_peer_send_to(peer, "c", 1, from) == 1,
+          "the peer sends three more");
+    check(network_datagram_receive_slot(&datagram, 0, {first, sizeof(first)}).ok() &&
+              network_datagram_receive_slot(&datagram, 1, {second, sizeof(second)}).ok(),
+          "post two reads after the datagrams");
+    for (u32 index = 0; index < 3; ++index) {
+        check(next(loop, NetworkOperationKind::datagram_receive, &reads[index]) && reads[index].succeeded &&
+                  !reads[index].stale,
+              "a late read completes");
+    }
+    check(reads[0].datagram_slot == 2 && reads[0].transferred == 2 && bytes_equal(third, "aa", 2) &&
+              reads[1].datagram_slot == 0 && reads[1].transferred == 3 && bytes_equal(first, "bbb", 3) &&
+              reads[2].datagram_slot == 1 && reads[2].transferred == 1 && bytes_equal(second, "c", 1),
+          "the late reads keep the order of the datagrams");
+
+    // More sends in a row than one batch: each one completes, one time.
+    for (u32 index = 0; index < 2 * kNetworkDatagramReceiveSlots + 4; ++index) {
+        const bool sent = network_datagram_send(&datagram, {ping, 4}).ok();
+#if defined(_WIN32)
+        // A send that finishes at once waits in the loop's ready list, with no packet in the port, until the loop
+        // waited on the port for a batch of them. A layered Winsock provider keeps the packets.
+        if (index < 4)
+            check(!datagram.loop || loop->ready_head == &datagram.send_operation, "a finished send is ready");
+#endif
+        check(sent && next(loop, NetworkOperationKind::datagram_send, &done) && done.succeeded &&
+                  done.transferred == 4 && !datagram.send_pending,
+              "a send of the row completes");
+        check(receive_datagram(&peer, &watch, heard, sizeof(heard), &count, nullptr) && count == 4,
+              "the peer hears the send of the row");
+    }
+    check(idle(loop), "no completion is left");
+
     // Closing delivers one cancelled completion per pending read, flagged stale, and the socket stays closed.
     check(network_datagram_receive(&datagram, {first, sizeof(first)}).ok() &&
               network_datagram_receive_slot(&datagram, 3, {third, sizeof(third)}).ok(),

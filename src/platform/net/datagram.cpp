@@ -37,6 +37,8 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
     datagram->socket = socket;
     datagram->generation = generation;
     datagram->open = true;
+    if (network_socket_skip_port(socket))
+        datagram->loop = loop;
     return {};
 }
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept {
@@ -48,12 +50,15 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
     auto& receive = slot ? datagram->extra_receive_operations[slot - 1] : datagram->receive_operation;
     network_operation_initialize(&receive, datagram, NetworkOperationKind::datagram_receive, datagram->generation);
     receive.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
+    // A read that finishes at once shows that the system finished every read posted before it.
+    const bool earlier_reads = datagram->receive_pending || datagram->extra_receive_pending;
     if (slot)
         datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending | bit);
     else
         datagram->receive_pending = true;
-    if (WSARecv(datagram->socket, native(&receive.buffer), 1, nullptr, &receive.receive_flags, native(&receive.overlapped),
-                nullptr) == SOCKET_ERROR) {
+    DWORD transferred = 0;
+    if (WSARecv(datagram->socket, native(&receive.buffer), 1, &transferred, &receive.receive_flags,
+                native(&receive.overlapped), nullptr) == SOCKET_ERROR) {
         const auto error = WSAGetLastError();
         if (error != WSA_IO_PENDING) {
             if (slot)
@@ -62,6 +67,8 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
                 datagram->receive_pending = false;
             return fail(NetworkError::receive_start, error);
         }
+    } else if (datagram->loop) {
+        network_operation_finished(datagram->loop, &receive, transferred, earlier_reads);
     }
     return {};
 }
@@ -79,12 +86,16 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
     network_operation_initialize(&send, datagram, NetworkOperationKind::datagram_send, datagram->generation);
     send.buffer = {buffer.count, reinterpret_cast<char*>(const_cast<u8*>(buffer.data))};
     datagram->send_pending = true;
-    if (WSASend(datagram->socket, native(&send.buffer), 1, nullptr, 0, native(&send.overlapped), nullptr) == SOCKET_ERROR) {
+    DWORD transferred = 0;
+    if (WSASend(datagram->socket, native(&send.buffer), 1, &transferred, 0, native(&send.overlapped), nullptr) ==
+        SOCKET_ERROR) {
         const auto error = WSAGetLastError();
         if (error != WSA_IO_PENDING) {
             datagram->send_pending = false;
             return fail(NetworkError::send_start, error);
         }
+    } else if (datagram->loop) {
+        network_operation_finished(datagram->loop, &send, transferred, false);
     }
     return {};
 }
