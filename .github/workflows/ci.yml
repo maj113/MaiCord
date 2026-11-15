@@ -456,11 +456,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # The release tag can arrive after this run starts (the master push goes first). release.yml publishes a tagged
+      # commit, so this job then stops here without an error and leaves the preview channel as it is.
+      - name: Skip a release commit
+        id: release
+        shell: powershell
+        run: |
+          $tag = git tag --points-at HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
+          if ($tag) {
+            "skip=true" >> $env:GITHUB_OUTPUT
+            Write-Host "::notice::HEAD is the $tag release; release.yml publishes it."
+          }
+
+      - if: steps.release.outputs.skip != 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Fetch the client binaries
+        if: steps.release.outputs.skip != 'true'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -470,6 +484,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Package and sign the preview build
+        if: steps.release.outputs.skip != 'true'
         shell: powershell
         env:
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
@@ -486,7 +501,7 @@ jobs:
       # Linux preview feed beside the Windows files. The Linux client job gates nothing: without its tarball the Linux feed
       # stays where it is.
       - name: Fetch the Linux tarball
-        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
+        if: steps.release.outputs.skip != 'true' && vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -496,7 +511,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Sign the Linux preview build
-        if: vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
+        if: steps.release.outputs.skip != 'true' && vars.MAICORD_LINUX_RELEASES == 'true' && needs.linux-client.outputs.preview != ''
         shell: powershell
         env:
           MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
@@ -519,6 +534,7 @@ jobs:
 
       - name: Update the preview channel
         id: channels
+        if: steps.release.outputs.skip != 'true'
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
