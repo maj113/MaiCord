@@ -37,12 +37,22 @@ using EtfGrowOutput = bool (*)(void* context, u32 required_bytes, Slice<u8>* out
 
 // Transcodes one term (version byte 131 first) into *output, growing it through grow (optional) up to
 // maximum_output bytes, and writes the JSON's structural index to `index` as json_scan_structurals_avx1 would
-// produce it, since every structural byte is written here. *index_count is the number of entries, or ~0u when
-// `index` was too small (or on error); the JSON is complete either way. Needs no index: pass an empty slice.
+// produce it, since every structural byte is written here. *index_count is the number of structurals (~0u on
+// error). The index holds them when that count is at most index.count; the JSON is complete either way. Needs no
+// index: pass an empty slice.
 // The text is valid JSON by construction (strings escaped, invalid UTF-8 replaced, numbers canonical), so a
 // reader may take it as validated, within the depth the transcoder allows (kEtfMaximumDepth).
+// When the index needs at most the lower half of `index`, the upper half holds its table of bracket ends
+// (etf_index_ends).
 EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
                               void* context, Slice<u32> index, u32* index_count) noexcept;
+
+// The table of bracket ends that etf_to_json_indexed left for an index of index_count entries in `index`, in the
+// form of json_index_ends. The count of levels at a closing bracket is an upper bound. Null when the index was
+// too long for a table.
+inline const u32* etf_index_ends(Slice<u32> index, u32 index_count) noexcept {
+    return index_count <= index.count / 2 ? index.data + index.count / 2 : nullptr;
+}
 
 // Encodes one JSON command as the desktop client's erlpack does: strings and
 // map keys as binaries, null/true/false as small atoms, 0-255 as small

@@ -285,8 +285,14 @@ bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureS
         pass.result.route.scan_error = scan.error; pass.result.route.error_offset = scan.error_offset;
         return false;
     }
-    const auto read = json_visit_value_array(array, {pass.scratch.arrays.data, scan.count},
-        64, record, &pass);
+    const ConstSlice<u32> index{pass.scratch.arrays.data, scan.count};
+    if (kind == RecordKind::guild && pass.ready->merged_members.source.data) {
+        // Count before positional binding: a short or long array cannot shift
+        // another guild's member into this guild's permission authority.
+        const auto counted = json_visit_value_array(array, index, 64, nullptr, nullptr);
+        pass.merged_invalid |= !counted.ok() || counted.member_count != pass.members.count;
+    }
+    const auto read = json_visit_value_array(array, index, 64, record, &pass);
     if (!read.ok()) {
         if (pass.result.route.ok() && !pass.result.interrupted) {
             pass.result.route.error = GatewayClientDispatchRouteError::decode;
@@ -325,15 +331,8 @@ bool run(Pass& pass) noexcept {
         pass.scratch.payload, pass.sequence, true, pass.now_ms, relay, &pass);
     if (pass.result.interrupted) return false;
     reset_value(&pass.members);
-    pass.merged_invalid = false;
-    if (ready.merged_members.source.data) {
-        // Count before positional binding: a short or long array cannot shift
-        // another guild's member into this guild's permission authority.
-        MemberArrayCursor guilds;
-        pass.merged_invalid = !pass.members.init(ready.merged_members, pass.scratch.records) ||
-                              !guilds.init(ready.guilds, pass.scratch.records) ||
-                              pass.members.count != guilds.count;
-    }
+    pass.merged_invalid = ready.merged_members.source.data &&
+                          !pass.members.init(ready.merged_members, pass.scratch.records);
     if (!records(pass, ready.guilds, RecordKind::guild, GatewayClientFailureStage::ready_guild_route)) return false;
     if (ready.private_channels.kind == JsonValueKind::array && !records(pass, ready.private_channels,
         RecordKind::private_channel, GatewayClientFailureStage::ready_private_route)) return false;

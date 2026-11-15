@@ -1,7 +1,7 @@
 // ETF on the user Gateway: received terms transcode to the JSON the dispatch
 // layer reads (erlpack's value model), and JSON commands encode as the desktop
 // client's erlpack packs them. Synthetic payloads only.
-#include "maicord/core/json_scan.hpp"
+#include "../../support/json_ends.hpp"
 #include "maicord/protocol/gateway/etf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -97,7 +97,7 @@ u8 indexed_json[8192];
 u32 written_index[4096];
 u32 scanned_index[4096];
 // The structural index written while transcoding is the scanner's on the same JSON, and a too small index
-// reports ~0u without touching the JSON.
+// reports the full count without writing past its end or touching the JSON.
 bool index_agrees(const Term& term, u32 json_bytes) noexcept {
     const ConstSlice<u8> etf{term.data, term.used};
     const JsonScanResult scan = json_scan_structurals_avx1({reinterpret_cast<const char*>(json), json_bytes},
@@ -109,12 +109,26 @@ bool index_agrees(const Term& term, u32 json_bytes) noexcept {
     if (!scan.ok() || !indexed.ok() || indexed.bytes != json_bytes || count != scan.count ||
         !bytes_equal(indexed_json, json, json_bytes) || !bytes_equal(written_index, scanned_index, count * 4))
         return false;
+    // The upper half of the index storage holds the table of bracket ends: the pairs of json_index_ends, and
+    // levels that are not below the exact ones.
+    static u32 exact[2048];
+    const u32* const ends = etf_index_ends({written_index, 4096}, count);
+    const Utf8View text{reinterpret_cast<const char*>(json), json_bytes};
+    if (!ends || !json_index_ends(text, {scanned_index, count}, {exact, 2048}))
+        return false;
+    for (u32 i = 0; i < count; ++i) {
+        const char c = text.data[scanned_index[i]];
+        if (((c == '{' || c == '[') && ends[i] != exact[i]) || ((c == '}' || c == ']') && ends[i] < exact[i]))
+            return false;
+    }
     if (count) {
         u32 too_few = 0;
+        written_index[count - 1] = ~0u;
         output = {indexed_json, sizeof(indexed_json)};
         const auto short_index = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
                                                      {written_index, count - 1}, &too_few);
-        if (!short_index.ok() || short_index.bytes != json_bytes || too_few != ~0u)
+        if (!short_index.ok() || short_index.bytes != json_bytes || too_few != count ||
+            written_index[count - 1] != ~0u)
             return false;
     }
     return true;

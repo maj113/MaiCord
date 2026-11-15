@@ -426,7 +426,8 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
                                                       Slice<char> payload_scratch, u64 self_user_id,
                                                       GatewayClientEvent* event, ConstSlice<u8>* payload,
                                                       bool* handled, bool* overflowed,
-                                                      JsonValue ready_members = {}) noexcept {
+                                                      JsonValue ready_members = {},
+                                                      const JsonIndexedDocument* frame = nullptr) noexcept {
     if (!event || !payload || !handled) {
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     }
@@ -475,9 +476,10 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
     }
 
     StateObjectContext object;
+    // The frame's index (when the caller has it intact) covers the data: the object needs no scan of its own.
     const GatewayEventDecodeResult decoded =
         decode_state_object(envelope.data, structural_scratch, maximum_depth, &object,
-                            channel_create || channel_update || channel_delete);
+                            channel_create || channel_update || channel_delete, frame);
     // READY can grow its nested index and retry this record: it keeps the scan/read codes. The other state
     // and receipt routes keep their established error contract.
     if (!decoded.ok())
@@ -541,8 +543,12 @@ GatewayClientDispatchRouteResult gateway_client_route_state_dispatch(
     Slice<char> payload_scratch, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload,
     bool* handled) noexcept {
     bool overflowed = false;
+    // Every route before this one filters by event name before it scans, so the envelope's index is intact.
+    const bool intact = envelope.document.structurals.data &&
+                        envelope.document.structurals.data == structural_scratch.data;
     auto routed = route_state_dispatch(envelope, structural_scratch, maximum_depth, payload_scratch, self_user_id,
-                                       event, payload, handled, &overflowed);
+                                       event, payload, handled, &overflowed, {},
+                                       intact ? &envelope.document : nullptr);
     routed.payload_overflow = !routed.ok() && overflowed;
     return routed;
 }

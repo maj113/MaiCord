@@ -1,6 +1,7 @@
 #include "maicord/protocol/gateway/session.hpp"
 #include "maicord/protocol/http/websocket_message.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "../encoding/json_field_lists.hpp"
@@ -96,15 +97,34 @@ void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
     }
 }
 
+// Grows the structural index in place to `required` entries, at most kGatewaySessionMaximumStructuralCount.
+bool grow_session_index(GatewaySession* session, u32 required) noexcept {
+    Slice<u32> backed{};
+    if (!session->grow_index || !session->grow_index(session->grow_index_context, required, &backed) ||
+        backed.data != session->structural_scratch.data || backed.count < required ||
+        backed.count > kGatewaySessionMaximumStructuralCount) return false;
+    session->structural_scratch = backed;
+    return true;
+}
+// The first index size at `required` entries or more when the index doubles from `current`, at most
+// kGatewaySessionMaximumStructuralCount.
+u32 doubled_index_count(u32 current, u32 required) noexcept {
+    while (current < required && current < kGatewaySessionMaximumStructuralCount)
+        current = current > kGatewaySessionMaximumStructuralCount / 2 ? kGatewaySessionMaximumStructuralCount
+                                                                         : maximum(current * 2, 1u);
+    return current;
+}
+
 // indexed: the number of entries of the message's structural index already in session->structural_scratch
-// (valid JSON written by the ETF transcoder), or ~0u to scan and validate the message.
+// (valid JSON written by the ETF transcoder), or ~0u to scan and validate the message. ends: null or the table
+// of bracket ends that the transcoder wrote for that index.
 void process_gateway_message(GatewaySession* session, Utf8View message, u32 heartbeat_jitter,
-                             u64 now_ms, GatewaySessionEvent* out, u32 indexed) noexcept {
+                             u64 now_ms, GatewaySessionEvent* out, u32 indexed, const u32* ends = nullptr) noexcept {
     clear_bytes(out, sizeof(*out));
     GatewaySessionEvent& result = *out;
     GatewayDecodeResult decoded =
         indexed != ~0u ? gateway_decode_envelope_indexed(
-                             message, {session->structural_scratch.data, indexed}, 64, &result.envelope)
+                             message, {session->structural_scratch.data, indexed}, 64, &result.envelope, ends)
                        : gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
     // The frame (or one zstd-stream message) has already been consumed.
     // Rescan the pinned JSON bytes only; never ask the transport to replay it.
@@ -112,14 +132,8 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
            decoded.scan_error == JsonScanError::output_overflow && session->grow_index &&
            session->structural_scratch.count < kGatewaySessionMaximumStructuralCount) {
         const u32 current = session->structural_scratch.count;
-        const u32 required = current > kGatewaySessionMaximumStructuralCount / 2
-                                 ? kGatewaySessionMaximumStructuralCount : current * 2;
-        Slice<u32> backed{};
-        if (!session->grow_index(session->grow_index_context, required, &backed) ||
-            backed.data != session->structural_scratch.data || backed.count < required ||
-            backed.count > kGatewaySessionMaximumStructuralCount) break;
-        session->structural_scratch = backed;
-        decoded = gateway_decode_envelope(message, backed, 64, &result.envelope);
+        if (!grow_session_index(session, doubled_index_count(current, current + 1))) break;
+        decoded = gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
     }
     if (!decoded.ok()) {
         result.kind = GatewaySessionEventKind::error;
@@ -240,18 +254,30 @@ void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now
         return;
     }
     consume_compressed(session, compressed_bytes);
-    u32 indexed = 0;
+    u32 structurals = 0;
+    const Slice<u32> index = session->structural_scratch;
     const EtfResult json = etf_to_json_indexed(etf, &session->message_storage, session->maximum_decoded_message_bytes,
-                                               session->grow_output ? grow_session_output : nullptr, session,
-                                               session->structural_scratch, &indexed);
+                                               session->grow_output ? grow_session_output : nullptr, session, index,
+                                               &structurals);
     if (!json.ok()) {
         session_error(out, GatewaySessionError::etf);
         out->etf_error = json.error;
         return;
     }
-    process_gateway_message(session,
-                            Utf8View{reinterpret_cast<const char*>(session->message_storage.data), json.bytes},
-                            heartbeat_jitter, now_ms, out, indexed);
+    const Utf8View message{reinterpret_cast<const char*>(session->message_storage.data), json.bytes};
+    u32 indexed = structurals;
+    // The index was too short (a first READY has about 300,000 structurals). The transcoder gave the count, so
+    // the index grows one time, to the size that doubling reaches, and one scan fills it. The JSON is valid by
+    // construction: the scan writes the transcoder's index, and nothing is validated again.
+    if (structurals > index.count) {
+        indexed = ~0u;
+        if (grow_session_index(session, doubled_index_count(index.count, structurals))) {
+            const JsonScanResult scan = json_scan_structurals_avx1(message, session->structural_scratch);
+            if (scan.ok() && scan.count == structurals)
+                indexed = structurals;
+        }
+    }
+    process_gateway_message(session, message, heartbeat_jitter, now_ms, out, indexed, etf_index_ends(index, structurals));
 }
 
 } // namespace

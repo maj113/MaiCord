@@ -85,11 +85,11 @@ bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexce
 }
 
 GatewayDecodeResult read_envelope(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth, bool validated,
-                                  GatewayEnvelope* output) noexcept {
+                                  GatewayEnvelope* output, const u32* ends = nullptr) noexcept {
     GatewayVisitorContext context{};
     const JsonReadResult read =
         validated ? json_visit_value_object(JsonValue{input, 0, JsonValueKind::object, true}, structurals,
-                                            maximum_depth, visit_gateway_member, &context)
+                                            maximum_depth, visit_gateway_member, &context, ends)
                   : json_visit_root_object(input, structurals, maximum_depth, visit_gateway_member, &context);
     if (!read.ok()) {
         if (read.error == JsonReadError::visitor_rejected && context.error != GatewayDecodeError::none) {
@@ -105,7 +105,7 @@ GatewayDecodeResult read_envelope(Utf8View input, ConstSlice<u32> structurals, u
     }
 
     *output = context.envelope;
-    output->document = JsonIndexedDocument{input, structurals};
+    output->document = JsonIndexedDocument{input, structurals, 0, ends};
     return GatewayDecodeResult{GatewayDecodeError::none, JsonScanError::none, JsonReadError::none};
 }
 
@@ -126,14 +126,14 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
     return read_envelope(input, {structural_scratch.data, scan.count}, maximum_depth, false, output);
 }
 
-GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals,
-                                                    u32 maximum_depth, GatewayEnvelope* output) noexcept {
+GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
+                                                    GatewayEnvelope* output, const u32* ends) noexcept {
     if (!output) {
         return GatewayDecodeResult{GatewayDecodeError::invalid_json, JsonScanError::none,
                                    JsonReadError::invalid_input};
     }
     reset_value<GatewayEnvelope>(output);
-    return read_envelope(input, structurals, maximum_depth, true, output);
+    return read_envelope(input, structurals, maximum_depth, true, output, ends);
 }
 
 } // namespace maicord

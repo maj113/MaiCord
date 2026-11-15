@@ -79,17 +79,34 @@ using JsonStringDecodeResult = ByteResult<JsonStringDecodeError>;
 using JsonMemberVisitor = bool (*)(void* context, JsonString name, JsonValue value) noexcept;
 using JsonArrayVisitor = bool (*)(void* context, u32 index, JsonValue value) noexcept;
 
+// The table of bracket ends of a structural index, one entry for each structural. The entry of an opening
+// bracket is the position of its closing bracket in the index. The entry of a closing bracket is a count that
+// is not below the nesting levels of its container (1 for a container that holds no other). The other entries
+// have no meaning. With the table a visit of a validated value steps over a nested container in one step,
+// where it otherwise reads every structural inside. Results are the same with and without it.
+
 // Validates one complete RFC 8259 object and visits each root member without
 // allocating a DOM. The structural index must come from the same input.
+// `ends` is null or room for the table of bracket ends: the visit writes the entries of each value before the
+// visitor sees that value, so the visitor can give the table to visits of it (JsonIndexedDocument::ends).
 JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
-                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;
+                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                      u32* ends = nullptr) noexcept;
 JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
-                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept;
-// json_visit_root_* over value.source with an index of exactly that source.
+                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context,
+                                     u32* ends = nullptr) noexcept;
+// json_visit_root_* over value.source with an index of exactly that source. `ends` is null or the table of
+// bracket ends of that index, for a validated value.
 JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
-                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;
+                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                       const u32* ends = nullptr) noexcept;
 JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
                                       u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept;
+
+// Room for the table of bracket ends behind an index of `count` entries in `scratch`: null when it does not fit.
+inline u32* json_ends_room(const Slice<u32>& scratch, u32 count) noexcept {
+    return scratch.count - count >= count ? scratch.data + count : nullptr;
+}
 
 // Nested visitors borrow the immutable index of the complete document. They do
 // not rescan, copy/rebase offsets, allocate, or overwrite an active parent's index.
@@ -99,6 +116,8 @@ struct JsonIndexedDocument {
     Utf8View input;
     ConstSlice<u32> structurals;
     mutable u32 hint;
+    // Null, or the table of bracket ends of exactly `structurals`. Visits use it for validated values only.
+    const u32* ends;
 };
 JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;

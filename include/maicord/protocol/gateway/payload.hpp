@@ -46,8 +46,9 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
 
 // As gateway_decode_envelope for JSON whose structural index the caller already holds (etf_to_json_indexed),
 // which is valid by construction: nothing is scanned or revalidated. Depth, the index and the envelope's own
-// fields are still checked.
-GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals,
-                                                    u32 maximum_depth, GatewayEnvelope* output) noexcept;
+// fields are still checked. `ends` is null or the table of bracket ends that etf_to_json_indexed gave for the
+// index: the envelope's document then holds it and the decoders step over a nested value in one step.
+GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
+                                                    GatewayEnvelope* output, const u32* ends = nullptr) noexcept;
 
 } // namespace maicord

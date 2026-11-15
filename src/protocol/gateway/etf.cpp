@@ -674,6 +674,19 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
     Writer w{output, output->data, output->count, 0, maximum_output, grow, context, index.data, index.count, 0};
     Frame stack[kEtfMaximumDepth];
     u32 depth = 0;
+    // The table of bracket ends (json_index_ends) lies in the upper half of the index storage. An index that
+    // grows into that half overwrites the table, and no later pair is written. The levels of a container are
+    // an upper bound: the deepest level of the message so far, counted from the container.
+    u32 opened[kEtfMaximumDepth];
+    u32 deepest = 0;
+    const u32 half = index.count / 2;
+    u32* const table = index.data + half;
+    const auto pair = [&](u32 open, u32 closer, u32 levels) noexcept {
+        if (closer < half) {
+            table[open] = closer;
+            table[closer] = levels;
+        }
+    };
     bool started = false;
     Quoting quoting = Quoting::none;
     const auto failed = [](EtfError error) noexcept { return EtfResult{0, error}; };
@@ -688,8 +701,11 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
                         return failed(EtfError::improper_list);
                     ++r.at;
                 }
+                const u32 closer = w.marks;
                 if (!w.byte(f.kind == 2 ? '}' : ']'))
                     return failed(EtfError::output_capacity);
+                deepest = depth > deepest ? depth : deepest;
+                pair(opened[depth - 1], closer, deepest - depth + 2);
                 if (!--depth)
                     break;
                 continue;
@@ -782,6 +798,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
             break;
         }
         case kNil:
+            pair(w.marks, w.marks + 1, 1);
             w.mark(w.used);
             w.mark(w.used + 1);
             ok = w.bytes("[]", 2);
@@ -793,10 +810,13 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
             r.at += 2;
             if (!r.has(n))
                 return failed(EtfError::truncated);
+            const u32 open = w.marks;
             ok = w.byte('[');
             for (u32 i = 0; ok && i < n; ++i)
                 ok = (!i || w.byte(',')) && write_integer(&w, r.data[r.at + i], false, false);
             ok = ok && w.byte(']');
+            if (ok)
+                pair(open, w.marks - 1, 1);
             r.at += n;
             break;
         }
@@ -816,6 +836,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
                 return failed(EtfError::depth_limit);
             // A list under a *_ids key quotes its integers.
             const Quoting own = tag != kMap && depth && stack[depth - 1].kind == 2 ? quoting : Quoting::none;
+            opened[depth] = w.marks;
             stack[depth++] = {n, static_cast<u8>(tag == kList ? 0 : tag == kMap ? 2 : 1), true, own};
             ok = w.byte(tag == kMap ? '{' : '[');
             break;
@@ -831,7 +852,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
     }
     if (r.at != r.size)
         return failed(EtfError::trailing_data);
-    *index_count = w.marks <= index.count ? w.marks : ~0u;
+    *index_count = w.marks;
     return {w.used, EtfError::none};
 }
 

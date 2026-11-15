@@ -21,6 +21,24 @@ struct Utf8Validation {
 };
 
 Utf8DecodeResult utf8_decode_one(const char* input, u32 available) noexcept;
+// The width (2 to 4) of the well-formed sequence at data, whose first byte is 0x80 or above, or 0 when the
+// bytes there are not one. It reads at most `available` bytes (1 at least). utf8_decode_one accepts the same
+// sequences: this form gives no scalar, for a caller that only validates or copies.
+inline u32 utf8_sequence_width(const char* data, u32 available) noexcept {
+    const u8 first = static_cast<u8>(data[0]);
+    const u8 second = available > 1 ? static_cast<u8>(data[1]) : 0;
+    if (first < 0xE0) return first >= 0xC2 && (second & 0xC0) == 0x80 ? 2 : 0;
+    if (first < 0xF0) {
+        // E0 A0..BF is the shortest form. ED A0..BF is a surrogate.
+        const u8 low = first == 0xE0 ? 0xA0 : 0x80, high = first == 0xED ? 0x9F : 0xBF;
+        return available >= 3 && second >= low && second <= high && (static_cast<u8>(data[2]) & 0xC0) == 0x80 ? 3 : 0;
+    }
+    // F0 90..BF is the shortest form. F4 8F is the last plane.
+    const u8 low = first == 0xF0 ? 0x90 : 0x80, high = first == 0xF4 ? 0x8F : 0xBF;
+    return first <= 0xF4 && available >= 4 && second >= low && second <= high &&
+                   (static_cast<u8>(data[2]) & 0xC0) == 0x80 && (static_cast<u8>(data[3]) & 0xC0) == 0x80
+               ? 4 : 0;
+}
 Utf8Validation utf8_validate(const Utf8View& input) noexcept;
 // Copies whole scalars from an ACP range. A too-small output returns a prefix
 // and its next ACP position; malformed/split endpoints fail before writing.

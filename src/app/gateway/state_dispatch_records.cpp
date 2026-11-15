@@ -53,6 +53,7 @@ struct RoleArrayContext {
     u64 ids[kGatewayGuildRoleMaximum];
     u32 count;
     GatewayEventDecodeError error;
+    JsonIndexedDocument document; // The array's index: each role is read through it.
 };
 
 } // namespace
@@ -77,7 +78,7 @@ bool visit_role(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<RoleArrayContext*>(opaque);
     StateObjectContext object;
     const GatewayEventDecodeResult decoded =
-        decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
+        decode_state_object(value, context->object_scratch, context->maximum_depth, &object, false, &context->document);
     constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_permissions;
     if (!decoded.ok() || (object.mutation.fields & required) != required ||
         context->count == kGatewayGuildRoleMaximum) {
@@ -131,7 +132,8 @@ GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scr
     context.object_scratch = object_scratch;
     context.maximum_depth = maximum_depth;
     const GatewayEventDecodeResult result =
-        visit_array(array, array_scratch, maximum_depth, visit_role, &context, context.error);
+        visit_array(array, array_scratch, maximum_depth, visit_role, &context, context.error,
+                    GatewayEventDecodeError::invalid_json, &context.document);
     if (result.ok())
         *count = context.count;
     return result;
@@ -197,13 +199,14 @@ struct EmojiArrayContext {
     u32 count;
     u32 role_count;
     GatewayEventDecodeError error;
+    JsonIndexedDocument document; // The array's index: each emoji is read through it.
 };
 
 bool visit_emoji(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<EmojiArrayContext*>(opaque);
     StateObjectContext object;
     const GatewayEventDecodeResult decoded =
-        decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
+        decode_state_object(value, context->object_scratch, context->maximum_depth, &object, false, &context->document);
     constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_name;
     if (!decoded.ok() || (object.mutation.fields & required) != required ||
         context->count == kGuildEmojiMaximum) {
@@ -269,7 +272,8 @@ GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_sc
     context.role_scratch = role_scratch;
     context.maximum_depth = maximum_depth;
     const GatewayEventDecodeResult result =
-        visit_array(array, array_scratch, maximum_depth, visit_emoji, &context, context.error);
+        visit_array(array, array_scratch, maximum_depth, visit_emoji, &context, context.error,
+                    GatewayEventDecodeError::invalid_json, &context.document);
     if (result.ok()) {
         *count = context.count;
         *role_count = context.role_count;

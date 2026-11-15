@@ -101,7 +101,8 @@ GatewayClientDispatchRouteResult decode_route(GatewayEventDecodeError error) noe
 GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
                                      JsonArrayVisitor visit, void* context,
                                      const GatewayEventDecodeError& error,
-                                     GatewayEventDecodeError fallback = GatewayEventDecodeError::invalid_json) noexcept;
+                                     GatewayEventDecodeError fallback = GatewayEventDecodeError::invalid_json,
+                                     JsonIndexedDocument* document = nullptr) noexcept;
 void member_state_from_flags(GatewayClientStateMutation* m) noexcept;
 
 // The first undismissed DM safety warning: {"id","type","dismiss_timestamp"}.

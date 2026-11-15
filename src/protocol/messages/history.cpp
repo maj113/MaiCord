@@ -231,7 +231,9 @@ MessageHistoryDecodeResult decode_page(
                               GatewayEventDecodeError::none, scan.error);
     }
     PageContext context{};
-    context.document = {body, {page_structural_scratch.data, scan.count}};
+    // The root visit writes the table of bracket ends for each message before the message decoder reads it.
+    u32* const ends = json_ends_room(page_structural_scratch, scan.count);
+    context.document = {body, {page_structural_scratch.data, scan.count}, 0, ends};
     context.content = content_output;
     context.messages = messages;
     context.mention_users = mention_users;
@@ -241,7 +243,7 @@ MessageHistoryDecodeResult decode_page(
     context.mixed_channels = mixed_channels;
     context.error = MessageHistoryDecodeError::none;
     const JsonReadResult read = json_visit_root_array(body, context.document.structurals, maximum_depth,
-                                                      visit_page_message, &context);
+                                                      visit_page_message, &context, ends);
     if (!read.ok()) {
         if (context.error != MessageHistoryDecodeError::none) {
             auto result = decode_failure(

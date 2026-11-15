@@ -16,6 +16,13 @@ struct IndexedReader {
     u32 maximum_depth;
     u32 error_offset;
     JsonReadError error;
+    // Null, or the table of json_index_ends from the first structural of this reader on. Its entries count
+    // from the start of the document's index.
+    const u32* ends;
+    // Null, or the room where a checked visit writes that table for each container it validates. deepest: the
+    // depth of the deepest container closed so far, which bounds the levels of every later one.
+    u32* fill;
+    u32 deepest;
 };
 
 // A member visitor (object visits) or an element visitor (array visits) as one type; `object` says which.
@@ -361,40 +368,118 @@ constexpr NestingSteps make_nesting_steps() noexcept {
 }
 constexpr NestingSteps kNesting = make_nesting_steps();
 
+// Validates the container at the reader's position, which `open` starts, and everything inside it. The position
+// and the open containers stay in locals: nested containers do not recurse, up to 64 levels for each call.
 bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
-    const char close = open == '{' ? '}' : ']';
-    if (depth > reader->maximum_depth) {
-        return fail(reader, JsonReadError::depth_limit, reader->offset);
-    }
-    if (!consume_structural(reader, open, JsonReadError::expected_value)) {
-        return false;
-    }
-    skip_whitespace(reader);
-    if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == close) {
-        return consume_structural(reader, close, JsonReadError::expected_comma_or_end);
-    }
-    for (;;) {
-        if (open == '{') {
-            if (!parse_string(reader, nullptr, JsonReadError::expected_member_name)) {
-                return false;
-            }
-            skip_whitespace(reader);
-            if (!consume_structural(reader, ':', JsonReadError::expected_colon)) {
-                return false;
-            }
-        }
-        if (!skip_value(reader, depth + 1, nullptr)) {
+    const char* const data = reader->input.data;
+    const u32 bytes = reader->input.bytes;
+    const u32* const offsets = reader->structurals.data;
+    const u32 total = reader->structurals.count;
+    const u32 maximum_depth = reader->maximum_depth;
+    u32* const fill = reader->fill;
+    u32 offset = reader->offset, index = reader->structural_index;
+    // The open containers of this call: one bit for each (set for an object, the lowest bit the innermost)
+    // and the index position of each opening bracket.
+    u64 objects = 0;
+    u32 level = 0;
+    u32 opened[64];
+    const auto blanks = [&]() noexcept {
+        while (offset < bytes && is_whitespace(data[offset])) ++offset;
+    };
+    // The indexed byte `expected` at the position.
+    const auto structural = [&](char expected, JsonReadError error) __attribute__((always_inline)) noexcept {
+        if (offset >= bytes || data[offset] != expected) return fail(reader, error, offset);
+        if (index >= total || offsets[index] != offset)
+            return fail(reader, JsonReadError::structural_index_mismatch, offset);
+        ++offset;
+        ++index;
+        return true;
+    };
+    // The string at the position. Inline at both uses, so the position stays in registers.
+    const auto string = [&](JsonReadError error) __attribute__((always_inline)) noexcept {
+        if (!structural('"', error)) return false;
+        if (index >= total) return fail(reader, JsonReadError::structural_index_mismatch, offset);
+        const u32 closing = offsets[index];
+        if (closing < offset || closing >= bytes || data[closing] != '"')
+            return fail(reader, JsonReadError::structural_index_mismatch, offset);
+        // Most strings are short and plain: one masked 16-byte check settles them without the call.
+        const u32 length = closing - offset;
+        bool has_escapes;
+        if (!(length <= 16 && bytes - offset >= 16 && !(special_bytes(data + offset) & low_bits(length))) &&
+            !validate_string_content(reader, offset, closing, &has_escapes))
             return false;
-        }
-        skip_whitespace(reader);
-        if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == close) {
-            return consume_structural(reader, close, JsonReadError::expected_comma_or_end);
-        }
-        if (!consume_structural(reader, ',', JsonReadError::expected_comma_or_end)) {
-            return false;
-        }
-        skip_whitespace(reader);
+        offset = closing + 1;
+        ++index;
+        return true;
+    };
+enter:
+    // A container starts at the position: `open` at `depth`.
+    if (level == 64) {
+        reader->offset = offset;
+        reader->structural_index = index;
+        if (!skip_composite(reader, depth, open)) return false;
+        offset = reader->offset;
+        index = reader->structural_index;
+        --depth;
+        goto value_done;
     }
+    if (depth > maximum_depth) return fail(reader, JsonReadError::depth_limit, offset);
+    opened[level++] = index;
+    objects = objects << 1 | (open == '{');
+    if (!structural(open, JsonReadError::expected_value)) return false;
+    blanks();
+    if (offset < bytes && data[offset] == (objects & 1 ? '}' : ']')) goto close;
+member:
+    if (objects & 1) {
+        if (!string(JsonReadError::expected_member_name)) return false;
+        blanks();
+        if (!structural(':', JsonReadError::expected_colon)) return false;
+    }
+    blanks();
+    if (offset >= bytes) return fail(reader, JsonReadError::expected_value, offset);
+    {
+        const char first = data[offset];
+        if (first == '{' || first == '[') {
+            open = first;
+            ++depth;
+            goto enter;
+        }
+        if (first == '"') {
+            if (!string(JsonReadError::expected_value)) return false;
+        } else {
+            JsonValueKind kind;
+            const u32 end = scalar_end(data, offset, bytes, &kind);
+            if (!end) {
+                const bool number_like = first == '-' || (first >= '0' && first <= '9');
+                return fail(reader, number_like ? JsonReadError::invalid_number : JsonReadError::invalid_literal,
+                            offset);
+            }
+            offset = end;
+        }
+    }
+value_done:
+    // A value of the innermost container ended. `depth` is the depth of that container.
+    blanks();
+    if (!(offset < bytes && data[offset] == (objects & 1 ? '}' : ']'))) {
+        if (!structural(',', JsonReadError::expected_comma_or_end)) return false;
+        blanks();
+        goto member;
+    }
+close:
+    if (!structural(objects & 1 ? '}' : ']', JsonReadError::expected_comma_or_end)) return false;
+    if (fill) {
+        if (depth > reader->deepest) reader->deepest = depth;
+        fill[opened[level - 1]] = index - 1;
+        fill[index - 1] = reader->deepest - depth + 1;
+    }
+    objects >>= 1;
+    if (!--level) {
+        reader->offset = offset;
+        reader->structural_index = index;
+        return true;
+    }
+    --depth;
+    goto value_done;
 }
 
 bool skip_value(IndexedReader* reader, u32 depth, JsonValue* output) noexcept {
@@ -517,21 +602,29 @@ static void visit_trusted(IndexedReader* reader, bool object, AnyVisitor visitor
         if (first == '{' || first == '[') {
             kind = first == '{' ? JsonValueKind::object : JsonValueKind::array;
             if (index >= total || offsets[index] != begin) return stop(JsonReadError::structural_index_mismatch, begin);
-            // Branch-free nesting level over the indexed bytes; the deepest level is checked once the
-            // container closes, and the exact search runs only for a malformed or too deep one.
-            u32 level = 0, peak = 0;
+            // The table gives the closing bracket and the levels of the container. Without it, or for a
+            // container that is too deep, the nesting level is followed over the indexed bytes: the deepest
+            // level is checked once the container closes, and the exact search runs only for a malformed or
+            // too deep one.
             const u32* at = offsets + index;
-            const u32* const last = offsets + total;
-            for (; at != last; ++at) {
-                level += static_cast<u32>(kNesting.step[static_cast<u8>(data[*at])]);
-                peak = level > peak ? level : peak;
-                if (!level) break;
-            }
-            if (at == last || peak + 1 > reader->maximum_depth) {
-                reader->offset = begin;
-                reader->structural_index = index;
-                skip_container_slow(reader, 2);
-                return stop(JsonReadError::structural_index_mismatch, begin);
+            const u32* const ends = reader->ends;
+            const u32 closer = ends ? ends[index] - base : 0;
+            if (ends && closer - index - 1 < total - index - 1 && ends[closer] < reader->maximum_depth) {
+                at = offsets + closer;
+            } else {
+                u32 level = 0, peak = 0;
+                const u32* const last = offsets + total;
+                for (; at != last; ++at) {
+                    level += static_cast<u32>(kNesting.step[static_cast<u8>(data[*at])]);
+                    peak = level > peak ? level : peak;
+                    if (!level) break;
+                }
+                if (at == last || peak + 1 > reader->maximum_depth) {
+                    reader->offset = begin;
+                    reader->structural_index = index;
+                    skip_container_slow(reader, 2);
+                    return stop(JsonReadError::structural_index_mismatch, begin);
+                }
             }
             offset = *at + 1;
             index = static_cast<u32>(at - offsets) + 1;
@@ -629,14 +722,15 @@ __declspec(noinline) static void visit_checked(IndexedReader* reader, bool objec
 
 static JsonReadResult visit_range(bool object, Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
                                   AnyVisitor visitor, void* context, u32 begin, bool trusted,
-                                  u32* hint = nullptr, u32 base = 0) noexcept {
+                                  const u32* ends = nullptr, u32* hint = nullptr, u32 base = 0,
+                                  u32* fill = nullptr) noexcept {
     const char open = object ? '{' : '[';
     const char close = object ? '}' : ']';
     if ((!input.data && input.bytes != 0) || (!structurals.data && structurals.count != 0)) {
         return JsonReadResult{0, JsonReadError::invalid_input};
     }
 
-    IndexedReader reader{input, structurals, begin, 0, maximum_depth, 0, JsonReadError::none};
+    IndexedReader reader{input, structurals, begin, 0, maximum_depth, 0, JsonReadError::none, ends, fill, 0};
     if (begin == 0) skip_optional_utf8_bom(&reader);
     skip_whitespace(&reader);
     if (maximum_depth == 0) {
@@ -672,21 +766,24 @@ static JsonReadResult visit_range(bool object, Utf8View input, ConstSlice<u32> s
 }
 
 JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
-                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
+                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                      u32* ends) noexcept {
     return visit_range(true, input, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context, 0,
-                       false);
+                       false, nullptr, nullptr, 0, ends);
 }
 
 JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
-                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
+                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context,
+                                     u32* ends) noexcept {
     return visit_range(false, input, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context, 0,
-                       false);
+                       false, nullptr, nullptr, 0, ends);
 }
 
 JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
-                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
+                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                       const u32* ends) noexcept {
     return visit_range(true, value.source, structurals, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context,
-                       0, value.validated);
+                       0, value.validated, ends);
 }
 
 JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
@@ -752,7 +849,7 @@ static JsonReadResult visit_indexed(bool object, const JsonIndexedDocument& docu
         !indexed_subview(document, value, &prefix, &offsets, &begin, &first))
         return {0, JsonReadError::invalid_input};
     return visit_range(object, prefix, offsets, maximum_depth, visitor, context, begin, value.validated,
-                       &document.hint, first);
+                       document.ends ? document.ends + first : nullptr, &document.hint, first);
 }
 
 JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
@@ -854,49 +951,70 @@ static u32 plain_prefix(const char* data, u32 bytes) noexcept {
     return offset;
 }
 
-JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Slice<char>& output_view) noexcept {
-    // A value copy: the character stores below would otherwise force reloads of the caller's slice.
-    const Slice<char> output = output_view;
-    if ((!value.encoded.data && value.encoded.bytes != 0) || (!output.data && output.count != 0)) {
-        return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
-    }
-
-    const u32 plain = plain_prefix(value.encoded.data, value.encoded.bytes);
-    u32 source_offset = plain;
-    u32 required = plain;
-    while (source_offset < value.encoded.bytes) {
-        u32 codepoint = 0;
-        if (!decode_string_scalar(value, &source_offset, &codepoint)) {
-            return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_string};
+// json_string_decode_utf8 for a string whose first `plain` bytes stand for themselves and whose next byte does
+// not. Out of line, so the path of a plain string has a small frame.
+__declspec(noinline) static JsonStringDecodeResult decode_special_string(const JsonString& value, Slice<char> output,
+                                                                         u32 plain) noexcept {
+    // The first pass validates and counts. A byte outside an escape stands for itself, so runs of ASCII and
+    // runs of multi-byte sequences add their own length.
+    const char* const data = value.encoded.data;
+    const u32 bytes = value.encoded.bytes;
+    u32 source_offset = plain, required = plain, first_escape = bytes;
+    while (source_offset < bytes) {
+        while (source_offset < bytes && static_cast<u8>(data[source_offset]) >= 0x80) {
+            const u32 width = utf8_sequence_width(data + source_offset, bytes - source_offset);
+            if (!width) {
+                return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_string};
+            }
+            source_offset += width;
+            required += width;
         }
-        const u32 bytes = codepoint < 0x80 ? 1u : codepoint < 0x800 ? 2u : codepoint < 0x10000 ? 3u : 4u;
-        // The scalar decoder validates Unicode, and unescaping cannot grow
-        // beyond the u32 encoded input length.
-        required += bytes;
+        if (source_offset < bytes && data[source_offset] == '\\') {
+            if (first_escape == bytes) first_escape = source_offset;
+            u32 codepoint = 0;
+            if (!decode_string_scalar(value, &source_offset, &codepoint)) {
+                return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_string};
+            }
+            required += codepoint < 0x80 ? 1u : codepoint < 0x800 ? 2u : codepoint < 0x10000 ? 3u : 4u;
+        }
+        const u32 run = plain_prefix(data + source_offset, bytes - source_offset);
+        source_offset += run;
+        required += run;
     }
     if (required > output.count) {
         return JsonStringDecodeResult{required, JsonStringDecodeError::output_too_small};
     }
 
-    // Valid JSON escapes strictly shrink. Equal lengths therefore identify
-    // literal UTF-8, which needs no second scalar decode/encode pass.
-    if (required == value.encoded.bytes) {
-        copy_bytes(output.data, value.encoded.data, required);
-        return JsonStringDecodeResult{required, JsonStringDecodeError::none};
-    }
-
-    copy_bytes(output.data, value.encoded.data, plain);
-    source_offset = plain;
-    u32 destination_offset = plain;
-    while (source_offset < value.encoded.bytes) {
-        u32 codepoint = 0;
-        if (!decode_string_scalar(value, &source_offset, &codepoint)) {
-            return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_string};
+    // The bytes before the first escape are the text. After it only the escapes need a decoder.
+    copy_bytes(output.data, data, first_escape);
+    source_offset = first_escape;
+    u32 destination_offset = first_escape;
+    while (source_offset < bytes) {
+        if (data[source_offset] != '\\') {
+            output.data[destination_offset++] = data[source_offset++];
+            continue;
         }
+        u32 codepoint = 0;
+        decode_string_scalar(value, &source_offset, &codepoint);
         // The first pass sized this exact scalar sequence, so its bytes fit.
         destination_offset += utf8_encode(codepoint, output.data + destination_offset);
     }
     return JsonStringDecodeResult{required, JsonStringDecodeError::none};
+}
+
+JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Slice<char>& output) noexcept {
+    if ((!value.encoded.data && value.encoded.bytes != 0) || (!output.data && output.count != 0)) {
+        return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
+    }
+    const u32 plain = plain_prefix(value.encoded.data, value.encoded.bytes);
+    if (plain != value.encoded.bytes) {
+        return decode_special_string(value, output, plain);
+    }
+    if (plain > output.count) {
+        return JsonStringDecodeResult{plain, JsonStringDecodeError::output_too_small};
+    }
+    copy_bytes(output.data, value.encoded.data, plain);
+    return JsonStringDecodeResult{plain, JsonStringDecodeError::none};
 }
 
 bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept {

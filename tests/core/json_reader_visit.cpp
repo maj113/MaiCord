@@ -3,6 +3,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
+#include "../support/json_ends.hpp"
 
 namespace maicord {
 namespace {
@@ -80,16 +81,18 @@ bool walk_value(Walk* walk, JsonValue value) noexcept {
     return true;
 }
 
-// The dump of the root object's whole tree, nested values read trusted or fully validated.
-bool walk_document(Utf8View text, bool trusted, u32 depth_limit, u32 reject_at, Dump* dump) noexcept {
-    static u32 index[8192];
+// The dump of the root object's whole tree, nested values read trusted or fully validated. table: the root
+// visit writes the table of bracket ends and the trusted walk uses it.
+bool walk_document(Utf8View text, bool trusted, u32 depth_limit, u32 reject_at, Dump* dump,
+                   bool table = false) noexcept {
+    static u32 index[8192], ends[8192];
     const JsonScanResult scan = json_scan_structurals_avx1(text, {index, 8192});
     if (!scan.ok()) return false;
-    const JsonIndexedDocument document{text, {index, scan.count}};
+    const JsonIndexedDocument document{text, {index, scan.count}, 0, table ? ends : nullptr};
     Walk walk{&document, dump, trusted, depth_limit, reject_at, 0};
     dump->used = 0;
-    const JsonReadResult root =
-        json_visit_root_object(text, document.structurals, depth_limit, walk_member, &walk);
+    const JsonReadResult root = json_visit_root_object(text, document.structurals, depth_limit, walk_member, &walk,
+                                                       table ? ends : nullptr);
     dump->put('(');
     dump->number(static_cast<u32>(root.error));
     dump->put(',');
@@ -106,9 +109,38 @@ bool same_dump(const Dump& left, const Dump& right) noexcept {
 }
 
 bool agree(Utf8View text, u32 depth_limit, u32 reject_at) noexcept {
-    static Dump trusted, checked;
+    static Dump trusted, checked, tabled;
     return walk_document(text, true, depth_limit, reject_at, &trusted) &&
-           walk_document(text, false, depth_limit, reject_at, &checked) && same_dump(trusted, checked);
+           walk_document(text, false, depth_limit, reject_at, &checked) && same_dump(trusted, checked) &&
+           walk_document(text, true, depth_limit, reject_at, &tabled, true) && same_dump(tabled, checked);
+}
+
+// The table that a checked visit writes pairs the brackets as the reference does, with levels that are not
+// below the exact ones. The root's own brackets have no entries: nothing steps over the root.
+bool ends_table() noexcept {
+    static u32 index[256], ends[256], exact[256];
+    const Utf8View text = utf8_literal(R"({"a":[{"b":[]},[[1]]],"c":{"d":{"e":[{}]}},"f":[],"g":{}})");
+    const JsonScanResult scan = json_scan_structurals_avx1(text, {index, 256});
+    if (!scan.ok() || !json_index_ends(text, {index, scan.count}, {exact, 256}) ||
+        !json_visit_root_object(text, {index, scan.count}, 64, nullptr, nullptr, ends).ok())
+        return false;
+    u32 pairs = 0;
+    for (u32 i = 1; i + 1 < scan.count; ++i) {
+        const char c = text.data[index[i]];
+        if (c == '{' || c == '[') {
+            if (ends[i] != exact[i]) return false;
+            ++pairs;
+        } else if ((c == '}' || c == ']') && ends[i] < exact[i]) {
+            return false;
+        }
+    }
+    // The reference refuses brackets that do not pair.
+    const Utf8View unpaired[]{utf8_literal("[1,2"), utf8_literal("1]"), utf8_literal("[{]}"), utf8_literal("{]")};
+    for (const Utf8View bad : unpaired) {
+        const JsonScanResult s = json_scan_structurals_avx1(bad, {index, 256});
+        if (!s.ok() || json_index_ends(bad, {index, s.count}, {exact, 256})) return false;
+    }
+    return pairs == 11;
 }
 
 // A member list of `count` objects, each with a nested object and array.
@@ -270,6 +302,7 @@ void test_json_reader_visit(void (*check)(bool, const char*) noexcept) noexcept 
     }
     check(ok, "json indexed visits find values in any order of lookup");
 
+    check(ends_table(), "json ends table pairs the brackets and counts the levels");
     check(source_answers_like_scan(), "json scan source answers container scans like the scanner");
     check(scan_fits_every_capacity(utf8_literal(R"({"a":[1,2,{"b":"c"}],"d":"e\"f"})")),
           "json scan fills small outputs exactly");

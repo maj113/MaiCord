@@ -32,14 +32,17 @@ GatewayClientDispatchRouteResult decode_route(GatewayEventDecodeError error) noe
     return route_error(GatewayClientDispatchRouteError::decode, error);
 }
 
-// Scans `array` into `scratch` and visits its elements; `error` is the visitor's recorded error.
+// Scans `array` into `scratch` and visits its elements; `error` is the visitor's recorded error. `document`
+// (optional) receives the array's index before the visit, for a visitor that reads the elements through it.
 GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
                                      JsonArrayVisitor visit, void* context,
                                      const GatewayEventDecodeError& error,
-                                     GatewayEventDecodeError fallback) noexcept {
+                                     GatewayEventDecodeError fallback, JsonIndexedDocument* document) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(array.source, scratch);
     if (!scan.ok())
         return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    if (document)
+        *document = {array.source, {scratch.data, scan.count}};
     const JsonReadResult read =
         json_visit_value_array(array, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visit, context);
     return read.ok() ? decode_failure(GatewayEventDecodeError::none) : read_failure(error, read, fallback);
@@ -677,6 +680,12 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
         }
         return read_failure(context.error, read);
     }
+    // The index of a Gateway frame lies in `scratch` itself: the scans below overwrite it. Only an index in other
+    // storage serves the nested reads.
+    const u32* const index_begin = document ? document->structurals.data : nullptr;
+    if (index_begin && index_begin < scratch.data + scratch.count &&
+        scratch.data < index_begin + document->structurals.count)
+        document = nullptr;
     if (context.name_null &&
         (!private_name_allowed || (context.mutation.type != 1 && context.mutation.type != 3)))
         return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
@@ -760,15 +769,17 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
         }
     }
     if (context.colors_seen) {
-        const JsonScanResult colors_scan = json_scan_structurals_avx1(context.colors.source, scratch);
-        if (!colors_scan.ok()) {
+        // The caller's document already indexes a nested object: only a lone value needs a scan.
+        JsonScanResult colors_scan{};
+        if (!document && !(colors_scan = json_scan_structurals_avx1(context.colors.source, scratch)).ok()) {
             return decode_failure(GatewayEventDecodeError::scan_failed, colors_scan.error_offset,
                                   colors_scan.error);
         }
         RoleColorsContext colors{};
         const JsonReadResult colors_read =
-            json_visit_value_object(context.colors, ConstSlice<u32>{scratch.data, colors_scan.count},
-                                   maximum_depth, visit_role_color, &colors);
+            document ? json_visit_indexed_object(*document, context.colors, maximum_depth, visit_role_color, &colors)
+                     : json_visit_value_object(context.colors, ConstSlice<u32>{scratch.data, colors_scan.count},
+                                               maximum_depth, visit_role_color, &colors);
         if (!colors_read.ok()) {
             return read_failure(colors.error, colors_read);
         }
@@ -781,17 +792,17 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
         }
     }
     if (context.tags_seen) {
-        const auto tags_scan = json_scan_structurals_avx1(context.tags.source, scratch);
-        if (!tags_scan.ok())
+        JsonScanResult tags_scan{};
+        if (!document && !(tags_scan = json_scan_structurals_avx1(context.tags.source, scratch)).ok())
             return decode_failure(GatewayEventDecodeError::scan_failed, tags_scan.error_offset, tags_scan.error);
-        if (!json_visit_value_object(
-                 context.tags, {scratch.data, tags_scan.count}, maximum_depth,
-                 +[](void* opaque, JsonString name, JsonValue) noexcept {
-                     if (json_name_is(name, utf8_literal("guild_connections")))
-                         *static_cast<bool*>(opaque) = true;
-                     return true;
-                 },
-                 &context.role_linked)
+        const JsonMemberVisitor linked = +[](void* opaque, JsonString name, JsonValue) noexcept {
+            if (json_name_is(name, utf8_literal("guild_connections")))
+                *static_cast<bool*>(opaque) = true;
+            return true;
+        };
+        if (!(document ? json_visit_indexed_object(*document, context.tags, maximum_depth, linked, &context.role_linked)
+                       : json_visit_value_object(context.tags, {scratch.data, tags_scan.count}, maximum_depth, linked,
+                                                 &context.role_linked))
                  .ok())
             return decode_failure(GatewayEventDecodeError::invalid_json);
     }

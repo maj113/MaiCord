@@ -1099,9 +1099,9 @@ struct Document {
         return true;
     }
 };
-static_assert(offsetof(Document, leaf_records) == 104);
-static_assert(offsetof(Document, leaf_pool) == 2152);
-static_assert(sizeof(Document) == 748152);
+static_assert(offsetof(Document, leaf_records) == 112);
+static_assert(offsetof(Document, leaf_pool) == 2160);
+static_assert(sizeof(Document) == 748160);
 // A leaf's outline as glyph path commands; a figure is closed as a fill closes it.
 struct OutlineSink {
     GlyphOutline* out;
