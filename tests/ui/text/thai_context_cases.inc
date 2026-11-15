@@ -53,6 +53,11 @@ bool native_thai_primitive_cases() noexcept {
     u32 run[400]{};u8 run_breaks[401]{};for(u32 i=0;i<400;++i)run[i]=scalars[i%sentence];
     CHECK(native_thai_word_breaks({run,400},{run_breaks,401}));
     for(u32 i=1;i<400;++i){const u32 at=i%sentence;CHECK((run_breaks[i]!=0)==(at==0||at==4||at==7||at==12||at==16));}
+    // A cluster of 256 scalars or more (a consonant and its marks) is longer than a segment length holds.
+    // The division cuts it and ends.
+    u32 marks[300]{};u8 mark_breaks[301]{};marks[0]=0xe01;for(u32 i=1;i<300;++i)marks[i]=0xe48;
+    CHECK(native_thai_word_breaks({marks,300},{mark_breaks,301}));
+    CHECK(native_thai_word_breaks({marks,256},{mark_breaks,301}));
     native_cases+=sizeof(lexical)/sizeof(lexical[0])+sizeof(syllables)/sizeof(syllables[0]);
     return true;
 }

@@ -1,4 +1,5 @@
 #include "maicord/text/unicode/detail/line_break.hpp"
+#include "maicord/text/unicode/detail/thai_word_break.hpp"
 #include "../../support/text_test_support.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "../../support/test_output.hpp"
@@ -97,7 +98,18 @@ bool property_contract() noexcept {
             if(p.line_break()!=UnicodeLineBreak::id&&p.line_break()!=UnicodeLineBreak::xx)return false;++count;}}
     return count==1453;
 }
-bool run() noexcept {return vectors()&&units()&&long_contexts()&&property_contract();}
+// A Thai cluster longer than the one byte of a segment length: a consonant with 255 marks or more, and marks alone.
+// The word breaker must end (the test's timeout is the deadline) and put no break before the first 255 marks.
+bool thai_long_clusters() noexcept {
+    static u32 text[600];static u8 out[601];const u32 counts[]{256,257,300,512,600};
+    for(const u32 n:counts)for(u32 base=0;base<2;++base){
+        for(u32 i=0;i<n;++i){text[i]=i||!base?0xe48u:0xe01u;out[i]=0;}out[n]=0;
+        if(!native_thai_word_breaks({text,n},{out,n+1}))return false;
+        for(u32 i=1;i<255;++i){++checks;if(out[i])return false;}
+        ++cases;}
+    return true;
+}
+bool run() noexcept {return vectors()&&units()&&long_contexts()&&thai_long_clusters()&&property_contract();}
 }}
 MAICORD_TEST_ENTRY(maicord_line_break_entry) {
     const bool ok=maicord::run();maicord::print(maicord::utf8_literal("cases="));maicord::number(maicord::cases);maicord::print(maicord::utf8_literal(" checks="));maicord::number(maicord::checks);

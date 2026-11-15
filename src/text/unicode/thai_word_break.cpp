@@ -28,7 +28,8 @@ struct UnknownUnits {u32 lengths[2];u32 count;};
 UnknownUnits unknown_units(ConstSlice<u32> text,u32 first) noexcept {
     UnknownUnits units{};
     const auto add=[&](u32 length) noexcept {
-        length=minimum(length,text.count-first);
+        // A segment length is one byte (Edges, Choice). A longer cluster of marks is cut, so that no length wraps to 0.
+        length=minimum(minimum(length,text.count-first),255u);
         for(u32 i=1;i<length;++i)if(attaching(text[first+i])){length=i;break;}
         if(length&&(!units.count||units.lengths[0]!=length))units.lengths[units.count++]=length;
     };
