@@ -79,6 +79,29 @@ void guild_settings_bodies(Check check) noexcept {
     check(!write(invalid).result.ok, "guild settings: suppression is a server field");
     invalid = {10, 0, now, 1234, user_guild_settings_muted, MessageNotificationLevel::all, true};
     check(!write(invalid).result.ok, "guild settings: unknown mute windows are rejected");
+    // Browse Channels: the first follow turns opt-in on with the channel in one body, later follows save together.
+    UserGuildSettingsPatch first{10, 0, 0, 0, user_guild_settings_flags};
+    first.flags = kUserGuildOptInChannelsOn;
+    first.batch_count = 1;
+    first.batch_channels[0] = 20;
+    first.batch_flags[0] = kUserChannelOptInEnabled;
+    check(request(write(first), utf8_literal("/api/v9/users/@me/guilds/settings"),
+                  utf8_literal("{\"guilds\":{\"10\":{\"channel_overrides\":{\"20\":{\"flags\":4096}},\"flags\":16384}}}")),
+          "guild settings: the first follow carries the channel flags before the server's opt-in flags");
+    UserGuildSettingsPatch follows{10};
+    follows.batch_count = 2;
+    follows.batch_channels[0] = 20;
+    follows.batch_flags[0] = 0;
+    follows.batch_channels[1] = 21;
+    follows.batch_flags[1] = kUserChannelOptInEnabled;
+    check(request(write(follows), utf8_literal("/api/v9/users/@me/guilds/settings"),
+                  utf8_literal("{\"guilds\":{\"10\":{\"channel_overrides\":{\"20\":{\"flags\":0},\"21\":"
+                               "{\"flags\":4096}}}}}")),
+          "guild settings: follows of several channels save in one body");
+    UserGuildSettingsPatch misplaced = follows;
+    misplaced.channel_id = 22;
+    check(!write(misplaced).result.ok && !write(UserGuildSettingsPatch{10}).result.ok,
+          "guild settings: channel flags ride only on a server patch, and an empty patch writes nothing");
 
     MessageNotificationSetting current{};
     current.level = MessageNotificationLevel::all;

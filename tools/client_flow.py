@@ -29,7 +29,8 @@ Steps (one command-line argument each):
 
 The client runs with a private, empty profile under DIR/profile (data, state, cache, config), the Secret Service off, and
 headless sway (pixman) as its compositor; `nested` runs sway inside the running compositor (WSLg's Weston). The output is
-1280x800 at --scale. Exit status: nonzero when a step fails, the client dies or logs an error line.
+1280x800 (MAICORD_QA_OUTPUT=WxH for another size) at --scale. Exit status: nonzero when a step fails, the client dies or
+logs an error line.
 """
 import argparse
 import os
@@ -40,6 +41,7 @@ import sys
 import time
 
 APP_ID = "io.github.maj113.MaiCord"
+OUTPUT_WIDTH, OUTPUT_HEIGHT = (int(side) for side in os.environ.get("MAICORD_QA_OUTPUT", "1280x800").split("x"))
 
 
 class Flow:
@@ -64,7 +66,7 @@ class Flow:
         scale = self.options.scale
         config = os.path.join(self.out, "sway.conf")
         with open(config, "w") as handle:
-            handle.write(f"output * resolution {int(1280 * scale)}x{int(800 * scale)} scale {scale}\n"
+            handle.write(f"output * resolution {int(OUTPUT_WIDTH * scale)}x{int(OUTPUT_HEIGHT * scale)} scale {scale}\n"
                          "default_border none\ndefault_floating_border none\nfocus_follows_mouse no\nxwayland disable\n")
             if self.options.bar:  # swaybar hosts the StatusNotifier tray: the client's tray icon shows up in it
                 handle.write("bar {\n    swaybar_command swaybar\n    position top\n    tray_output *\n"
@@ -96,7 +98,8 @@ class Flow:
         time.sleep(0.5)
         # One virtual pointer for the whole run: the client keeps the wl_pointer it binds when the device appears.
         helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wayland_pointer.py")
-        self.pointer = subprocess.Popen([sys.executable, helper, "--width", "1280", "--height", "800"], env=self.env,
+        self.pointer = subprocess.Popen([sys.executable, helper, "--width", str(OUTPUT_WIDTH), "--height",
+                                         str(OUTPUT_HEIGHT)], env=self.env,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         if self.pointer.stdout.readline().strip() != "ready":
             raise SystemExit("the virtual pointer helper did not start")

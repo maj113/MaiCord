@@ -280,7 +280,8 @@ constexpr Utf8View kOnboarding = utf8_literal(
     R"("prompts":[{"id":"40","type":0,"title":"What brings you here?","single_select":false,"required":true,)"
     R"("in_onboarding":true,"options":[{"id":"501","title":"Games","description":"Play together",)"
     R"("emoji":{"id":null,"name":"🎮"},"role_ids":["7"],"channel_ids":["300","301"]},)"
-    R"({"id":"502","title":"Art","description":null,"emoji":null,"role_ids":[],"channel_ids":[]}]},)"
+    R"({"id":"502","title":"Art","description":null,"emoji":{"id":"88","name":"party","animated":true},)"
+    R"("channel_ids":["302"],"role_ids":[]}]},)"
     R"({"id":"41","type":1,"title":"Region","single_select":true,"required":false,"in_onboarding":true,)"
     R"("options":[{"id":"601","title":"EU"},{"id":"602","title":"NA"}]},)"
     R"({"id":"42","type":0,"title":"Later","single_select":false,"required":false,"in_onboarding":false,)"
@@ -300,10 +301,32 @@ void test_onboarding() noexcept {
               !onboarding.options[0].selected && onboarding.options[1].selected &&
               onboarding.options[4].selected && flow_count == 2 && flow[1] == 1,
           "community: onboarding decodes prompts, options, saved responses and the flow");
+    const auto& games = onboarding.options[0];
+    const auto& art = onboarding.options[1];
+    check(games.role_count == 1 && onboarding.grants[games.first_role] == 7 && games.channel_count == 2 &&
+              onboarding.grants[games.first_channel + 1] == 301 && !games.emoji_id && art.emoji_id == 88 &&
+              art.emoji_animated && !art.role_count && art.channel_count == 1 &&
+              onboarding.grants[art.first_channel] == 302 && !onboarding.options[2].role_count &&
+              onboarding.grant_count == 4,
+          "community: onboarding options decode the roles and channels they grant and a server emoji");
+    // The member's seen maps mark the prompts and answers seen; an admin can hide a prompt from members.
+    static GuildOnboarding seen;
+    const bool seen_decoded = guild_onboarding_decode(
+        utf8_literal(R"({"prompts":[{"id":"1","title":"A","disabled":true,"options":[{"id":"11","title":"x"},)"
+                     R"({"id":"12","title":"y"}]},{"id":"2","title":"B","options":[{"id":"21","title":"z"}]}],)"
+                     R"("onboarding_prompts_seen":{"1":1700000000000},)"
+                     R"("onboarding_responses_seen":{"12":1700000000000,"21":1700000000000}})"),
+        {scratch, 16384}, &seen);
+    check(seen_decoded && seen.prompts[0].seen && seen.prompts[0].disabled && !seen.prompts[1].seen &&
+              !seen.prompts[1].disabled && !seen.options[0].seen && seen.options[1].seen && seen.options[2].seen &&
+              !onboarding.prompts[0].seen && !onboarding.options[0].seen,
+          "community: onboarding decodes the member's seen prompts and answers and hidden prompts");
     // Single-select keeps one option.
     guild_onboarding_toggle(&onboarding, 1, 0);
     guild_onboarding_toggle(&onboarding, 1, 1);
-    const bool single = !onboarding.options[2].selected && onboarding.options[3].selected;
+    // A toggled option is picked (Channels & Roles names what it gave); a saved one is not.
+    const bool single = !onboarding.options[2].selected && onboarding.options[3].selected &&
+                        onboarding.options[3].picked && onboarding.options[4].selected && !onboarding.options[4].picked;
     guild_onboarding_toggle(&onboarding, 0, 1); // clear Art: the required prompt is unanswered
     const bool required = onboarding.prompts[0].required && !guild_onboarding_prompt_answered(onboarding, 0);
     guild_onboarding_toggle(&onboarding, 0, 0);
@@ -1442,6 +1465,13 @@ void test_space() noexcept {
     navigation_view_rebuild(&view, state);
     check(ordered && hub_last && view.channel_count == 1 && r[0].id == 20,
           "server hub: Boost Goal and Server Hub lead the list in order, the last leading row closes the band");
+    view.events_row = view.channels_roles_row = true;
+    ++view.events_revision;
+    navigation_view_rebuild(&view, state);
+    check(view.channel_count == 3 && r[0].id == kNavigationEventsRowId && !r[0].collapsed &&
+              r[1].id == kNavigationChannelsRolesRowId && r[1].type == kNavigationChannelsRolesRowType &&
+              r[1].collapsed && !r[1].selectable && r[2].id == 20 && navigation_lead_row(r[1].type),
+          "channels & roles: its row follows the events row and closes the leading band");
 }
 
 void run() noexcept {

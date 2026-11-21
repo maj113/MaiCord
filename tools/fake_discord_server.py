@@ -346,6 +346,34 @@ EXTRA_ROLE = {"id": GID + 776, "name": "QA Role", "description": None, "permissi
               "flags": 0} if os.environ.get("MAICORD_FAKE_ROLE") else None
 
 
+# Channels & Roles (GET /guilds/{GID}/onboarding, PUT /guilds/{GID}/onboarding-responses): two prompts whose answers
+# grant the QA Role (MAICORD_FAKE_ROLE=1) and #general or #media. The member has seen both prompts and every answer but
+# "Events", which the page shows as new until a save. The client shows them when MAICORD_FAKE_GUILD_FEATURES lists
+# COMMUNITY and GUILD_ONBOARDING_HAS_PROMPTS.
+def onboarding_option(identifier, title, description=None, emoji=None, roles=(), channels=()):
+    return {"id": str(identifier), "title": title, "description": description,
+            "emoji": {"id": None, "name": emoji, "animated": False} if emoji else None,
+            "role_ids": [str(role) for role in roles], "channel_ids": [str(channel) for channel in channels]}
+
+
+ONBOARDING = {"guild_id": str(GID), "enabled": True, "mode": 0, "below_requirements": False,
+              "default_channel_ids": [str(CID)], "responses": [str(GID + 902), str(GID + 912)],
+              "prompts": [{"id": str(GID + 800), "type": 0, "title": "Roles", "single_select": False,
+                           "required": False, "in_onboarding": True, "options": [
+                               onboarding_option(GID + 901, "QA access", roles=[EXTRA_ROLE["id"]] if EXTRA_ROLE else []),
+                               onboarding_option(GID + 902, "Media", "Pictures and clips", "\U0001F3A8",
+                                                 channels=[MEDIA]),
+                               onboarding_option(GID + 903, "Updates"), onboarding_option(GID + 904, "Events"),
+                               onboarding_option(GID + 905, "Voice chat", "Talk with others")]},
+                          {"id": str(GID + 810), "type": 0, "title": "What do you want to do in this community?",
+                           "single_select": True, "required": True, "in_onboarding": True, "options": [
+                               onboarding_option(GID + 911, "Say hello", channels=[CID]),
+                               onboarding_option(GID + 912, "Just look around")]}]}
+ONBOARDING["onboarding_prompts_seen"] = {prompt["id"]: 1700000000000 for prompt in ONBOARDING["prompts"]}
+ONBOARDING["onboarding_responses_seen"] = {option["id"]: 1700000000000 for prompt in ONBOARDING["prompts"]
+                                          for option in prompt["options"] if option["id"] != str(GID + 904)}
+
+
 def guild_object() -> dict:
     everyone = {"id": GID, "name": "@everyone", "description": None, "permissions": 1071698660929, "position": 0,
                 "color": 0, "hoist": False, "managed": False, "mentionable": False, "icon": None, "unicode_emoji": None,
@@ -1357,6 +1385,21 @@ def access_api(command: str, path: str, body: bytes):
         for push in list(GATEWAYS):
             push(0, {"guild_id": GID, "role": quoted(dict(EXTRA_ROLE))}, "GUILD_ROLE_UPDATE")
         return 200, quoted(dict(EXTRA_ROLE))
+    if path == f"{guild}/onboarding" and command == "GET":
+        return 200, ONBOARDING
+    if path == f"{guild}/onboarding-responses" and command == "PUT":
+        # The member gets the roles of the chosen answers, as Discord sends them in GUILD_MEMBER_UPDATE.
+        ONBOARDING["responses"] = sent.get("onboarding_responses", [])
+        for key in ("onboarding_prompts_seen", "onboarding_responses_seen"):
+            ONBOARDING[key].update(sent.get(key, {}))
+        roles = sorted({int(role) for prompt in ONBOARDING["prompts"] for option in prompt["options"]
+                        if option["id"] in ONBOARDING["responses"] for role in option["role_ids"]})
+        for push in list(GATEWAYS):
+            push(0, {"guild_id": GID, "user": user_object(UID), "roles": roles, "nick": None, "avatar": None,
+                     "joined_at": iso(NOW - 86400000), "flags": 0, "pending": False}, "GUILD_MEMBER_UPDATE")
+        return 200, {"onboarding_responses": ONBOARDING["responses"],
+                     "onboarding_prompts_seen": sent.get("onboarding_prompts_seen", {}),
+                     "onboarding_responses_seen": sent.get("onboarding_responses_seen", {})}
     if path == f"{guild}/member-verification" and command == "GET":
         if state["form"] is None:
             return 404, {"message": "Unknown Guild Member Verification Form", "code": 10068}

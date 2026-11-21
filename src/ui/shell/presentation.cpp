@@ -52,6 +52,7 @@ UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
     case kNavigationEventsRowType: return UiIcon::calendar;
     case kNavigationBoostRowType: return UiIcon::boost;
     case kNavigationHubRowType: return UiIcon::home;
+    case kNavigationChannelsRolesRowType: return UiIcon::search;
     case kNavigationRequestsRowType: return UiIcon::inbox;
     default: return UiIcon::channel;
     }
@@ -823,6 +824,12 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         UiPluginSlotBadge header{};
         if (ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, ui_scene_widget(scene, UiSemantic::title_label), line, nullptr, &header) &&
             !ui_plugin_slot_badge_paint(header, scene.widgets, theme, stream))
+            return false;
+        // A content page's row glyph leads its name, as in the official client's header.
+        const float middle = (line.top + line.bottom) * .5f;
+        if (navigation_page_row(visual_selected_channel_id) &&
+            !ui_icon_paint(stream, visual_selected_channel_id == kNavigationHubRowId ? UiIcon::home : UiIcon::search,
+                           {line.left, middle - 10, line.left + 20, middle + 10}, theme.text_secondary))
             return false;
     }
     if (member_toggle) {

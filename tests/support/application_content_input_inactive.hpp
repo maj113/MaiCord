@@ -127,8 +127,13 @@ bool application_guild_hub_remembered(u64) noexcept {
 }
 void application_guild_hub_forget(u64) noexcept {
 }
-bool application_guild_community_open_onboarding(u64, bool) noexcept {
+bool application_guild_channels_roles_open(u64) noexcept {
     return false;
+}
+bool application_guild_channels_roles_remembered(u64) noexcept {
+    return false;
+}
+void application_guild_channels_roles_forget(u64) noexcept {
 }
 bool application_invite_card_click(u64, UiWidgetHandle, float, float) noexcept {
     return false;

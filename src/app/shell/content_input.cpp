@@ -4,6 +4,7 @@
 #include "overlay_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "../chat/application_channel_memory.hpp"
+#include "../guild/channels_roles.hpp"
 #include "../guild/community.hpp"
 #include "../guild/hub.hpp"
 #include "../guild/settings/settings.hpp"
@@ -146,6 +147,7 @@ bool select_content_channel(u64 channel_id) noexcept {
     application_thread_browser_close();
     application_content_page_close();
     application_guild_hub_forget(g_app.account_ui->chat_state.selected_guild_id);
+    application_guild_channels_roles_forget(g_app.account_ui->chat_state.selected_guild_id);
     application_friends_hide();
     application_tabs_note_navigation();
     application_read_state_activity();
@@ -427,6 +429,8 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         return (id == kNavigationHubRowId &&
                 application_guild_hub_open(g_app.account_ui->chat_state.selected_guild_id)) ||
                true;
+    if (!guild && id == kNavigationChannelsRolesRowId)
+        return application_guild_channels_roles_open(g_app.account_ui->chat_state.selected_guild_id) || true;
     if (!guild && navigation_requests_row(id))
         return application_friends_show_requests() || true;
     const bool was_friends = application_friends_active();
@@ -467,8 +471,10 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         home_shows_conversation = !was_friends;
     application_thread_browser_close();
     application_content_page_close();
-    if (!guild && !home)
+    if (!guild && !home) {
         application_guild_hub_forget(state.selected_guild_id);
+        application_guild_channels_roles_forget(state.selected_guild_id);
+    }
     application_friends_hide();
     application_tabs_note_navigation();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;
@@ -511,9 +517,11 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     g_app.context_focus = home    ? &g_app.shell_scene.widgets
                           : guild ? &g_app.guild_rail_scene.widgets
                                   : &g_app.shell_navigation_scene.widgets;
-    // A server whose hub was its last view shows it again.
+    // A server whose hub or Channels & Roles was its last view shows it again.
     if (guild && application_guild_hub_remembered(id))
         application_guild_hub_open(id);
+    else if (guild && application_guild_channels_roles_remembered(id))
+        application_guild_channels_roles_open(id);
     return true;
 }
 
@@ -636,7 +644,8 @@ bool activate_navigation_press(const WindowEvent& event) noexcept {
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
     }
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel &&
-        (hit.id == kNavigationHubRowId || hit.id == kNavigationBoostRowId)) {
+        (hit.id == kNavigationHubRowId || hit.id == kNavigationBoostRowId ||
+         hit.id == kNavigationChannelsRolesRowId)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
         return select_navigation(false, hit.id, false);
     }

@@ -30,8 +30,17 @@ inline constexpr u64 kNavigationBoostRowId = 0x424F4F5354475257ull;
 inline constexpr u8 kNavigationBoostRowType = 0xEC;
 inline constexpr u64 kNavigationHubRowId = 0x53504143454E5257ull;
 inline constexpr u8 kNavigationHubRowType = 0xEA;
+// The Channels & Roles row (Browse Channels without onboarding questions) follows the events row on a community
+// server.
+inline constexpr u64 kNavigationChannelsRolesRowId = 0x4348524F4C455352ull;
+inline constexpr u8 kNavigationChannelsRolesRowType = 0xEB;
 constexpr bool navigation_lead_row(u8 type) noexcept {
-    return type == kNavigationBoostRowType || type == kNavigationHubRowType || type == kNavigationEventsRowType;
+    return type == kNavigationBoostRowType || type == kNavigationHubRowType || type == kNavigationEventsRowType ||
+           type == kNavigationChannelsRolesRowType;
+}
+// The rows that show a content page; the header leads with their glyph.
+constexpr bool navigation_page_row(u64 id) noexcept {
+    return id == kNavigationHubRowId || id == kNavigationChannelsRolesRowId;
 }
 inline constexpr u32 kGuildFolderNoColor = ~0u;
 
@@ -160,9 +169,10 @@ struct NavigationView {
     u32 source_events_revision;
     char events_label[24];
     u8 events_label_bytes;
-    // Host-set: the Boost Goal row (boost_count of boost_goal boosts) and the Server Hub row for the selected
-    // server. Bump events_revision on change.
-    bool boost_row, hub_row;
+    // Host-set: the Boost Goal row (boost_count of boost_goal boosts), the Server Hub row and the Channels & Roles
+    // row (named Browse Channels when browse_channels is set) for the selected server. Bump events_revision on
+    // change.
+    bool boost_row, hub_row, channels_roles_row, browse_channels;
     u16 boost_count, boost_goal;
     // Host-set with connected_voice_channel_id; cleared by the rebuild.
     bool connected_voice_stale;

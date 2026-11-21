@@ -46,22 +46,34 @@ void partial(JsonBody& b, const UserGuildSettingsPatch& p) noexcept {
 }
 void settings_object(JsonBody& b, const UserGuildSettingsPatch& p) noexcept {
     b.begin_object();
-    if (p.channel_id) {
+    if (p.channel_id || p.batch_count) {
         b.begin_object("channel_overrides");
-        b.next();
-        b.put(snowflake_text(p.channel_id), ':');
-        b.begin_object();
-        partial(b, p);
+        if (p.channel_id) {
+            b.next();
+            b.put(snowflake_text(p.channel_id), ':');
+            b.begin_object();
+            partial(b, p);
+            b.end_object();
+        }
+        for (u32 i = 0; i < p.batch_count; ++i) {
+            b.next();
+            b.put(snowflake_text(p.batch_channels[i]), ':');
+            b.begin_object();
+            b.member("flags", p.batch_flags[i]);
+            b.end_object();
+        }
         b.end_object();
-        b.end_object();
-    } else
+    }
+    if (!p.channel_id)
         partial(b, p);
     b.end_object();
 }
 } // namespace
 
 bool user_guild_settings_patch_valid(const UserGuildSettingsPatch& p) noexcept {
-    if (!p.fields || (p.fields & ~all_fields) || static_cast<u8>(p.level) > static_cast<u8>(MessageNotificationLevel::inherit) ||
+    if (p.batch_count > kUserGuildSettingsBatch || (p.batch_count && (!p.guild_id || p.channel_id)) ||
+        (!p.fields && !p.batch_count) || (p.fields & ~all_fields) ||
+        static_cast<u8>(p.level) > static_cast<u8>(MessageNotificationLevel::inherit) ||
         !window_valid(p.mute_window_seconds))
         return false;
     // Direct messages have only per-conversation overrides.

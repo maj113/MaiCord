@@ -6,7 +6,9 @@ namespace maicord {
 // Notification settings writes: direct messages PATCH
 // /users/@me/guilds/@me/settings with the partial settings object; guilds PATCH
 // /users/@me/guilds/settings with {"guilds":{"<id>":partial}}. A channel patch
-// carries only that channel inside channel_overrides.
+// carries only that channel inside channel_overrides. A guild patch may also carry
+// the flags of several channels (Browse Channels follows), written first, as the
+// official client batches them.
 enum UserGuildSettingsField : u16 {
     user_guild_settings_muted = 1,
     user_guild_settings_level = 2,
@@ -14,18 +16,22 @@ enum UserGuildSettingsField : u16 {
     user_guild_settings_suppress_roles = 8,
     // Guild scope only: "Hide muted channels".
     user_guild_settings_hide_muted = 16,
-    // Guild scope only: the whole guild flags word (channel opt-in
-    // OPT_IN_CHANNELS_ON 1 << 14 and friends).
+    // The whole flags word: a guild's (channel opt-in OPT_IN_CHANNELS_ON 1 << 14
+    // and friends) or a channel's (OPT_IN_ENABLED 1 << 12, FAVORITED 1 << 11).
     user_guild_settings_flags = 32,
 };
 inline constexpr u32 kUserGuildOptInChannelsOn = 1u << 14;
 inline constexpr u32 kUserChannelOptInEnabled = 1u << 12;
-inline constexpr u16 kUserGuildSettingsChannelFields = user_guild_settings_muted | user_guild_settings_level;
+inline constexpr u32 kUserChannelFavorited = 1u << 11;
+inline constexpr u16 kUserGuildSettingsChannelFields =
+    user_guild_settings_muted | user_guild_settings_level | user_guild_settings_flags;
+// The channel flags one guild patch carries at most.
+inline constexpr u32 kUserGuildSettingsBatch = 16;
 // Mute submenu windows in seconds; -1 is "until I turn it back on".
 inline constexpr i32 kUserGuildMuteWindows[] = {900, 3600, 10800, 28800, 86400, -1};
 inline constexpr u32 kUserGuildMuteWindowCount = sizeof(kUserGuildMuteWindows) / sizeof(kUserGuildMuteWindows[0]);
 inline constexpr u32 kUserGuildSettingsMaximumTargetBytes = 64;
-inline constexpr u32 kUserGuildSettingsMaximumBodyBytes = 320;
+inline constexpr u32 kUserGuildSettingsMaximumBodyBytes = 1024;
 inline constexpr u64 kUserGuildSettingsRouteId = 0x5547534554544e47ull;
 
 struct UserGuildSettingsPatch {
@@ -39,6 +45,10 @@ struct UserGuildSettingsPatch {
     MessageNotificationLevel level;
     bool muted, suppress_everyone, suppress_roles, hide_muted_channels;
     u32 flags;
+    // Guild patches: channel flags written before the guild's own fields.
+    u8 batch_count;
+    u64 batch_channels[kUserGuildSettingsBatch];
+    u32 batch_flags[kUserGuildSettingsBatch];
 };
 bool user_guild_settings_patch_valid(const UserGuildSettingsPatch&) noexcept;
 // Mute end for a submenu window: now + window, or 0 for -1.

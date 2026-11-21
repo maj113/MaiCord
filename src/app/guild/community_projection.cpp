@@ -107,10 +107,11 @@ bool can_manage_events(u64 guild_id) noexcept {
                                permission_has(access.permissions, kPermissionCreateEvents));
 }
 
+// The Channels & Roles page's save (onboarding_update) is not one: its body is written when it queues, and it belongs
+// to no dialog.
 bool modal_submission(GuildCommunityOperation op) noexcept {
     return op == GuildCommunityOperation::verification_submit ||
-           op == GuildCommunityOperation::onboarding_submit ||
-           op == GuildCommunityOperation::onboarding_update || op == GuildCommunityOperation::event_create;
+           op == GuildCommunityOperation::onboarding_submit || op == GuildCommunityOperation::event_create;
 }
 bool modal_request_current(const Request& request) noexcept {
     if (!owner || !owner->scene.active || owner->guild_id != request.guild_id ||
@@ -121,11 +122,8 @@ bool modal_request_current(const Request& request) noexcept {
     case GuildCommunityOperation::verification_submit:
         return owner->mode == Mode::rules;
     case GuildCommunityOperation::onboarding_get:
-        return owner->mode == Mode::onboarding || owner->mode == Mode::channels_roles;
     case GuildCommunityOperation::onboarding_submit:
         return owner->mode == Mode::onboarding;
-    case GuildCommunityOperation::onboarding_update:
-        return owner->mode == Mode::channels_roles;
     case GuildCommunityOperation::event_create:
         return owner->mode == Mode::create;
     default:
@@ -201,40 +199,32 @@ bool onboarding_presentation_complete(const Owner& p) noexcept {
         model.option_count > kGuildOnboardingOptionMaximum)
         return false;
     const u32 flow_count = guild_onboarding_flow_prompts(model, {});
-    u32 text_bytes = 0, controls = 0, flow_step = 0;
+    u32 flow_step = 0;
     for (u32 i = 0; i < model.prompt_count; ++i) {
         const auto& prompt = model.prompts[i];
         if (prompt.first_option > model.option_count ||
             prompt.option_count > model.option_count - prompt.first_option)
             return false;
-        if (!prompt.option_count || (p.mode == Mode::onboarding && !prompt.in_onboarding))
+        if (!prompt.option_count || !prompt.in_onboarding)
             continue;
-        const u32 option_bytes = onboarding_option_bytes(model, prompt);
-        if (p.mode == Mode::channels_roles) {
-            text_bytes += option_bytes;
-            controls += 1u + prompt.option_count;
-        } else {
-            // Reserve the largest footer used on this page, including the
-            // submitting phase, so a queued write has the same admission rule.
-            const u32 progress = utf8_literal("Question ").bytes + decimal_digits(++flow_step) +
-                                 utf8_literal(" of ").bytes + decimal_digits(flow_count);
-            const u32 status =
-                maximum(p.status.bytes, maximum(progress, utf8_literal("Finishing\xE2\x80\xA6").bytes));
-            const u32 instructions =
-                (prompt.single_select ? utf8_literal("Pick one") : utf8_literal("Pick as many as you like"))
-                    .bytes +
-                (prompt.required ? utf8_literal(" (required).") : utf8_literal(".")).bytes;
-            if (option_bytes + instructions + status > sizeof(p.banks[0]) ||
-                1u + prompt.option_count > kControlCapacity)
-                return false;
-        }
+        // Reserve the largest footer used on this page, including the
+        // submitting phase, so a queued write has the same admission rule.
+        const u32 progress = utf8_literal("Question ").bytes + decimal_digits(++flow_step) +
+                             utf8_literal(" of ").bytes + decimal_digits(flow_count);
+        const u32 status = maximum(p.status.bytes, maximum(progress, utf8_literal("Finishing\xE2\x80\xA6").bytes));
+        const u32 instructions =
+            (prompt.single_select ? utf8_literal("Pick one") : utf8_literal("Pick as many as you like")).bytes +
+            (prompt.required ? utf8_literal(" (required).") : utf8_literal(".")).bytes;
+        if (onboarding_option_bytes(model, prompt) + instructions + status > sizeof(p.banks[0]) ||
+            1u + prompt.option_count > kControlCapacity)
+            return false;
     }
-    return text_bytes <= sizeof(p.banks[0]) && controls <= kControlCapacity;
+    return true;
 }
 bool modal_presentation_complete(const Owner& p) noexcept {
     if (p.mode == Mode::rules)
         return rules_presentation_complete(p);
-    if (p.mode == Mode::onboarding || p.mode == Mode::channels_roles)
+    if (p.mode == Mode::onboarding)
         return onboarding_presentation_complete(p);
     return true;
 }
@@ -525,28 +515,7 @@ void project_onboarding(Bank& bank) noexcept {
     }
     if (!onboarding_presentation_complete(p)) {
         notice(control_notice, utf8_literal("These questions can't be completed here"), kIncompleteForm);
-        set_footer(kIncompleteForm, p.mode == Mode::channels_roles ? utf8_literal("Save") : utf8_literal("Finish"),
-                   utf8_literal("Close"), true, false, false, true);
-        return;
-    }
-    if (p.mode == Mode::channels_roles) {
-        p.content.description =
-            utf8_literal("Answer questions to get roles and see the channels you care about.");
-        for (u32 i = 0; i < p.onboarding.prompt_count; ++i) {
-            const auto& prompt = p.onboarding.prompts[i];
-            if (!prompt.option_count)
-                continue;
-            add_control(control_category + i, guild_onboarding_text(p.onboarding, prompt.title),
-                        prompt.single_select ? utf8_literal("Pick one.") : utf8_literal("Pick as many as you like."),
-                        UiSettingsControlKind::category);
-            for (u32 o = 0; o < prompt.option_count; ++o)
-                option_row(bank, prompt.first_option + o, edit);
-        }
-        set_footer(p.status.bytes                     ? p.status
-                   : p.phase == Phase::submitting ? utf8_literal("Saving\xE2\x80\xA6")
-                                                  : Utf8View{},
-                   utf8_literal("Save"), utf8_literal("Cancel"), true, connected() && p.phase != Phase::submitting,
-                   p.phase == Phase::submitting, p.failed);
+        set_footer(kIncompleteForm, utf8_literal("Finish"), utf8_literal("Close"), true, false, false, true);
         return;
     }
     if (!p.flow_count) {
@@ -755,8 +724,7 @@ bool project() noexcept {
     reset_value(&p.content.description);
     switch (p.mode) {
     case Mode::rules: project_rules(bank); break;
-    case Mode::onboarding:
-    case Mode::channels_roles: project_onboarding(bank); break;
+    case Mode::onboarding: project_onboarding(bank); break;
     case Mode::events: project_events(bank); break;
     case Mode::event: project_event(bank); break;
     case Mode::create: project_create(); break;

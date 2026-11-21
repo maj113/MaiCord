@@ -1,4 +1,5 @@
 #include "interaction_internal.hpp"
+#include "../../guild/channels_roles.hpp"
 #include "../../guild/community.hpp"
 #include "components.hpp"
 #include "../../guild/lifecycle.hpp"
@@ -242,7 +243,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         return application_guild_lifecycle_open_invite(owner_id) || true;
     } else if (action == popup_action_guild_onboarding && g_app.popup_owner_kind == PopupOwnerKind::guild) {
         dismiss_popup();
-        return application_guild_community_open_onboarding(owner_id, true) || true;
+        return application_guild_channels_roles_open(owner_id) || true;
     } else if (action == popup_action_create_event && g_app.popup_owner_kind == PopupOwnerKind::guild) {
         dismiss_popup();
         return application_guild_community_open_create(owner_id) || true;

@@ -171,6 +171,8 @@ static __declspec(noinline) bool title_output(const UiScene& scene, const ChatSt
     } else if (visual_selected_channel_id == kNavigationHubRowId) {
         // A content page names the header after its row.
         title_text = utf8_literal("Server Hub");
+    } else if (visual_selected_channel_id == kNavigationChannelsRolesRowId) {
+        title_text = navigation.browse_channels ? utf8_literal("Browse Channels") : utf8_literal("Channels & Roles");
     } else if (selected_channel) {
         const Utf8View name = channel_is_private(selected_channel->type)
                                   ? private_channel_title(state, users, *selected_channel,
@@ -190,6 +192,9 @@ static __declspec(noinline) bool title_output(const UiScene& scene, const ChatSt
     if (title_label && selected_channel && channel_is_private(selected_channel->type) &&
         scene.view != UiShellView::friends)
         title_text_rectangle.left += kUiPrivateHeaderAvatar + 8.0f;
+    // A content page's name follows its row's glyph (presentation.cpp).
+    if (title_label && navigation_page_row(visual_selected_channel_id))
+        title_text_rectangle.left += 28.0f;
     UiPluginSlotBadge header_slot{};
     if (title_label && ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, ui_scene_widget(scene, UiSemantic::title_label),
                                                  title_text_rectangle, nullptr, &header_slot))
@@ -582,6 +587,9 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                       : row.type == kNavigationRequestsRowType ? utf8_literal("Message Requests")
                                       : row.type == kNavigationBoostRowType    ? utf8_literal("Boost Goal")
                                       : row.type == kNavigationHubRowType      ? utf8_literal("Server Hub")
+                                      : row.type == kNavigationChannelsRolesRowType
+                                          ? navigation.browse_channels ? utf8_literal("Browse Channels")
+                                                                       : utf8_literal("Channels & Roles")
                                       : !channel ? Utf8View{}
                                       : channel_is_private(channel->type)
                                           ? private_channel_title(state, users, *channel,

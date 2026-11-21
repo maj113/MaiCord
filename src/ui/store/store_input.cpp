@@ -55,9 +55,24 @@ bool page_scroll(UiStoreScene* s, UiStoreKey key) noexcept {
                                                                    : far);
 }
 
+// Labels that follow the pointer and the focus (a button that shows with its row, the ink of a hovered tab) are
+// emitted again when the hovered or focused node changes from `before` to `after`.
+void labels_follow(UiStoreScene* s, u32 before, u32 after) noexcept {
+    for (u32 i = 0; i < s->count; ++i) {
+        const auto& n = s->nodes[i];
+        if ((n.kind == UiStoreKind::button && n.aux) ||
+            (n.kind == UiStoreKind::tab && n.action && (n.action == before || n.action == after))) {
+            ++s->revision;
+            return;
+        }
+    }
+}
+
 bool set_focus(UiStoreScene* s, u16 index, bool visible_ring) noexcept {
     const u32 action = s->nodes[index].action;
     const bool changed = s->focus_action != action || s->focus_visible != visible_ring;
+    if (changed)
+        labels_follow(s, s->focus_action, action);
     s->focus_action = action;
     s->focus_visible = visible_ring;
     reveal(s, index);
@@ -71,10 +86,12 @@ bool fill_event(UiStoreScene& s, u16 index, UiStoreEventKind kind, u32 value, Ui
         return true;
     const auto& n = s.nodes[index];
     *event = {kind, n.action, value, screen_rect(s, index)};
-    // An activated switch turns to the other state: remember it for its slide.
-    if (kind == UiStoreEventKind::activate && n.kind == UiStoreKind::toggle) {
+    // An activated switch turns to the other state: remember it for its slide. An answer tile turns chosen or not on
+    // the same clock: its check badge grows in.
+    const bool answer = n.kind == UiStoreKind::card && n.variant == static_cast<u8>(UiStoreCard::answer);
+    if (kind == UiStoreEventKind::activate && (n.kind == UiStoreKind::toggle || answer)) {
         s.toggle_action = n.action;
-        s.toggle_to = n.value == 0;
+        s.toggle_to = answer ? !(n.flags & ui_store_selected) : n.value == 0;
         s.toggle_started_ms = 0;
         ++s.motion;
     }
@@ -179,7 +196,7 @@ u16 hit_node(const UiStoreScene& s, float x, float y) noexcept {
     const Range range = s.dialog_bar ? (in_bar ? Range{s.dialog_root, s.count} : Range{0, s.dialog_root}) : active_range(s);
     for (u32 i = range.end; i > range.first; --i) {
         const auto& n = s.nodes[i - 1];
-        if (!interactive(n))
+        if (!interactive(n) || concealed(s, n))
             continue;
         const UiRect r = screen_rect(s, static_cast<u16>(i - 1));
         if (ui_rect_contains(r, x, y) && ui_rect_contains(clip_of(s, static_cast<u16>(i - 1)), x, y))
@@ -223,6 +240,7 @@ bool ui_store_scene_hover(UiStoreScene* s, float x, float y) noexcept {
                        ui_rect_contains(search_clear_rect(screen_rect(*s, hit)), x, y);
     if (action == s->hover_action && clear == s->hover_clear)
         return false;
+    labels_follow(s, s->hover_action, action);
     s->hover_action = action;
     s->hover_clear = clear;
     ++s->motion;

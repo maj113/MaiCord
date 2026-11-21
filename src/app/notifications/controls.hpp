@@ -27,6 +27,9 @@ struct GuildChannelOptIn {
 };
 GuildChannelOptIn application_notification_controls_channel_opt_in(u64 guild_id) noexcept;
 bool application_notification_controls_set_channel_opt_in(u64 guild_id, bool enabled) noexcept;
+// Browse Channels: follows or unfollows one channel or category (channel flags OPT_IN_ENABLED) of a community
+// server, shown at once. The first follow also turns opt-in on. Later ones save together, a second after the last.
+bool application_notification_controls_follow_channel(u64 guild_id, u64 channel_id, bool follow) noexcept;
 // Projects effective mutes and "Hide muted channels" into the navigation
 // state and re-projects when a timed mute ends. Unix time drives expiry.
 void application_notification_controls_tick(u64 now_ms) noexcept;

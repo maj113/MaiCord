@@ -10,11 +10,12 @@ struct NavigationView;
 
 namespace maicord::app_detail {
 // Community features of a server: the rules form (membership screening),
-// onboarding questions with "Channels & Roles", and scheduled events (the
-// events store, the channel-list entry, list/detail/create modals, Interested
-// and event cards). Modals run in the shared settings-modal framework and are
-// hosted by application_channel_overview like the server lifecycle modals;
-// requests use the DETAILS lane through that host.
+// onboarding questions on joining, and scheduled events (the events store,
+// the channel-list entry, list/detail/create modals, Interested and event
+// cards). Modals run in the shared settings-modal framework and are hosted by
+// application_channel_overview like the server lifecycle modals; requests use
+// the DETAILS lane through that host. The Channels & Roles page
+// (channels_roles.hpp) asks on this lane too.
 
 // Gateway: READY resets, guild snapshots replace, dispatches update.
 void application_guild_community_gateway(const GatewayClientEvent&, ConstSlice<u8> payload) noexcept;
@@ -39,7 +40,7 @@ bool application_guild_community_join(u64 guild_id) noexcept;
 bool application_guild_community_hub(GuildCommunityOperation op, u64 guild_id) noexcept;
 
 bool application_guild_community_open_rules(u64 guild_id) noexcept;
-bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noexcept;
+bool application_guild_community_open_onboarding(u64 guild_id) noexcept;
 bool application_guild_community_open_events(u64 guild_id) noexcept;
 bool application_guild_community_open_event(u64 guild_id, u64 event_id) noexcept;
 bool application_guild_community_open_create(u64 guild_id) noexcept;

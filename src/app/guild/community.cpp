@@ -127,7 +127,7 @@ void reload() noexcept {
     reset_value(&p.status);
     if (p.mode == Mode::rules)
         enqueue(GuildCommunityOperation::verification_get, p.guild_id);
-    else if (p.mode == Mode::onboarding || p.mode == Mode::channels_roles)
+    else if (p.mode == Mode::onboarding)
         enqueue(GuildCommunityOperation::onboarding_get, p.guild_id);
 }
 bool submit_request(GuildCommunityOperation op) noexcept {
@@ -146,7 +146,7 @@ void submit_modal() noexcept {
     if (!p.footer.can_save || p.phase == Phase::submitting)
         return;
     if (!p.scene.active || !modal_presentation_complete(p) ||
-        ((p.mode == Mode::rules || p.mode == Mode::onboarding || p.mode == Mode::channels_roles) &&
+        ((p.mode == Mode::rules || p.mode == Mode::onboarding) &&
          p.phase != Phase::ready && p.phase != Phase::failed))
         return;
     switch (p.mode) {
@@ -176,10 +176,6 @@ void submit_modal() noexcept {
         if (!onboarding_required_complete(p.onboarding))
             return;
         if (!submit_request(GuildCommunityOperation::onboarding_submit))
-            return;
-        break;
-    case Mode::channels_roles:
-        if (!submit_request(GuildCommunityOperation::onboarding_update))
             return;
         break;
     case Mode::create:
@@ -320,12 +316,11 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         const u32 option = static_cast<u32>(id - control_option_base);
         for (u32 i = 0; i < p.onboarding.prompt_count; ++i) {
             const auto& prompt = p.onboarding.prompts[i];
-            if (option >= prompt.first_option && option < static_cast<u32>(prompt.first_option) + prompt.option_count) {
-                guild_onboarding_toggle(&p.onboarding, i, option - prompt.first_option);
-                ui_settings_scene_animate_toggle(&p.scene, target, p.onboarding.options[option].selected,
-                                                 clock_monotonic_milliseconds());
-                break;
-            }
+            const u32 first = prompt.first_option;
+            if (option < first || option >= first + prompt.option_count)
+                continue;
+            guild_onboarding_toggle(&p.onboarding, i, option - first);
+            break;
         }
     } else if (id == control_where) {
         if (activation.value.selected_choice < 3 && activation.value.selected_choice != p.where) {
@@ -379,9 +374,16 @@ void choose(SettingsLayer*, u32 action) noexcept {
     repaint();
 }
 
-// Body for a modal submit, built from the modal's current state.
+// Body for a modal submit, built from the modal's current state. Channels & Roles' save carries the body written
+// when it queued.
 u32 build_body(const Request& request) noexcept {
     auto& b = *background;
+    if (request.op == GuildCommunityOperation::onboarding_update) {
+        if (b.update_guild != request.guild_id)
+            return 0;
+        copy_bytes(b.body, b.update_body, b.update_bytes);
+        return b.update_bytes;
+    }
     if (!owner || owner->guild_id != request.guild_id)
         return 0;
     auto& p = *owner;
@@ -399,15 +401,10 @@ u32 build_body(const Request& request) noexcept {
                                                {b.body, sizeof(b.body)});
     }
     case GuildCommunityOperation::onboarding_submit:
-    case GuildCommunityOperation::onboarding_update:
-        if (!onboarding_presentation_complete(p))
-            return 0;
-        if (request.op == GuildCommunityOperation::onboarding_submit &&
-            !onboarding_required_complete(p.onboarding))
+        if (!onboarding_presentation_complete(p) || !onboarding_required_complete(p.onboarding))
             return 0;
         return guild_onboarding_write_responses(p.onboarding, clock_unix_milliseconds(),
-                                                {b.body, sizeof(b.body)},
-                                                request.op == GuildCommunityOperation::onboarding_update);
+                                                {b.body, sizeof(b.body)});
     case GuildCommunityOperation::event_create:
         return scheduled_event_write_create(event_draft(), {b.body, sizeof(b.body)});
     default:
@@ -495,9 +492,17 @@ void application_guild_community_navigation(NavigationView* view) noexcept {
     const u32 count = guild_id && events ? scheduled_event_store_guild_count(*events, guild_id) : 0;
     // Shown when there is something to see or the account can schedule.
     const bool row = guild_id && (count || can_manage_events(guild_id));
-    if (row != view->events_row || count != view->event_count) {
+    // The official client lists Channels & Roles on a community server, named Browse Channels without questions.
+    const auto* g = guild_id ? guild(guild_id) : nullptr;
+    const u32 features = g ? g->upload_features : 0;
+    const bool roles = (features & guild_record_community) != 0;
+    const bool browse = roles && !(features & guild_record_onboarding_prompts);
+    if (row != view->events_row || count != view->event_count || roles != view->channels_roles_row ||
+        browse != view->browse_channels) {
         view->events_row = row;
         view->event_count = count;
+        view->channels_roles_row = roles;
+        view->browse_channels = browse;
         ++view->events_revision;
     }
 }
@@ -546,7 +551,7 @@ void application_guild_community_joined(u64 guild_id) noexcept {
     // Freshly joined: onboarding first when the server has it, then rules.
     if ((g->upload_features & guild_record_onboarding) &&
         (!known || !(g->settings.self_member & guild_self_member_onboarding_completed)) &&
-        application_guild_community_open_onboarding(guild_id, false))
+        application_guild_community_open_onboarding(guild_id))
         return;
     if (rules_gated(*g))
         application_guild_community_open_rules(guild_id);
@@ -570,15 +575,14 @@ bool application_guild_community_open_rules(u64 guild_id) noexcept {
     return repaint();
 }
 
-bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noexcept {
+bool application_guild_community_open_onboarding(u64 guild_id) noexcept {
     if (!openable(guild_id))
         return false;
     reset_value(&owner->onboarding);
     owner->flow_count = owner->step = 0;
     owner->phase = Phase::loading;
     reset_value(&owner->status);
-    if (!open_modal(revisit ? Mode::channels_roles : Mode::onboarding, guild_id,
-                    revisit ? utf8_literal("Channels & Roles") : utf8_literal("Customize your experience"), 0))
+    if (!open_modal(Mode::onboarding, guild_id, utf8_literal("Customize your experience"), 0))
         return false;
     reload();
     return repaint();
@@ -737,6 +741,7 @@ void application_guild_community_close(bool restore_focus) noexcept {
 
 void application_guild_community_release() noexcept {
     application_guild_community_close(false);
+    channels_roles_release();
     if (background) {
         application_cancel_request(account_module_guild_community, background->request_id);
         SecureZeroMemory(background, sizeof(Background));
@@ -788,14 +793,17 @@ SettingsLayer* application_guild_community_settings_layer() noexcept {
 }
 
 u64 application_guild_community_next_wake() noexcept {
+    const u64 save = channels_roles_save_at();
     if (!background || background->request_id || !background->queue_count)
-        return 0;
-    return background->retry_at ? background->retry_at : 1;
+        return save;
+    const u64 queued = background->retry_at ? background->retry_at : 1;
+    return save ? minimum(save, queued) : queued;
 }
 
 bool application_guild_community_submit(u64 now) noexcept {
     // The tag popout's join (its CAPTCHA retry) also advances per frame.
     application_guild_card_join_poll(now);
+    channels_roles_tick(now);
     if (!g_app.account_ui || !background || !ensure_background() || background->request_id ||
         !background->queue_count || g_app.details_request_owner != MessageHistoryRequestOwner::none ||
         !g_app.account.instance ||
@@ -871,8 +879,10 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
     const bool same_modal = owner && owner->scene.active && owner->lifetime == b.modal_lifetime &&
                             owner->guild_id == request.guild_id;
     b.request_id = 0;
-    if ((modal_submission(request.op) || request.op == GuildCommunityOperation::verification_get ||
-         request.op == GuildCommunityOperation::onboarding_get) &&
+    // An onboarding answer no onboarding dialog waits for is the Channels & Roles page's.
+    const bool page =
+        request.op == GuildCommunityOperation::onboarding_get && !(same_modal && modal_request_current(request));
+    if ((modal_submission(request.op) || request.op == GuildCommunityOperation::verification_get) &&
         (!same_modal || !modal_request_current(request)))
         return true;
     const bool ok = response.transport_ok() &&
@@ -888,6 +898,10 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
             b.retry_at = response.retry_at_ms;
             return true;
         }
+    }
+    if (page) {
+        channels_roles_response(request.guild_id, ok, body);
+        return true;
     }
     // The Server Hub reads its answers itself (404: a server without a hub).
     if (request.op >= GuildCommunityOperation::space_get) {
@@ -973,7 +987,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         break;
     }
     case GuildCommunityOperation::onboarding_get:
-        if (!same_modal || (owner->mode != Mode::onboarding && owner->mode != Mode::channels_roles))
+        if (!same_modal || owner->mode != Mode::onboarding)
             break;
         if (guild_onboarding_decode(body, json_scratch(), &owner->onboarding)) {
             owner->flow_count = guild_onboarding_flow_prompts(owner->onboarding, {owner->flow, kGuildOnboardingPromptMaximum});
@@ -997,7 +1011,6 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         repaint();
         break;
     case GuildCommunityOperation::onboarding_submit:
-    case GuildCommunityOperation::onboarding_update:
         if (same_modal) {
             const u64 guild_id = owner->guild_id;
             u64 channel = 0;
@@ -1005,12 +1018,11 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
                 if (const auto* c = chat_state_store_find_channel(state(), owner->onboarding.default_channels[i]))
                     if (c->guild_id == guild_id && chat_state_store_channel_visible(state(), *c))
                         channel = c->id;
-            const bool finishing = request.op == GuildCommunityOperation::onboarding_submit;
             application_guild_community_close();
-            if (finishing && channel)
+            if (channel)
                 application_navigate_known_message(channel, 0);
             const auto* g = guild(guild_id);
-            if (finishing && g && rules_gated(*g))
+            if (g && rules_gated(*g))
                 application_guild_community_open_rules(guild_id);
         }
         break;

@@ -22,9 +22,11 @@ constexpr u32 kDayChoices = 14;
 constexpr u32 kTimeChoices = 48;
 constexpr u32 kQueueCapacity = 8;
 constexpr u64 kCopiedMs = 2'000;
+// The official client saves Channels & Roles choices a second after the last change.
+constexpr u64 kSaveDelayMs = 1'000;
 constexpr u32 kMenuChoiceBase = 3'000;
 
-enum class Mode : u8 { none, rules, onboarding, channels_roles, events, event, create };
+enum class Mode : u8 { none, rules, onboarding, events, event, create };
 enum class Phase : u8 { idle, loading, ready, submitting, failed, done };
 enum class Menu : u8 { none, channel, day, time, duration };
 enum : u64 {
@@ -124,12 +126,26 @@ struct Background {
     u64 gate_opened[16]; // servers whose rules opened on their own this session
     u32 gate_opened_count;
     u8 body[kGuildCommunityMaximumBodyBytes];
+    // Channels & Roles writes its PUT body when the choices save, so a close or a reopen cannot change it.
+    u8 update_body[12 * 1024];
+    u64 update_guild;
+    u32 update_bytes;
 };
 
 extern Background* background;
 extern ScheduledEventStore* events;
 extern u32 published_events_revision;
 ChatStateStore& state() noexcept;
+// Changes to roles (GUILD_MEMBER_UPDATE) and to channel follows show again on the Channels & Roles page.
+inline u32 page_state() noexcept {
+    return state().permission_mutations + state().channel_mutations;
+}
+// The Channels & Roles page (channels_roles.cpp): the time its choices save (0: none waiting), the save when due or
+// when the page went, the answer to its GET and the account's teardown.
+u64 channels_roles_save_at() noexcept;
+void channels_roles_tick(u64 now) noexcept;
+void channels_roles_response(u64 guild_id, bool ok, Utf8View body) noexcept;
+void channels_roles_release() noexcept;
 // The UI thread's transient JSON scratch (AccountUiRuntime::message_history_page_structurals): every decode here
 // finishes before its caller returns.
 Slice<u32> json_scratch() noexcept;

@@ -575,9 +575,12 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     const bool requests_lead = view->requests_row && state.home_selected;
     const bool guild_lead = !state.home_selected && state.selected_guild_id;
     const bool events_lead = view->events_row && guild_lead;
-    const bool lead_shown[]{view->boost_row && guild_lead, view->hub_row && guild_lead, events_lead};
-    static constexpr u64 kLeadIds[]{kNavigationBoostRowId, kNavigationHubRowId, kNavigationEventsRowId};
-    static constexpr u8 kLeadTypes[]{kNavigationBoostRowType, kNavigationHubRowType, kNavigationEventsRowType};
+    const bool lead_shown[]{view->boost_row && guild_lead, view->hub_row && guild_lead, events_lead,
+                            view->channels_roles_row && guild_lead};
+    static constexpr u64 kLeadIds[]{kNavigationBoostRowId, kNavigationHubRowId, kNavigationEventsRowId,
+                                    kNavigationChannelsRolesRowId};
+    static constexpr u8 kLeadTypes[]{kNavigationBoostRowType, kNavigationHubRowType, kNavigationEventsRowType,
+                                     kNavigationChannelsRolesRowType};
     u32 lead = requests_lead;
     for (const bool shown : lead_shown)
         lead += shown;

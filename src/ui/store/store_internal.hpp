@@ -22,6 +22,11 @@ extern const UiStoreMeasure* g_measure;
 u32 text_lines(u8 type, const Utf8View& text, float width) noexcept;
 
 inline bool hidden(const UiStoreNode& n) noexcept { return (n.flags & ui_store_hidden) != 0; }
+// A button that shows with its row (aux) away from the pointer and the focus: not painted, emitted or hit.
+inline bool concealed(const UiStoreScene& s, const UiStoreNode& n) noexcept {
+    return n.kind == UiStoreKind::button && n.aux && s.hover_action != n.aux && s.focus_action != n.aux &&
+           s.hover_action != n.action && s.focus_action != n.action;
+}
 bool interactive(const UiStoreNode& n) noexcept;
 // The node's screen rectangle: the dialog tree is fixed, the page tree scrolls.
 UiRect screen_rect(const UiStoreScene& s, u16 index) noexcept;

@@ -239,6 +239,12 @@ float place_stack(const UiStoreScene& s, UiStoreNode& n, float x, float y, float
         }
         if (hidden(child))
             continue;
+        // A corner badge overhangs the card's top end corner by its pad_x and pad_y.
+        if (child.anchor && n.kind == UiStoreKind::card) {
+            place(s, c, 0, 0, intrinsic(s, c));
+            shift(s, c, x + width - child.w + child.pad_x, y - child.pad_y);
+            continue;
+        }
         if (any)
             cy += n.gap;
         place(s, c, cx, cy, cw);

@@ -102,6 +102,7 @@ else()
         src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp src/app/account/profile_editor_preview.cpp
         src/app/account/profile_editor_images.cpp
         src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp src/app/guild/hub.cpp
+        src/app/guild/channels_roles.cpp
         src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp src/app/guild/hidden_channel.cpp
         src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
         src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp

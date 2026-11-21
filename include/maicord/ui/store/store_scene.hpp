@@ -80,6 +80,11 @@ enum class UiStoreButton : u8 { secondary, primary, ghost, critical, ghost_criti
 enum class UiStoreAnchor : u8 { none, top_left, top_right, bottom_left, bottom_right, center };
 // live: a fixed-height plate the renderer fills with the running package effect (ui_background_paint_tile).
 enum class UiStoreAspect : u8 { r16x10, r16x9, fixed, live };
+// A card's look (its variant): the plate; an answer tile (Channels & Roles: muted plate, hover and pressed plates, a
+// brand plate and edge while selected); a list row (no plate, the hover plate, a hairline below with
+// ui_store_hairline); a pill (the normal plate, round ends). A card's child with an anchor (top_right) is a corner
+// badge: it takes no room and overhangs the corner by its pad_x and pad_y.
+enum class UiStoreCard : u8 { plate, answer, row, pill };
 
 enum UiStoreFlag : u16 {
     ui_store_flex = 1u << 0,      // takes the free space of a row
@@ -106,14 +111,16 @@ struct UiStoreNode {
     u8 type;     // UiStoreType, button size (0 sm, 1 md), tile size class
     u8 ink;      // UiStoreInk
     u8 fill;     // UiStoreFill
-    u8 variant;  // tone / button / aspect / swatch shape
+    u8 variant;  // tone / button / aspect / swatch shape / card look; a tab: 1 an attention badge, 2 the brand look
     u8 icon;     // UiIcon, 255 none
     u8 icon2;
-    u8 anchor;   // UiStoreAnchor in an overlay
+    u8 anchor;   // UiStoreAnchor in an overlay (a preview's children; a card's top_right corner badge)
     u16 flags;
     u16 first, next;
     u16 count;   // text: max lines; grid: columns (arranged); segments: option count
-    u16 aux;     // slider: default index + 1; preview: corner radius (0: by size, past half the side: a disc)
+    // slider: default index + 1; preview: corner radius (0: by size, past half the side: a disc); a button: the action
+    // of the row it shows with (0: always shown), so it shows while it or that row is hovered or focused.
+    u16 aux;
     u32 action;  // host action id; 0 is passive
     u32 value;   // selected index / checked / rgb / media slot / slider position
     u32 group;   // arrow-key group (0 none)

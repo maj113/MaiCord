@@ -203,10 +203,25 @@ struct OnboardingPass {
     Bank bank;
     GuildOnboardingPrompt* prompt;
     GuildOnboardingOption* option;
-    JsonValue prompts, responses;
+    JsonValue prompts, responses, prompts_seen_map, responses_seen_map;
     bool prompts_seen;
     bool responses_seen;
 };
+// A member of onboarding_prompts_seen or onboarding_responses_seen: its name is a prompt or an option ID.
+template <bool Prompt> bool seen_member(void* opaque, JsonString name, JsonValue) noexcept {
+    auto& o = *static_cast<OnboardingPass*>(opaque)->onboarding;
+    u64 id = 0;
+    for (u32 i = 0; i < name.encoded.bytes && name.encoded.data[i] >= '0' && name.encoded.data[i] <= '9'; ++i)
+        id = id * 10 + static_cast<u64>(name.encoded.data[i] - '0');
+    if constexpr (Prompt) {
+        for (u32 i = 0; i < o.prompt_count; ++i)
+            o.prompts[i].seen |= o.prompts[i].id == id;
+    } else {
+        for (u32 i = 0; i < o.option_count; ++i)
+            o.options[i].seen |= o.options[i].id == id;
+    }
+    return true;
+}
 bool onboarding_response(void* opaque, u32 index, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
@@ -228,20 +243,32 @@ bool onboarding_response(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
-    switch (member_index<"name", "id">(name)) {
+    switch (member_index<"name", "id", "animated">(name)) {
     case 0: p.option->emoji = p.bank.add(value, 64); break;
     case 1:
         if (value.kind != JsonValueKind::null_value)
             json_value_to_snowflake(value, &p.option->emoji_id);
         break;
+    case 2: json_value_to_bool(value, &p.option->emoji_animated); break;
     default: break;
     }
     return true;
 }
+// Appends an option's role or channel IDs to the grant pool. IDs past the end of the pool are dropped.
+void option_grants(OnboardingPass& p, JsonValue value, u16* first, u8* count) noexcept {
+    auto& o = *p.onboarding;
+    const u32 room = minimum(kGuildOnboardingGrantMaximum - o.grant_count, 255u);
+    u32 found = 0;
+    snowflake_string_array(p.document, value, o.grants + o.grant_count, room, &found);
+    found = minimum(found, room);
+    *first = static_cast<u16>(o.grant_count);
+    *count = static_cast<u8>(found);
+    o.grant_count += found;
+}
 bool option_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.option;
-    switch (member_index<"id", "title", "description", "emoji">(name)) {
+    switch (member_index<"id", "title", "description", "emoji", "role_ids", "channel_ids">(name)) {
     case 0: return json_value_to_snowflake(value, &o.id);
     case 1: o.title = p.bank.add(value, 512); break;
     case 2: o.description = p.bank.add(value, 512); break;
@@ -249,6 +276,8 @@ bool option_member(void* opaque, JsonString name, JsonValue value) noexcept {
         if (value.kind == JsonValueKind::object)
             return json_visit_indexed_object(p.document, value, kDepth, emoji_member, &p).ok();
         break;
+    case 4: option_grants(p, value, &o.first_role, &o.role_count); break;
+    case 5: option_grants(p, value, &o.first_channel, &o.channel_count); break;
     default: break;
     }
     return true;
@@ -277,7 +306,7 @@ bool prompt_option(void* opaque, u32, JsonValue value) noexcept {
 bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& prompt = *p.prompt;
-    switch (member_index<"id", "title", "single_select", "required", "in_onboarding", "options">(name)) {
+    switch (member_index<"id", "title", "single_select", "required", "in_onboarding", "options", "disabled">(name)) {
     case 0: return json_value_to_snowflake(value, &prompt.id);
     case 1: prompt.title = p.bank.add(value, 512); break;
     case 2: json_value_to_bool(value, &prompt.single_select); break;
@@ -291,6 +320,7 @@ bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
         prompt.first_option = static_cast<u16>(p.onboarding->option_count);
         prompt.option_count = 0;
         return json_visit_indexed_array(p.document, value, kDepth, prompt_option, &p).ok();
+    case 6: json_value_to_bool(value, &prompt.disabled); break;
     default: break;
     }
     return true;
@@ -321,7 +351,8 @@ bool onboarding_prompt(void* opaque, u32, JsonValue value) noexcept {
 bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
-    switch (member_index<"prompts", "default_channel_ids", "responses", "enabled">(name)) {
+    switch (member_index<"prompts", "default_channel_ids", "responses", "enabled", "onboarding_prompts_seen",
+                         "onboarding_responses_seen">(name)) {
     case 0:
         if (value.kind != JsonValueKind::array) {
             o.truncated = true;
@@ -343,6 +374,8 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
         p.responses = value;
         break;
     case 3: json_value_to_bool(value, &o.enabled); break;
+    case 4: p.prompts_seen_map = value; break;
+    case 5: p.responses_seen_map = value; break;
     default: break;
     }
     return true;
@@ -863,6 +896,10 @@ bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding*
     if (pass.responses_seen && pass.responses.kind == JsonValueKind::array &&
         !json_visit_indexed_array(s.document, pass.responses, kDepth, onboarding_response, &pass).ok())
         return false;
+    if (pass.prompts_seen_map.kind == JsonValueKind::object)
+        json_visit_indexed_object(s.document, pass.prompts_seen_map, kDepth, seen_member<true>, &pass);
+    if (pass.responses_seen_map.kind == JsonValueKind::object)
+        json_visit_indexed_object(s.document, pass.responses_seen_map, kDepth, seen_member<false>, &pass);
     return true;
 }
 
@@ -890,7 +927,7 @@ bool guild_onboarding_toggle(GuildOnboarding* onboarding, u32 prompt_index, u32 
     if (prompt.single_select && selected)
         for (u32 i = 0; i < prompt.option_count; ++i)
             options[i].selected = false;
-    options[option_index].selected = selected;
+    options[option_index].selected = options[option_index].picked = selected;
     return true;
 }
 

@@ -200,24 +200,36 @@ inline constexpr u32 kGuildOnboardingPromptMaximum = 16;
 inline constexpr u32 kGuildOnboardingOptionMaximum = 128;
 inline constexpr u32 kGuildOnboardingDefaultChannelMaximum = 32;
 inline constexpr u32 kGuildOnboardingTextBytes = 16 * 1024;
+// The role and channel IDs that all options grant, in one pool.
+inline constexpr u32 kGuildOnboardingGrantMaximum = 512;
 
 struct GuildOnboardingOption {
     u64 id;
     GuildVerificationText title, description, emoji;
     u64 emoji_id;
     bool selected; // in the member's saved responses
+    bool picked;   // selected by guild_onboarding_toggle since the decode
+    bool emoji_animated;
+    bool seen; // in the member's onboarding_responses_seen
+    // role_ids and channel_ids: counts and first indexes in GuildOnboarding::grants.
+    u8 role_count, channel_count;
+    u16 first_role, first_channel;
 };
 struct GuildOnboardingPrompt {
     u64 id;
     GuildVerificationText title;
     u16 first_option, option_count;
     bool single_select, required, in_onboarding;
+    bool seen;     // in the member's onboarding_prompts_seen
+    bool disabled; // hidden from members
 };
 struct GuildOnboarding {
     GuildOnboardingPrompt prompts[kGuildOnboardingPromptMaximum];
     GuildOnboardingOption options[kGuildOnboardingOptionMaximum];
     u64 default_channels[kGuildOnboardingDefaultChannelMaximum];
-    u32 prompt_count, option_count, default_channel_count;
+    // Grants that do not fit are dropped: they only name what an option gives.
+    u64 grants[kGuildOnboardingGrantMaximum];
+    u32 prompt_count, option_count, default_channel_count, grant_count;
     bool enabled, truncated; // incomplete display or saved selections; cannot submit
     char text[kGuildOnboardingTextBytes];
     u32 text_used;
@@ -228,8 +240,8 @@ inline Utf8View guild_onboarding_text(const GuildOnboarding& onboarding, GuildVe
 bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding* output) noexcept;
 // Prompts shown in the onboarding flow (in_onboarding), in order.
 u32 guild_onboarding_flow_prompts(const GuildOnboarding&, Slice<u16> output) noexcept;
-// Selection rules: single-select prompts keep one option. Returns whether
-// the selection changed.
+// Selection rules: single-select prompts keep one option. The option's `picked` follows its new state. Returns
+// whether the selection changed.
 bool guild_onboarding_toggle(GuildOnboarding*, u32 prompt, u32 option) noexcept;
 bool guild_onboarding_prompt_answered(const GuildOnboarding&, u32 prompt) noexcept;
 // POST body with selected options and every flow prompt/option as seen at
