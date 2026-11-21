@@ -17,27 +17,30 @@ __attribute__((minsize)) SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 
     const u16 format=read(bytes,0),count=read(bytes,2);
     if(format!=1 && format!=2)return SfntStatus::unsupported;
     const u32 stride=format==1?2:6;if(!span(bytes,4,count*stride))return SfntStatus::truncated;
+    // Records rise strictly, so the last end is the largest glyph: one limit test serves all.
     u32 covered=0,previous=0;
     for(u32 i=0;i<count;++i) {
         const u32 at=4+i*stride,start=read(bytes,at),end=format==1?start:read(bytes,at+2);
-        if(start>end || end>=glyph_limit || (i && start<=previous))return SfntStatus::malformed;
+        if(start>end || (i && start<=previous))return SfntStatus::malformed;
         if(format==2 && read(bytes,at+4)!=covered)return SfntStatus::malformed;
         covered+=end-start+1;previous=end;
     }
+    if(previous>=glyph_limit)return SfntStatus::malformed;
     *output={bytes.data+4,covered,format,count};return SfntStatus::ok;
 }
+namespace {
+// The last record of a sorted table whose first glyph is at most glyph, else the first record: a search whose steps
+// depend only on the count (at least 1).
+inline const u8* last_at_most(const u8* records,u32 count,u32 stride,u16 glyph) noexcept {
+    for(u32 n=count;n>1;){const u32 half=n/2;records=read(records,half*stride)<=glyph?records+half*stride:records;n-=half;}
+    return records;
+}
+}
 u32 coverage_index(const u8* records,u16 count,u16 format,u16 glyph) noexcept {
-    u32 low=0,high=count;
-    if(format==1) {
-        while(low<high){const u32 mid=low+(high-low)/2;const u16 value=read(records,mid*2);if(value<glyph)low=mid+1;else high=mid;}
-        return low<count && read(records,low*2)==glyph?low:sfnt_not_covered;
-    }
-    if(format!=2)return sfnt_not_covered;
-    while(low<high) {
-        const u32 mid=low+(high-low)/2,at=mid*6;const u16 start=read(records,at),end=read(records,at+2);
-        if(glyph<start)high=mid;else if(glyph>end)low=mid+1;else return read(records,at+4)+static_cast<u32>(glyph)-start;
-    }
-    return sfnt_not_covered;
+    if(!count || format-1u>1u)return sfnt_not_covered;
+    if(format==1){const u8* at=last_at_most(records,count,2,glyph);return read(at,0)==glyph?static_cast<u32>(at-records)/2:sfnt_not_covered;}
+    const u8* at=last_at_most(records,count,6,glyph);const u16 start=read(at,0);
+    return glyph>=start && glyph<=read(at,2)?read(at,4)+static_cast<u32>(glyph)-start:sfnt_not_covered;
 }
 u32 sfnt_coverage_index(const SfntCoverage& coverage,u16 glyph) noexcept {
     return coverage_index(coverage.records,coverage.record_count,coverage.format,glyph);
@@ -55,23 +58,23 @@ __attribute__((minsize)) void sfnt_glyph_digest_add_coverage(SfntGlyphDigest& di
         digest.low|=span(first,last);digest.high|=span(first>>6,last>>6);
     }
 }
+// An opened coverage is sorted: its first record starts it and its last record ends it.
 __attribute__((minsize)) void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverage) noexcept {
     if(!coverage.covered_count)return;
     sfnt_glyph_digest_add_coverage(bounds.digest,coverage);
-    const u32 stride=coverage.format==1?2u:6u;
-    for(u32 i=0;i<coverage.record_count;++i){
-        bounds.first=minimum(bounds.first,read(coverage.records,i*stride));
-        bounds.last=maximum(bounds.last,coverage.format==1?read(coverage.records,i*stride):read(coverage.records,i*stride+2));
-    }
+    const u32 last=coverage.format==1?(coverage.record_count-1u)*2u:(coverage.record_count-1u)*6u+2u;
+    bounds.first=minimum(bounds.first,read(coverage.records,0));
+    bounds.last=maximum(bounds.last,read(coverage.records,last));
 }
 // The scan walks each span of the view by pointer. The range test is the sign of two differences and joins the
 // digest test without a branch: in a run each part of sfnt_lookup_bounds_exclude changes outcome from glyph to glyph.
+// An empty digest excludes no glyph, as full masks do.
 u32 sfnt_lookup_bounds_find(const SfntLookupBounds& bounds,const SfntGlyphView& view,u32 at,u32 end) noexcept {
-    const u32 first=bounds.first,last=bounds.last,any=!bounds.digest.low;const u64 low=bounds.digest.low,high=bounds.digest.high;
+    const u32 first=bounds.first,last=bounds.last;const u64 low=bounds.digest.low?bounds.digest.low:~0ull,high=bounds.digest.low?bounds.digest.high:~0ull;
     while(at<end){const bool prefix=at<view.prefix_count;const u32 limit=prefix&&view.prefix_count<end?view.prefix_count:end;
         const u8* record=reinterpret_cast<const u8*>(&sfnt_glyph_at(view,at));
         for(;at<limit;++at,record+=view.record_size){const u32 glyph=reinterpret_cast<const SfntGsubGlyph*>(record)->glyph;
-            if(!((((glyph-first)|(last-glyph))>>31|~(static_cast<u32>((low>>(glyph&63))&(high>>((glyph>>6)&63)))|any))&1))return at;}}
+            if(!((((glyph-first)|(last-glyph))>>31|~static_cast<u32>((low>>(glyph&63))&(high>>((glyph>>6)&63))))&1))return at;}}
     return end;
 }
 __attribute__((minsize)) SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
@@ -97,29 +100,27 @@ __attribute__((minsize)) SfntStatus sfnt_class_def_open(ConstSlice<u8> bytes,u32
         if(count && static_cast<u32>(start)+count>glyph_limit)return SfntStatus::malformed;
     } else if(format==2)count=read(bytes,2);else return SfntStatus::unsupported;
     if(!span(bytes,offset,count*stride))return SfntStatus::truncated;
+    // Format 2 ranges rise strictly, so one limit test of the last end serves all.
     u32 previous=0;
     for(u32 i=0;i<count;++i) {
         const u32 at=offset+i*stride;u16 value=0;
         if(format==1)value=read(bytes,at);
         else {
             const u16 first=read(bytes,at),end=read(bytes,at+2);value=read(bytes,at+4);
-            if(first>end || end>=glyph_limit || (i && first<=previous))return SfntStatus::malformed;
+            if(first>end || (i && first<=previous))return SfntStatus::malformed;
             previous=end;
         }
         if(value>maximum)maximum=value;
     }
+    if(previous>=glyph_limit)return SfntStatus::malformed;
     *output={bytes.data+offset,format,count,start,maximum};return SfntStatus::ok;
 }
 u16 sfnt_class_value(const SfntClassDef& classes,u16 glyph) noexcept {
-    if(classes.format==1)return glyph>=classes.start_glyph && static_cast<u32>(glyph)-classes.start_glyph<classes.record_count?
+    if(classes.format==1)return static_cast<u32>(glyph)-classes.start_glyph<classes.record_count?
         read(classes.records,(static_cast<u32>(glyph)-classes.start_glyph)*2):0;
-    if(classes.format!=2)return 0;
-    u32 low=0,high=classes.record_count;
-    while(low<high) {
-        const u32 mid=low+(high-low)/2,at=mid*6;const u16 start=read(classes.records,at),end=read(classes.records,at+2);
-        if(glyph<start)high=mid;else if(glyph>end)low=mid+1;else return read(classes.records,at+4);
-    }
-    return 0;
+    if(classes.format!=2 || !classes.record_count)return 0;
+    const u8* at=last_at_most(classes.records,classes.record_count,6,glyph);
+    return glyph>=read(at,0) && glyph<=read(at,2)?read(at,4):0;
 }
 SfntStatus sfnt_device_open(ConstSlice<u8> bytes,SfntDevice* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);

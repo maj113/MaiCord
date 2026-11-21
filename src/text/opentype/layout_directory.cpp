@@ -15,7 +15,7 @@ SfntStatus find_tag(ConstSlice<u8> b,u32 start,u16 count,u32 tag,u16* index) noe
     while(low<high){const u32 mid=low+(high-low)/2;if(r32(b,start+mid*6)<tag)low=mid+1;else high=mid;}
     if(low==count || r32(b,start+low*6)!=tag)return SfntStatus::missing_table;*index=static_cast<u16>(low);return SfntStatus::ok;
 }
-SfntStatus feature_open(ConstSlice<u8> table,u16 lookup_limit,SfntFeature* output,u32 work,u32* used) noexcept {
+inline SfntStatus feature_open(ConstSlice<u8> table,u16 lookup_limit,SfntFeature* output,u32 work,u32* used) noexcept {
     if(!span(table,0,4))return SfntStatus::truncated;const u16 params=r16(table,0),count=r16(table,2);const u32 end=4+static_cast<u32>(count)*2;
     if(!span(table,0,end))return SfntStatus::truncated;
     if(count>work)return SfntStatus::resource_limit;*used+=count;
@@ -66,15 +66,14 @@ SfntStatus sfnt_layout_select_language_prepared(const SfntLayout& layout,ConstSl
     // return instead of repeatedly writing a potentially aliased caller field.
     struct Work {u64 left;u64& remaining;~Work() noexcept {remaining=left;}} work{remaining,remaining};
     const auto spend=[&](u64 n) noexcept {if(n>work.left)return false;work.left-=n;return true;};
-    const auto allowance=[&]() noexcept {return static_cast<u32>(minimum<u64>(work.left,0xffffffffu));};
     u16 index=0;SfntStatus status=SfntStatus::missing_table;
     for(u32 i=0;i<candidates.count;++i){if(!spend(17))return SfntStatus::resource_limit;status=sfnt_layout_find_script(layout,candidates[i],&index);if(status!=SfntStatus::missing_table)break;}
     if(status!=SfntStatus::ok)return status;
-    SfntScript script{};u32 tag=0,used=0;status=sfnt_layout_script(layout,index,&tag,&script,allowance(),&used);work.left-=used;
+    SfntScript script{};u32 tag=0,used=0;status=sfnt_layout_script(layout,index,&tag,&script,work_allowance(work.left),&used);work.left-=used;
     if(status!=SfntStatus::ok)return status;output.script_tag=tag;u32 language=sfnt_default_language;
     if(requested){if(!spend(17))return SfntStatus::resource_limit;status=sfnt_script_find_language(script,requested,&index);
         if(status==SfntStatus::ok)language=index;else if(status!=SfntStatus::missing_table)return status;}
-    status=sfnt_script_language(script,layout.feature_count,language,&tag,&output.language,allowance(),&used);work.left-=used;
+    status=sfnt_script_language(script,layout.feature_count,language,&tag,&output.language,work_allowance(work.left),&used);work.left-=used;
     if(status==SfntStatus::ok)output.language_tag=tag;return status;
 }
 SfntStatus sfnt_layout_select_language(const SfntLayout& layout,ConstSlice<u32> candidates,u32 requested,SfntLanguageSelection* output,u64 limit,u64* work_used) noexcept {

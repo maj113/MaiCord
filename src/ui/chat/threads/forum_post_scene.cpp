@@ -3,6 +3,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
+#include "maicord/ui/text/edit_signature.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
@@ -323,7 +324,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
                 return false;
             presentation = hash64_bytes(presentation, &span, sizeof(span));
         }
-        text_signatures[f] = hash64_counted_bytes(kHash64Seed, field.text.data, field.text.bytes);
+        text_signatures[f] = text_edit_signature(field.text);
         presentation = hash64_mix(presentation, text_signatures[f]);
         presentation = hash64_mix(presentation, field.anchor_utf16);
         presentation = hash64_mix(presentation, field.caret_utf16);

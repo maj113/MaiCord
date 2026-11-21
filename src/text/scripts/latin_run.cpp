@@ -11,10 +11,11 @@
 #include "maicord/text/unicode/grapheme.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
-bool unicode_mark(u32 cp) noexcept {const auto category=unicode_properties(cp)->general_category();
+bool unicode_mark(const UnicodeProperties& properties) noexcept {const auto category=properties.general_category();
     return category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me;}
+bool unicode_mark(u32 cp) noexcept {return unicode_mark(*unicode_properties(cp));}
 // Hebrew presentation forms HarfBuzz composes for a font without GPOS mark positioning (hb-ot-shaper-hebrew.cc).
-u32 hebrew_presentation(u32 first,u32 second) noexcept {
+inline u32 hebrew_presentation(u32 first,u32 second) noexcept {
     static constexpr u16 dagesh[]{0xfb30,0xfb31,0xfb32,0xfb33,0xfb34,0xfb35,0xfb36,0,0xfb38,0xfb39,0xfb3a,0xfb3b,0xfb3c,0,0xfb3e,0,0xfb40,
         0xfb41,0,0xfb43,0xfb44,0,0xfb46,0xfb47,0xfb48,0xfb49,0xfb4a};
     switch(second){
@@ -61,6 +62,8 @@ template<class Present> SfntStatus normalize(u32* scalars,SfntClusterGlyph* entr
     // Decomposition only lengthens, so writing from the end never overtakes an unread character.
     if(total!=count){for(u32 i=count,write=total;i--;){u32 n=0;const auto status=expand(i,&n);if(status!=SfntStatus::ok)return status;
             const auto entry=entries[i];if(!n)parts[n++]=scalars[i];write-=n;
+            // A character has few parts: the loop stays scalar.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for(u32 k=0;k<n;++k){scalars[write+k]=parts[k];entries[write+k]=entry;if(k)entries[write+k].glyph.glyph=0;}}
         count=total;}
     if(simple)return SfntStatus::ok;
@@ -75,6 +78,8 @@ template<class Present> SfntStatus normalize(u32* scalars,SfntClusterGlyph* entr
             if(hebrew)for(u32 k=2;k<n;++k)if((keys[k-2]==20||keys[k-2]==21)&&(keys[k-1]==22||keys[k-1]==23)&&(keys[k]==25||keys[k]==220)){
                 const u32 scalar=scalars[i+k];const auto entry=entries[i+k];scalars[i+k]=scalars[i+k-1];entries[i+k]=entries[i+k-1];
                 scalars[i+k-1]=scalar;entries[i+k-1]=entry;break;}
+            // A run holds few marks: the loop stays scalar.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for(u32 k=0;k<n;++k)entries[i+k].source=sources[k];}
         i=end;}
     u32 starter=0,out=1;
@@ -212,13 +217,15 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
     const auto* instance=native_font_instance_get(*store.instances,store.slots[handle.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
     const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
-    auto* scalars=reinterpret_cast<u32*>(s.shaping.components.data);const u64 capacity=static_cast<u64>(s.shaping.components.count)*sizeof(SfntComponentNode)/sizeof(u32);
+    auto* scalars=reinterpret_cast<u32*>(s.shaping.components.data);
+    // The decoded scalars borrow the component storage and stay beside their mapped records: both bound a run.
+    const u32 room=static_cast<u32>(minimum<u64>(static_cast<u64>(s.shaping.components.count)*sizeof(SfntComponentNode)/sizeof(u32),s.mapped.count));
     // Printable ASCII in the plan's affine prefix with no participating glyph is a nominal run of one glyph and one
     // cluster for each character: the passes below give the same glyphs, advances and sources. Any other text, and
     // each storage that is too small, takes those passes, which also report the errors.
     const auto nominal=native_run_plan_nominal(store,handle);
-    if(text.bytes&&!independent&&!force_shaping&&!rtl&&!hangul_pass&&nominal.glyph_limit&&nominal.ascii_advances&&text.bytes<=capacity&&
-       text.bytes<=minimum(minimum(s.mapped.count,s.shaping.targets.count),minimum(s.character_glyphs.count,minimum(s.glyphs.count,s.placements.count)))&&
+    if(text.bytes&&!independent&&!force_shaping&&!rtl&&!hangul_pass&&nominal.glyph_limit&&nominal.ascii_advances&&
+       text.bytes<=minimum(minimum(room,s.shaping.targets.count),minimum(s.character_glyphs.count,minimum(s.glyphs.count,s.placements.count)))&&
        nominal_ascii_prefix(text,nominal,_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(plan->units_per_em))),s.glyphs.data,s.placements.data,s.character_glyphs.data)==text.bytes){
         *out={text.bytes,text.bytes,1,0,0};return SfntStatus::ok;}
     // Printable ASCII that only pair and single positioning changes gives the passes' output without them. Forced
@@ -233,13 +240,14 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     // feature masks; only synthetic-base provenance survives in component nodes.
     u32 count=0,units=0,boundary_count=0;bool controls=false,hangul=hangul_pass,synthetic_bases=false;UnicodeGraphemeState graphemes{};
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
-        if(count>=capacity||count>=s.mapped.count)return SfntStatus::output_too_small;
+        if(count>=room)return SfntStatus::output_too_small;
+        // No scalar below U+00AD is a mark, a selector or a default ignorable: those need no property lookup.
+        const UnicodeProperties* properties=cp.codepoint>=0xad?unicode_properties(cp.codepoint):nullptr;
+        const bool mark=cp.codepoint>=0x300&&unicode_mark(*properties);
         bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
         // Thai and Lao clusters follow HarfBuzz: marks, ZWJ and Sara Am (decomposed into Nikhahit and Sara Aa) continue
         // the previous cluster, and no sequence is broken (hb-ot-shaper-thai.cc, preprocess_text_thai).
-        if(thai){const auto category=unicode_properties(cp.codepoint)->general_category();
-            boundary=!count||!(category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me||
-                cp.codepoint==0xe33||cp.codepoint==0xeb3||cp.codepoint==0x200d);}
+        if(thai)boundary=!count||!(mark||cp.codepoint==0xe33||cp.codepoint==0xeb3||cp.codepoint==0x200d);
         // ZWNJ starts its own shape cluster: HarfBuzz marks only Unicode marks, ZWJ, emoji modifiers, halfwidth kana
         // sound marks and tags as cluster continuations (hb-ot-shape.cc, hb_set_unicode_props), so it merges the
         // halfwidth sound marks U+FF9E/FF9F and conjoining Jamo (Hangul syllable clusters, UAX #29 GB6-GB8) with
@@ -251,7 +259,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         // validates the complete candidate before consuming a selector.
         const u8 lead=at+cp.width<text.bytes?static_cast<u8>(text.data[at+cp.width]):0;
         const auto next=(lead==0xe1||lead==0xef||lead==0xf3)?utf8_decode_one(text.data+at+cp.width,text.bytes-at-cp.width):Utf8DecodeResult{};
-        const bool variation=next.valid&&unicode_layout_variation_selector(next.codepoint)&&!unicode_properties(cp.codepoint)->has(UnicodeFlag::variation_selector)&&
+        const bool variation=next.valid&&unicode_layout_variation_selector(next.codepoint)&&!(properties&&properties->has(UnicodeFlag::variation_selector))&&
             selects(font->cmap,rtl?unicode_bidi_mirror(cp.codepoint):cp.codepoint,next.codepoint);
         // The not-yet-mapped glyph field temporarily holds the selector. Its
         // compact code covers both BMP and supplementary selectors without
@@ -259,13 +267,12 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         // A mark that begins its paragraph follows a dotted circle when the font maps one (HarfBuzz HB_BUFFER_FLAG_BOT,
         // hb_insert_dotted_circle). A default-ignorable mark (a selector, CGJ) gets none: the client stays invisible
         // there like the browser it matches.
-        if(!count&&paragraph_start){const auto* properties=unicode_properties(cp.codepoint);const auto category=properties->general_category();
-            if((category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me)&&!properties->has(UnicodeFlag::default_ignorable_code_point)){
-                u16 circle=0;const auto status=sfnt_cmap_glyph(font->cmap,0x25cc,0,&circle);if(status!=SfntStatus::ok)return status;
-                if(circle){if(count+1>=capacity||count+1>=s.mapped.count)return SfntStatus::output_too_small;
-                    scalars[count]=0x25cc;s.mapped[count].source=units;s.mapped[count].glyph.reserved=1;s.mapped[count++].glyph.glyph=0;synthetic_bases=true;}}}
+        if(!count&&paragraph_start&&mark&&!properties->has(UnicodeFlag::default_ignorable_code_point)){
+            u16 circle=0;const auto status=sfnt_cmap_glyph(font->cmap,0x25cc,0,&circle);if(status!=SfntStatus::ok)return status;
+            if(circle){if(count+1>=room)return SfntStatus::output_too_small;
+                scalars[count]=0x25cc;s.mapped[count].source=units;s.mapped[count].glyph.reserved=1;s.mapped[count++].glyph.glyph=0;synthetic_bases=true;}}
         const bool am=thai&&(cp.codepoint==0x0e33||cp.codepoint==0x0eb3);
-        if(am){if(count+1>=capacity||count+1>=s.mapped.count)return SfntStatus::output_too_small;
+        if(am){if(count+1>=room)return SfntStatus::output_too_small;
             if(require_source_coverage){u16 original=0;const auto status=sfnt_cmap_glyph(font->cmap,cp.codepoint,0,&original);if(status!=SfntStatus::ok)return status;if(!original)return SfntStatus::unsupported_sequence;}
             scalars[count]=cp.codepoint==0x0e33?0x0e4d:0x0ecd;s.mapped[count++]={{0,SfntGlyphClass{},2},units};sara_am=true;}
         scalars[count]=am?cp.codepoint-1:cp.codepoint;s.mapped[count].source=units;if(korean||thai)s.mapped[count].glyph.reserved=0;
@@ -274,8 +281,8 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         units+=(cp.codepoint>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=cp.width+(variation?next.width:0u);
         if(variation)unicode_grapheme_boundary(graphemes,next.codepoint);
         // HarfBuzz renders the Hangul fillers (is_default_ignorable leaves them out).
-        if(cp.codepoint>=0xad&&!(korean&&hangul_filler(cp.codepoint)))controls|=unicode_properties(cp.codepoint)->has(UnicodeFlag::default_ignorable_code_point);
-        hangul|=korean&&hangul_jamo(cp.codepoint);marks|=cp.codepoint>=0x300&&unicode_mark(cp.codepoint);
+        if(properties&&!(korean&&hangul_filler(cp.codepoint)))controls|=properties->has(UnicodeFlag::default_ignorable_code_point);
+        hangul|=korean&&hangul_jamo(cp.codepoint);marks|=mark;
     }
     // Marks (the tone marks among them) take the preprocessing too: it also reorders them.
     hangul|=korean&&marks;
@@ -293,10 +300,12 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         const auto status=sfnt_cmap_glyph(font->cmap,scalar,selector,glyph);
         return status==SfntStatus::unsupported_sequence&&selector?sfnt_cmap_glyph(font->cmap,scalar,0,glyph):status;
     };
+    // Whether the font maps a scalar: the Hangul preprocessing and the normalization ask this from a dozen places, so
+    // the check stays out of line.
+    const auto present=[&](u32 scalar,bool* mapped) __attribute__((noinline)) noexcept {u16 glyph=0;const auto status=map(scalar,&glyph);*mapped=glyph!=0;return status;};
     // Jamo, tone marks and syllables the font lacks take hb-ot-shaper-hangul's preprocessing; the moved tone marks
     // and merged syllables leave the nominal path.
     if(hangul){simple=false;
-        const auto has=[&](u32 scalar,bool* mapped) noexcept {u16 glyph=0;const auto status=map(scalar,&glyph);*mapped=glyph!=0;return status;};
         const auto zero_width=[&](u32 scalar,bool* zero) noexcept {u16 glyph=0;auto status=map(scalar,&glyph);*zero=false;if(status!=SfntStatus::ok||!glyph)return status;
             double advance=0;status=plan->advance(plan->metric_context,glyph,&advance);*zero=advance==0;return status;};
         u16 circle=0;auto status=sfnt_cmap_glyph(font->cmap,0x25cc,0,&circle);if(status!=SfntStatus::ok)return status;
@@ -304,16 +313,16 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         if(s.shaping.glyphs.count&&!s.shaping.glyphs.data)return SfntStatus::invalid_input;
         const Slice<HangulEntry> entries{reinterpret_cast<HangulEntry*>(s.shaping.glyphs.data),
             static_cast<u32>(minimum<u64>(static_cast<u64>(s.shaping.glyphs.count)*sizeof(SfntComponentGlyph)/sizeof(HangulEntry),0xffffffffu))};
-        status=hangul_preprocess(scalars,s.mapped.data,count,static_cast<u32>(minimum<u64>(capacity,s.mapped.count)),s.shaping.targets,boundary_count,
-            entries,has,zero_width,circle,&synthetic_bases);
+        status=hangul_preprocess(scalars,s.mapped.data,count,room,s.shaping.targets,boundary_count,
+            entries,present,zero_width,circle,&synthetic_bases);
         if(status!=SfntStatus::ok)return status;}
     // HarfBuzz also decomposes a precomposed character the font does not map (hb-ot-shape-normalize.cc,
     // decompose_current_character), so such a character needs normalization even without marks.
     if(!marks&&!korean)for(u32 j=0;j<count&&!marks;++j){const u32 cp=scalars[j];u32 second=0;if(cp<0xc0||!unicode_canonical_decompose(cp,&second))continue;
         u16 glyph=0;const auto status=map(cp,&glyph,s.mapped[j].glyph.glyph);if(status!=SfntStatus::ok)return status;marks=!glyph;simple=simple&&glyph;}
     // The Hangul shaper does not normalize (hb-ot-shaper-hangul.cc composes its own syllables).
-    if(marks&&!korean){const auto present=[&](u32 scalar,bool* mapped) noexcept {u16 glyph=0;const auto status=map(scalar,&glyph);*mapped=glyph!=0;return status;};
-        const auto status=normalize(scalars,s.mapped.data,count,static_cast<u32>(minimum<u64>(capacity,s.mapped.count)),hebrew,hebrew&&!profile->mark_positioning,present);
+    if(marks&&!korean){
+        const auto status=normalize(scalars,s.mapped.data,count,room,hebrew,hebrew&&!profile->mark_positioning,present);
         if(status!=SfntStatus::ok)return status;}
     for(u32 j=0;j<count;++j){const u32 cp=scalars[j];const u32 source=s.mapped[j].source;
         // Jamo keep their own masks; every other character takes calt (hb-ot-shaper-hangul, setup_masks_hangul).
@@ -322,13 +331,13 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         // A syllable the font lacks may decompose into jamo it maps: shape again with the preprocessing.
         if(korean&&!hangul&&!glyph&&cp-0xac00u<11172u)
             return alphabetic_run(store,handle,text,independent,em,s,out,limits,require_source_coverage,profile,force_shaping,rtl,raw_output,paragraph_start,true);
-        const u32 flags=cp>=0xad?unicode_properties(cp)->flags():0;
+        const UnicodeProperties* properties=cp>=0xad?unicode_properties(cp):nullptr;const u32 flags=properties?properties->flags():0;
         constexpr u32 selector=static_cast<u32>(UnicodeFlag::variation_selector),ignorable=static_cast<u32>(UnicodeFlag::default_ignorable_code_point);
         if(require_source_coverage&&!glyph&&!(metadata&1)&&!(flags&selector))return SfntStatus::unsupported_sequence;
         const bool control=(flags&ignorable)&&!(korean&&hangul_filler(cp));if(controls&&control)control_sources[source]=1u<<16|glyph;
         simple=simple&&!control&&glyph&&nominal_scalar_is_simple(cp)&&(!nominal.participation.count||!(nominal.participation[glyph/64]&(1ull<<(glyph%64))));
         // Without GDEF glyph classes HarfBuzz takes a nonspacing mark for a mark (hb_synthesize_glyph_classes).
-        const bool synthesized=marks&&!plan->gdef.glyph_classes.format&&cp>=0x300&&unicode_properties(cp)->general_category()==UnicodeGeneralCategory::mn;
+        const bool synthesized=marks&&!plan->gdef.glyph_classes.format&&cp>=0x300&&properties->general_category()==UnicodeGeneralCategory::mn;
         s.mapped[j]={{glyph,synthesized?SfntGlyphClass::mark:sfnt_gdef_glyph_class(plan->gdef,glyph,classes),metadata},source};
     }
     const u32 written=count;

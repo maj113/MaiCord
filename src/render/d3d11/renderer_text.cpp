@@ -267,19 +267,19 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 fir
 
 // The font of each UiTextFace, in face order: the first kSystemFaces are system faces the platform names, the rest ship
 // in the fonts directory beside the executable. Their family names, the file names of the shipped ones and every face's
-// extra tracking.
+// extra tracking. The file names are ASCII: the path copy widens each byte.
 constexpr u32 kSystemFaces = 6;
 constexpr wchar_t kFontFamilies[] =
     L"Segoe UI\0Bahnschrift\0Georgia\0Arial Rounded MT Bold\0Consolas\0Segoe Print\0Orbitron\0Bangers\0"
     L"MaiCord BioRhyme\0Cherry Bomb One\0Chicle\0Compagnon\0MaiCord MuseoModerno\0MaiCord Medieval\0"
     L"MaiCord Pixelify\0Ribes\0Sinistre\0Zilla Slab\0MaiCord Playpen\0New Rocker\0Kalam\0";
-constexpr wchar_t kFontFiles[] =
-    L"Orbitron.ttf\0Bangers.ttf\0BioRhyme.ttf\0CherryBomb.ttf\0Chicle.ttf\0Compagnon.otf\0MuseoModerno.ttf\0"
-    L"NeoCastel.otf\0Pixelify.ttf\0Ribes.otf\0Sinistre.otf\0ZillaSlab.ttf\0Playpen.ttf\0NewRocker.ttf\0Kalam.ttf\0";
+constexpr char kFontFiles[] =
+    "Orbitron.ttf\0Bangers.ttf\0BioRhyme.ttf\0CherryBomb.ttf\0Chicle.ttf\0Compagnon.otf\0MuseoModerno.ttf\0"
+    "NeoCastel.otf\0Pixelify.ttf\0Ribes.otf\0Sinistre.otf\0ZillaSlab.ttf\0Playpen.ttf\0NewRocker.ttf\0Kalam.ttf\0";
 constexpr float kFontTracking[]{0,    0,    0,    0,    0,   0,   .03f, 0,    0,   .04f, 0,
                                 0,    .01f, .02f, .02f, 0,   .01f, .03f, 0,   0,    0};
-// The index-th name of a list of NUL-terminated wide names; the list's own terminator past its last.
-constexpr const wchar_t* wide_name_at(const wchar_t* list, u32 index) noexcept {
+// The index-th name of a list of NUL-terminated names; the list's own terminator past its last.
+template <typename Char> constexpr const Char* font_name_at(const Char* list, u32 index) noexcept {
     for (; index; --index)
         while (*list++) {
         }
@@ -287,20 +287,19 @@ constexpr const wchar_t* wide_name_at(const wchar_t* list, u32 index) noexcept {
 }
 constexpr u32 kFontCount = static_cast<u32>(UiTextFace::count);
 static_assert(sizeof(kFontTracking) / sizeof(kFontTracking[0]) == kFontCount &&
-              wide_name_at(kFontFamilies, kFontCount) == kFontFamilies + sizeof(kFontFamilies) / sizeof(wchar_t) - 1 &&
-              wide_name_at(kFontFiles, kFontCount - kSystemFaces) ==
-                  kFontFiles + sizeof(kFontFiles) / sizeof(wchar_t) - 1);
+              font_name_at(kFontFamilies, kFontCount) == kFontFamilies + sizeof(kFontFamilies) / sizeof(wchar_t) - 1 &&
+              font_name_at(kFontFiles, kFontCount - kSystemFaces) == kFontFiles + sizeof(kFontFiles) - 1);
 // The family of face `index`. The six system faces take the platform's own names: Windows names them in the list
 // above; Linux resolves the interface, display, serif, rounded, monospace and handwriting roles to installed families
 // (maicord/platform/font/default_fonts.hpp).
 __forceinline const wchar_t* text_font_family(u32 index) noexcept {
 #if defined(_WIN32)
-    return wide_name_at(kFontFamilies, index);
+    return font_name_at(kFontFamilies, index);
 #else
     static constexpr DefaultFont roles[]{DefaultFont::ui,   DefaultFont::display,   DefaultFont::serif,
                                          DefaultFont::rounded, DefaultFont::monospace, DefaultFont::handwriting};
     return index < sizeof(roles) / sizeof(roles[0]) ? default_font_family(roles[index])
-                                                    : wide_name_at(kFontFamilies, index);
+                                                    : font_name_at(kFontFamilies, index);
 #endif
 }
 // Whether a file or directory exists at `path`.
@@ -311,7 +310,7 @@ bool file_path_exists(const wchar_t* path) noexcept {
 bool profile_font_path(u32 index, wchar_t* path) noexcept {
     if (index < kSystemFaces)
         return false;
-    const wchar_t* file_name = wide_name_at(kFontFiles, index - kSystemFaces);
+    const char* file_name = font_name_at(kFontFiles, index - kSystemFaces);
     const u32 count = executable_path(path, 1024);
     if (!count || count >= 900)
         return false;
@@ -322,7 +321,7 @@ bool profile_font_path(u32 index, wchar_t* path) noexcept {
     for (u32 i = 0; i < 6; ++i)
         path[at++] = prefix[i];
     for (u32 i = 0; file_name[i]; ++i)
-        path[at++] = file_name[i];
+        path[at++] = static_cast<u8>(file_name[i]);
     path[at] = 0;
     return true;
 }
@@ -362,18 +361,22 @@ bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u3
     return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
            create_face_format(system, text_font_family(index), scope, native_format);
 }
+// Registers the font file of `font`, when there is one, and creates its format into `*cache`. Kept out of
+// face_format: its 2 KB path buffer and its saved registers would otherwise cost every cached lookup.
+__declspec(noinline) void create_cached_face_format(const TextSystem& system, u32 font, u32* cache) noexcept {
+    wchar_t path[1024];
+    u32 scope = 0, format = 0;
+    // Missing optional assets retain system-family fallback; existing files
+    // are registered directly.
+    const bool available = profile_font_path(font, path) && file_path_exists(path);
+    if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
+        create_face_format(system, text_font_family(font), scope, &format))
+        *cache = format;
+}
 // The format of font `font` at `system`'s em size, kept in `*cache` (one of the renderer's per-face format sets).
 u32 face_format(const TextSystem& system, u32 font, u32* cache) noexcept {
-    if (!*cache && system.native_text) {
-        wchar_t path[1024];
-        u32 scope = 0, format = 0;
-        // Missing optional assets retain system-family fallback; existing files
-        // are registered directly.
-        const bool available = profile_font_path(font, path) && file_path_exists(path);
-        if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
-            create_face_format(system, text_font_family(font), scope, &format))
-            *cache = format;
-    }
+    if (!*cache && system.native_text)
+        create_cached_face_format(system, font, cache);
     return *cache;
 }
 TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {

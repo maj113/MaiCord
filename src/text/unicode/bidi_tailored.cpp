@@ -13,11 +13,13 @@ Content content(ConstSlice<UnicodeBidiCell> cells,ConstSlice<u32> order,u32 firs
     }
     return result;
 }
-B context(B type) noexcept {
+inline B context(B type) noexcept {
     return type==B::an?B::r:type;
 }
-bool paired_open(const UnicodeBidiCell& cell) noexcept {
-    return cell.link!=none && unicode_bidi_bracket(cell.scalar).type==UnicodeBracketType::open;
+// The opener of a matched pair at order position i. Matching links an ON bracket to its partner's position, and
+// only isolate controls (never ON) keep other links: an opener links forward, a closer back.
+inline bool paired_open(const UnicodeBidiCell& cell,u32 i) noexcept {
+    return cell.original==B::on && cell.link!=none && cell.link>i;
 }
 bool context_strong(B type) noexcept {return type==B::l || type==B::r || type==B::an;}
 void assign(const Slice<UnicodeBidiCell>& cells,const ConstSlice<u32>& order,u32 at,B value) noexcept {
@@ -71,7 +73,7 @@ void bidi_tailored_brackets(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
     // context of opposite-only pairs. A later mixed pair can therefore supply
     // context to an earlier pair without a speculative backward repair pass.
     for(u32 i=0;i<order.count;++i) {
-        auto& cell=cells[order[i]];if(!paired_open(cell))continue;
+        auto& cell=cells[order[i]];if(!paired_open(cell,i))continue;
         const auto inside=content({cells.data,cells.count},order,i+1,cell.link);
         if(embedding_direction==B::l?inside.l:inside.r)
             cell.resolved=cells[order[cell.link]].resolved=embedding_direction;
@@ -85,7 +87,7 @@ void bidi_tailored_brackets(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
     }
     bool has_r_pair=false;
     for(u32 i=0;i<order.count;++i) {
-        auto& cell=cells[order[i]];if(!paired_open(cell))continue;
+        auto& cell=cells[order[i]];if(!paired_open(cell,i))continue;
         const u32 close=cell.link;const auto inside=content({cells.data,cells.count},order,i+1,close);
         const bool same=embedding_direction==B::l?inside.l:inside.r;
         const bool opposite=embedding_direction==B::l?inside.r:inside.l;

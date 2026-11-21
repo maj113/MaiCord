@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/text/unicode/unicode.hpp"
+#include "maicord/text/unicode/generated/unicode_data.hpp"
+#include "maicord/text/layout/visibility.hpp"
 namespace maicord {
 enum NativeScriptFlag:u8 {
     native_script_contextual=1,
@@ -18,11 +19,19 @@ static_assert(sizeof(NativeScriptClass)==2);
 // OpenType script-version selection come later; this class alone must not
 // select a shaping profile.
 NativeScriptClass native_script_class(u32 scalar) noexcept;
-enum class NativeScriptStatus:u8 {ok,invalid_input,output_too_small};
-// Resolve one en-US analysis input in logical scalar order, including nonvisual
-// boundaries and one following variation selector per analysis item. Output
-// flags keep only nonvisual; source positions and bidi order are unchanged.
-// Input and output are disjoint caller-owned arrays. A failure leaves the
-// output unusable.
-NativeScriptStatus native_script_resolve(ConstSlice<u32>,Slice<NativeScriptClass>) noexcept;
+// native_script_class of a scalar from its property record, for a caller that
+// already looked the record up.
+inline NativeScriptClass native_script_class(u32 scalar,const UnicodeProperties& properties) noexcept {
+    if(native_text_nonvisual(scalar))return {UnicodeScript::zyyy,native_script_nonvisual};
+    const auto script=properties.script();
+    const u8 selector=properties.has(UnicodeFlag::variation_selector)?native_script_selector:0;
+    if(script==UnicodeScript::zyyy||script==UnicodeScript::zinh)return {UnicodeScript::zzzz,static_cast<u8>(native_script_contextual|selector)};
+    return {script,static_cast<u8>(selector?native_script_contextual|selector:0)};
+}
+// Resolves one en-US analysis input in place, in logical scalar order: each
+// cell holds the native_script_class of a scalar (none invalid). Handles
+// nonvisual boundaries and one following variation selector per analysis
+// item. Resolved flags keep only nonvisual; source positions and bidi order
+// are unchanged.
+void native_script_resolve(Slice<NativeScriptClass> classes) noexcept;
 }

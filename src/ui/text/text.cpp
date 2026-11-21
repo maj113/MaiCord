@@ -34,9 +34,9 @@ struct TextHitEndpoint {
     bool end;
 };
 
-// Bytes before the first non-ASCII one, eight at a time.
-inline u32 ascii_prefix(Utf8View input) noexcept {
-    u32 ascii = 0;
+// Bytes before the first non-ASCII one from `from` on (a scalar boundary), eight at a time.
+inline u32 ascii_prefix(Utf8View input, u32 from) noexcept {
+    u32 ascii = from;
     for (; ascii + 8 <= input.bytes; ascii += 8) {
         if (byte_load_le64(reinterpret_cast<const u8*>(input.data) + ascii) & 0x8080808080808080ull)
             break;
@@ -48,13 +48,14 @@ inline u32 ascii_prefix(Utf8View input) noexcept {
 
 } // namespace
 
-TextShapeResult validate_text_input(Utf8View input) noexcept {
+TextShapeResult validate_text_input(const TextShapingView& view) noexcept {
+    const Utf8View input = view.text;
     if (!input.data && input.bytes != 0) {
         return shape_result(TextShapeError::invalid_input);
     }
     // ASCII, most UI text, is valid with one unit per byte. Validation decodes
     // only from the first non-ASCII byte, a scalar boundary.
-    const u32 ascii = ascii_prefix(input);
+    const u32 ascii = ascii_prefix(input, view.ascii);
     if (ascii == input.bytes)
         return shape_result(TextShapeError::none, ascii);
     const Utf8View rest{input.data + ascii, input.bytes - ascii};
@@ -243,8 +244,12 @@ TextFoldedStyles text_fold_style_sizes(ConstSlice<TextStyleSpan> styles, Slice<T
 }
 
 TextShapingView::TextShapingView(Utf8View input) noexcept : text(input) {
-    // ASCII has no default-ignorable scalar.
-    if (!text_browser_invisibles() || !input.data || ascii_prefix(input) == input.bytes)
+    if (!text_browser_invisibles() || !input.data)
+        return;
+    // ASCII has no default-ignorable scalar. A hidden copy keeps the bytes before
+    // its first hidden scalar, so the prefix holds for it too.
+    ascii = ascii_prefix(input, 0);
+    if (ascii == input.bytes)
         return;
     Slice<char> storage{local_, sizeof(local_)};
     if (input.bytes > sizeof(local_)) {
@@ -524,7 +529,7 @@ __forceinline TextShapeResult text_layout_utf8(TextSystem* system, const TextLay
     }
     if (output)
         shaped_text_reset(output);
-    const TextShapeResult validated = validate_text_input(input);
+    const TextShapeResult validated = validate_text_input(shaping);
     if (!validated.ok()) {
         return validated;
     }

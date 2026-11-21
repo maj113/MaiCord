@@ -3,6 +3,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/text/layout/paragraph_hit_metric.hpp"
+#include "maicord/ui/text/edit_signature.hpp"
 
 namespace maicord {
 
@@ -78,7 +79,6 @@ struct TextEditLayoutOwner {
     bool geometry; // storage holds the current text's hit geometry
 };
 
-u64 text_edit_signature(Utf8View text) noexcept;
 bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                               const TextSystem& text_system) noexcept;
 bool text_edit_layout_hit_test(const TextEditLayoutOwner& owner, float x, float y,

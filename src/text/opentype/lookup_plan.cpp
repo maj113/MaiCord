@@ -6,27 +6,31 @@
 #include "maicord/text/base.hpp"
 #include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {
-u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
 // HarfBuzz's horizontal default-shaper features, applied from either table (hb_ot_shape_collect_features): rvrn,
 // rand, trak, abvm, blwm, ccmp, locl, mark, mkmk, rlig, calt, clig, curs, dist, kern, liga and rclt. Independent
 // letters turn off liga, clig and kern only, as HarfBuzz features. The direction features (ltra, ltrm, rtla, rtlm)
-// are not applied, and rvrn shares the one stage.
-u32 feature_bit(u32 tag,bool independent) noexcept {
-    switch(tag){
-        case sfnt_tag('r','v','r','n'):return 1u<<0;case sfnt_tag('r','a','n','d'):return 1u<<1;case sfnt_tag('t','r','a','k'):return 1u<<2;
-        case sfnt_tag('a','b','v','m'):return 1u<<3;case sfnt_tag('b','l','w','m'):return 1u<<4;case sfnt_tag('c','c','m','p'):return 1u<<5;
-        case sfnt_tag('l','o','c','l'):return 1u<<6;case sfnt_tag('m','a','r','k'):return 1u<<7;case sfnt_tag('m','k','m','k'):return 1u<<8;
-        case sfnt_tag('r','l','i','g'):return 1u<<9;case sfnt_tag('c','a','l','t'):return 1u<<10;case sfnt_tag('c','u','r','s'):return 1u<<11;
-        case sfnt_tag('d','i','s','t'):return 1u<<12;case sfnt_tag('r','c','l','t'):return 1u<<13;
-        case sfnt_tag('c','l','i','g'):return independent?0u:1u<<14;case sfnt_tag('k','e','r','n'):return independent?0u:1u<<15;
-        case sfnt_tag('l','i','g','a'):return independent?0u:1u<<16;
-        default:return 0;
-    }
+// are not applied. A tag's bit is its index here; the last three are the ones independent letters turn off.
+constexpr u32 default_features[]{sfnt_tag('r','v','r','n'),sfnt_tag('r','a','n','d'),sfnt_tag('t','r','a','k'),sfnt_tag('a','b','v','m'),
+    sfnt_tag('b','l','w','m'),sfnt_tag('c','c','m','p'),sfnt_tag('l','o','c','l'),sfnt_tag('m','a','r','k'),sfnt_tag('m','k','m','k'),
+    sfnt_tag('r','l','i','g'),sfnt_tag('c','a','l','t'),sfnt_tag('c','u','r','s'),sfnt_tag('d','i','s','t'),sfnt_tag('r','c','l','t'),
+    sfnt_tag('c','l','i','g'),sfnt_tag('k','e','r','n'),sfnt_tag('l','i','g','a')};
+// A multiplicative hash that gives each of the 17 tags its own one of 32 slots. A slot keeps its tag and its index
+// plus one (zero for an empty slot).
+constexpr u32 default_slot(u32 tag) noexcept {return (tag*0x26a2e176u)>>27;}
+struct DefaultFeatureSlots {u32 tags[32];u8 indices[32];};
+constexpr DefaultFeatureSlots default_slots=[]{DefaultFeatureSlots t{};
+    for(u32 i=0;i<17;++i){t.tags[default_slot(default_features[i])]=default_features[i];t.indices[default_slot(default_features[i])]=static_cast<u8>(i+1);}return t;}();
+static_assert([]{u32 used=0;for(const u32 tag:default_features)used|=1u<<default_slot(tag);return __builtin_popcount(used)==17;}());
 }
+u32 sfnt_default_feature_bit(u32 tag,bool independent) noexcept {
+    const u32 slot=default_slot(tag),index=default_slots.tags[slot]==tag?default_slots.indices[slot]:0u;
+    return index&&!(independent&&index>14)?1u<<(index-1):0u;
+}
+namespace {
 struct Builder {
     const SfntLayout& layout;const SfntFeatureSubstitutions& variations;Slice<u64> bits;Slice<u16> output;SfntLookupPlanResult& result;u64 work;
     SfntStatus add(u16 index) noexcept {
-        SfntFeature feature{};u32 tag=0,used=0;auto s=sfnt_layout_feature(layout,index,variations,&tag,&feature,allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
+        SfntFeature feature{};u32 tag=0,used=0;auto s=sfnt_layout_feature(layout,index,variations,&tag,&feature,work_allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
         if(!spend(&work,feature.lookup_indices.count/2))return SfntStatus::resource_limit;
         for(u32 i=0;i<feature.lookup_indices.count/2;++i){const u16 lookup=byte_load_be16(feature.lookup_indices.data+i*2);const u64 bit=1ull<<(lookup%64);auto& word=bits.data[lookup/64];if(!(word&bit)){word|=bit;++result.lookup_count;}}
         return SfntStatus::ok;
@@ -43,15 +47,16 @@ struct Builder {
         // required_feature_stage).
         constexpr u32 stages=2;
         const auto tag_of=[&](u16 f) noexcept {return byte_load_be32(layout.features.data+2+static_cast<u32>(f)*6);};
-        const auto stage_of=[&](u32 tag) noexcept -> u32 {return feature_bit(tag,independent)?(tag==sfnt_tag('r','v','r','n')?0u:1u):stages;};
+        const auto stage_bit=[](u32 bit) noexcept -> u32 {return bit==1u?0u:1u;}; // rvrn (bit 0) runs alone, first
+        const auto stage_of=[&](u32 tag) noexcept -> u32 {const u32 bit=sfnt_default_feature_bit(tag,independent);return bit?stage_bit(bit):stages;};
         const u32 required=selected.required_feature,required_stage=required==0xffff||stage_of(tag_of(required))==stages?0u:stage_of(tag_of(required));
         for(u32 pass=0;pass<2;++pass){const u64 before=work;result.lookup_count=0;u32 written=0;
             for(u32 stage=0;stage<stages;++stage){if(!spend(&work,words))return SfntStatus::resource_limit;for(u32 i=0;i<words;++i)bits[i]=0;
                 if(required!=0xffff&&stage==required_stage){s=add(required);if(s!=SfntStatus::ok)return s;}
                 u32 seen=0;
                 for(u32 i=0;i<selected.feature_indices.count/2;++i){if(!spend(&work))return SfntStatus::resource_limit;const u16 f=byte_load_be16(selected.feature_indices.data+i*2);
-                    const u32 tag=tag_of(f);if(stage_of(tag)!=stage)continue;
-                    const u32 bit=feature_bit(tag,independent);if(seen&bit)continue;seen|=bit;
+                    const u32 bit=sfnt_default_feature_bit(tag_of(f),independent);if(!bit||stage_bit(bit)!=stage)continue;
+                    if(seen&bit)continue;seen|=bit;
                     if(f==required)continue;s=add(f);if(s!=SfntStatus::ok)return s;}
                 if(pass){if(!spend(&work,words))return SfntStatus::resource_limit;
                     for(u32 i=0;i<words;++i){u64 word=bits[i];while(word){if(!spend(&work))return SfntStatus::resource_limit;unsigned long bit=0;_BitScanForward64(&bit,word);output[written++]=static_cast<u16>(i*64+bit);word&=word-1;}}}

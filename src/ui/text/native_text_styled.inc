@@ -1,14 +1,14 @@
 #include "native_text_decorations.inc"
 namespace {
 bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* levels) noexcept {
-    arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);
-    if(!scalars.data)return false;u32 count=0;bool tabs=false,plain_ltr=true;
+    arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);auto classes=take<NativeScriptClass>(owner.scratch,text.bytes);
+    if(!scalars.data||!classes.data)return false;u32 count=0;bool tabs=false,plain_ltr=true;
+    // One property look-up for each scalar gives its bidi class and its script class.
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;tabs|=cp.codepoint==9;
-        const auto type=unicode_properties(cp.codepoint)->bidi_class();plain_ltr=plain_ltr&&native_text_ltr_class(type);
+        const auto* properties=unicode_properties(cp.codepoint);const auto type=properties->bidi_class();plain_ltr=plain_ltr&&native_text_ltr_class(type);
         // Borrow the level output for initial classes until bidi resolution.
-        levels[count]=static_cast<u8>(type);scalars[count++]=cp.codepoint;at+=cp.width;}
-    auto classes=take<NativeScriptClass>(owner.scratch,count);if(!classes.data)return false;
-    if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
+        levels[count]=static_cast<u8>(type);classes[count]=native_script_class(cp.codepoint,*properties);scalars[count++]=cp.codepoint;at+=cp.width;}
+    native_script_resolve({classes.data,count});
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
     else {
     auto cells=take<UnicodeBidiCell>(owner.scratch,count);
@@ -196,21 +196,19 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
 bool alphabetic_scripts(NativeTextContext& owner, Utf8View text, u8* bytes) noexcept {
     arena_reset(&owner.scratch);
     auto scalars = take<u32>(owner.scratch, text.bytes);
-    if (!scalars.data)
+    auto classes = take<NativeScriptClass>(owner.scratch, text.bytes);
+    if (!scalars.data || !classes.data)
         return false;
     u32 count = 0;
     for (u32 at = 0; at < text.bytes;) {
         const auto cp = utf8_decode_one(text.data + at, text.bytes - at);
         if (!cp.valid)
             return false;
+        classes[count] = native_script_class(cp.codepoint);
         scalars[count++] = cp.codepoint;
         at += cp.width;
     }
-    auto classes = take<NativeScriptClass>(owner.scratch, count);
-    if (!classes.data)
-        return false;
-    if (native_script_resolve({scalars.data, count}, classes) != NativeScriptStatus::ok)
-        return false;
+    native_script_resolve({classes.data, count});
     // The scalar pass already validated UTF-8; reuse it to expand script tags.
     for (u32 at = 0, index = 0; index < count; ++index) {
         const u32 cp = scalars[index];
@@ -706,7 +704,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
     NativeParagraphHitStorage* editor,const TrimPlanTarget* plan=nullptr,bool require_styled=false) noexcept {
     const Utf8View text=request.text;const ConstSlice<TextStyleSpan> styles=request.styles;const ConstSlice<TextHitRange> hits=request.hits;
     const float width=request.width,height=request.height;const TextWrapping wrapping=request.wrapping;const TextOverflow overflow=request.overflow;
-    Slice<NativeParagraphLineFit> fit=plan?plan->fit:Slice<NativeParagraphLineFit>{};
+    Slice<NativeParagraphLineFit> fit{};
     if(editor){if(!editor->output||output)return false;*editor->output={};if(editor->required_visual_runs)*editor->required_visual_runs=0;}
     if(overflow==TextOverflow::ellipsis&&!(height>0))return false;
     if(!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data||styles.count>kTextStyleSpanMaximum||(styles.count&&!styles.data)||(!output&&!measure)||hits.count>kTextHitSpanMaximum||(hits.count&&(!hits.data||!output)))return false;
@@ -754,12 +752,16 @@ bool native_text_styled_plan_or_output(const TextSystem& system,const NativeText
     const auto* format=resolve_format(system,wrapping);if(!format)return false;
     auto& owner=*system.native_text;const float em=format->em;
     // Resolve the omission face before retaining source scratch: a cache miss
-    // can prepare a different fallback shape in that same arena.
-    if(overflow==TextOverflow::ellipsis&&!editor&&
-       !omission_sign(owner,format)&&!prepare_omission_sign(owner,system,format))return false;
+    // can prepare a different fallback shape in that same arena. The sign's own
+    // shape replaces the cached text.
+    if(overflow==TextOverflow::ellipsis&&!editor&&!omission_sign(owner,format)){
+        if(!prepare_omission_sign(owner,system,format))return false;
+        owner.last_valid=false;}
     const u8 mode=static_cast<u8>((editor?1:0)|(emoji?2:0)|(extended?4:0)|(rtl?16:0)|(mixed?32:0)|(system.message_hit_policy?64:0));
-    if(owner.last_valid&&owner.last_styled&&(owner.last_mode&119)==mode&&(!geometry||owner.styled_lines.count)&&owner.last_format==format&&owner.last_em==em&&owner.last_style_em==system.em_size&&owner.last_fixed_weight==system.fixed_weight&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)&&owner.last_styles.count==styles.count&&bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan))){}
+    // A known text is the cached one while the cache stays valid: the mode holds the hit policy and the tracking
+    // compare holds its zero test.
+    if(known&&owner.last_valid&&(owner.last_mode&119)==mode&&(!geometry||owner.styled_lines.count)&&owner.last_format==format&&owner.last_em==em&&owner.last_style_em==system.em_size&&owner.last_fixed_weight==system.fixed_weight&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
+       owner.last_styles.count==styles.count&&bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan))){}
     else if((fallback_only||!prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended))&&
         !prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended,true,rtl,mixed,!fallback_only))return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;NativeParagraphLayout layout{};const float tab_stop=format->tab_stop;

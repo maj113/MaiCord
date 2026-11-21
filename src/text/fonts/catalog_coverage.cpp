@@ -2,10 +2,13 @@
 #include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 // The slot holding this catalog, else the least recently used slot; an empty
-// slot has stamp zero, below any used stamp.
-NativeFontCoverageSlot& slot_for(NativeFontCoverageCache& c,const NativeFontCatalog& catalog) noexcept {
+// slot has stamp zero, below any used stamp. A hit tests the catalogs alone.
+// Compiled for size: both loops run a few times, and loop alignment and
+// unrolling only add bytes.
+__attribute__((minsize)) NativeFontCoverageSlot& slot_for(NativeFontCoverageCache& c,const NativeFontCatalog& catalog) noexcept {
+    for(u32 i=0;i<c.slots.count;++i)if(c.slots[i].catalog==&catalog)return c.slots[i];
     u32 victim=0;
-    for(u32 i=0;i<c.slots.count;++i){if(c.slots[i].catalog==&catalog)return c.slots[i];if(c.slots[i].stamp<c.slots[victim].stamp)victim=i;}
+    for(u32 i=1;i<c.slots.count;++i)if(c.slots[i].stamp<c.slots[victim].stamp)victim=i;
     return c.slots[victim];
 }
 // Drops the slot's reference before it is reused; the cache owns every reference it holds.
@@ -38,8 +41,9 @@ __attribute__((minsize)) bool native_font_coverage_release(NativeFontCoverageCac
 NativeFontResult native_font_coverage_probe(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,u32 scalar,bool* output,const NativeFontFace** borrowed) noexcept {
     if(borrowed)*borrowed=nullptr;
     *output=false;NativeFontHandle handle{};auto result=lookup(c,catalog,&handle,false);if(!result.ok())return result;
-    const auto* font=native_font_get(*native_font_session_fonts(c->session),handle);u16 glyph=0;
-    const auto status=sfnt_cmap_glyph(font->cmap,scalar,0,&glyph);if(status!=SfntStatus::ok)return {NativeFontError::font,status,0};*output=glyph!=0;if(borrowed)*borrowed=font;return {};
+    // The cache holds a reference to the handle, so its face slot is live.
+    const auto& font=native_font_session_fonts(c->session)->faces[handle.slot-1].face;u16 glyph=0;
+    const auto status=sfnt_cmap_glyph(font.cmap,scalar,0,&glyph);if(status!=SfntStatus::ok)return {NativeFontError::font,status,0};*output=glyph!=0;if(borrowed)*borrowed=&font;return {};
 }
 NativeFontResult native_font_coverage_acquire(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,NativeFontHandle* output,bool refresh) noexcept {
     reset_value(output);NativeFontHandle handle{};auto result=lookup(c,catalog,&handle,refresh);if(!result.ok())return result;

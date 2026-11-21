@@ -4,7 +4,6 @@
 #include "maicord/text/fonts/catalog.hpp"
 namespace maicord {
 struct NativeParagraphHitStorage;
-struct NativeParagraphCluster;
 // Pre-merge presentation span capacity for mixed-font metrics.
 // Zero means invalid input or no storage needed for an unstyled single face.
 u32 native_text_candidate_style_capacity(Utf8View,ConstSlice<TextStyleSpan>) noexcept;

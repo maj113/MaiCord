@@ -18,6 +18,9 @@ static_assert(sizeof(SfntPosition)==24 && sizeof(SfntPlacement)==12 && sizeof(Sf
 inline SfntPosition sfnt_position_nominal(double advance,bool zero) noexcept {
     return {zero?0:advance,0,0};
 }
+// The GPOS executors (this one and those of lookup types 3-6) take validated runs: each glyph ID is below the
+// font's glyph limit and each class is defined. sfnt_gpos_execute_program_lookup checks a run once, and the ASCII
+// kerning route builds such records.
 // Horizontal natural placement: ignore classic Device pixels, resolve variable
 // font-unit corrections, and skip initial inputs according to lookup flags.
 // Positions must have been initialized for these glyphs/direction and remain

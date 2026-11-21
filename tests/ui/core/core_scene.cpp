@@ -1278,13 +1278,12 @@ void test_text_flow_layout() noexcept {
     const bool second_placed = first_placed && ui_text_flow_begin_item(&flow, 0.0f, 0.0f, &second) &&
                                ui_text_flow_commit_item(&flow, 10.0f, 16.0f, 0.0f);
     expect(second_placed && first.left == 18.0f && first.right == 198.0f && first.top == 20.0f &&
-               second.top == 87.0f && second.top >= first.top + 67.0f && flow.item_count == 2 &&
+               second.top == 87.0f && second.top >= first.top + 67.0f && !flow.item_open &&
                ui_text_flow_required_height(flow) == 83.0f && !flow.overflow,
            "text_flow_measured_items_do_not_overlap");
 
     const bool extended = second_placed && ui_text_flow_ensure_extent(&flow, 120.0f);
-    expect(extended && ui_text_flow_required_height(flow) == 120.0f && flow.overflow &&
-               flow.spacer_count == 1,
+    expect(extended && ui_text_flow_required_height(flow) == 120.0f && flow.overflow,
            "text_flow_reports_parent_overflow");
 
     UiTextFlowLayout invalid{};
@@ -1292,7 +1291,7 @@ void test_text_flow_layout() noexcept {
     const bool invalid_ready = ui_text_flow_initialize(&invalid, UiRect{0.0f, 0.0f, 100.0f, 40.0f},
                                                        UiRect{0.0f, 0.0f, 100.0f, 40.0f});
     expect(invalid_ready && !ui_text_flow_begin_item(&invalid, 60.0f, 40.0f, &ignored) &&
-               invalid.last_error == UiTextFlowError::invalid_item && invalid.item_count == 0 &&
+               invalid.last_error == UiTextFlowError::invalid_item &&
                !invalid.item_open,
            "text_flow_invalid_width_rejects_atomically");
 
@@ -1316,7 +1315,7 @@ void test_text_flow_layout() noexcept {
                                ui_text_flow_commit_item(&matrix, measured, 16.0f * scale, gap);
                 expected_top += measured + gap;
             }
-            matrix_clean = matrix_clean && !matrix.overflow && matrix.item_count == 4 &&
+            matrix_clean = matrix_clean && !matrix.overflow && !matrix.item_open &&
                            ui_text_flow_required_height(matrix) == expected_top;
         }
     }

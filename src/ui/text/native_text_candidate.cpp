@@ -88,7 +88,7 @@ struct NativeOmissionSign {NativeOmissionSign* next;const NativeFormat* format;N
 // it (binding null: another shaper, not reshaped at an emergency break).
 struct StyledGroup {u32 first_unit,end_unit;const Binding* binding;const NativeAlphabeticPlan* profile;float em;bool force;};
 static_assert(sizeof(Binding)==40&&sizeof(StyledSpan)==24);
-template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
+template<class T> __forceinline Slice<T> take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
 }
 struct NativeTextContext {
     NativeTextCatalogs catalogs;
@@ -305,16 +305,22 @@ bool binding_capacity(NativeTextContext& owner) noexcept {
        !pages_commit_at(owner.bindings, sizeof(Binding)*count))return false;
     owner.store.slots.count=count;return true;
 }
-Binding* binding(NativeTextContext& owner,const NativeFormat* format,u32 font_flags=0) noexcept {
-    for(u32 i=0;i<owner.binding_count;++i)if((owner.bindings[i].key&binding_default)&&owner.bindings[i].font_flags==font_flags&&(owner.bindings[i].format==format||
-        (font_flags==emoji_font_flag?owner.bindings[i].format->font.properties.width==format->font.properties.width:same_font(owner.bindings[i].format->font,format->font))))return owner.bindings[i].plan.slot?owner.bindings+i:nullptr;
+// A new binding: of the format's font (a default binding, without `face`) or of a fallback face. A failure that a
+// retry can fix leaves no slot. Any other failure keeps a slot without a plan, so a lookup does not prepare it again.
+Binding* new_binding(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,u32 key,const NativeTextFontRange* face) noexcept {
     if(!binding_capacity(owner))return nullptr;
     owner.last_valid=false;owner.prefer_multiline=false;
     const u32 failures=owner.catalogs.retryable_failures;
-    auto& slot=owner.bindings[owner.binding_count++];slot.format=format;slot.font_flags=font_flags;
-    const bool ready=acquire_plan(owner,format,font_flags,&slot.plan,&slot.font,&slot.key);slot.key|=binding_default;
+    auto& slot=owner.bindings[owner.binding_count++];slot.format=format;slot.font_flags=font_flags;slot.key=key;
+    const bool ready=acquire_plan(owner,format,font_flags,&slot.plan,&slot.font,&slot.key,face);if(!face)slot.key|=binding_default;
     if(!ready){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){reset_value(&slot);--owner.binding_count;}return nullptr;}
     return &slot;
+}
+Binding* binding(NativeTextContext& owner,const NativeFormat* format,u32 font_flags=0) noexcept {
+    for(u32 i=0;i<owner.binding_count;++i)if((owner.bindings[i].key&binding_default)&&owner.bindings[i].font_flags==font_flags&&(owner.bindings[i].format==format||
+        (font_flags==emoji_font_flag?owner.bindings[i].format->font.properties.width==format->font.properties.width:same_font(owner.bindings[i].format->font,format->font))))return owner.bindings[i].plan.slot?owner.bindings+i:nullptr;
+    // A slot past binding_count holds no key: binding_capacity commits zeroed pages and a removed slot is reset.
+    return new_binding(owner,format,font_flags,0,nullptr);
 }
 Binding* binding_face(NativeTextContext& owner,const NativeFormat* format,u32 flags,const NativeTextFontRange& face) noexcept {
     if(face.match.index>0x1fffffu||face.scope>=32||face.match.simulations>3)return nullptr;
@@ -323,9 +329,7 @@ Binding* binding_face(NativeTextContext& owner,const NativeFormat* format,u32 fl
     // Default bindings retain family identity for nominal-layout policy.
     for(u32 i=0;i<owner.binding_count;++i){auto& slot=owner.bindings[i];if((slot.key&binding_face_mask)==key&&slot.font_flags==flags&&
         (!(slot.key&binding_default)||same_font(slot.format->font,format->font)))return slot.plan.slot?&slot:nullptr;}
-    if(!binding_capacity(owner))return nullptr;owner.last_valid=false;owner.prefer_multiline=false;const u32 failures=owner.catalogs.retryable_failures;
-    auto& slot=owner.bindings[owner.binding_count++];slot.format=format;slot.font_flags=flags;slot.key=key;
-    if(!acquire_plan(owner,format,flags,&slot.plan,&slot.font,&slot.key,&face)){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){reset_value(&slot);--owner.binding_count;}return nullptr;}return &slot;
+    return new_binding(owner,format,flags,key,&face);
 }
 bool emoji_profile(NativeTextContext& owner,Binding& selected) noexcept {
     if(selected.font_flags!=emoji_font_flag)return false;
@@ -489,7 +493,8 @@ const NativeOmissionSign* omission_sign(const NativeTextContext& owner,const Nat
         if(sign->format==format||(sign->format->em==format->em&&same_font(sign->format->font,format->font)))return sign;
     return nullptr;
 }
-bool prepare_omission_sign(NativeTextContext& owner,const TextSystem& system,const NativeFormat* format) noexcept {
+// The new sign, the first that omission_sign finds for the format. Null when the sign cannot be shaped or saved.
+const NativeOmissionSign* prepare_omission_sign(NativeTextContext& owner,const TextSystem& system,const NativeFormat* format) noexcept {
     // Overflow in the sign's own scratch must not leave output_capacity_failed set for the caller.
     struct RestoreFailure {bool& flag;bool previous;~RestoreFailure() noexcept {flag=previous;}} restore_failure{owner.output_capacity_failed,owner.output_capacity_failed};
     // One UTF-8 scalar fits the producer's 3*4+16 glyph retry bound.
@@ -499,13 +504,13 @@ bool prepare_omission_sign(NativeTextContext& owner,const TextSystem& system,con
     auto plain=system;plain.native_format=intern_format(owner,*format);
     plain.independent_letters=false;plain.tracking=0;
     if(!plain.native_format||!native_text_candidate_line(plain,{utf8_literal("\xe2\x80\xa6"),{},1000000,1000000},&shaped,nullptr)||
-        shaped.run_count!=1||!shaped.glyph_count||!shaped.runs[0].native_font||shaped.clusters[0])return false;
+        shaped.run_count!=1||!shaped.glyph_count||!shaped.runs[0].native_font||shaped.clusters[0])return nullptr;
     const auto font=shaped.runs[0].native_face;auto* store=native_font_session_runs(owner.fonts);
     auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);
     auto* saved=arena_allocate<NativeOmissionSign>(&arena);auto* payload=take<TextGlyph>(arena,shaped.glyph_count).data;
-    if(!saved||!payload||!native_font_run_retain(store,font)){arena_rewind(&arena,mark);return false;}
+    if(!saved||!payload||!native_font_run_retain(store,font)){arena_rewind(&arena,mark);return nullptr;}
     *saved={owner.omission_signs,format,font,shaped.width,shaped.runs[0].baseline_y,shaped.glyph_count};
-    copy_bytes(payload,glyphs,shaped.glyph_count*sizeof(TextGlyph));owner.omission_signs=saved;return true;
+    copy_bytes(payload,glyphs,shaped.glyph_count*sizeof(TextGlyph));owner.omission_signs=saved;return saved;
 }
 struct NativeTrimPlanScratch {
     Arena* arena=nullptr;ArenaMark mark{};Slice<NativeParagraphLineFit> fit{};
@@ -514,9 +519,9 @@ struct NativeTrimPlanScratch {
         arena=&owner.scratch;mark=arena_mark(arena);fit=take<NativeParagraphLineFit>(*arena,clusters+1);return fit.data!=nullptr;
     }
 };
-// The plan a layout fills instead of publishing (prepare_trim_plan): the
-// caller's fit slots, or storage sized after shaping.
-struct TrimPlanTarget {Slice<NativeParagraphLineFit> fit;NativeParagraphLayout* planning;NativeTrimPlanScratch* storage;};
+// The plan a layout fills instead of publishing (prepare_trim_plan), and the
+// storage for its line fits, sized after shaping.
+struct TrimPlanTarget {NativeParagraphLayout* planning;NativeTrimPlanScratch* storage;};
 // What a paragraph layout is for besides drawing or measuring: Latin
 // boundaries (with a script profile), editor hits or a trim plan.
 struct ParagraphMode {bool latin;const NativeAlphabeticPlan* profile;NativeParagraphHitStorage* hits;const TrimPlanTarget* plan;};
@@ -726,7 +731,7 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
     auto& owner=*system.native_text;const Utf8View text=request.text;const float width=request.width,height=request.height;
     const TextWrapping wrapping=request.wrapping;const TextOverflow overflow=request.overflow;
     const bool latin=mode.latin;auto* hits=mode.hits;
-    Slice<NativeParagraphLineFit> fit=mode.plan?mode.plan->fit:Slice<NativeParagraphLineFit>{};
+    Slice<NativeParagraphLineFit> fit{};
     const float em=format->em;
     if(overflow==TextOverflow::ellipsis&&!(height>0))return false;
     // The text this context shaped last, as a paragraph or as a single printable line.
@@ -766,9 +771,9 @@ bool paragraph(const TextSystem& system,const Binding& binding,const NativeForma
         owner.last_format=format;owner.last_em=em;owner.last_independent=system.independent_letters;owner.last_tracking=system.tracking;owner.last_paragraph=true;owner.last_styled=false;owner.last_valid=true;
     }
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;NativeParagraphLayout layout{};
-    if(mode.plan&&mode.plan->storage){if(!mode.plan->storage->allocate(owner,shape.cluster_count))return false;fit=mode.plan->storage->fit;}
+    if(mode.plan){if(!mode.plan->storage->allocate(owner,shape.cluster_count))return false;fit=mode.plan->storage->fit;}
     if(native_prepared_paragraph_layout(shape,{s.clusters.data,shape.cluster_count},{s.placements.data,shape.glyph_count},width,format->tab_stop,wrapping==TextWrapping::wrap,owner.paragraph_runs,&layout,hits,overflow==TextOverflow::ellipsis?height:0,fit)!=SfntStatus::ok){++owner.execute_failed;return false;}
-    if(mode.plan&&mode.plan->planning){*mode.plan->planning=layout;return true;}
+    if(mode.plan){*mode.plan->planning=layout;return true;}
     // Windows trims overlong words instead of using the clip-mode emergency
     // wrap. Fitting aggregate metrics alone cannot establish no trimming.
     if(overflow==TextOverflow::ellipsis&&(layout.flags&native_paragraph_emergency_break||layout.width>width)){
@@ -977,28 +982,29 @@ bool trim_single_line(const TextSystem& system,const Binding* binding,const Nati
 }
 
 namespace {
-bool prepare_trim_plan(const TextSystem& system,const NativeTextRequest& source,Slice<NativeParagraphLineFit> fit,
-    NativeParagraphLayout* output,NativeTrimPlanScratch* storage,bool require_styled=false) noexcept {
+// The omission sign of the plan, null when there is no plan. The line fits go to `storage`.
+const NativeOmissionSign* prepare_trim_plan(const TextSystem& system,const NativeTextRequest& source,
+    NativeParagraphLayout* output,NativeTrimPlanScratch* storage,bool require_styled) noexcept {
     CatalogOperation catalog_operation(system.native_text);
-    if(!output)return false;reset_value(output);
+    reset_value(output);
     // The plan is the ellipsis layout's; hits never take part.
     NativeTextRequest request=source;request.overflow=TextOverflow::ellipsis;request.hits={};
     const Utf8View text=request.text;const float width=request.width,height=request.height;
-    if(!system.native_text||!text.data||!text.bytes||text.bytes>native_text_maximum_bytes||!(height>0)||(!fit.data&&!storage)||!tracking_valid(system.tracking))return false;
-    const auto* format=resolve_format(system,request.wrapping);if(!format)return false;
+    if(!system.native_text||!text.data||!text.bytes||text.bytes>native_text_maximum_bytes||!(height>0)||!tracking_valid(system.tracking))return nullptr;
+    const auto* format=resolve_format(system,request.wrapping);if(!format)return nullptr;
     auto& owner=*system.native_text;TextMeasureResult prepared{};NativeParagraphLayout layout{};
-    if(!omission_sign(owner,format)&&!prepare_omission_sign(owner,system,format))return false;
-    const auto* sign=omission_sign(owner,format);if(!sign)return false;
-    const TrimPlanTarget plan{fit,&layout,storage};
+    const auto* sign=omission_sign(owner,format);
+    if(!sign&&!(sign=prepare_omission_sign(owner,system,format)))return nullptr;
+    const TrimPlanTarget plan{&layout,storage};
     bool plain=!request.styles.count&&!require_styled&&text.bytes<=16000;for(u32 i=0;plain&&i<text.bytes;++i){const auto c=static_cast<u8>(text.data[i]);plain=(c>=32&&c<=126)||c==9||c==10||c==13;}
-    if(plain){auto* selected=binding(owner,format);if(!selected||!paragraph(system,*selected,format,request,nullptr,&prepared,{false,nullptr,nullptr,&plan}))return false;}
-    else if(!native_text_styled_plan_or_output(system,request,nullptr,&prepared,nullptr,&plan,require_styled))return false;
-    if(storage)fit=storage->fit;
+    if(plain){auto* selected=binding(owner,format);if(!selected||!paragraph(system,*selected,format,request,nullptr,&prepared,{false,nullptr,nullptr,&plan}))return nullptr;}
+    else if(!native_text_styled_plan_or_output(system,request,nullptr,&prepared,nullptr,&plan,require_styled))return nullptr;
+    const auto fit=storage->fit;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;
     const auto mark=arena_mark(&owner.scratch);
     struct Rewind {Arena& arena;ArenaMark mark;~Rewind() noexcept {arena_rewind(&arena,mark);}} rewind{owner.scratch,mark};
     u32 tab_capacity=0;for(u32 i=0;i<shape.cluster_count;++i)tab_capacity+=(s.clusters[i].flags&native_paragraph_tab)!=0;
-    auto tabs=take<float>(owner.scratch,tab_capacity);if(tab_capacity&&!tabs.data)return false;
+    auto tabs=take<float>(owner.scratch,tab_capacity);if(tab_capacity&&!tabs.data)return nullptr;
     layout.width=layout.extent=0;
     for(u32 i=0;i<layout.line_count;++i){auto& line=fit[i];
         if(line.flags&native_line_fit_hidden){line.visible_clusters=0;line.flags|=native_line_fit_trimmed;continue;}
@@ -1006,16 +1012,16 @@ bool prepare_trim_plan(const TextSystem& system,const NativeTextRequest& source,
         while(end>first&&(s.clusters[end-1].flags&(native_paragraph_newline|native_paragraph_crlf_prefix)))--end;
         float pen=0;u32 count=0;
         for(u32 c=first;c<end;++c){const auto& cluster=s.clusters[c];
-            if(cluster.flags&native_paragraph_tab){const float q=pen/format->tab_stop;if(!(q>=0)||q>1000000)return false;
+            if(cluster.flags&native_paragraph_tab){const float q=pen/format->tab_stop;if(!(q>=0)||q>1000000)return nullptr;
                 const float next=static_cast<float>(static_cast<u32>(q)+1)*format->tab_stop;tabs[count++]=decoration_sub(next,pen);pen=next;}
             else pen=decoration_add(pen,cluster.width);}
         const bool force=(line.flags&native_line_fit_force_sign)!=0;const bool trimmed=force||line.width>width;NativeLineTrimCut cut{};
-        if(native_line_trim_cut({s.clusters.data+first,end-first},line.width,line.extent,width,sign->width,force,{tabs.data,count},&cut)!=SfntStatus::ok)return false;
+        if(native_line_trim_cut({s.clusters.data+first,end-first},line.width,line.extent,width,sign->width,force,{tabs.data,count},&cut)!=SfntStatus::ok)return nullptr;
         line.visible_clusters=static_cast<u16>(cut.clusters);line.width=cut.width;line.extent=cut.extent;
         if(cut.sign)line.flags|=native_line_fit_sign;if(trimmed)line.flags|=native_line_fit_trimmed;
         layout.width=maximum(layout.width,line.width);layout.extent=maximum(layout.extent,line.extent);
     }
-    *output=layout;return true;
+    *output=layout;return sign;
 }
 
 }

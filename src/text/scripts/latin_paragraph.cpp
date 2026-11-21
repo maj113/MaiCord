@@ -49,10 +49,11 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Ut
     auto status=sfnt_single_font_line(metrics,em,&shaped.vertical);if(status!=SfntStatus::ok)return status;
     bool start=paragraph_start;
     for(u32 at=0;at<input.bytes;){const auto cp=utf8_decode_one(input.data+at,input.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
-        if(control(cp.codepoint)||nonvisual(cp.codepoint)){
+        const bool invisible=nonvisual(cp.codepoint);
+        if(invisible||control(cp.codepoint)){
             const u32 count=cp.codepoint==13&&at+1<input.bytes&&input.data[at+1]=='\n'?2u:1u;
-            status=native_paragraph_append_control(s,shaped,count,nonvisual(cp.codepoint)?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
-            start=cp.codepoint!=9&&!nonvisual(cp.codepoint);at+=cp.width+(count-1);continue;
+            status=native_paragraph_append_control(s,shaped,count,invisible?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
+            start=cp.codepoint!=9&&!invisible;at+=cp.width+(count-1);continue;
         }
         // Printable ASCII is not a control and is visible: it needs no decode.
         u32 end=at+cp.width;while(end<input.bytes){if(static_cast<u8>(input.data[end])-0x20u<0x5fu){++end;continue;}const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;if(control(next.codepoint)||nonvisual(next.codepoint))break;end+=next.width;}

@@ -4,9 +4,8 @@
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 inline bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}
-inline bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}
-SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& instance,SfntPositionAdjustment* out,SfntPositionExecution* result,u64* work) noexcept {
-    if(!spend(result,work,9))return SfntStatus::resource_limit;
+SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& instance,SfntPositionAdjustment* out,u64* work) noexcept {
+    if(!spend(work,9))return SfntStatus::resource_limit;
     if(!record.format){reset_value(out);return SfntStatus::ok;}
     if(!(record.format&0xf0)){
         reset_value(out);const u8* at=record.parent.data+record.offset;
@@ -16,7 +15,7 @@ SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& ins
     SfntPositionValue value{};auto s=sfnt_value_record_read(record,&value);if(s!=SfntStatus::ok)return s;
     if(instance.variable)for(u32 i=0;i<4;++i){u32 index=0;if(!sfnt_device_variation_index(value.devices[i],&index) || index==0xffffffffu)continue;
         if(!instance.variations)return SfntStatus::missing_table;ItemVariationData data{};s=item_variation_data(instance.variations->store,static_cast<u16>(index>>16),&data);if(s!=SfntStatus::ok)return s;
-        if(!spend(result,work,static_cast<u64>(data.region_count)+1))return SfntStatus::resource_limit;}
+        if(!spend(work,static_cast<u64>(data.region_count)+1))return SfntStatus::resource_limit;}
     return sfnt_position_value_resolve(value,instance,out);
 }
 // A value record's placement moves the glyph right; right to left the offset is stored negated (the renderer draws
@@ -96,23 +95,24 @@ SfntStatus sfnt_trailing_spacing(Slice<SfntPlacement> placements,
 SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application,const SfntLookupBounds* bounds) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
-    const u32 glyph_limit=lookup.subtables.count?lookup.subtables.data[0].glyph_limit:0x10000u;
+    // Every charge spends work: the operations are the work used, published on each return.
+    struct Report {SfntPositionExecution& result;u64 initial;const u64& left;~Report() noexcept {result.operations=initial-left;}} report{*result,work,work};
     for(u32 at=start;at<end && (!selected || at==start);){
-        if(!spend(result,&work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);
-        if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;if(glyph.glyph>=glyph_limit)return SfntStatus::glyph_out_of_range;
-        // The excluded glyphs that follow an excluded glyph cost one unit each. Bounds come only from the program
-        // executor, which validated every glyph of the run.
+        if(!spend(&work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);
+        // The excluded glyphs that follow an excluded glyph cost one unit each.
         if(!selected&&bounds&&sfnt_lookup_bounds_exclude(*bounds,glyph.glyph)){
             const u32 next=sfnt_lookup_bounds_find(*bounds,glyphs,at+1,static_cast<u32>(minimum<u64>(end,at+1+work)));
-            spend(result,&work,next-at-1);at=next;continue;}
+            spend(&work,next-at-1);at=next;continue;}
         if(!selected&&sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)){++at;continue;}
         SfntGposMatch match{};
         for(u32 i=0;i<lookup.subtables.count;++i){const u32 budget=work<match_limit?static_cast<u32>(work):match_limit;
-            u32 left=budget;const auto s=gpos_subtable_match(lookup.subtables.data[i],gdef,lookup.filter,glyphs,at,end,&match,&left);spend(result,&work,budget-left);if(s!=SfntStatus::ok)return s;if(match.matched)break;}
+            u32 left=budget;const auto s=gpos_subtable_match(lookup.subtables.data[i],gdef,lookup.filter,glyphs,at,end,&match,&left);spend(&work,budget-left);if(s!=SfntStatus::ok)return s;if(match.matched)break;}
         if(!match.matched){++at;continue;}
-        SfntPositionAdjustment first{},second{};auto s=resolve(match.values[0],instance,&first,result,&work);if(s!=SfntStatus::ok)return s;
+        // The values resolve against a copy of the work, so the scan keeps its counter in a register.
+        u64 left=work;SfntPositionAdjustment first{},second{};auto s=resolve(match.values[0],instance,&first,&left);
         const auto a=adjusted(positions.data[at],first,rtl);SfntPosition b{};const bool pair=match.second_input!=0xffffffffu;
-        if(pair){s=resolve(match.values[1],instance,&second,result,&work);if(s!=SfntStatus::ok)return s;b=adjusted(positions.data[match.second_input],second,rtl);}
+        if(s==SfntStatus::ok&&pair){s=resolve(match.values[1],instance,&second,&left);b=adjusted(positions.data[match.second_input],second,rtl);}
+        work=left;if(s!=SfntStatus::ok)return s;
         if(!valid(a) || (pair && !valid(b)))return SfntStatus::resource_limit;
         positions.data[at]=a;if(pair)positions.data[match.second_input]=b;++result->matches;at=match.next_input;
     }return SfntStatus::ok;

@@ -2,6 +2,7 @@
 #include "../../../support/layout_validation.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
+#include "maicord/ui/text/edit_signature.hpp"
 
 namespace maicord {
 namespace {
@@ -50,6 +51,11 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
         forum_post_release(&scene);
         return;
     }
+    // The forum form keeps a field's TSF geometry only while the field's layout signature is text_edit_signature
+    // of its text (forum_form.cpp current_node). d272e741f changed that function but not this scene.
+    check(scene.text_signature[0] == text_edit_signature(content.fields[0].text) &&
+              scene.text_signature[1] == text_edit_signature(content.fields[1].text),
+          "forum_scene_text_signatures_are_edit_signatures");
     check(forum_post_move_focus(&scene, false) &&
               forum_post_focused(scene).element == ForumPostElement::body &&
               forum_post_move_focus(&scene, false) &&

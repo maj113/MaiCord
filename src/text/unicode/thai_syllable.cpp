@@ -28,7 +28,9 @@ i32 native_thai_syllable_result(ConstSlice<u32> text,u32 first) noexcept {
 // Dependent vowels, LAKKHANGYAO, tone marks and the other combining marks
 // attach to the preceding scalar; everything else can begin a cluster.
 bool native_thai_boundary_class(u32 scalar) noexcept {
-    return !(scalar-0xe30u<11||scalar==0xe45||scalar-0xe47u<8);
+    // Bits by scalar - U+0E30: U+0E30..U+0E3A, U+0E45 and U+0E47..U+0E4E.
+    const u32 offset=scalar-0xe30u;
+    return offset>30||!((0x7fa007ffu>>offset)&1);
 }
 u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first,i32 syllable) noexcept {
     if(!text.data||first>=text.count)return 0;

@@ -9,7 +9,24 @@ constexpr u8 ri_odd=1,pictograph_extend=2,pictograph_zwj=4;
 // Control leaves no flags or Indic state behind, so a zero state, whose previous
 // break class is Control, decides every rule as the start of text would.
 static_assert(static_cast<u8>(G::cn)==0);
-bool control(G value) noexcept {return value==G::cn || value==G::cr || value==G::lf;}
+constexpr bool control(G value) noexcept {return value==G::cn || value==G::cr || value==G::lf;}
+constexpr u32 classes=static_cast<u32>(G::zwj)+1;
+// GB3 to GB9b read only the two break classes. Per previous class, the bits of the classes that they join to it
+// and of those that GB4 and GB5 cut from it; the other pairs go to the rules that read the state.
+struct PairRules {u16 joined[classes],cut[classes];};
+constexpr PairRules pair_rules=[]() constexpr noexcept {
+    PairRules rules{};
+    for(u32 a=0;a<classes;++a)for(u32 b=0;b<classes;++b){
+        const G previous=static_cast<G>(a),current=static_cast<G>(b);const u16 bit=static_cast<u16>(1u<<b);
+        if(previous==G::cr && current==G::lf)rules.joined[a]|=bit; // GB3
+        else if(control(previous) || control(current))rules.cut[a]|=bit; // GB4/GB5
+        else if((previous==G::l && (current==G::l || current==G::v || current==G::lv || current==G::lvt)) || // GB6
+                ((previous==G::lv || previous==G::v) && (current==G::v || current==G::t)) || // GB7
+                ((previous==G::lvt || previous==G::t) && current==G::t) || // GB8
+                current==G::ex || current==G::zwj || current==G::sm || previous==G::pp)rules.joined[a]|=bit; // GB9/9a/9b
+    }
+    return rules;
+}();
 }
 bool unicode_grapheme_boundary(UnicodeGraphemeState& state,u32 scalar) noexcept {
     const G previous=state.previous;
@@ -21,16 +38,12 @@ bool unicode_grapheme_boundary(UnicodeGraphemeState& state,u32 scalar) noexcept 
     const G current=properties.grapheme_break();
     const I indic=properties.indic_conjunct_break();
     const bool pictograph=properties.has(UnicodeFlag::extended_pictographic);
-    bool split=true;
-    if(previous==G::cr && current==G::lf)split=false; // GB3
-    else if(control(previous) || control(current))split=true; // GB4/GB5
-    else if(previous==G::l && (current==G::l || current==G::v || current==G::lv || current==G::lvt))split=false; // GB6
-    else if((previous==G::lv || previous==G::v) && (current==G::v || current==G::t))split=false; // GB7
-    else if((previous==G::lvt || previous==G::t) && current==G::t)split=false; // GB8
-    else if(current==G::ex || current==G::zwj || current==G::sm || previous==G::pp)split=false; // GB9/9a/9b
-    else if(indic==I::consonant && state.indic==2)split=false; // GB9c
-    else if(pictograph && (state.flags&pictograph_zwj))split=false; // GB11
-    else if(previous==G::ri && current==G::ri && (state.flags&ri_odd))split=false; // GB12/13
+    const u32 bit=1u<<static_cast<u32>(current);
+    bool split=!(pair_rules.joined[static_cast<u32>(previous)]&bit);
+    if(split && !(pair_rules.cut[static_cast<u32>(previous)]&bit))
+        split=!((indic==I::consonant && state.indic==2) || // GB9c
+                (pictograph && (state.flags&pictograph_zwj)) || // GB11
+                (previous==G::ri && current==G::ri && (state.flags&ri_odd))); // GB12/13
     u8 flags=0;
     if(current==G::ri && !(state.flags&ri_odd))flags|=ri_odd;
     if(pictograph || (current==G::ex && (state.flags&pictograph_extend)))flags|=pictograph_extend;

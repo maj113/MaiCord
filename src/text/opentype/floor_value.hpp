@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/text/base.hpp"
 
 namespace maicord {
 // The variation maths rounds with floor(x+.5) (ties toward +infinity), never with

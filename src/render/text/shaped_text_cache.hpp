@@ -20,13 +20,6 @@ struct ShapedTextCacheRequest {
     u8 overflow;
 };
 
-struct ShapedTextCacheStats {
-    u32 hits;
-    u32 misses;
-    u32 promotions;
-    u32 flips;
-};
-
 inline constexpr u32 kShapedTextCacheEntries = 512;
 inline constexpr u32 kShapedTextCacheBuckets = 1024;
 inline constexpr u32 kShapedTextCacheGlyphs = 8 * 1024;
@@ -70,7 +63,6 @@ struct ShapedTextGeneration {
 struct ShapedTextCache {
     ShapedTextGeneration generations[2];
     u32 current;
-    ShapedTextCacheStats stats;
 };
 
 ShapedTextCache* shaped_text_cache_create() noexcept;

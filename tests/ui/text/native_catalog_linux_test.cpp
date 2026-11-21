@@ -201,18 +201,18 @@ void test_policy_table() noexcept {
     // the CJK families follow the language.
     const NativeFallbackCascade& unspecified = system_fallback_policy;
     bool lists_fit = true;
-    for (u32 i = 0; i < unspecified.ranges.count; ++i)
-        lists_fit = lists_fit && unspecified.ranges[i].count <= system_fallback_max_families;
+    for (u32 i = 0; i < unspecified.lists.count; ++i)
+        lists_fit = lists_fit && native_fallback_list_count(unspecified.lists[i]) <= system_fallback_max_families;
     check(lists_fit, "policy_lists_fit");
     const auto first_family = [](u32 locale, u32 scalar, const char* expected, const char* name) noexcept {
         const NativeFallbackCascade& policy = system_fallback_policy;
         const u32 route = native_fallback_cascade_find(policy, scalar);
-        const NativeFallbackRange& range = policy.ranges[route];
-        if (range.count == 0) {
+        const u16 list = policy.lists[route];
+        if (native_fallback_list_count(list) == 0) {
             check(expected == nullptr, name);
             return;
         }
-        const char* family = system_fallback_names + system_fallback_token(locale, range.offset);
+        const char* family = system_fallback_names + system_fallback_token(locale, native_fallback_list_offset(list));
         bool same = expected != nullptr;
         u32 i = 0;
         for (; same && family[i]; ++i)

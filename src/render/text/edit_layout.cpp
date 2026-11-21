@@ -99,9 +99,9 @@ bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,
 }
 
 u64 style_signature(ConstSlice<TextStyleSpan> styles) noexcept {
-    return hash64_counted_bytes(kHash64Seed, styles.data, styles.count * sizeof(TextStyleSpan));
+    return hash64_words(kHash64Seed, styles.data, styles.count * sizeof(TextStyleSpan));
 }
-bool cache_matches(const TextEditLayoutOwner& owner, const TextEditLayoutInput& input, u64 format, u64 styles,
+inline bool cache_matches(const TextEditLayoutOwner& owner, const TextEditLayoutInput& input, u64 format, u64 styles,
                    float em_size) noexcept {
     return owner.active && owner.format == format &&
            owner.text_signature == input.text_signature && owner.style_signature == styles && owner.text_bytes == input.text.bytes &&
@@ -208,10 +208,6 @@ void commit_key(TextEditLayoutOwner* owner, const TextEditLayoutInput& input, u6
 
 } // namespace
 
-u64 text_edit_signature(Utf8View text) noexcept {
-    return hash64_counted_bytes(kHash64Seed, text.data, text.bytes);
-}
-
 bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                               const TextEditLayoutInput& input,
                               const TextSystem& text_system) noexcept {
@@ -224,17 +220,13 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
         input.width <= 0.0f || input.height <= 0.0f ||
         input.maximum_layout_height <= 0.0f || (input.options & ~kKnownOptions) != 0 ||
         input.styles.count > kTextStyleSpanMaximum || (!input.styles.data && input.styles.count)) {
-        if (owner) {
+        if (owner)
             text_edit_layout_invalidate(owner);
-            saturating_increment(owner->rejected);
-        }
         return false;
     }
     const u64 styles = style_signature(input.styles);
-    if (cache_matches(*owner, input, format, styles, text_system.em_size)) {
-        saturating_increment(owner->hits);
+    if (cache_matches(*owner, input, format, styles, text_system.em_size))
         return true;
-    }
 
     const float retained_scroll = owner->scroll_y;
     const float retained_scroll_x = owner->scroll_x;
@@ -249,10 +241,8 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
     text_edit_layout_invalidate(owner);
     owner->geometry = retain_layout;
     if (input.text.bytes == 0) {
-        if (input.anchor_utf16 != 0 || input.caret_utf16 != 0) {
-            saturating_increment(owner->rejected);
+        if (input.anchor_utf16 != 0 || input.caret_utf16 != 0)
             return false;
-        }
         const float caret_height = minimum(text_system.em_size * 1.25f, input.height);
         const float origin_y = (input.options & text_edit_layout_center_vertically) != 0
                                    ? input.viewport_top + (input.height - caret_height) * 0.5f
@@ -269,15 +259,12 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
     }
 
     if (!retain_layout) {
-        if (!prepare_native(owner, input, text_system)) {
-            saturating_increment(owner->rejected);
+        if (!prepare_native(owner, input, text_system))
             return false;
-        }
         units = native_geometry(*owner)->hits.source_units;
     }
     if (units == 0 || input.anchor_utf16 > units || input.caret_utf16 > units) {
         owner->geometry = false;
-        saturating_increment(owner->rejected);
         return false;
     }
 
@@ -286,7 +273,6 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
     TextEditMetric caret_metrics{};
     if (!position_metric(*owner, input.caret_utf16, &caret_x, &caret_y, &caret_metrics)) {
         owner->geometry = false;
-        saturating_increment(owner->rejected);
         return false;
     }
     const auto& measure = native_geometry(*owner)->measure;
@@ -340,7 +326,6 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                                                    &owner->selection_count)) {
             if (status != SfntStatus::ok || actual > owner->selection_capacity) {
                 owner->geometry = false;
-                saturating_increment(owner->rejected);
                 return false;
             }
             owner->selection_count = actual;
@@ -411,11 +396,10 @@ bool text_composer_layout_measure(TextEditLayoutOwner* owner, const MessageCompo
     const Utf8View text = message_composer_scene_display_text(*scene);
     u32 anchor_utf16 = 0;
     u32 caret_utf16 = 0;
-    if (!edit || scene->display_anchor > text.bytes || scene->display_caret > text.bytes ||
-        !utf8_utf16_position_for_byte_offset(text, scene->display_anchor, &anchor_utf16) ||
+    // The position walk refuses an offset past the text.
+    if (!edit || !utf8_utf16_position_for_byte_offset(text, scene->display_anchor, &anchor_utf16) ||
         !utf8_utf16_position_for_byte_offset(text, scene->display_caret, &caret_utf16)) {
         text_edit_layout_invalidate(owner);
-        saturating_increment(owner->rejected);
         return false;
     }
     constexpr float kComposerLayoutHeight = 262'144.0f;
@@ -573,8 +557,6 @@ void text_edit_layout_release(TextEditLayoutOwner* owner) noexcept {
     owner->selections = nullptr;
     owner->selection_capacity = 0;
     owner->builds = 0;
-    owner->hits = 0;
-    owner->rejected = 0;
 }
 
 } // namespace maicord

@@ -275,7 +275,7 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
 namespace {
 
 // The FDSelect at `offset`, checked against the glyph and Font DICT counts.
-SfntStatus fd_select_open(ConstSlice<u8> table, u32 offset, u32 glyph_count, u32 fd_count,
+inline SfntStatus fd_select_open(ConstSlice<u8> table, u32 offset, u32 glyph_count, u32 fd_count,
                           ConstSlice<u8>* output) noexcept {
     if (offset >= table.count) return SfntStatus::truncated;
     const ConstSlice<u8> select{table.data + offset, table.count - offset};

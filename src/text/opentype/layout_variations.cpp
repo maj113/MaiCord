@@ -4,7 +4,7 @@
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::r32;using layout_read::span;using layout_read::tail;
-SfntStatus matches(ConstSlice<u8> table,ConstSlice<i16> coordinates,bool* match,u32* work) noexcept {
+inline SfntStatus matches(ConstSlice<u8> table,ConstSlice<i16> coordinates,bool* match,u32* work) noexcept {
     *match=false;const u16 count=r16(table,0);const u32 end=2+static_cast<u32>(count)*4;
     if(!span(table,0,end))return SfntStatus::truncated;
     for(u32 i=0;i<count;++i){if(!*work)return SfntStatus::resource_limit;--*work;ConstSlice<u8> c{};
@@ -17,7 +17,7 @@ SfntStatus matches(ConstSlice<u8> table,ConstSlice<i16> coordinates,bool* match,
     }
     *match=true;return SfntStatus::ok;
 }
-SfntStatus substitutions_open(ConstSlice<u8> table,u16 feature_limit,SfntFeatureSubstitutions* output,u32* work) noexcept {
+inline SfntStatus substitutions_open(ConstSlice<u8> table,u16 feature_limit,SfntFeatureSubstitutions* output,u32* work) noexcept {
     if(!span(table,0,4))return SfntStatus::truncated;if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;
     if(!span(table,0,6))return SfntStatus::truncated;const u16 count=r16(table,4);const u32 end=6+static_cast<u32>(count)*6;
     if(!span(table,0,end))return SfntStatus::truncated;if(count>*work)return SfntStatus::resource_limit;*work-=count;

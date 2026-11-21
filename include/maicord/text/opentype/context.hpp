@@ -4,7 +4,8 @@
 namespace maicord {
 enum class SfntContextKind : u8 { sequence,chained };
 struct SfntContextRequirements {u32 coverages,classes;};
-struct SfntContext {ConstSlice<u8> table;ConstSlice<SfntCoverage> coverages;ConstSlice<SfntClassDef> classes;u32 glyph_limit;u16 format,max_inputs;SfntContextKind kind;};
+// first_input indexes the coverage of the first input glyph: the backtrack count for chained format 3, else zero.
+struct SfntContext {ConstSlice<u8> table;ConstSlice<SfntCoverage> coverages;ConstSlice<SfntClassDef> classes;u32 glyph_limit;u16 format,max_inputs;SfntContextKind kind;u16 first_input;};
 struct SfntContextMatch {ConstSlice<u8> actions;u32 input_count,last_input;bool matched;};
 struct SfntReverseSubstitution {ConstSlice<u8> table;ConstSlice<SfntCoverage> coverages;u32 glyph_limit;u16 backtrack_count,lookahead_count;};
 static_assert(sizeof(SfntContext)==64 && sizeof(SfntContextMatch)==32 && sizeof(SfntReverseSubstitution)==40);
@@ -18,6 +19,7 @@ SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 glyph
                             Slice<SfntCoverage> coverages,Slice<SfntClassDef> classes,SfntContext* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // GSUB type 8, format 1. The executor visits start positions in reverse order;
 // this function matches one position and excludes contexts from consumed input.
+// The glyphs are a validated run (IDs below the glyph limit, defined classes).
 SfntStatus sfnt_gsub_reverse_requirements(ConstSlice<u8> bytes,u32* coverages) noexcept;
 SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 glyph_limit,Slice<SfntCoverage> coverages,
                                 SfntReverseSubstitution* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;

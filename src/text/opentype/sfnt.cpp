@@ -52,8 +52,8 @@ __attribute__((minsize)) SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_ind
 SfntStatus sfnt_table(const SfntFace& face, u32 tag, ConstSlice<u8>* table) noexcept {
     if (!table) return SfntStatus::invalid_input;
     reset_value(table);
-    if (!face.file.data || !face.directory.data || !face.directory.count ||
-        face.directory.count % 16u) return SfntStatus::invalid_input;
+    // sfnt_open leaves a zero face, or a directory of one or more entries that each lie inside the file.
+    if (!face.directory.data) return SfntStatus::invalid_input;
     u32 low = 0, high = face.directory.count / 16u;
     while (low < high) {
         const u32 middle = low + (high - low) / 2;
@@ -63,7 +63,6 @@ SfntStatus sfnt_table(const SfntFace& face, u32 tag, ConstSlice<u8>* table) noex
         else {
             const u32 offset = r32(face.directory, middle * 16 + 8);
             const u32 length = r32(face.directory, middle * 16 + 12);
-            if (!span(face.file, offset, length)) return SfntStatus::truncated;
             *table = view(face.file, offset, length);
             return SfntStatus::ok;
         }
@@ -116,8 +115,8 @@ SfntStatus sfnt_horizontal_metrics(const SfntHorizontalMetrics& metrics, u16 gly
                                     SfntGlyphMetrics* output) noexcept {
     if (!output) return SfntStatus::invalid_input;
     reset_value(output);
-    if (!metrics.table.data || !metrics.long_metrics ||
-        metrics.long_metrics > metrics.glyph_count) return SfntStatus::invalid_input;
+    // sfnt_horizontal_metrics_open leaves zero metrics, or a table with 1..glyph_count long metrics.
+    if (!metrics.long_metrics) return SfntStatus::invalid_input;
     if (glyph >= metrics.glyph_count) return SfntStatus::glyph_out_of_range;
     // sfnt_horizontal_metrics_open checked hmtx holds every long metric and tail entry.
     const u32 advance = minimum<u32>(glyph, metrics.long_metrics - 1u) * 4u;

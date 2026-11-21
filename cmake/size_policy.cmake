@@ -493,3 +493,24 @@ if(NOT MAICORD_LINUX)
         src/ui/layout/layout_engine.cpp
         APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_BALANCED_OPTION})
 endif()
+# Type-based alias analysis. clang-cl compiles without it (its default is -fno-strict-aliasing), and the Linux client
+# compiles every source with it. A Windows source opts in here only when its own path got faster and the client did
+# not grow, both measured. The source must also have no pointer type punning. Read its #if defined(_WIN32) parts too,
+# because Linux never compiled them. A bench runs the old and the new unit in one program, A/B/A at 12 code offsets.
+# An A/A copy of that program shows the bias of the position.
+# - silk_decoder.cpp: SILK decoding 1.2-2.0% faster in two series (A/A +0.4-0.8%, with alias analysis -0.8 to
+#   -1.6%), encoding the same. synthesize_lpc loses 11 of its 41 conditional jumps. Client -512 bytes.
+# - history.cpp: MessageHistoryRichCursor::advance, once for each message of a history page, 2.3% faster (12 of 12
+#   offsets, A/A 0.0%). The overlap test of the cursor against the message and its scalar copy go (487 -> 237 bytes).
+# - gpos_program.cpp, gpos_execute.cpp, gpos_cursive_execute.cpp: the bench runs the 66 'kern' and 'mark' lookups of
+#   Segoe UI over 8161 English words. Two programs linked as the client is (LTO) run in turn. They were 0.34% and
+#   0.80% faster in two series (28 offsets, 22 won, A/A -0.04%). Code placement alone moves this bench by 4.5% between
+#   offsets. Client -512 bytes.
+# Neutral with it: png.cpp (PNG decode +0.00%, A/A -0.01%) and vp8.cpp (lossy WebP entropy decode +0.09%, A/A -0.17%).
+# Larger with it: ascii_paragraph.cpp (+201 bytes) and JPEG entropy decoding (+467 bytes in progressive refinement).
+# opus_decoder.cpp keeps it off: its frame scratch is a union of float and i16 arrays.
+if(NOT MAICORD_LINUX)
+    set_property(SOURCE src/media/audio/opus/silk_decoder.cpp src/protocol/messages/history.cpp
+        src/text/opentype/gpos_program.cpp src/text/opentype/gpos_execute.cpp src/text/opentype/gpos_cursive_execute.cpp
+        APPEND PROPERTY COMPILE_OPTIONS ${maicord_clang}-fstrict-aliasing)
+endif()

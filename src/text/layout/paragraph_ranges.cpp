@@ -9,7 +9,7 @@ float glyph_width(const NativeParagraphGeometry& g,u32 first,u32 end) noexcept {
     float width=0;for(u32 i=first;i<end;++i)width=layout_add(width,g.placements[i].advance);return width;
 }
 float tab_next(float pen,float stop) noexcept {return static_cast<float>(static_cast<u32>(pen/stop)+1)*stop;}
-float tab_pen(const NativeParagraphGeometry& g,const NativeParagraphLine& line,u32 end) noexcept {
+inline float tab_pen(const NativeParagraphGeometry& g,const NativeParagraphLine& line,u32 end) noexcept {
     float pen=0;const u32 first=cluster_at(g,g.runs[line.first_run].source_first);
     // TAB paragraphs never use nominal metric groups. Their stop position is
     // derived from cluster metrics, independently of drawing-run rounding.

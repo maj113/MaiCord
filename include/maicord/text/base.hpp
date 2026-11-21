@@ -21,4 +21,6 @@ inline bool spend(u64* work, u64 n = 1) noexcept {
     *work -= n;
     return true;
 }
+// The part of a u64 work budget that a callee's u32 work limit can carry.
+inline u32 work_allowance(u64 work) noexcept { return static_cast<u32>(minimum<u64>(work, 0xffffffffu)); }
 } // namespace maicord

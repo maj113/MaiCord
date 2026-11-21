@@ -4,8 +4,9 @@
 namespace maicord {
 namespace {
 
+// Every caller passes a flow of its own, never null.
 bool fail(UiTextFlowLayout* flow, UiTextFlowError error) noexcept {
-    if (flow && flow->last_error == UiTextFlowError::none) {
+    if (flow->last_error == UiTextFlowError::none) {
         flow->last_error = error;
     }
     return false;
@@ -30,14 +31,11 @@ bool advance_cursor(UiTextFlowLayout* flow, float extent) noexcept {
 
 bool ui_text_flow_initialize(UiTextFlowLayout* flow, const UiRect& content_rectangle,
                              const UiRect& clip_rectangle) noexcept {
-    if (!flow || !ui_rect_valid(content_rectangle) || !ui_rect_valid(clip_rectangle)) {
-        if (flow) {
-            reset_value<UiTextFlowLayout>(flow);
-            flow->last_error = UiTextFlowError::invalid_input;
-        }
+    reset_value<UiTextFlowLayout>(flow);
+    if (!ui_rect_valid(content_rectangle) || !ui_rect_valid(clip_rectangle)) {
+        flow->last_error = UiTextFlowError::invalid_input;
         return false;
     }
-    reset_value<UiTextFlowLayout>(flow);
     flow->content_rectangle = content_rectangle;
     flow->clip_rectangle = clip_rectangle;
     flow->cursor_y = content_rectangle.top;
@@ -47,7 +45,7 @@ bool ui_text_flow_initialize(UiTextFlowLayout* flow, const UiRect& content_recta
 
 bool ui_text_flow_begin_item(UiTextFlowLayout* flow, float left_inset, float right_inset,
                              UiRect* rectangle) noexcept {
-    if (!flow || !rectangle || !flow->active) {
+    if (!flow->active) {
         return fail(flow, UiTextFlowError::invalid_input);
     }
     if (flow->item_open) {
@@ -70,7 +68,7 @@ bool ui_text_flow_begin_item(UiTextFlowLayout* flow, float left_inset, float rig
 
 bool ui_text_flow_commit_item(UiTextFlowLayout* flow, float measured_height, float minimum_height,
                               float gap_after) noexcept {
-    if (!flow || !flow->active || !flow->item_open) {
+    if (!flow->active || !flow->item_open) {
         return fail(flow, UiTextFlowError::invalid_state);
     }
     if (!ui_extent_valid(measured_height) || !ui_extent_valid(minimum_height) ||
@@ -81,34 +79,29 @@ bool ui_text_flow_commit_item(UiTextFlowLayout* flow, float measured_height, flo
         return false;
     }
     flow->item_open = false;
-    saturating_increment(flow->item_count);
     return true;
 }
 
 bool ui_text_flow_advance(UiTextFlowLayout* flow, float extent) noexcept {
-    if (!flow || !flow->active || flow->item_open) {
+    if (!flow->active || flow->item_open) {
         return fail(flow, UiTextFlowError::invalid_state);
     }
-    if (!advance_cursor(flow, extent)) {
-        return false;
-    }
-    saturating_increment_if(extent != 0.0f, flow->spacer_count);
-    return true;
+    return advance_cursor(flow, extent);
 }
 
 bool ui_text_flow_ensure_extent(UiTextFlowLayout* flow, float minimum_extent) noexcept {
-    if (!flow || !flow->active || flow->item_open) {
+    if (!flow->active || flow->item_open) {
         return fail(flow, UiTextFlowError::invalid_state);
     }
     if (!ui_extent_valid(minimum_extent)) {
         return fail(flow, UiTextFlowError::invalid_item);
     }
-    const float current = ui_text_flow_required_height(*flow);
-    return current >= minimum_extent ? true : ui_text_flow_advance(flow, minimum_extent - current);
+    return flow->required_height >= minimum_extent || advance_cursor(flow, minimum_extent - flow->required_height);
 }
 
+// A flow that is not active never advanced, so its height is still 0.
 float ui_text_flow_required_height(const UiTextFlowLayout& flow) noexcept {
-    return flow.active ? flow.required_height : 0.0f;
+    return flow.required_height;
 }
 
 } // namespace maicord

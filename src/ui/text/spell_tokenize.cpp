@@ -31,7 +31,7 @@ UnicodeGeneralCategory category(u32 cp) noexcept {
     return unicode_properties(cp)->general_category();
 }
 // Scripts written without spaces between words are left to the IME/user.
-bool unspaced_script(u32 cp) noexcept {
+inline bool unspaced_script(u32 cp) noexcept {
     return (cp >= 0x0E00 && cp <= 0x0EFF) || (cp >= 0x1000 && cp <= 0x109F) || (cp >= 0x1780 && cp <= 0x17FF) ||
            (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF66 && cp <= 0xFF9F) ||
            cp >= 0x20000;
@@ -92,7 +92,7 @@ u32 skip_to_space(const Text& t, u32 at) noexcept {
     return at;
 }
 // Mention-style names: letters, digits, marks, '_', '.', '-'.
-u32 skip_name(const Text& t, u32 at) noexcept {
+inline u32 skip_name(const Text& t, u32 at) noexcept {
     while (at < t.bytes) {
         const auto s = t.at(at);
         if (!word_part(s.cp) && s.cp != '.' && s.cp != '-')
@@ -101,7 +101,7 @@ u32 skip_name(const Text& t, u32 at) noexcept {
     }
     return at;
 }
-u32 skip_alphanumeric(const Text& t, u32 at) noexcept {
+inline u32 skip_alphanumeric(const Text& t, u32 at) noexcept {
     while (at < t.bytes) {
         const auto s = t.at(at);
         if (!word_part(s.cp) && !(apostrophe(s.cp) && letter(t.at(at + s.width).cp)))
@@ -110,7 +110,7 @@ u32 skip_alphanumeric(const Text& t, u32 at) noexcept {
     }
     return at;
 }
-u32 previous_scalar(const Text& t, u32 at) noexcept {
+inline u32 previous_scalar(const Text& t, u32 at) noexcept {
     if (!at)
         return 0;
     --at;
@@ -118,10 +118,10 @@ u32 previous_scalar(const Text& t, u32 at) noexcept {
         --at;
     return at;
 }
-bool token_start(const Text& t, u32 at) noexcept {
+inline bool token_start(const Text& t, u32 at) noexcept {
     return !at || !word_part(t.at(previous_scalar(t, at)).cp);
 }
-bool only_space_before(const Text& t, u32 at) noexcept {
+inline bool only_space_before(const Text& t, u32 at) noexcept {
     for (u32 i = 0; i < at; ++i)
         if (!space(t.byte(i)))
             return false;
@@ -141,7 +141,7 @@ u32 backtick_run(const Text& t, u32 at) noexcept {
 }
 // Fenced blocks run to the closing fence (or the end while still being typed);
 // inline code needs a closing run of the same length, else the ticks are text.
-u32 skip_code(const Text& t, u32 at) noexcept {
+inline u32 skip_code(const Text& t, u32 at) noexcept {
     const u32 run = backtick_run(t, at);
     for (u32 i = at + run; i < t.bytes;) {
         if (t.byte(i) != '`') {
@@ -157,7 +157,7 @@ u32 skip_code(const Text& t, u32 at) noexcept {
 }
 // <@id> <@!id> <@&id> <#id> <:name:id> <a:name:id> <t:...> </command:id>
 // <id:...> and <scheme://...> autolinks, all on one line.
-bool angle_token(const Text& t, u32 at, u32* end) noexcept {
+inline bool angle_token(const Text& t, u32 at, u32* end) noexcept {
     constexpr u32 kLimit = 256;
     u32 close = at + 1;
     bool link = false;
@@ -177,11 +177,11 @@ bool angle_token(const Text& t, u32 at, u32* end) noexcept {
         *end = close + 1;
     return known;
 }
-bool shortcode_part(u8 c) noexcept {
+inline bool shortcode_part(u8 c) noexcept {
     return ((c | 0x20) >= 'a' && (c | 0x20) <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '+' ||
            c == '~';
 }
-bool shortcode(const Text& t, u32 at, u32* end) noexcept {
+inline bool shortcode(const Text& t, u32 at, u32* end) noexcept {
     u32 i = at + 1;
     while (i < t.bytes && i - at <= 64 && shortcode_part(t.byte(i)))
         ++i;

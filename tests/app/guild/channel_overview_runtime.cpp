@@ -485,9 +485,6 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     *position = 0;
     return true;
 }
-u64 text_edit_signature(Utf8View) noexcept {
-    return 0;
-}
 bool clipboard_write_utf8(const Utf8View&) noexcept {
     return true;
 }

@@ -110,7 +110,7 @@ SfntStatus native_profile_roots_prepare(const NativeFontInstance& instance,const
 }
 namespace {
 // Whether the Hebrew language system of the GPOS table has a mark feature (HarfBuzz's has_gpos_mark).
-SfntStatus hebrew_mark_positioning(const NativeFontFace& font,bool* output,u32 work) noexcept {
+inline SfntStatus hebrew_mark_positioning(const NativeFontFace& font,bool* output,u32 work) noexcept {
     *output=false;SfntLayout layout{};auto status=native_layout_open(font,1,layout);if(status==SfntStatus::missing_table)return SfntStatus::ok;if(status!=SfntStatus::ok)return status;
     const u32 scripts[]{sfnt_tag('h','e','b','r'),sfnt_tag('D','F','L','T'),sfnt_tag('l','a','t','n')};SfntLanguageSelection selection{};
     status=sfnt_layout_select_language(layout,{scripts,3},sfnt_tag('E','N','G',' '),&selection,work);if(status==SfntStatus::missing_table)return SfntStatus::ok;if(status!=SfntStatus::ok)return status;

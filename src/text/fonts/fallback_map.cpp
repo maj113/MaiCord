@@ -5,7 +5,7 @@ struct Mapping {
     NativeFallbackIndexSelect base,route,fallback;NativeFallbackCoverage coverage;void* context;
     u32 first;bool pending=true;
 };
-SfntStatus base_font(Mapping& m,u32 cp,u32* output) noexcept {
+inline SfntStatus base_font(Mapping& m,u32 cp,u32* output) noexcept {
     if(m.pending){m.pending=false;*output=m.first;return SfntStatus::ok;}
     return m.base(m.context,cp,output);
 }

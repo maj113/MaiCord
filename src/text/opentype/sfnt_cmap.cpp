@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 using namespace sfnt_read;
-bool scalar_valid(u32 scalar) noexcept {
+inline bool scalar_valid(u32 scalar) noexcept {
     return scalar <= 0x10ffffu && (scalar < 0xd800u || scalar > 0xdfffu);
 }
 bool selector_valid(u32 scalar) noexcept {
@@ -111,8 +111,8 @@ __attribute__((minsize)) SfntStatus validate_uvs(ConstSlice<u8> table, u16 glyph
             for (u32 j = 0; j < ranges; ++j) {
                 const u8* range = p + offset + 4 + j * stride;
                 const u32 first = be24(range), end = first + (kind ? 0 : range[3]);
-                if (!scalar_valid(first) || !scalar_valid(end) ||
-                    (first < 0xd800u && end >= 0xd800u) || (j && first <= last) ||
+                // end >= first: the range holds only scalars when end is one and the range misses the surrogates.
+                if (end > 0x10ffffu || (end >= 0xd800u && first <= 0xdfffu) || (j && first <= last) ||
                     (kind && be16(range + 3) >= glyphs)) return SfntStatus::malformed;
                 last = end;
             }
@@ -140,13 +140,13 @@ __declspec(noinline) SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* o
     } else if (cmap.format == 4) {
         if (scalar > 0xffffu) return SfntStatus::ok;
         const u32 count = be16(p + 6) / 2u;
+        // validate_base checked that the last segment ends at 0xFFFF, so the search ends on a segment.
         u32 low = 0, high = count;
         while (low < high) {
             const u32 middle = low + (high - low) / 2;
             if (be16(p + 14 + middle * 2) < scalar) low = middle + 1;
             else high = middle;
         }
-        if (low == count) return SfntStatus::ok;
         const u32 first = be16(p + 16 + count * 2 + low * 2);
         if (scalar < first) return SfntStatus::ok;
         const u32 delta = be16(p + 16 + count * 4 + low * 2);
@@ -273,8 +273,9 @@ SfntStatus sfnt_cmap_glyph(const SfntCmap& cmap, u32 scalar, u32 selector,
                             u16* glyph) noexcept {
     if (!glyph) return SfntStatus::invalid_input;
     *glyph = 0;
-    if (!cmap.base.data || !cmap.glyph_count || !scalar_valid(scalar) ||
-        (selector && !selector_valid(selector))) return SfntStatus::invalid_input;
+    // sfnt_cmap_open leaves a zero cmap, or a base map with a nonzero glyph count.
+    if (!cmap.glyph_count || !scalar_valid(scalar) || (selector && !selector_valid(selector)))
+        return SfntStatus::invalid_input;
     if (!selector) return nominal(cmap, scalar, glyph);
     return variation(cmap, scalar, selector, glyph);
 }

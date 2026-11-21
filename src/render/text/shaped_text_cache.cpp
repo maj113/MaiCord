@@ -3,6 +3,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include <stddef.h>
 
 
 namespace maicord {
@@ -17,8 +18,19 @@ bool same_system(const TextSystem& left, const TextSystem& right) noexcept {
         left.message_hit_policy == right.message_hit_policy && left.typography == right.typography;
 }
 
+// The bits of two adjacent floats as one word: one eight-byte load, and a store the hash reads back whole.
+inline u64 float_pair(const float* first) noexcept {
+    u64 bits;
+    __builtin_memcpy(&bits, first, sizeof(bits));
+    return bits;
+}
+
 u64 request_hash(const ShapedTextCacheRequest& request) noexcept {
     const TextSystem& system = *request.system;
+    static_assert(offsetof(TextSystem, tracking) == offsetof(TextSystem, em_size) + 4 &&
+                  offsetof(ShapedTextCacheRequest, maximum_height) ==
+                      offsetof(ShapedTextCacheRequest, maximum_width) + 4);
+    // One block of words for every scalar of the key.
     const u64 scalars[] = {
         reinterpret_cast<usize>(system.native_text) ^ system.native_format,
         reinterpret_cast<usize>(system.typography),
@@ -27,10 +39,10 @@ u64 request_hash(const ShapedTextCacheRequest& request) noexcept {
         static_cast<u64>(request.wrapping) << 8 | request.overflow |
             static_cast<u64>(system.fixed_weight) << 16 | static_cast<u64>(system.independent_letters) << 17 |
             static_cast<u64>(system.message_hit_policy) << 18,
+        float_pair(&system.em_size),
+        float_pair(&request.maximum_width),
     };
-    float floats[4] = {system.em_size, system.tracking, request.maximum_width, request.maximum_height};
     u64 hash = hash64_words(0x243F6A8885A308D3ull, scalars, sizeof(scalars));
-    hash = hash64_words(hash, floats, sizeof(floats));
     hash = hash64_words(hash, request.text.data, request.text.bytes);
     hash = hash64_words(hash, request.styles.data, request.styles.count * sizeof(TextStyleSpan));
     return hash64_words(hash, request.hits.data, request.hits.count * sizeof(TextHitSpan));
@@ -187,7 +199,6 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
     ShapedTextGeneration& current = cache->generations[cache->current];
     if (ShapedTextCacheEntry* entry = find_in(current, request, *hash)) {
         *view = view_of(current, *entry);
-        saturating_increment(cache->stats.hits);
         return true;
     }
     ShapedTextGeneration& older = cache->generations[cache->current ^ 1u];
@@ -196,7 +207,6 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
         saturating_increment(cache->stats.misses);
         return false;
     }
-    saturating_increment(cache->stats.hits);
     const u32 key_count = entry->text_bytes + entry->style_count * static_cast<u32>(sizeof(TextStyleSpan)) +
                           entry->hit_span_count * static_cast<u32>(sizeof(TextHitSpan));
     // Promotion never retires a generation, so the older copy stays valid when full.

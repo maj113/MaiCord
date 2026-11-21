@@ -38,7 +38,15 @@ bool guards() noexcept {
     for(auto request:extremes)for(auto candidate:extremes)CHECK(native_font_match({&candidate,1},request).properties.weight);
     return true;
 }
+// native_font_match_one gives what native_font_match gives for one candidate. Only the weights and the styles change it.
+bool single() noexcept {
+    for(u32 face_weight=1;face_weight<=1000;++face_weight)for(u32 request_weight=1;request_weight<=1000;++request_weight)for(u32 styles=0;styles<9;++styles){
+        const NativeFontProperties face{static_cast<u16>(face_weight),3,static_cast<u8>(styles%3)},request{static_cast<u16>(request_weight),7,static_cast<u8>(styles/3)};
+        const auto expected=native_font_match({&face,1},request),actual=native_font_match_one(face,request);
+        CHECK(actual.index==expected.index&&actual.simulations==expected.simulations&&actual.properties==expected.properties);}
+    return true;
+}
 }}
 MAICORD_TEST_ENTRY(maicord_font_match_entry) {
-    using namespace maicord;const bool success=corpus()&&guards();print("groups=");number(groups);print(" cases=");number(cases);print(" checks=");number(checks);print(success?"\nPASS native font matching\n":"\nFAIL native font matching\n");::maicord::test_process_exit(success?0:1);
+    using namespace maicord;const bool success=corpus()&&guards()&&single();print("groups=");number(groups);print(" cases=");number(cases);print(" checks=");number(checks);print(success?"\nPASS native font matching\n":"\nFAIL native font matching\n");::maicord::test_process_exit(success?0:1);
 }

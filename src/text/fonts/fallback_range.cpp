@@ -10,9 +10,10 @@ u8 native_font_fallback_class(u32 cp) noexcept {
     if(cp<0x300)return 0;
     const auto* properties=unicode_properties(cp);
     if(properties->has(UnicodeFlag::variation_selector))return native_fallback_extending|native_fallback_selector;
-    if(cp>=fallback_overrides[0].first){u32 lo=0,hi=sizeof(fallback_overrides)/sizeof(fallback_overrides[0]);
+    // The first override starts at or below cp, so the search starts after it and lo is at least 1.
+    if(cp>=fallback_overrides[0].first){u32 lo=1,hi=sizeof(fallback_overrides)/sizeof(fallback_overrides[0]);
         while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(fallback_overrides[mid].first<=cp)lo=mid+1;else hi=mid;}
-        if(lo){const u32 value=fallback_overrides[lo-1].last_flags;if(cp<=(value&0x1fffffu))return static_cast<u8>(value>>21);}}
+        const u32 value=fallback_overrides[lo-1].last_flags;if(cp<=(value&0x1fffffu))return static_cast<u8>(value>>21);}
     const auto category=properties->general_category();
     return category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me?native_fallback_extending:0;
 }

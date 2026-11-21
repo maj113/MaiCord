@@ -21,8 +21,6 @@ struct UiTextFlowLayout {
     // Keep measured extent independent of the viewport/scroll origin.
     float required_height;
     float cursor_y;
-    u32 item_count;
-    u32 spacer_count;
     UiTextFlowError last_error;
     bool item_open;
     bool overflow;

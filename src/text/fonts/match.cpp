@@ -8,9 +8,7 @@ namespace maicord {namespace {
 // and the ascending original weight.
 struct Rank {i32 key[7];NativeFontProperties properties;u32 simulations;};
 Rank rank(NativeFontProperties face,NativeFontProperties request,bool ordering) noexcept {
-    NativeFontProperties p=face;u32 simulations=0;
-    if(request.style&&!p.style){p.style=1;simulations|=2;}
-    if(request.weight>=600&&p.weight<=550&&request.weight>static_cast<u32>(p.weight)+100){p.weight=700;simulations|=1;}
+    const auto simulated=native_font_match_one(face,request);const NativeFontProperties p=simulated.properties;const u32 simulations=simulated.simulations;
     const i32 qx=(static_cast<i32>(request.width)-5)*1100,qy=request.style*700,qz=(static_cast<i32>(request.weight)-400)*5;
     const i32 x=(static_cast<i32>(p.width)-5)*1100,y=p.style*700,z=(static_cast<i32>(p.weight)-400)*5;
     const i32 dx=x-qx,dy=y-qy,dz=z-qz;

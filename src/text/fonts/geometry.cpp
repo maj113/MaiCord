@@ -1,8 +1,6 @@
 #include "maicord/text/fonts/geometry.hpp"
 #include "maicord/core/memory.hpp"
-#include "../opentype/sfnt_read.hpp"
 namespace maicord {
-using namespace sfnt_read;
 // Once per face: compiled for size. Outline emission below stays /O2.
 __attribute__((minsize)) SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);auto& font=*output;font.face=face;

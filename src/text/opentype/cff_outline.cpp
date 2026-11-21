@@ -29,7 +29,6 @@ struct VirtualMachine {
     CffIndex local_subrs;
     GlyphOutline& out;
     u32& work;
-    CffGlyphMetrics* metrics;
     double matrix[6]{};
     double design_scale = 0;
     float em_scale = 0;
@@ -49,7 +48,7 @@ struct VirtualMachine {
     double transient[32]{};
     double x = 0, y = 0, translate_x = 0, translate_y = 0;
     double accent_x = 0, accent_y = 0;
-    double advance = 0, nominal_width = 0;
+    double nominal_width = 0;
     u32 count = 0, stems = 0, random = 1;
     u16 base_code = 0, accent_code = 0;
     bool open = false, drawn = false, ever_drawn = false;
@@ -66,13 +65,11 @@ struct VirtualMachine {
         for (u32 i = 0; i < size; ++i) {
             double a = points[i*2] + translate_x, b = points[i*2+1] + translate_y;
             float tx, ty;
-            double design_x = 0, design_y = 0;
             if (design_scale) {
                 double fx=0,fy=0;
                 if (!rounded_fixed(a*design_scale,&fx) || !rounded_fixed(b*design_scale,&fy)) return false;
                 double rx=fx/65536.0;
                 const double ry=fy/65536.0;
-                design_x=rx; design_y=ry;
                 if(oblique_scale){double shift=0;if(!rounded_fixed(b*oblique_scale,&shift))return false;rx+=shift/65536.0;}
                 tx=static_cast<float>(rx)*em_scale;
                 ty=-static_cast<float>(ry)*em_scale;
@@ -81,35 +78,11 @@ struct VirtualMachine {
                      static_cast<float>(b) * static_cast<float>(matrix[2]) + static_cast<float>(matrix[4]);
                 ty = -(static_cast<float>(a) * static_cast<float>(matrix[1]) +
                        static_cast<float>(b) * static_cast<float>(matrix[3]) + static_cast<float>(matrix[5]));
-                if (metrics) {
-                    design_x=(a*matrix[0]+b*matrix[2]+matrix[4])*font.units_per_em;
-                    design_y=(a*matrix[1]+b*matrix[3]+matrix[5])*font.units_per_em;
-                }
             }
             if (!bounded(tx) || !bounded(ty)) return false;
             const float px = positive_zero(tx);
             const float py = positive_zero(ty);
             coordinates[i*2] = px; coordinates[i*2+1] = py;
-            if (metrics) {
-                if (!bounded(design_x) || !bounded(design_y)) return false;
-                if (!metrics->has_bounds) {
-                    metrics->minimum_x=metrics->maximum_x=design_x;
-                    metrics->minimum_y=metrics->maximum_y=design_y;
-                    metrics->has_bounds=true;
-                } else {
-                    metrics->minimum_x=minimum(metrics->minimum_x,design_x);
-                    metrics->minimum_y=minimum(metrics->minimum_y,design_y);
-                    metrics->maximum_x=maximum(metrics->maximum_x,design_x);
-                    metrics->maximum_y=maximum(metrics->maximum_y,design_y);
-                }
-            }
-            if (!out.has_bounds) {
-                out.minimum_x = out.maximum_x = px; out.minimum_y = out.maximum_y = py;
-                out.has_bounds = true;
-            } else {
-                out.minimum_x = minimum(out.minimum_x, px); out.maximum_x = maximum(out.maximum_x, px);
-                out.minimum_y = minimum(out.minimum_y, py); out.maximum_y = maximum(out.maximum_y, py);
-            }
         }
         GlyphPathCommand command{}; command.kind = kind;
         command.x1=coordinates[0]; command.y1=coordinates[1]; command.x2=coordinates[2];
@@ -145,14 +118,16 @@ struct VirtualMachine {
         x = bx + dx3; y = by + dy3;
         return bounded(x) && bounded(y) && append(GlyphPathCommandKind::cubic, ax, ay, bx, by, x, y);
     }
+    // Every pushed value is in range: an encoded number is at most 32768 in magnitude, and the operators push stack
+    // values, the random number or results that they check themselves.
     bool push(double value) noexcept {
-        if (count == stack_limit || !bounded(value)) return false;
+        if (count == stack_limit) return false;
         stack[count++] = value; return true;
     }
-    // The first stack value is the glyph width (relative to the nominal width).
+    // The first stack value is the glyph width (relative to the nominal width). hmtx gives the advance, but a width
+    // out of range still makes the charstring malformed.
     bool take_width() noexcept {
-        advance = nominal_width + stack[0];
-        if (!bounded(advance)) return false;
+        if (!bounded(nominal_width + stack[0])) return false;
         for (u32 i = 1; i < count; ++i) stack[i-1] = stack[i];
         --count;
         return true;
@@ -256,7 +231,7 @@ struct VirtualMachine {
     // vsindex: blend uses item variation data `index`, its region count and the scalar of each of its regions.
     SfntStatus select_variation(u32 index) noexcept {
         if (index > 0xffff) return SfntStatus::malformed;
-        ItemVariationData data{};
+        ItemVariationData data;
         const auto status = item_variation_data(font.variations, static_cast<u16>(index), &data);
         if (status != SfntStatus::ok) return status == SfntStatus::invalid_input ? SfntStatus::malformed : status;
         if (data.region_count > 64) return SfntStatus::unsupported;
@@ -286,31 +261,39 @@ struct VirtualMachine {
 
     SfntStatus run(ConstSlice<u8> program, u32 depth) noexcept {
         if (depth > 10) return SfntStatus::resource_limit;
+        // The program and the work budget in locals: a stack store may alias the parameter's memory or the budget
+        // (clang-cl assumes no strict aliasing), which reloaded them for each byte. The budget returns to `work` on
+        // each exit and around each subroutine call.
+        const u8* const code = program.data;
+        const u32 length = program.count;
+        u32 budget = work;
+        struct Keep { u32& work; const u32& budget; ~Keep() noexcept { work = budget; } } keep{work, budget};
         u32 at = 0;
-        while (at < program.count && !ended) {
-            if (!work) return SfntStatus::resource_limit;
-            --work;
-            const u8 byte = program.data[at++];
+        // Only a subroutine that reaches endchar ends this program early: the call below checks `ended`.
+        while (at < length) {
+            if (!budget) return SfntStatus::resource_limit;
+            --budget;
+            const u8 byte = code[at++];
             if (byte >= 32 || byte == 28) {
                 double value = 0;
                 if (byte <= 246 && byte != 28) value = static_cast<i32>(byte)-139;
                 else if (byte >= 247 && byte <= 254) {
-                    if (at == program.count) return SfntStatus::truncated;
-                    const u8 next = program.data[at++];
+                    if (at == length) return SfntStatus::truncated;
+                    const u8 next = code[at++];
                     value = byte <= 250 ? (byte-247)*256+next+108 : -(byte-251)*256-next-108;
                 } else {
                     const u32 size = byte == 28 ? 2u : 4u;
-                    if (size > program.count-at) return SfntStatus::truncated;
-                    value = byte == 28 ? static_cast<i16>(byte_load_be16(program.data+at))
-                                      : static_cast<i32>(byte_load_be32(program.data+at))/65536.0;
+                    if (size > length-at) return SfntStatus::truncated;
+                    value = byte == 28 ? static_cast<i16>(byte_load_be16(code+at))
+                                      : static_cast<i32>(byte_load_be32(code+at))/65536.0;
                     at += size;
                 }
                 if (!push(value)) return SfntStatus::malformed;
                 continue;
             }
             if (byte == 12) {
-                if (at == program.count) return SfntStatus::truncated;
-                const u8 op = program.data[at++];
+                if (at == length) return SfntStatus::truncated;
+                const u8 op = code[at++];
                 const auto status = op >= 34 && op <= 37 ? flex(op) : arithmetic(op);
                 if (status != SfntStatus::ok) return status;
                 continue;
@@ -321,8 +304,11 @@ struct VirtualMachine {
                 const auto& subrs = byte == 10 ? local_subrs : font.global_subrs;
                 const i64 actual = static_cast<i64>(index) + (subrs.count < 1240 ? 107 : subrs.count < 33900 ? 1131 : 32768);
                 if (actual < 0 || static_cast<u64>(actual) >= subrs.count) return SfntStatus::malformed;
+                work = budget;
                 const auto status = run(cff_detail::index_object(subrs, static_cast<u32>(actual)), depth+1);
+                budget = work;
                 if (status != SfntStatus::ok) return status;
+                if (ended) break;
                 continue;
             }
 #if !defined(_WIN32)
@@ -361,7 +347,7 @@ struct VirtualMachine {
                 if (stems > 96) return SfntStatus::malformed;
                 if (byte == 19 || byte == 20) {
                     const u32 mask=(stems+7)/8;
-                    if (mask > program.count-at) return SfntStatus::truncated;
+                    if (mask > length-at) return SfntStatus::truncated;
                     at += mask;
                 }
                 continue;
@@ -433,22 +419,22 @@ struct VirtualMachine {
 
 // `variation` (CFF2 only) holds the region scalars of the instance; null draws the default instance.
 SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
-                    GlyphOutline& output, u32& work, u32 depth, CffGlyphMetrics* metrics,bool oblique
+                    GlyphOutline& output, u32& work, u32 depth, bool oblique
 #if !defined(_WIN32)
                     ,const VariationInstance* variation=nullptr
 #endif
                     ) noexcept {
     if (glyph >= font.glyph_count) return SfntStatus::glyph_out_of_range;
     if (depth > 8) return SfntStatus::resource_limit;
-    VirtualMachine vm{font, {}, output, work, metrics};
+    VirtualMachine vm{font, {}, output, work};
 #if defined(_WIN32)
-    auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width);
+    auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.nominal_width);
     if (status!=SfntStatus::ok) return status;
 #else
     double stack[513], blend[64];
     vm.stack=stack; vm.blend=blend;
     u32 vsindex=0;
-    auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width,&vsindex);
+    auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.nominal_width,&vsindex);
     if (status!=SfntStatus::ok) return status;
     if (font.cff2) {
         // CFF2 charstrings carry no width: hmtx and HVAR give the advance.
@@ -474,71 +460,119 @@ SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
     if(oblique)vm.oblique_scale=static_cast<i32>(vm.design_scale*(87.0/256.0)+.5);
     vm.translate_x=dx; vm.translate_y=dy;
     status=vm.run(cff_detail::index_object(font.charstrings,glyph),0);
-    if (status==SfntStatus::ok && metrics && !depth) {
-        metrics->advance_x=vm.design_scale?vm.advance*vm.design_scale/65536.0:vm.advance*vm.matrix[0]*font.units_per_em;
-        metrics->advance_y=vm.design_scale?0:vm.advance*vm.matrix[1]*font.units_per_em;
-        if (!bounded(metrics->advance_x) || !bounded(metrics->advance_y)) return SfntStatus::malformed;
-    }
     if (status!=SfntStatus::ok || !vm.composite) return status;
     u16 base=0,accent=0;
     status=cff_detail::standard_glyph(font,vm.base_code,&base); if(status!=SfntStatus::ok)return status;
     status=cff_detail::standard_glyph(font,vm.accent_code,&accent); if(status!=SfntStatus::ok)return status;
-    status=decode(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,metrics,oblique); if(status!=SfntStatus::ok)return status;
-    return decode(font,base,dx,dy,output,work,depth+1,metrics,oblique);
+    status=decode(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,oblique); if(status!=SfntStatus::ok)return status;
+    return decode(font,base,dx,dy,output,work,depth+1,oblique);
 }
 #pragma float_control(pop)
 
 } // namespace
 
+// One vector holds the bounds: the minimum x and y, then the negated maximum x and y. minps keeps the operand that
+// minimum() and maximum() keep, so the result is that of growing the bounds point by point.
+void cff_detail::outline_bounds(GlyphOutline* outline) noexcept {
+    constexpr float inf = __builtin_inff();
+    __m128 extent{inf, inf, inf, inf};
+    for (u32 i = 0; i < outline->count; ++i) {
+        const GlyphPathCommand& c = outline->commands[i];
+        if (c.kind == GlyphPathCommandKind::end_closed) continue;
+        extent = _mm_min_ps(extent, __m128{c.x1, c.y1, -c.x1, -c.y1});
+        if (c.kind != GlyphPathCommandKind::cubic) continue;
+        extent = _mm_min_ps(extent, __m128{c.x2, c.y2, -c.x2, -c.y2});
+        extent = _mm_min_ps(extent, __m128{c.x3, c.y3, -c.x3, -c.y3});
+    }
+    if (extent[0] == inf) return;
+    outline->minimum_x = extent[0]; outline->minimum_y = extent[1];
+    outline->maximum_x = -extent[2]; outline->maximum_y = -extent[3];
+    outline->has_bounds = true;
+}
+
 namespace {
-SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique
+// Empties an outline, with the winding fill rule, and keeps its command storage.
+inline void clear(GlyphOutline* output) noexcept {
+    auto* commands=output->commands; const u32 capacity=output->capacity;
+    reset_value(output); output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
+}
+SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, bool oblique
 #if !defined(_WIN32)
                    ,const VariationInstance* variation=nullptr
 #endif
                    ) noexcept {
-    if (metrics) reset_value(metrics);
     if (!output) return SfntStatus::invalid_input;
-    auto* commands=output->commands; const u32 capacity=output->capacity;
-    reset_value(output); output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
-    if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
+    clear(output);
+    if (!output->commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
 #if defined(_WIN32)
-    auto status=decode(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+    auto status=decode(font,glyph,0,0,*output,work_limit,0,oblique);
 #else
-    auto status=decode(font,glyph,0,0,*output,work_limit,0,metrics,oblique,variation);
+    auto status=decode(font,glyph,0,0,*output,work_limit,0,oblique,variation);
 #endif
-    if(status!=SfntStatus::ok) {
-        reset_value(output); output->commands=commands; output->capacity=capacity;
-        output->fill_rule=GlyphFillRule::winding; output->rejected=1;
-        if (metrics) reset_value(metrics);
-    }
+    if(status!=SfntStatus::ok) {clear(output); output->rejected=1;}
+    else cff_detail::outline_bounds(output);
     return status;
 }
 } // namespace
 
-SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
-    return outline(font,glyph,output,work_limit,metrics,oblique);
+SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, bool oblique) noexcept {
+    return outline(font,glyph,output,work_limit,oblique);
 }
 
 #if !defined(_WIN32)
 SfntStatus cff2_outline(const CffFont& font, u16 glyph, GlyphOutline* output, ConstSlice<double> coordinates,
                         u32 work_limit, bool oblique) noexcept {
     if (!font.cff2 || !font.variations.table.data || !coordinates.count)
-        return outline(font,glyph,output,work_limit,nullptr,oblique);
+        return outline(font,glyph,output,work_limit,oblique);
     // The scalars of the store's regions, once per glyph: Noto Sans CJK has one region.
     double scalars[64];
     VariationInstance instance{};
     const auto status=font.variations.region_count>64?SfntStatus::unsupported:
         variation_instance_prepare(font.variations,coordinates,{scalars,64},&instance,work_limit);
     if (status!=SfntStatus::ok) {
-        if (output) {
-            auto* commands=output->commands; const u32 capacity=output->capacity;
-            reset_value(output); output->commands=commands; output->capacity=capacity;
-            output->fill_rule=GlyphFillRule::winding; output->rejected=1;
-        }
+        if (output) {clear(output); output->rejected=1;}
         return status;
     }
-    return outline(font,glyph,output,work_limit,nullptr,oblique,&instance);
+    return outline(font,glyph,output,work_limit,oblique,&instance);
 }
 #endif
+
+SfntStatus cff_glyph_ink(const CffFont& font, u16 glyph, ConstSlice<double> coordinates, bool* ink, u32 work_limit) noexcept {
+    *ink = false;
+    if (!font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
+#if defined(_WIN32)
+    (void)coordinates;
+#else
+    double scalars[64];
+    VariationInstance instance{};
+    const VariationInstance* variation = nullptr;
+    if (font.cff2 && font.variations.table.data && coordinates.count) {
+        if (font.variations.region_count > 64) return SfntStatus::unsupported;
+        const auto status = variation_instance_prepare(font.variations, coordinates, {scalars, 64}, &instance, work_limit);
+        if (status != SfntStatus::ok) return status;
+        variation = &instance;
+    }
+#endif
+    // The decoder stops when the buffer is full, so most glyphs answer after three commands. A box that is still flat
+    // then needs the longer buffer. A glyph that stays flat for longer than that counts as ink.
+    GlyphPathCommand commands[128];
+    constexpr u32 capacities[]{3, 128};
+    for (const u32 capacity : capacities) {
+        GlyphOutline out{};
+        out.commands = commands; out.capacity = capacity;
+        u32 work = work_limit;
+#if defined(_WIN32)
+        const auto status = decode(font, glyph, 0, 0, out, work, 0, false);
+#else
+        const auto status = decode(font, glyph, 0, 0, out, work, 0, false, variation);
+#endif
+        if (status != SfntStatus::ok && status != SfntStatus::output_too_small) return status;
+        cff_detail::outline_bounds(&out);
+        *ink = out.has_bounds && out.maximum_x > out.minimum_x && out.maximum_y > out.minimum_y;
+        if (*ink || status == SfntStatus::ok) return SfntStatus::ok;
+    }
+    *ink = true;
+    return SfntStatus::ok;
+}
 
 } // namespace maicord

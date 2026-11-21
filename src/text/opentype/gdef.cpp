@@ -8,7 +8,7 @@ using namespace layout_read;
 // Opens and lookup filters are prepared once per cached plan: compiled for size.
 // Class queries and sfnt_lookup_ignores stay /O2.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* count) noexcept {
+inline SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* count) noexcept {
     reset_value(table);*count=0;if(!gdef.table.data || gdef.minor_version<2)return SfntStatus::missing_table;
     // The offset was checked against the header and the table size when opened.
     const u32 offset=r16(gdef.table,12);if(!offset)return SfntStatus::missing_table;

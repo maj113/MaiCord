@@ -1,27 +1,12 @@
 #include "maicord/text/opentype/nominal_participation.hpp"
-#include "maicord/core/byte_order.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/text/opentype/nominal_sources.hpp"
 #include "maicord/text/opentype/layout_tables.hpp"
-#include "maicord/text/base.hpp"
+#include "maicord/text/opentype/lookup_plan.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {namespace {
-u16 r16(const u8* b,u32 at) noexcept {return byte_load_be16(b+at);}
-u16 r16(const ConstSlice<u8>& b,u32 at) noexcept {return byte_load_be16(b.data+at);}
-bool span(const ConstSlice<u8>& b,u32 at,u32 n) noexcept {return b.data && at<=b.count && n<=b.count-at;}
-u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
-// The features of the full-shaping plans (lookup_plan.cpp, HarfBuzz's horizontal default shaper), from either table.
-bool standard(u32 tag) noexcept {
-    switch(tag){
-        case sfnt_tag('r','v','r','n'):case sfnt_tag('r','a','n','d'):case sfnt_tag('t','r','a','k'):case sfnt_tag('a','b','v','m'):
-        case sfnt_tag('b','l','w','m'):case sfnt_tag('c','c','m','p'):case sfnt_tag('l','o','c','l'):case sfnt_tag('m','a','r','k'):
-        case sfnt_tag('m','k','m','k'):case sfnt_tag('r','l','i','g'):case sfnt_tag('c','a','l','t'):case sfnt_tag('c','l','i','g'):
-        case sfnt_tag('c','u','r','s'):case sfnt_tag('d','i','s','t'):case sfnt_tag('k','e','r','n'):case sfnt_tag('l','i','g','a'):
-        case sfnt_tag('r','c','l','t'):return true;
-        default:return false;
-    }
-}
-void set(Slice<u64> bits,u16 index) noexcept {bits.data[index/64]|=1ull<<(index%64);}
-bool has(Slice<u64> bits,u16 index) noexcept {return (bits.data[index/64]&(1ull<<(index%64)))!=0;}
+using namespace sfnt_read;
+inline void set(Slice<u64> bits,u16 index) noexcept {bits.data[index/64]|=1ull<<(index%64);}
+inline bool has(Slice<u64> bits,u16 index) noexcept {return (bits.data[index/64]&(1ull<<(index%64)))!=0;}
 struct Collector {
     const SfntLayout& layout;u32 limit;Slice<u64> bitmap,features,lookups;SfntNominalParticipationResult& result;u64 work;ConstSlice<u64> sources;SfntNominalSourceCache* lazy;u64 source_work;const SfntFeatureSubstitutions& variations;
     SfntStatus prepare_sources() noexcept {
@@ -45,13 +30,13 @@ struct Collector {
     }
     SfntStatus available(ConstSlice<u8> b,u32 offset,bool* found) noexcept {
         *found=false;SfntCoverage c{};auto s=open_coverage(b,offset,&c);if(s!=SfntStatus::ok)return s;
-        for(u32 i=0;i<c.record_count;++i){const u32 first=r16(c.records,i*(c.format==1?2:6)),last=c.format==1?first:r16(c.records,i*6+2);
+        for(u32 i=0;i<c.record_count;++i){const u32 first=be16(c.records+i*(c.format==1?2:6)),last=c.format==1?first:be16(c.records+i*6+2);
             for(u32 word=first/64;word<=last/64;++word){if(!spend(&work))return SfntStatus::resource_limit;u64 bits=sources.data[word];if(word==first/64)bits&=~0ull<<(first%64);if(word==last/64)bits&=~0ull>>(63-last%64);if(bits){*found=true;return SfntStatus::ok;}}
         }return SfntStatus::ok;
     }
     SfntStatus coverage(ConstSlice<u8> b,u32 offset) noexcept {
         SfntCoverage c{};auto s=open_coverage(b,offset,&c);if(s!=SfntStatus::ok)return s;
-        for(u32 i=0;i<c.record_count;++i){const u16 first=r16(c.records,i*(c.format==1?2:6));const u16 last=c.format==1?first:r16(c.records,i*6+2);s=range(first,last);if(s!=SfntStatus::ok)return s;}
+        for(u32 i=0;i<c.record_count;++i){const u16 first=be16(c.records+i*(c.format==1?2:6));const u16 last=c.format==1?first:be16(c.records+i*6+2);s=range(first,last);if(s!=SfntStatus::ok)return s;}
         return SfntStatus::ok;
     }
     SfntStatus nominal_ligatures(ConstSlice<u8> b) noexcept {
@@ -94,15 +79,16 @@ struct Collector {
     SfntStatus run() noexcept {
         if(!spend(&work,static_cast<u64>(features.count)+lookups.count))return SfntStatus::resource_limit;
         for(u32 i=0;i<features.count;++i)features.data[i]=0;for(u32 i=0;i<lookups.count;++i)lookups.data[i]=0;
-        for(u32 i=0;i<layout.script_count;++i){u32 tag=0,used=0;SfntScript script{};auto s=sfnt_layout_script(layout,static_cast<u16>(i),&tag,&script,allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
-            for(u32 j=0;j<=script.language_count;++j){if(!spend(&work))return SfntStatus::resource_limit;SfntLanguage lang{};s=sfnt_script_language(script,layout.feature_count,j?j-1:sfnt_default_language,&tag,&lang,allowance(work),&used);work-=used;if(s==SfntStatus::missing_table)continue;if(s!=SfntStatus::ok)return s;if(lang.required_feature!=0xffff)set(features,lang.required_feature);}
+        for(u32 i=0;i<layout.script_count;++i){u32 tag=0,used=0;SfntScript script{};auto s=sfnt_layout_script(layout,static_cast<u16>(i),&tag,&script,work_allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
+            for(u32 j=0;j<=script.language_count;++j){if(!spend(&work))return SfntStatus::resource_limit;SfntLanguage lang{};s=sfnt_script_language(script,layout.feature_count,j?j-1:sfnt_default_language,&tag,&lang,work_allowance(work),&used);work-=used;if(s==SfntStatus::missing_table)continue;if(s!=SfntStatus::ok)return s;if(lang.required_feature!=0xffff)set(features,lang.required_feature);}
         }
-        for(u32 i=0;i<layout.feature_count;++i){if(!spend(&work))return SfntStatus::resource_limit;const u32 tag=byte_load_be32(layout.features.data+2+i*6);if(!standard(tag) && !has(features,static_cast<u16>(i)))continue;
-            SfntFeature f{};u32 actual_tag=0,used=0;auto s=sfnt_layout_feature(layout,static_cast<u16>(i),variations,&actual_tag,&f,allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
+        // The features of the full-shaping plans (lookup_plan.cpp, HarfBuzz's horizontal default shaper), from either table.
+        for(u32 i=0;i<layout.feature_count;++i){if(!spend(&work))return SfntStatus::resource_limit;const u32 tag=byte_load_be32(layout.features.data+2+i*6);if(!sfnt_default_feature_bit(tag,false) && !has(features,static_cast<u16>(i)))continue;
+            SfntFeature f{};u32 actual_tag=0,used=0;auto s=sfnt_layout_feature(layout,static_cast<u16>(i),variations,&actual_tag,&f,work_allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;
             if(!spend(&work,f.lookup_indices.count/2))return SfntStatus::resource_limit;for(u32 j=0;j<f.lookup_indices.count;j+=2)set(lookups,r16(f.lookup_indices,j));
         }
         for(u32 i=0;i<layout.lookup_count;++i){if(!spend(&work))return SfntStatus::resource_limit;if(!has(lookups,static_cast<u16>(i)))continue;
-            SfntLookup lookup{};u32 used=0;auto s=sfnt_layout_lookup(layout,static_cast<u16>(i),&lookup,allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;++result.lookups;
+            SfntLookup lookup{};u32 used=0;auto s=sfnt_layout_lookup(layout,static_cast<u16>(i),&lookup,work_allowance(work),&used);work-=used;if(s!=SfntStatus::ok)return s;++result.lookups;
             for(u32 j=0;j<lookup.subtable_count;++j){if(!spend(&work))return SfntStatus::resource_limit;ConstSlice<u8> b{};s=sfnt_lookup_subtable(lookup,static_cast<u16>(j),&b);if(s!=SfntStatus::ok)return s;s=subtable(b,lookup.type);if(s!=SfntStatus::ok)return s;}
         }
         return SfntStatus::ok;

@@ -6,13 +6,16 @@ static_assert(sizeof(SfntLookupPlanResult)==24);
 // Shared feature planning for the native alphabetic profiles. Common (tag zero) uses
 // its separate frontend; Arabic and Indic profiles are not handled here.
 bool sfnt_alphabetic_script_supported(u32 script_tag) noexcept;
+// The bit of one of HarfBuzz's 17 horizontal default features (listed below), else zero; independent letters
+// give zero for clig, kern and liga.
+u32 sfnt_default_feature_bit(u32 tag,bool independent) noexcept;
 // Latin/horizontal/en-US full-shaping profile. The caller selects the script and
 // must not apply this profile to joining/reordering scripts. Selects latn, then
 // DFLT if latn is absent; ENG, then that script's DefaultLangSys.
 // Required features cannot be suppressed. Both tables apply HarfBuzz's horizontal
 // default-shaper features: rvrn/rand/trak/abvm/blwm/ccmp/locl/mark/mkmk/rlig/calt/
-// clig/curs/dist/kern/liga/rclt, in one stage and without the direction features
-// (ltra/ltrm/rtla/rtlm). Independent letters turn off liga, clig and kern. All
+// clig/curs/dist/kern/liga/rclt, in two stages (rvrn, then the rest) and without
+// the direction features (ltra/ltrm/rtla/rtlm). Independent letters turn off liga, clig and kern. All
 // enabled parameters are one.
 // Plans full shaping only; nominal-mapping eligibility, which can bypass
 // shaping, is separate (nominal_participation.hpp, nominal_sources.hpp).

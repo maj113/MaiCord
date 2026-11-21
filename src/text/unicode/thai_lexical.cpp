@@ -30,7 +30,7 @@ u32 graph_reference(const u8* graph,u32 node,u32 at) noexcept {
     for(;;){const u32 byte=graph[at++];value|=(byte&127)<<shift;if(!(byte&128))break;shift+=7;}
     return value<thai_word_reference_count?thai_word_references[value]:node-(value-thai_word_reference_count);
 }
-u32 graph_child(const u8* graph,u32 node,u32 label) noexcept {
+inline u32 graph_child(const u8* graph,u32 node,u32 label) noexcept {
     const u32 header=graph[node];u32 at=node+1;
     if(header<128){
         const u32 pattern=unary.values[header];
@@ -57,13 +57,13 @@ u32 graph_child(const u8* graph,u32 node,u32 label) noexcept {
 // The graph ships deflated and is inflated once, into private pages, on the first Thai lookup (a fraction of
 // a millisecond); sessions without Thai text never commit them.
 InflatedBlock graph_block;
-const u8* thai_graph() noexcept {
+inline const u8* thai_graph() noexcept {
     return graph_block.state==2?graph_block.data:
         inflated_block_load(graph_block,thai_word_graph_packed,sizeof(thai_word_graph_packed),thai_word_graph_bytes);
 }
 // A word may end before a scalar that begins a cluster, and not before a
 // consonant silenced by THANTHAKHAT one or two scalars later (as in ฟิลด์).
-bool lexical_end(ConstSlice<u32> text,u32 end) noexcept {
+inline bool lexical_end(ConstSlice<u32> text,u32 end) noexcept {
     if(end==text.count)return true;
     if(!native_thai_boundary_class(text[end]))return false;
     if(text[end]-0xe01u>=46)return true;

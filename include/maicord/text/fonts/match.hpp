@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/text/opentype/sfnt.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Compact WWS properties of an unsimulated physical face or named instance.
 // Family membership, stable catalog ordering and named axes are caller-owned.
@@ -13,6 +13,14 @@ constexpr bool native_font_properties_valid(NativeFontProperties p) noexcept {re
 // simulated properties. Equal candidates keep input order. Candidates must be
 // nonempty and all properties valid; the caller validates them once.
 NativeFontMatch native_font_match(ConstSlice<NativeFontProperties> candidates,NativeFontProperties requested) noexcept;
+// native_font_match over the one candidate `face`, without the ranking that only orders several candidates: index 0,
+// the simulations the request needs and the simulated properties.
+constexpr NativeFontMatch native_font_match_one(NativeFontProperties face,NativeFontProperties requested) noexcept {
+    u32 simulations=0;
+    if(requested.style&&!face.style){face.style=1;simulations|=2;}
+    if(requested.weight>=600&&face.weight<=550&&requested.weight>static_cast<u32>(face.weight)+100){face.weight=700;simulations|=1;}
+    return {0,face,simulations};
+}
 // Fallback preference order over one resolved family: writes the candidate
 // indices (candidates.count of them) best first. Ranks geometric distance after
 // the required simulations, then breaks ties by simulation flags and ascending

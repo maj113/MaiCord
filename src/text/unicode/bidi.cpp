@@ -5,18 +5,18 @@ namespace maicord {
 namespace {
 using B=UnicodeBidiClass;
 constexpr u32 none=~0u;
-bool isolate(B type) noexcept {return type==B::lri || type==B::rli || type==B::fsi;}
-bool embedding(B type) noexcept {return type==B::lre || type==B::rle || type==B::lro || type==B::rlo;}
-bool removed(B type) noexcept {return embedding(type) || type==B::pdf || type==B::bn;}
-bool neutral(B type) noexcept {return type==B::b || type==B::s || type==B::ws || type==B::on || isolate(type) || type==B::pdi;}
-B direction(u32 level) noexcept {return level&1?B::r:B::l;}
-B strong(B type) noexcept {return type==B::en || type==B::an?B::r:type;}
-bool space(B type) noexcept {return type==B::ws || isolate(type) || type==B::pdi;}
-B analysis_type(B type,bool tailored) noexcept {return tailored && (isolate(type) || type==B::pdi)?B::bn:type;}
+inline bool isolate(B type) noexcept {return type==B::lri || type==B::rli || type==B::fsi;}
+inline bool embedding(B type) noexcept {return type==B::lre || type==B::rle || type==B::lro || type==B::rlo;}
+inline bool removed(B type) noexcept {return embedding(type) || type==B::pdf || type==B::bn;}
+inline bool neutral(B type) noexcept {return type==B::b || type==B::s || type==B::ws || type==B::on || isolate(type) || type==B::pdi;}
+inline B direction(u32 level) noexcept {return level&1?B::r:B::l;}
+inline B strong(B type) noexcept {return type==B::en || type==B::an?B::r:type;}
+inline bool space(B type) noexcept {return type==B::ws || isolate(type) || type==B::pdi;}
+inline B analysis_type(B type,bool tailored) noexcept {return tailored && (isolate(type) || type==B::pdi)?B::bn:type;}
 
 // Validates each cell, then resets its working fields and links isolate
 // initiators to their terminators. A failure leaves the working fields unusable.
-UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
+inline UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
     u32 top=none;
     for(u32 i=0;i<cells.count;++i) {
         auto& cell=cells[i];
@@ -32,7 +32,7 @@ UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noe
     while(top!=none){const u32 previous=cells[top].link;cells[top].link=none;top=previous;}
     return UnicodeBidiStatus::ok;
 }
-u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool tailored) noexcept {
+inline u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool tailored) noexcept {
     for(u32 i=first;i<end;++i) {
         const auto& cell=cells[i];const B type=analysis_type(cell.original,tailored);
         if(type==B::l)return 0;
@@ -143,7 +143,7 @@ void weak_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,bool ta
         if(type==B::l || type==B::r)previous=type;
     }
 }
-void neutral_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,B eos,B embedding_direction) noexcept {
+inline void neutral_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,B eos,B embedding_direction) noexcept {
     B previous=sos;
     for(u32 i=0;i<order.count;) {
         if(!neutral(cells[order[i]].resolved)){previous=strong(cells[order[i++]].resolved);continue;}

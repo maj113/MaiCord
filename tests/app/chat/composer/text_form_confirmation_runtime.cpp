@@ -684,9 +684,6 @@ void secure_text_store_synchronize(SecureTextStore*) noexcept {
 void secure_text_store_notify_layout(SecureTextStore*) noexcept {
     ++confirmation_runtime_test::seen.store_calls;
 }
-u64 text_edit_signature(Utf8View) noexcept {
-    return 0;
-}
 bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                                 const TextSystem&) noexcept {
     ++confirmation_runtime_test::seen.measurements;

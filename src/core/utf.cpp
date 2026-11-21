@@ -60,40 +60,46 @@ Utf8DecodeResult utf8_decode_one(const char* input, u32 available) noexcept {
 }
 
 Utf8Validation utf8_validate(const Utf8View& input) noexcept {
-    if (!input.data && input.bytes != 0) {
+    // An empty string returns before the loop saves its registers.
+    if (!input.bytes)
+        return Utf8Validation{0, true};
+    if (!input.data)
         return Utf8Validation{0, false};
-    }
 
+    // The scalars are the bytes less the continuation bytes, so an ASCII run moves only the offset.
     u32 offset = 0;
-    u32 codepoints = 0;
+    u32 continuations = 0;
     while (offset < input.bytes) {
-        if (static_cast<u8>(input.data[offset]) <= 0x7Fu) {
-            if (input.bytes - offset >= 16) {
-                // Inspect only caller-owned bytes. The mask gives the first
-                // non-ASCII byte, whose scalar still uses the ordinary decoder.
-                const __m128i block = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(input.data + offset));
-                const u32 mask = static_cast<u32>(_mm_movemask_epi8(block));
-                u32 ascii_bytes = 16;
-                if (mask != 0) {
-                    ascii_bytes = lowest_set_bit(mask);
-                }
-                offset += ascii_bytes;
-                codepoints += ascii_bytes;
-            } else {
-                ++offset;
-                ++codepoints;
+        const char* at = input.data + offset;
+        const u32 rest = input.bytes - offset;
+        if (static_cast<u8>(*at) <= 0x7Fu) {
+            // A 16-byte load takes the ASCII run: the bit above the bytes to test stops the count. A string with
+            // fewer bytes left takes the same load when it does not cross into the next page. That page may not
+            // exist, but the page of this byte does, so the read past the string cannot fault. The asm hides the
+            // string's size from the compiler, which could otherwise treat that read as undefined.
+            const auto ascii_mask = [](const char* block) noexcept {
+                return static_cast<u32>(_mm_movemask_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(block))));
+            };
+            u32 ascii_bytes = 1;
+            if (rest >= 16) {
+                ascii_bytes = lowest_set_bit(ascii_mask(at) | 1u << 16);
+            } else if ((reinterpret_cast<usize>(at) & 4095) <= 4080) {
+                const char* block = at;
+                __asm__("" : "+r"(block));
+                ascii_bytes = lowest_set_bit(ascii_mask(block) | 1u << rest);
             }
+            offset += ascii_bytes;
             continue;
         }
-        const Utf8DecodeResult decoded = decode_utf8_scalar(input.data + offset, input.bytes - offset);
-        if (!decoded.valid) {
+        // The validation needs no scalar: utf8_sequence_width accepts the same sequences as the decoder.
+        const u32 width = utf8_sequence_width(at, rest);
+        if (!width) {
             return Utf8Validation{offset, false};
         }
-        offset += decoded.width;
-        ++codepoints;
+        offset += width;
+        continuations += width - 1;
     }
-    return Utf8Validation{codepoints, true};
+    return Utf8Validation{offset - continuations, true};
 }
 
 // Word, line and Ctrl+Arrow navigation run once per click or key press: compiled for size.

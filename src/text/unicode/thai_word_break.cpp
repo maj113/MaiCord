@@ -92,7 +92,7 @@ void search(ConstSlice<u32> text,Edges* edges,Choice* choice) noexcept {
 
 // A break follows every segment except an orphan mark, which joins the next
 // segment, and never precedes an attaching mark.
-void divide(ConstSlice<u32> run,u8* breaks) noexcept {
+inline void divide(ConstSlice<u32> run,u8* breaks) noexcept {
     Edges edges[window];Choice choice[window+1];
     for(u32 first=0;first<run.count;){
         const u32 count=minimum(run.count-first,window);

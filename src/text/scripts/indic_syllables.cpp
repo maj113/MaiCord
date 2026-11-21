@@ -101,7 +101,7 @@ bool is_mark(u32 u) noexcept {
 }
 // A mark (any combining class) or a character with a nonzero combining class: it stays in the unit of
 // the starter before it, as HarfBuzz normalizes a base with the marks that follow it.
-bool joins_unit(u32 u) noexcept {
+inline bool joins_unit(u32 u) noexcept {
     const auto& properties=*unicode_properties(u);const auto category=properties.general_category();
     return properties.combining_class()||category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me;
 }
@@ -200,8 +200,9 @@ SfntStatus IndicReader::build() noexcept {
             composable|=scalar==0x93c||scalar==0xbd7||scalar==0x9bc;}
         byte_+=width;units_+=u>0xffff?2u:1u;
     }
-    // Sort each combining-class run stably unless one is longer than 32 marks or the unit continues one.
-    const bool continuation=unit_byte_&&combining(unit_[0].scalar());
+    // Sort each combining-class run stably unless one is longer than 32 marks or the unit continues one. Only the sort
+    // and the composition read whether the unit continues a run.
+    const bool continuation=(sort||composable)&&unit_byte_&&combining(unit_[0].scalar());
     if(sort&&!overflow&&!continuation){
         for(u32 i=1;i<count_;++i){const auto piece=unit_[i];const u8 value=combining(piece.scalar());if(!value)continue;
             u32 at=i;while(at&&combining(unit_[at-1].scalar())>value){unit_[at]=unit_[at-1];--at;}unit_[at]=piece;}}

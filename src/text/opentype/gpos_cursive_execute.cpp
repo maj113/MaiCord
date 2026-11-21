@@ -36,7 +36,6 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
     if(bits.count<words)return SfntStatus::output_too_small;if(words && !bits.data)return SfntStatus::invalid_input;if(!spend(out,&work,words))return SfntStatus::resource_limit;
     for(u32 i=0;i<words;++i)bits.data[i]=0;out->chain_words=words;u32 previous=0xffffffffu;
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& glyph=sfnt_glyph_at(glyphs,at);
-        if(glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;
         // A joiner the application may skip is passed over (the cursive iterator has no match function).
         if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)||(gdef.joiners&&sfnt_joiner_skipped(gdef,glyph.glyph,false)))continue;
         if(previous!=0xffffffffu){const auto& first=sfnt_glyph_at(glyphs,previous);
@@ -68,11 +67,8 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
     // Small runs cannot amortize proof/flush overhead. Keep their eager path.
     if(pending && pending->head==0xffffffffu && count<32)pending=nullptr;
     if(pending && pending->head!=0xffffffffu && (!backward || at!=pending->next)){const auto s=flush(positions,chains,pending,out,&work);if(s!=SfntStatus::ok)return s;}
-    const auto& selected=sfnt_glyph_at(glyphs,at);const u32 limit=lookup.subtables.data[0].glyph_limit;
-    if(selected.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(selected.glyph_class)>4)return SfntStatus::invalid_input;
     u32 other=at;bool found=false;
     while(backward?other+1<end:other>0){other=backward?other+1:other-1;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& g=sfnt_glyph_at(glyphs,other);
-        if(g.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(g.glyph_class)>4)return SfntStatus::invalid_input;
         if(!sfnt_lookup_ignores(gdef,lookup.filter,g.glyph,g.glyph_class)&&!(gdef.joiners&&sfnt_joiner_skipped(gdef,g.glyph,false))){found=true;break;}
     }
     if(!found)return SfntStatus::ok;const u32 first=backward?at:other,second=backward?other:at;

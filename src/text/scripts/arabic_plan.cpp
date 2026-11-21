@@ -5,7 +5,6 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
 struct FeatureChoice {u32 bit;u8 stage,mask;};
 // HarfBuzz's right-to-left Arabic features (hb_ot_shape_collect_features with collect_features_arabic), by GSUB
 // stage: rvrn | rtla rand trak rtlm | ccmp locl | isol | fina | medi | init | rlig | calt | rclt liga clig mset abvm blwm
@@ -41,7 +40,7 @@ struct Builder {
     SfntStatus add(u16 index,u8 stage,u8 mask) noexcept {
         if(count==24)return SfntStatus::resource_limit;
         u32 tag=0,used=0;auto& selected=features[count];
-        const auto s=sfnt_layout_feature(layout,index,variations,&tag,&selected.feature,allowance(work),&used);work-=used;
+        const auto s=sfnt_layout_feature(layout,index,variations,&tag,&selected.feature,work_allowance(work),&used);work-=used;
         if(s!=SfntStatus::ok)return s;selected.stage=stage;selected.mask=mask;++count;return SfntStatus::ok;
     }
     SfntStatus pass(bool write) noexcept {

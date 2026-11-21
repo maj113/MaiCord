@@ -7,7 +7,7 @@ namespace maicord {
 inline constexpr u32 kUnicodeEmojiCatalogEntryCount = 3'780;
 inline constexpr u32 kUnicodeEmojiCatalogNameBytes = 64'461;
 // The catalog and shortcode entries use this shared glyph pool.
-inline constexpr u32 kUnicodeEmojiCatalogGlyphBytes = 33'578;
+inline constexpr u32 kUnicodeEmojiCatalogGlyphBytes = 36'326;
 // Bounds of the generated, fully-qualified Unicode 16 catalog. The catalog
 // translation unit verifies these against every generated entry so consumers
 // can size short-lived UI storage without carrying protocol-sized buffers.

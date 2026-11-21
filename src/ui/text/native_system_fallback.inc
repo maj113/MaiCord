@@ -79,14 +79,15 @@ SfntStatus system_route(void* context,u32 cp,u32* output) noexcept {
     auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_cascade_find(fallback_policy(*m.owner),cp);
     if(!m.bound){m.targets={};m.route=*output;m.bound=true;}return SfntStatus::ok;
 }
+// The routed walker calls system_route before it asks for a font, so the mapping is bound. The route is never missing:
+// a fallback table starts at scalar 0.
 SfntStatus system_font(void* context,u32 cp,u32* output) noexcept {
-    auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_missing;if(!m.bound)return SfntStatus::invalid_input;
-    if(m.route==native_fallback_missing)return SfntStatus::ok;
+    auto& m=*static_cast<SystemMapping*>(context);*output=native_fallback_missing;
 #if defined(_WIN32)
-    const auto& range=system_fallback_policy.ranges[m.route];
-    for(u32 i=0;i<range.count;++i){auto*& family=m.targets.values[i];if(!family){const auto& name=system_fallback_families[system_fallback_policy.tokens[range.offset+i]];u16 wide[64];
-            for(u32 j=0;j<name.count;++j)wide[j]=static_cast<u8>(system_fallback_names[name.offset+j]);
-            if(!family_order(*m.owner,{0,{wide,name.count},m.properties},*m.scratch,&family))return SfntStatus::invalid_input;}
+    const u16 list=system_fallback_policy.lists[m.route];const u32 offset=native_fallback_list_offset(list);
+    for(u32 i=0;i<native_fallback_list_count(list);++i){auto*& family=m.targets.values[i];if(!family){const char* name=system_fallback_names+system_fallback_policy.tokens[offset+i];u16 wide[64];u32 length=0;
+            for(;name[length];++length)wide[length]=static_cast<u8>(name[length]);
+            if(!family_order(*m.owner,{0,{wide,length},m.properties},*m.scratch,&family))return SfntStatus::invalid_input;}
         const auto status=system_family(m,*family,cp,output);if(status!=SfntStatus::ok||*output!=native_fallback_missing)return status;
     }return SfntStatus::ok;
 #else
@@ -127,8 +128,9 @@ bool native_text_catalog_range(NativeTextCatalogs* owner,const NativeTextFontQue
     if(!whole){if(native_font_fallback_map({text.data+skip,text.bytes-skip},system_base,system_route,system_font,system_cover,&mapping,&range)!=SfntStatus::ok)return false;
         range.bytes+=skip;range.units+=skip;}
     NativeTextFontRange result{{native_fallback_missing,{},0},range.bytes,range.units,native_fallback_missing};
-    if(range.choice.font!=native_fallback_missing){const u32 scope=range.choice.font>>21,global=range.choice.font&fallback_candidate_mask;u32 candidate=global;const auto* selected=candidate_catalog(*owner,scope,&candidate);if(!selected)return false;const auto& catalog=*selected;
-        const auto match=native_font_match({catalog.properties+candidate,1},props);
+    // The token comes from system_family, as in system_cover, so its catalog exists.
+    if(range.choice.font!=native_fallback_missing){const u32 scope=range.choice.font>>21,global=range.choice.font&fallback_candidate_mask;u32 candidate=global;const auto& catalog=*candidate_catalog(*owner,scope,&candidate);
+        const auto match=native_font_match_one(catalog.properties[candidate],props);
         result.match={global,match.properties,match.simulations};result.scope=scope;
     }*output=result;return true;
 }

@@ -15,7 +15,7 @@ SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequ
     if(lookup.type==8)return sfnt_gsub_reverse_requirements(bytes,&req->coverages);
     return SfntStatus::unsupported;
 }
-SfntStatus lookup_requirements(const SfntLookup& lookup,SfntGsubProgramRequirements& result,u64& work) noexcept {
+inline SfntStatus lookup_requirements(const SfntLookup& lookup,SfntGsubProgramRequirements& result,u64& work) noexcept {
     SfntStatus s;
     if(!spend(&work,lookup.subtable_count))return SfntStatus::resource_limit;
     if(static_cast<u64>(result.subtables)+lookup.subtable_count>0xffffffffu)return SfntStatus::resource_limit;result.subtables+=lookup.subtable_count;

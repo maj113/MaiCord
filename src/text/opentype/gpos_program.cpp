@@ -88,7 +88,7 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
             for(u32 j=0;j<dest.tables.context.count;++j){
                 if(!shared_work){ordered=false;break;}--shared_work;
                 const auto& c=dest.tables.context[j];
-                if(c.format!=3||!byte_load_be16(c.table.data+2)||c.coverages[0].covered_count!=1){ordered=false;break;}
+                if(c.format!=3||!c.first_input||c.coverages[0].covered_count!=1){ordered=false;break;}
                 const u16 glyph=byte_load_be16(c.coverages[0].records);
                 if(j&&glyph<=previous){ordered=false;break;}previous=glyph;
             }

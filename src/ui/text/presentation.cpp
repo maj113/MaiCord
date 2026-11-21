@@ -3,36 +3,38 @@
 #include "maicord/ui/text/style.hpp"
 #include <stddef.h>
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord {
 namespace {
 
+// The client compares the signature only in memory. Adjacent fields with no padding between them hash as one block.
+// A block costs one multiply for each eight bytes. A field of its own costs one multiply or more.
 u64 append_signature(u64 signature, const UiTextCommand& command, u32 index) noexcept {
-    signature = hash64_mix(signature, index | (command.effect.themed_styles ? 0x8000'0000u : 0u));
+    using C = UiTextCommand;
+    static_assert(offsetof(C, clip) == offsetof(C, rectangle) + sizeof(UiRect) &&
+                  offsetof(C, color) == offsetof(C, clip) + sizeof(UiRect) &&
+                  offsetof(C, style_flags) == offsetof(C, color) + sizeof(Color) &&
+                  offsetof(C, horizontal_alignment) == offsetof(C, style_flags) + 4 &&
+                  offsetof(C, vertical_alignment) == offsetof(C, horizontal_alignment) + 1 &&
+                  offsetof(C, wrapping) == offsetof(C, horizontal_alignment) + 2 &&
+                  offsetof(C, overflow) == offsetof(C, horizontal_alignment) + 3 &&
+                  offsetof(C, face) == offsetof(C, horizontal_alignment) + 4);
+    static_assert(offsetof(UiTextEffect, kind) == sizeof(UiTextEffect::colors) &&
+                  offsetof(UiTextEffect, count) == offsetof(UiTextEffect, kind) + 1 &&
+                  offsetof(UiTextEffect, animate) == offsetof(UiTextEffect, kind) + 2 &&
+                  offsetof(UiTextEffect, themed_styles) == offsetof(UiTextEffect, kind) + 3);
+    constexpr u32 placement_bytes = offsetof(C, face) + 1 - offsetof(C, rectangle);
+    constexpr u32 effect_bytes = offsetof(UiTextEffect, themed_styles) + 1;
+    const UiWidgetHandle handle = command.owner.handle;
+    signature = hash64_mix(signature, index);
     signature = hash64_words_inline(signature, command.text.data, command.text.bytes);
-    signature = hash64_mix(signature, static_cast<u64>(reinterpret_cast<ULONG_PTR>(command.owner.manager)));
-    signature = hash64_mix(signature, command.owner.handle.slot);
-    signature = hash64_mix(signature, command.owner.handle.generation);
-    signature = hash64_words_inline(signature, &command.rectangle, sizeof(command.rectangle));
-    signature = hash64_words_inline(signature, &command.clip, sizeof(command.clip));
-    signature = hash64_words_inline(signature, &command.color, sizeof(command.color));
-    signature = hash64_mix(signature, command.style_flags);
+    signature = hash64_mix(signature, static_cast<u64>(reinterpret_cast<usize>(command.owner.manager)));
+    signature = hash64_mix(signature, handle.slot | static_cast<u32>(handle.generation) << 16);
+    // Rectangle, clip, colour, style flags, alignments, wrapping, overflow and face.
+    signature = hash64_words_inline(signature, &command.rectangle, placement_bytes);
     signature = hash64_words_inline(signature, command.styles.data, command.styles.count * sizeof(TextStyleSpan));
-    signature = hash64_mix(signature, static_cast<u8>(command.face));
-    signature = hash64_words_inline(signature, command.effect.colors, sizeof(command.effect.colors));
-    static_assert(offsetof(UiTextEffect, count) == offsetof(UiTextEffect, kind) + 1);
-    u16 kind_count;
-    CopyMemory(&kind_count, &command.effect.kind, sizeof(kind_count));
-    const u32 effect = kind_count | (static_cast<u32>(command.effect.animate) << 16);
-    signature = hash64_mix(signature, effect);
-    signature = hash64_mix(signature, command.effect.started_ms);
-    static_assert(offsetof(UiTextCommand, vertical_alignment) == offsetof(UiTextCommand, horizontal_alignment) + 1 &&
-                  offsetof(UiTextCommand, wrapping) == offsetof(UiTextCommand, horizontal_alignment) + 2 &&
-                  offsetof(UiTextCommand, overflow) == offsetof(UiTextCommand, horizontal_alignment) + 3);
-    u32 layout;
-    CopyMemory(&layout, &command.horizontal_alignment, sizeof(layout));
-    return hash64_mix(signature, layout);
+    // Effect colours, kind, count, animation and the themed-styles flag.
+    signature = hash64_words_inline(signature, command.effect.colors, effect_bytes);
+    return hash64_mix(signature, command.effect.started_ms);
 }
 
 // The first check `command` fails, none when it is valid.

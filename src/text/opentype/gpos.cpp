@@ -25,7 +25,7 @@ SfntStatus coverage(ConstSlice<u8> parent,u16 offset,u32 minimum,u32 limit,SfntC
     ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
     if(!spend(work,r16(bytes,2)))return SfntStatus::resource_limit;return sfnt_coverage_open(bytes,limit,output);
 }
-SfntStatus classes(ConstSlice<u8> parent,u16 offset,u32 minimum,u32 limit,SfntClassDef* output,u32* work) noexcept {
+inline SfntStatus classes(ConstSlice<u8> parent,u16 offset,u32 minimum,u32 limit,SfntClassDef* output,u32* work) noexcept {
     ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
     if(r16(bytes,0)==1 && !span(bytes,0,6))return SfntStatus::truncated;const u32 count=r16(bytes,r16(bytes,0)==1?4:2);
     if(!spend(work,count))return SfntStatus::resource_limit;return sfnt_class_def_open(bytes,limit,output);
@@ -71,13 +71,14 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output
 #pragma clang attribute pop
 }
 SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 end,SfntGposMatch* output,u32* work) noexcept {
-    if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);if(!sfnt_glyph_valid(first,sub.glyph_limit))return SfntStatus::invalid_input;
+    // The run is validated (gpos_validated.hpp): no glyph needs a range or class check.
+    if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);
     if(first.glyph>sub.last_covered_glyph)return SfntStatus::ok;
     const u32 cov=sfnt_coverage_index(sub.coverage,first.glyph);if(cov==sfnt_not_covered)return SfntStatus::ok;
     SfntGposMatch result{};result.first_input=start;result.second_input=0xffffffffu;result.next_input=start+1;result.matched=true;
     if(sub.type==1){const u32 at=sub.format==1?6u:8+cov*sub.value_bytes[0];result.values[0]=value_view(sub.table,at,sub.value_formats[0],sub.value_bytes[0]);*output=result;return SfntStatus::ok;}
     // A joiner the application may skip is passed over: the pair iterator has no match function (HarfBuzz's SKIP_MAYBE).
-    u32 second=start+1;for(;second<end;++second){if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,second);if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;
+    u32 second=start+1;for(;second<end;++second){if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,second);
         if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class)&&!(gdef.joiners&&sfnt_joiner_skipped(gdef,glyph.glyph,false)))break;}
     if(second==end)return SfntStatus::ok;const u16 glyph=sfnt_glyph_at(glyphs,second).glyph;ConstSlice<u8> parent=sub.table;u32 at=0;
     // Open validated every pair set offset; cov is below the covered count.

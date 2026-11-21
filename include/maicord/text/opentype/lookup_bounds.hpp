@@ -38,10 +38,7 @@ inline bool sfnt_lookup_coverage_equal(const SfntCoverage& first,const SfntCover
 void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverage) noexcept;
 // Adds a coverage's glyphs to a digest (ranges set every covered residue).
 void sfnt_glyph_digest_add_coverage(SfntGlyphDigest& digest,const SfntCoverage& coverage) noexcept;
-inline const SfntCoverage& sfnt_context_first_coverage(const SfntContext& context) noexcept {
-    const u32 index=context.format==3&&context.kind==SfntContextKind::chained?byte_load_be16(context.table.data+2):0;
-    return context.coverages[index];
-}
+inline const SfntCoverage& sfnt_context_first_coverage(const SfntContext& context) noexcept {return context.coverages[context.first_input];}
 inline bool sfnt_lookup_bounds_disjoint(const SfntLookupBounds& bounds,u16 first,u16 last) noexcept {
     return bounds.ready&&(bounds.first>bounds.last||first>bounds.last||last<bounds.first);
 }

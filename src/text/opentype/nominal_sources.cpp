@@ -4,7 +4,7 @@
 #include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {
 #include "../unicode/generated/nominal_scalar_data.inc"
-u64 scalar_word(u32 word) noexcept {return nominal_page_words[static_cast<u32>(nominal_page_index[word/4])*4+word%4];}
+constexpr u64 scalar_word(u32 word) noexcept {return nominal_words[nominal_block_index[word/2]+word%2];}
 enum class Mapping:u8 {constant,sequential,delta,bytes,words};
 struct Builder {
     const SfntCmap& cmap;Slice<u64> bitmap;u64 work;
@@ -53,7 +53,7 @@ struct Builder {
 };
 }
 // alphabetic_run takes printable ASCII for simple without this lookup.
-static_assert(!nominal_page_index[0]&&nominal_page_words[0]==0xffffffff00000000ull&&nominal_page_words[1]==0x7fffffffffffffffull);
+static_assert(scalar_word(0)==0xffffffff00000000ull&&scalar_word(1)==0x7fffffffffffffffull);
 bool nominal_scalar_is_simple(u32 scalar) noexcept {return scalar<65536 && ((scalar_word(scalar/64)>>(scalar%64))&1)!=0;}
 SfntStatus sfnt_nominal_sources(const SfntCmap& cmap,Slice<u64> bitmap,u64* used,u64 work) noexcept {
     u64 ignored=0;if(!used)used=&ignored;*used=0;if(!cmap.base.data || !cmap.glyph_count || (bitmap.count && !bitmap.data))return SfntStatus::invalid_input;

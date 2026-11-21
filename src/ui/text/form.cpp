@@ -5,6 +5,7 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/text/edit_field.hpp"
+#include "maicord/ui/text/edit_signature.hpp"
 #include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
 #include "maicord/ui/core/widget_builder.hpp"
@@ -463,7 +464,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
     const u64 text_signature =
         content.confirmation_only
             ? 0
-            : hash64_counted_bytes(kHash64Seed, content.text.data, content.text.bytes);
+            : text_edit_signature(content.text);
     const bool changed =
         !was_active || signature != scene->layout_signature || text_signature != scene->text_signature ||
         composition_signature != scene->composition_signature ||

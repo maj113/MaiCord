@@ -7,8 +7,9 @@ using namespace sfnt_read;
 bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
 template<class T> bool room(const Slice<T>& array,u32 count) noexcept {return array.count>=count && (!count || array.data);}
 SfntStatus optional(const SfntFace& f,u32 tag,ConstSlice<u8>* bytes) noexcept {const auto s=sfnt_table(f,tag,bytes);return s==SfntStatus::missing_table?SfntStatus::ok:s;}
-bool fixed(float value,i32* out) noexcept {const double v=static_cast<double>(value)*64;if(!(v>=-2147483648.0 && v<=2147483647.0))return false;*out=static_cast<i32>(v);return static_cast<double>(*out)==v;}
-TtGraphicsState glyph_state(TtGraphicsState state) noexcept {
+// A float times 64 only moves its exponent: the product is exact without double precision.
+bool fixed(float value,i32* out) noexcept {const float v=value*64.0f;if(!(v>=-2147483648.0f && v<2147483648.0f))return false;*out=static_cast<i32>(v);return static_cast<float>(*out)==v;}
+inline TtGraphicsState glyph_state(TtGraphicsState state) noexcept {
     const u32 control=state.instruction_control;if(control&2)reset_value(&state);state.instruction_control=control;
     state.projection_x=state.freedom_x=state.dual_x=16384;state.projection_y=state.freedom_y=state.dual_y=0;
     state.rp[0]=state.rp[1]=state.rp[2]=0;state.zp[0]=state.zp[1]=state.zp[2]=1;state.loop=1;return state;

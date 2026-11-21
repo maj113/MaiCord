@@ -20,10 +20,9 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,const NativeTex
     if((styles.count&&!styles.data)||styles.count>kTextStyleSpanMaximum||!output||output->run_count||output->native_fonts()||!output->runs||!output->glyphs||!output->clusters)return false;
     bool geometry=hits.count!=0;for(u32 i=0;i<styles.count;++i)geometry|=(styles[i].flags&native_decoration_flags)!=0;
     NativeTrimPlanScratch scratch{};NativeParagraphLayout layout{};
-    if(!prepare_trim_plan(system,request,{},&layout,&scratch,geometry))return false;
+    const auto* sign=prepare_trim_plan(system,request,&layout,&scratch,geometry);if(!sign)return false;
     if(layout.line_count<2){system.native_text->prefer_multiline=false;return false;}
     auto& owner=*system.native_text;const auto* format=resolve_format(system,request.wrapping);if(!format)return false;
-    const auto* sign=omission_sign(owner,format);if(!sign)return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;auto fit=scratch.fit;
     const bool styled=owner.last_styled,directional=styled&&(owner.last_mode&48)!=0;
     if(geometry&&!styled)return false;

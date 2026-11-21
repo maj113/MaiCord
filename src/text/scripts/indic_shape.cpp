@@ -1,5 +1,6 @@
 #include "../shaping/run_profile.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/text/scripts/detail/indic_form.hpp"
@@ -283,9 +284,13 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     if((storage.advances.count&&!storage.advances.data)||(storage.targets.count&&!storage.targets.data)||(storage.flags.count&&!storage.flags.data)||
        (storage.positions.count&&!storage.positions.data)||(storage.placements.count&&!storage.placements.data))return SfntStatus::invalid_input;
     if(!storage.substitutions.replacements.data||reinterpret_cast<usize>(storage.substitutions.replacements.data)%alignof(SfntClusterGlyph))return SfntStatus::invalid_input;
-    // UTF-16 units: one per scalar and one more per four-byte sequence (the reader rejects invalid text).
-    u32 total=0;
-    for(u32 i=0;i<text.bytes;++i){const u8 byte=static_cast<u8>(text.data[i]);total+=((byte&0xc0)!=0x80)+(byte>=0xf0);}
+    // UTF-16 units: one per scalar and one more per four-byte sequence (the reader rejects invalid text). Eight bytes at
+    // a time, bit 7 of a byte marks a continuation (10xxxxxx) in one mask and a four-byte lead (1111xxxx) in the other.
+    u32 total=text.bytes,offset=0;
+    for(;offset+8<=text.bytes;offset+=8){const u64 w=byte_load_le64(reinterpret_cast<const u8*>(text.data)+offset);constexpr u64 top=0x8080808080808080ull;
+        total+=population_count(w&(w<<1)&(w<<2)&(w<<3)&top)-population_count(w&~(w<<1)&top);}
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for(;offset<text.bytes;++offset){const u8 byte=static_cast<u8>(text.data[offset]);total+=(byte>=0xf0)-((byte&0xc0)==0x80);}
     Font font{profile,forms,0,info->block_first,false};
     auto status=sfnt_cmap_glyph(cmap,info->block_first+0x4d,0,&font.virama);if(status!=SfntStatus::ok)return status;
     u8 circle=2; // whether the font maps U+25CC, looked up at the first broken cluster
@@ -310,18 +315,25 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
         if(outcome==IndicSyllable::broken&&circle==2){u16 glyph=0;status=sfnt_cmap_glyph(cmap,0x25cc,0,&glyph);if(status!=SfntStatus::ok)return status;circle=glyph!=0;}
         if(outcome==IndicSyllable::broken&&circle){if(length==staging.count)return SfntStatus::output_too_small;
             u32 at=0;while(at<length&&staging[at].category()==C::repha)++at;
+            // A syllable holds few pieces: the shift stays scalar.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for(u32 i=length;i>at;--i)staging[i]=staging[i-1];
             auto dotted=indic_piece(0x25cc,staging[0].source);set_position(dotted,P::end);staging[at]=dotted;++length;}
         if(count+length>capacity||length>order.count||length>masks.count)return SfntStatus::output_too_small;
         // The syllable's units run from the first unassigned unit through its last source; sources that
         // combining-class order moved across a syllable boundary map into that range. A syllable left with
         // no unit of its own joins the previous cluster.
-        u32 last=units+1;for(u32 i=0;i<length;++i)last=maximum(last,staging[i].source+(staging[i].scalar()>0xffff?2u:1u));
+        // A syllable holds few pieces: the loop stays scalar.
+        u32 last=units+1;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for(u32 i=0;i<length;++i)last=maximum(last,staging[i].source+(staging[i].scalar()>0xffff?2u:1u));
         const bool shared=units==total;const u32 first=shared?units-1:units;last=shared?units:minimum(last,total);
         if(!shared){if(boundaries==storage.targets.count)return SfntStatus::output_too_small;storage.targets[boundaries++]=first;}
         const bool reorder=outcome==IndicSyllable::indic||outcome==IndicSyllable::broken;
         if(reorder)initial_reordering(font,{staging.data,length},{order.data,length},{masks.data,length});
-        else for(u32 i=0;i<length;++i){order[i]=i;masks[i]=plain_mask;}
+        else{
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for(u32 i=0;i<length;++i){order[i]=i;masks[i]=plain_mask;}}
         for(u32 i=0;i<length;++i){const auto& piece=staging[order[i]];const u32 scalar=piece.scalar();u16 glyph=0;
             status=sfnt_cmap_glyph(cmap,rtl?unicode_bidi_mirror(scalar):scalar,0,&glyph);if(status!=SfntStatus::ok)return status;
             mapped[count+i]={{glyph,classes?sfnt_gdef_glyph_class(plan.gdef,glyph):SfntGlyphClass{},masks[order[i]]},minimum(maximum(piece.source,first),last-1)};

@@ -4,7 +4,7 @@
 #include "maicord/text/opentype/components.hpp"
 namespace maicord {namespace {
 bool spend(SfntMarkExecution* out,u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;out->operations+=amount;return true;}
-bool eligible(const SfntGsubGlyph& glyph,u8 type,const SfntGdef& gdef,const SfntLookupFilter& filter) noexcept {
+inline bool eligible(const SfntGsubGlyph& glyph,u8 type,const SfntGdef& gdef,const SfntLookupFilter& filter) noexcept {
     return type==4?glyph.glyph_class!=SfntGlyphClass::mark:!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class);
 }
 SfntStatus glyph_check(const SfntGsubGlyph& glyph,u32 limit) noexcept {

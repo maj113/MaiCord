@@ -230,8 +230,9 @@ u32 fontconfig_fallbacks(SystemFontLocator* locator, u32 scalar, SystemFontName*
     for (int i = 0; i < sorted.set->count && i < static_cast<int>(kSortedFontLimit) && count < capacity; ++i) {
         const fc::Pattern* font = sorted.set->fonts[i];
         fc::CharSet* covered = nullptr;
-        if (!readable_format(api, font) || api.pattern_get_char_set(font, "charset", 0, &covered) != fc::kResultMatch ||
-            !covered || !api.char_set_has_char(covered, scalar))
+        // Coverage first: a font that lacks the scalar then needs no format test.
+        if (api.pattern_get_char_set(font, "charset", 0, &covered) != fc::kResultMatch || !covered ||
+            !api.char_set_has_char(covered, scalar) || !readable_format(api, font))
             continue;
         SystemFontName name{};
         if (!font_locator::utf8_to_name(string_property(api, font, "family", 0), &name))

@@ -1,6 +1,7 @@
 #include "maicord/ui/text/form.hpp"
 #include "../../support/layout_validation.hpp"
 #include "../../support/fake_text_measure.hpp"
+#include "maicord/ui/text/edit_signature.hpp"
 
 namespace maicord {
 void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
@@ -28,6 +29,9 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         text_form_release(&scene);
         return;
     }
+    // The application keeps the form's TSF geometry only while the layout signature is text_edit_signature of the
+    // text (text_form.cpp point_geometry). d272e741f changed that function but not this scene.
+    check(scene.text_signature == text_edit_signature(content.text), "text_form_text_signature_is_edit_signature");
     UiLayoutDiagnostic diagnostics[32]{};
     check(ui_layout_engine_validate(scene.widgets.layout, {diagnostics, 32}).clean(),
           "text_form_layout_clean");

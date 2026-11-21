@@ -58,7 +58,8 @@ SfntStatus ligature_joined(const SfntGsubSubtable& sub,const SfntGdef& gdef,cons
 }
 }
 SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32* work,u8 mask) noexcept {
-    if(!spend(work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
+    // The run is validated: the start glyph needs no range or class check.
+    if(!spend(work))return SfntStatus::resource_limit;
     if(!sfnt_glyph_feature_enabled(sfnt_glyph_at(glyphs,start),mask))return SfntStatus::ok;
     const u16 first=sfnt_glyph_at(glyphs,start).glyph;const u32 coverage_index=sfnt_coverage_index(sub.coverage,first);if(coverage_index==sfnt_not_covered)return SfntStatus::ok;
     SfntGsubMatch result{{},1,start,0,1,true};if(positions.count)positions.data[0]=start;

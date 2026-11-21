@@ -2,8 +2,10 @@
 
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/compression/inflated_block.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 
@@ -14,8 +16,8 @@ const char* catalog_glyphs;
 
 namespace {
 
-// The generated pool: names, glyphs, then the catalog and alias rows (as plane blocks until published) and
-// the primary-shortcode bit set. tools/pack_emoji_pools.py checks every row against the sources.
+// The generated pool: names, glyphs, then the catalog and alias rows (as plane blocks of offset deltas until
+// published) and the primary-shortcode bit set. tools/pack_emoji_pools.py checks every row against the sources.
 #include <emoji_pool_pack.inc>
 
 static_assert(kEmojiPoolCatalogNamesOffset == 0);
@@ -48,31 +50,55 @@ constexpr u16 kShortcodeOnly = 0x8000u;
 static_assert(kEmojiPoolCatalogEntryCount < kShortcodeOnly && kEmojiPoolAliasCount < kShortcodeOnly);
 u16 alias_owner[kEmojiPoolAliasCount];
 u16 primary_rows[kEmojiPoolCatalogEntryCount];
-u8 toned_entries[(kEmojiPoolCatalogEntryCount + 7) / 8];
-// Which characters each name holds (search_letters): a search skips the names that lack one of the key's.
-u32 entry_letters[kEmojiPoolCatalogEntryCount];
-u32 alias_letters[kEmojiPoolAliasCount];
+// For each class of search_letters, which rows' names hold it: alias rows first, then catalog entries from bit
+// kEntryRows. A search walks the rows whose names hold every class of the key, 64 rows for each word.
+constexpr u32 kAliasWords = (kEmojiPoolAliasCount + 63) / 64;
+constexpr u32 kEntryWords = (kEmojiPoolCatalogEntryCount + 63) / 64;
+constexpr u32 kEntryRows = kAliasWords * 64;
+// Whole blocks of four words: the words past the rows stay zero.
+constexpr u32 kRowWords = (kAliasWords + kEntryWords + 3) / 4 * 4;
+alignas(32) u64 letter_rows[32][kRowWords];
 
 bool bit(const u8* bits, u32 index) noexcept {
     return (bits[index >> 3] >> (index & 7) & 1) != 0;
 }
-void set_bit(u8* bits, u32 index) noexcept {
-    bits[index >> 3] = static_cast<u8>(bits[index >> 3] | 1u << (index & 7));
+bool bit(const u64* bits, u32 index) noexcept {
+    return (bits[index >> 6] >> (index & 63) & 1) != 0;
+}
+void set_bit(u64* bits, u32 index) noexcept {
+    bits[index >> 6] |= u64{1} << (index & 63);
 }
 
-// One bit per letter, five for the digits (by value mod 5) and one for any other byte; '_' has none.
+// One bit per letter, four for the digits (by value mod 4), one for any other byte ('_' has none), and bit 31 in
+// every result. A row that is never a result (a skin-tone variant, an alias of one, a lone modifier) is in no
+// class, so no key finds it.
 u32 search_letters(Utf8View text) noexcept {
-    u32 letters = 0;
+    u32 letters = 1u << 31;
     for (u32 i = 0; i < text.bytes; ++i) {
         const u8 c = ascii_lower(static_cast<u8>(text.data[i]));
         if (c >= 'a' && c <= 'z')
             letters |= 1u << (c - 'a');
         else if (c >= '0' && c <= '9')
-            letters |= 1u << (26 + (c - '0') % 5);
+            letters |= 1u << (26 + (c - '0') % 4);
         else if (c != '_')
-            letters |= 1u << 31;
+            letters |= 1u << 30;
     }
     return letters;
+}
+
+void index_letters(u32 row, Utf8View name) noexcept {
+    for (u32 letters = search_letters(name); letters; letters &= letters - 1)
+        set_bit(letter_rows[lowest_set_bit(letters)], row);
+}
+
+// The rows of every word of letter_rows whose names hold every class in `letters`, four words in one step.
+MAICORD_HASWELL void candidate_rows(u32 letters, u64* rows) noexcept {
+    for (u32 word = 0; word < kRowWords; word += 4) {
+        __m256i all = _mm256_set1_epi32(-1);
+        for (u32 rest = letters; rest; rest &= rest - 1)
+            all = _mm256_and_si256(all, *reinterpret_cast<const __m256i*>(letter_rows[lowest_set_bit(rest)] + word));
+        _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(rows + word), all);
+    }
 }
 
 // A table's rows ship as byte planes of 256-row blocks; this interleaves each block back to 6-byte rows in place.
@@ -90,7 +116,7 @@ void interleave_rows(u8* rows, u32 count) noexcept {
 
 u8 first_skin_tone(Utf8View v) noexcept;
 
-// Identical glyph bytes share one pool offset (the generators place each glyph at its first occurrence), so an
+// Identical glyph bytes share one pool offset (the packer gives each distinct glyph one offset), so an
 // alias finds its entry by offset and length.
 constexpr u32 glyph_key(u16 offset, u8 bytes) noexcept {
     return static_cast<u32>(offset) << 8 | bytes;
@@ -103,8 +129,8 @@ void index_pool(const u8* pool) noexcept {
     u16* order = primary_rows;
     for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
         order[i] = static_cast<u16>(i);
-        if (first_skin_tone(entries[i].glyph()))
-            set_bit(toned_entries, i);
+        if (!first_skin_tone(entries[i].glyph()))
+            index_letters(kEntryRows + i, entries[i].name());
     }
     // The sort is most of the first emoji lookup of a process, so its comparator is inline.
     heap_sort(order, kEmojiPoolCatalogEntryCount, [entries](u16 left, u16 right) noexcept {
@@ -137,15 +163,41 @@ void index_pool(const u8* pool) noexcept {
                 break;
             }
     }
-    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i)
         primary_rows[i] = kNoRow;
-        entry_letters[i] = search_letters(entries[i].name());
-    }
     // The packer guarantees at most one primary row per glyph, each a catalog glyph.
     for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
-        alias_letters[row] = search_letters(aliases[row].name());
-        if (bit(primary, row) && !(alias_owner[row] & kShortcodeOnly))
-            primary_rows[alias_owner[row]] = static_cast<u16>(row);
+        const u16 owner = alias_owner[row];
+        const bool catalog = !(owner & kShortcodeOnly);
+        if (catalog ? bit(letter_rows[31], kEntryRows + owner) : owner != kNoRow)
+            index_letters(row, aliases[row].name());
+        if (bit(primary, row) && catalog)
+            primary_rows[owner] = static_cast<u16>(row);
+    }
+}
+
+// The packer ships each row's name and glyph offsets as the distance from the end of the string of the row
+// before, modulo the offset's range: its pools follow the rows, so most distances are small and pack well.
+void resolve_offsets(u8* pool) noexcept {
+    auto* entries = reinterpret_cast<EmojiCatalogEntry*>(pool + kEmojiPoolCatalogEntryOffset);
+    u32 name_end = 0, glyph_end = 0;
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        EmojiCatalogEntry& row = entries[i];
+        row.name_offset_low = static_cast<u16>(name_end + row.name_offset_low);
+        row.glyph_offset = static_cast<u16>(glyph_end + row.glyph_offset);
+        name_end = row.name_offset_low + u32{row.name_length};
+        glyph_end = row.glyph_offset + u32{row.glyph_bytes};
+    }
+    auto* aliases = reinterpret_cast<EmojiAliasEntry*>(pool + kEmojiPoolAliasOffset);
+    name_end = glyph_end = 0;
+    for (u32 i = 0; i < kEmojiPoolAliasCount; ++i) {
+        EmojiAliasEntry& row = aliases[i];
+        const u32 name = (name_end + row.name_offset()) & 0x1FFFFu;
+        row.name_offset_low = static_cast<u16>(name);
+        row.name_packed = static_cast<u8>(row.name_bytes() | name >> 16 << 7);
+        row.glyph_offset = static_cast<u16>(glyph_end + row.glyph_offset);
+        name_end = name + row.name_bytes();
+        glyph_end = row.glyph_offset + u32{row.glyph_bytes};
     }
 }
 
@@ -155,6 +207,7 @@ void publish_pool(const u8* bytes) noexcept {
     emoji_pool_detail::catalog_glyphs = reinterpret_cast<const char*>(pool + kEmojiPoolCatalogGlyphsOffset);
     interleave_rows(pool + kEmojiPoolCatalogEntryOffset, kEmojiPoolCatalogEntryCount);
     interleave_rows(pool + kEmojiPoolAliasOffset, kEmojiPoolAliasCount);
+    resolve_offsets(pool);
     index_pool(pool);
 }
 
@@ -439,15 +492,17 @@ bool emoji_search_key(Utf8View query, Slice<char> output, u32* bytes) noexcept {
     return true;
 }
 
-bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept {
+MAICORD_HASWELL __attribute__((minsize)) bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept {
     if (!key.bytes)
         return true;
-    if (!name.data || !key.data)
+    if (key.bytes > name.bytes)
         return false;
+    // ascii_lead_mask finds the bytes where the key can start, 32 at a time. The key is lowercase. The function is
+    // compiled for size: else the compiler makes a second copy of the loop for keys of one byte.
     const u8 lead = static_cast<u8>(key.data[0]);
-    for (u32 start = 0; start < name.bytes; ++start) {
-        if (ascii_lower(static_cast<u8>(name.data[start])) != lead)
-            continue;
+    const u8 fold = static_cast<u8>(lead - 'a') < 26 ? 0x20 : 0;
+    const u32 starts = name.bytes - key.bytes + 1;
+    const auto matches_at = [&](u32 start) noexcept {
         u32 matched = 1;
         for (u32 at = start + 1; matched < key.bytes && at < name.bytes; ++at) {
             const u8 c = static_cast<u8>(name.data[at]);
@@ -457,40 +512,46 @@ bool emoji_search_name_matches(Utf8View name, Utf8View key) noexcept {
                 break;
             ++matched;
         }
-        if (matched == key.bytes)
-            return true;
-    }
+        return matched == key.bytes;
+    };
+    for (u32 base = 0; base < starts; base += 32)
+        for (u32 mask = ascii_lead_mask(name, base, starts, lead, fold); mask; mask &= mask - 1)
+            if (matches_at(base + lowest_set_bit(mask)))
+                return true;
     return false;
 }
 
 void emoji_catalog_search(Utf8View key, EmojiSearchVisit visit, void* context) noexcept {
-    if ((key.bytes && !key.data) || !pool_ready())
+    if (!pool_ready())
         return;
-    u8 found[(kEmojiPoolCatalogEntryCount + 7) / 8]{};
-    u8 shortcode_only[(kEmojiPoolAliasCount + 7) / 8]{};
-    const u32 letters = search_letters(key);
+    u64 found[kEntryWords]{};
+    u64 shortcode_only[kAliasWords]{};
+    u64 candidates[kRowWords];
+    candidate_rows(search_letters(key), candidates);
     const EmojiAliasEntry* aliases = alias_rows();
-    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
-        const u16 owner = alias_owner[row];
-        const bool catalog = !(owner & kShortcodeOnly);
-        if ((alias_letters[row] & letters) != letters || owner == kNoRow ||
-            (catalog && (bit(toned_entries, owner) || bit(found, owner))) ||
-            !emoji_search_name_matches(aliases[row].name(), key))
-            continue;
-        set_bit(catalog ? found : shortcode_only, owner & (kShortcodeOnly - 1u));
-    }
+    for (u32 word = 0; word < kAliasWords; ++word)
+        for (u64 rows = candidates[word]; rows; rows &= rows - 1) {
+            const u32 row = word * 64 + lowest_set_bit(rows);
+            const u16 owner = alias_owner[row];
+            const bool catalog = !(owner & kShortcodeOnly);
+            if ((catalog && bit(found, owner)) || !emoji_search_name_matches(aliases[row].name(), key))
+                continue;
+            set_bit(catalog ? found : shortcode_only, owner & (kShortcodeOnly - 1u));
+        }
     const EmojiCatalogEntry* entries = catalog_rows();
-    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
-        if (bit(toned_entries, i) ||
-            (!bit(found, i) &&
-             ((entry_letters[i] & letters) != letters || !emoji_search_name_matches(entries[i].name(), key))))
-            continue;
-        const u16 primary = primary_rows[i];
-        visit(context, {primary == kNoRow ? entries[i].name() : aliases[primary].name(), entries[i].glyph(), i});
-    }
-    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row)
-        if (bit(shortcode_only, row))
+    for (u32 word = 0; word < kEntryWords; ++word)
+        for (u64 rows = candidates[kAliasWords + word] | found[word]; rows; rows &= rows - 1) {
+            const u32 i = word * 64 + lowest_set_bit(rows);
+            if (!bit(found, i) && !emoji_search_name_matches(entries[i].name(), key))
+                continue;
+            const u16 primary = primary_rows[i];
+            visit(context, {primary == kNoRow ? entries[i].name() : aliases[primary].name(), entries[i].glyph(), i});
+        }
+    for (u32 word = 0; word < kAliasWords; ++word)
+        for (u64 rows = shortcode_only[word]; rows; rows &= rows - 1) {
+            const u32 row = word * 64 + lowest_set_bit(rows);
             visit(context, {aliases[row].name(), aliases[row].glyph(), ~0u});
+        }
 }
 
 } // namespace maicord

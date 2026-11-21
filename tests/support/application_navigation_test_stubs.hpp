@@ -14,9 +14,6 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     *position = 0;
     return true;
 }
-u64 text_edit_signature(Utf8View text) noexcept {
-    return hash64_counted_bytes(kHash64Seed, text.data, text.bytes);
-}
 void renderer_bind_focus_owner(D3D11Renderer* r, const UiWidgetManager* owner) noexcept {
     if (r)
         r->focus_owner = owner;

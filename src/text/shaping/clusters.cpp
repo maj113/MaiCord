@@ -1,31 +1,38 @@
 #include "maicord/text/shaping/clusters.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/intrin.hpp"
+#include "maicord/core/intrinsics.hpp"
 
 namespace maicord {namespace {
 constexpr u32 absent=0xffffffffu;
+// below() gives the bits under a bit index (below 64), through() also that bit. The bit helpers are inline: the build
+// inlines only functions marked inline (/Ob1), and each call cost more than its body. word_count stays a call, which
+// is smaller in its many callers.
 u32 word_count(u32 bits) noexcept {return (bits>>6)+((bits&63)?1u:0u);}
-u64 below(u32 bit) noexcept {return bit?((u64{1}<<bit)-1):0;}
-u32 first_bit(u64 bits) noexcept {unsigned long at=0;_BitScanForward64(&at,bits);return static_cast<u32>(at);}
-u32 last_bit(u64 bits) noexcept {unsigned long at=0;_BitScanReverse64(&at,bits);return static_cast<u32>(at);}
+inline u64 below(u32 bit) noexcept {return (u64{1}<<bit)-1;}
+inline u64 through(u32 bit) noexcept {return ~u64{0}>>(63-bit);}
+// The bit scans take nonzero words only: find() scans a masked word it tested, or a child whose summary bit is set.
+inline u32 first_bit(u64 bits) noexcept {return lowest_set_bit(bits);}
+inline u32 last_bit(u64 bits) noexcept {return 63u-static_cast<u32>(__builtin_clzll(bits));}
 u32 find(const SfntClusterMap& map,u32 index,bool forward) noexcept {
     u32 offsets[6],offset=0,count=word_count(map.text_count);
     for(u32 level=0;level<map.levels;++level){offsets[level]=offset;const u32 word=index>>6,bit=index&63;
         if(word>=count)return absent;
-        const u64 value=map.storage.data[offset+word] & (forward?~below(bit):(bit==63?~u64{0}:below(bit+1)));
+        const u64 value=map.storage.data[offset+word] & (forward?~below(bit):through(bit));
         if(value){u32 found=word*64+(forward?first_bit(value):last_bit(value));
+            // A map has at most six levels: the descent stays a plain loop.
+#pragma clang loop unroll(disable)
             while(level){--level;const u64 child=map.storage.data[offsets[level]+found];found=found*64+(forward?first_bit(child):last_bit(child));}return found;}
         if(!forward && !word)return absent;index=forward?word+1:word-1;offset+=count;count=word_count(count);
     }return absent;
 }
-void clear_word(SfntClusterMap& map,u32 word,u64 mask) noexcept {
+inline void clear_word(SfntClusterMap& map,u32 word,u64 mask) noexcept {
     u64& value=map.storage.data[word];value&=~mask;if(value)return;
     u32 offset=word_count(map.text_count),count=word_count(offset);
     for(u32 level=1;level<map.levels;++level){const u32 parent=word>>6;u64& summary=map.storage.data[offset+parent];summary&=~(u64{1}<<(word&63));if(summary)return;word=parent;offset+=count;count=word_count(count);}
 }
-u64 erase_mask(u32 word,u32 first,u32 last) noexcept {
+inline u64 erase_mask(u32 word,u32 first,u32 last) noexcept {
     const u32 lo=word==(first>>6)?first&63:0,hi=word==(last>>6)?last&63:63;
-    return ~below(lo)&(hi==63?~u64{0}:below(hi+1));
+    return ~below(lo)&through(hi);
 }
 }
 SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept {

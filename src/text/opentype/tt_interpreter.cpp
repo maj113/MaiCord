@@ -16,7 +16,7 @@ i64 rounded(i32 v,const TtGraphicsState& g) noexcept {
     case TtRound::super:value=((a-g.round_phase+g.round_threshold)&-static_cast<i64>(g.round_period))+g.round_phase;if(value<0&&v)value=g.round_phase;break;}
     return v<0?-value:value;
 }
-u32 tt_outline_information(u32 selector) noexcept {return (selector&1?42u:0u)|(selector&8?1024u:0u)|(selector&16?2048u:0u);}
+inline u32 tt_outline_information(u32 selector) noexcept {return (selector&1?42u:0u)|(selector&8?1024u:0u)|(selector&16?2048u:0u);}
 struct Machine {
     TtInterpreter& s;TtExecution& result;TtPhase phase;u32 work,depth=0;ConstSlice<u8> code;u32 at=0;
     // The executing opcode and its offset, published as diagnostics on exit.

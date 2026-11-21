@@ -13,7 +13,8 @@ SfntStatus read_paint(const ColrFont& font,u32 at,ColrPaint* p) noexcept {
     if(!format || format>32)return SfntStatus::unsupported;
     if(!span(t,at,sizes[format]))return SfntStatus::truncated;
     p->offset=at;p->format=format;p->variation_index=0xffffffff;
-    p->variable=(format==3 || format==5 || format==7 || format==9 || (format>=13 && format<=31 && (format&1)));
+    // The variable formats: 3, 5, 7, 9 and the odd formats 13 to 31 (format is 1 to 32 here).
+    p->variable=(0xaaaaa2a8ull>>format)&1;
     if(format==1) {
         p->layer_count=t[at+1];p->first_layer=r32(t,at+2);
         const u32 count=font.layers_v1.count/4;

@@ -12,6 +12,7 @@
 #include "maicord/os/file.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/font/system_font_locator.hpp"
+#include "maicord/text/unicode/unicode.hpp"
 #endif
 
 namespace maicord {
@@ -53,7 +54,7 @@ const NativeFontCatalog* candidate_catalog(NativeTextCatalogs& owner,u32 scope,u
 }
 #include "native_text_catalog_face.inc"
 #include "native_text_catalog_locator.inc"
-bool build_private(NativeTextCatalogs& owner,const NativeTextFontQuery& query,Arena& scratch,bool* fresh) noexcept {
+inline bool build_private(NativeTextCatalogs& owner,const NativeTextFontQuery& query,Arena& scratch,bool* fresh) noexcept {
     const u32 scope_index=query.scope;
     auto& scope=owner.scopes[scope_index];const u32 bit=1u<<scope_index;
     if(owner.attempted&bit)return scope.catalog.count!=0;owner.attempted|=bit;
@@ -112,7 +113,7 @@ void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
     arena_release(&owner->storage);clear_bytes(owner,sizeof(*owner));
 }
 namespace {
-NativeTextCatalogScope* append_scope(NativeTextCatalogs& owner,const wchar_t* path,u32 units) noexcept {
+inline NativeTextCatalogScope* append_scope(NativeTextCatalogs& owner,const wchar_t* path,u32 units) noexcept {
     if(owner.count==32)return nullptr;
     auto* scope=static_cast<NativeTextCatalogScope*>(arena_allocate(&owner.storage,
         sizeof(NativeTextCatalogScope)+(static_cast<usize>(units)+1)*sizeof(wchar_t),alignof(NativeTextCatalogScope)));
@@ -130,7 +131,7 @@ bool native_text_catalog_register_path(NativeTextCatalogs* owner,const wchar_t* 
     *scope=index;return true;
 }
 bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,
-    NativeFontInstanceHandle* output,NativeFontSelection* source,u32* candidate,u32* simulations,u32* selected_scope,bool* missing_family) noexcept {
+    NativeFontInstanceHandle* output,NativeFontSelection* source,u32* candidate,u32* simulations,u32* selected_scope,bool* missing_family,bool plain) noexcept {
     if(missing_family)*missing_family=false;
 #if !defined(_WIN32)
     LocatorIdle idle{owner};
@@ -140,14 +141,16 @@ bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeText
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;
     if(!family->order.count){
         if(!selected_scope)return false;
-        NativeTextFontRange range{};if(!native_text_catalog_range(owner,query,session,scratch,{" ",1},&range)||range.match.index==native_fallback_missing||(range.match.simulations&&!simulations)||
-            !native_text_catalog_select_face(owner,range.scope,range.match.index,range.match.simulations,session,scratch,output,source))return false;
-        if(candidate)*candidate=range.match.index;if(simulations)*simulations=range.match.simulations;*selected_scope=range.scope;if(missing_family)*missing_family=true;return true;
+        NativeTextFontRange range{};if(!native_text_catalog_range(owner,query,session,scratch,{" ",1},&range)||range.match.index==native_fallback_missing)return false;
+        const u32 applied=plain?0:range.match.simulations;
+        if((applied&&!simulations)||!native_text_catalog_select_face(owner,range.scope,range.match.index,applied,session,scratch,output,source))return false;
+        if(candidate)*candidate=range.match.index;if(simulations)*simulations=applied;*selected_scope=range.scope;if(missing_family)*missing_family=true;return true;
     }
-    const auto& catalog=*family->catalog;const u32 index=family->order[0];const auto match=native_font_match({catalog.properties+index,1},query.properties);
-    if(match.simulations&&!simulations)return false;
-    if(!native_text_catalog_select_face(owner,query.scope,family->base+index,match.simulations,session,scratch,output,source,!loaded))return false;
-    if(candidate)*candidate=family->base+index;if(simulations)*simulations=match.simulations;if(selected_scope)*selected_scope=query.scope;return true;
+    const auto& catalog=*family->catalog;const u32 index=family->order[0];
+    const u32 applied=plain?0:native_font_match_one(catalog.properties[index],query.properties).simulations;
+    if(applied&&!simulations)return false;
+    if(!native_text_catalog_select_face(owner,query.scope,family->base+index,applied,session,scratch,output,source,!loaded))return false;
+    if(candidate)*candidate=family->base+index;if(simulations)*simulations=applied;if(selected_scope)*selected_scope=query.scope;return true;
 }
 #include "native_system_fallback.inc"
 bool native_text_catalog_select_face(NativeTextCatalogs* owner,u32 scope,u32 candidate,u32 simulations,NativeFontSession* session,Arena* scratch,NativeFontInstanceHandle* output,NativeFontSelection* source,bool refresh) noexcept {

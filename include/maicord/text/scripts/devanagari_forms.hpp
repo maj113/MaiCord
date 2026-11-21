@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/text/scripts/devanagari_plan.hpp"
+#include "maicord/text/scripts/arabic_plan.hpp"
 #include "maicord/text/opentype/gsub_execute.hpp"
 namespace maicord {
 // HarfBuzz hb_ot_layout_lookup_would_substitute over the scheduled lookups of one feature: whether any

@@ -34,8 +34,9 @@ bool cases() noexcept {
     for(u32 cp=0;cp<0x110000;++cp){const u32 paired=unicode_bidi_mirror(cp);const auto pair=unicode_bidi_bracket(cp);
         if(paired!=cp){++mirrored;if(cp>0xffff||unicode_bidi_mirror(paired)!=cp||!unicode_properties(cp)->has(UnicodeFlag::bidi_mirrored))return false;}
         if(pair.type==UnicodeBracketType::none){if(pair.paired!=cp)return false;continue;}
+        // bidi_tailored_brackets finds the opener of a pair by its ON class.
         const auto back=unicode_bidi_bracket(pair.paired);
-        if(pair.paired!=paired||back.paired!=cp||back.type==pair.type)return false;
+        if(pair.paired!=paired||back.paired!=cp||back.type==pair.type||unicode_properties(cp)->bidi_class()!=UnicodeBidiClass::on)return false;
         opening+=pair.type==UnicodeBracketType::open;closing+=pair.type==UnicodeBracketType::close;}
     if(mirrored!=428||opening!=64||closing!=64)return false;
     const auto bracket=unicode_bidi_bracket('(');

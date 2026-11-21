@@ -10,7 +10,7 @@ static_assert(static_cast<u8>(NativeClusterScript::sinhala)==static_cast<u8>(Sfn
 namespace {
 // HarfBuzz's default shaper for the font (hb_ot_shaper_categorize): its GSUB selected DFLT or latn, or mymr for
 // Myanmar, rather than the script's own tags. Khmer always keeps its shaper.
-bool default_shaper(NativeClusterScript script,u32 selected) noexcept {
+inline bool default_shaper(NativeClusterScript script,u32 selected) noexcept {
     if(script==NativeClusterScript::khmer)return false;
     return selected==sfnt_tag('D','F','L','T')||selected==sfnt_tag('l','a','t','n')||
         (script==NativeClusterScript::myanmar&&selected==sfnt_tag('m','y','m','r'));

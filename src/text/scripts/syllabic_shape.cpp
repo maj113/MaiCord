@@ -43,6 +43,13 @@ bool unicode_mark(const UnicodeProperties& p) noexcept {
 // One prepared character: its scalar, UTF-16 source, nominal glyph (the variation glyph of a sequence the font
 // maps), category and whether it continues the grapheme before it (hb_set_unicode_props).
 struct Piece {u32 scalar,source;u16 glyph;u8 category,continuation;};
+// The lowest source of pieces[first,end), end above first. A syllable holds few pieces: the loop stays scalar.
+inline u32 lowest_source(const Piece* pieces,u32 first,u32 end) noexcept {
+    u32 source=pieces[first].source;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+    for(u32 i=first+1;i<end;++i)source=minimum(source,pieces[i].source);
+    return source;
+}
 static_assert(sizeof(Piece)==12);
 struct Shaper {
     u8 (*category)(u32) noexcept;const u8* column;const u8* next;const u8* outcome;u8 stride;
@@ -57,7 +64,7 @@ constexpr Shaper myanmar{myanmar_category,myanmar_column,myanmar_next,myanmar_ou
     myanmar_broken,static_cast<u8>(M::dotted_circle),255,7,false,false,true,false};
 constexpr Shaper universal{use_category,use_column,use_next,use_outcome,use_stride,
     use_broken,static_cast<u8>(U::b),static_cast<u8>(U::r),7,false,true,true,true};
-const Shaper& shaper_of(SfntSyllabicScript script) noexcept {
+inline const Shaper& shaper_of(SfntSyllabicScript script) noexcept {
     return script==SfntSyllabicScript::khmer?khmer:script==SfntSyllabicScript::myanmar?myanmar:universal;
 }
 // HarfBuzz's Sinhala vowel constraints (hb-ot-shaper-vowel-constraints.cc): an independent vowel and a sign that
@@ -141,7 +148,10 @@ struct Text {
     }
     // Sorting and composition merge the clusters of the characters they move across (hb_buffer_t::sort,
     // merge_out_clusters): those characters take the lowest source among them.
-    void merge(u32 first,u32 last,u32 source) noexcept {for(u32 i=first;i<=last;++i)source=minimum(source,pieces[i].source);for(u32 i=first;i<=last;++i)pieces[i].source=source;}
+    void merge(u32 first,u32 last,u32 source) noexcept {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for(u32 i=first;i<=last;++i)source=minimum(source,pieces[i].source);
+        for(u32 i=first;i<=last;++i)pieces[i].source=source;}
     SfntStatus reorder_and_compose() noexcept {
         const auto ccc=[&](u32 i) noexcept {return pieces[i].category;};
         for(u32 i=0;i<count;){if(!ccc(i)){++i;continue;}
@@ -217,12 +227,14 @@ struct Output {
 };
 // reorder_consonant_syllable (hb-ot-shaper-khmer): masks, then Coeng,Ro and the left matra move to the start.
 void khmer_reorder(Output& o,u32 start,u32 end) noexcept {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for(u32 i=start+1;i<end;++i)o.mapped[i].glyph.reserved|=sfnt_khmer_post;
     u32 coengs=0;
     for(u32 i=start+1;i<end;++i){const auto c=static_cast<K>(o.category(i));
         if(c==K::h&&coengs<=2&&i+1<end){++coengs;
             if(static_cast<K>(o.category(i+1))==K::ra){o.mapped[i].glyph.reserved|=sfnt_khmer_pref;o.mapped[i+1].glyph.reserved|=sfnt_khmer_pref;
                 o.move(i,start);o.move(i+1,start+1);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
                 for(u32 j=i+2;j<end;++j)o.mapped[j].glyph.reserved|=sfnt_khmer_cfar;
                 coengs=2;}
         }else if(c==K::vpre)o.move(i,start);
@@ -406,7 +418,7 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
         const u32 length=q-p+dotted;if(count+length>capacity||count+length>position_capacity)return SfntStatus::output_too_small;
         // The syllable's cluster starts at its lowest source (HarfBuzz clusters; sorting and composition merged the
         // sources they moved across). A syllable that starts at or before the previous one joins its cluster.
-        u32 first=pieces[p].source;for(u32 i=p+1;i<q;++i)first=minimum(first,pieces[i].source);if(!boundaries)first=0;
+        u32 first=lowest_source(pieces.data,p,q);if(!boundaries)first=0;
         if(!boundaries||first>storage.targets[boundaries-1]){
             if(boundaries==storage.targets.count||(shaper.use&&boundaries==type_capacity))return SfntStatus::output_too_small;
             if(shaper.use)types[boundaries]=type;storage.targets[boundaries++]=first;}
@@ -431,13 +443,17 @@ SfntStatus sfnt_syllabic_run(SfntSyllabicScript script,const SfntShapePlan& plan
             // A cluster after an isolated or final one joins it: that one becomes initial or medial, this one final.
             const bool join=last_form==sfnt_use_fina||last_form==sfnt_use_isol;
             if(join){last_form=last_form==sfnt_use_fina?sfnt_use_medi:sfnt_use_init;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
                 for(u32 i=last_start;i<start;++i)out.mapped[i].glyph.reserved=static_cast<u8>((out.mapped[i].glyph.reserved&~topographical)|last_form);}
             last_form=join?sfnt_use_fina:sfnt_use_isol;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for(u32 i=start;i<count;++i)out.mapped[i].glyph.reserved=static_cast<u8>(out.mapped[i].glyph.reserved|last_form);
         }
         last_start=start;p=q;
     }
-    bool rphf=false,pref=false;for(u32 i=0;i<steps.count;++i){rphf|=steps[i].stage==2;pref|=steps[i].stage==3;}
+    // The plan emits its steps in stage order (sfnt_shape_run rejects any other), so the rphf (2) and pref (3) steps
+    // come before every later stage.
+    bool rphf=false,pref=false;for(u32 i=0;i<steps.count&&steps[i].stage<=3;++i){rphf|=steps[i].stage==2;pref|=steps[i].stage==3;}
     // USE's substitution snapshots borrow the positions (the prepared characters are dead) by component node.
     const u32 nodes=static_cast<u32>(minimum<u64>(storage.components.count,static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(u16)));
     if(shaper.use&&(rphf||pref)&&nodes<storage.components.count)return SfntStatus::output_too_small;
@@ -475,7 +491,7 @@ SfntStatus sfnt_syllabic_boundaries(SfntSyllabicScript script,ConstSlice<u32> sc
     Scanner scanner{shaper,{pieces,prepared.count},prepared.count};
     // A syllable starts a cluster unless it begins inside a grapheme or before the previous cluster's start.
     for(u32 p=0,last=0;p<prepared.count;){u32 q=0;u8 type=0;scanner.scan(p,&q,&type);
-        u32 first=pieces[p].source;for(u32 i=p+1;i<q;++i)first=minimum(first,pieces[i].source);
+        u32 first=lowest_source(pieces,p,q);
         if(!p)starts[0]=1;else if(first>last){last=first;starts[index[first]]=!pieces[p].continuation;}p=q;}
     copy_bytes(output.data,starts,scalars.count);return SfntStatus::ok;
 }
