@@ -397,8 +397,7 @@ or copy a sample's folder somewhere, run `maicord-plugin effect build` in it (it
 
 The tests compile every sample, draw it at 1440p to time it on the GPU, and draw it at 640x360 for a preview:
 `tools/build.ps1 -Test -TestNames maicord_background_theme_probe [-ProbeCaptureDirectory <empty folder>]`.
-Each sample's `preview.webp` (still) and `preview-loop.webp` (2.4 s loop, default theme) were encoded from those
-captures: `effect-<name>-still.bmp` and 48 `effect-<name>-loop-NN.bmp` frames at 20 fps (`day-night` at 19:15 on
+The captures are `effect-<name>-still.bmp` and 48 `effect-<name>-loop-NN.bmp` frames at 20 fps (`day-night` at 19:15 on
 21 June in the dark appearance). The probe also drives `day-night`'s inputs as MaiCord eases them, with the effect's
 clock held: `effect-day-night-hour-NN.bmp` is each hour of 21 June in the light appearance, and
 `effect-day-night-transition-NN.bmp` is Windows turning dark at noon, one frame every 50 ms (30 frames move, then the

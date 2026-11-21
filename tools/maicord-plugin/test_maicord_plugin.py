@@ -650,7 +650,7 @@ class EffectTests(Case):
     def test_a_pass_graph_makes_an_interface_3_package(self):
         """spark-ribbon: four passes, two targets, six shaders of two stages, in DXBC and SHADERS."""
         directory = self.root / "spark-ribbon"
-        shutil.copytree(REPOSITORY / "samples" / "effects" / "spark-ribbon", directory, ignore=shutil.ignore_patterns("*.webp"))
+        shutil.copytree(REPOSITORY / "samples" / "effects" / "spark-ribbon", directory)
         code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
         self.assertEqual(code, 0, out + err)
         self.assertIn("in 6 shaders", out)
@@ -798,7 +798,7 @@ class EffectTests(Case):
             if not sample.is_dir():
                 continue
             directory = self.root / sample.name
-            shutil.copytree(sample, directory, ignore=shutil.ignore_patterns("*.webp"))
+            shutil.copytree(sample, directory)
             before = (directory / f"{sample.name}.effect").read_text()
             code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
             self.assertEqual(code, 0, f"{sample.name}: {out}{err}")

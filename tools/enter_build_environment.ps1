@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# The Windows build environment, dot-sourced by tools/build.ps1 and tools/target_session.ps1, without the developer
+# The Windows build environment, dot-sourced by tools/build.ps1, without the developer
 # shell: the components .vsconfig lists, found where VsDevCmd finds them. Sets $llvm to the LLVM toolchain's bin directory
 # (-LlvmBin, else MAICORD_LLVM_BIN, else the pinned release: resolve_llvm_toolchain.ps1) and puts it first on PATH, with
 # CC and CXX naming its clang-cl (a fresh cache configures with it); then the Build Tools' MSVC x64 toolset (ml64, and the
