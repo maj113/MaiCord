@@ -1,5 +1,6 @@
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
 
@@ -302,6 +303,14 @@ void test_transport() noexcept {
                        utf8_literal("/api/v9/guilds/10/bans?limit=1000"), {}) &&
               capture.response_capacity == kRestClientMaximumResponseBytes,
           "guild admin account: the ban list is one GET of 1000 into an extended response bank");
+    GuildAdminRequest invites{};
+    invites.operation = GuildAdminOperation::invite_list_guild;
+    invites.guild_id = 10;
+    check(account_guild_admin_submit(&details, &invites, 112).ok() &&
+              captured(RestMethod::get, RestMajorParameter::guild, 10, GuildAdminOperation::invite_list_guild,
+                       utf8_literal("/api/v9/guilds/10/invites"), {}) &&
+              capture.response_capacity == kRestClientMaximumResponseBytes,
+          "guild admin account: the invite list is one GET into an extended response bank");
     const GuildAdminPageQuery next{0, 7'000, 0, kGuildAdminPageMaximum, 0, false};
     request.page = &next;
     check(account_guild_admin_submit(&details, &request, 111).ok() &&
@@ -982,6 +991,59 @@ void test_decoders() noexcept {
           "guild admin decode: invites validate codes and nested channel/inviter identities");
 }
 
+// A server's invite list as GET /guilds/{g}/invites sends it: each invite with its inviter (decorated), the server
+// partial and the channel. Codes are unique: "c" and the index in base 36.
+u32 invite_list(char* output, u32 count) noexcept {
+    u32 used = 0;
+    const auto put = [&](const char* text) noexcept { while (*text) output[used++] = *text++; };
+    put("[");
+    for (u32 i = 0; i < count; ++i) {
+        if (i) put(",");
+        put(R"({"type":0,"code":"c)");
+        char digits[8];u32 n = 0, value = i;
+        do { const u32 d = value % 36;digits[n++] = static_cast<char>(d < 10 ? '0' + d : 'a' + d - 10);value /= 36; }
+        while (value);
+        while (n) output[used++] = digits[--n];
+        put(R"(","inviter":{"id":"852892297661906993","username":"alien","avatar":"14733482e560d9267c0a414b21b2fb8d",)"
+            R"("discriminator":"0","public_flags":64,"flags":64,"banner":null,"accent_color":null,"global_name":"Alien",)"
+            R"("avatar_decoration_data":{"asset":"a_d3f2a1c4b5e6f7a8b9c0d1e2f3a4b5c6","sku_id":"1144058522808614923",)"
+            R"("expires_at":null},"collectibles":null,"display_name_styles":null,"banner_color":null,"clan":null,)"
+            R"("primary_guild":{"identity_guild_id":"1234567890123456789","identity_enabled":true,"tag":"TAG",)"
+            R"("badge":"0123456789abcdef0123456789abcdef"}},"expires_at":"2026-10-07T00:00:00+00:00","flags":0,)"
+            R"("guild":{"id":"10","name":"Some Server Name","splash":null,"banner":null,"description":null,)"
+            R"("icon":"14733482e560d9267c0a414b21b2fb8d","features":["COMMUNITY","NEWS","ANIMATED_ICON",)"
+            R"("INVITE_SPLASH","BANNER","VANITY_URL","ROLE_ICONS","DISCOVERABLE"],"verification_level":2,)"
+            R"("vanity_url_code":null,"nsfw_level":0,"nsfw":false,"premium_subscription_count":14},"guild_id":"10",)"
+            R"("channel":{"id":"50","type":0,"name":"general"},"uses":3,"max_uses":0,"max_age":604800,)"
+            R"("temporary":false,"created_at":"2026-09-30T00:00:00+00:00"})");
+    }
+    put("]");
+    return used;
+}
+// Discord allows 1,000 invites a server. Their list decodes with an index of one entry for each body byte, as the
+// settings page commits it; one more invite than the rows fails as capacity.
+void test_invite_list_maximum() noexcept {
+    constexpr u32 rows = 1'000, bytes = 2u << 20;
+    auto* body = commit_pages<char>(bytes);
+    auto* index = commit_pages<u32>((bytes + 1) * sizeof(u32));
+    auto* invites = commit_pages<GuildAdminInvite>((rows + 1) * sizeof(GuildAdminInvite));
+    check(body && index && invites, "guild admin decode: invite list fixture allocates");
+    if (!body || !index || !invites) return;
+    const u32 full = invite_list(body, rows);
+    const auto listed = guild_admin_decode_invites({body, full}, {index, full + 1}, {invites, rows});
+    check(full > kRestClientMaximumResponseBytes / 4 && full < kRestClientMaximumResponseBytes && listed.ok() &&
+              listed.count == rows && invites[rows - 1].channel_id == 50 &&
+              invites[rows - 1].inviter_id == 852892297661906993ull,
+          "guild admin decode: 1,000 invites (over 256 KiB, under the 2 MiB reply cap) decode into 1,000 rows");
+    const u32 over = invite_list(body, rows + 1);
+    check(guild_admin_decode_invites({body, over}, {index, over + 1}, {invites, rows}).error ==
+              GuildAdminError::capacity,
+          "guild admin decode: one invite more than the rows fails as capacity");
+    pages_release(body, bytes);
+    pages_release(index, (bytes + 1) * sizeof(u32));
+    pages_release(invites, (rows + 1) * sizeof(GuildAdminInvite));
+}
+
 // The Server Profile's game reads: GET /games (the documented hashes, else the newer media), the picker's
 // autocomplete (id as a number, icon only) and GET /guilds/{g}/top-games.
 void test_game_decoders() noexcept {
@@ -1201,6 +1263,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_reason_and_head();
     test_role_toggle();
     test_decoders();
+    test_invite_list_maximum();
     test_game_decoders();
     test_profile_and_boost();
     maicord::test_exit(failures, "guild admin protocol and transport");

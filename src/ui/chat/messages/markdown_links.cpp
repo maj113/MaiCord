@@ -615,23 +615,21 @@ bool marker_occurs_later(const Parser& parser, u8 marker) noexcept {
 }
 
 namespace {
-bool decimal_range(Utf8View input, u32 begin, u32 end) noexcept {
-    if (begin >= end || end - begin > 20) {
-        return false;
-    }
-    for (u32 offset = begin; offset < end; ++offset) {
-        if (!ascii_is_digit(input.data[offset])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool emit_view(Parser* parser, Utf8View value, u32 style) noexcept;
 
 bool decimal_u64(Utf8View input, u32 begin, u32 end, u64* value) noexcept {
     return begin < end && decimal_parse({input.data + begin, end - begin}, value);
 }
+
+// One or more ASCII digits: the \d+ of the official client's mention rules, at any length.
+bool tag_digits(Utf8View input, u32 begin, u32 end) noexcept {
+    for (u32 at = begin; at < end; ++at)
+        if (!ascii_is_digit(input.data[at]))
+            return false;
+    return begin < end;
+}
+// The official client's text for a role that it cannot find.
+constexpr Utf8View kUnknownRole = utf8_literal("@unknown-role");
 
 inline bool ascii_letter(char value) noexcept {
     return static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
@@ -1077,13 +1075,19 @@ bool emit_view(Parser* parser, Utf8View value, u32 style) noexcept {
     return true;
 }
 
+// A role that names nothing or that the resolver does not find: kUnknownRole, plain text with no semantic.
+bool emit_unknown_role(Parser* parser, u32 tag_end) noexcept {
+    if (!emit_view(parser, kUnknownRole, 0))
+        return false;
+    parser->input_offset = tag_end + 1;
+    return true;
+}
+
+// `id` is the tag's id, parsed from digits_begin..digits_end, or 0 for an id that names nothing (0 or past 64
+// bits): such a tag shows its digits and has no semantic. A role that the resolver does not find is unknown.
 bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
                      MessageMarkdownSemanticKind semantic_kind, u32 tag_begin, u32 digits_begin,
-                     u32 digits_end, char sigil, u32 tag_end) noexcept {
-    u64 id = 0;
-    if (!decimal_u64(parser->input, digits_begin, digits_end, &id) || id == 0) {
-        return false;
-    }
+                     u32 digits_end, char sigil, u32 tag_end, u64 id) noexcept {
     if (parser->options && parser->options->preserve_entities) {
         parser->input_offset = tag_end + 1;
         return emit_range(parser, tag_begin, tag_end + 1, text_style_mention);
@@ -1094,21 +1098,25 @@ bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
         style |= text_style_interactive_hover;
     }
     Utf8View resolved{};
-    if (parser->options && parser->options->resolve_entity) {
+    if (id && parser->options && parser->options->resolve_entity) {
         resolved = parser->options->resolve_entity(parser->options->context, entity_kind, id);
         if ((!resolved.data && resolved.bytes != 0) ||
             (resolved.bytes != 0 && !utf8_validate(resolved).valid)) {
             reset_value<Utf8View>(&resolved);
         }
     }
+    if (entity_kind == MessageMarkdownEntityKind::role && id && parser->options && parser->options->resolve_entity &&
+        resolved.bytes == 0)
+        return emit_unknown_role(parser, tag_end);
     const bool use_resolved = resolved.bytes != 0 && output_available(*parser, resolved.bytes + 1);
     if (!emit_byte(parser, sigil, style) ||
         !(use_resolved ? emit_view(parser, resolved, style)
                        : emit_range(parser, digits_begin, digits_end, style))) {
         return false;
     }
-    append_semantic(parser, semantic_kind, id, display_begin, parser->output_bytes - display_begin,
-                    tag_begin, tag_end + 1 - tag_begin);
+    if (id)
+        append_semantic(parser, semantic_kind, id, display_begin, parser->output_bytes - display_begin,
+                        tag_begin, tag_end + 1 - tag_begin);
     parser->input_offset = tag_end + 1;
     return true;
 }
@@ -1195,15 +1203,15 @@ bool command_mention_name(Utf8View input, u32 begin, u32 end) noexcept {
 
 // <@$id>: a game mention chip, the official client's mention with the game's
 // icon (an em, 3 px before the name) and its name, "unknown-game" while the
-// game is unknown. Surfaces without chips (resolve_channel unset) read
-// "@name".
+// game is unknown or the id is 0 (an id that names nothing). Surfaces without
+// chips (resolve_channel unset) read "@name".
 bool emit_game_mention(Parser* parser, u64 id, u32 begin, u32 end) noexcept {
     const MessageMarkdownOptions* options = parser->options;
     parser->input_offset = end + 1;
     if (options && options->preserve_entities)
         return emit_range(parser, begin, end + 1, text_style_mention);
     Utf8View name{};
-    if (options && options->resolve_entity) {
+    if (id && options && options->resolve_entity) {
         name = options->resolve_entity(options->context, MessageMarkdownEntityKind::game, id);
         if (!chip_view_valid(name) || !output_available(*parser, name.bytes + 8))
             reset_value<Utf8View>(&name);
@@ -1246,12 +1254,15 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
     if (*matched) {
         return true;
     }
-    u64 game_id = 0;
+    // Game, user, role, channel and command tags take any digits (\d+), as in the official client. An id of 0 or
+    // past 64 bits names nothing.
+    u64 id = 0;
     if (begin + 3 < end && parser->input.data[begin + 1] == '@' && parser->input.data[begin + 2] == '$' &&
-        decimal_range(parser->input, begin + 3, end) && decimal_u64(parser->input, begin + 3, end, &game_id) &&
-        game_id != 0) {
+        tag_digits(parser->input, begin + 3, end)) {
         *matched = true;
-        return emit_game_mention(parser, game_id, begin, end);
+        if (!decimal_u64(parser->input, begin + 3, end, &id))
+            id = 0;
+        return emit_game_mention(parser, id, begin, end);
     }
     if (begin + 2 < end && parser->input.data[begin + 1] == '@') {
         u32 digits = begin + 2;
@@ -1264,26 +1275,33 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             entity_kind = MessageMarkdownEntityKind::role;
             semantic_kind = MessageMarkdownSemanticKind::role_mention;
         }
-        if (decimal_range(parser->input, digits, end)) {
+        if (tag_digits(parser->input, digits, end)) {
             *matched = true;
-            return emit_entity_tag(parser, entity_kind, semantic_kind, begin, digits, end, '@', end);
+            if (decimal_u64(parser->input, digits, end, &id) && id != 0)
+                return emit_entity_tag(parser, entity_kind, semantic_kind, begin, digits, end, '@', end, id);
+            // The official client keeps a user tag that names nothing as a mention of its own text, and shows a
+            // role that it cannot find as "@unknown-role" text.
+            if (entity_kind == MessageMarkdownEntityKind::role &&
+                !(parser->options && parser->options->preserve_entities))
+                return emit_unknown_role(parser, end);
+            parser->input_offset = end + 1;
+            return emit_range(parser, begin, end + 1, text_style_mention);
         }
     }
-    if (begin + 2 < end && parser->input.data[begin + 1] == '#' &&
-        decimal_range(parser->input, begin + 2, end)) {
+    // A channel id of 0 or past 64 bits names no channel: the unknown channel chip, as for any unknown id.
+    if (begin + 2 < end && parser->input.data[begin + 1] == '#' && tag_digits(parser->input, begin + 2, end)) {
+        if (!decimal_u64(parser->input, begin + 2, end, &id))
+            id = 0;
         *matched = true;
-        u64 channel_id = 0;
-        if (parser->options && parser->options->resolve_channel && !parser->options->preserve_entities &&
-            decimal_u64(parser->input, begin + 2, end, &channel_id) && channel_id) {
+        if (parser->options && parser->options->resolve_channel && !parser->options->preserve_entities) {
             ChipResult result{};
-            if (!emit_channel_chip(parser, MessageLink{0, channel_id, 0, end + 1 - begin}, false, begin, &result))
+            if (!emit_channel_chip(parser, MessageLink{0, id, 0, end + 1 - begin}, false, begin, &result))
                 return false;
             parser->input_offset = end + 1;
             return true;
         }
         return emit_entity_tag(parser, MessageMarkdownEntityKind::channel,
-                               MessageMarkdownSemanticKind::channel_mention, begin, begin + 2, end, '#',
-                               end);
+                               MessageMarkdownSemanticKind::channel_mention, begin, begin + 2, end, '#', end, id);
     }
     u32 name_begin = 0;
     if (begin + 4 < end && parser->input.data[begin + 1] == ':') {
@@ -1297,11 +1315,8 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
         while (separator < end && parser->input.data[separator] != ':') {
             ++separator;
         }
-        if (separator > name_begin && separator < end && decimal_range(parser->input, separator + 1, end)) {
-            u64 emoji_id = 0;
-            if (!decimal_u64(parser->input, separator + 1, end, &emoji_id) || emoji_id == 0) {
-                return true;
-            }
+        if (separator > name_begin && separator < end && decimal_u64(parser->input, separator + 1, end, &id) &&
+            id != 0) {
             *matched = true;
             const u32 display_begin = parser->output_bytes;
             if (parser->options && parser->options->profile_bio) {
@@ -1321,7 +1336,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             if (!emit_view(parser, utf8_literal("\xEF\xBF\xBC"), text_style_custom_emoji))
                 return false;
             const bool animated = parser->input.data[begin + 1] == 'a';
-            if (!append_semantic(parser, MessageMarkdownSemanticKind::custom_emoji, emoji_id, display_begin,
+            if (!append_semantic(parser, MessageMarkdownSemanticKind::custom_emoji, id, display_begin,
                                  3, begin, end + 1 - begin, animated ? 1u : 0u)) {
                 return false;
             }
@@ -1334,11 +1349,12 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
         while (separator > begin + 2 && parser->input.data[separator - 1] != ':') {
             --separator;
         }
-        u64 command_id = 0;
-        if (separator > begin + 2 && separator < end && decimal_range(parser->input, separator, end) &&
-            command_mention_name(parser->input, begin + 2, separator - 1) &&
-            decimal_u64(parser->input, separator, end, &command_id) && command_id != 0) {
+        if (separator > begin + 2 && separator < end && command_mention_name(parser->input, begin + 2, separator - 1) &&
+            tag_digits(parser->input, separator, end)) {
             *matched = true;
+            // A command id of 0 or past 64 bits still shows the chip, with the target 0.
+            if (!decimal_u64(parser->input, separator, end, &id))
+                id = 0;
             if (parser->options && parser->options->preserve_entities) {
                 parser->input_offset = end + 1;
                 return emit_range(parser, begin, end + 1, text_style_mention);
@@ -1351,7 +1367,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             if (!emit_byte(parser, '/', style) || !emit_range(parser, begin + 2, separator - 1, style)) {
                 return false;
             }
-            if (!bio && !append_semantic(parser, MessageMarkdownSemanticKind::command_mention, command_id,
+            if (!bio && !append_semantic(parser, MessageMarkdownSemanticKind::command_mention, id,
                                          display_begin, parser->output_bytes - display_begin, begin,
                                          end + 1 - begin)) {
                 return false;
@@ -1560,6 +1576,61 @@ bool message_markdown_attachment_link(Utf8View value, Utf8View* name) noexcept {
         return false;
     *name = {value.data + name_begin, name_end - name_begin};
     return true;
+}
+
+u32 message_markdown_mention_text(Utf8View source, MessageMarkdownResolveEntity resolve, void* context,
+                                  Slice<char> output) noexcept {
+    u32 used = 0, at = 0;
+    const auto add = [&](Utf8View text) noexcept {
+        used += utf8_copy_truncated(output.data + used, output.count - used, text);
+    };
+    while (at < source.bytes && used < output.count) {
+        if (source.data[at] == '<' && at + 2 < source.bytes &&
+            (source.data[at + 1] == '@' || source.data[at + 1] == '#')) {
+            const bool channel = source.data[at + 1] == '#';
+            u32 digits = at + 2;
+            const bool role = !channel && source.data[digits] == '&';
+            if (!channel && (role || source.data[digits] == '!'))
+                ++digits;
+            u32 end = digits;
+            while (end < source.bytes && ascii_is_digit(source.data[end]))
+                ++end;
+            // The parser's tag ends within 129 bytes of its '<' (try_emit_entity_tag).
+            if (end > digits && end < source.bytes && end - at <= 129 && source.data[end] == '>') {
+                u64 id = 0;
+                if (!decimal_u64(source, digits, end, &id))
+                    id = 0;
+                const MessageMarkdownEntityKind kind = channel ? MessageMarkdownEntityKind::channel
+                                                       : role  ? MessageMarkdownEntityKind::role
+                                                               : MessageMarkdownEntityKind::user;
+                Utf8View name = id && resolve ? resolve(context, kind, id) : Utf8View{};
+                if (!chip_view_valid(name))
+                    name = {};
+                if (name.bytes) {
+                    add(channel ? utf8_literal("#") : utf8_literal("@"));
+                    add(name);
+                } else if (channel) {
+                    add(utf8_literal("#unknown"));
+                } else if (role) {
+                    add(kUnknownRole);
+                } else if (end - digits >= 17 && end - digits <= 19) {
+                    add(utf8_literal("@unknown-user"));
+                } else {
+                    add({source.data + at, end + 1 - at});
+                }
+                at = end + 1;
+                continue;
+            }
+        }
+        const Utf8DecodeResult decoded = utf8_decode_one(source.data + at, source.bytes - at);
+        const u32 width = decoded.valid && decoded.width ? decoded.width : 1;
+        if (used + width > output.count)
+            break;
+        copy_bytes(output.data + used, source.data + at, width);
+        used += width;
+        at += width;
+    }
+    return used;
 }
 } // namespace maicord
 #pragma clang attribute pop

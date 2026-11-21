@@ -2,6 +2,7 @@
 
 #include "../../account/account_ui_runtime.hpp"
 #include "maicord/app/chat/messages/history_sync.hpp"
+#include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/virtual_memory.hpp"
@@ -35,6 +36,13 @@ inline constexpr u32 kMessageHistoryStickerCapacity =
     kMessageHistoryRequestLimit * kGatewayMessageStickerMaximum;
 inline constexpr u32 kMessageHistoryComponentCapacity =
     kMessageHistoryRequestLimit * kGatewayMessageComponentMaximum;
+// The largest page body, the cap that account_module_history_submit asks for: 25 messages at Discord's limits (4,000
+// characters of content, 6,000 of embeds, 10 attachments, and the same again for a replied message) are about 80 KB
+// each.
+inline constexpr u32 kMessageHistoryMaximumBodyBytes = kRestClientMaximumResponseBytes;
+// A page that outgrows the shared index and text arena decodes in the storage's own: an index of one entry for each
+// two body bytes and text of the body's size (decoded text is never longer than its JSON).
+inline constexpr u32 kMessageHistoryLargeStructuralCapacity = kMessageHistoryMaximumBodyBytes / 2 + 1;
 // The decode bank's pools, each in its own page-aligned region of HistoryDecodeStorage's reservation.
 enum class HistoryDecodePool : u32 {
     messages,
@@ -54,6 +62,8 @@ enum class HistoryDecodePool : u32 {
     snapshot_stickers,
     snapshot_components,
     snapshot_named_users,
+    structurals,
+    text,
     count,
 };
 static_assert(static_cast<u32>(HistoryDecodePool::count) == kHistoryDecodePoolCount);
@@ -80,6 +90,8 @@ inline constexpr HistoryDecodePoolShape kHistoryDecodePools[kHistoryDecodePoolCo
     {sizeof(GatewayMessageSticker), kMessageHistoryStickerCapacity},
     {sizeof(GatewayMessageComponent), kMessageHistoryComponentCapacity},
     {sizeof(GatewayMessageNamedUser), kMessageHistoryNamedUserCapacity},
+    {sizeof(u32), kMessageHistoryLargeStructuralCapacity},
+    {1, kMessageHistoryMaximumBodyBytes},
 };
 // The reserved bytes of a pool: its full capacity, rounded up to whole pages.
 constexpr u32 history_decode_pool_bytes(u32 pool) noexcept {
@@ -188,6 +200,8 @@ template <typename T> Slice<T> history_decode_pool_slice(const HistoryDecodeStor
 // needs is writable. Every pooled element but a member role is decoded from a JSON object of its own, so the body's
 // '{' count bounds each pool (plus one element a decoder may write before it rejects a value); role IDs are strings,
 // so that pool commits whole. Each slice ends at its committed elements: a decode cannot reach an uncommitted page.
+// A body larger than the shared index and text arena gets the storage's large index and text until
+// application_message_decode_release_large.
 inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHistoryDecodeScratch* output,
                                                const Utf8View& body = {}) noexcept {
     HistoryDecodeStorage& storage = ui.history_decode_storage;
@@ -198,7 +212,7 @@ inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHist
     const bool polls = (shape.optional & 1) != 0;
     const u32 bound = shape.objects + 1;
     u32 counts[kHistoryDecodePoolCount]{};
-    for (u32 pool = 0; pool < kHistoryDecodePoolCount; ++pool) {
+    for (u32 pool = 0; pool < static_cast<u32>(HistoryDecodePool::structurals); ++pool) {
         const bool needed = pool >= static_cast<u32>(HistoryDecodePool::snapshot_attachments) ? snapshot
                             : pool >= static_cast<u32>(HistoryDecodePool::poll_answers)    ? polls
                                                                                             : true;
@@ -210,11 +224,25 @@ inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHist
         if (!counts[pool])
             return false;
     }
+    Slice<u32> structurals{ui.message_history_page_structurals, kMessageHistoryPageStructuralCount};
+    Slice<char> text{reinterpret_cast<char*>(ui.event_payload_scratch), kGatewayClientDispatchPayloadCapacity};
+    const u32 entries = body.bytes / 2 + 1;
+    if (entries > structurals.count || body.bytes > text.count) {
+        constexpr u32 index_pool = static_cast<u32>(HistoryDecodePool::structurals);
+        constexpr u32 text_pool = static_cast<u32>(HistoryDecodePool::text);
+        if (history_decode_pool_reserve(storage, index_pool, entries) < entries ||
+            history_decode_pool_reserve(storage, text_pool, body.bytes) < body.bytes)
+            return false;
+        structurals = {reinterpret_cast<u32*>(storage.base + history_decode_pool_offset(index_pool)),
+                       storage.committed[index_pool] / u32{sizeof(u32)}};
+        text = {reinterpret_cast<char*>(storage.base + history_decode_pool_offset(text_pool)),
+                storage.committed[text_pool]};
+    }
     using P = HistoryDecodePool;
     const HistoryDecodeStorage& s = storage;
     *output = MessageHistoryDecodeScratch{
-        {ui.message_history_page_structurals, kMessageHistoryPageStructuralCount},
-        {reinterpret_cast<char*>(ui.event_payload_scratch), kGatewayClientDispatchPayloadCapacity},
+        structurals,
+        text,
         history_decode_pool_slice<GatewayMessageEvent>(s, counts, P::messages),
         history_decode_pool_slice<GatewayMessageNamedUser>(s, counts, P::named_users),
         {history_decode_pool_slice<GatewayMessageReaction>(s, counts, P::reactions),
@@ -234,6 +262,20 @@ inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHist
           history_decode_pool_slice<GatewayMessagePollAnswerCount>(s, counts, P::poll_counts)}},
         64};
     return true;
+}
+
+// Decommits the large index and text that a long body committed. Call it when the body's decode, and every copy of
+// its text, are done.
+inline void application_message_decode_release_large(AccountUiRuntime& ui) noexcept {
+    HistoryDecodeStorage& storage = ui.history_decode_storage;
+    for (u32 pool = static_cast<u32>(HistoryDecodePool::structurals); pool < kHistoryDecodePoolCount; ++pool) {
+        const u32 bytes = storage.committed[pool];
+        if (!bytes)
+            continue;
+        pages_decommit(storage.base + history_decode_pool_offset(pool), bytes);
+        arena_account_add(ArenaTag::storage, 0, 0, -i64{bytes});
+        storage.committed[pool] = 0;
+    }
 }
 
 // Publishes the polls of one decoded history page. A poll that the Gateway changed after the request stays.

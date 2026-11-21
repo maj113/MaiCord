@@ -107,6 +107,10 @@ inline bool apply_response(u32 body_bytes) noexcept {
                 static_cast<u64>(updated.error));
         g_app.message_pump.resync_required = true;
     } else {
+        // The edited text can name users that only this response carries, as a send response or history page can.
+        auto& ui = *g_app.account_ui;
+        if (!message_history_observe_page(&ui.user_store, &ui.guild_member_store, &ui.chat_state, {&message, 1}))
+            g_app.message_pump.resync_required = true;
         const auto* resident = message_store_resolve(g_app.message_view.store, updated.handle);
         if (!resident || !rich_owned ||
             !message_rich_store_apply(&g_app.account_ui->message_rich_store, edit.message_id,

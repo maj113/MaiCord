@@ -20,13 +20,17 @@ RestClientSubmitResult account_pinned_messages_submit(
         return {written.error == MessagePinsWriteError::output_capacity
                     ? RestClientSubmitError::target_capacity
                     : RestClientSubmitError::invalid_input};
-    return rest_client_submit(
-        rest, {target, written.bytes}, {},
+    const RestClientRequest submitted{{target, written.bytes}, {},
         {fetch ? kMessagePinsRouteId : kMessagePinRouteId,
          request->query.channel_id,
          fetch ? RestMethod::get : pin ? RestMethod::put : RestMethod::delete_method,
          RestMajorParameter::channel},
-        request_id, false);
+        request_id, kRestClientDefaultTimeoutMs, false};
+    // A page of 25 messages with long embeds and the messages they reply to is about 0.5 MB. Discord's limits
+    // (4,000 characters of content, 6,000 of embeds, 10 attachments, and the same again for a replied message) allow
+    // about 80 KB a message.
+    return fetch ? rest_client_submit_large_response(rest, submitted, kRestClientMaximumResponseBytes)
+                 : rest_client_submit(rest, submitted);
 }
 
 } // namespace maicord

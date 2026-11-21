@@ -423,8 +423,11 @@ void retention_close(ApplicationNotifications& n,DesktopNotificationActivation t
 #endif
     if(n.enrolled) transport_error(n,desktop_notifications_remove_message(&n.native,target));
 }
+// The message's server names its roles, as in the official client.
+struct EntityScope { Application* app; u64 guild_id; };
 Utf8View entity(void* context,MessageMarkdownEntityKind kind,u64 id) noexcept {
-    auto& a=*static_cast<Application*>(context);
+    const auto& scope=*static_cast<const EntityScope*>(context);
+    auto& a=*scope.app;
     if(!a.account_ui) return {};
     auto& ui=*a.account_ui;
     if(kind==MessageMarkdownEntityKind::user) {
@@ -436,17 +439,22 @@ Utf8View entity(void* context,MessageMarkdownEntityKind kind,u64 id) noexcept {
         return channel?chat_state_store_channel_name(ui.chat_state,*channel):Utf8View{};
     }
     if(kind==MessageMarkdownEntityKind::game&&a.renderer.game_store) return game_store_name(*a.renderer.game_store,id);
+    if(kind==MessageMarkdownEntityKind::role) {
+        const auto* role=chat_state_store_find_role(ui.chat_state,scope.guild_id,id);
+        return role?chat_state_store_role_name(ui.chat_state,*role):Utf8View{};
+    }
     return {};
 }
 bool contains_nul(Utf8View text) noexcept { for(u32 i=0;i<text.bytes;++i) if(!text.data[i]) return true; return false; }
-Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexcept {
+Utf8View preview(Application& a,u64 guild_id,Utf8View source,char* output,u32 capacity) noexcept {
     if(contains_nul(source)) return {};
     if(!source.bytes) return utf8_literal("New message");
     // The initial text is limited to a short message. Oversized or malformed
     // previews use a placeholder label, never a raw or truncated spoiler body.
     if(source.bytes>768) return utf8_literal("New message");
     char text[1024]; u32 styles[1024]; TextStyleSpan spans[64];
-    MessageMarkdownOptions options{}; options.context=&a; options.resolve_entity=entity;
+    EntityScope scope{&a,guild_id};
+    MessageMarkdownOptions options{}; options.context=&scope; options.resolve_entity=entity;
     const auto parsed=message_markdown_parse(source,{text,1024},{styles,1024},{spans,64},options,{});
     if(!parsed.ok()) return utf8_literal("New message");
     u32 used{}; bool hidden=false;
@@ -503,7 +511,8 @@ void speak(Application& a,const ApplicationNotifications& n,const GatewayClientE
     Utf8View source=message.content;
     if(source.bytes>768) source.bytes=utf8_truncated_length(source,768);
     char text[1024]; u32 styles[1024]; TextStyleSpan spans[64];
-    MessageMarkdownOptions options{}; options.context=&a; options.resolve_entity=entity;
+    EntityScope scope{&a,channel.guild_id};
+    MessageMarkdownOptions options{}; options.context=&scope; options.resolve_entity=entity;
     const auto parsed=message_markdown_parse(source,{text,1024},{styles,1024},{spans,64},options,{});
     const Utf8View body=parsed.ok()?parsed.text:source;
     // The plain message decode has no referenced message: the rich header carries its author.
@@ -1366,11 +1375,12 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     if(outputs.selected_sound) sound_submit(n,2,n.audio_epoch);
     if(!outputs.ordinary) return;
     Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) return;
-    if(!author.bytes) author=entity(a,MessageMarkdownEntityKind::user,message.author_id);
+    EntityScope scope{a,channel->guild_id};
+    if(!author.bytes) author=entity(&scope,MessageMarkdownEntityKind::user,message.author_id);
     if(contains_nul(author)) reset_value(&author);
     if(author.bytes>256) author=utf8_literal("New message");
     char body[1024];
-    const Utf8View text=preview(*a,message.content,body,sizeof(body));
+    const Utf8View text=preview(*a,channel->guild_id,message.content,body,sizeof(body));
     // The title and body are projected before the ordinary sound branch: an invalid author projection must
     // not produce that sound (the selected message3 has already been handled).
     if(outputs.sound==NotificationMessageSoundRoute::direct) sound_submit(n,1,n.audio_epoch);

@@ -5,6 +5,7 @@
 #include "../../src/render/d3d11/renderer_layout.hpp"
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/ui/chat/messages/component_layout.hpp"
+#include "maicord/render/text/content_text_retention.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 
 namespace maicord {
@@ -209,6 +210,210 @@ inline bool message_components_ui_probe(D3D11Renderer& renderer, MessageViewRunt
         if (go_ink < 20)
             return false;
     }
+    stage = 0;
+    return true;
+}
+
+// Two bot messages as Aethor sent them in 2021 and 2022, below a member's message: "Epic roles" over a string select
+// whose options carry descriptions and emoji, and an embed (green bar, title and description "smp") over a primary
+// "smp role" button. Every message draws its text, the select is a box of at most 400 DIP with its placeholder, the
+// button hugs its label and the embed hugs its text. Writes legacy-components.bmp and legacy-components-125.bmp when
+// MAICORD_UI_PROBE_CAPTURE_DIR names a directory, before the checks: a rejected text build draws the shell text
+// only, as the client does.
+inline bool legacy_components_ui_probe(D3D11Renderer& renderer, MessageViewRuntime& view, MessageRichStore& rich,
+                                       MessageScene& scene, UserStore& users, bool (*rebuild_model)() noexcept,
+                                       bool (*synchronize)() noexcept) noexcept {
+    using namespace surface_motion_probe_detail;
+    using namespace message_components_probe_detail;
+    u32 stage = 1;
+    struct Failure {
+        u32& stage;
+        ~Failure() noexcept {
+            if (stage)
+                log_u64(LogLevel::error, "probe", "legacy_components_failure_stage", stage);
+        }
+    } failure{stage};
+    if (!rebuild_model || !synchronize || renderer.message_scene != &scene)
+        return false;
+    constexpr u64 earlier = 878'216'793'292'800'000ull, select = 878'344'074'048'962'570ull,
+                  embed = 983'748'187'258'880'000ull, member = 1'000, bot = 1'001;
+    const MessageInput inputs[]{
+        {earlier, 111, member, snowflake_timestamp_ms(earlier), 0, utf8_literal("Earlier text"), 0},
+        {select, 111, bot, snowflake_timestamp_ms(select), 0, utf8_literal("Epic roles"), 0},
+        {embed, 111, bot, snowflake_timestamp_ms(embed), 0, Utf8View{}, 0},
+    };
+    if (!message_timeline_reset(&view.timeline) || !user_store_upsert(&users, member, utf8_literal("Member")).ok() ||
+        !user_store_upsert(&users, bot, utf8_literal("Aethor")).ok())
+        return false;
+    for (const MessageInput& input : inputs)
+        if (!message_store_upsert(&view.store, input).ok())
+            return false;
+    // The decoder's shape: an option keeps its value in custom_id and its description in content.
+    GatewayMessageComponent roles[5]{};
+    roles[0].type = gateway_component_action_row;
+    roles[0].parent = 0xFFFFu;
+    roles[1].type = gateway_component_string_select;
+    roles[1].parent = 0;
+    roles[1].custom_id = utf8_literal("roles");
+    roles[1].content = utf8_literal("Choose a role");
+    roles[1].max_values = 3;
+    const Utf8View labels[]{utf8_literal("Red"), utf8_literal("Blue"), utf8_literal("Green")};
+    const Utf8View values[]{utf8_literal("1"), utf8_literal("2"), utf8_literal("3")};
+    const Utf8View descriptions[]{utf8_literal("The red role"), utf8_literal("The blue role"), Utf8View{}};
+    for (u16 i = 0; i < 3; ++i) {
+        GatewayMessageComponent& option = roles[2 + i];
+        option.type = gateway_component_select_option;
+        option.parent = 1;
+        option.order = i;
+        option.label = labels[i];
+        option.custom_id = values[i];
+        option.content = descriptions[i];
+    }
+    roles[2].emoji_name = utf8_literal("\xF0\x9F\x94\xB4"); // U+1F534
+    roles[3].emoji_id = 878'344'074'048'962'571ull;
+    roles[3].emoji_name = utf8_literal("blue");
+    GatewayMessageComponent button[2]{};
+    button[0].type = gateway_component_action_row;
+    button[0].parent = 0xFFFFu;
+    button[1].type = gateway_component_button;
+    button[1].parent = 0;
+    button[1].style = 1;
+    button[1].label = utf8_literal("smp role");
+    button[1].custom_id = utf8_literal("smp");
+    GatewayMessageEmbed card{};
+    card.type = GatewayMessageEmbedType::rich;
+    card.title = card.description = utf8_literal("smp");
+    card.has_title = card.has_color = true;
+    card.color = 0x2ECC71;
+    GatewayMessageEvent events[2]{};
+    events[0].id = select;
+    events[0].fields = gateway_message_field_components;
+    events[0].components = {roles, 5};
+    events[1].id = embed;
+    events[1].fields = gateway_message_field_components | gateway_message_field_embeds;
+    events[1].components = {button, 2};
+    events[1].embeds = {&card, 1};
+    for (const GatewayMessageEvent& event : events) {
+        const auto found = message_store_find(view.store, event.id);
+        const auto* record = found.ok() ? message_store_resolve(view.store, found.handle) : nullptr;
+        if (!record || !message_rich_store_apply(&rich, event.id, record->revision, event).ok())
+            return false;
+    }
+    if (!message_view_runtime_reindex(&view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true).ok() ||
+        !message_view_runtime_bind_rich_store(&view, &rich).ok() || !message_timeline_set_scroll(&view.timeline, 0, false))
+        return false;
+    Readback readback{};
+    if (!readback.initialize(renderer))
+        return false;
+    struct Dpi {
+        D3D11Renderer& renderer;
+        bool (*synchronize)() noexcept;
+        ~Dpi() noexcept {
+            if (renderer.dpi != 96) {
+                renderer_set_dpi(&renderer, 96);
+                synchronize();
+            }
+        }
+    } dpi{renderer, synchronize};
+    const wchar_t* captures[]{L"legacy-components.bmp", L"legacy-components-125.bmp"};
+    constexpr u32 dpis[]{96, 120};
+    bool rejected = false;
+    for (u32 pass = 0; pass < 2; ++pass) {
+        stage = 2 + pass * 10;
+        if (renderer.dpi != dpis[pass]) {
+            renderer_set_dpi(&renderer, dpis[pass]);
+            if (!synchronize())
+                return false;
+        }
+        const bool built = rebuild_model() && rebuild_model();
+        content_text_retention_invalidate(&renderer.content_text_retention);
+        renderer.retained_presentation.valid = false;
+        const float clear[]{kDefaultTheme.base_lowest.red, kDefaultTheme.base_lowest.green,
+                            kDefaultTheme.base_lowest.blue, 1.f};
+        if (!(built ? renderer_rebuild_content_text(&renderer, kDefaultTheme)
+                    : renderer_rebuild_shell_text(&renderer, kDefaultTheme)) ||
+            !d3d11_renderer_paint_layout(&renderer, kDefaultTheme,
+                                         renderer_capture_presentation_stamp(renderer, kDefaultTheme)))
+            return false;
+        renderer.graphics.context->ClearRenderTargetView(renderer.graphics.surface.target, clear);
+        if (!d3d11_renderer_draw_stream(&renderer, kDefaultTheme, false, false, nullptr, 10000) ||
+            !readback.read(renderer, pass) || !readback.capture(pass, captures[pass]))
+            return false;
+        stage = 3 + pass * 10;
+        if (!built) {
+            rejected = true;
+            continue;
+        }
+        // Every message's text is in the drawn projection; option descriptions are not.
+        const MessageTextPresentation* text = renderer.message_text;
+        u32 found = 0;
+        for (u32 i = 0; text && i < text->command_count; ++i) {
+            const MessageTextCommand& command = text->commands[i];
+            found |= (command.message_id == earlier && utf8_equal(command.text, utf8_literal("Earlier text")) ? 1u : 0u) |
+                     (command.message_id == select && utf8_equal(command.text, utf8_literal("Epic roles")) ? 2u : 0u) |
+                     (command.message_id == select && utf8_equal(command.text, utf8_literal("Choose a role")) ? 4u : 0u) |
+                     (command.message_id == embed && utf8_equal(command.text, utf8_literal("smp role")) ? 8u : 0u) |
+                     (command.message_id == embed && utf8_equal(command.text, utf8_literal("smp")) ? 16u : 0u) |
+                     (utf8_equal(command.text, utf8_literal("The red role")) ? 32u : 0u);
+        }
+        log_u64(LogLevel::info, "probe", "legacy_components_text_mask", found);
+        if (found != 31u)
+            return false;
+        const MessageSceneRowWidget* select_row = nullptr;
+        const MessageSceneRowWidget* embed_row = nullptr;
+        for (u32 i = 0; i < scene.count; ++i) {
+            if (scene.rows[i].message_id == select)
+                select_row = &scene.rows[i];
+            if (scene.rows[i].message_id == embed)
+                embed_row = &scene.rows[i];
+        }
+        const UiLayoutNode* menu =
+            select_row ? message_scene_rich_item_layout_node(scene, *select_row, MessageSceneRichItemKind::component, 1)
+                       : nullptr;
+        const UiLayoutNode* control =
+            embed_row ? message_scene_rich_item_layout_node(scene, *embed_row, MessageSceneRichItemKind::component, 1)
+                      : nullptr;
+        const UiLayoutNode* lane = select_row ? message_scene_layout_node(scene, select_row->components) : nullptr;
+        stage = 4 + pass * 10;
+        if (!menu || !control || !lane ||
+            !ui_rect_equal(ui_rect_intersection(menu->rectangle, scene.viewport), menu->rectangle) ||
+            !ui_rect_equal(ui_rect_intersection(control->rectangle, scene.viewport), control->rectangle))
+            return false;
+        const UiRect m = menu->rectangle, b = control->rectangle;
+        const float embed_width = embed_row->rich_item_layout.embed_widths[0];
+        log_u64(LogLevel::info, "probe", "legacy_components_select_width", static_cast<u64>(ui_rect_width(m)));
+        log_u64(LogLevel::info, "probe", "legacy_components_button_width", static_cast<u64>(ui_rect_width(b)));
+        log_u64(LogLevel::info, "probe", "legacy_components_embed_width", static_cast<u64>(embed_width));
+        log_u64(LogLevel::info, "probe", "legacy_components_lane_width",
+                static_cast<u64>(ui_rect_width(lane->content_rectangle)));
+        // The select is at most 400 wide and fills most of a narrower lane (this pane's is 320 DIP). The estimate
+        // keeps a container's padding off the lane, so it is up to 32 DIP narrower there.
+        const float select_width = ui_rect_width(m), lane_width = ui_rect_width(lane->content_rectangle);
+        stage = 5 + pass * 10;
+        if (select_width > minimum(kMessageComponentSelectMaximumWidth, lane_width) ||
+            select_width < minimum(kMessageComponentSelectMaximumWidth, lane_width - 2 * kMessageComponentPadding) ||
+            ui_rect_height(m) != kMessageComponentSelectHeight || ui_rect_width(b) > 120.f ||
+            !(embed_width > 0.f) || embed_width > 200.f)
+            return false;
+        // Ink of the placeholder at the select's start and of the label inside the button, each against its own
+        // fill: the select's beside the chevron lane, the button's at its start.
+        const float scale = static_cast<float>(renderer.dpi) / 96.f;
+        const float middle_m = (m.top + m.bottom) * .5f, middle_b = (b.top + b.bottom) * .5f;
+        const u32 placeholder =
+            ink(readback, pass, {m.left + kMessageComponentSelectPadding, m.top + 8.f, m.left + 120.f, m.bottom - 8.f},
+                {m.right - kMessageComponentSelectIconLane - 20.f, middle_m}, scale, 40);
+        const u32 label = ink(readback, pass, {b.left + kMessageComponentButtonPadding, b.top + 6.f,
+                                               b.right - kMessageComponentButtonPadding, b.bottom - 6.f},
+                              {b.left + 4.f, middle_b}, scale, 60);
+        log_u64(LogLevel::info, "probe", "legacy_components_placeholder_ink_pixels", placeholder);
+        log_u64(LogLevel::info, "probe", "legacy_components_button_label_ink_pixels", label);
+        stage = 6 + pass * 10;
+        if (placeholder < 20 || label < 20)
+            return false;
+    }
+    stage = 3;
+    if (rejected)
+        return false;
     stage = 0;
     return true;
 }

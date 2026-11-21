@@ -581,7 +581,8 @@ void test_command_mentions(Check check) noexcept {
               (styles[4] & text_style_mention) && (styles[22] & text_style_mention),
           "composer mentions: editors keep command mention source intact");
     options = {};
-    result = message_markdown_parse(utf8_literal("</a b c d:1> </bad!:2> </x:0>"), {output, sizeof(output)},
+    // </x:0> is a command mention of the official client (any digits); link_chips checks it.
+    result = message_markdown_parse(utf8_literal("</a b c d:1> </bad!:2> </x:>"), {output, sizeof(output)},
                                     {styles, sizeof(styles) / 4}, {spans, 32}, options, {semantics, 8});
     check(result.ok() && result.semantic_count == 0, "composer mentions: malformed command mentions stay text");
     options.profile_bio = true;

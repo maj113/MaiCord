@@ -112,4 +112,15 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
     return UiTextMeasureResult{UiTextMeasureError::none, false};
 }
 
+bool ui_text_measure_failure_log_due(UiTextMeasureFailureLog* log, const UiTextMeasureKey& key) noexcept {
+    for (u32 index = 0; index < log->count; ++index)
+        if (log->sources[index] == key.source_id && log->revisions[index] == key.source_revision)
+            return false;
+    if (log->count == kUiTextMeasureFailureLogEntries)
+        return false;
+    log->sources[log->count] = key.source_id;
+    log->revisions[log->count++] = key.source_revision;
+    return true;
+}
+
 } // namespace maicord

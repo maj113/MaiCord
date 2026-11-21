@@ -71,6 +71,18 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
                                                   const UiTextMeasureRequest& request,
                                                   UiTextMeasureValue* value) noexcept;
 
+// Which failed measurements the text system logs. Each source revision (a message revision) logs once, and at most
+// kUiTextMeasureFailureLogEntries of them log until the owner empties the log after a run without failures. A text
+// that never measures then writes one line, not one line for each retry.
+inline constexpr u32 kUiTextMeasureFailureLogEntries = 16;
+struct UiTextMeasureFailureLog {
+    u64 sources[kUiTextMeasureFailureLogEntries];
+    u32 revisions[kUiTextMeasureFailureLogEntries];
+    u32 count;
+};
+// True for the first failure of a source revision since the log was emptied; it then records the revision.
+bool ui_text_measure_failure_log_due(UiTextMeasureFailureLog* log, const UiTextMeasureKey& key) noexcept;
+
 static_assert(sizeof(UiTextMeasureKey) == 24);
 static_assert(sizeof(UiTextMeasureValue) == 12);
 static_assert(sizeof(UiTextMeasureRecord) == 64);

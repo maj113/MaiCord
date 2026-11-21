@@ -381,8 +381,15 @@ RestClientSubmitResult account_module_history_submit(void* instance, u64 channel
         return kInvalidSubmit;
     u8 target[128];
     const auto written = write_message_history_target(channel_id, *query, {target, sizeof(target)});
-    return submit_channel_target(rest, written.ok(), target, written.bytes, kMessageHistoryRouteId, channel_id,
-                                 RestMethod::get, request_id);
+    if (!written.ok())
+        return kInvalidSubmit;
+    // A page of 25 long messages, each replying to one like it, passes the configured 256 KiB response. Discord's
+    // limits allow about 80 KB a message, so a page may hold kRestClientMaximumResponseBytes.
+    return rest_client_submit_large_response(
+        rest,
+        {{target, written.bytes}, {}, {kMessageHistoryRouteId, channel_id, RestMethod::get, RestMajorParameter::channel},
+         request_id, kRestClientDefaultTimeoutMs, false},
+        kRestClientMaximumResponseBytes);
 }
 
 AccountUploadResult account_module_upload(void* instance, AccountUploadOperation operation, u64 id,

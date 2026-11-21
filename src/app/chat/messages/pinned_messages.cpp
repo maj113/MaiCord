@@ -14,6 +14,7 @@
 #include "../composer/text_form.hpp"
 #include "../../net/rest_rate_retry.hpp"
 #include "maicord/app/chat/messages/pinned_message_controller.hpp"
+#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/text_bank.hpp"
@@ -424,7 +425,15 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
                 decoded = decode_message_pins_page(body, submitted.payload.query, scratch.page_structurals,
                     scratch.maximum_depth, scratch.content,
                     {value->decoded, kMessagePinsPageLimit}, scratch.mention_users, scratch.rich);
-                if (decoded.ok()) completion.kind = PinnedMessageCompletionKind::success;
+                if (decoded.ok()) {
+                    completion.kind = PinnedMessageCompletionKind::success;
+                    // The pins' authors and the users that they name join the user cache, as a history page's do.
+                    auto& ui = *g_app.account_ui;
+                    for (u32 at = 0; at < decoded.page.count; ++at)
+                        if (!message_history_observe_page(&ui.user_store, &ui.guild_member_store, &ui.chat_state,
+                                                          {&value->decoded[at].message, 1}))
+                            log_u64(LogLevel::warning, "message", "pinned_users_observe_failed", at);
+                }
             }
         }
     }

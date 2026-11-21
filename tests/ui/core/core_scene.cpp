@@ -1398,6 +1398,27 @@ void test_text_measure_cache() noexcept {
                fixture.calls == calls_before_reinitialize + 1,
            "text_measure_cache_reinitialize_discards_resident_generation");
 
+    // A text that keeps failing logs once: other commands of the same message revision add no line, a new revision
+    // or message adds one, at most 16 log before the owner empties the log, and an emptied log logs again.
+    UiTextMeasureFailureLog failure_log{};
+    const UiTextMeasureKey failing_key{900, 11, 1, 2, 1};
+    const UiTextMeasureKey same_message_key{900, 12, 1, 3, 1};
+    const UiTextMeasureKey next_revision_key{900, 11, 2, 2, 1};
+    u32 failure_lines = 0;
+    for (u32 retry = 0; retry < 3600; ++retry)
+        failure_lines += ui_text_measure_failure_log_due(&failure_log, failing_key) ? 1u : 0u;
+    failure_lines += ui_text_measure_failure_log_due(&failure_log, same_message_key) ? 1u : 0u;
+    failure_lines += ui_text_measure_failure_log_due(&failure_log, next_revision_key) ? 1u : 0u;
+    expect(failure_lines == 2 && failure_log.count == 2, "text_measure_failure_logs_once_for_each_message_revision");
+    for (u32 source = 0; source < 40; ++source)
+        failure_lines += ui_text_measure_failure_log_due(&failure_log, {1'000u + source, 1, 1, 0, 1}) ? 1u : 0u;
+    expect(failure_lines == kUiTextMeasureFailureLogEntries && failure_log.count == kUiTextMeasureFailureLogEntries,
+           "text_measure_failure_log_is_bounded_until_emptied");
+    failure_log.count = 0;
+    expect(ui_text_measure_failure_log_due(&failure_log, failing_key) &&
+               !ui_text_measure_failure_log_due(&failure_log, failing_key),
+           "text_measure_failure_logs_again_after_a_build_without_failures");
+
     MessageTextCommand commands[2]{};
     char utf8[8]{};
     TextStyleSpan styles[1]{};
@@ -1462,11 +1483,21 @@ void test_text_measure_cache() noexcept {
     const float aggregate_before_failure = measurements[0].content_height;
     commands[1].text = utf8_literal("!failure");
     ++commands[1].message_revision;
-    expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+    expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+               !measurement_changed && presentation.measure_failures == 1 && commands[1].text.bytes == 0 &&
                commands[0].measured_height == reply_before_failure &&
                commands[1].measured_height == content_before_failure &&
                measurements[0].content_height == aggregate_before_failure,
-           "message_text_measure_backend_failure_is_presentation_atomic");
+           "message_text_measure_backend_failure_keeps_the_last_size_and_drops_the_text");
+    commands[0].text = utf8_literal("!reply");
+    ++commands[0].message_revision;
+    commands[1].text = utf8_literal("!failure");
+    expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+               presentation.measure_failures == 2 &&
+               presentation.last_error == MessageTextPresentationError::measurement,
+           "message_text_measure_rejects_a_backend_that_measures_no_command");
+    commands[0].text = utf8_literal("reply");
+    --commands[0].message_revision;
 
     // Supplied identities and zero-identity content hashing both invalidate
     // changed text without requiring a new message revision.

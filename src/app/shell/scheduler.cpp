@@ -129,7 +129,7 @@ u64 application_next_wake_at_ms() noexcept {
     add(application_stage_next_wake(details_idle));
     add(application_soundboard_next_wake(details_idle));
     add(application_notifications_next_wake(&g_app));
-    if (!application_thread_browser_read_blocked())
+    if (!application_thread_browser_active())
         add(media_url_next_wake(g_app.media_urls));
     if (g_app.account_ui) {
         add(application_account_text_retry_wake());
@@ -161,7 +161,7 @@ u64 application_next_wake_at_ms() noexcept {
     add(g_app.member_list_subscription.retry_at_ms);
     add(g_app.thread_member_list_subscription.retry_at_ms);
     add(reaction_viewer_controller_next_wake_at(g_app.reaction_viewer_controller));
-    if (!application_thread_browser_read_blocked())
+    if (!application_thread_browser_active())
         add(g_app.message_media.retry_at_ms);
     return wake_at;
 }
@@ -257,7 +257,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     }
     // The scan is the running account's (the pump clears it only with an account); signed out, a flag left by start-up
     // settings would otherwise hold every wait at zero.
-    if (account_running && g_app.message_media.scan_pending && !application_thread_browser_read_blocked())
+    if (account_running && g_app.message_media.scan_pending && !application_thread_browser_active())
         timeout = 0;
     limit_timeout(timeout, now_ms, downloads_or_visual);
     if (!frame_clock_armed) {
@@ -346,7 +346,7 @@ bool application_nonvisual_wake_due(u64 now_ms) noexcept {
         return deadline_due(now_ms, application_account_logout_next_wake());
     const AccountHost& host = g_app.account;
     return host.instance && !host.stop_failed &&
-           ((g_app.message_media.scan_pending && !application_thread_browser_read_blocked()) ||
+           ((g_app.message_media.scan_pending && !application_thread_browser_active()) ||
             account_host_wake_due(&host, now_ms) || deadline_due(now_ms, application_next_wake_at_ms()));
 }
 Waitable application_draft_save_notification() noexcept {

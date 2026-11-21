@@ -24,12 +24,14 @@ struct RestCapture {
     RestRouteKey route{};
     u64 request_id{}, active_id{};
     u32 submissions{}, cancellations{}, target_bytes{}, body_bytes{};
+    // The response capacity of a rest_client_submit_large_response submission; 0 for the others.
+    u32 response_capacity{};
     u8 target[kRestClientMaximumTargetBytes]{};
     u8 body[kRestClientMaximumRequestBodyBytes]{};
     bool safe{}, json{}, published{};
     RestClientSubmitError error{};
 };
-// Submissions record into capture and answer capture.error. A cancellation
+// Submissions (also rest_client_submit_large_response) record into capture and answer capture.error. A cancellation
 // claims active_id unless published, which a request already answered keeps.
 // A request that breaks the ordinary shape (other timeout,
 // a body without JSON, oversize) clears capture.safe and is refused.

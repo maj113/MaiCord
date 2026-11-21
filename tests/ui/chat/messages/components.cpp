@@ -269,4 +269,179 @@ void test_message_component_buttons(void (*check)(bool, const char*) noexcept) n
     paint_stream_release(&f.paint);
     message_scene_release(&f.scene);
 }
+
+namespace {
+constexpr u32 kLegacyRows = 3;
+constexpr u32 kLegacyWidgets = (kMessageSceneWidgetsPerRow + 1) * kLegacyRows;
+struct LegacyFixture {
+    MessageRecord record[kLegacyRows]; u32 order[kLegacyRows]; u8 text[1024];
+    MessageRichRecord rich_record[kLegacyRows]; u16 rich_order[kLegacyRows]; u8 rich_text[8192];
+    u32 heights[kLegacyRows]; u64 fenwick[kLegacyRows];
+    UiWidget widget[kLegacyWidgets]; UiLayoutNode node[kLegacyWidgets];
+    MessageStore store; MessageRichStore rich; UiVariableList list;
+    MessageTimeline timeline; MessageScene scene;
+    MessageTextCommand commands[128]; char utf8[8192]; TextStyleSpan styles[256];
+    MessageMarkdownSemantic semantics[64]; MessageTextMeasurement measurements[kLegacyRows];
+    MessageTextSpoilerReveal spoilers[1]; u32 byte_styles[4096];
+    MessageTextPresentation presentation;
+    UiTextMeasureRecord cache_records[128]; UiTextMeasureCache cache;
+    u32 structurals[4096]; char packed_text[16384]; u64 ids[100];
+    GatewayMessageComponent components[kGatewayMessageComponentMaximum];
+    GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum];
+    GatewayMessageEmbedField fields[kGatewayMessageEmbedFieldMaximum];
+};
+LegacyFixture legacy_fixture;
+
+// Stores a Gateway MESSAGE_CREATE as the client receives it: decoded, then applied to the message and rich stores.
+bool store_create(LegacyFixture& f, Utf8View payload) noexcept {
+    GatewayEnvelope envelope{}; GatewayClientEvent routed{}; ConstSlice<u8> packed{};
+    GatewayMessageRichScratch scratch{};
+    scratch.components = {f.components, kGatewayMessageComponentMaximum};
+    scratch.embeds = {f.embeds, kGatewayMessageEmbedMaximum};
+    scratch.embed_fields = {f.fields, kGatewayMessageEmbedFieldMaximum};
+    GatewayMessageEvent message{};
+    if (!gateway_decode_envelope(payload, {f.structurals, 4096}, 32, &envelope).ok() ||
+        !gateway_client_route_dispatch(envelope, {f.structurals, 4096}, 32, {f.packed_text, sizeof(f.packed_text)},
+                                       {f.ids, 100}, &routed, &packed, gateway_test_message_scratch()).ok() ||
+        !gateway_client_event_as_message(routed, packed, scratch, &message) ||
+        !message_reconcile_create(&f.store, message).ok())
+        return false;
+    const auto found = message_store_find(f.store, message.id);
+    const auto* record = found.ok() ? message_store_resolve(f.store, found.handle) : nullptr;
+    return record && message_rich_store_apply(&f.rich, message.id, record->revision, message).ok();
+}
+bool legacy_command(const LegacyFixture& f, u64 message_id, Utf8View text,
+                    MessageTextMeasurementKind kind = MessageTextMeasurementKind::none) noexcept {
+    for (u32 i = 0; i < f.presentation.command_count; ++i)
+        if (f.commands[i].message_id == message_id && utf8_equal(f.commands[i].text, text) &&
+            (kind == MessageTextMeasurementKind::none || f.commands[i].measurement_kind == kind))
+            return true;
+    return false;
+}
+bool legacy_scene(LegacyFixture& f) noexcept {
+    return ui_variable_list_initialize(&f.list, {f.heights, kLegacyRows}, {f.fenwick, kLegacyRows}, kLegacyRows,
+                                       ui_extent_units(57)) &&
+           message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000),
+                                       false) &&
+           message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, kLegacyRows, kLegacyRows,
+                                          {f.widget, kLegacyWidgets}, {f.node, kLegacyWidgets}) &&
+           message_text_presentation_initialize(&f.presentation, {f.commands, 128}, {f.utf8, sizeof(f.utf8)},
+                                                {f.styles, 256}, {f.semantics, 64}, {f.measurements, kLegacyRows},
+                                                {f.spoilers, 1}, {f.byte_styles, 4096}) &&
+           ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 128}, measure, nullptr);
+}
+} // namespace
+
+// Two bot messages of 2021 and 2022: a string select whose options carry descriptions and emoji, and an embed over
+// a primary button. Select options are data for the select's menu: their descriptions take no layout and no text.
+// Every message draws its text, the select is a 400-DIP box with its placeholder, the button hugs its label and the
+// embed is as wide as its text.
+void test_legacy_bot_components(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = legacy_fixture;
+    reset_value(&f);
+    constexpr u64 earlier = 878216793292800000ull, select = 878344074048962570ull, embed = 983748187258880000ull;
+    bool ok =
+        message_store_initialize(&f.store, {f.record, kLegacyRows}, {f.order, kLegacyRows}, {f.text, sizeof(f.text)}) &&
+        message_rich_store_initialize(&f.rich, {f.rich_record, kLegacyRows}, {f.rich_order, kLegacyRows},
+                                      {f.rich_text, sizeof(f.rich_text)}) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{
+            "id":"878216793292800000","channel_id":"7","author":{"id":"8","username":"Member"},
+            "content":"Earlier text","timestamp":"2021-08-20T10:00:00.000000+00:00","type":0}})")) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{
+            "id":"878344074048962570","channel_id":"7","author":{"id":"9","username":"Aethor","bot":true},
+            "content":"Epic roles","timestamp":"2021-08-20T18:25:46.097000+00:00","type":0,"flags":0,
+            "components":[{"type":1,"components":[{"type":3,"custom_id":"roles","placeholder":"Choose a role",
+              "min_values":0,"max_values":3,"disabled":false,"options":[
+                {"label":"Red","value":"1","description":"The red role","emoji":{"id":null,"name":"🔴"},"default":false},
+                {"label":"Blue","value":"2","description":"The blue role","emoji":{"id":"878344074048962571","name":"blue","animated":false}},
+                {"label":"Green","value":"3"}]}]}]}})")) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":3,"t":"MESSAGE_CREATE","d":{
+            "id":"983748187258880000","channel_id":"7","author":{"id":"9","username":"Aethor","bot":true},
+            "content":"","timestamp":"2022-06-07T15:04:05.000000+00:00","type":0,"flags":0,
+            "embeds":[{"type":"rich","title":"smp","description":"smp","color":3066993}],
+            "components":[{"type":1,"components":[{"type":2,"style":1,"label":"smp role","custom_id":"smp"}]}]}})")) &&
+        legacy_scene(f) && message_scene_update(&f.scene, {0, 0, 740, 1000}).ok();
+    ChatStateStore state{}; NavigationView navigation{};
+    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+        &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+    const MessageTextCoordinatorResult result = ok ? message_text_coordinator_converge(request)
+                                                   : MessageTextCoordinatorResult{};
+    check(ok && result.ok(), "legacy_bot_components_converge");
+    check(result.ok() && legacy_command(f, earlier, utf8_literal("Earlier text")) &&
+              legacy_command(f, select, utf8_literal("Epic roles")) &&
+              legacy_command(f, select, utf8_literal("Choose a role"), MessageTextMeasurementKind::component) &&
+              legacy_command(f, embed, utf8_literal("smp role"), MessageTextMeasurementKind::component) &&
+              !legacy_command(f, select, utf8_literal("The red role")),
+          "legacy_bot_components_draw_every_text_and_no_option_description");
+    const auto* select_row = result.ok() ? message_scene_find_row(f.scene, 1) : nullptr;
+    const auto* embed_row = result.ok() ? message_scene_find_row(f.scene, 2) : nullptr;
+    const auto* menu = select_row ? message_scene_rich_item_layout_node(f.scene, *select_row,
+                                                                        MessageSceneRichItemKind::component, 1)
+                                  : nullptr;
+    const auto* option = select_row ? message_scene_rich_item_layout_node(f.scene, *select_row,
+                                                                          MessageSceneRichItemKind::component, 2)
+                                    : nullptr;
+    check(menu && ui_rect_width(menu->rectangle) == kMessageComponentSelectMaximumWidth &&
+              ui_rect_height(menu->rectangle) == kMessageComponentSelectHeight && option &&
+              !ui_rect_has_area(option->rectangle),
+          "legacy_select_is_a_bounded_box_and_its_options_take_no_layout");
+    const auto* button = embed_row ? message_scene_rich_item_layout_node(f.scene, *embed_row,
+                                                                         MessageSceneRichItemKind::component, 1)
+                                   : nullptr;
+    // The fake measure gives 7 DIP per byte: "smp role" is 56 DIP, and "smp" is the widest embed line.
+    check(button && ui_rect_width(button->rectangle) == 56.0f + 2 * kMessageComponentButtonPadding &&
+              embed_row->rich_item_layout.embed_widths[0] > 0.0f &&
+              embed_row->rich_item_layout.embed_widths[0] < 200.0f,
+          "legacy_button_hugs_its_label_and_the_embed_hugs_its_text");
+    message_scene_release(&f.scene);
+}
+
+// A section whose accessory leaves its text no width (a very narrow message pane) cannot lay out its text. That one
+// message draws without it: the messages around it keep their text and the build succeeds, so the client does not
+// retry the build.
+void test_message_text_row_degrades(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = legacy_fixture;
+    reset_value(&f);
+    constexpr u64 before = 878216793292800000ull, section = before + 1, after = before + 2;
+    bool ok =
+        message_store_initialize(&f.store, {f.record, kLegacyRows}, {f.order, kLegacyRows}, {f.text, sizeof(f.text)}) &&
+        message_rich_store_initialize(&f.rich, {f.rich_record, kLegacyRows}, {f.rich_order, kLegacyRows},
+                                      {f.rich_text, sizeof(f.rich_text)}) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{
+            "id":"878216793292800000","channel_id":"7","author":{"id":"8","username":"Member"},
+            "content":"Before","timestamp":"2021-08-20T10:00:00.000000+00:00","type":0}})")) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{
+            "id":"878216793292800001","channel_id":"7","author":{"id":"9","username":"Bot","bot":true},
+            "content":"","timestamp":"2021-08-20T10:00:00.000000+00:00","type":0,"flags":32768,
+            "components":[{"type":17,"components":[{"type":9,"components":[{"type":10,"content":"Section text"}],
+              "accessory":{"type":11,"media":{"url":"https://example.com/a.png"}}}]}]}})")) &&
+        store_create(f, utf8_literal(R"({"op":0,"s":3,"t":"MESSAGE_CREATE","d":{
+            "id":"878216793292800002","channel_id":"7","author":{"id":"8","username":"Member"},
+            "content":"After","timestamp":"2021-08-20T10:00:00.000000+00:00","type":0}})")) &&
+        legacy_scene(f) && message_scene_update(&f.scene, {0, 0, 200, 1000}).ok();
+    ChatStateStore state{}; NavigationView navigation{};
+    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+        &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+    const MessageTextCoordinatorResult result = ok ? message_text_coordinator_converge(request)
+                                                   : MessageTextCoordinatorResult{};
+    check(ok && result.ok() && legacy_command(f, before, utf8_literal("Before")) &&
+              legacy_command(f, after, utf8_literal("After")) &&
+              !legacy_command(f, section, utf8_literal("Section text")),
+          "message_text_row_degrades_alone_and_the_build_succeeds");
+    const MessageTextDegradation& degraded = f.presentation.degradations[0];
+    check(result.ok() && f.presentation.degraded_rows == 1 && f.presentation.degradation_count == 1 &&
+              degraded.message_id == section && degraded.error == MessageTextPresentationError::layout &&
+              degraded.stage == MessageTextPresentationStage::component &&
+              degraded.operation == MessageTextPresentationOperation::initialize_flow && !degraded.text_dropped,
+          "message_text_row_degradation_names_the_message_and_the_failing_part_once");
+    // The client reports the queue and empties it. The next frame's build degrades the same row again, but does not
+    // queue the same message revision for a second report.
+    f.presentation.degradation_count = 0;
+    const MessageTextCoordinatorResult again = message_text_coordinator_converge(request);
+    check(again.ok() && f.presentation.degraded_rows == 1 && f.presentation.degradation_count == 0 &&
+              legacy_command(f, before, utf8_literal("Before")) && legacy_command(f, after, utf8_literal("After")),
+          "message_text_row_degradation_is_reported_once_per_revision");
+    message_scene_release(&f.scene);
+}
 } // namespace maicord

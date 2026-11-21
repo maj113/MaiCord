@@ -908,8 +908,10 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         application_guild_hub_response(request.op, request.guild_id, ok, response.status_code, body);
         return true;
     }
-    // The server tag popout reads every answer itself (50001: private).
+    // The server tag popout reads every answer itself (50001: private); the Server Hub takes a profile's brand colour.
     if (request.op == GuildCommunityOperation::guild_profile_get || request.op == GuildCommunityOperation::guild_join) {
+        if (request.op == GuildCommunityOperation::guild_profile_get)
+            application_guild_hub_profile(request.guild_id, ok, body);
         application_guild_card_response(request.guild_id, request.op == GuildCommunityOperation::guild_join, response,
                                         body);
         return true;

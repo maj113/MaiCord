@@ -1633,11 +1633,14 @@ void test_message_text_presentation() noexcept {
     const MessageTextPresentationResult layout_failure = message_text_presentation_build(
         &tiny, scene, state, &users, navigation, kDefaultTheme, 1'700'000'100ull);
     scene.rows[0].content = saved_content;
-    expect(layout_failure.error == MessageTextPresentationError::layout && tiny.command_count == 0 &&
-               !tiny.active && tiny.failure_message_id == 91'000 &&
-               tiny.failure_source_index == 0 && tiny.failure_stage == MessageTextPresentationStage::row &&
-               tiny.failure_operation == MessageTextPresentationOperation::resolve_layout,
-           "message_text_layout_failure_is_atomic_and_classified");
+    // A row that cannot resolve its layout draws no text. The build keeps the other rows and names the row once.
+    const MessageTextDegradation& dropped = tiny.degradations[0];
+    expect(layout_failure.ok() && tiny.command_count == 0 && tiny.active && tiny.degraded_rows == 1 &&
+               tiny.degradation_count == 1 && dropped.message_id == 91'000 && dropped.source_index == 0 &&
+               dropped.error == MessageTextPresentationError::layout &&
+               dropped.stage == MessageTextPresentationStage::row &&
+               dropped.operation == MessageTextPresentationOperation::resolve_layout && dropped.text_dropped,
+           "message_text_row_layout_failure_drops_that_row_and_is_classified");
 
     GatewayMessageEvent structural_rich_update{};
     structural_rich_update.id = 91'000;

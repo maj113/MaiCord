@@ -633,6 +633,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
         return outcome;
     if (!proceed(request_forum_avatars(&stop)))
         return outcome;
+    // A content page (the Server Hub, Channels & Roles) in place of the chat: its pictures in view.
+    if (!proceed(request_content_page_media(&stop)))
+        return outcome;
 
     // Search uses author hashes from its accepted page, including authors that
     // have never appeared in the selected conversation's user cache, then the
@@ -1167,14 +1170,13 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         if (!consume_pending_animation_frame(pending, repaint, &consumed))
             return false;
         // Forum post cards are the browser's own content: their author avatars
-        // upload here, and so do a content page's pictures. Other completions are leased without being shown, exactly
+        // upload here. Other completions are leased without being shown, exactly
         // like the browser-covered forum preview drain; normal reacquisition reloads them.
         if (!consumed &&
-            (((pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
-               pending.key.kind == MediaAssetKind::attachment) &&
-              (surfaces() & d3d11_surface_thread_browser) &&
-              application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) ||
-             ((surfaces() & d3d11_surface_content_page) && settings_avatar_is_current(pending.key)))) {
+            (pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
+             pending.key.kind == MediaAssetKind::attachment) &&
+            (surfaces() & d3d11_surface_thread_browser) && application.renderer.thread_browser_scene->forum &&
+            message_image_frame_is_current(pending)) {
             const auto upload = upload_account_media_frame(pending);
             if (upload == MediaFrameUploadResult::uploaded) {
                 ++uploads;
@@ -1185,8 +1187,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         }
     }
     bool stop = false;
-    return request_forum_avatars(&stop) &&
-           (stop || (request_forum_thumbnails(&stop) && (stop || request_content_page_media(&stop))));
+    return request_forum_avatars(&stop) && (stop || request_forum_thumbnails(&stop));
 }
 
 ApplicationMediaPumpResult application_pump_covered_media(Application* application) noexcept {

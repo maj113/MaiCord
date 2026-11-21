@@ -36,6 +36,8 @@ struct BuildContext {
     // Embed markdown rule sets: 0 message/description, 1 title/field name
     // (no links, headings, subtext or lists), 2 field value (no headings).
     u8 markdown_rules{};
+    // A part of the row that failed to lay out in an earlier attempt (attachments or embeds): the row draws without it.
+    MessageTextPresentationStage skip{};
     MarkdownParseTrace trace{};
 };
 
@@ -278,10 +280,12 @@ __declspec(noinline) bool append_content_segments(
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
     const Color& role_color, u64 edited_unix_seconds) noexcept;
+// skip: a part that failed to lay out in an earlier attempt. The row draws without it.
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,
-                u64 now_unix_seconds, bool forwarded = false) noexcept;
+                u64 now_unix_seconds, bool forwarded,
+                MessageTextPresentationStage skip = MessageTextPresentationStage::none) noexcept;
 constexpr float quote_text_inset() noexcept {
     return kQuoteSpine + kQuoteStartPadding;
 }

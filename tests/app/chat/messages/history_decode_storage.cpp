@@ -15,6 +15,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "../../../support/released_memory.hpp"
+#include "../../../support/long_message_page.hpp"
 
 namespace maicord::history_decode_storage_test {
 using namespace app_detail;
@@ -422,6 +423,86 @@ void forwarded_history(AccountUiRuntime& ui) noexcept {
         "forwarded retained snapshot survives shared decode text arena reuse");
 }
 
+// A page of 25 messages at Discord's limits, each replying to one like it, passes the 256 KiB reply, the shared
+// 64K-entry index and the 128 KiB text arena. It loads in the storage's large index and text, which the drain
+// decommits. The next ordinary page uses the shared index and text again.
+void long_history(AccountUiRuntime& ui) noexcept {
+    check(fresh_bank(ui) && reset_models(ui), "long history fixture initializes");
+    // The shared fixture holds four messages. The long page needs stores for 25 messages and their text.
+    struct LongModels {
+        MessageRecord records[32]; u32 order[32], heights[32]; u64 fenwick[32];
+        MessageRichRecord rich_records[64]; u16 rich_order[64];
+        u8 text[1 << 20], rich_text[1 << 20];
+    };
+    auto* models = static_cast<LongModels*>(VirtualAlloc(nullptr, sizeof(LongModels), MEM_RESERVE | MEM_COMMIT,
+                                                         PAGE_READWRITE));
+    auto& view = g_app.message_view;
+    check(models && message_store_initialize(&view.store, {models->records, 32}, {models->order, 32},
+            {models->text, sizeof(models->text)}) &&
+        ui_variable_list_initialize(&view.list, {models->heights, 32}, {models->fenwick, 32}, 0, 100) &&
+        message_timeline_initialize(&view.timeline, &view.store, &view.list, 100, 100, true) &&
+        message_rich_store_initialize(&ui.message_rich_store, {models->rich_records, 64}, {models->rich_order, 32},
+            {models->rich_text, sizeof(models->rich_text)}) &&
+        message_timeline_bind_rich_store(&view.timeline, &ui.message_rich_store),
+        "long history stores hold a page");
+    if (!models) return;
+    auto* body = static_cast<char*>(
+        VirtualAlloc(nullptr, kMessageHistoryMaximumBodyBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(body != nullptr, "long history page allocates");
+    if (!body) { VirtualFree(models, 0, MEM_RELEASE); return; }
+    LongMessageWriter w{body, 0, kMaximalMessage, 7};
+    w.put("[");
+    for (u32 i = 0; i < kMessageHistoryRequestLimit; ++i) {
+        if (i) w.put(",");
+        w.message(9000 - i, 8000 - i);
+    }
+    w.put("]");
+    const Utf8View page{body, w.used};
+    measurement("MEASURE history_long_page_bytes=", w.used);
+    g_app.message_pump.catchup_required = true;
+    MessageHistoryCatchup catchup{}; MessageHistoryQuery query{};
+    check(message_history_catchup_begin(&catchup, &g_app.message_pump, 7, 25) &&
+        message_history_catchup_take_query(&catchup, &query), "long history catchup awaits page");
+    RestClientResponse response{}; response.status_code = 200; response.body_bytes = w.used;
+    MessageHistoryRestResult accepted{}; MessageHistoryDecodeScratch scratch{};
+    auto& storage = ui.history_decode_storage;
+    constexpr u32 index_pool = static_cast<u32>(HistoryDecodePool::structurals);
+    constexpr u32 text_pool = static_cast<u32>(HistoryDecodePool::text);
+    const u8* index = storage.base + history_decode_pool_offset(index_pool);
+    const u8* text = storage.base + history_decode_pool_offset(text_pool);
+    const bool loaded = application_message_history_catchup_response(ui, catchup, g_app.message_pump, response, page,
+        100, &accepted, &scratch) && accepted.accepted() && accepted.decode.page.count == kMessageHistoryRequestLimit;
+    check(w.used > kAccountHistoryResponseBytes && w.used <= kMessageHistoryMaximumBodyBytes && loaded,
+        "a page of 25 maximal replies loads");
+    check(scratch.messages[0].id == 9000 && scratch.messages[0].content.bytes == kMaximalMessage.content &&
+        scratch.messages[kMessageHistoryRequestLimit - 1].id == 9000 - kMessageHistoryRequestLimit + 1 &&
+        reinterpret_cast<const u8*>(scratch.page_structurals.data) == index &&
+        reinterpret_cast<const u8*>(scratch.content.data) == text &&
+        scratch.page_structurals.count >= w.used / 2 + 1 && scratch.content.count >= w.used,
+        "the long page decodes in the large index and text");
+    const auto newest = message_store_find(view.store, 9000);
+    const auto* stored = newest.ok() ? message_store_resolve(view.store, newest.handle) : nullptr;
+    check(view.store.count == kMessageHistoryRequestLimit && stored && message_rich_store_find(ui.message_rich_store, 9000),
+        "the timeline holds all 25 long messages and their rich records");
+    const usize large = usize{storage.committed[index_pool]} + storage.committed[text_pool];
+    measurement("MEASURE history_long_page_large_committed_bytes=", large);
+    const usize before = committed_bytes(storage);
+    const i64 accounted = arena_account(ArenaTag::storage).committed;
+    application_message_decode_release_large(ui);
+    check(!storage.committed[index_pool] && !storage.committed[text_pool] && vm(index, MEM_RESERVE) &&
+        vm(text, MEM_RESERVE) && committed_bytes(storage) == before - large &&
+        arena_account(ArenaTag::storage).committed == accounted - static_cast<i64>(large),
+        "the drain decommits the large index and text and their storage account");
+    check(application_message_decode_scratch(ui, &scratch, rich_page) &&
+        scratch.page_structurals.data == ui.message_history_page_structurals &&
+        scratch.content.data == reinterpret_cast<char*>(ui.event_payload_scratch) &&
+        !storage.committed[index_pool] && !storage.committed[text_pool],
+        "the next ordinary page uses the shared index and text and commits no large pool");
+    VirtualFree(body, 0, MEM_RELEASE);
+    check(reset_models(ui), "long history returns to the shared fixture");
+    VirtualFree(models, 0, MEM_RELEASE);
+}
+
 void send(AccountUiRuntime& ui) noexcept {
     if (!fresh_bank(ui) || !reset_models(ui)) { check(false, "send integration initializes"); return; }
     const u64 nonce = queue_send(ui); check(nonce != 0, "send actual controller queued and submitted");
@@ -578,6 +659,14 @@ void edit(AccountUiRuntime& ui) noexcept {
     check(accept_message_edit_response(response) && ui.history_decode_storage.base == base &&
         committed_bytes(ui.history_decode_storage) == committed && content(900, utf8_literal("edited")),
         "edit repeated response uses stable committed scratch without allocating");
+    constexpr auto named_body = utf8_literal(
+        R"({"id":"900","channel_id":"7","author":{"id":"11","username":"self"},"content":"edited","timestamp":"2024-08-30T12:00:00Z","edited_timestamp":"2024-08-30T13:00:00Z","mentions":[{"id":"12","username":"Named in edit"}]})");
+    copy_bytes(ui.response_shape_scratch.response, named_body.data, named_body.bytes);
+    response.body_bytes = named_body.bytes;
+    edit.message_id = 900; edit.channel_id = 7; edit.phase = MessageEditRequestPhase::submitting;
+    const UserRecord* named = accept_message_edit_response(response) ? user_store_find(ui.user_store, 12) : nullptr;
+    check(named && utf8_equal(user_store_name(ui.user_store, *named), utf8_literal("Named in edit")),
+        "edit response: a user that the edited text names joins the user cache");
     message_edit_runtime_release(&edit);
 }
 
@@ -726,7 +815,7 @@ void run() noexcept {
     measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));
     measurement("MEASURE history_decode_reserved_bytes=", kHistoryDecodeReservedBytes);
     measurement("MEASURE history_storage_owner_bytes=", sizeof(HistoryDecodeStorage));
-    storage(*owner, page); history(*owner); forwarded_history(*owner);
+    storage(*owner, page); history(*owner); forwarded_history(*owner); long_history(*owner);
     send(*owner); send_lifecycle(*owner); edit(*owner); caption_edit(*owner);
     const auto base = memory_mark(owner->history_decode_storage.base);
     application_history_decode_storage_release(*owner);

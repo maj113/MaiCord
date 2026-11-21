@@ -708,9 +708,11 @@ bool drain_account_events() noexcept {
 } // namespace
 
 bool application_pump_visible_static_media(bool* repaint) noexcept {
-    if (application_thread_browser_read_blocked()) {
+    if (application_thread_browser_active()) {
         // The browser covers only the chat column: keep uncovered chrome
-        // animations playing instead of stalling the shared timeline.
+        // animations playing instead of stalling the shared timeline. A content page takes the visible pump: the
+        // chat beneath it is hidden (content_media_visible) while its pictures, a profile popout or a game profile
+        // over it load as they do over the chat.
         const auto preview = application_forum_form_active() ? application_pump_forum_preview_media(&g_app)
                                                              : application_pump_covered_media(&g_app);
         if (repaint)

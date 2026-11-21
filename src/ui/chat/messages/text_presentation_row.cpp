@@ -181,7 +181,7 @@ bool append_result_card_header(MessageTextPresentation* presentation, const Mess
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,
-                u64 now_unix_seconds, bool forwarded) noexcept {
+                u64 now_unix_seconds, bool forwarded, MessageTextPresentationStage skip) noexcept {
     if (row.redacted || scene.content_gated)
         return true;
     const MessageStore* const store = scene.timeline ? scene.timeline->store : nullptr;
@@ -304,7 +304,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         reset_value<Utf8View>(&content);
         row_measurement.content_present = false;
     }
-    if (!forwarded && rich && message_rich_has_header(*rich)) {
+    if (!forwarded && rich && message_rich_has_header(*rich) && skip != MessageTextPresentationStage::reply) {
         set_failure_context(presentation, MessageTextPresentationStage::reply,
                             MessageTextPresentationOperation::initialize_flow);
         const u32 reply_begin = presentation->command_count;
@@ -429,7 +429,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     Color compact_color{};
     u64 compact_avatar = 0;
     u32 compact_dot = 0;
-    if (!forwarded && (!row.grouped || scene.display.compact) && users && record->author_id != 0) {
+    if (!forwarded && (!row.grouped || scene.display.compact) && users && record->author_id != 0 &&
+        skip != MessageTextPresentationStage::author) {
         set_failure_context(presentation, MessageTextPresentationStage::author,
                             MessageTextPresentationOperation::append_command);
         const UserRecord* user = user_store_find(*users, record->author_id);
@@ -494,6 +495,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     context.rich_store = rich_store;
     context.rich = rich;
     context.forwarded = forwarded;
+    context.skip = skip;
     context.source_id = forwarded  ? kRichTextSource | kForwardedTextSource | kRichTextBody
                         : replaced  ? kUiPluginRenderContentSource
                         : collapsed ? kUiPluginRenderGeneratedSource
@@ -611,7 +613,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         row_measurement.rich_layout.stickers = kDefaultMessageStickerLayoutMetrics.group_height(rich->sticker_count);
     }
 
-    if (rich->component_count != 0) {
+    if (rich->component_count != 0 && skip != MessageTextPresentationStage::component) {
         for (u32 index = 0; index < rich->component_count; ++index) {
             set_failure_context(presentation, MessageTextPresentationStage::component,
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
@@ -859,7 +861,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     set_failure_context(presentation, MessageTextPresentationStage::reaction,
                         MessageTextPresentationOperation::build_reactions);
     const MessageReactionPresentationResult reaction_result =
-        !message_rich_display().reactions ? MessageReactionPresentationResult{} : message_reaction_presentation_build(
+        !message_rich_display().reactions || skip == MessageTextPresentationStage::reaction
+            ? MessageReactionPresentationResult{}
+            : message_reaction_presentation_build(
         scene, row, *rich_store, *rich,
         Slice<char>{presentation->utf8.data + presentation->utf8_count,
                     presentation->utf8.count - presentation->utf8_count},
@@ -917,7 +921,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                              record, kInvalidMessageTextMeasurement, kLookMiddleSecond)))
             return false;
     }
-    if (rich->truncations != 0) {
+    if (rich->truncations != 0 && skip != MessageTextPresentationStage::notice) {
         set_failure_context(presentation, MessageTextPresentationStage::notice,
                             MessageTextPresentationOperation::resolve_layout, 0);
         const UiWidgetHandle item_widget =

@@ -17,6 +17,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/inbox_scene.hpp"
 #include "maicord/ui/chat/private_channel_title.hpp"
+#include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -87,55 +88,33 @@ inline u64 server_filter() noexcept {
 void append(char* output, u32 capacity, u32& used, const Utf8View& text) noexcept {
     used += utf8_copy_truncated(output + used, capacity - used, text);
 }
-// Mentions read as names in a preview: <@id>, <@!id>, <@&id> and <#id>.
-u32 readable(Utf8View source, char* output, u32 capacity) noexcept {
+struct MentionScope {
+    const GatewayMessageEvent* message;
+    u64 guild_id;
+};
+// Names a tag of a mention excerpt (message_markdown_mention_text): a channel, a role of the message's server, or a
+// user from the user cache or from the message's own mentions. The official client stores those users, so a user
+// that the message names is never unknown.
+Utf8View mention_name(void* context, MessageMarkdownEntityKind kind, u64 id) noexcept {
+    const auto& scope = *static_cast<const MentionScope*>(context);
     const auto& ui = *g_app.account_ui;
-    u32 used = 0, at = 0;
-    while (at < source.bytes && used < capacity) {
-        if (source.data[at] == '<' && at + 2 < source.bytes && (source.data[at + 1] == '@' || source.data[at + 1] == '#')) {
-            u32 scan = at + 2;
-            const bool role = source.data[at + 1] == '@' && source.data[scan] == '&';
-            if (source.data[at + 1] == '@' && (source.data[scan] == '!' || role))
-                ++scan;
-            u64 id = 0;
-            const u32 digits = scan;
-            while (scan < source.bytes && ascii_is_digit(source.data[scan]) && id < ~u64{0} / 10)
-                id = id * 10 + static_cast<u64>(source.data[scan++] - '0');
-            if (scan < source.bytes && source.data[scan] == '>' && scan > digits && id) {
-                Utf8View name{};
-                if (source.data[at + 1] == '#') {
-                    if (const auto* channel = chat_state_store_find_channel(ui.chat_state, id))
-                        name = chat_state_store_channel_name(ui.chat_state, *channel);
-                    append(output, capacity, used, utf8_literal("#"));
-                } else if (role) {
-                    for (u32 g = 0; !name.bytes && g < ui.chat_state.guild_count; ++g) {
-                        const u16 slot = ui.chat_state.guild_order[g];
-                        if (const auto* record = slot < ui.chat_state.guild_capacity
-                                                     ? chat_state_store_find_role(ui.chat_state,
-                                                                                     ui.chat_state.guilds[slot].id, id)
-                                                     : nullptr)
-                            name = chat_state_store_role_name(ui.chat_state, *record);
-                    }
-                    append(output, capacity, used, utf8_literal("@"));
-                } else {
-                    if (const auto* user = user_store_find(ui.user_store, id))
-                        name = user_store_name(ui.user_store, *user);
-                    append(output, capacity, used, utf8_literal("@"));
-                }
-                append(output, capacity, used, name.bytes ? name : utf8_literal("unknown"));
-                at = scan + 1;
-                continue;
-            }
-        }
-        const auto decoded = utf8_decode_one(source.data + at, source.bytes - at);
-        const u32 width = decoded.valid && decoded.width ? decoded.width : 1;
-        if (used + width > capacity)
-            break;
-        copy_bytes(output + used, source.data + at, width);
-        used += width;
-        at += width;
+    if (kind == MessageMarkdownEntityKind::channel) {
+        const auto* channel = chat_state_store_find_channel(ui.chat_state, id);
+        return channel ? chat_state_store_channel_name(ui.chat_state, *channel) : Utf8View{};
     }
-    return used;
+    if (kind == MessageMarkdownEntityKind::role) {
+        const auto* role = chat_state_store_find_role(ui.chat_state, scope.guild_id, id);
+        return role ? chat_state_store_role_name(ui.chat_state, *role) : Utf8View{};
+    }
+    if (const auto* user = user_store_find(ui.user_store, id))
+        return user_store_name(ui.user_store, *user);
+    const ConstSlice<GatewayMessageNamedUser> lists[]{scope.message->mention_users,
+                                                      scope.message->snapshot.mention_users};
+    for (const auto& list : lists)
+        for (u32 index = 0; index < list.count; ++index)
+            if (list[index].id == id)
+                return list[index].name;
+    return {};
 }
 void store_mentions(u32 count) noexcept {
     auto& ui = *g_app.account_ui;
@@ -174,7 +153,9 @@ void store_mentions(u32 count) noexcept {
                                                 message.snapshot.present, true, message.attachments.count,
                                                 message.embeds.count, message.stickers.count, message.components.count},
                                                {raw, sizeof(raw)});
-        row.excerpt_bytes = static_cast<u16>(readable({raw, card.bytes}, row.excerpt, sizeof(row.excerpt)));
+        MentionScope scope{&message, row.guild_id};
+        row.excerpt_bytes = static_cast<u16>(message_markdown_mention_text(
+            {raw, card.bytes}, mention_name, &scope, {row.excerpt, sizeof(row.excerpt)}));
         used = 0;
         if (channel) {
             if (!channel_is_private(channel->type))

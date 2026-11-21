@@ -488,6 +488,10 @@ bool application_thread_browser_synchronize() noexcept {
 bool application_thread_browser_read_blocked() noexcept {
     return browser_blocks_read;
 }
+// The fixture's covering surface is the thread browser (a content page takes the visible media pump).
+bool application_thread_browser_active() noexcept {
+    return browser_blocks_read;
+}
 void application_thread_browser_gateway(u64, u64) noexcept {
     ++browser_gateway_notifications;
 }

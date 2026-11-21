@@ -150,6 +150,9 @@ bool keeps_resize_reserve(const D3D11Renderer* renderer) noexcept {
 #endif
 }
 
+// The message view retries a failed text every second: each message revision logs its failure once.
+UiTextMeasureFailureLog g_measure_failure_log;
+
 } // namespace
 
 void renderer_prestart() noexcept {
@@ -687,18 +690,23 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
                                     request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap});
     if (!measured.ok()) {
         storage->last_shape_error = measured.error;
-        LogEvent("measure_failed")
-            .field("owner", request.key.source_id)
-            .field("text_bytes", request.text.bytes)
-            .field("style_count", request.styles.count)
-            .field("utf16_units", measured.utf16_units)
-            .field("shape_error", static_cast<u64>(measured.error))
-            .write(LogLevel::error, "text");
+        if (ui_text_measure_failure_log_due(&g_measure_failure_log, request.key))
+            LogEvent("measure_failed")
+                .field("owner", request.key.source_id)
+                .field("text_bytes", request.text.bytes)
+                .field("style_count", request.styles.count)
+                .field("utf16_units", measured.utf16_units)
+                .field("shape_error", static_cast<u64>(measured.error))
+                .write(LogLevel::error, "text");
         return false;
     }
     *value = UiTextMeasureValue{UiSize{measured.width_including_trailing_whitespace, measured.height},
                                 measured.line_count};
     return true;
+}
+
+void renderer_text_measure_failures_settled() noexcept {
+    g_measure_failure_log.count = 0;
 }
 
 bool renderer_measure_message_composer(D3D11Renderer* renderer, float* preferred_height) noexcept {

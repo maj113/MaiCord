@@ -24,8 +24,10 @@ void run() noexcept {
     request.query.limit = kMessagePinsPageLimit;
     check(account_pinned_messages_submit(&rest, &request, 101).ok() && capture.submissions == 1 &&
               exact(&rest, 20, 101, kMessagePinsRouteId, RestMethod::get,
-                    utf8_literal("/api/v9/channels/20/messages/pins?limit=25")),
-          "pins account: bounded first page uses exact modern endpoint and channel-major authenticated owner");
+                    utf8_literal("/api/v9/channels/20/messages/pins?limit=25")) &&
+              capture.response_capacity == kRestClientMaximumResponseBytes,
+          "pins account: bounded first page uses exact modern endpoint, channel-major authenticated owner and a "
+          "response bank for 25 long messages");
     constexpr auto timestamp = utf8_literal("2026-10-05T00:00:00.123456+00:00");
     copy_bytes(request.query.before.timestamp, timestamp.data, timestamp.bytes);
     request.query.before.bytes = static_cast<u8>(timestamp.bytes);
@@ -45,7 +47,8 @@ void run() noexcept {
     request.operation = MessagePinsOperation::pin;
     check(account_pinned_messages_submit(&rest, &request, 103).ok() &&
               exact(&rest, ~u64{0}, 103, kMessagePinRouteId, RestMethod::put,
-                    utf8_literal("/api/v9/channels/18446744073709551615/messages/pins/18446744073709551615")),
+                    utf8_literal("/api/v9/channels/18446744073709551615/messages/pins/18446744073709551615")) &&
+              !capture.response_capacity,
           "pins account: PUT admits exact full-width channel and message snowflakes with no body or optimistic receipt");
     request.query.channel_id = 20;
     request.message_id = 30;

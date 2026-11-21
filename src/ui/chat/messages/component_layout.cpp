@@ -78,6 +78,9 @@ MessageComponentKind message_component_kind(const MessageRichComponent& componen
         return MessageComponentKind::separator;
     case gateway_component_container:
         return MessageComponentKind::container;
+    case gateway_component_select_option:
+        // An option is data for its select's menu. Its description (in content) is no text of the message.
+        return MessageComponentKind::hidden;
     default:
         // Unknown wire types still carry text when present.
         return component.content.bytes != 0 ? MessageComponentKind::text : MessageComponentKind::hidden;
@@ -405,7 +408,7 @@ UiLayoutStyle message_component_style(const MessageRichRecord& rich, u32 index,
     style.width = ui_layout_fill();
     style.flags = ui_layout_node_visible | ui_layout_node_allow_zero_size;
     style.horizontal_alignment = UiLayoutAlignment::stretch;
-    if (component.type == gateway_component_select_option || kind == MessageComponentKind::hidden) {
+    if (kind == MessageComponentKind::hidden) {
         style.width = ui_layout_fixed(0);
         style.height = ui_layout_fixed(0);
         style.flags = ui_layout_node_allow_zero_size;

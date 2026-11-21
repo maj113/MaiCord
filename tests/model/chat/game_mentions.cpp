@@ -194,7 +194,8 @@ void test_markdown(Check check) noexcept {
     check(users == 1 && roles == 1 && contains(result.text, utf8_literal("@Ada")),
           "game markdown: user and role mentions beside the chip");
     check(channels == 1, "game markdown: a channel mention beside the chip");
-    result = parse(utf8_literal("<@$> <@$ab> <@$0> \\<@$10>"));
+    // <@$0> is a game mention of the official client (any digits); link_chips checks its unknown-game chip.
+    result = parse(utf8_literal("<@$> <@$ab> \\<@$10>"));
     games = 0;
     for (u32 i = 0; i < result.semantic_count; ++i)
         games += semantics[i].kind == MessageMarkdownSemanticKind::game_mention;

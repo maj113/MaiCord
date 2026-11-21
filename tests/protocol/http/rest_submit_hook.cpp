@@ -11,6 +11,7 @@ RestClientSubmitResult capture_submit(RestClient* client, const RestClientReques
     RestCapture& c = *captured;
     ++c.submissions;
     c.client = client;
+    c.response_capacity = 0;
     c.route = request.route;
     c.request_id = request.request_id;
     c.target_bytes = request.target.count;
@@ -26,6 +27,13 @@ RestClientSubmitResult capture_submit(RestClient* client, const RestClientReques
     if (c.body_bytes)
         copy_bytes(c.body, request.body.data, c.body_bytes);
     return {c.error};
+}
+
+RestClientSubmitResult capture_submit_large_response(RestClient* client, const RestClientRequest& request,
+                                                     u32 response_capacity) noexcept {
+    const auto result = capture_submit(client, request);
+    captured->response_capacity = response_capacity;
+    return result;
 }
 
 bool capture_cancel(RestClient* client, u64 request_id) noexcept {
@@ -45,7 +53,8 @@ void rest_install_hooks(const RestHooks& hooks) noexcept {
 
 void rest_install_capture(RestCapture& capture) noexcept {
     captured = &capture;
-    rest_install_hooks({.submit = capture_submit, .cancel = capture_cancel});
+    rest_install_hooks(
+        {.submit = capture_submit, .submit_large_response = capture_submit_large_response, .cancel = capture_cancel});
 }
 
 RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRequest& request) noexcept {

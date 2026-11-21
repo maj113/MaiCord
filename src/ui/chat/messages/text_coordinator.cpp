@@ -33,6 +33,13 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
     const auto finish = [&](u8 passes) noexcept {
         if (request.presentation->rich.flow_overflow_regions != 0)
             return result(MessageTextCoordinatorError::overflow, passes);
+        // A command that the text system could not measure draws no text. The text clock rebuilds the projection in
+        // the next second and measures it again.
+        MessageTextPresentation& presentation = *request.presentation;
+        const u64 retry = request.now_unix_seconds + 1u;
+        if (presentation.measure_failures != 0 && (presentation.next_timestamp_update_unix_seconds == 0 ||
+                                                   retry < presentation.next_timestamp_update_unix_seconds))
+            presentation.next_timestamp_update_unix_seconds = retry;
         if (!request.finalize(request.finalize_context, *request.theme))
             return result(MessageTextCoordinatorError::finalization, passes);
         return result(MessageTextCoordinatorError::none, passes, MessageSceneError::none,
@@ -137,7 +144,8 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
                 }
                 const u64 reprojected_signature =
                     request.presentation->projection_signature;
-                if (reprojected_signature == projection)
+                // The rebuild restored the text of the commands that failed to measure. The next pass removes it.
+                if (reprojected_signature == projection && request.presentation->measure_failures == 0)
                     return finish(passes);
             }
             continue;

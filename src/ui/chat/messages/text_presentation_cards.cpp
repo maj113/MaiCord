@@ -771,7 +771,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
     const auto* rich_store = context.rich_store;
     const auto* rich = context.rich;
     MessageTextMeasurement& row_measurement = presentation->measurements[measurement_index];
-    if (rich->attachment_count != 0) {
+    if (rich->attachment_count != 0 && context.skip != MessageTextPresentationStage::attachment) {
         for (u32 index = 0; index < rich->attachment_count; ++index) {
             set_failure_context(presentation, MessageTextPresentationStage::attachment,
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
@@ -892,7 +892,8 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             row_measurement.rich_item_layout, kMessageRichAttachmentItemOffset, rich->attachment_count);
     }
 
-    if (rich->embed_count != 0 && message_rich_display().embeds) {
+    if (rich->embed_count != 0 && message_rich_display().embeds &&
+        context.skip != MessageTextPresentationStage::embed) {
         for (u32 index = 0; index < rich->embed_count; ++index) {
             set_failure_context(presentation, MessageTextPresentationStage::embed,
                                 MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));

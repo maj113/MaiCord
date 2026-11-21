@@ -242,14 +242,15 @@ UiStoreNode& row(UiStoreBuilder& b, float gap) noexcept {
     n.flags = ui_store_center;
     return n;
 }
-// A widget's card and its title row: the glyph, the title and, at the end, a badge (the days left) and its tooltip.
+// A widget's card and its title row: the glyph, the title (wrapped to the card) and, at the end, a badge (the days
+// left) and its tooltip.
 void card(UiStoreBuilder& b, UiIcon glyph, Utf8View title, Utf8View badge = {}, Utf8View badge_tip = {}) noexcept {
     auto& c = b.open(UiStoreKind::card);
     c.pad_x = c.pad_y = 16;
     c.gap = 12;
     row(b, 8);
     icon(b, glyph, 20, UiStoreInk::strong);
-    b.text(title, UiStoreType::body_bold, UiStoreInk::strong);
+    b.text(title, UiStoreType::body_bold, UiStoreInk::strong, ui_store_wrap);
     if (badge.bytes) {
         b.spacer(0, 0, true);
         b.chip(badge, UiStoreTone::brand).text2 = badge_tip;

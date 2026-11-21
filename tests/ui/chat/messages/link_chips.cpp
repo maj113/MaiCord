@@ -279,6 +279,133 @@ void test_channel_references(Check check) noexcept {
           "chip: editors keep the URL source");
 }
 
+// "**a** " and the tag, with chips (the channel resolver) or with only the name resolver.
+void parse_after_bold(Utf8View tag, bool chips) noexcept {
+    char source[64] = "**a** ";
+    copy_bytes(source + 6, tag.data, tag.bytes);
+    if (chips) {
+        parse({source, 6 + tag.bytes});
+        return;
+    }
+    MessageMarkdownOptions plain{};
+    plain.resolve_entity = +[](void*, MessageMarkdownEntityKind, u64) noexcept { return utf8_literal("name"); };
+    parsed.result = message_markdown_parse({source, 6 + tag.bytes}, {parsed.text, 1024}, {parsed.styles, 1024},
+                                           {parsed.spans, 128}, plain, {parsed.semantics, 32});
+}
+
+// "a " and then `rest`: the parse keeps the bold of "a".
+bool bold_then(Utf8View rest) noexcept {
+    char expected[64] = "a ";
+    copy_bytes(expected + 2, rest.data, rest.bytes);
+    return text_is({expected, 2 + rest.bytes}) && (parsed.styles[0] & text_style_bold) &&
+           !(parsed.styles[1] & text_style_bold);
+}
+
+// A tag whose id is 0 or does not fit in 64 bits names nothing. It shows as in the official client, and the rest of
+// the message keeps its markdown (a failed parse would show the whole message as its source).
+void test_invalid_ids(Check check) noexcept {
+    static constexpr Utf8View digit_strings[]{utf8_literal("0"), utf8_literal("18446744073709551616")};
+    // Users: the official client keeps the whole tag as a mention of nobody.
+    static constexpr Utf8View users[]{utf8_literal("<@0>"), utf8_literal("<@!0>"),
+                                      utf8_literal("<@18446744073709551616>")};
+    bool user = true;
+    for (const Utf8View tag : users)
+        for (u32 chips = 0; chips < 2; ++chips) {
+            parse_after_bold(tag, chips != 0);
+            user = user && bold_then(tag) && parsed.result.semantic_count == 0 &&
+                   (parsed.styles[2] & text_style_mention) &&
+                   (parsed.styles[parsed.result.text.bytes - 1] & text_style_mention);
+        }
+    check(user, "markdown: a user tag with the id 0 or an oversized id stays a mention of its own text");
+    // Roles: a role that the official client cannot find is "@unknown-role" text.
+    bool role = true;
+    static constexpr Utf8View roles[]{utf8_literal("<@&0>"), utf8_literal("<@&18446744073709551616>")};
+    for (const Utf8View tag : roles)
+        for (u32 chips = 0; chips < 2; ++chips) {
+            parse_after_bold(tag, chips != 0);
+            role = role && bold_then(utf8_literal("@unknown-role")) && parsed.result.semantic_count == 0 &&
+                   !(parsed.styles[2] & text_style_mention);
+        }
+    check(role, "markdown: a role tag with the id 0 or an oversized id is unknown-role text");
+    // Channels: the unknown channel chip, as for any channel that is not known; without chips, the digits.
+    bool channel = true;
+    for (const Utf8View digits : digit_strings) {
+        char tag[32] = "<#";
+        copy_bytes(tag + 2, digits.data, digits.bytes);
+        tag[2 + digits.bytes] = '>';
+        parse_after_bold({tag, 3 + digits.bytes}, true);
+        channel = channel && bold_then(utf8_literal(ICON "unknown")) &&
+                  semantics_are({{K::chip_icon, icon(I::text_channel)}, {K::channel_mention, 0}});
+        parse_after_bold({tag, 3 + digits.bytes}, false);
+        char shown[32] = "#";
+        copy_bytes(shown + 1, digits.data, digits.bytes);
+        channel = channel && bold_then({shown, 1 + digits.bytes}) && parsed.result.semantic_count == 0 &&
+                  (parsed.styles[2] & text_style_mention);
+    }
+    check(channel, "markdown: a channel tag with the id 0 or an oversized id is the unknown channel");
+    // Games and commands: the official client matches any digits. A game that names nothing is the unknown-game
+    // mention, and a command keeps its chip.
+    static constexpr Utf8View games[]{utf8_literal("<@$0>"), utf8_literal("<@$18446744073709551616>")};
+    bool game = true;
+    for (const Utf8View tag : games) {
+        parse_after_bold(tag, true);
+        game = game && bold_then(utf8_literal(CELL GAP3 GLUE "unknown-game")) &&
+               semantics_are({{K::game_icon, 0}, {K::game_mention, 0}});
+        parse_after_bold(tag, false);
+        game = game && bold_then(utf8_literal("@unknown-game")) && semantics_are({{K::game_mention, 0}});
+    }
+    check(game, "markdown: a game tag with the id 0 or an oversized id is the unknown-game mention");
+    static constexpr Utf8View commands[]{utf8_literal("</go:0>"), utf8_literal("</go:18446744073709551616>")};
+    bool command = true;
+    for (const Utf8View tag : commands)
+        for (u32 chips = 0; chips < 2; ++chips) {
+            parse_after_bold(tag, chips != 0);
+            command = command && bold_then(utf8_literal("/go")) && semantics_are({{K::command_mention, 0}}) &&
+                      (parsed.styles[2] & text_style_mention);
+        }
+    check(command, "markdown: a command tag with the id 0 or an oversized id keeps its mention");
+}
+
+// A role that the resolver does not find is "@unknown-role" text, as in the official client. A user that it does not
+// find keeps its id, and a surface without a resolver shows the role's id.
+void test_unknown_role(Check check) noexcept {
+    MessageMarkdownOptions options{};
+    options.resolve_entity = +[](void*, MessageMarkdownEntityKind, u64) noexcept { return Utf8View{}; };
+    parsed.result = message_markdown_parse(utf8_literal("<@&6> <@6>"), {parsed.text, 1024}, {parsed.styles, 1024},
+                                           {parsed.spans, 128}, options, {parsed.semantics, 32});
+    check(text_is(utf8_literal("@unknown-role @6")) && semantics_are({{K::user_mention, 6}}) &&
+              !(parsed.styles[0] & text_style_mention) && (parsed.styles[14] & text_style_mention),
+          "markdown: a role that the resolver does not find is unknown-role text");
+    parsed.result = message_markdown_parse(utf8_literal("<@&6>"), {parsed.text, 1024}, {parsed.styles, 1024},
+                                           {parsed.spans, 128}, {}, {parsed.semantics, 32});
+    check(text_is(utf8_literal("@6")) && semantics_are({{K::role_mention, 6}}),
+          "markdown: without a resolver a role tag shows its id");
+}
+
+Utf8View mention_names(void*, MessageMarkdownEntityKind kind, u64 id) noexcept {
+    if (kind == MessageMarkdownEntityKind::user && id == 5)
+        return utf8_literal("Ana");
+    if (kind == MessageMarkdownEntityKind::role && id == 6)
+        return utf8_literal("Mods");
+    if (kind == MessageMarkdownEntityKind::channel && id == 7)
+        return utf8_literal("general");
+    return {};
+}
+
+// Plain mention text (the inbox excerpt) reads tags by the parser's rules and the official client's unknown names.
+void test_mention_text(Check check) noexcept {
+    char output[256];
+    const Utf8View source = utf8_literal("<@5> <@!5> <@&6> <#7> <@123456789012345678> <@12345> <@0> <@&9> <#9> "
+                                         "<@&0> <#0> <@18446744073709551616> <@x> end");
+    u32 bytes = message_markdown_mention_text(source, mention_names, nullptr, {output, sizeof(output)});
+    check(utf8_equal({output, bytes}, utf8_literal("@Ana @Ana @Mods #general @unknown-user <@12345> <@0> "
+                                                   "@unknown-role #unknown @unknown-role #unknown "
+                                                   "<@18446744073709551616> <@x> end")),
+          "mention text: names, unknown names and tags that name nothing");
+    bytes = message_markdown_mention_text(utf8_literal("<@5> hello"), mention_names, nullptr, {output, 8});
+    check(utf8_equal({output, bytes}, utf8_literal("@Ana hel")), "mention text: the text stops at the output's end");
+}
+
 void test_url_grammar(Check check) noexcept {
     parse(utf8_literal("https://ptb.discordapp.com/channels/10/2/3?summaryId=5 tail"));
     check(parsed.result.ok() && parsed.result.semantic_count == 4 && parsed.semantics[3].source_bytes == 54 &&
@@ -474,6 +601,9 @@ void test_message_link_chips(Check check) noexcept {
     test_channel_references(check);
     test_url_grammar(check);
     test_attachment_links(check);
+    test_invalid_ids(check);
+    test_unknown_role(check);
+    test_mention_text(check);
     test_chip_copy(check);
     test_chip_cells(check);
 }

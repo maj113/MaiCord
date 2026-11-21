@@ -191,8 +191,8 @@ bool ApplicationMediaPump::content_media_visible() const noexcept {
            !application.login.visible &&
            !(application.renderer.settings_scene && application.renderer.settings_scene->active) &&
            !(application.renderer.friends_scene && application.renderer.friends_scene->active) &&
-           // The thread browser and a media page cover the chat column; chrome stays visible.
-           !(surfaces() & (d3d11_surface_thread_browser | d3d11_surface_media_page));
+           // The thread browser, a media page and a content page cover the chat column; chrome stays visible.
+           !(surfaces() & (d3d11_surface_thread_browser | d3d11_surface_media_page | d3d11_surface_content_page));
 }
 bool ApplicationMediaPump::catalog_media_visible() const noexcept {
     const auto* scene = application.renderer.media_picker_scene;
@@ -424,10 +424,10 @@ bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexce
         }
     }
     // Settings rows: avatars and icons, and Server Settings' emoji and
-    // sticker previews.
+    // sticker previews. A content page's pictures are of any kind (the hub's banner is a URL picture).
     if ((key.kind == MediaAssetKind::user_avatar || key.kind == MediaAssetKind::guild_icon ||
          key.kind == MediaAssetKind::profile_image || key.kind == MediaAssetKind::custom_emoji ||
-         key.kind == MediaAssetKind::sticker) &&
+         key.kind == MediaAssetKind::sticker || (surfaces() & d3d11_surface_content_page)) &&
         settings_avatar_is_current(key))
         return true;
     if (key.kind == MediaAssetKind::embed && application_stream_preview_key_current(key))

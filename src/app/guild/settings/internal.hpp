@@ -70,7 +70,8 @@ constexpr u32 kPopupCapacity = 512;
 constexpr u32 kSearchBytes = 400;
 constexpr u32 kRowBase = 1'000;
 constexpr u64 kEchoMs = 8'000;
-constexpr u32 kInviteCapacity = 200;
+// Discord allows 1,000 invites a server (error 30016).
+constexpr u32 kInviteCapacity = 1'000;
 constexpr u32 kAuditCapacity = 400;
 constexpr u32 kAuditPage = 50;
 constexpr u32 kAuditUsers = 400;

@@ -3,6 +3,7 @@
 #include "../../../support/window_fixture.hpp"
 #include "../../../support/test_output.hpp"
 #include "../../../support/account_module_fake.hpp"
+#include "../../../support/long_message_page.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/platform/window/key.hpp"
@@ -150,7 +151,35 @@ void release() noexcept {
     g_app.text_form = nullptr;
 }
 constexpr auto page_body = utf8_literal(
-    R"({"items":[{"pinned_at":"2026-10-05T12:34:56.123456Z","message":{"id":"300","channel_id":"70","author":{"id":"3","username":"Original author"},"content":"Copied original pin","timestamp":"2026-10-05T12:00:00Z","type":0}}],"has_more":false})");
+    R"({"items":[{"pinned_at":"2026-10-05T12:34:56.123456Z","message":{"id":"300","channel_id":"70","author":{"id":"3","username":"Original author"},"content":"Copied original pin","timestamp":"2026-10-05T12:00:00Z","type":0,"mentions":[{"id":"4","username":"Pinned mention"}]}}],"has_more":false})");
+// The page passes 256 KiB of reply, 128 KiB of text and is near the 64K-entry index: it loads, and the next
+// page is the small one again.
+void long_page() noexcept {
+    constexpr u32 capacity = 1u << 20;
+    char* body = static_cast<char*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(body != nullptr, "pins runtime: long page fixture allocates");
+    if (!body) return;
+    LongMessageWriter w{body, 0, kLongPinnedMessage, 70};
+    w.put(R"({"items":[)");
+    for (u32 i = 0; i < kMessagePinsPageLimit; ++i) {
+        if (i) w.put(",");
+        w.put(R"({"pinned_at":"2026-10-05T12:)");w.id(59 - i);w.put(R"(:00.000000+00:00","message":)");
+        w.message(5000 + i, 6000 + i);
+        w.put("}");
+    }
+    w.put(R"(],"has_more":true})");
+    auto& owner = *g_app.pinned_messages;
+    application_pinned_messages_gateway(70);
+    check(w.used > 2 * kGatewayClientDispatchPayloadCapacity && application_pinned_messages_submit(60, 1) &&
+              response(60, 200, {body, w.used}) && owner.controller.authoritative &&
+              owner.controller.page.count == kMessagePinsPageLimit && owner.controller.rows[0].message_id == 5000,
+          "pins runtime: a page of 25 long pinned replies (over 256 KiB of reply) loads");
+    application_pinned_messages_gateway(70);
+    check(application_pinned_messages_submit(61, 1) && response(61, 200, page_body) &&
+              owner.controller.page.count == 1 && owner.controller.rows[0].message_id == 300,
+          "pins runtime: the next refresh returns to the small page");
+    VirtualFree(body, 0, MEM_RELEASE);
+}
 void run() noexcept {
     check(initialize(), "pins runtime: hidden native host and real model initialize");
     if (!g_app.window || !g_app.account_ui) { release(); return; }
@@ -206,6 +235,11 @@ void run() noexcept {
     check(response(10, 200, page_body) && owner.controller.authoritative && owner.controller.page.count == 1 &&
           owner.controller.rows[0].message_id == 300 && application_pinned_messages_can_pin(300),
           "pins runtime: production codec publishes original pin identity into owned page");
+    const UserRecord* mentioned = user_store_find(g_app.account_ui->user_store, 4);
+    check(mentioned && utf8_equal(user_store_name(g_app.account_ui->user_store, *mentioned),
+                                  utf8_literal("Pinned mention")),
+          "pins runtime: a user that a pin names joins the user cache");
+    long_page();
     const u32 stable_content_revision = owner.content.revision;
     const u32 stable_scene_revision = owner.scene.revision;
     const u32 stable_source_revision = owner.source.revision;

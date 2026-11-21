@@ -238,6 +238,15 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
 // bounded recognition replay emits source spans without source-sized scratch.
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept;
 
+// Plain text with each user, role and channel tag read by the parser's rules (any digits; an id of 0 or past 64 bits
+// names nothing). `resolve` returns the name, or empty for an unknown user, role or channel.
+// - <@id>, <@!id>: "@name", else "@unknown-user" for an id of 17 to 19 digits, else the tag itself.
+// - <@&id>: "@name", else "@unknown-role".
+// - <#id>: "#name", else "#unknown" (the text of the unknown channel chip).
+// Returns the bytes written, cut at a whole code point.
+u32 message_markdown_mention_text(Utf8View source, MessageMarkdownResolveEntity resolve, void* context,
+                                  Slice<char> output) noexcept;
+
 bool message_markdown_url_valid(Utf8View value) noexcept;
 // A discord.com/discordapp.com (canary./ptb.) /channels/<guild|@me>/<channel>/<message>
 // URL, optionally with a ?query, or /channels/<guild>/<parent>/threads/<thread>/<message>

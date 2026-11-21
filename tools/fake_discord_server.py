@@ -1266,12 +1266,17 @@ def guild_state() -> dict:
 # 20 and the account's row floats under the list while it is scrolled away. The account has not consented to
 # personalization until POST /users/@me/consent grants it, and has blocked the sixth player.
 # The players are not in READY: the client asks for them by id (op 8), which GUILD_MEMBERS_CHUNK answers, with
-# the "Gamer" role's colour on the first three and a nickname on the fourth.
+# the "Gamer" role's colour on the first three and a nickname on the fourth. Each player's profile has a red banner
+# (banners/{id}/{HUB_BANNER}.png); the guild profile's brand colour is red (#C0282E), the glow of the hub's banner.
 # MAICORD_FAKE_SERVER_HUB=empty answers the space with 404 instead (a hub never set up).
 SERVER_HUB = os.environ.get("MAICORD_FAKE_SERVER_HUB", "")
 HUB_PLAYERS = [named_user(name) for name in ("Wowie", "The Trickster", "Basil", "Mira", "Juniper", "Kestrel") +
                tuple(f"Player {n}" for n in range(7, 21))] if SERVER_HUB else []
+HUB_BANNER = "b0a5e0b0a5e0b0a5e0b0a5e0b0a5e0b0"
+for _player in HUB_PLAYERS:
+    FILES[f"/banners/{_player}/{HUB_BANNER}.png"] = ("image/png", png(120, 48, lambda x, y: (220, 30, 40)))
 if SERVER_HUB:
+    PROFILE["brand_color_primary"] = "#c0282e"
     GUILD_OVERRIDES.update({"experiments": {"evaluation_id": "qa", "assignments": [[4201393060, 1, 0, 3]]},
                             "guild_space_settings": {"enabled": True, "publish_status": 1},
                             "premium_progress_bar_enabled": True, "premium_subscription_count": 3})
@@ -1297,7 +1302,8 @@ def hub_route(command: str, path: str):
     # A leaderboard name opens the member's profile popout.
     player = path[len("/users/"):-len("/profile")] if path.startswith("/users/") and path.endswith("/profile") else ""
     if player.isdigit() and int(player) in HUB_PLAYERS:
-        return 200, {"user": user_object(int(player)), "user_profile": {"bio": "Plays a lot.", "pronouns": ""},
+        return 200, {"user": dict(user_object(int(player)), banner=HUB_BANNER),
+                     "user_profile": {"bio": "Plays a lot.", "pronouns": "", "banner": HUB_BANNER},
                      "guild_member_profile": {}, "badges": [], "connected_accounts": [],
                      "mutual_guilds": [{"id": str(GID), "nick": None}]}
     if path == f"/guilds/{GID}/space":

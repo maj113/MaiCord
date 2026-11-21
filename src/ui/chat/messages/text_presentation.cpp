@@ -75,6 +75,103 @@ u64 markdown_entity_epoch(const ChatStateStore& state, const UserStore* users,
     return hash64_mix(epoch, selected ? selected->guild_id : 0u);
 }
 
+// What a row appends to. Restoring it removes the row's text from the build.
+struct RowMark {
+    MessageTextRichMetrics rich;
+    u64 next_timestamp_update_unix_seconds;
+    u32 command_count;
+    u32 utf8_count;
+    u32 style_count;
+    u32 semantic_count;
+    u32 measurement_count;
+    bool status_dots;
+};
+RowMark mark_row(const MessageTextPresentation& presentation) noexcept {
+    return {presentation.rich, presentation.next_timestamp_update_unix_seconds, presentation.command_count,
+            presentation.utf8_count, presentation.style_count, presentation.semantic_count,
+            presentation.measurement_count, presentation.status_dots};
+}
+void restore_row(MessageTextPresentation* presentation, const RowMark& mark) noexcept {
+    presentation->rich = mark.rich;
+    presentation->next_timestamp_update_unix_seconds = mark.next_timestamp_update_unix_seconds;
+    presentation->command_count = mark.command_count;
+    presentation->utf8_count = mark.utf8_count;
+    presentation->style_count = mark.style_count;
+    presentation->semantic_count = mark.semantic_count;
+    presentation->measurement_count = mark.measurement_count;
+    presentation->status_dots = mark.status_dots;
+    presentation->last_error = MessageTextPresentationError::none;
+}
+
+bool degradable(MessageTextPresentationError error) noexcept {
+    return error == MessageTextPresentationError::layout || error == MessageTextPresentationError::model;
+}
+
+// Queues a degraded message revision for its one report. Later builds (the next passes and frames) find it among
+// the reported revisions. A full queue leaves the revision unreported, so a build after the drain queues it.
+void record_degradation(MessageTextPresentation* presentation, const MessageTextDegradation& degradation) noexcept {
+    saturating_accumulate(presentation->degraded_rows);
+    for (const MessageTextRevision& reported : presentation->reported_degradations)
+        if (reported.message_id == degradation.message_id &&
+            reported.message_revision == degradation.message_revision)
+            return;
+    if (presentation->degradation_count >= kMaximumMessageTextDegradations)
+        return;
+    presentation->degradations[presentation->degradation_count++] = degradation;
+    presentation->reported_degradations[presentation->reported_degradation_cursor++ %
+                                        kMessageTextReportedDegradations] = {degradation.message_id,
+                                                                             degradation.message_revision};
+}
+
+// One message must not take the text of the others with it. A row that fails with an error of layout or model draws
+// without the failing part, or with no text when that fails too. Other errors (a full buffer) fail the build.
+bool append_row_isolated(MessageTextPresentation* presentation, const MessageScene& scene,
+                         const MessageSceneRowWidget& row, const ChatStateStore& state, const UserStore* users,
+                         const NavigationView& navigation, const Theme& theme, u64 now_unix_seconds,
+                         bool forwarded) noexcept {
+    const RowMark mark = mark_row(*presentation);
+    // A row that fails before it names a stage (its message is not in the store) reports none, not the stage of
+    // the row before it.
+    presentation->failure_stage = MessageTextPresentationStage::none;
+    if (append_row(presentation, scene, row, state, users, navigation, theme, now_unix_seconds, forwarded))
+        return true;
+    if (!degradable(presentation->last_error))
+        return false;
+    MessageTextDegradation degradation{row.message_id,
+                                       row.message_revision,
+                                       row.source_index,
+                                       presentation->failure_item_index,
+                                       presentation->last_error,
+                                       presentation->failure_stage,
+                                       presentation->failure_operation,
+                                       presentation->failure_flow_error,
+                                       false};
+    restore_row(presentation, mark);
+    // The content stage also holds the poll, invite and edited-label text. A row that fails there draws no text.
+    const bool partial = degradation.stage > MessageTextPresentationStage::row &&
+                         degradation.stage != MessageTextPresentationStage::content;
+    if (!partial || !append_row(presentation, scene, row, state, users, navigation, theme, now_unix_seconds,
+                                forwarded, degradation.stage)) {
+        if (partial && !degradable(presentation->last_error))
+            return false;
+        restore_row(presentation, mark);
+        degradation.text_dropped = true;
+    }
+    record_degradation(presentation, degradation);
+    return true;
+}
+
+// One text that the text system cannot measure must not take the other messages with it. The command keeps the size
+// of the last build, so its row does not move, and draws no text. Out of line, the measurement loop keeps its registers.
+__declspec(noinline) void drop_unmeasured(MessageTextPresentation* presentation, u32 index,
+                                          UiTextMeasureValue* value) noexcept {
+    MessageTextCommand& command = presentation->commands[index];
+    value->size = UiSize{command.measured_width, command.measured_height};
+    command.text = {};
+    command.semantics = {};
+    ++presentation->measure_failures;
+}
+
 } // namespace
 
 u64 message_text_presentation_projection_signature(const MessageTextPresentation& presentation) noexcept {
@@ -240,6 +337,7 @@ MessageTextPresentationResult message_text_presentation_build(
         presentation->markdown_entity_epoch =
             hash64_mix(presentation->markdown_entity_epoch, presentation->games->revision);
     reset_value<MessageTextRichMetrics>(&presentation->rich);
+    presentation->degraded_rows = 0;
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->status_dots = false;
     presentation->projection_signature = 0;
@@ -253,10 +351,10 @@ MessageTextPresentationResult message_text_presentation_build(
         return reject_build(presentation);
     for (u32 index = 0; index < scene.count; ++index) {
         const MessageSceneRowWidget* snapshot = message_scene_snapshot_row(scene, scene.rows[index]);
-        if (!append_row(presentation, scene, scene.rows[index], state, users, navigation, theme,
-                        now_unix_seconds) ||
-            (snapshot && !append_row(presentation, scene, *snapshot, state, users, navigation, theme,
-                                     now_unix_seconds, true)))
+        if (!append_row_isolated(presentation, scene, scene.rows[index], state, users, navigation, theme,
+                                 now_unix_seconds, false) ||
+            (snapshot && !append_row_isolated(presentation, scene, *snapshot, state, users, navigation, theme,
+                                              now_unix_seconds, true)))
             return reject_build(presentation);
     }
     presentation->active = true;
@@ -306,6 +404,7 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             return false;
         }
     }
+    presentation->measure_failures = 0;
     for (u32 index = 0; index < presentation->command_count; ++index) {
         const MessageTextCommand& command = presentation->commands[index];
         const UiTextMeasureRequest request{
@@ -321,14 +420,24 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             UiSize{ui_rect_width(command.rectangle), ui_rect_height(command.rectangle)},
             command.wrapping == TextWrapping::no_wrap, message_text_command_face(command)};
         UiTextMeasureValue value{};
-        if (!ui_text_measure_cache_measure(cache, request, &value).ok()) {
-            presentation->last_error = MessageTextPresentationError::measurement;
-            return false;
+        const UiTextMeasureResult measured = ui_text_measure_cache_measure(cache, request, &value);
+        if (!measured.ok()) [[unlikely]] {
+            if (measured.error != UiTextMeasureError::backend) {
+                presentation->last_error = MessageTextPresentationError::measurement;
+                return false;
+            }
+            drop_unmeasured(presentation, index, &value);
         }
         const FloatWord measured_height{value.size.height};
         const FloatWord measured_width{value.size.width};
         presentation->byte_style_scratch[index * 2u] = measured_height.word;
         presentation->byte_style_scratch[index * 2u + 1u] = measured_width.word;
+    }
+    // When the text system measures no command (for example, the renderer has no text storage), the measurement fails
+    // as a whole. The caller then retries the build with its backoff.
+    if (presentation->measure_failures != 0 && presentation->measure_failures == presentation->command_count) {
+        presentation->last_error = MessageTextPresentationError::measurement;
+        return false;
     }
     for (u32 index = 0; index < presentation->measurement_count; ++index) {
         presentation->measurements[index].reply_height = 0.0f;

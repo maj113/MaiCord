@@ -319,6 +319,10 @@ struct MessageTextPresentation {
     u32 degraded_rows;
     MessageTextRevision reported_degradations[kMessageTextReportedDegradations];
     u32 reported_degradation_cursor;
+    // Commands of the last measurement that the text system could not measure. Each keeps the size of the last build
+    // and draws no text. The coordinator then sets next_timestamp_update_unix_seconds to the next second, so the text
+    // clock measures them again.
+    u32 measure_failures;
     u64 failure_message_id;
     u32 failure_source_index;
     u16 failure_item_index;

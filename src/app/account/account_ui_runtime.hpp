@@ -65,7 +65,7 @@ inline constexpr u32 kMessageRequestTextCapacity = 64 * 1024;
 
 // The REST message decode bank (chat/messages/history_decode.hpp): one reservation of separately page-aligned pools,
 // each committed only as far as a body can reach.
-inline constexpr u32 kHistoryDecodePoolCount = 17;
+inline constexpr u32 kHistoryDecodePoolCount = 19;
 struct HistoryDecodeStorage {
     u8* base;
     // Committed bytes of each pool, page multiples from its start.

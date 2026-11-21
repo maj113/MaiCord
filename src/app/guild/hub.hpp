@@ -58,6 +58,8 @@ Utf8View application_guild_hub_query() noexcept;
 // The answer to one of the hub's requests (`ok` for a 2xx status).
 void application_guild_hub_response(GuildCommunityOperation, u64 guild_id, bool ok, u16 status,
                                     Utf8View body) noexcept;
+// The answer to a GET /guilds/{g}/profile (the hub's or the server card's): the hub's banner takes its brand colour.
+void application_guild_hub_profile(u64 guild_id, bool ok, Utf8View body) noexcept;
 // The account's teardown: closes the page and frees the hub.
 void application_guild_hub_release() noexcept;
 // The Activity Sharing dialog the hub's buttons open (a settings modal of the channel overview's host): the

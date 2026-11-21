@@ -105,6 +105,14 @@ struct LargeResponseBank {
     }
 };
 
+// A long page decodes in the large index and text of the decode storage until the drain returns.
+struct LargeDecodeRelease {
+    ~LargeDecodeRelease() noexcept {
+        if (g_app.account_ui)
+            application_message_decode_release_large(*g_app.account_ui);
+    }
+};
+
 struct MessageHistoryResponseErase {
     u8* data;
     u32 bytes;
@@ -767,11 +775,15 @@ static bool pump_message_history_main(bool admit) noexcept {
         if (!body_output.data || !body_output.count)
             return false;
         RestClientResponse response{};
+        // Declared before the erase guard so the bank is erased, then released.
+        LargeResponseBank large{};
+        const LargeDecodeRelease decode_release{};
+        // A held startup page can be as long as the history cap. It is replayed once a session.
+        if (startup_replay && large.allocate(kRestClientMaximumResponseBytes))
+            body_output = {large.data, large.bytes};
         RestClientTakeResult taken = startup_replay
                                          ? application_startup_history_replay(&response, body_output)
                                          : account_module_rest_take(host.instance, &response, body_output);
-        // Declared before the erase guard so the bank is erased, then released.
-        LargeResponseBank large{};
         if (taken.error == RestClientTakeError::output_too_small && large.allocate(taken.body_bytes)) {
             body_output = {large.data, large.bytes};
             taken = account_module_rest_take(host.instance, &response, body_output);
