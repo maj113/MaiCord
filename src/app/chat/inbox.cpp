@@ -80,7 +80,7 @@ bool front() noexcept {
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.running;
 }
-u64 server_filter() noexcept {
+inline u64 server_filter() noexcept {
     const auto& state = g_app.account_ui->chat_state;
     return !state.home_selected ? state.selected_guild_id : 0;
 }

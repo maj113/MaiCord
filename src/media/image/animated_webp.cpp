@@ -8,7 +8,7 @@
 namespace maicord {
 namespace {
 
-AnimatedWebpParseResult parse_failure(AnimatedWebpParseResult value, AnimatedWebpError error) noexcept {
+inline AnimatedWebpParseResult parse_failure(AnimatedWebpParseResult value, AnimatedWebpError error) noexcept {
     value.error = error;
     return value;
 }

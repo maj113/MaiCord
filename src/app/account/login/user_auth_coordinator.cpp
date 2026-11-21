@@ -166,7 +166,7 @@ void clear_tail(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 bytes, u32 
 } // namespace user_auth_coordinator_detail
 namespace {
 
-Slice<char> char_storage(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capacity) noexcept {
+inline Slice<char> char_storage(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capacity) noexcept {
     return Slice<char>{reinterpret_cast<char*>(secret(runtime, offset)), capacity};
 }
 
@@ -190,7 +190,7 @@ UserAuthResponseStorage response_storage(UserAuthCoordinatorRuntime* runtime) no
 } // namespace user_auth_coordinator_detail
 namespace {
 
-SecureBuffer partition(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capacity, u32 bytes) noexcept {
+inline SecureBuffer partition(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capacity, u32 bytes) noexcept {
     return SecureBuffer{secret(runtime, offset), capacity, bytes, true};
 }
 
@@ -239,7 +239,7 @@ u64 claim_request_id(UserAuthCoordinator* coordinator) noexcept {
     return request_id;
 }
 
-bool captcha_retry(const UserAuthState& state, UserAuthPhase return_phase) noexcept {
+inline bool captcha_retry(const UserAuthState& state, UserAuthPhase return_phase) noexcept {
     return state.phase == UserAuthPhase::captcha_required && state.captcha_return_phase == return_phase;
 }
 

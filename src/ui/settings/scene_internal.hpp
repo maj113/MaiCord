@@ -181,13 +181,13 @@ float cell_width(const UiSettingsLayoutTokens& t, float width, u32 columns) noex
 // Banner tiles (ui_settings_more_banner_tiles): five a line, 3:5 tall, lead_gap apart.
 inline constexpr u32 kBannerTileColumns = 5;
 UiRect banner_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept;
-float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
+inline float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
 u32 banner_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept;
 // Glyph tiles (ui_settings_more_glyphs): kGlyphTile squares lead_gap apart, as many to a line as fit, the icon
 // kGlyphTileIcon wide in the middle.
 inline constexpr float kGlyphTile = 40, kGlyphTileIcon = 28;
 UiRect glyph_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32 index) noexcept;
-float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
+inline float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept;
 u32 glyph_tile_hit(const UiSettingsLayoutTokens& t, const UiRect& field, u32 count, float x, float y) noexcept;
 // The glyph tile a row names at default_choice + offset, or null.
 const UiSettingsGlyphTile* glyph_tile(const UiSettingsPageContent& content, u32 index, u32 offset) noexcept;
@@ -197,8 +197,8 @@ bool glyph_image(const UiSettingsGlyphTile* glyph) noexcept;
 UiRect glyph_image_rect(const UiRect& tile) noexcept;
 UiRect glyph_chip_image_rect(const UiRect& tag) noexcept;
 // An edit cell's leading (emoji) button and trailing clear button inside its field.
-UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
-UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
+inline UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
+inline UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept;
 // The layout context of a scene: its measuring hooks and markdown bank, and whether it groups rows into cards.
 RowContext row_context(const UiSettingsScene& scene) noexcept;
 // CardEdge bits of a row: member of a card, and the first and last row of its card.

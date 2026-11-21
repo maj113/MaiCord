@@ -82,7 +82,7 @@ UiStoreNode& icon(UiStoreBuilder& b, UiIcon glyph, float size, UiStoreInk ink) n
     return n;
 }
 // A badge over a card's top end corner (the official client's: 10 DIPs past it).
-UiStoreNode& corner(UiStoreNode& n, float overhang) noexcept {
+inline UiStoreNode& corner(UiStoreNode& n, float overhang) noexcept {
     n.anchor = static_cast<u8>(UiStoreAnchor::top_right);
     n.pad_x = n.pad_y = overhang;
     n.flags |= ui_store_foreground;

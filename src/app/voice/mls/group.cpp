@@ -32,7 +32,7 @@ MlsStatus group_install(MlsGroup* group, const MlsRatchetTree& tree, const MlsGr
     return MlsStatus::ok;
 }
 // Sender leaf from a PublicMessage header bound to the active epoch.
-MlsStatus commit_sender(const MlsGroup& group, ConstSlice<u8> message, u32* sender) noexcept {
+inline MlsStatus commit_sender(const MlsGroup& group, ConstSlice<u8> message, u32* sender) noexcept {
     if (!message.data || !message.count || message.count > kMlsMaxCommitBytes)
         return MlsStatus::invalid_argument;
     MlsReader reader{message};

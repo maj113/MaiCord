@@ -904,7 +904,7 @@ __declspec(noinline) void finish_not_modified(CdnMediaPipeline* pipeline, const 
     }
 }
 
-bool usable(const CdnMediaPipeline* pipeline) noexcept {
+inline bool usable(const CdnMediaPipeline* pipeline) noexcept {
     return pipeline->cache && pipeline->scanline_storage;
 }
 

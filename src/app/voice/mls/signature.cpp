@@ -22,7 +22,7 @@ KdfResult framed_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label
     secure_clear_bytes(digest, sizeof(digest));
     return result;
 }
-MlsSignatureResult hash_failure(const KdfResult& result) noexcept {
+inline MlsSignatureResult hash_failure(const KdfResult& result) noexcept {
     return {0, result.native_status, MlsSignatureError::hash_failure};
 }
 } // namespace

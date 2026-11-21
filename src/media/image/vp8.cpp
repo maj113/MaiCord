@@ -472,7 +472,7 @@ void parse_macroblock_mode(WindowReader* state, const Vp8ControlHeader& header, 
     *state = local;
 }
 
-i32 clamp_quantizer(i32 value, i32 upper) noexcept {
+inline i32 clamp_quantizer(i32 value, i32 upper) noexcept {
     return value < 0 ? 0 : value > upper ? upper : value;
 }
 

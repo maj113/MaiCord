@@ -132,7 +132,7 @@ bool effect_control(UiThemeEditorElement element) noexcept {
     return element == UiThemeEditorElement::speed || element == UiThemeEditorElement::strength ||
            element == UiThemeEditorElement::density || builtin_effect(element);
 }
-bool flat_theme(ClientTheme theme) noexcept {
+inline bool flat_theme(ClientTheme theme) noexcept {
     return theme == ClientTheme::dark || theme == ClientTheme::amoled || theme == ClientTheme::light;
 }
 // The installed effects row follows the library and the effect in use.

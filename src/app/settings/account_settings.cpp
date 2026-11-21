@@ -178,7 +178,7 @@ u8 g_connection = 0xFF;
 bool online() noexcept {
     return application_account_settings_connection() == AccountSettingsConnection::ready;
 }
-bool action_pending() noexcept {
+inline bool action_pending() noexcept {
     return g_owner.queued || g_owner.action_inflight;
 }
 void release_bank() noexcept {
@@ -213,7 +213,7 @@ void scope() noexcept {
     g_owner.profile_id = profile;
     g_owner.self_user_id = self;
 }
-void set_status(SettingsPanel panel, const Utf8View& text, bool error) noexcept {
+inline void set_status(SettingsPanel panel, const Utf8View& text, bool error) noexcept {
     g_owner.status = text;
     g_owner.status_error = error;
     g_owner.status_panel = panel;
@@ -238,7 +238,7 @@ template <u32 Capacity, typename Size> Utf8View append(char (&buffer)[Capacity],
     used = static_cast<Size>(used + utf8_copy_truncated(buffer + used, Capacity - used, text));
     return {buffer, used};
 }
-Utf8View message(Utf8View text) noexcept {
+inline Utf8View message(Utf8View text) noexcept {
     auto& b = *g_owner.bank;
     b.message_bytes = 0;
     return append(b.message, b.message_bytes, text);
@@ -258,7 +258,7 @@ Utf8View self_name(bool username) noexcept {
     const auto* user = user_store_find(users, g_app.account_ui->chat_state.self_user_id);
     return user ? user_store_name(users, *user) : Utf8View{};
 }
-bool self_loaded() noexcept {
+inline bool self_loaded() noexcept {
     return g_owner.bank && (g_owner.loaded & load_self);
 }
 bool totp_enabled() noexcept {
@@ -317,7 +317,7 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey) noexcept {
     progress.dismissible = !g_owner.busy || g_owner.key_ceremony != 0;
     return progress;
 }
-void form_status(Utf8View text) noexcept {
+inline void form_status(Utf8View text) noexcept {
     g_owner.form_status = text;
     ++g_owner.form_revision;
 }
@@ -792,7 +792,7 @@ bool phone_number(Utf8View text, char (&output)[24], u32* bytes) noexcept {
     *bytes = at;
     return plus && at >= 9 && at <= 16;
 }
-bool reject(Utf8View text) noexcept {
+inline bool reject(Utf8View text) noexcept {
     form_status(text);
     return false;
 }
@@ -1241,7 +1241,7 @@ bool form_save_choices(TextFormOwnerKey key, Utf8View text, bool, u32 choice, u3
 }
 
 // A row's texts are read only up to their lengths: emptying it needs no wipe of the buffers.
-void clear_row(Row& row) noexcept {
+inline void clear_row(Row& row) noexcept {
     row.label_bytes = row.description_bytes = 0;
 }
 void append_row(Row& row, bool description, const Utf8View& text) noexcept {
@@ -1365,7 +1365,7 @@ struct Platform {
     Utf8View name;
     u8 options;
 };
-bool& connection_option(AccountConnection& connection, AccountConnectionField field) noexcept {
+inline bool& connection_option(AccountConnection& connection, AccountConnectionField field) noexcept {
     return field == AccountConnectionField::visibility            ? connection.visible
            : field == AccountConnectionField::metadata_visibility ? connection.metadata_visible
                                                                   : connection.show_activity;
@@ -1448,10 +1448,10 @@ bool harvest_allowed(Utf8View* reason) noexcept {
     return true;
 }
 constexpr SettingBinding first_harvest = SettingBinding::harvest_account;
-u32 harvest_bit(SettingBinding binding) noexcept {
+inline u32 harvest_bit(SettingBinding binding) noexcept {
     return static_cast<u32>(binding) - static_cast<u32>(first_harvest);
 }
-bool harvest_binding(SettingBinding binding) noexcept {
+inline bool harvest_binding(SettingBinding binding) noexcept {
     return harvest_bit(binding) < 7;
 }
 

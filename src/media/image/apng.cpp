@@ -59,7 +59,7 @@ bool append_span(ApngImage* image, ApngFrame* frame, u32 offset,
     return true;
 }
 
-bool frame_complete(const ApngFrame& frame) noexcept {
+inline bool frame_complete(const ApngFrame& frame) noexcept {
     return frame.span_count != 0 && frame.compressed_bytes >= 6;
 }
 

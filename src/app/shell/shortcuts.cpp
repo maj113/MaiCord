@@ -77,7 +77,7 @@ bool run_custom(CustomKeybindAction action) noexcept {
 // Overlay content from the registry listing and the current query.
 // A second chord with the first one's modifiers shows only its key
 // ("Ctrl Alt ↑ / ↓"), as the official client lists previous/next pairs.
-u32 chord_keys(const ShortcutChord chord, bool key_only, u32 row, u32 slot, Utf8View* keys) noexcept {
+inline u32 chord_keys(const ShortcutChord chord, bool key_only, u32 row, u32 slot, Utf8View* keys) noexcept {
     if (!chord.key)
         return 0;
     u32 count = 0;
@@ -143,7 +143,7 @@ void close_overlay() noexcept {
     g_app.renderer.shortcuts_scene = nullptr;
     application_repaint();
 }
-bool open_overlay() noexcept {
+inline bool open_overlay() noexcept {
     if (overlay.active || !g_app.account_ui || g_app.login.visible)
         return overlay.active;
     if (g_app.popup_scene.active)

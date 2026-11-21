@@ -6,7 +6,7 @@
 namespace maicord {namespace {
 // Per source unit: zero, or one more than the nominal glyph of the default ignorable there.
 struct ControlPolicy {const SfntGdef* gdef;const u16* sources;u32 units;u16 space;};
-bool hidden(u32 scalar) noexcept {return unicode_properties(scalar)->has(UnicodeFlag::default_ignorable_code_point);}
+inline bool hidden(u32 scalar) noexcept {return unicode_properties(scalar)->has(UnicodeFlag::default_ignorable_code_point);}
 // HarfBuzz hides the default ignorables that substitution left alone (hb_ot_hide_default_ignorables;
 // _hb_glyph_info_is_default_ignorable excludes substituted glyphs): each becomes the space glyph with zero advance and
 // horizontal offset (hb_ot_zero_width_default_ignorables keeps the vertical one), after positioning. Until then it

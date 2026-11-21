@@ -24,7 +24,7 @@ namespace maicord {
 namespace {
 
 // Wipes the partly built storage.
-UserClientConfigurationResult fail(UserClientConfigurationStorage* storage, UserClientConfigurationError error,
+inline UserClientConfigurationResult fail(UserClientConfigurationStorage* storage, UserClientConfigurationError error,
                                    u32 native_error = 0) noexcept {
     SecureZeroMemory(storage, sizeof(*storage));
     return UserClientConfigurationResult{native_error, error};
@@ -56,7 +56,7 @@ void write_uuid(const u8* source, char* output) noexcept {
 }
 
 #if defined(_WIN32)
-u32 write_os_version(const OSVERSIONINFOW& version, char* output,
+inline u32 write_os_version(const OSVERSIONINFOW& version, char* output,
                      u32 capacity) noexcept {
     const u32 required = decimal_digits(version.dwMajorVersion) + decimal_digits(version.dwMinorVersion) +
                          decimal_digits(version.dwBuildNumber) + 2;

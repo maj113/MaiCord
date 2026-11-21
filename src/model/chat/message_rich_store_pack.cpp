@@ -252,7 +252,7 @@ bool unpack_string(void* opaque, MessageRichString* value) noexcept {
 
 // Copies the head and tail into `record`, then takes a side block per counted array and reads the
 // items into it. On failure the caller resets the slot, which returns any blocks taken.
-bool parse_record(MessageRichStore* store, ConstSlice<u8> input, MessageRichRecord* record,
+inline bool parse_record(MessageRichStore* store, ConstSlice<u8> input, MessageRichRecord* record,
                   ConstSlice<u8>* strings, u32* consumed) noexcept {
     PackedRichHeader header{};
     if (!input.data || input.count < kPackedRichMinimum)

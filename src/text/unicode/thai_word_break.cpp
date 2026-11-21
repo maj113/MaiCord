@@ -15,7 +15,7 @@ bool thai_context(u32 cp) noexcept {return cp-0xe01u<58||cp-0xe40u<15;}
 bool consonant(u32 cp) noexcept {return cp-0xe01u<46;}
 // PAIYANNOI and MAIYAMOK belong to the preceding word.
 bool attaching(u32 cp) noexcept {return cp==0xe2f||cp==0xe46;}
-u32 attached_end(ConstSlice<u32> text,u32 at) noexcept {
+inline u32 attached_end(ConstSlice<u32> text,u32 at) noexcept {
     while(at<text.count&&!native_thai_boundary_class(text[at]))++at;
     return at;
 }

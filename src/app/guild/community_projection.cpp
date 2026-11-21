@@ -791,7 +791,7 @@ CalendarTime local_day(u32 day) noexcept {
     result.wHour = result.wMinute = result.wSecond = result.wMilliseconds = 0;
     return result;
 }
-u64 create_start_unix() noexcept {
+inline u64 create_start_unix() noexcept {
     CalendarTime start = local_day(owner->day);
     start.wHour = static_cast<u16>(owner->time_slot / 2);
     start.wMinute = static_cast<u16>(owner->time_slot % 2 * 30);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/model/guild/permission_compute.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 
 namespace maicord {

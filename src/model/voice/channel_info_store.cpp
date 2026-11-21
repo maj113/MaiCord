@@ -60,7 +60,7 @@ bool settle(VoiceChannelInfoStore* s, u64 channel_id) noexcept {
     ++s->revision;
     return true;
 }
-bool valid(const VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id) noexcept {
+inline bool valid(const VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id) noexcept {
     return s && guild_id && channel_id;
 }
 } // namespace

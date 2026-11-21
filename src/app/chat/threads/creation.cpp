@@ -240,7 +240,7 @@ void queue(CreationOwner& owner, Operation operation) noexcept {
     publish(owner, operation == Operation::reconcile ? Phase::reconcile_queued : Phase::queued,
         operation == Operation::reconcile ? utf8_literal("Checking for the thread…") : utf8_literal("Creating thread…"));
 }
-bool queued(const CreationOwner& owner) noexcept {
+inline bool queued(const CreationOwner& owner) noexcept {
     return owner.phase == Phase::queued || owner.phase == Phase::reconcile_queued;
 }
 }

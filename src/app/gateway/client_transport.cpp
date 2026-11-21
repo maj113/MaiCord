@@ -176,7 +176,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
 } // namespace client_detail
 namespace {
 
-bool schedule_backoff_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+inline bool schedule_backoff_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     u32 random = 0;
     if (!secure_random_u32(&random).ok()) {
         return false;
@@ -326,7 +326,7 @@ CookieJar* endpoint_cookies(const GatewayClientRuntime* runtime, CookieRequest* 
     return metadata->cookies;
 }
 
-bool initialize_session(GatewayClientRuntime* runtime,
+inline bool initialize_session(GatewayClientRuntime* runtime,
                         const u8 client_key[kWebSocketClientKeyBytes]) noexcept {
     // A connection lost while a large payload was spilled leaves its pages behind.
     reserved_bytes_decommit(&runtime->compressed_spill);

@@ -166,7 +166,7 @@ bool visit_array(void* opaque, u32, JsonValue value) noexcept {
     else copy_bytes(context.output.data + context.count * sizeof(record), &record, sizeof(record));
     ++context.count; return true;
 }
-u64 channel_at(Slice<char> output, u32 index) noexcept {
+inline u64 channel_at(Slice<char> output, u32 index) noexcept {
     return byte_load_le64(reinterpret_cast<const u8*>(output.data + index * 32));
 }
 void swap_records(Slice<char> output, u32 a, u32 b) noexcept {

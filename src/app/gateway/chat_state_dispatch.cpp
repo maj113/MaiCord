@@ -284,7 +284,7 @@ bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload, 
 }
 
 // The member's role ids after the roles. The caller checked that member_role_count ids fit the payload.
-bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
+inline bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
                       u64* roles, ConstSlice<u64> role_ids, u32 roles_end) noexcept {
     for (u32 index = 0; index < event.state.member_role_count; ++index) {
         if (!read_u64(payload, roles_end + index * 8u, &roles[index])) {
@@ -299,7 +299,7 @@ bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
     return true;
 }
 
-bool member_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
+inline bool member_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
                   Slice<u64> roles) noexcept {
     if (event.dispatch_kind != GatewayClientDispatchKind::guild_member_update ||
         event.state.name_bytes != 0 || event.state.member_role_count > roles.count ||
@@ -402,7 +402,7 @@ bool apply_overwrites(ChatStateStore* store, u64 channel_id, ConstSlice<u8> payl
 }
 
 // The guild's resident channels. *overwrites receives the count of their permission overwrites.
-u32 resident_guild_channels(const ChatStateStore& store, u64 guild_id, u32* overwrites) noexcept {
+inline u32 resident_guild_channels(const ChatStateStore& store, u64 guild_id, u32* overwrites) noexcept {
     u32 count = 0;
     *overwrites = 0;
     for (auto* listed = chat_state_store_first_guild_channel(store, guild_id); listed;

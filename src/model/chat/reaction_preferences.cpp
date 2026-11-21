@@ -25,7 +25,7 @@ bool store_valid(const ReactionPreferenceStore& store) noexcept {
                 store.collapsed_guilds.element_bytes == sizeof(u64) && store.collapsed_guilds.alignment == alignof(u64)));
 }
 
-bool kind_valid(ReactionPreferenceKind kind) noexcept {
+inline bool kind_valid(ReactionPreferenceKind kind) noexcept {
     return static_cast<u32>(kind) < kReactionPreferenceKindCount;
 }
 
@@ -43,7 +43,7 @@ inline u32 find_empty(const ReactionPreferenceTable& table) noexcept {
     return kReactionPreferenceUsageCapacity;
 }
 
-bool precedes(const ReactionPreferenceUsage& left, const ReactionPreferenceUsage& right) noexcept {
+inline bool precedes(const ReactionPreferenceUsage& left, const ReactionPreferenceUsage& right) noexcept {
     return left.frecency > right.frecency ||
            (left.frecency == right.frecency && left.sequence < right.sequence);
 }

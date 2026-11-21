@@ -29,7 +29,7 @@ struct Workspace {
 ClientThemeStorageResult failure(ClientThemeStorageError error, u32 native = 0) noexcept {
     return {native, 0, 0, error};
 }
-ClientThemeStorageResult document_failure(ClientThemeDocumentResult result) noexcept {
+inline ClientThemeStorageResult document_failure(ClientThemeDocumentResult result) noexcept {
     return {0, result.error_offset, result.unsupported_fields, ClientThemeStorageError::document};
 }
 bool path_valid(ConstSlice<wchar_t> path) noexcept {

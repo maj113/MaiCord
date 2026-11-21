@@ -22,8 +22,9 @@ inline bool copy_bytes(void* destination, u32 capacity, const void* source, u32 
 }
 
 // Eight bytes per step, then a byte tail; the damage diff compares whole quad
-// ranges with it.
-__declspec(noinline) inline bool bytes_equal(const void* left, const void* right, usize bytes) noexcept {
+// ranges with it. It is not machine-outlined (see com_release_slot).
+[[clang::no_outline]] __declspec(noinline) inline bool bytes_equal(const void* left, const void* right,
+                                                                   usize bytes) noexcept {
     if ((!left || !right) && bytes != 0) {
         return false;
     }

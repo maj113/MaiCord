@@ -48,7 +48,7 @@ struct LogState {
 LogState g_log{};
 
 // Caller holds the lock. The local date/time prefix changes once per second.
-void copy_stamp_locked(char* line, u64 second) noexcept {
+inline void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
         const u64 ticks = second * 10'000'000ull;
         const FILETIME now{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};

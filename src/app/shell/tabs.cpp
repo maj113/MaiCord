@@ -504,7 +504,7 @@ void application_tabs_note_navigation() noexcept {
 
 namespace {
 // The tab shown when `index` closes: the next one, else the one before.
-u32 neighbour(u32 index) noexcept {
+inline u32 neighbour(u32 index) noexcept {
     u32 before = kNone;
     for (u32 i = 0; i < g_tabs.count; ++i) {
         if (i == index || closing(g_tabs.items[i]))

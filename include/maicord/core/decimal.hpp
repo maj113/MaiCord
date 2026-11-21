@@ -20,7 +20,8 @@ __declspec(noinline) constexpr u32 decimal_digits(u64 value) noexcept {
 
 // Writes the decimal digits of value (no terminator); returns their count. One pass writes them lowest first, then
 // they are turned around in place.
-template <typename Char> __declspec(noinline) constexpr u32 decimal_write(Char* output, u64 value) noexcept {
+template <typename Char>
+[[clang::no_outline]] __declspec(noinline) constexpr u32 decimal_write(Char* output, u64 value) noexcept {
     u32 digits = 0;
     do {
         const u64 rest = decimal_tenth(value);

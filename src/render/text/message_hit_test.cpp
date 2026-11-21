@@ -14,8 +14,9 @@ namespace {
 
 struct NativeMessageGeometry {NativeParagraphHits hits;TextMeasureResult measure;float* widths;u16* bytes;};
 template<class T> Slice<T> message_take(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
+// Every caller passes alignof, a power of two: the bump needs no test.
 const void* pack_message_bytes(Arena& arena,const void* source,u32 count,usize size,usize alignment) noexcept {
-    void* target=arena_allocate(&arena,size*count,alignment);
+    void* target=arena_bump(&arena,size*count,alignment);
     if(target)copy_bytes(target,source,size*count);return target;
 }
 template<class T> inline ConstSlice<T> pack_message_slice(Arena& arena,ConstSlice<T> source) noexcept {
@@ -53,7 +54,7 @@ bool take_position_spans(Arena& arena,const MessageTextCommand& command,ConstSli
     *styles={spans.data,count};
     return true;
 }
-inline bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& command,const TextSystem& source,float width,float height,u32 units) noexcept {
+bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& command,const TextSystem& source,float width,float height,u32 units) noexcept {
     if(!source.native_text||!source.native_format||command.styles.count>kTextStyleSpanMaximum||(command.styles.count&&!command.styles.data))return false;
     auto system=source;
     system.tracking=0;system.independent_letters=false;system.fixed_weight=false;system.message_hit_policy=true;
@@ -204,7 +205,7 @@ inline bool emoji_cluster(const MessageHitTestCacheOwner& owner, const NativeMes
             return range.first_byte <= *first && *end <= range.end_byte;
     return false;
 }
-inline MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageTextCommand& command,
+MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageTextCommand& command,
                               const TextSystem& text_system, u32 command_index, float x, float y) noexcept {
     if (!has_emoji(command) || !acquire_layout(owner, command, text_system, command_index))
         return {};

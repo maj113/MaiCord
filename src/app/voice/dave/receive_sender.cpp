@@ -13,7 +13,7 @@ struct DaveReceiveNode {
 };
 namespace {
 constexpr u64 never = ~u64{0};
-u64 deadline(u64 now, u64 duration) noexcept {
+inline u64 deadline(u64 now, u64 duration) noexcept {
     return duration > never - now ? never : now + duration;
 }
 DaveSenderError validate(const DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 now) noexcept {

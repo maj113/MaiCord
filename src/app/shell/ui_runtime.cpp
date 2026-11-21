@@ -70,7 +70,7 @@ constexpr u32 kChannelCommitStep = 256;
 constexpr u32 kNameCommitStep = 64 * 1024;
 constexpr u32 kEmojiCommitStep = 1'024;
 
-u32 commit_step(u32 required, u32 step, u32 limit) noexcept {
+inline u32 commit_step(u32 required, u32 step, u32 limit) noexcept {
     return minimum(limit, (required + step - 1) / step * step);
 }
 

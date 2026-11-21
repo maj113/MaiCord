@@ -65,7 +65,7 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
 }
 // Once per audio attachment opened.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool capture_audio_metadata(ApplicationVideo& video) noexcept {
+inline bool capture_audio_metadata(ApplicationVideo& video) noexcept {
     if (!video.source.audio)
         return true;
     // A page's audio has the title it opened with (no waveform, its length unknown until it plays).

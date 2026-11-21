@@ -482,7 +482,7 @@ BatchBinding batch_binding(const GatewayEnvelope& envelope, u64 now_ms, BatchPub
     return {&envelope, now_ms, publish, context,
             cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
 }
-bool batch_skips_record(BatchBinding& binding) noexcept {
+inline bool batch_skips_record(BatchBinding& binding) noexcept {
     if (!binding.remaining_prefix)
         return false;
     --binding.remaining_prefix;

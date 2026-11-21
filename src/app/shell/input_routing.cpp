@@ -48,7 +48,7 @@ u32 navigation_held_key;
 // character into the composer it may have focused.
 u32 shortcut_held_key;
 
-bool consume_shortcut_tail(UiInputKind kind, u32 code) noexcept {
+inline bool consume_shortcut_tail(UiInputKind kind, u32 code) noexcept {
     if (!shortcut_held_key)
         return false;
     if (kind == UiInputKind::key_up && code == shortcut_held_key) {

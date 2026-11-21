@@ -64,7 +64,7 @@ bool g_quit_reported, g_ready_reported;
 wchar_t g_relaunch[kUpdatePathCapacity];
 u32 g_relaunch_count;
 
-bool busy_state(State state) noexcept {
+inline bool busy_state(State state) noexcept {
     return state == State::checking || state == State::downloading || state == State::installing ||
            state == State::restarting;
 }
@@ -297,7 +297,7 @@ void add_date(TextBank& t, u64 unix_seconds, bool year) noexcept {
 Utf8View own_commit(const ApplicationUpdatesView& v) noexcept {
     return update_version_channel(v.own_version) == UpdateChannel::preview ? commit_of(v.own_commit) : Utf8View{};
 }
-u64 offered_version(const ApplicationUpdatesView& v) noexcept {
+inline u64 offered_version(const ApplicationUpdatesView& v) noexcept {
     const u64 version = v.offer_version > v.ready_version ? v.offer_version : v.ready_version;
     return version > v.own_version ? version : 0;
 }

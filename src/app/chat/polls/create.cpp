@@ -86,7 +86,7 @@ bool editable() noexcept {
 
 // Editors ---------------------------------------------------------------
 
-Slice<char> editor_storage(u32 index) noexcept {
+inline Slice<char> editor_storage(u32 index) noexcept {
     auto& d = owner->draft;
     if (!index) return {d.question, kPollDraftQuestionBytes};
     if (index <= kAnswers) return {d.answers[index - 1], kPollDraftAnswerBytes};

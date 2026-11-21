@@ -46,8 +46,17 @@ enum class ArenaRewindMode : u8 {
 bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_bytes,
                       usize commit_step_bytes = 64 * 1024, ArenaTag tag = ArenaTag::other) noexcept;
 void arena_release(Arena* arena) noexcept;
-void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept;
-void* arena_allocate_zero(Arena* arena, usize bytes, usize alignment) noexcept;
+// The bodies of arena_allocate and arena_allocate_zero, for a power-of-two alignment. A null arena yields nullptr.
+void* arena_bump(Arena* arena, usize bytes, usize alignment) noexcept;
+void* arena_bump_zero(Arena* arena, usize bytes, usize alignment) noexcept;
+// Null for a null arena or an alignment that is not a power of two. The alignment test is in the caller, where a
+// constant alignment removes it: all callers but one pass alignof or a literal.
+__forceinline void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
+    return is_power_of_two(alignment) ? arena_bump(arena, bytes, alignment) : nullptr;
+}
+__forceinline void* arena_allocate_zero(Arena* arena, usize bytes, usize alignment) noexcept {
+    return is_power_of_two(alignment) ? arena_bump_zero(arena, bytes, alignment) : nullptr;
+}
 ArenaMark arena_mark(const Arena* arena) noexcept;
 bool arena_rewind(Arena* arena, ArenaMark mark, ArenaRewindMode mode = ArenaRewindMode::retain) noexcept;
 void arena_reset(Arena* arena, ArenaRewindMode mode = ArenaRewindMode::retain) noexcept;

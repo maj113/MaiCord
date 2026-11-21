@@ -8,7 +8,7 @@
 namespace maicord {
 namespace {
 using namespace mp4_demux_detail;
-bool hevc_entry(const Box& entry) noexcept {
+inline bool hevc_entry(const Box& entry) noexcept {
     return entry.type == fourcc('h', 'v', 'c', '1') || entry.type == fourcc('h', 'e', 'v', '1');
 }
 bool visual_entry(ConstSlice<u8> source, const Box& stsd, Box* entry) noexcept {

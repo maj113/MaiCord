@@ -98,7 +98,7 @@ inline Utf8View custom_status_label(char* output, u32 capacity) noexcept {
         put(status.emoji_name, status.emoji_name_bytes);
     return {output, used};
 }
-UiAccountMenuIdentity identity(u64 self_user, u32* revision, u64* status_revision) noexcept {
+inline UiAccountMenuIdentity identity(u64 self_user, u32* revision, u64* status_revision) noexcept {
     UiAccountMenuIdentity result{};
     result.custom_status_available = application_custom_status_available();
     if (g_app.account_menu)

@@ -8,7 +8,7 @@
 namespace maicord {
 namespace {
 
-u64 next_epoch(u64 epoch) noexcept {
+inline u64 next_epoch(u64 epoch) noexcept {
     return epoch == ~0ull ? 1 : epoch + 1;
 }
 

@@ -6,7 +6,7 @@
 
 namespace maicord {
 namespace {
-bool supported_vcl(u8 type) noexcept {
+inline bool supported_vcl(u8 type) noexcept {
     return type <= 9 || (type >= 16 && type <= 21);
 }
 inline void weights(HevcBits& b, u32 l0, u32 l1, bool bipred) noexcept {

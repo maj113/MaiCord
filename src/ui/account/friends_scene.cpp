@@ -91,7 +91,7 @@ UiRect active_toggle_rect(const UiFriendsScene& s) noexcept {
     return {left, top, left + active_toggle_extent, top + active_toggle_extent};
 }
 // One friend's card heads with their avatar beside their name; a shared one lists its members above its title.
-bool active_solo(const UiFriendsActiveCard& card) noexcept {
+inline bool active_solo(const UiFriendsActiveCard& card) noexcept {
     return card.total == 1 && card.member_count == 1;
 }
 float active_head(const UiFriendsActiveCard& card) noexcept {
@@ -124,7 +124,7 @@ UiRect active_card_rect(const UiFriendsScene& s, u32 index) noexcept {
 UiPoint active_detail_origin(const UiRect& card, const UiFriendsActiveCard& data) noexcept {
     return {card.left + 14, card.top + active_head(data)};
 }
-UiRect active_avatar_rect(const UiRect& card, u32 slot) noexcept {
+inline UiRect active_avatar_rect(const UiRect& card, u32 slot) noexcept {
     const float left = card.left + 14 + slot * active_avatar_step, top = card.top + 14;
     return {left, top, left + active_avatar, top + active_avatar};
 }
@@ -174,7 +174,7 @@ UiRect surface(const UiRect& viewport, bool modal) noexcept {
 u32 logical_count(const UiFriendsScene& s) noexcept {
     return s.phase == UiFriendsPhase::ready && s.tab != UiFriendsTab::add_friend ? s.source_count : 0;
 }
-const UiFriendsSection* section_at(const UiFriendsScene& s, u32 index) noexcept {
+inline const UiFriendsSection* section_at(const UiFriendsScene& s, u32 index) noexcept {
     if (!sectioned(s))
         return nullptr;
     for (u32 i = 0; i < s.sections->count; ++i) {
@@ -343,13 +343,13 @@ void section_heading(Entry& e, const UiFriendsSection& section) noexcept {
     e.section_label[used++] = section.collapsed ? '+' : '-';
     e.section_label_bytes = static_cast<u8>(used);
 }
-Utf8View tab_label(UiFriendsTab t) noexcept {
+inline Utf8View tab_label(UiFriendsTab t) noexcept {
     return kTabLabels[static_cast<u32>(t)];
 }
-Utf8View action_label(UiFriendsAction a) noexcept {
+inline Utf8View action_label(UiFriendsAction a) noexcept {
     return kActionLabels[static_cast<u32>(a)];
 }
-Utf8View status_label(const UiFriendsScene& s) noexcept {
+inline Utf8View status_label(const UiFriendsScene& s) noexcept {
     if (s.status.bytes)
         return s.status;
     if (s.phase == UiFriendsPhase::loading)
@@ -441,7 +441,7 @@ float action_step(UiFriendsAction a) noexcept {
                               : a == UiFriendsAction::accept_dm || a == UiFriendsAction::ignore_dm ? 8
                                                                                                   : text_action_gap);
 }
-UiFriendsAction primary(const UiFriendsRow& r) noexcept {
+inline UiFriendsAction primary(const UiFriendsRow& r) noexcept {
     return r.kind == UiFriendsKind::friend_user || r.kind == UiFriendsKind::message_request ? UiFriendsAction::open_dm
                                                                                             : UiFriendsAction::profile;
 }

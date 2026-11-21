@@ -39,7 +39,9 @@ template <typename T> inline constexpr bool is_standard_layout_v = __is_standard
 
 // Releases the COM object in *slot and clears it. IUnknown::Release is the third
 // vtable slot of every COM interface, so one out-of-line body serves all of them.
-__declspec(noinline) inline void com_release_slot(void** slot) noexcept {
+// The hot shared helpers of the core headers are not machine-outlined. The linker keeps one copy of each helper. That
+// copy can come from a unit compiled for size, and there the outliner adds calls inside the helper for every caller.
+[[clang::no_outline]] __declspec(noinline) inline void com_release_slot(void** slot) noexcept {
     void* object = *slot;
     if (object) {
         reinterpret_cast<unsigned long (*)(void*)>((*static_cast<void***>(object))[2])(object);

@@ -172,7 +172,7 @@ struct Source {
 };
 
 // acTL frame count of an APNG (1 for a plain PNG).
-u32 png_frames(ConstSlice<u8> s) noexcept {
+inline u32 png_frames(ConstSlice<u8> s) noexcept {
     u64 at = 8;
     while (at + 12 <= s.count) {
         const u32 length = byte_load_be32(s.data + at);
@@ -376,7 +376,7 @@ bool push_grid_row(Reduce* d, u32 gy, const u8* frame_row) noexcept {
     return true;
 }
 
-bool reduce_done(const Reduce& d) noexcept {
+inline bool reduce_done(const Reduce& d) noexcept {
     return !d.failed && d.next >= d.by1;
 }
 

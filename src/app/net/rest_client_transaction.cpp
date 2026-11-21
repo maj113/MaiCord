@@ -455,7 +455,7 @@ CookieRequest cookie_request(const RestClientRuntime* runtime) noexcept {
 }
 
 // The super properties and locale as the live metadata reports them for this request.
-static void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
+inline static void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
     if (!runtime->metadata)
         return;
     const u32 bytes = client_session_metadata_request(
@@ -645,7 +645,7 @@ struct RestAnswer {
     bool auth_limited, action_required;
 };
 
-static void prepare_response_metadata(RestClientRuntime* runtime,
+inline static void prepare_response_metadata(RestClientRuntime* runtime,
                                       const RestRateObservation& observation,
                                       RestClientResponse* completed) noexcept {
     const RateLimitHeaders& rate = runtime->response.parsed_head.rate;

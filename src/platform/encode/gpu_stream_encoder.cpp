@@ -131,7 +131,7 @@ bool adapter_of(ID3D11Device* device, Adapter* adapter) noexcept {
 
 // The hardware encoders of `codec` on the adapter, best first (the system's merit order). The caller releases each
 // activate and frees the array with CoTaskMemFree.
-HRESULT enumerate(const Api& api, const LUID& luid, GpuStreamCodec codec, IMFActivate*** activates,
+inline HRESULT enumerate(const Api& api, const LUID& luid, GpuStreamCodec codec, IMFActivate*** activates,
                   UINT32* count) noexcept {
     *activates = nullptr;
     *count = 0;
@@ -148,7 +148,7 @@ HRESULT enumerate(const Api& api, const LUID& luid, GpuStreamCodec codec, IMFAct
     return h;
 }
 
-void release_activates(IMFActivate** activates, UINT32 count) noexcept {
+inline void release_activates(IMFActivate** activates, UINT32 count) noexcept {
     for (UINT32 i = 0; i < count; ++i)
         activates[i]->Release();
     if (activates)
@@ -222,7 +222,7 @@ void transform_release(Transform* t) noexcept {
     reset_value(t);
 }
 
-HRESULT output_type(const Api& api, Transform* t, GpuStreamCodec codec, u32 width, u32 height, u32 fps,
+inline HRESULT output_type(const Api& api, Transform* t, GpuStreamCodec codec, u32 width, u32 height, u32 fps,
                     u32 bitrate) noexcept {
     // AV1 takes the encoder's default profile (Main: 8-bit 4:2:0); the others try theirs in order.
     const u32* profiles = codec == GpuStreamCodec::h264 ? kH264Profiles : &kH265ProfileMain;
@@ -558,7 +558,7 @@ bool convert(GpuStreamEncoder* e, const CaptureFrame& frame, Slot* slot) noexcep
     return drawn;
 }
 
-void end(GpuStreamEncoder* e, HRESULT status) noexcept {
+inline void end(GpuStreamEncoder* e, HRESULT status) noexcept {
     AcquireSRWLockExclusive(&e->lock);
     e->ended = true;
     e->stats.failure = static_cast<u32>(status);
@@ -761,7 +761,7 @@ void wake(GpuStreamEncoder* e) noexcept {
     }
 }
 
-bool create_pipeline(GpuStreamEncoder* e) noexcept {
+inline bool create_pipeline(GpuStreamEncoder* e) noexcept {
     UINT support = 0;
     if (FAILED(e->device->CheckFormatSupport(DXGI_FORMAT_NV12, &support)) ||
         !(support & D3D11_FORMAT_SUPPORT_RENDER_TARGET))

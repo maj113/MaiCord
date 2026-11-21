@@ -220,7 +220,7 @@ bool open_thread_starter(u64 parent_id, u64 thread_id) noexcept {
     return navigate_content_message(thread_id, 0) || application_thread_browser_open(parent_id);
 }
 
-bool navigate_content_message_link(const Utf8View& url) noexcept {
+inline bool navigate_content_message_link(const Utf8View& url) noexcept {
     MessageLink link{};
     if (!message_markdown_message_link(url, &link))
         return false;
@@ -261,7 +261,7 @@ bool open_content_url_impl(const Utf8View& url, const ReceivedAttachmentOpenIden
 // Markdown link rule: a link is trusted when its text is its URL,
 // unless it is in a DM with someone who is not a friend. Embed titles, authors
 // and providers are named links, never their URL text.
-bool content_link_trusted_text(const MessageTextHit& hit, const Utf8View& url) noexcept {
+inline bool content_link_trusted_text(const MessageTextHit& hit, const Utf8View& url) noexcept {
     if (!g_app.account_ui || !url.bytes)
         return false;
     const auto* message = application_message_record(hit.message_id);
@@ -303,7 +303,7 @@ Utf8View content_attachment_source(const MessageTextHit& hit) noexcept {
                             : Utf8View{};
 }
 
-void finish_content_attachment(Utf8View url, bool copy) noexcept {
+inline void finish_content_attachment(Utf8View url, bool copy) noexcept {
     if (!copy)
         open_content_url_impl(url);
     else if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
@@ -336,7 +336,7 @@ bool activate_content_attachment(const MessageTextHit& hit, bool copy) noexcept 
     return resolve_content_attachment(source);
 }
 
-void content_attachment_pump() noexcept {
+inline void content_attachment_pump() noexcept {
     if (!content_attachment.pending)
         return;
     // An edited, deleted or switched-away source drops the intent.
@@ -398,7 +398,7 @@ bool insert_command_mention(const MessageTextHit& hit) noexcept {
 constexpr UiMotionStyle kChevronMotion{100, UiMotionCurve::linear};
 UiMotionTransition g_chevron;
 u64 g_chevron_category, g_chevron_generation;
-void start_chevron_turn(u64 category, bool collapsed) noexcept {
+inline void start_chevron_turn(u64 category, bool collapsed) noexcept {
     // A toggle while it still turns reverses it from where it is.
     const float from = category == g_chevron_category && g_chevron.active ? g_chevron.value : collapsed ? 0.f : 1.f;
     g_chevron_category = category;
@@ -561,7 +561,7 @@ static bool join_voice_channel(u64 channel_id) noexcept {
 
 // Create Invite and Edit Channel on a channel row, Create Channel on a
 // category: the controls the row shows under the pointer.
-static bool activate_channel_row_control(u64 channel_id, float x, float y) noexcept {
+inline static bool activate_channel_row_control(u64 channel_id, float x, float y) noexcept {
     const auto& scene = g_app.shell_navigation_scene;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
     for (u32 i = 0; channel && i < scene.count; ++i) {

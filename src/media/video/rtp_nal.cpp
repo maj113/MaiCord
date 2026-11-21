@@ -24,7 +24,7 @@ constexpr NalCodec kH264{1, 0, 0x1f, 24, 28, 1, 23, 0xe0, 1, 5, u64{0xf} << 6};
 // H.265: types 0-47; F and the layer id's high bit kept; slices 0-31; VPS, SPS, PPS, AUD (32-35) and prefix SEI (39).
 constexpr NalCodec kH265{2, 1, 0x3f, 48, 49, 0, 47, 0x81, 0, 31, u64{0xf} << 32 | u64{1} << 39};
 
-u32 type_of(const NalCodec& c, u8 byte) noexcept {
+inline u32 type_of(const NalCodec& c, u8 byte) noexcept {
     return (byte >> c.type_shift) & c.type_mask;
 }
 bool plain_type(const NalCodec& c, u32 type) noexcept {

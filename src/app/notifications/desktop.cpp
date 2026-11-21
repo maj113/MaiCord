@@ -152,7 +152,7 @@ void tick_tray(u64 now_ms) noexcept {
     }
 }
 #endif
-bool tray_visible() noexcept {
+inline bool tray_visible() noexcept {
 #if defined(_WIN32)
     return g_desktop.tray.added;
 #else
@@ -163,7 +163,7 @@ void reveal() noexcept {
     desktop_window_reveal(g_app.window);
     application_request_frame();
 }
-void tray_command(u32 command) noexcept {
+inline void tray_command(u32 command) noexcept {
     switch (command) {
     case tray_command_open:
         reveal();

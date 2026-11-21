@@ -43,7 +43,7 @@ Shape probe_png(ConstSlice<u8> s, bool* apng) noexcept {
 }
 
 // Logical screen size; more than one image descriptor is an animation.
-Shape probe_gif(ConstSlice<u8> s) noexcept {
+inline Shape probe_gif(ConstSlice<u8> s) noexcept {
     if (s.count < 14)
         return {};
     Shape shape{byte_load_le16(s.data + 6), byte_load_le16(s.data + 8), false, false};
@@ -144,7 +144,7 @@ Shape probe_webp(ConstSlice<u8> s) noexcept {
 }
 
 // A Lottie animation is a JSON object with layers.
-bool lottie(ConstSlice<u8> s) noexcept {
+inline bool lottie(ConstSlice<u8> s) noexcept {
     u32 at = 0;
     while (at < s.count && (s[at] == ' ' || s[at] == '\t' || s[at] == '\r' || s[at] == '\n'))
         ++at;

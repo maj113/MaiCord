@@ -16,7 +16,7 @@ bool guild_event_payload(const GatewayClientEvent& event, ConstSlice<u8> payload
            event.dispatch_payload_bytes == payload.count;
 }
 
-bool read_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMutation* record) noexcept {
+inline bool read_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMutation* record) noexcept {
     if (!record || offset > payload.count || sizeof(*record) > payload.count - offset) {
         return false;
     }

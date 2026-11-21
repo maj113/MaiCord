@@ -72,7 +72,7 @@ bool identity_paths(Identity& i) noexcept {
 }
 // Writes the tray/taskbar mark in the current theme's colours and names it in
 // the identity. On failure the identity keeps Windows' generic icon.
-void prepare_icon(Identity& i) noexcept {
+inline void prepare_icon(Identity& i) noexcept {
     reset_value(&i.config.icon_path);
     if(!i.icon_units) return;
     constexpr u32 extent = kTrayIconMaximumExtent, pixels_bytes = extent*extent*4;
@@ -384,7 +384,7 @@ void scope_remove(StableStorage& storage,u32& count,u64 id) noexcept {
     auto* rows=stable_storage_data<Scope>(storage);
     for(u32 i=0;i<count;++i) if(rows[i].id==id) { rows[i]=rows[--count]; return; }
 }
-void scope_remove_guild(StableStorage& storage,u32& count,u64 guild) noexcept {
+inline void scope_remove_guild(StableStorage& storage,u32& count,u64 guild) noexcept {
     auto* rows=stable_storage_data<Scope>(storage);
     u32 kept{};
     for(u32 i=0;i<count;++i) if(rows[i].guild!=guild) rows[kept++]=rows[i];
@@ -463,7 +463,7 @@ Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexc
 // spoiler as the word "Spoiler", a link as its domain, and the line cut to 200 characters at the last space.
 constexpr u32 kSpeechCharacters = 200;
 // A link's spoken form: its host without "www.", empty when it has none.
-Utf8View link_domain(Utf8View text,u32 at,u32* end) noexcept {
+inline Utf8View link_domain(Utf8View text,u32 at,u32* end) noexcept {
     u32 i=at;
     while(i<text.bytes&&text.data[i]!=' '&&text.data[i]!='\n'&&text.data[i]!='\t') ++i;
     *end=i;
@@ -473,7 +473,7 @@ Utf8View link_domain(Utf8View text,u32 at,u32* end) noexcept {
     while(stop<i&&text.data[stop]!='/'&&text.data[stop]!='?'&&text.data[stop]!='#') ++stop;
     return {text.data+host,stop-host};
 }
-bool link_at(Utf8View text,u32 at) noexcept {
+inline bool link_at(Utf8View text,u32 at) noexcept {
     const u32 left=text.bytes-at;
     return (at==0||text.data[at-1]==' '||text.data[at-1]=='\n')&&
            ((left>7&&bytes_equal(text.data+at,"http://",7))||(left>8&&bytes_equal(text.data+at,"https://",8)));
@@ -967,7 +967,7 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     return metrics;
 }
 #endif
-static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
+inline static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
     switch(kind) {
     case GatewayClientDispatchKind::notification_snapshot_begin:
     case GatewayClientDispatchKind::notification_settings_entry:

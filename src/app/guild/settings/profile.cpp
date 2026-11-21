@@ -65,7 +65,7 @@ Utf8View trait_glyph(const GuildAdminProfileTrait& t) noexcept {
     return emoji_catalog_find_glyph(name) != ~0u ? name : Utf8View{};
 }
 // A cell of one of the page's grids: traits (fields) or games (tiles with a cover).
-UiSettingsControlPresentation cell(u16 columns, bool cover) noexcept {
+inline UiSettingsControlPresentation cell(u16 columns, bool cover) noexcept {
     return {UiSettingsVariant::standard, static_cast<u8>(cover ? ui_settings_presentation_avatar : 0), columns, 0, 0,
             ui_settings_more_cell};
 }
@@ -483,7 +483,7 @@ inline bool prepare_icon() noexcept {
 }
 
 // The preview card's content: the draft as the official card shows it.
-void preview_content(UiGuildCardContent* c, char (*traits)[kUiGuildCardTraitBytes]) noexcept {
+inline void preview_content(UiGuildCardContent* c, char (*traits)[kUiGuildCardTraitBytes]) noexcept {
     auto& p = *owner;
     const auto& d = p.profile_draft;
     const auto& profile = d.profile;

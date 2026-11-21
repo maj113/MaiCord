@@ -197,7 +197,7 @@ struct KnobRecord {
     u32 id, number_bits, rgb;
 };
 
-void load_knob_file(Loaded& l) noexcept {
+inline void load_knob_file(Loaded& l) noexcept {
     wchar_t path[512];
     u8 bytes[12 + sizeof(KnobRecord) * kMcfxKnobMaximum];
     if (!knobs_path(path, l.package.slug, false).ok())
@@ -527,7 +527,7 @@ i32 refusal_index(u64 identity, u64 adapter) noexcept {
     return -1;
 }
 
-void forget_refusal(u64 identity, u64 adapter) noexcept {
+inline void forget_refusal(u64 identity, u64 adapter) noexcept {
     const i32 at = refusal_index(identity, adapter);
     if (at < 0)
         return;

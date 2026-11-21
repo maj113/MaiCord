@@ -33,7 +33,7 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
     gateway_voice_state(batch.voice, state, batch.now_ms);
     return true;
 }
-bool decode_batch(GatewayVoiceControl* voice, JsonValue data, Slice<u32> scratch, u32 depth,
+inline bool decode_batch(GatewayVoiceControl* voice, JsonValue data, Slice<u32> scratch, u32 depth,
                   u64 now_ms) noexcept {
     if (!scratch.data || scratch.count < 2 || !depth || data.kind != JsonValueKind::object)
         return false;

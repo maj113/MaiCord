@@ -114,7 +114,7 @@ UserStoreResult store_error(UserStore* store, UserStoreError error) noexcept {
 #include "../chat/asset_hash_validation.inc"
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
+inline bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
                       Slice<u8> double_buffered_names, bool zeroed) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > 1'000'000 || !order.data ||
         order.count != records.count || !double_buffered_names.data || double_buffered_names.count < 2 ||

@@ -624,7 +624,7 @@ struct AgeGate {
 };
 AgeGate age_gate{};
 
-u64 age_gate_key(const ChannelRecord& channel) noexcept {
+inline u64 age_gate_key(const ChannelRecord& channel) noexcept {
     return channel.guild_id ? channel.guild_id : channel.id;
 }
 bool age_gate_accepted(u64 key) noexcept {

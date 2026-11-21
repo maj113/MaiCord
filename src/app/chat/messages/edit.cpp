@@ -49,11 +49,11 @@ bool retained_rich_content(const MessageRecord& record) noexcept {
            (rich->attachment_count || rich->embed_count || rich->sticker_count || rich->component_count);
 }
 
-bool submitted_content_equal(const MessageEditRuntime& edit, Utf8View content) noexcept {
+inline bool submitted_content_equal(const MessageEditRuntime& edit, Utf8View content) noexcept {
     return utf8_equal(Utf8View{edit.content, edit.content_bytes}, content);
 }
 
-bool apply_response(u32 body_bytes) noexcept {
+inline bool apply_response(u32 body_bytes) noexcept {
     MessageEditRuntime& edit = g_app.message_edit;
     GatewayMessageEvent message{};
     bool decoded_response = false;

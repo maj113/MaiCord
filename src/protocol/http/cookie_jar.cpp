@@ -31,7 +31,7 @@ struct ParsedCookie {
     bool expired;
 };
 
-bool cookie_space(char c) noexcept {
+inline bool cookie_space(char c) noexcept {
     return c == ' ' || c == '\t';
 }
 
@@ -115,7 +115,7 @@ u32 leading_digits(Utf8View token, u32 at, u32* value) noexcept {
     return count;
 }
 
-bool parse_date(Utf8View text, i64* unix_ms) noexcept {
+inline bool parse_date(Utf8View text, i64* unix_ms) noexcept {
     static constexpr char months[] = "janfebmaraprmayjunjulaugsepoctnovdec";
     bool have_time = false, have_day = false, have_month = false, have_year = false;
     u32 hour = 0, minute = 0, second = 0, day = 0, month = 0, year = 0;

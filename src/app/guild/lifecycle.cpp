@@ -184,7 +184,7 @@ bool background_scope() noexcept {
 bool lane_free() noexcept {
     return g_app.details_request_owner == MessageHistoryRequestOwner::none;
 }
-void claim_lane(u64 id) noexcept {
+inline void claim_lane(u64 id) noexcept {
     g_app.details_request_owner = MessageHistoryRequestOwner::channel_overview;
     g_app.details_request_id = id;
 }
@@ -313,7 +313,7 @@ void poll_picker() noexcept {
     }
     native_file_picker_release(&owner->picker, 0);
 }
-void default_server_name(Bank& bank) noexcept {
+inline void default_server_name(Bank& bank) noexcept {
     const auto& ui = *g_app.account_ui;
     const auto* self = user_store_find(ui.user_store, ui.chat_state.self_user_id);
     const Utf8View name = self ? user_store_name(ui.user_store, *self) : Utf8View{};
@@ -765,7 +765,7 @@ bool join_valid(TextFormOwnerKey key) noexcept {
     return background_scope() && key.scope == g_background.account_scope && g_background.join_dialog;
 }
 // An invite link (with or without its scheme) or a bare invite code.
-bool parse_invite(Utf8View text, char* code, u8* bytes) noexcept {
+inline bool parse_invite(Utf8View text, char* code, u8* bytes) noexcept {
     while (text.bytes && (text.data[0] == ' ' || text.data[0] == '\t')) {
         ++text.data;
         --text.bytes;
@@ -832,7 +832,7 @@ bool visit_id(void* opaque, JsonString name, JsonValue value) noexcept {
     p.seen = !p.seen && json_value_to_snowflake(value, &p.id);
     return p.seen;
 }
-u64 created_id(Utf8View body, Slice<u32> scratch) noexcept {
+inline u64 created_id(Utf8View body, Slice<u32> scratch) noexcept {
     const auto scanned = json_scan_structurals_avx1(body, scratch);
     if (!scanned.ok())
         return 0;

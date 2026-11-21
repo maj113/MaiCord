@@ -146,7 +146,7 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexc
     return Mp3Error::none;
 }
 // Only initialize (which validates the storage, rate and channels) sets `initialized`; release clears it.
-bool decoder_current(const Mp3Decoder* d) noexcept {
+inline bool decoder_current(const Mp3Decoder* d) noexcept {
     return d && d->initialized;
 }
 } // namespace

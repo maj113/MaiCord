@@ -43,7 +43,7 @@ inline Utf8View row_content(const MessageSnapshotRow& row) noexcept {
     return {reinterpret_cast<const char*>(&row + 1), row.content_bytes};
 }
 
-ConstSlice<u8> row_rich(const MessageSnapshotRow& row) noexcept {
+inline ConstSlice<u8> row_rich(const MessageSnapshotRow& row) noexcept {
     return {reinterpret_cast<const u8*>(&row + 1) + row.content_bytes, row.rich_bytes};
 }
 

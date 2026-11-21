@@ -107,7 +107,7 @@ bool source_current(void* opaque) noexcept {
 }
 // A person's status as the DM list shows it (ui_user_presence); unknown
 // without one (group conversations).
-UiPresence user_presence(u64 user, bool* mobile) noexcept {
+inline UiPresence user_presence(u64 user, bool* mobile) noexcept {
     *mobile = false;
     const auto* rows = user ? application_private_channel_rows() : nullptr;
     if (!rows) return UiPresence::unknown;
@@ -372,7 +372,7 @@ bool application_quick_switcher_open_picker(u64 channel_id) noexcept {
     if (!application_quick_switcher_synchronize()) { application_quick_switcher_close(); return false; }
     return application_request_frame();
 }
-static bool application_quick_switcher_toggle() noexcept {
+inline static bool application_quick_switcher_toggle() noexcept {
     if (application_quick_switcher_active()) { application_quick_switcher_close(); return true; }
     return application_quick_switcher_open();
 }

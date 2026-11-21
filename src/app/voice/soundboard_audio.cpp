@@ -14,7 +14,7 @@ namespace {
 constexpr usize align_up(usize value, usize alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
-void release(void* block) noexcept {
+inline void release(void* block) noexcept {
     if (block)
         pages_release(block);
 }

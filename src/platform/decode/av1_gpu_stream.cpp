@@ -28,7 +28,7 @@ void present(GpuStream* stream, u8 surface, const Av1FrameHeader& header, u32 rt
         damaged(stream);
 }
 
-void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noexcept {
+inline void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noexcept {
     Av1GpuStreamState* state = &stream->av1;
     const Av1FrameHeader& header = state->header;
     state->frame_open = false;
@@ -81,7 +81,7 @@ void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noe
         present(stream, surface, header, rtp_timestamp);
 }
 
-void show_existing(GpuStream* stream, u32 rtp_timestamp) noexcept {
+inline void show_existing(GpuStream* stream, u32 rtp_timestamp) noexcept {
     Av1GpuStreamState* state = &stream->av1;
     const Av1FrameHeader& header = state->header;
     const u8 surface = state->slot_surface[header.frame_to_show_map_idx];

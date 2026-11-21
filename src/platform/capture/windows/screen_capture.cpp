@@ -123,7 +123,7 @@ template <class F> F system_function(const wchar_t* library, const char* name) n
 }
 
 // The renderer's device as the Windows Runtime's IDirect3DDevice.
-Object* runtime_device(GpuDevice* device) noexcept {
+inline Object* runtime_device(GpuDevice* device) noexcept {
     static const auto create = system_function<CreateDirect3DDeviceFunction>(L"d3d11.dll",
                                                                              "CreateDirect3D11DeviceFromDXGIDevice");
     IDXGIDevice* dxgi = nullptr;
@@ -134,7 +134,7 @@ Object* runtime_device(GpuDevice* device) noexcept {
     return wrapped;
 }
 
-Object* capture_item(const CaptureSource& source) noexcept {
+inline Object* capture_item(const CaptureSource& source) noexcept {
     Object* interop = activation_factory(kCaptureItemClass, kIidCaptureItemInterop);
     Object* item = nullptr;
     if (interop)
@@ -146,7 +146,7 @@ Object* capture_item(const CaptureSource& source) noexcept {
 
 // GraphicsCaptureAccess.RequestAccessAsync(Borderless), once per process: a desktop application is answered at once,
 // without a prompt; the wait is bounded all the same.
-void request_borderless_access() noexcept {
+inline void request_borderless_access() noexcept {
     static volatile LONG requested = 0;
     if (InterlockedExchange(&requested, 1))
         return;
@@ -439,7 +439,7 @@ void deliver(Runtime& r, ID3D11Texture2D* texture, u32 width, u32 height, u64 ti
         r.sink.frame(r.sink.context, frame);
 }
 
-CaptureEnd run_wgc(Runtime& r) noexcept {
+inline CaptureEnd run_wgc(Runtime& r) noexcept {
     WgcSession w{};
     if (!wgc_open(&w, r.options.device, r.options.source, r.wake, r.options.cursor, false, r.options.max_fps)) {
         log_write(LogLevel::warning, "capture", "wgc_start_failed");
@@ -483,7 +483,7 @@ CaptureEnd run_wgc(Runtime& r) noexcept {
 }
 
 // Desktop Duplication of a screen. False when duplication cannot serve it (WGC takes over); otherwise *end is set.
-bool run_duplication(Runtime& r, CaptureEnd* end) noexcept {
+inline bool run_duplication(Runtime& r, CaptureEnd* end) noexcept {
     GpuDevice* device = r.options.device;
     const HMONITOR monitor = reinterpret_cast<HMONITOR>(r.options.source.handle);
     ID3D11DeviceContext* context = nullptr;
@@ -610,7 +610,7 @@ struct SourceList {
     DwmAttribute dwm;
 };
 
-void name_from_wide(CaptureSource* source, const wchar_t* text) noexcept {
+inline void name_from_wide(CaptureSource* source, const wchar_t* text) noexcept {
     char utf8[kCaptureSourceNameBytes * 2];
     const i32 bytes = WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, sizeof(utf8), nullptr, nullptr);
     const u32 used = capture_name_cut(utf8, bytes > 1 ? static_cast<u32>(bytes - 1) : 0, kCaptureSourceNameBytes);

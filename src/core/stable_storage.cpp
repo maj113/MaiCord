@@ -39,11 +39,12 @@ bool stable_storage_reserve(StableStorage* storage,
     }
     const usize bytes = static_cast<usize>(required_capacity - storage->capacity) * storage->element_bytes;
     const ArenaMark mark = arena_mark(&storage->arena);
+    // stable_storage_initialize accepts only a power-of-two alignment: the bump needs no test.
     void* allocation = storage->zero_new
-                           ? arena_allocate_zero(&storage->arena, bytes,
-                                                 storage->alignment)
-                           : arena_allocate(&storage->arena, bytes,
-                                            storage->alignment);
+                           ? arena_bump_zero(&storage->arena, bytes,
+                                             storage->alignment)
+                           : arena_bump(&storage->arena, bytes,
+                                        storage->alignment);
     u8* expected = storage->arena.base +
                    static_cast<usize>(storage->capacity) *
                        storage->element_bytes;

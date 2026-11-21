@@ -300,7 +300,7 @@ void destroy(HttpsFileDownload* owner) noexcept {
     }
     reset_value(owner);
 }
-bool valid_path(ConstSlice<wchar_t> path) noexcept {
+inline bool valid_path(ConstSlice<wchar_t> path) noexcept {
     // Reserve room for a unique sibling filename; never accept a relative,
     // device namespace or alternate-data-stream destination.
     if (!path.data || path.count < 3 || path.count > kHttpsFileDownloadMaximumPathUnits - kStageNameUnits) return false;

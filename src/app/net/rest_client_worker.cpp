@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 
-RestClientError client_transport_error(const RestClientRuntime* runtime, TlsStreamError error) noexcept {
+inline RestClientError client_transport_error(const RestClientRuntime* runtime, TlsStreamError error) noexcept {
     switch (error) {
     case TlsStreamError::resolve:
         return RestClientError::resolve;
@@ -310,7 +310,7 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
     return handle_completion(client, runtime, loop, event);
 }
 
-NetworkWorkerResult start_rest_worker(RestClient* client, RestSharedState* shared) noexcept {
+inline NetworkWorkerResult start_rest_worker(RestClient* client, RestSharedState* shared) noexcept {
     auto result = network_worker_start(&client->worker, worker_handler, client);
     if (!result.ok() || !shared) return result;
     // No request can be submitted before start returns. Register only once the

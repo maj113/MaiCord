@@ -12,7 +12,7 @@ struct Read {
     u32 seen, allowed, required, error_offset;
     GatewayEventDecodeError error;
 };
-bool number(JsonValue value, u32* output) noexcept {
+inline bool number(JsonValue value, u32* output) noexcept {
     u64 n = 0;
     if (!json_value_to_u64(value, &n) || n > ~u32{0})
         return false;

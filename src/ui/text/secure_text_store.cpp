@@ -36,7 +36,7 @@ HRESULT edit_result_hresult(TextInputResult result) noexcept {
     }
 }
 
-InputScope native_scope(SecureTextInputScope scope) noexcept {
+inline InputScope native_scope(SecureTextInputScope scope) noexcept {
     switch (scope) {
     case SecureTextInputScope::login_name:
         return IS_LOGINNAME;
@@ -47,12 +47,12 @@ InputScope native_scope(SecureTextInputScope scope) noexcept {
     }
 }
 
-RECT screen_rectangle(const SecureTextRect& rectangle, const POINT& origin) noexcept {
+inline RECT screen_rectangle(const SecureTextRect& rectangle, const POINT& origin) noexcept {
     return {rectangle.left + origin.x, rectangle.top + origin.y, rectangle.right + origin.x,
             rectangle.bottom + origin.y};
 }
 
-TextCompositionLineStyle composition_line_style(TF_DA_LINESTYLE style) noexcept {
+inline TextCompositionLineStyle composition_line_style(TF_DA_LINESTYLE style) noexcept {
     switch (style) {
     case TF_LS_SOLID:
         return TextCompositionLineStyle::solid;
@@ -67,7 +67,7 @@ TextCompositionLineStyle composition_line_style(TF_DA_LINESTYLE style) noexcept 
     }
 }
 
-TextCompositionAttribute composition_attribute(TF_DA_ATTR_INFO attribute) noexcept {
+inline TextCompositionAttribute composition_attribute(TF_DA_ATTR_INFO attribute) noexcept {
     switch (attribute) {
     case TF_ATTR_INPUT:
         return TextCompositionAttribute::input;
@@ -100,7 +100,7 @@ bool composition_rgb(const TF_DA_COLOR& color, u32* rgb) noexcept {
     return true;
 }
 
-TextCompositionSpan default_composition_span(u32 start, u32 end) noexcept {
+inline TextCompositionSpan default_composition_span(u32 start, u32 end) noexcept {
     return TextCompositionSpan{start,
                                end,
                                0,

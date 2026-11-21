@@ -62,7 +62,7 @@ const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexce
     return message_store_ordered_record(store, index);
 }
 
-MessageContentAvailability resolved_availability(const GatewayMessageEvent& message,
+inline MessageContentAvailability resolved_availability(const GatewayMessageEvent& message,
                                                  MessageContentAvailability empty_availability) noexcept {
     // REST message objects distinguish an absent content field from a present
     // empty string. The latter is normal for rich-only messages.

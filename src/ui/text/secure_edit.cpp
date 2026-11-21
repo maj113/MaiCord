@@ -100,7 +100,7 @@ bool text_allowed(const SecureEdit& edit, const Utf8View& text) noexcept {
     return true;
 }
 
-u32 line_boundary(const SecureEdit& edit, u32 position, bool start) noexcept {
+inline u32 line_boundary(const SecureEdit& edit, u32 position, bool start) noexcept {
     // Treat a caret inside CRLF as belonging to the preceding line. ACP still
     // represents both code units; no normalization can desynchronize TSF.
     if (position != 0 && position < edit.storage.bytes &&

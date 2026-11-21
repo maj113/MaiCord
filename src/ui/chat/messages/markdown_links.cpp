@@ -888,7 +888,7 @@ bool emit_channel_chip(Parser* parser, const MessageLink& link, bool url, u32 so
                            parser->output_bytes - display_begin, source_begin, link.source_bytes);
 }
 
-bool inside_masked_link(const Parser& parser) noexcept {
+inline bool inside_masked_link(const Parser& parser) noexcept {
     return parser.depth != 0 && parser.delimiters[parser.depth - 1].kind == DelimiterKind::masked_link;
 }
 
@@ -1364,7 +1364,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
 }
 
 namespace {
-bool word_boundary_after(Utf8View input, u32 offset) noexcept {
+inline bool word_boundary_after(Utf8View input, u32 offset) noexcept {
     if (offset >= input.bytes) {
         return true;
     }

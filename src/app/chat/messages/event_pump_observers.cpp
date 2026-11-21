@@ -97,11 +97,11 @@ namespace {
 
 // The official client keeps no per-platform presence for the current user
 // (its own avatar never shows the mobile indicator).
-u8 platform_presence(const MessageEventPump* pump, u64 user_id, u8 client_status) noexcept {
+inline u8 platform_presence(const MessageEventPump* pump, u64 user_id, u8 client_status) noexcept {
     return pump->state && user_id == pump->state->self_user_id ? u8{0} : client_status;
 }
 
-GuildMemberStatus member_status(GatewayClientMemberListStatus status) noexcept {
+inline GuildMemberStatus member_status(GatewayClientMemberListStatus status) noexcept {
     switch (status) {
     case GatewayClientMemberListStatus::online:
         return GuildMemberStatus::online;

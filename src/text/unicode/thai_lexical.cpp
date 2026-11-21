@@ -22,7 +22,7 @@ constexpr UnaryPatterns unary_patterns() noexcept {
     return result;
 }
 constexpr auto unary=unary_patterns();
-u32 graph_rank(u64 value) noexcept {
+inline u32 graph_rank(u64 value) noexcept {
     return static_cast<u32>(__popcnt64(value));
 }
 u32 graph_reference(const u8* graph,u32 node,u32 at) noexcept {

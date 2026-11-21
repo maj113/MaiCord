@@ -27,10 +27,10 @@ enum SlotState : u8 {
 constexpr usize window_bytes(u32 slots) noexcept {
     return (sizeof(VideoRtpSlot) + kVideoRtpPacketBytes) * usize{slots};
 }
-VideoRtpSlot& slot_at(VideoRtpStream& stream, u64 sequence) noexcept {
+inline VideoRtpSlot& slot_at(VideoRtpStream& stream, u64 sequence) noexcept {
     return stream.slots[sequence & (stream.capacity - 1)];
 }
-u8* payload_at(VideoRtpStream& stream, u64 sequence) noexcept {
+inline u8* payload_at(VideoRtpStream& stream, u64 sequence) noexcept {
     return stream.payloads + (sequence & (stream.capacity - 1)) * kVideoRtpPacketBytes;
 }
 const VideoRtpCodecBinding* media_codec(const VideoRtpReceiver& receiver, u8 type) noexcept {
@@ -120,7 +120,7 @@ void mark_missing(const VideoRtpConfig& config, VideoRtpStream& stream, u64 sequ
         stream.next_nack_us = slot.nack_us;
     ++stream.missing;
 }
-bool expired(const VideoRtpConfig& config, const VideoRtpSlot& slot, u64 now_us) noexcept {
+inline bool expired(const VideoRtpConfig& config, const VideoRtpSlot& slot, u64 now_us) noexcept {
     return now_us >= slot.time_us + config.give_up_us;
 }
 // Nothing was consumed yet and the head's predecessor is unknown: packets
@@ -144,7 +144,7 @@ inline void update_jitter(VideoRtpStream& stream, u32 timestamp, u64 now_us) noe
         stream.has_transit = true;
     }
 }
-VideoRtpCodec codec_of(const VideoRtpReceiver& receiver, u8 type) noexcept {
+inline VideoRtpCodec codec_of(const VideoRtpReceiver& receiver, u8 type) noexcept {
     const auto* binding = media_codec(receiver, type);
     return binding ? binding->codec : VideoRtpCodec::none;
 }
@@ -360,10 +360,10 @@ void rescan(const VideoRtpConfig& config, VideoRtpStream& stream) noexcept {
         }
     stream.missing = count;
 }
-bool nack_due(const VideoRtpStream& stream, u64 now_us) noexcept {
+inline bool nack_due(const VideoRtpStream& stream, u64 now_us) noexcept {
     return stream.missing && stream.next_nack_us && now_us >= stream.next_nack_us;
 }
-bool keyframe_due(const VideoRtpConfig& config, const VideoRtpStream& stream, u64 now_us) noexcept {
+inline bool keyframe_due(const VideoRtpConfig& config, const VideoRtpStream& stream, u64 now_us) noexcept {
     return stream.keyframe_needed &&
            (!stream.keyframe_request_us || now_us >= stream.keyframe_request_us + config.keyframe_retry_us);
 }

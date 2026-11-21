@@ -25,7 +25,7 @@ inline bool valid_emoji_name(Utf8View name) noexcept {
     return true;
 }
 
-bool read_role(ConstSlice<u8> roles, u32 index, u64* role_id) noexcept {
+inline bool read_role(ConstSlice<u8> roles, u32 index, u64* role_id) noexcept {
     const u64 offset = static_cast<u64>(index) * 8;
     if (offset + 8 > roles.count) {
         return false;

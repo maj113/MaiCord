@@ -29,7 +29,7 @@ inline SecureTextInputScope active_input_scope(const Application& application, c
     return SecureTextInputScope::text;
 }
 
-bool mfa_edit_status(LoginStatus status) noexcept {
+inline bool mfa_edit_status(LoginStatus status) noexcept {
     return status == LoginStatus::mfa_required || status == LoginStatus::mfa_input_invalid ||
            status == LoginStatus::mfa_code_rejected;
 }

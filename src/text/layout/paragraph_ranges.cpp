@@ -4,7 +4,7 @@ namespace maicord {namespace {
 u32 cluster_at(const NativeParagraphGeometry& g,u32 source) noexcept {
     u32 lo=0,hi=g.clusters.count;while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(g.clusters[mid].source_end<=source)lo=mid+1;else hi=mid;}return lo;
 }
-u32 source_at(const NativeParagraphGeometry& g,u32 cluster) noexcept {return cluster<g.clusters.count?g.clusters[cluster].source_first:g.source_units;}
+inline u32 source_at(const NativeParagraphGeometry& g,u32 cluster) noexcept {return cluster<g.clusters.count?g.clusters[cluster].source_first:g.source_units;}
 float glyph_width(const NativeParagraphGeometry& g,u32 first,u32 end) noexcept {
     float width=0;for(u32 i=first;i<end;++i)width=layout_add(width,g.placements[i].advance);return width;
 }

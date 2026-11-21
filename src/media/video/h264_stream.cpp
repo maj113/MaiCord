@@ -32,7 +32,7 @@ Slot* select_slot(Slot (&slots)[Count], u8 id, bool (*matches)(const Slot&, u8))
     }
     return free_slot ? free_slot : oldest;
 }
-bool sps_matches(const H264StreamSps& slot, u8 id) noexcept { return slot.parsed.id == id; }
+inline bool sps_matches(const H264StreamSps& slot, u8 id) noexcept { return slot.parsed.id == id; }
 bool pps_matches(const H264StreamPps& slot, u8 id) noexcept { return slot.id == id; }
 
 inline u32 reference_mask(const H264ReferenceState& references) noexcept {
@@ -50,7 +50,7 @@ inline bool stream_supported(const H264Sps& sps) noexcept {
            video_display_extent(sps.width, sps.height, sps.sar_width, sps.sar_height).width != 0;
 }
 
-u8 reference_frames(const H264Sps& sps) noexcept {
+inline u8 reference_frames(const H264Sps& sps) noexcept {
     return sps.max_references ? sps.max_references : 1;
 }
 

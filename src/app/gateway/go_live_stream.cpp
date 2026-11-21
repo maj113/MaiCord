@@ -73,7 +73,7 @@ StreamBitrate bounds(const GoLiveSettings& settings) noexcept {
 
 // Once per stream (buffers, teardown, end reasons), compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-GoLiveMedia* media_create(GatewayGoLive& live) noexcept {
+inline GoLiveMedia* media_create(GatewayGoLive& live) noexcept {
     auto* block = static_cast<u8*>(pages_allocate(sizeof(GoLiveMedia) + kGoLiveUnitRingBytes));
     if (!block)
         return nullptr;
@@ -155,7 +155,7 @@ void apply_pause(GatewayGoLive& live) noexcept {
         live.awaiting_keyframe = live.keyframes.wanted = true;
 }
 // The process stream audio follows: the shared window's, none for a screen (every process).
-u32 sound_process(const CaptureSource& source) noexcept {
+inline u32 sound_process(const CaptureSource& source) noexcept {
     return source.kind == CaptureSourceKind::window ? source.process_id : 0;
 }
 void start_sound(GatewayGoLive& live) noexcept {

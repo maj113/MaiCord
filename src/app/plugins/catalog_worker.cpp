@@ -350,7 +350,7 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     if (w.library_changed) w.library_changed();
 }
 
-void trim_assets(const Worker& w) noexcept {
+inline void trim_assets(const Worker& w) noexcept {
     wchar_t directory[600];
     if (!catalog_path(base(w), L"catalog-cache\\", directory)) return;
     // Oldest first until the cache is under its cap; at most a few hundred files.

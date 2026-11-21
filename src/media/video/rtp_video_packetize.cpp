@@ -20,10 +20,10 @@ namespace {
 constexpr u8 kStapA = 24, kFuA = 28, kH265Aggregation = 48, kH265Fragmentation = 49;
 constexpr u32 kAv1MaximumElements = 63; // The depacketizer reads at most 64 per packet.
 
-bool h265(const RtpVideoPacketizer& p) noexcept {
+inline bool h265(const RtpVideoPacketizer& p) noexcept {
     return p.codec == RtpVideoPacketCodec::h265;
 }
-u32 nal_header_bytes(const RtpVideoPacketizer& p) noexcept {
+inline u32 nal_header_bytes(const RtpVideoPacketizer& p) noexcept {
     return h265(p) ? 2 : 1;
 }
 // Finds the unit at or after from into p; false when there is none (or the frame is malformed: failed).
@@ -70,7 +70,7 @@ void advance(RtpVideoPacketizer& p) noexcept {
     if (!locate(p, p.next_unit))
         p.unit = p.payload = p.unit_end = p.next_unit = p.frame.count;
 }
-bool done(const RtpVideoPacketizer& p) noexcept {
+inline bool done(const RtpVideoPacketizer& p) noexcept {
     return p.unit >= p.frame.count;
 }
 
@@ -96,7 +96,7 @@ u32 h26x_fragment(RtpVideoPacketizer& p, u8* out) noexcept {
     return at + bytes;
 }
 
-u32 h26x_next(RtpVideoPacketizer& p, u8* out) noexcept {
+inline u32 h26x_next(RtpVideoPacketizer& p, u8* out) noexcept {
     if (p.fragments)
         return h26x_fragment(p, out);
     const u32 size = p.unit_end - p.unit;

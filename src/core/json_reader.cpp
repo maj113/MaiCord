@@ -46,7 +46,7 @@ __forceinline void skip_whitespace(IndexedReader* reader) noexcept {
     }
 }
 
-void skip_optional_utf8_bom(IndexedReader* reader) noexcept {
+inline void skip_optional_utf8_bom(IndexedReader* reader) noexcept {
     if (reader->input.bytes >= 3 && static_cast<u8>(reader->input.data[0]) == 0xEF &&
         static_cast<u8>(reader->input.data[1]) == 0xBB &&
         static_cast<u8>(reader->input.data[2]) == 0xBF) {
@@ -819,7 +819,7 @@ JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u
 
 // The position of the first offset >= value, searched outward from hint: consecutive lookups of a document
 // land close together, so a visit of a member's value (the hint) or of a later sibling needs few probes.
-static u32 structural_find(ConstSlice<u32> offsets, u32 value, u32 hint) noexcept {
+static inline u32 structural_find(ConstSlice<u32> offsets, u32 value, u32 hint) noexcept {
     u32 first = 0, last = offsets.count;
     if (hint < last && offsets[hint] < value) {
         first = hint + 1;
@@ -850,7 +850,7 @@ static u32 structural_find(ConstSlice<u32> offsets, u32 value, u32 hint) noexcep
 
 // The view of one value of a document: the input up to the value's end and the index from the value's first
 // structural on. Nothing after the value is consumed, so no end search is needed.
-static bool indexed_subview(const JsonIndexedDocument& document, const JsonValue& value,
+static inline bool indexed_subview(const JsonIndexedDocument& document, const JsonValue& value,
                             Utf8View* prefix, ConstSlice<u32>* offsets, u32* begin, u32* first_index) noexcept {
     if (!document.input.data || !document.structurals.data || !value.source.data || !value.source.bytes)
         return false;

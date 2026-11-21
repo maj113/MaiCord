@@ -139,7 +139,7 @@ const ChannelRecord* voice_channel(u64 channel_id) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
     return channel && channel->guild_id ? channel : nullptr;
 }
-bool premium() noexcept {
+inline bool premium() noexcept {
     return g_app.account_ui && g_app.account_ui->chat_state.self_premium_type != 0;
 }
 void set_notice(u64 guild_id, const Utf8View& text) noexcept {

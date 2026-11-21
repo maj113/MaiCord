@@ -152,9 +152,9 @@ void arena_release(Arena* arena) noexcept {
     reset_value<Arena>(arena);
 }
 
-void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
+void* arena_bump(Arena* arena, usize bytes, usize alignment) noexcept {
     // A released or never initialized arena reserves nothing, so the bound below refuses it without testing the base.
-    if (!arena || !is_power_of_two(alignment)) {
+    if (!arena) {
         return nullptr;
     }
     const usize address = reinterpret_cast<usize>(arena->base) + arena->offset;
@@ -172,12 +172,12 @@ void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
     return place(arena, aligned_offset, new_offset);
 }
 
-void* arena_allocate_zero(Arena* arena, usize bytes, usize alignment) noexcept {
+void* arena_bump_zero(Arena* arena, usize bytes, usize alignment) noexcept {
     // Bytes past the previous peak were never handed out: they are still the
     // zero pages VirtualAlloc committed. Erasing only below it keeps untouched
     // capacity out of the working set.
     const usize pristine = arena ? arena->peak : 0;
-    auto* allocation = static_cast<u8*>(arena_allocate(arena, bytes, alignment));
+    auto* allocation = static_cast<u8*>(arena_bump(arena, bytes, alignment));
     if (allocation) {
         const usize offset = static_cast<usize>(allocation - arena->base);
         if (offset < pristine) {

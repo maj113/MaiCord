@@ -14,7 +14,7 @@ void report(const GuildAssetRequest& request, const GuildImageInfo& info) noexce
 }
 
 // Prepared upload for an image operation; an empty source clears the image.
-bool prepare(const GuildAssetRequest& request, GuildImageBuffer* buffer, GuildPreparedImage* image) noexcept {
+inline bool prepare(const GuildAssetRequest& request, GuildImageBuffer* buffer, GuildPreparedImage* image) noexcept {
     reset_value(buffer);
     reset_value(image);
     if (!guild_asset_has_image(request.operation) || !request.image.count)

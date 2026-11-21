@@ -273,7 +273,7 @@ Utf8View editor_text(Editor index) noexcept {
 namespace {
 
 // Reserves the next control slot with its presentation, or ~0u when the page is full.
-u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
+inline u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
     if (owner->control_count >= kControlCapacity)
         return ~0u;
     owner->presentation[owner->control_count] = presentation;

@@ -23,7 +23,7 @@ void put_fixed_decimal(char* output, u32 value, u32 digits) noexcept {
     }
 }
 
-char level_letter(LogLevel level) noexcept {
+inline char level_letter(LogLevel level) noexcept {
     switch (level) {
     case LogLevel::trace:
         return 'T';
@@ -38,7 +38,7 @@ char level_letter(LogLevel level) noexcept {
 }
 
 // "YYYY-MM-DD HH:MM:SS", the 19 characters of a line's time stamp before its milliseconds.
-void put_stamp(char* stamp, u32 year, u32 month, u32 day, u32 hour, u32 minute, u32 second) noexcept {
+inline void put_stamp(char* stamp, u32 year, u32 month, u32 day, u32 hour, u32 minute, u32 second) noexcept {
     put_fixed_decimal(stamp, year, 4);
     stamp[4] = '-';
     put_fixed_decimal(stamp + 5, month, 2);

@@ -220,7 +220,7 @@ inline bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadS
     out->risky = safe.risky;
     return true;
 }
-bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
+inline bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
                            u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
     if (record.delivery != MessageDeliveryState::authoritative ||
         !channel_current(record.channel_id) || embed_index > 0xFF)
@@ -546,7 +546,7 @@ void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
 namespace {
 
 // Pictures confirm as images, by the saved name's extension.
-bool image_file(const DownloadJob& j) noexcept {
+inline bool image_file(const DownloadJob& j) noexcept {
     const Utf8View name = job_name(j);
     for (NameList list{".png\0.jpg\0.jpeg\0.gif\0.webp\0.avif\0"}; list; list.next())
         if (name.bytes > list.bytes &&
@@ -1205,7 +1205,7 @@ inline ReceivedAttachmentKind embed_kind(const DownloadSource& source) noexcept 
                                                              : ReceivedAttachmentKind::image;
 }
 // Embed media gets Save beside its link rows, which name the original URL.
-bool open_embed_context(const DownloadSource& source, Utf8View link, UiRect anchor) noexcept {
+inline bool open_embed_context(const DownloadSource& source, Utf8View link, UiRect anchor) noexcept {
     auto* q = ensure_owner();
     if (!link.bytes)
         link = {source.url, source.url_bytes};

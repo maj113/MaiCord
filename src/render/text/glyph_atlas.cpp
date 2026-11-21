@@ -122,7 +122,7 @@ u32 find_empty_entry(GlyphAtlasAllocator* atlas) noexcept {
     return kNone;
 }
 
-inline u32 pool_slots(const GlyphAtlasAllocator& atlas, u8 pool, u32 span) noexcept {
+u32 pool_slots(const GlyphAtlasAllocator& atlas, u8 pool, u32 span) noexcept {
     u32 slots = 0;
     for (u32 index = 0; index < atlas.row_count; ++index) {
         if (atlas.rows[index].pool == pool) {
@@ -300,7 +300,7 @@ inline u32 empty_lru_row(GlyphAtlasAllocator* atlas, u32 width, u32 height, u8 p
     return found;
 }
 
-inline bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
+bool any_visible(const GlyphAtlasAllocator& atlas, bool protect) noexcept {
     for (u32 index = 0; index < atlas.row_count; ++index) {
         if (row_visible(atlas, index, protect)) {
             return true;

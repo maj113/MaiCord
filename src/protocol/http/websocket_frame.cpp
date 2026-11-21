@@ -5,12 +5,12 @@
 namespace maicord {
 namespace {
 
-bool opcode_valid(u8 opcode) noexcept {
+inline bool opcode_valid(u8 opcode) noexcept {
     return opcode == 0x0 || opcode == 0x1 || opcode == 0x2 || opcode == 0x8 || opcode == 0x9 ||
            opcode == 0xA;
 }
 
-bool opcode_control(WebSocketOpcode opcode) noexcept {
+inline bool opcode_control(WebSocketOpcode opcode) noexcept {
     return static_cast<u8>(opcode) >= 0x8;
 }
 

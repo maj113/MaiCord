@@ -60,7 +60,7 @@ __declspec(noinline) bool contextual_break(u32 a,const char* data,u32 bytes,u32 
     while(i<at&&(id(i)==sy_id||id(i)==is_id))--i;
     return i>=at||id(i)!=nu_id;
 }
-float tab(float pen,float stop) noexcept {
+inline float tab(float pen,float stop) noexcept {
     const float q=pen/stop;if(!(q>=0)||q>1000000)return -1;
     return static_cast<float>(static_cast<u32>(q)+1)*stop;
 }

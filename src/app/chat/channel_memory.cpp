@@ -12,7 +12,7 @@ namespace {
 constexpr u8 kMagic[] = {'M', 'C', 'C', 'M'};
 constexpr u8 kVersion = 1, kTabsVersion = 2;
 
-bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
+inline bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
     return entry.channel_id != 0 && entry.parent_id != entry.channel_id;
 }
 } // namespace

@@ -296,7 +296,7 @@ template<class Visit> SfntStatus syllables(const Policy& p,Slice<SfntComponentGl
         const auto status=visit(at,end,syllable);if(status!=SfntStatus::ok)return status;at=end;}
     return SfntStatus::ok;
 }
-bool substituted(const Policy& p,const SfntComponentGlyph& g) noexcept {
+inline bool substituted(const Policy& p,const SfntComponentGlyph& g) noexcept {
     return g.component>=p.snapshot_used||p.snapshot[g.component]!=g.glyph.glyph;
 }
 // Records each live node's glyph; nodes made later are substitution results.

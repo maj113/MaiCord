@@ -22,7 +22,7 @@ bool box(ConstSlice<u8> input, u32 type, Box* out) noexcept {
     u64 cursor = 0;
     return next_box(input, &cursor, input.count, out) && cursor == input.count && out->type == type;
 }
-bool add(u64 a, u64 b, u64* out) noexcept {
+inline bool add(u64 a, u64 b, u64* out) noexcept {
     if (b > ~u64{0} - a) return false;
     *out = a + b;
     return true;

@@ -148,7 +148,7 @@ constexpr u8 kRichRecordBytes[6] = {sizeof(GatewayClientMessageReactionMutation)
                                     sizeof(GatewayClientMessageStickerMutation),
                                     sizeof(GatewayClientMessageComponentMutation)};
 
-void rich_counts(const GatewayClientMessageRichHeader& header, u16 (&counts)[6]) noexcept {
+inline void rich_counts(const GatewayClientMessageRichHeader& header, u16 (&counts)[6]) noexcept {
     copy_bytes(counts, &header.reaction_count, sizeof(counts));
 }
 

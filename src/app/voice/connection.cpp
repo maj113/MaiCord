@@ -455,12 +455,12 @@ VoiceUdpMediaSend voice_connection_media_send(VoiceConnection* connection, u64 r
     return result;
 }
 namespace {
-bool resume_pending(const VoiceConnection& connection) noexcept {
+inline bool resume_pending(const VoiceConnection& connection) noexcept {
     return connection.reconnect_pending && connection.reconnect_action == VoiceCloseAction::resume;
 }
 // Decides once per authenticated socket, before its state is cleared. Local
 // stops and handler/protocol failures never reconnect.
-void plan_reconnect(VoiceConnection* connection, u64 now_ms) noexcept {
+inline void plan_reconnect(VoiceConnection* connection, u64 now_ms) noexcept {
     const auto& socket = connection->socket;
     const bool dave = connection->dave_reconnect_requested;
     connection->dave_reconnect_requested = false;

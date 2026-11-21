@@ -216,7 +216,7 @@ UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& de
                             kControlCapacity},
                            id, label, description, kind, enabled, checked, presentation);
 }
-u32 slowmode_index(u32 seconds) noexcept {
+inline u32 slowmode_index(u32 seconds) noexcept {
     for (u32 i = 0; i < 14; ++i)
         if (slowmode_values[i] == seconds)
             return i;
@@ -659,7 +659,7 @@ void open_slowmode(const UiRect& anchor, u32 current) noexcept {
     owner->menu = Menu::slowmode;
     settings_layer_open_choice(&owner->layer, owner->identity.channel_id, {owner->popup_items, 14}, anchor, 240);
 }
-void open_target_menu(UiRect anchor) noexcept {
+inline void open_target_menu(UiRect anchor) noexcept {
     auto& p = *owner;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
@@ -700,7 +700,7 @@ void open_target_menu(UiRect anchor) noexcept {
     p.menu = Menu::target;
     settings_layer_open_choice(&p.layer, p.identity.channel_id, {p.popup_items, count}, anchor, 280);
 }
-void set_override(u64 id, PermissionSet bit, PermissionTriState value) noexcept {
+inline void set_override(u64 id, PermissionSet bit, PermissionTriState value) noexcept {
     auto& d = owner->overwrite_draft;
     if (permission_overwrite_draft_find(d, id) == ~0u && !permission_overwrite_draft_add(&d, id, 0))
         return;
@@ -713,7 +713,7 @@ void set_override(u64 id, PermissionSet bit, PermissionTriState value) noexcept 
 }
 
 void request_close() noexcept;
-void select(UiPageKey key) noexcept {
+inline void select(UiPageKey key) noexcept {
     auto& p = *owner;
     if (guard_dirty())
         return;

@@ -22,7 +22,7 @@ inline Layout layout() noexcept {
     l.total = align(static_cast<u32>(l.stream + stream), 4096);
     return l;
 }
-VoiceMessageRecorderError fail(VoiceMessageRecorder* r, VoiceMessageRecorderError error) noexcept {
+inline VoiceMessageRecorderError fail(VoiceMessageRecorder* r, VoiceMessageRecorderError error) noexcept {
     r->error = error;
     return error;
 }

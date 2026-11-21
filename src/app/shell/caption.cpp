@@ -107,7 +107,7 @@ UiCaptionBarLayout layout_for(i32 client_width, u32 dpi, bool fresh = false) noe
 
 // What the platform does with a press on a part: only the caption, the window menu and (where the system's snap
 // layouts want it) the maximize button are frame; the rest of the bar is client.
-FrameHit frame_part(UiCaptionPart part) noexcept {
+inline FrameHit frame_part(UiCaptionPart part) noexcept {
     switch (ui_caption_bar_native(part)) {
     case UiCaptionNative::caption:
         return FrameHit::caption;

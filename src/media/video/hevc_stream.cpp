@@ -11,7 +11,7 @@ namespace {
 
 constexpr u8 kEos = 36, kEob = 37, kPrefixSei = 39;
 
-u8 nal_type(ConstSlice<u8> nal) noexcept {
+inline u8 nal_type(ConstSlice<u8> nal) noexcept {
     return static_cast<u8>((nal[0] >> 1) & 63u);
 }
 
@@ -52,7 +52,7 @@ inline bool stream_supported(const HevcSps& sps) noexcept {
 }
 
 // SPS (33) or PPS (34) NAL. A failing set invalidates a stored set of the same id.
-HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal) noexcept {
+inline HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal) noexcept {
     if (!sets || !nal.data || nal.count < 3)
         return HevcError::invalid_input;
     const u8 type = nal_type(nal);

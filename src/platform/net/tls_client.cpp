@@ -34,7 +34,7 @@ TlsHandshakeStep handshake_failure(TlsError error, SECURITY_STATUS status) noexc
     return TlsHandshakeStep{0, 0, status, error, TlsHandshakeState::failed};
 }
 
-u32 copy_output_token(SecBuffer token, Slice<u8> outgoing) noexcept {
+inline u32 copy_output_token(SecBuffer token, Slice<u8> outgoing) noexcept {
     if (!token.pvBuffer || token.cbBuffer == 0) {
         return 0;
     }
@@ -144,7 +144,7 @@ ULONG requested_attributes() noexcept {
 // credential's session cache, or a KeyUpdate): DecryptMessage leaves it decrypted in its SECBUFFER_EXTRA at the end
 // of the buffer. True when it was taken and needs no answer, with *remaining the bytes behind it (still encrypted
 // records); a message that needs one (a KeyUpdate that asks for ours) is false, there being nowhere to send it.
-bool take_post_handshake_message(TlsClient* client, u8* message, u32 bytes, u32* remaining) noexcept {
+inline bool take_post_handshake_message(TlsClient* client, u8* message, u32 bytes, u32* remaining) noexcept {
     SecBuffer input_buffers[2]{};
     input_buffers[0] = SecBuffer{bytes, SECBUFFER_TOKEN, message};
     input_buffers[1].BufferType = SECBUFFER_EMPTY;

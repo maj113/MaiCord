@@ -14,13 +14,13 @@ constexpr u64 kMemorySummaryMinimumGapMs = 60ull * 1000ull;
 constexpr u32 kMemorySummaryTopTags = 4;
 u64 g_last_summary_ms;
 
-u64 kib(i64 bytes) noexcept {
+inline u64 kib(i64 bytes) noexcept {
     return bytes > 0 ? static_cast<u64>(bytes) >> 10 : 0;
 }
 
 // The atlas surfaces the renderer holds now: media and previews (with their backups), the animation frame caches and
 // the glyph atlas.
-u64 gpu_atlas_bytes(const D3D11Renderer& r) noexcept {
+inline u64 gpu_atlas_bytes(const D3D11Renderer& r) noexcept {
     const GpuPagedTexture* const surfaces[] = {r.media_gpu.surface,  r.media_gpu.preview_surface,
                                                r.media_gpu.backup,   r.media_gpu.preview_backup,
                                                r.animation_gpu.surface, r.preview_animation_gpu.surface,

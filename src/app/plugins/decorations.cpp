@@ -272,7 +272,7 @@ void encode(Sink& s, const mc_decoration& d, u32 total) noexcept {
 }
 
 // Multiplicative (Fibonacci) hashing: consecutive snowflake ids spread over the table's low bits.
-u32 home(u64 key, u64 scope) noexcept {
+inline u32 home(u64 key, u64 scope) noexcept {
     return static_cast<u32>((key * 0x9E37'79B9'7F4A'7C15ull + (scope + 1) * 0xC2B2'AE3D'27D4'EB4Full) >> 32);
 }
 

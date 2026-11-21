@@ -406,7 +406,7 @@ struct Workspace {
 // fancy upsampling of luma line 9 already needs chroma line 5).
 inline constexpr u32 kPendingLuma = 7, kPendingChroma = 4;
 
-u64 align16(u64 value) noexcept {
+inline u64 align16(u64 value) noexcept {
     return (value + 15u) & ~15ull;
 }
 Workspace carve(u8* base, u32 width, bool filtered_alpha) noexcept {

@@ -14,7 +14,7 @@ constexpr u32 kBlock = kProgressiveBlockBytes;
 bool bit(const u64* words, u32 index) noexcept {
     return (words[index >> 6] >> (index & 63u)) & 1u;
 }
-void set_bit(u64* words, u32 index, bool value) noexcept {
+inline void set_bit(u64* words, u32 index, bool value) noexcept {
     const u64 mask = u64{1} << (index & 63u);
     words[index >> 6] = value ? words[index >> 6] | mask : words[index >> 6] & ~mask;
 }

@@ -29,7 +29,7 @@ void release_buffer(GpuStreamInput* input) noexcept {
     reset_value(input);
 }
 
-bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
+inline bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
     if (input->capacity >= bytes)
         return true;
     const u32 capacity = (bytes + 0xFFFFu) & ~0xFFFFu;
@@ -67,7 +67,7 @@ void publish_stats(GpuStream* stream) noexcept {
 }
 
 // Frees the decoder and surfaces; the stream then waits for a keyframe (parameter sets are kept) and recreates them.
-bool release_idle(GpuStream* stream) noexcept {
+inline bool release_idle(GpuStream* stream) noexcept {
     if (!has_resources(*stream))
         return false;
     stream->backend->drain(stream); // Nothing decoded may be lost silently.

@@ -26,10 +26,10 @@ bool next_nal(ConstSlice<u8> data, u32* offset, ConstSlice<u8>* nal) noexcept {
 u8 nal_type(GpuStreamCodec codec, ConstSlice<u8> nal) noexcept {
     return codec == GpuStreamCodec::h264 ? nal.data[0] & 0x1Fu : (nal.data[0] >> 1) & 0x3Fu;
 }
-bool is_delimiter(GpuStreamCodec codec, u8 type) noexcept {
+inline bool is_delimiter(GpuStreamCodec codec, u8 type) noexcept {
     return type == (codec == GpuStreamCodec::h264 ? 9 : 35);
 }
-bool is_sequence_parameters(GpuStreamCodec codec, u8 type) noexcept {
+inline bool is_sequence_parameters(GpuStreamCodec codec, u8 type) noexcept {
     return type == (codec == GpuStreamCodec::h264 ? 7 : 33);
 }
 

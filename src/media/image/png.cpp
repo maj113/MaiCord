@@ -17,7 +17,7 @@ enum class ParseStage : u8 {
     done,
 };
 
-PngParseResult parse_failure(PngParseResult result,
+inline PngParseResult parse_failure(PngParseResult result,
                              PngError error) noexcept {
     result.error = error;
     return result;
@@ -332,7 +332,7 @@ struct PngGeometry {
 
 // Row and image sizes of a width x height image in a colour format; false for
 // dimensions or a format outside the admitted set.
-bool png_geometry(u32 width, u32 height, u8 bit_depth, u8 color_type, PngGeometry* geometry) noexcept {
+inline bool png_geometry(u32 width, u32 height, u8 bit_depth, u8 color_type, PngGeometry* geometry) noexcept {
     u8 channels = 0;
     if (width == 0 || height == 0 || width > kPngDimensionMaximum ||
         height > kPngDimensionMaximum ||

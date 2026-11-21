@@ -89,7 +89,7 @@ inline void spsc_mailbox_store(volatile Sequence* sequence, Value value) noexcep
 }
 
 template <u32 Capacity>
-void spsc_mailbox_copy_into(u8 (&destination)[Capacity], u64 sequence,
+inline void spsc_mailbox_copy_into(u8 (&destination)[Capacity], u64 sequence,
                             ConstSlice<u8> source) noexcept {
     if (source.count == 0) {
         return;
@@ -151,7 +151,7 @@ SpscMailboxResult spsc_mailbox_push(
 // producer must not reuse that buffer until the consumer has popped this
 // record; no ring bytes are used.
 template <typename T, u32 EventCapacity, u32 PayloadCapacity>
-SpscMailboxResult spsc_mailbox_push_external(
+inline SpscMailboxResult spsc_mailbox_push_external(
     SpscMailbox<T, EventCapacity, PayloadCapacity>* mailbox,
     const typename SpscMailboxTypeIdentity<T>::type& value, u32 payload_bytes) noexcept {
     if (!mailbox || !payload_bytes) {

@@ -40,7 +40,7 @@ struct TextBank {
         return {data + start, used - start};
     }
     // Decimal digits; the most significant ones that fit when out of room.
-    __declspec(noinline) Utf8View number(u64 value) noexcept {
+    [[clang::no_outline]] __declspec(noinline) Utf8View number(u64 value) noexcept {
         char digits[20];
         return add({digits, decimal_write(digits, value)});
     }
@@ -60,7 +60,7 @@ struct TextWriter {
     u32 used = 0;
     bool ok = true;
 
-    __declspec(noinline) void add(const char* text, u32 bytes) noexcept {
+    [[clang::no_outline]] __declspec(noinline) void add(const char* text, u32 bytes) noexcept {
         if (!ok || bytes > output.count - used) {
             ok = false;
             return;

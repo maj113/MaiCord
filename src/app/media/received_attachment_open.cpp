@@ -4,7 +4,7 @@
 #include "maicord/protocol/encoding/writer.hpp"
 
 namespace maicord { namespace {
-bool identity_valid(const ReceivedAttachmentOpenIdentity& id) noexcept {
+inline bool identity_valid(const ReceivedAttachmentOpenIdentity& id) noexcept {
     return id.account_scope && id.channel_id && id.message_id && id.attachment_id && id.message_revision;
 }
 bool same(const ReceivedAttachmentOpenIdentity& a, const ReceivedAttachmentOpenIdentity& b) noexcept {

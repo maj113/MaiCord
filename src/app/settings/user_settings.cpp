@@ -218,7 +218,7 @@ __forceinline u64 spam_filter() noexcept {
 }
 // default_guilds_activity_restricted_v2 when unset: shared everywhere, or in
 // small servers only for restricted accounts.
-u64 activity_servers() noexcept {
+inline u64 activity_servers() noexcept {
     const u64 value = read_number(kActivityServers, 0);
     return value >= 1 && value <= 3 ? value : restricted_account() ? 2 : 1;
 }

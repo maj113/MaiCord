@@ -283,7 +283,7 @@ void message_scene_release(MessageScene* scene) noexcept {
 }
 
 // Callers ask for more rows than the scene holds.
-static bool reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
+static inline bool reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
     if (required_rows > scene->snapshot_storage_offset ||
         !stable_storage_grow(&scene->owned_rows, required_rows)) {
         return false;
@@ -374,7 +374,7 @@ bool message_scene_set_source_order(MessageScene* scene, const ConstSlice<Messag
 namespace {
 // Channel icon 68 px (margin-top 16), thread icon 64 px (margin-top 16),
 // DM and group DM avatar 80 px (no margin).
-float intro_icon_extent(MessageSceneIntroKind kind) noexcept {
+inline float intro_icon_extent(MessageSceneIntroKind kind) noexcept {
     switch (kind) {
     case MessageSceneIntroKind::channel:
         return 68.0f;

@@ -241,7 +241,7 @@ bool visit_referenced_embed_item(void* opaque, u32 index, JsonValue value) noexc
         json_visit_indexed_object(*context->document, value, context->depth, visit_referenced_embed, context);
     return true;
 }
-bool json_strings_equal(JsonString encoded, JsonString other) noexcept {
+inline bool json_strings_equal(JsonString encoded, JsonString other) noexcept {
     char left[512], right[512];
     const auto a = json_string_decode_utf8(encoded, Slice<char>{left, sizeof(left)});
     const auto b = json_string_decode_utf8(other, Slice<char>{right, sizeof(right)});
@@ -328,7 +328,7 @@ bool visit_attachment_item(void* opaque, u32, JsonValue value) noexcept {
 }
 
 // "m:ss", or "h:mm:ss" from an hour on: where in the clip the mention points.
-u32 format_media_time(u64 milliseconds, char* output) noexcept {
+inline u32 format_media_time(u64 milliseconds, char* output) noexcept {
     const u64 seconds = milliseconds / 1000;
     const u32 hours = static_cast<u32>(seconds / 3600), minutes = static_cast<u32>(seconds / 60 % 60),
               rest = static_cast<u32>(seconds % 60);

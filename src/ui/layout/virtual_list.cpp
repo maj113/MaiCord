@@ -62,7 +62,7 @@ u32 lower_bound_item(const UiVariableList& list, u64 offset_units) noexcept {
     return index;
 }
 
-void update_anchor_insert(UiScrollAnchor* anchor, u16 old_generation,
+inline void update_anchor_insert(UiScrollAnchor* anchor, u16 old_generation,
                           u16 new_generation, u32 index, u32 item_count) noexcept {
     if (!anchor) {
         return;

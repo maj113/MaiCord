@@ -259,7 +259,7 @@ HRESULT gpu_stream_submit_slices(GpuStream* stream, u8 surface, ConstSlice<u8> p
 }
 
 // DXVA HEVC surfaces are allocated in 64-pixel units; the decoder and the conformance crop keep the coded size.
-u32 surface_extent(u32 coded) noexcept {
+inline u32 surface_extent(u32 coded) noexcept {
     return (coded + 63u) & ~63u;
 }
 

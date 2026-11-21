@@ -26,7 +26,7 @@ void scale(float* out,const float* in,u32 count,float gain) noexcept {
     for(;i<count;++i)out[i]=in[i]*gain;
 }
 // A sample is finite unless all the bits of its exponent are set. Only then does the sum carry into the sign bit.
-bool all_finite(const float* in,u32 count) noexcept {
+inline bool all_finite(const float* in,u32 count) noexcept {
     const __m128i exponent=_mm_set1_epi32(0x7f800000),one=_mm_set1_epi32(0x00800000);__m128i carry=_mm_setzero_si128();u32 i=0;
     for(;i+4<=count;i+=4)carry=_mm_or_si128(carry,_mm_add_epi32(_mm_and_si128(_mm_loadu_si128(reinterpret_cast<const __m128i_u*>(in+i)),exponent),one));
     bool finite=!(_mm_movemask_epi8(carry)&0x8888);

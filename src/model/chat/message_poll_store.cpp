@@ -15,7 +15,7 @@ static_assert(sizeof(MessagePollRecord) <= 512);
 u32 position(const MessagePollStore& store, u64 id) noexcept {
     return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].message_id < id; });
 }
-MessagePollRecord* find(MessagePollStore& store, u64 id) noexcept {
+inline MessagePollRecord* find(MessagePollStore& store, u64 id) noexcept {
     return const_cast<MessagePollRecord*>(message_poll_store_find(store, id));
 }
 MessagePollAnswer* answer(MessagePollRecord& poll, u32 id) noexcept {

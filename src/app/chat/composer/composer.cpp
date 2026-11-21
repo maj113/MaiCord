@@ -103,7 +103,7 @@ bool synchronize_sticker_query(const UiRect& anchor) noexcept {
                                            anchor, true);
 }
 
-bool composer_owns_popup() noexcept {
+inline bool composer_owns_popup() noexcept {
     return g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
            g_app.popup_owner_kind == PopupOwnerKind::commands;
 }

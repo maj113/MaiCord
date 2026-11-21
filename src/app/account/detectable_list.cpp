@@ -200,7 +200,7 @@ bool scan(Utf8View json, Slice<u32> structurals, JsonIndexedDocument* document) 
     *document = {json, {structurals.data, scanned.count}, 0};
     return scanned.ok();
 }
-void copy_etag(char (&output)[kDetectableEtagBytes], u8* bytes, Utf8View etag) noexcept {
+inline void copy_etag(char (&output)[kDetectableEtagBytes], u8* bytes, Utf8View etag) noexcept {
     *bytes = etag.bytes <= kDetectableEtagBytes ? static_cast<u8>(etag.bytes) : 0;
     copy_bytes(output, etag.data, *bytes);
 }
@@ -225,7 +225,7 @@ struct Fetched {
 };
 // A gzip body replaced by its inflated bytes. The trailer's ISIZE (one member, as Discord sends) sizes the output;
 // gzip_inflate checks the header, the CRC-32 and ISIZE, and refuses a truncated or corrupt stream.
-bool gunzip(Body* body) noexcept {
+inline bool gunzip(Body* body) noexcept {
     if (body->used < 18)
         return false;
     const u32 size = byte_load_le32(body->bytes.base + body->used - 4);

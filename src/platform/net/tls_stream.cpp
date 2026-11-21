@@ -182,7 +182,7 @@ bool start_connect_candidate(TlsStream* stream, NetworkLoop* loop) noexcept {
     return false;
 }
 
-bool record_fits(const TlsStream& stream) noexcept {
+inline bool record_fits(const TlsStream& stream) noexcept {
     const u64 required = static_cast<u64>(stream.tls.stream_sizes.cbHeader) +
                          stream.tls.stream_sizes.cbMaximumMessage + stream.tls.stream_sizes.cbTrailer;
     return required <= stream.buffers.record_output.count;
@@ -223,7 +223,7 @@ TlsStreamEvent drive_handshake(TlsStream* stream) noexcept {
     return event(TlsStreamEventKind::waiting);
 }
 
-bool select_write_bytes(TlsStream* stream, ConstSlice<u8> selected[kTlsStreamMaximumWriteSpans],
+inline bool select_write_bytes(TlsStream* stream, ConstSlice<u8> selected[kTlsStreamMaximumWriteSpans],
                         u32* selected_count, u32* selected_bytes) noexcept {
     *selected_count = 0;
     *selected_bytes = 0;

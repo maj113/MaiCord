@@ -340,7 +340,7 @@ inline const char* problem_text(AutoModRuleProblem problem) noexcept {
 // Projection -----------------------------------------------------------------
 
 // "Block message · Send alert (#mods) · Time out member (60 seconds)".
-Utf8View actions_text(Bank& bank, const AutoModRule& r) noexcept {
+inline Utf8View actions_text(Bank& bank, const AutoModRule& r) noexcept {
     const u32 start = bank.used;
     for (u32 bit = 0; bit < 4; ++bit) {
         if (!(r.actions & (1u << bit)))

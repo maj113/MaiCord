@@ -237,7 +237,7 @@ bool application_loading_spinner_due(u64 now_ms) noexcept {
 namespace {
 // The step that rejected the last frame, logged with the failure count.
 const char* g_present_rejected_stage;
-bool present_rejected(const char* stage) noexcept {
+inline bool present_rejected(const char* stage) noexcept {
     g_present_rejected_stage = stage;
     return false;
 }

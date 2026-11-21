@@ -65,7 +65,7 @@ HRESULT drain(Runtime& r, Engine& e) noexcept {
             return h;
     }
 }
-IMMDevice* endpoint(Runtime& r, Engine& e) noexcept {
+inline IMMDevice* endpoint(Runtime& r, Engine& e) noexcept {
     IMMDevice* device = nullptr;
     if (r.device[0] && SUCCEEDED(e.enumerator->GetDevice(r.device, &device))) {
         DWORD state = 0;

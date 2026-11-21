@@ -123,7 +123,7 @@ void publish(Utf8View status, Phase phase, bool error = false) noexcept {
     ++owner->revision;
     application_request_frame();
 }
-bool queued() noexcept {
+inline bool queued() noexcept {
     return owner && (owner->phase == Phase::queued || owner->phase == Phase::retry_wait);
 }
 void cancel_flight() noexcept {

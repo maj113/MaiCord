@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "../opentype/layout_float.hpp"
 namespace maicord {namespace {
-float sub(float a,float b) noexcept {return _mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(a),_mm_set_ss(b)));}
+inline float sub(float a,float b) noexcept {return _mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(a),_mm_set_ss(b)));}
 bool valid(const NativeParagraphHits& h) noexcept {
     return h.source_units<=65535&&h.clusters.count<=65535&&h.visual_runs.count<=65535&&h.lines.count&&h.lines.data&&(!h.clusters.count||h.clusters.data)&&(!h.advances.count||h.advances.data)&&(!h.visual_runs.count||h.visual_runs.data)&&
         (h.style_count?h.styles!=nullptr:is_finite(h.uniform.height)&&h.uniform.height>0&&is_finite(h.uniform.baseline));
@@ -23,7 +23,7 @@ const NativeParagraphHitRun* run_for(const NativeParagraphHits& h,u32 cluster) n
     const u32 index=h.clusters[cluster].style>>16;if(index>=h.visual_runs.count)return nullptr;
     const auto& run=h.visual_runs[index];return run.first_cluster<=cluster&&cluster<static_cast<u32>(run.first_cluster)+run.cluster_count?&run:nullptr;
 }
-u32 visual_run_boundary(const NativeParagraphHits& h,u32 cluster) noexcept {
+inline u32 visual_run_boundary(const NativeParagraphHits& h,u32 cluster) noexcept {
     // This predicate is monotone at a line boundary, even though runs within
     // each line are in visual order rather than source order.
     u32 first=0,last=h.visual_runs.count;while(first<last){const u32 middle=first+(last-first)/2;

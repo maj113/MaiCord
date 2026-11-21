@@ -42,7 +42,7 @@ bool request_equal(const PinnedMessageController& value, const PinnedMessageRequ
         request.payload.query.limit == value.pending.query.limit &&
         cursor_equal(request.payload.query.before, value.pending.query.before);
 }
-bool page_valid(const PinnedMessageController& value, const MessagePinsPage& page,
+inline bool page_valid(const PinnedMessageController& value, const MessagePinsPage& page,
                 ConstSlice<MessagePin> items) noexcept {
     if (page.channel_id != value.scope.channel_id || page.count != items.count ||
         page.count > value.pending.query.limit || page.count > kMessagePinsPageLimit ||

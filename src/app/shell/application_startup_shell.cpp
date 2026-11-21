@@ -66,7 +66,7 @@ void __stdcall run(PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) noexcept {
     do_work(*static_cast<StartupShellOwner*>(context));
 }
 
-bool create_work(StartupShellOwner& owner) noexcept {
+inline bool create_work(StartupShellOwner& owner) noexcept {
     owner.work = CreateThreadpoolWork(run, &owner, nullptr);
     return owner.work != nullptr;
 }
@@ -81,7 +81,7 @@ void wait(StartupShellOwner& owner) noexcept {
     WaitForThreadpoolWorkCallbacks(owner.work, FALSE);
 }
 
-void close_work(StartupShellOwner& owner) noexcept {
+inline void close_work(StartupShellOwner& owner) noexcept {
     CloseThreadpoolWork(owner.work);
 }
 #else

@@ -8,7 +8,7 @@ using namespace sfnt_read;
 inline bool scalar_valid(u32 scalar) noexcept {
     return scalar <= 0x10ffffu && (scalar < 0xd800u || scalar > 0xdfffu);
 }
-bool selector_valid(u32 scalar) noexcept {
+inline bool selector_valid(u32 scalar) noexcept {
     return (scalar >= 0xfe00u && scalar <= 0xfe0fu) ||
            (scalar >= 0xe0100u && scalar <= 0xe01efu) ||
            (scalar >= 0x180bu && scalar <= 0x180du) || scalar == 0x180fu;

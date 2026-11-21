@@ -43,7 +43,7 @@ bool encode(ClientSessionMetadata* metadata) noexcept {
     return true;
 }
 
-bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept {
+inline bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept {
     return session.valid && now_ms < session.last_used_ms + kClientHeartbeatSessionIdleMs;
 }
 

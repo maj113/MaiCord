@@ -10,7 +10,7 @@ namespace {
 
 // READY's replacement token (AUTH_TOKEN_REFRESH): the worker identifies and resumes with it from now on, and the
 // owner takes a copy for REST and the saved profile. A malformed or unchanged one is ignored.
-void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* runtime, JsonValue value) noexcept {
+inline void adopt_refreshed_token(GatewayClient* client, GatewayClientRuntime* runtime, JsonValue value) noexcept {
     JsonString text{};
     if (!json_value_as_string(value, &text) || text.has_escapes)
         return;

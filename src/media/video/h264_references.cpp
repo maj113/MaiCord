@@ -6,7 +6,7 @@
 namespace maicord {
 namespace {
 
-i32 number(const H264Reference& picture, u32 frame, u32 modulus) noexcept {
+inline i32 number(const H264Reference& picture, u32 frame, u32 modulus) noexcept {
     return static_cast<i32>(picture.frame_num) - (picture.frame_num > frame ? static_cast<i32>(modulus) : 0);
 }
 void erase(H264ReferenceState* state, u32 index) noexcept {

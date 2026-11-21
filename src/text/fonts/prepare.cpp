@@ -2,7 +2,8 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {namespace {
-void* take_data(Arena& a,u32 n,usize size,usize align) noexcept {return n?arena_allocate(&a,size*n,align):nullptr;}
+// Every caller passes alignof, a power of two: the bump needs no test.
+void* take_data(Arena& a,u32 n,usize size,usize align) noexcept {return n?arena_bump(&a,size*n,align):nullptr;}
 template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {static_cast<T*>(take_data(a,n,sizeof(T),alignof(T))),n};}
 NativeFontResult failure(SfntStatus s) noexcept {return {NativeFontError::font,s,0};}
 }

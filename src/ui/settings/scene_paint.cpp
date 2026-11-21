@@ -306,7 +306,8 @@ __forceinline void paint_card(RowPen& p, const UiSettingsScene& scene, const UiS
     p.rounded_border({r.row.left, top, r.row.right, bottom}, t.color.card_fill, t.color.card_border, t.metric.card_radius, 1);
 }
 // A fill over one row of a card that keeps the card's corners (hover, press).
-void paint_row_plate(RowPen& p, const UiSettingsTokens& t, const UiRect& row, u8 edges, const Color& color) noexcept {
+inline void paint_row_plate(RowPen& p, const UiSettingsTokens& t, const UiRect& row, u8 edges,
+                            const Color& color) noexcept {
     const float radius = t.metric.card_radius - 1;
     const bool first = (edges & card_first) != 0, last = (edges & card_last) != 0;
     if (first && last) {

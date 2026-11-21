@@ -241,7 +241,7 @@ void load() noexcept {
     p.filter_joined_after = p.filter_created_after = 0;
 }
 
-Utf8View filter_value(Bank& bank, Menu menu) noexcept {
+inline Utf8View filter_value(Bank& bank, Menu menu) noexcept {
     auto& p = *owner;
     switch (menu) {
     case Menu::member_since: return name_list_at(kDateLabels, p.filter_joined);

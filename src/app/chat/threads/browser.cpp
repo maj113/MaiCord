@@ -238,7 +238,7 @@ void choose(ApplicationThreadBrowser& value, UiThreadBrowserTab tab, u32 page) n
     value.indexing_retries = 0;
     invalidate(value);
 }
-void fail(ApplicationThreadBrowser& value, Utf8View notice) noexcept {
+inline void fail(ApplicationThreadBrowser& value, Utf8View notice) noexcept {
     value.queued = false;
     value.error = true;
     value.status = notice;
@@ -329,7 +329,7 @@ void forum_cancel_meta(ForumState& forum) noexcept {
         flight.cancel_requested = true;
     }
 }
-bool forum_meta_active(const ApplicationThreadBrowser& value) noexcept {
+inline bool forum_meta_active(const ApplicationThreadBrowser& value) noexcept {
     return value.forum && value.forum->meta_flight.active;
 }
 // Keeps the state of the same forum (cache, tag filter, sort, layout) across reopen.

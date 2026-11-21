@@ -57,7 +57,7 @@ const ChannelRecord* voice_channel(u64 channel_id) noexcept {
     const auto* channel = state && channel_id ? chat_state_store_find_channel(*state, channel_id) : nullptr;
     return channel && channel->type == 2 && channel->guild_id ? channel : nullptr;
 }
-bool can(const ChannelRecord& channel, PermissionSet bits) noexcept {
+inline bool can(const ChannelRecord& channel, PermissionSet bits) noexcept {
     return channel.permissions_resolved && (channel.effective_permissions & bits) == bits;
 }
 void bump() noexcept {
@@ -224,7 +224,7 @@ void form_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == vc.form.serial)
         reset_value(&vc.form);
 }
-void open_status_form(u64 channel_id) noexcept {
+inline void open_status_form(u64 channel_id) noexcept {
     const auto* channel = voice_channel(channel_id);
     if (!channel || g_app.text_form)
         return;

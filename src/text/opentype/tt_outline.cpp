@@ -4,7 +4,7 @@
 #include "sfnt_read.hpp"
 namespace maicord {namespace {
 using namespace sfnt_read;
-bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
+inline bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
 template<class T> bool room(const Slice<T>& array,u32 count) noexcept {return array.count>=count && (!count || array.data);}
 SfntStatus optional(const SfntFace& f,u32 tag,ConstSlice<u8>* bytes) noexcept {const auto s=sfnt_table(f,tag,bytes);return s==SfntStatus::missing_table?SfntStatus::ok:s;}
 // A float times 64 only moves its exponent: the product is exact without double precision.

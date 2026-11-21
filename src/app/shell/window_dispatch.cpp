@@ -90,7 +90,7 @@ void finish_exits() noexcept {
 // The sink is the only place window state changes are observed: position changes carry every
 // show/hide/minimize/restore/resize; activation, focus and scale have their own events. It runs first, before any
 // handler reads the flags.
-void observe_window_state(const WindowEvent& event) noexcept {
+inline void observe_window_state(const WindowEvent& event) noexcept {
     switch (event.type) {
     case EventType::context_menu:
         finish_exits();

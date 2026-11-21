@@ -37,7 +37,7 @@ struct ThreadHeaderKeyboardCapture {
 ThreadHeaderKeyboardCapture thread_header_keyboard;
 // The Friends / server-menu button that leads the channel list, and Home's
 // "Find or start a conversation" bar above Friends.
-bool channel_header_button(const UiWidget* widget) noexcept {
+inline bool channel_header_button(const UiWidget* widget) noexcept {
     return widget && (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
                       widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u ||
                       widget->id == static_cast<u32>(UiSemantic::private_search) + 1u);

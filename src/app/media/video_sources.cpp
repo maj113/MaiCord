@@ -53,7 +53,7 @@ bool content_surface_covers_video() noexcept {
 } // namespace video_detail
 namespace {
 
-bool modal_overlay_covers_video() noexcept {
+inline bool modal_overlay_covers_video() noexcept {
     return application_downloads_active() ||
            (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active);
 }

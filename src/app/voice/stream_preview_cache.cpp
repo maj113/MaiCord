@@ -13,7 +13,7 @@ StreamPreviewEntry* find(StreamPreviewCache& cache, const GatewayStreamKey& key)
             return &entry;
     return nullptr;
 }
-bool wanted(const StreamPreviewEntry& entry, u64 now_ms) noexcept {
+inline bool wanted(const StreamPreviewEntry& entry, u64 now_ms) noexcept {
     return entry.key.type != GatewayStreamType::none && entry.wanted_ms && now_ms - entry.wanted_ms < kStreamPreviewWantMs;
 }
 inline void erase(StreamPreviewEntry& entry) noexcept {

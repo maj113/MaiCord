@@ -14,7 +14,8 @@ NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstance
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
 template<class T> usize bytes(u32 n) noexcept {return (static_cast<usize>(n)*sizeof(T)+7)&~usize{7};}
-void* array_data(Arena& state,u32 count,usize size,usize align) noexcept {return count?arena_allocate(&state,size*count,align):nullptr;}
+// Every caller passes alignof, a power of two: the bump needs no test.
+void* array_data(Arena& state,u32 count,usize size,usize align) noexcept {return count?arena_bump(&state,size*count,align):nullptr;}
 template<class T> Slice<T> array(Arena& state,u32 count) noexcept {return {static_cast<T*>(array_data(state,count,sizeof(T),alignof(T))),count};}
 }
 // Preparing an instance runs once per face and settings: compiled for size. The

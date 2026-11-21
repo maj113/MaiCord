@@ -36,7 +36,7 @@ GameSearchEntry* search_find(GameStore* store, Utf8View query) noexcept {
     return nullptr;
 }
 
-bool search_fresh(const GameSearchEntry& entry, u64 now_ms) noexcept {
+inline bool search_fresh(const GameSearchEntry& entry, u64 now_ms) noexcept {
     return entry.pending ||
            now_ms - entry.stored_at < (entry.failed ? kGameSearchFailureStaleMs : kGameSearchStaleMs);
 }

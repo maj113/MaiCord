@@ -1,4 +1,4 @@
-bool system_file(NativeTextCatalogs& owner,const wchar_t* path,u32 index,const NativeTextFontQuery& query,bool exact,Arena& scratch,NativeSystemFontFile** output,bool* fresh) noexcept {
+inline bool system_file(NativeTextCatalogs& owner,const wchar_t* path,u32 index,const NativeTextFontQuery& query,bool exact,Arena& scratch,NativeSystemFontFile** output,bool* fresh) noexcept {
     *output=nullptr;
     for(auto* file=owner.files;file;file=file->next){
         if(file->catalog.face_index==index&&ordinal_equal(path,-1,file->catalog.path,-1,true)){

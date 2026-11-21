@@ -9,10 +9,10 @@ namespace maicord {
 namespace {
 constexpr u32 kPayloadBytes = ((kNativeFilePickerMaximumPathUnits + 1) * sizeof(wchar_t) +
     kAttachmentUploadMaximumFilenameBytes + kAttachmentUploadMaximumUploadedFilenameBytes + 4096 + 4095) & ~4095u;
-u64 identifier(const MessageAttachmentDraft& record, u32 slot) noexcept {
+inline u64 identifier(const MessageAttachmentDraft& record, u32 slot) noexcept {
     return (static_cast<u64>(record.generation) << 32) | (slot + 1);
 }
-u8* payload(const MessageAttachmentDraftStore* store, u64 id) noexcept {
+inline u8* payload(const MessageAttachmentDraftStore* store, u64 id) noexcept {
     return store->payload + (static_cast<u32>(id) - 1) * kPayloadBytes;
 }
 u32 name_offset(const MessageAttachmentDraft& record) noexcept { return (record.path_units + 1) * sizeof(wchar_t); }

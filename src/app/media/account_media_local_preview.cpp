@@ -193,7 +193,7 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
 }
 
 // Unsupported: the caller continues with the ordinary GPU preview path.
-AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const AccountMediaLocalPreviewRequest& request,
+inline AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const AccountMediaLocalPreviewRequest& request,
                                                  const ConstSlice<u8>& encoded) noexcept {
     const auto key = request.key;
     const auto format = media_asset_catalog_format(key);

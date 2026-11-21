@@ -134,7 +134,7 @@ inline bool on_host(Utf8View url, Utf8View host) noexcept {
 }
 
 // The links in the official client's order: listed categories by kLinkKinds, then at most one store link each.
-void order_links() noexcept {
+inline void order_links() noexcept {
     auto& p = *owner;
     const auto& g = p.game;
     p.link_count = 0;

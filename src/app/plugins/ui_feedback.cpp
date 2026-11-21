@@ -49,7 +49,7 @@ mc_status status_of(PluginUiStatus status) noexcept {
     }
 }
 
-bool gesture(const PluginBinding& binding) noexcept {
+inline bool gesture(const PluginBinding& binding) noexcept {
     return (binding.ctx.flags & MC_CTX_GESTURE) != 0;
 }
 
@@ -57,7 +57,7 @@ Slot* slot_of(const PluginBinding& binding) noexcept {
     return find_slot(binding.owner_id);
 }
 
-bool http_url(mc_str url) noexcept {
+inline bool http_url(mc_str url) noexcept {
     if (!url.bytes || url.bytes > MC_HTTP_URL_MAX || !url.data || !utf8_validate(plugin_view(url)).valid) return false;
     for (u32 i = 0; i < url.bytes; ++i)
         if (static_cast<u8>(url.data[i]) <= 0x20 || static_cast<u8>(url.data[i]) == 0x7f) return false;

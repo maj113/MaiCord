@@ -56,7 +56,7 @@ inline constexpr u32 kIccTagGrayTrc = 0x6B545243u;
 inline constexpr u32 kIccTagA2b0 = 0x41324230u;
 inline constexpr u32 kIccTagA2b1 = 0x41324231u;
 
-bool icc_cursor_begin(const IccScatter& scatter, u32 offset, IccCursor* cursor) noexcept {
+inline bool icc_cursor_begin(const IccScatter& scatter, u32 offset, IccCursor* cursor) noexcept {
     if (offset > scatter.profile_bytes) {
         return false;
     }
@@ -91,7 +91,7 @@ bool icc_cursor_read_u8(IccCursor* cursor, u8* value) noexcept {
     return false;
 }
 
-bool icc_cursor_read_u16(IccCursor* cursor, u16* value) noexcept {
+inline bool icc_cursor_read_u16(IccCursor* cursor, u16* value) noexcept {
     u8 high = 0;
     u8 low = 0;
     if (!icc_cursor_read_u8(cursor, &high) || !icc_cursor_read_u8(cursor, &low)) {
@@ -203,7 +203,7 @@ bool icc_read_u32(const IccScatter& scatter, u32 offset, u32* value) noexcept {
     return true;
 }
 
-float icc_fixed(u32 bits) noexcept {
+inline float icc_fixed(u32 bits) noexcept {
     const i64 signed_value =
         (bits & 0x80000000u) != 0 ? static_cast<i64>(bits) - 0x1'0000'0000ll : static_cast<i64>(bits);
     return static_cast<float>(signed_value) / 65'536.0f;
@@ -253,7 +253,7 @@ IccParseOutcome parse_icc_xyz(const IccScatter& scatter, const IccTag& tag, floa
 // Parameters of ICC parametric curve functions 0-4.
 inline constexpr u8 kIccParametricParameterCounts[5] = {1, 3, 4, 5, 7};
 
-bool icc_parametric_sane(u16 function, const float* parameters) noexcept {
+inline bool icc_parametric_sane(u16 function, const float* parameters) noexcept {
     const float g = parameters[0];
     if (!(g > 0.0f) || g > 16.0f) {
         return false;

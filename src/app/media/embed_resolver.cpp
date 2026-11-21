@@ -92,7 +92,7 @@ bool index_scratch(EmbedResolver* r, u32 maximum_entries, Slice<u32>* out) noexc
 Utf8View response_text(const EmbedResolver* r) noexcept {
     return {reinterpret_cast<const char*>(r->response.base), r->response_bytes};
 }
-EmbedResolveResult http_result(EmbedPlayerError error, UpdateTransportError transport_error,
+inline EmbedResolveResult http_result(EmbedPlayerError error, UpdateTransportError transport_error,
     const UpdateHttpResponse& response) noexcept {
     return {error, transport_error, response.status, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400))};
 }

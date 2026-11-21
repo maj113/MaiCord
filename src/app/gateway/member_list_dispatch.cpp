@@ -48,7 +48,7 @@ enum class MemberDecodeStage : u32 {
     operation,
     groups,
 };
-u32 decode_detail(MemberDecodeStage stage, u32 field = 0, u32 kind = 0xFFu) noexcept {
+inline u32 decode_detail(MemberDecodeStage stage, u32 field = 0, u32 kind = 0xFFu) noexcept {
     return 0x4D000000u | (static_cast<u32>(stage) << 16) | (field << 8) | kind;
 }
 
@@ -133,7 +133,7 @@ bool reject(GatewayEventDecodeError* error,
 }
 
 // Rejects with the error a visitor recorded, else `fallback`.
-bool reject_visited(GatewayEventDecodeError* error, GatewayEventDecodeError visited,
+inline bool reject_visited(GatewayEventDecodeError* error, GatewayEventDecodeError visited,
                     GatewayEventDecodeError fallback) noexcept {
     return reject(error, visited != GatewayEventDecodeError::none ? visited : fallback);
 }

@@ -368,7 +368,7 @@ bool more(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept {
     return p && (p->more & flag);
 }
 namespace {
-bool cell_kind(UiSettingsControlKind kind) noexcept {
+inline bool cell_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::edit || kind == UiSettingsControlKind::action;
 }
 // Rows i and j are cells of one run: both cells, of one kind and column count.
@@ -407,7 +407,7 @@ UiRect banner_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u3
     const float y = field.top + static_cast<float>(index / kBannerTileColumns) * (height + t.metric.lead_gap);
     return {x, y, x + width, y + height};
 }
-float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
+inline float banner_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
     const u32 lines = (count + kBannerTileColumns - 1) / kBannerTileColumns;
     const float tile = cell_width(t, width, kBannerTileColumns) * .6f;
     return lines ? static_cast<float>(lines) * tile + static_cast<float>(lines - 1) * t.metric.lead_gap : 0;
@@ -433,7 +433,7 @@ UiRect glyph_tile_rect(const UiSettingsLayoutTokens& t, const UiRect& field, u32
     const float y = field.top + kGlyphTileRing + static_cast<float>(index / columns) * pitch;
     return {x, y, x + kGlyphTile, y + kGlyphTile};
 }
-float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
+inline float glyph_tiles_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
     const u32 columns = glyph_columns(t, width), lines = (count + columns - 1) / columns;
     return lines ? static_cast<float>(lines) * (kGlyphTile + t.metric.lead_gap) - t.metric.lead_gap + kGlyphTileRing * 2
                  : 0;
@@ -461,12 +461,12 @@ UiRect glyph_chip_image_rect(const UiRect& tag) noexcept {
     const float cy = (tag.top + tag.bottom) * .5f, x = tag.left + kUiBadgeCompactPadding;
     return {x, cy - kUiBadgeCompactIcon * .5f, x + kUiBadgeCompactIcon, cy + kUiBadgeCompactIcon * .5f};
 }
-UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
+inline UiRect cell_lead_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
     const float size = t.metric.chip_height, cy = (field.top + field.bottom) * .5f;
     const float left = field.left + t.metric.chip_padding;
     return {left, cy - size * .5f, left + size, cy + size * .5f};
 }
-UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
+inline UiRect cell_clear_button(const UiSettingsLayoutTokens& t, const UiRect& field) noexcept {
     const float size = t.metric.chip_height, cy = (field.top + field.bottom) * .5f;
     const float right = field.right - t.metric.chip_padding;
     return {right - size, cy - size * .5f, right, cy + size * .5f};

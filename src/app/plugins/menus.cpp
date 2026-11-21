@@ -45,7 +45,7 @@ PopupOwnerKind channel_owner(u64 channel_id) noexcept {
 }
 
 // Copies the target's identity and the revision fences dispatch rechecks.
-bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id) noexcept {
+inline bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id) noexcept {
     if (!surfaces_available() || !id) return false;
     menu.surface = surface;
     menu.account_scope = g_app.account.status.profile_id;
@@ -163,7 +163,7 @@ bool target_current(const ApplicationPluginMenu& menu, bool popup_scope = true) 
 
 void clear() noexcept { reset_value(&g_menu); }
 
-bool menus_present() noexcept {
+inline bool menus_present() noexcept {
     for (u8 kind = 0; kind <= static_cast<u8>(PluginMenuKind::emoji); ++kind)
         if (plugin_menu_present(static_cast<PluginMenuKind>(kind))) return true;
     return false;
@@ -244,7 +244,7 @@ PopupItem popup_item(const ApplicationPluginMenuRow& row, u32 index) noexcept {
 }
 
 // A submenu row opens its children in place of the menu, at the same anchor.
-bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
+inline bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
     ApplicationPluginMenu& menu = g_menu;
     const ApplicationPluginMenuRow parent = parent_row; // the rows are replaced below
     PluginMenuRow children[kApplicationPluginMenuRows];
@@ -273,7 +273,7 @@ bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
     return true;
 }
 
-void run(const ApplicationPluginMenu& menu, const ApplicationPluginMenuRow& row) noexcept {
+inline void run(const ApplicationPluginMenu& menu, const ApplicationPluginMenuRow& row) noexcept {
     const PluginMenuRun ran = plugin_menu_activate(plugin_target(menu, static_cast<PluginMenuKind>(row.target)),
                                                    row.owner_id, static_cast<u32>(row.item_id));
     if (ran != PluginMenuRun::ran) log_u64(LogLevel::warning, "plugins", "menu_activation_refused", row.owner_id);

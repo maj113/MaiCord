@@ -21,7 +21,7 @@ struct PresenceContext {
     bool activities_repeated;
 };
 
-bool mark(PresenceContext* context, u8 field) noexcept {
+inline bool mark(PresenceContext* context, u8 field) noexcept {
     if ((context->fields & field) != 0) {
         context->error = GatewayEventDecodeError::duplicate_field;
         return false;

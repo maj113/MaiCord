@@ -29,7 +29,7 @@ bool case_equal(ConstSlice<u8> value, const char* literal, u32 literal_bytes) no
 }
 
 // HTTP optional whitespace.
-bool is_ows(u8 value) noexcept {
+inline bool is_ows(u8 value) noexcept {
     return value == ' ' || value == '\t';
 }
 

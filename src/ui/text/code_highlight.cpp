@@ -8,15 +8,15 @@
 namespace maicord {
 namespace {
 
-bool ascii_alpha(char value) noexcept {
+inline bool ascii_alpha(char value) noexcept {
     return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
 }
 
-bool identifier_begin(char value) noexcept {
+inline bool identifier_begin(char value) noexcept {
     return ascii_alpha(value) || value == '_' || value == '$';
 }
 
-bool identifier_continue(char value) noexcept {
+inline bool identifier_continue(char value) noexcept {
     return identifier_begin(value) || ascii_is_digit(value);
 }
 
@@ -166,7 +166,7 @@ WORDS(common, "true false null nullptr undefined NaN None True False self this s
 
 #undef WORDS
 
-LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
+inline LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
     const char* keywords = "";
     const char* types = "";
     const char* builtins = "";
@@ -310,7 +310,7 @@ u32 line_end(Utf8View code, u32 begin) noexcept {
     return offset;
 }
 
-u32 block_end(Utf8View code, u32 begin, char first, char second) noexcept {
+inline u32 block_end(Utf8View code, u32 begin, char first, char second) noexcept {
     u32 offset = begin;
     while (offset + 1 < code.bytes && !(code.data[offset] == first && code.data[offset + 1] == second)) {
         ++offset;
@@ -318,7 +318,7 @@ u32 block_end(Utf8View code, u32 begin, char first, char second) noexcept {
     return offset + 1 < code.bytes ? offset + 2 : code.bytes;
 }
 
-u32 number_end(Utf8View code, u32 begin) noexcept {
+inline u32 number_end(Utf8View code, u32 begin) noexcept {
     u32 offset = begin;
     if (offset < code.bytes && code.data[offset] == '.') {
         ++offset;
@@ -365,7 +365,7 @@ bool operator_character(char value) noexcept {
            value == '~' || value == '?' || value == ':';
 }
 
-CodeHighlightResult highlight_markup(Highlighter* highlighter) noexcept {
+inline CodeHighlightResult highlight_markup(Highlighter* highlighter) noexcept {
     const Utf8View code = highlighter->code;
     u32 offset = 0;
     while (offset < code.bytes && !highlighter->truncated) {

@@ -17,7 +17,7 @@ bool separator(wchar_t value) noexcept {
 
 // An absolute drive or UNC path (not a \\?\ or \\.\ device path) without
 // control or reserved characters.
-bool root_valid(const wchar_t* root, u32 length) noexcept {
+inline bool root_valid(const wchar_t* root, u32 length) noexcept {
     const bool drive = length >= 3 &&
                        ((root[0] >= L'A' && root[0] <= L'Z') || (root[0] >= L'a' && root[0] <= L'z')) &&
                        root[1] == L':' && separator(root[2]);

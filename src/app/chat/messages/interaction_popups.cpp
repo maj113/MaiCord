@@ -455,7 +455,7 @@ struct LinkMenu {
 
 // The official client merges a right-clicked link's Copy Link / Open Link group into the
 // message menu (after the message sections, before Copy Message ID).
-static bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) noexcept {
+inline static bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) noexcept {
     if (!g_app.account_ui || !hit.valid || !hit.message_id ||
         (hit.kind != MessageMarkdownSemanticKind::link && hit.kind != MessageMarkdownSemanticKind::message_link))
         return false;
@@ -697,7 +697,7 @@ bool open_profile_context_popup(const UiRect& anchor) noexcept {
 
 // A reaction chip opens the message menu with the reaction's emoji rows for
 // plugins (the official client has no separate reaction menu). False: not on a reaction.
-bool open_reaction_context_popup(const MessageSceneHit& hit, UiRect anchor) noexcept {
+inline bool open_reaction_context_popup(const MessageSceneHit& hit, UiRect anchor) noexcept {
     u32 index = 0;
     if (!g_app.account_ui || !message_scene_reaction_index(g_app.message_scene, hit, &index))
         return false;

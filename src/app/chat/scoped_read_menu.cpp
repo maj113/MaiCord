@@ -64,7 +64,7 @@ bool popup_current() noexcept {
            g_app.popup_owner_kind ==
                (menu.kind == ReadScopeKind::guild ? PopupOwnerKind::guild : PopupOwnerKind::channel);
 }
-bool activation_current(u32 action) noexcept {
+inline bool activation_current(u32 action) noexcept {
     if (!popup_current())
         return false;
     UiWidgetHandle row{};

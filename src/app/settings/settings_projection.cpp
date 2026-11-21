@@ -329,11 +329,11 @@ static bool project_node(const ApplicationSettings& settings, u32 panel, u32 ind
     }
 }
 
-static UiSettingsAvatarMedia self_avatar_media() noexcept {
+inline static UiSettingsAvatarMedia self_avatar_media() noexcept {
     return g_app.account_ui ? application_user_avatar_media(g_app.account_ui->chat_state.self_user_id)
                             : UiSettingsAvatarMedia{};
 }
-static bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
+inline static bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
     return media_asset_key_equal(left.key, right.key) && left.hash_bytes == right.hash_bytes &&
            bytes_equal(left.hash, right.hash, left.hash_bytes);
 }

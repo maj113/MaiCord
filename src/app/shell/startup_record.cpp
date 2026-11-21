@@ -18,7 +18,7 @@ namespace {
 constexpr const char* kComponent = "start";
 
 // The processor's brand string (CPUID leaves 0x80000002-0x80000004), without its padding.
-const char* cpu_brand(char (&brand)[49]) noexcept {
+inline const char* cpu_brand(char (&brand)[49]) noexcept {
     u32 registers[4];
     brand[0] = brand[48] = 0;
     processor_identify(0x80000000u, registers);
@@ -39,7 +39,7 @@ const char* cpu_brand(char (&brand)[49]) noexcept {
 
 // A UTF-16 locale name, ASCII in practice; anything else becomes '?'.
 #if defined(_WIN32)
-void narrow(const wchar_t* text, char* output, u32 capacity) noexcept {
+inline void narrow(const wchar_t* text, char* output, u32 capacity) noexcept {
     u32 used = 0;
     for (; text[used] && used + 1 < capacity; ++used)
         output[used] = text[used] < 0x80 ? static_cast<char>(text[used]) : '?';

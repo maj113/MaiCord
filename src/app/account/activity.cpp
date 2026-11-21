@@ -108,7 +108,7 @@ void scope() noexcept {
     reset();
     g.account_scope = g_app.plugin_account_scope_serial;
 }
-bool module() noexcept {
+inline bool module() noexcept {
     return g_app.account.instance != nullptr;
 }
 void load_games() noexcept {

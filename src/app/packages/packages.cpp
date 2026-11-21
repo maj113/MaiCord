@@ -184,7 +184,7 @@ inline bool effect_installed(const char* slug) noexcept {
     return false;
 }
 
-void fill_card(const PackageInfo& info) noexcept {
+inline void fill_card(const PackageInfo& info) noexcept {
     auto& s = g.session;
     auto& card = s.card;
     clear_bytes(&card, sizeof(card));
@@ -624,7 +624,7 @@ struct ThemeFile {
     u8 bytes[kClientThemeImportMaximumBytes];
 };
 // The applied custom theme came from this file when their names agree.
-bool theme_is_applied(const Utf8View& slug) noexcept {
+inline bool theme_is_applied(const Utf8View& slug) noexcept {
     const ClientThemeDocument* active = application_custom_theme_document();
     if (!active)
         return false;

@@ -152,7 +152,7 @@ inline bool allowed_in(u64 channel_id) noexcept {
 }
 
 // Settings.
-VoicePreferences& prefs() noexcept {
+inline VoicePreferences& prefs() noexcept {
     return application_voice_preferences();
 }
 StreamPreset preset() noexcept {
@@ -228,7 +228,7 @@ u32 worker_main(void* argument) noexcept {
         window_wake(job->window);
     return 0;
 }
-bool tab_has(const CaptureSource& s) noexcept {
+inline bool tab_has(const CaptureSource& s) noexcept {
     return (s.kind == CaptureSourceKind::screen) == (ui.tab == UiGoLiveTab::screens);
 }
 void project_sources() noexcept {

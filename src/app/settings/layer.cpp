@@ -31,10 +31,10 @@ constexpr u32 kBlinkMs = 500, kShakeMs = 300, kAlertFadeMs = 240;
 constexpr float kShakeDistance = 5;
 constexpr u32 kEditBufferUnits = 4096;
 
-bool editable(SettingsLayer* layer) noexcept {
+inline bool editable(SettingsLayer* layer) noexcept {
     return layer->hooks->editable ? layer->hooks->editable(layer) : true;
 }
-bool repaint(SettingsLayer* layer) noexcept {
+inline bool repaint(SettingsLayer* layer) noexcept {
     return layer->hooks->repaint(layer);
 }
 // The page body and sidebar share the scroll host's wheel curve, keyboard

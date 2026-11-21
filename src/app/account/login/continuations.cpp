@@ -27,7 +27,7 @@ bool next_byte(const Utf8View& value, u32* cursor, u8* decoded) noexcept {
     *decoded = static_cast<u8>((a << 4) | b);
     return true;
 }
-bool token_name(Utf8View name) noexcept {
+inline bool token_name(Utf8View name) noexcept {
     static constexpr char expected[] = "token";
     u32 cursor = 0;
     u32 count = 0;

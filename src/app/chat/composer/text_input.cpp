@@ -40,7 +40,7 @@ void cancel_native_groups(TextInputTarget target) noexcept {
     application_channel_overview_edit_cancel_native_group(target);
 }
 
-bool profile_edit() noexcept {
+inline bool profile_edit() noexcept {
     return g_app.profile && g_app.profile->scene.active && g_app.profile->scene.edit.active;
 }
 // The field that takes native text input. The first field that matches wins.

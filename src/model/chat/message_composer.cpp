@@ -62,7 +62,7 @@ u32 next_boundary(const MessageComposer& composer, u32 position) noexcept {
     return atomic_boundary(composer, decoded.valid ? position + decoded.width : composer.bytes, true);
 }
 
-bool text_boundary(const MessageComposer& composer, u32 position) noexcept {
+inline bool text_boundary(const MessageComposer& composer, u32 position) noexcept {
     return utf8_is_boundary({composer.text, composer.bytes}, position);
 }
 
@@ -148,7 +148,7 @@ inline bool scalar_allowed(u32 codepoint) noexcept {
 // clipboard text is inserted verbatim, so ANSI escapes (U+001B), tabs and other
 // C0/C1 controls reach the message. NUL cannot travel through the Windows
 // clipboard, and a bare CR must already have been normalized to LF by the caller.
-bool inserted_scalar_allowed(u32 codepoint) noexcept {
+inline bool inserted_scalar_allowed(u32 codepoint) noexcept {
     return codepoint != 0 && codepoint != '\r' && codepoint <= 0x10FFFFu &&
            !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
 }

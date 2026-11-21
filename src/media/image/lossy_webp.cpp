@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 
-LossyWebpDecodeResult failure(LossyWebpDecodeResult result,
+inline LossyWebpDecodeResult failure(LossyWebpDecodeResult result,
                               LossyWebpError error) noexcept {
     result.error = error;
     return result;

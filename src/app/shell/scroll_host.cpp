@@ -31,7 +31,7 @@ bool refresh_scrolled_projection(bool messages_changed, bool scroll_moving = fal
     return messages_changed ? refresh_account_scroll(scroll_moving) && application_request_frame()
                             : refresh_retained_projection(false);
 }
-bool finish_immediate_scroll(bool messages_changed) noexcept {
+inline bool finish_immediate_scroll(bool messages_changed) noexcept {
     if (!g_app.scroll_host.immediate)
         return true;
     if (g_app.reaction_viewer.active)
@@ -341,7 +341,7 @@ void track_scrollbar_pointer(const WindowEvent& input) noexcept {
 
 namespace {
 // Whether the message timeline's wheel animation continues after this step.
-bool messages_animating() noexcept {
+inline bool messages_animating() noexcept {
     if (g_app.scroll_host.immediate)
         return false;
     for (const auto& entry : g_app.scroll_host.entries)

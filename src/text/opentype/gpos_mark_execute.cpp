@@ -7,7 +7,7 @@ bool spend(SfntMarkExecution* out,u64* work,u64 amount=1) noexcept {if(amount>*w
 inline bool eligible(const SfntGsubGlyph& glyph,u8 type,const SfntGdef& gdef,const SfntLookupFilter& filter) noexcept {
     return type==4?glyph.glyph_class!=SfntGlyphClass::mark:!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class);
 }
-SfntStatus glyph_check(const SfntGsubGlyph& glyph,u32 limit) noexcept {
+inline SfntStatus glyph_check(const SfntGsubGlyph& glyph,u32 limit) noexcept {
     if(glyph.glyph>=limit)return SfntStatus::glyph_out_of_range;return static_cast<u8>(glyph.glyph_class)<=4?SfntStatus::ok:SfntStatus::invalid_input;
 }
 }

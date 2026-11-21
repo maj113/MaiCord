@@ -10,10 +10,10 @@ struct Entry {
     u64 expiry_ms;
     u8 material[16];
 };
-Entry* entries(DaveReceiveEpoch& epoch) noexcept {
+inline Entry* entries(DaveReceiveEpoch& epoch) noexcept {
     return reinterpret_cast<Entry*>(epoch.storage.data + 32);
 }
-u64 deadline(u64 now) noexcept {
+inline u64 deadline(u64 now) noexcept {
     return now > never - key_lifetime_ms ? never : now + key_lifetime_ms;
 }
 bool grow(DaveReceiveEpoch& epoch, u32 required) noexcept {

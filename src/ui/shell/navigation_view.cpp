@@ -228,7 +228,7 @@ bool voice_subtitle(const NavigationView& view, u64 channel_id, u8 type) noexcep
     const auto* info = extras->info ? voice_channel_info_store_find(*extras->info, channel_id) : nullptr;
     return info && info->status_bytes;
 }
-bool voice_invite(const NavigationView& view, u64 channel_id, u8 type) noexcept {
+inline bool voice_invite(const NavigationView& view, u64 channel_id, u8 type) noexcept {
     return type == 2 && view.voice_extras && channel_id == view.voice_extras->invite_channel_id;
 }
 

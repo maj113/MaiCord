@@ -11,7 +11,7 @@ Base64Result failure(Base64Error error, u32 offset = 0, u32 bytes = 0) noexcept 
     return Base64Result{bytes, offset, error};
 }
 
-const char* alphabet_text(Base64CodecAlphabet alphabet) noexcept {
+inline const char* alphabet_text(Base64CodecAlphabet alphabet) noexcept {
     return alphabet == Base64CodecAlphabet::standard ? kStandardAlphabet : kUrlAlphabet;
 }
 

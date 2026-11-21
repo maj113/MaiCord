@@ -184,7 +184,7 @@ constexpr char kKeyNames[] =
     KEY_NAME("\x05", "Mouse 4")
     KEY_NAME("\x06", "Mouse 5");
 #undef KEY_NAME
-Utf8View named_key(u8 key) noexcept {
+inline Utf8View named_key(u8 key) noexcept {
     if (key == key::left_super)
         return MAICORD_OS_TEXT("Left Windows", "Left Super");
     if (key == key::right_super)
@@ -245,12 +245,12 @@ u64 checksum(const ConstSlice<u8>& record) noexcept {
     const u64 hash = hash64_bytes(kHash64Seed, record.data, kChecksumOffset);
     return hash64_bytes(hash, record.data + kCustomKeybindsHeaderBytes, record.count - kCustomKeybindsHeaderBytes);
 }
-bool standalone_key(u8 key) noexcept {
+inline bool standalone_key(u8 key) noexcept {
     return (key >= key::f1 && key <= key::f24) || key == key::pause || key == key::scroll_lock;
 }
 // Chords every text field or Windows itself relies on; a global keybind there
 // would break typing or system commands.
-bool system_chord(ShortcutChord chord) noexcept {
+inline bool system_chord(ShortcutChord chord) noexcept {
     const u8 key = chord.key, modifiers = chord.modifiers;
     const bool alt = (modifiers & shortcut_alt) != 0, ctrl = (modifiers & shortcut_ctrl) != 0;
     if (alt && !ctrl && (key == key::f4 || key == key::tab || key == key::space || key == key::escape))
@@ -284,7 +284,7 @@ static Utf8View shortcut_group_label(ShortcutGroup group) noexcept {
     return group < ShortcutGroup::count ? name_list_at(kGroupLabels, static_cast<u32>(group)) : Utf8View{};
 }
 
-static bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcept {
+inline static bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcept {
     switch (scope) {
     case ShortcutScope::global:
         return true;
@@ -323,7 +323,7 @@ bool shortcut_matches(ShortcutAction action, ShortcutChord chord) noexcept {
     const auto* definition = shortcut_definition(action);
     return definition && binds(*definition, chord);
 }
-static const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) noexcept {
+inline static const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) noexcept {
     for (const auto& definition : kDefinitions)
         if (binds(definition, chord))
             return &definition;
@@ -496,7 +496,7 @@ u32 custom_keybinds_find(const CustomKeybinds& keybinds, ShortcutChord chord) no
             return i;
     return kCustomKeybindMaximum;
 }
-static bool custom_keybinds_valid(const CustomKeybinds& keybinds) noexcept {
+inline static bool custom_keybinds_valid(const CustomKeybinds& keybinds) noexcept {
     if (keybinds.count > kCustomKeybindMaximum)
         return false;
     CustomKeybinds rebuilt{};

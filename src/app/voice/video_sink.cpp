@@ -151,7 +151,7 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
         remove_settled(sink, index);
 }
 // Counts only, no identities: packets, average kbps, frames and feedback.
-void log_summary(VoiceVideoSink& sink) noexcept {
+inline void log_summary(VoiceVideoSink& sink) noexcept {
     auto& summary = sink.summary;
     if (summary.packets) {
         const u64 elapsed_ms = (summary.last_us - summary.first_us) / 1000;

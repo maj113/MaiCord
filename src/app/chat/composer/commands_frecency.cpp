@@ -32,7 +32,7 @@ void frecency_store_write() noexcept {
         log_write(LogLevel::warning, "commands", "frecency_pending_write_failed");
 }
 // Reads the profile's unsaved uses once (again after a profile change).
-void frecency_store_read(Frecency& f) noexcept {
+inline void frecency_store_read(Frecency& f) noexcept {
     const u64 profile = g_app.account.status.profile_id;
     if (f.store_read && f.store_profile == profile)
         return;

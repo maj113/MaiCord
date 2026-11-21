@@ -70,12 +70,12 @@ __forceinline void close_callback(Runtime& r,Engine& e) noexcept {
 void close_engine(Runtime& r,Engine& e) noexcept {
     close_callback(r,e);close_stream(r,e);com_release(e.enumerator);
 }
-HRESULT refresh_callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
+inline HRESULT refresh_callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
     return pinned_endpoint_refresh(e.enumerator,&e.callback,r.command,&r.lock,&r.callback_handles,id);
 }
 // The default-role notification is advisory. Revalidate the actual render
 // endpoint on the worker before disturbing an otherwise unchanged stream.
-bool default_endpoint_changed(Engine& e) noexcept {return pinned_endpoint_default_changed(e.enumerator,e.callback);}
+inline bool default_endpoint_changed(Engine& e) noexcept {return pinned_endpoint_default_changed(e.enumerator,e.callback);}
 HRESULT open_engine(Runtime& r,Engine& e,u32 rate) noexcept {
     HRESULT h=S_OK;
     if(!e.enumerator){
@@ -237,7 +237,7 @@ DWORD WINAPI worker_main(void* pointer) noexcept {
 void free_runtime(Runtime* r) noexcept {
     if(r->thread)CloseHandle(r->thread);if(r->command)CloseHandle(r->command);if(r->stop)CloseHandle(r->stop);if(r->render)CloseHandle(r->render);pages_release(r);
 }
-NotificationAudioResult launch(NotificationAudio& owner) noexcept {
+inline NotificationAudioResult launch(NotificationAudio& owner) noexcept {
     auto* r=commit_pages<Runtime>();
     if(!r)return fail(NotificationAudioError::memory,thread_last_error());
     // VirtualAlloc memory is zeroed; every queue and voice slot is written in full on insertion.

@@ -59,7 +59,7 @@ using SystemError = i32;
 #endif
 
 // Whether the file's bytes, read once into memory, hash to expected (32 bytes of SHA-256).
-bool digest_equals(const u8* bytes, u64 count, const u8* expected) noexcept {
+inline bool digest_equals(const u8* bytes, u64 count, const u8* expected) noexcept {
     HashStream hash = nullptr;
     if (hash_stream_begin(&hash, HashAlgorithm::sha256) < 0) return false;
     u8 digest[32];
@@ -444,7 +444,7 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
 }
 // Reads the whole file once: these bytes are hashed and checked, and the system loader maps the same ones (the open
 // handle keeps the file from being written). One byte more is asked for, so a file longer than it was is refused.
-PluginLoadResult file_view(PinnedFile* file, ConstSlice<wchar_t>) noexcept {
+inline PluginLoadResult file_view(PinnedFile* file, ConstSlice<wchar_t>) noexcept {
     file->view = static_cast<u8*>(commit_pages(file->bytes + 1));
     if (!file->view) return failure(PluginLoadError::read, thread_last_error());
     DWORD read = 0;
@@ -452,7 +452,7 @@ PluginLoadResult file_view(PinnedFile* file, ConstSlice<wchar_t>) noexcept {
         return failure(PluginLoadError::read, thread_last_error());
     return read == file->bytes ? success() : failure(PluginLoadError::read);
 }
-PluginLoadResult image_map(const PinnedFile& file, u64, HMODULE* module, const u8** base) noexcept {
+inline PluginLoadResult image_map(const PinnedFile& file, u64, HMODULE* module, const u8** base) noexcept {
     *module = LoadLibraryExW(file.path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!*module) return failure(PluginLoadError::load, thread_last_error());
     *base = reinterpret_cast<const u8*>(*module);
@@ -463,7 +463,7 @@ bool image_free(HMODULE module, DWORD* error) noexcept {
     *error = thread_last_error();
     return false;
 }
-void file_close(PinnedFile* file, PluginImage*) noexcept {
+inline void file_close(PinnedFile* file, PluginImage*) noexcept {
     if (file->view) pages_release(file->view);
     // A failed handle close cannot be acted on here: the image is already mapped or already refused.
     if (file->file) CloseHandle(file->file);

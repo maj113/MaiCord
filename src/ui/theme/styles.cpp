@@ -223,7 +223,7 @@ consteval auto reference_table() noexcept {
 }
 constexpr auto kLiterals = literal_table();
 constexpr auto kReferences = reference_table();
-UiThemeTokenSource default_source(u32 slot) noexcept {
+inline UiThemeTokenSource default_source(u32 slot) noexcept {
     if (slot < kSlots.literals)
         return {kLiterals.row[slot], 1, 0, UiThemeTokenSourceKind::literal};
     const auto& reference = kReferences.row[slot - kSlots.literals];
