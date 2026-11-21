@@ -54,10 +54,8 @@ bool media_packet_header(ConstSlice<u8> packet, MediaPacketLayout* output) noexc
     return true;
 }
 
-bool media_packet_plaintext(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept {
-    MediaPacketLayout value{};
-    if (!destination(packet, output) || !header(packet, value))
-        return false;
+bool media_packet_payload(ConstSlice<u8> packet, MediaPacketLayout* layout) noexcept {
+    auto& value = *layout;
     if (value.kind == MediaPacketKind::rtp) {
         if (value.extension_bytes > packet.count - value.clear_bytes)
             return false;
@@ -95,6 +93,13 @@ bool media_packet_plaintext(ConstSlice<u8> packet, MediaPacketLayout* output) no
         value.payload_offset = 8;
         value.payload_bytes = packet.count - 8;
     }
+    return true;
+}
+
+bool media_packet_plaintext(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept {
+    MediaPacketLayout value{};
+    if (!destination(packet, output) || !header(packet, value) || !media_packet_payload(packet, &value))
+        return false;
     *output = value;
     return true;
 }

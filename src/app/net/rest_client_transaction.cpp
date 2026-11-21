@@ -3,6 +3,7 @@
 #include "maicord/app/account/user_client_configuration.hpp"
 #include "maicord/app/account/client_session_metadata.hpp"
 #include "maicord/app/net/signed_out_session.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -45,7 +46,8 @@ RestEndpointKey endpoint_key(ConstSlice<u8> target) noexcept {
 }
 
 static RestEndpointGateEntry* endpoint_entry(RestEndpointGate* gate, RestEndpointLease lease) noexcept {
-    if (!gate || !lease.generation || lease.index >= kRestEndpointGateCapacity)
+    // A nonzero generation comes only from endpoint_gate_acquire, with an index inside the gate.
+    if (!lease.generation)
         return nullptr;
     auto& entry = gate->entries[lease.index];
     return entry.generation == lease.generation && entry.in_flight ? &entry : nullptr;
@@ -53,7 +55,7 @@ static RestEndpointGateEntry* endpoint_entry(RestEndpointGate* gate, RestEndpoin
 
 EndpointGateResult endpoint_gate_acquire(RestEndpointGate* gate, RestEndpointKey key, u64 now_ms,
                                          RestEndpointLease* lease) noexcept {
-    if (!gate || !key.path_bytes || !lease || lease->generation)
+    if (!key.path_bytes || lease->generation)
         return {EndpointGateKind::error, 0};
     u32 available = kRestEndpointGateCapacity;
     u64 reclaim_at_ms = 0;
@@ -115,8 +117,6 @@ static bool endpoint_gate_observe(RestEndpointGate* gate, RestEndpointLease leas
 
 bool endpoint_gate_release(RestEndpointGate* gate, RestEndpointLease* lease, u64 now_ms,
                            bool settled) noexcept {
-    if (!lease)
-        return false;
     auto* entry = endpoint_entry(gate, *lease);
     reset_value(lease);
     if (!entry)
@@ -134,8 +134,8 @@ struct RestLocalRates {
     RestEndpointGate endpoint_gate;
 };
 
-// Called with the shared lock held. IOCP signals coalesce; idle workers stay
-// asleep between real completions rather than polling each other's state.
+// Called with the shared lock held. IOCP signals coalesce. Only a peer that waits for admission gets one, so an
+// idle peer stays asleep through the other lane's completions.
 void rate_changed(RestClientRuntime* runtime) noexcept {
     auto* shared = runtime->owner->shared;
     if (!shared)
@@ -145,7 +145,8 @@ void rate_changed(RestClientRuntime* runtime) noexcept {
     for (auto* peer : shared->clients) {
         if (peer && peer != runtime->owner && peer->runtime) {
             auto* other = static_cast<RestClientRuntime*>(peer->runtime);
-            network_signal_post(&peer->worker.loop, &other->rate_signal, kRateSignalValue);
+            if (other->waiting_for_admission)
+                network_signal_post(&peer->worker.loop, &other->rate_signal, kRateSignalValue);
         }
     }
 }
@@ -206,11 +207,11 @@ u32 allocation_bytes(u32 response_capacity, bool user_auth_mode, bool normal_use
                                             : kRestClientMaximumResponseBytes)) {
         return 0;
     }
+    // An ordinary client's body has its own reservation (assign_storage).
     const u64 raw =
         static_cast<u64>(sizeof(RestClientRuntime)) + (shared ? 0 : sizeof(RestLocalRates)) +
         (user_auth_mode ? kHandshakeOutputBytes + kUserClientMetadataBytes
-                        : static_cast<u64>(ordinary_fixed_storage_bytes(normal_user)) +
-                              maximum(kRestClientMaximumRequestBodyBytes, response_capacity));
+                        : static_cast<u64>(ordinary_fixed_storage_bytes(normal_user)));
     return page_rounded_bytes(raw);
 }
 
@@ -225,7 +226,8 @@ static void assign_user_metadata(RestClientRuntime* runtime, u8* cursor) noexcep
     runtime->user_accept_language = reinterpret_cast<char*>(cursor);
 }
 
-void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcept {
+// False when the system refuses the reservation or the commit of an ordinary client's body.
+bool assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcept {
     u8* cursor = reinterpret_cast<u8*>(runtime) + sizeof(RestClientRuntime);
     if (shared) {
         runtime->scheduler = &shared->scheduler;
@@ -258,7 +260,7 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
         cursor += kRestMaximumHeaderBytes;
         runtime->decompression = cursor;
         runtime->decompression_capacity = runtime->response_capacity;
-        return;
+        return true;
     }
     runtime->request_target = cursor;
     cursor += kRestClientMaximumTargetBytes;
@@ -280,13 +282,21 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
     runtime->request_head = cursor + kRestMaximumHeaderBytes - runtime->request_head_capacity;
     runtime->response_input = cursor;
     cursor += kRestMaximumHeaderBytes;
-    // Keep response headers and body adjacent. Reads start only after all
-    // outgoing plaintext is committed and erased, so both phases share a body.
-    runtime->request_body = cursor;
-    runtime->response_body = cursor;
-    cursor += maximum(kRestClientMaximumRequestBodyBytes, runtime->response_capacity);
     if (runtime->authorization == RestAuthorization::normal_user)
         assign_user_metadata(runtime, cursor);
+    // Reads start only after all outgoing plaintext is committed and erased, so both phases share a body.
+    // Its reservation holds the largest response, and the configured capacity stays committed.
+    const u32 body_bytes =
+        page_rounded_bytes(maximum(kRestClientMaximumRequestBodyBytes, runtime->response_capacity));
+    auto* body = static_cast<u8*>(pages_reserve(kRestClientMaximumLargeResponseBytes));
+    if (!body || !pages_commit(body, body_bytes)) {
+        if (body)
+            pages_release(body);
+        return false;
+    }
+    runtime->request_body = runtime->response_body = runtime->default_body = body;
+    runtime->default_body_bytes = runtime->body_committed = body_bytes;
+    return true;
 }
 
 static RestClientPhase load_phase(const RestClient* client) noexcept {
@@ -547,6 +557,18 @@ void release_decompression(RestClientRuntime* runtime) noexcept {
 // Caller owns writing/ready state or has joined the worker. Never release a
 // bank while TLS still borrows an outgoing span or while a response is ready.
 void release_extended_body(RestClientRuntime* runtime) noexcept {
+    const u32 kept = runtime->default_body_bytes;
+    if (runtime->body_committed > kept) {
+        // A taken response cleared its bytes already. Clear the bytes that a response in progress wrote.
+        const u32 written = minimum(runtime->response.http.body_bytes, runtime->body_committed);
+        if (written > kept)
+            secure_clear_bytes(runtime->default_body + kept, written - kept);
+        pages_decommit(runtime->default_body + kept, runtime->body_committed - kept);
+        runtime->body_committed = kept;
+    }
+    runtime->response_capacity = runtime->default_response_capacity;
+    if (runtime->decompression_capacity > maximum(kHandshakeOutputBytes, runtime->response_capacity))
+        release_decompression(runtime);
     if (!runtime->extended_body) return;
     secure_clear_bytes(runtime->extended_body, runtime->extended_body_bytes);
     pages_release(runtime->extended_body);
@@ -554,9 +576,6 @@ void release_extended_body(RestClientRuntime* runtime) noexcept {
     runtime->extended_body_bytes = 0;
     runtime->request_body = runtime->response_body = runtime->default_body;
     runtime->request_body_capacity = kRestClientMaximumRequestBodyBytes;
-    runtime->response_capacity = runtime->default_response_capacity;
-    if (runtime->decompression_capacity > maximum(kHandshakeOutputBytes, runtime->response_capacity))
-        release_decompression(runtime);
 }
 
 void release_completed_response(RestClient* client, RestClientRuntime* runtime) noexcept {
@@ -564,11 +583,8 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime) 
     trace_identity(line, runtime, runtime->completed.request_id);
     line.field("ready_hold_us", clock_microseconds(runtime->clock, runtime->ready_counter, clock_now()));
     rest_trace(line.text);
-    secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
-    if (runtime->completed.body_bytes != 0) {
-        secure_clear_bytes(runtime->response_body, runtime->completed.body_bytes);
-    }
-    reset_value<RestResponse>(&runtime->response);
+    // The published body size is the response's body size, so this erases the published body.
+    erase_response_storage(runtime);
     reset_value<RestClientResponse>(&runtime->completed);
     const auto logout = read_acquire(&runtime->logout_request_id);
     if (logout && read_acquire(&runtime->logout_reservation_id) == logout) {
@@ -606,7 +622,7 @@ bool transaction_in_progress(const RestTransaction& transaction) noexcept {
 }
 
 bool end_transaction(RestTransaction* transaction, RestTransactionPhase phase) noexcept {
-    if (!transaction || !transaction_in_progress(*transaction))
+    if (!transaction_in_progress(*transaction))
         return false;
     transaction->phase = phase;
     return true;
@@ -622,25 +638,67 @@ u32 next_wait(const RestClientRuntime* runtime, u64 now_ms) noexcept {
     return deadline == 0 ? INFINITE : wait_milliseconds_until(now_ms, deadline);
 }
 
-static void publish_completed(RestClient* client, RestClientRuntime* runtime,
-                              RestClientResponse response) noexcept {
+// What finalize_response knows of an answer that publish_completed turns into its metadata.
+struct RestAnswer {
+    RestRateObservation observation;
+    ApiRejection rejection;
+    bool auth_limited, action_required;
+};
+
+static void prepare_response_metadata(RestClientRuntime* runtime,
+                                      const RestRateObservation& observation,
+                                      RestClientResponse* completed) noexcept {
+    const RateLimitHeaders& rate = runtime->response.parsed_head.rate;
+    completed->rate = {rate.reset_after_ms, rate.retry_after_ms, rate.fields, rate.remaining};
+    completed->retry_at_ms = observation.retry_at_ms;
+    completed->body_bytes = runtime->response.http.body_bytes;
+    completed->status_code = runtime->response.parsed_head.head.status_code;
+    completed->content_type = runtime->response.parsed_head.representation.content_type;
+    completed->content_encoding = runtime->response.parsed_head.representation.content_encoding;
+    completed->body_kind = rest_classify_body(
+        ConstSlice<u8>{runtime->response_body, runtime->response.http.body_bytes});
+    completed->rate_limited = observation.rate_limited;
+    completed->global_rate_limit = observation.global;
+}
+
+// Publishes the request's response: `error`, or the metadata of `answer`. The worker writes `completed` in
+// place only after it owns the publication. The taker zeroes it in release_completed_response, and a new
+// runtime starts zeroed, so it is zero here.
+static void publish_completed(RestClient* client, RestClientRuntime* runtime, RestClientError error,
+                              u32 native_error, const RestAnswer* answer) noexcept {
     bool cancelled = false, active_cancel = false;
     if (!network_client_begin_publish(client, &cancelled, &active_cancel)) {
         return;
     }
     if (runtime->transaction.lease.active || runtime->endpoint_lease.generation)
         cancel_rate_lease(runtime);
+    RestClientResponse& response = runtime->completed;
     if (cancelled) {
         rest_transaction_cancel(&runtime->transaction);
         erase_response_storage(runtime);
-        reset_value<RestClientResponse>(&response);
-        response.error = RestClientError::cancelled;
-        response.native_error = ERROR_OPERATION_ABORTED;
-        response.reused_connection = runtime->transaction.reused_connection;
+        error = RestClientError::cancelled;
+        native_error = ERROR_OPERATION_ABORTED;
         if (active_cancel) {
             close_transport(runtime);
         }
+    } else if (answer) {
+        prepare_response_metadata(runtime, answer->observation, &response);
+        // Auth challenge/error JSON need not have the rate-limit body schema.
+        // Preserve a verified 429 even without a deadline, so its owner can hold
+        // retries instead of interpreting a challenge or inventing a short delay.
+        if (answer->auth_limited)
+            response.rate_limited = true;
+        response.rejection = answer->rejection;
+        // Retry eligibility is shared by every request type, including typing,
+        // edits, reactions and commands. Keep the raw rate headers for diagnostics.
+        if (answer->action_required) {
+            response.rate_limited = false;
+            response.retry_at_ms = 0;
+        }
     }
+    response.error = error;
+    response.native_error = native_error;
+    response.reused_connection = runtime->transaction.reused_connection;
     if (runtime->request_started_counter != 0) {
         response.elapsed_us =
             clock_microseconds(runtime->clock, runtime->request_started_counter, clock_now());
@@ -668,9 +726,7 @@ static void publish_completed(RestClient* client, RestClientRuntime* runtime,
     rest_trace(line.text);
     runtime->wire_body_bytes = runtime->decode_us = 0;
     runtime->wire_encoding = RestContentEncoding::missing;
-    runtime->completed = response;
     runtime->rate_wait_until_ms = 0;
-    secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
     // The outgoing request storage is reused as the incoming response storage.
     // Every committed request span was already erased by
     // request_plaintext_committed(). Once a transport-clean
@@ -692,11 +748,7 @@ static void publish_completed(RestClient* client, RestClientRuntime* runtime,
 void publish_request_error(RestClient* client, RestClientRuntime* runtime,
                            RestClientError error, u32 native_error) noexcept {
     erase_response_storage(runtime);
-    RestClientResponse response{};
-    response.error = error;
-    response.native_error = native_error;
-    response.reused_connection = runtime->transaction.reused_connection;
-    publish_completed(client, runtime, response);
+    publish_completed(client, runtime, error, native_error, nullptr);
 }
 
 void begin_drain(RestClient* client, RestClientRuntime* runtime, RestClientError error,
@@ -769,6 +821,23 @@ static void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) 
     }
 }
 
+// Commits the default body through `bytes` of the response capacity, in steps of 64 KiB. False when the system
+// refuses. A bank and the locked storage of a signed-out client are committed whole.
+static bool commit_response_body(RestClientRuntime* runtime, u32 bytes) noexcept {
+    constexpr u32 step = 64 * 1024;
+    if (bytes <= runtime->body_committed || runtime->response_body != runtime->default_body ||
+        runtime->user_auth_mode)
+        return true;
+    bytes = minimum((minimum(bytes, runtime->response_capacity) + step - 1) & ~(step - 1),
+                    kRestClientMaximumLargeResponseBytes);
+    if (bytes <= runtime->body_committed)
+        return true;
+    if (!pages_commit(runtime->default_body + runtime->body_committed, bytes - runtime->body_committed))
+        return false;
+    runtime->body_committed = bytes;
+    return true;
+}
+
 TlsStreamReadAction response_plaintext_received(void* opaque, ConstSlice<u8> plaintext,
                                                 bool peer_closed) noexcept {
     auto* runtime = static_cast<RestClientRuntime*>(opaque);
@@ -779,6 +848,11 @@ TlsStreamReadAction response_plaintext_received(void* opaque, ConstSlice<u8> pla
         line.field("ttfb_us", clock_microseconds(runtime->clock, runtime->receive_counter,
                                                   runtime->first_byte_counter));
         rest_trace(line.text);
+    }
+    // The decoder writes at most the received bytes to the body.
+    if (!commit_response_body(runtime, runtime->response.http.body_bytes + plaintext.count)) {
+        runtime->response_callback_failed = true;
+        return TlsStreamReadAction::reject;
     }
     runtime->response_step = rest_response_feed(&runtime->response, plaintext, peer_closed);
     if (!runtime->response_step.ok() ||
@@ -883,7 +957,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
             reset_value(&runtime->transaction);
             runtime->rate_wait_until_ms = reset;
             runtime->waiting_for_peer = false;
-            deferred = true;
+            runtime->waiting_for_admission = deferred = true;
         }
     }
     if (deferred) {
@@ -916,23 +990,6 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     }
     return tls_stream_start_write(&runtime->transport, ConstSlice<ConstSlice<u8>>{spans, span_count},
                                   request_plaintext_committed, runtime);
-}
-
-static void prepare_response_metadata(RestClientRuntime* runtime,
-                                      const RestRateObservation& observation,
-                                      RestClientResponse* completed) noexcept {
-    const RateLimitHeaders& rate = runtime->response.parsed_head.rate;
-    completed->rate = {rate.reset_after_ms, rate.retry_after_ms, rate.fields, rate.remaining};
-    completed->retry_at_ms = observation.retry_at_ms;
-    completed->body_bytes = runtime->response.http.body_bytes;
-    completed->status_code = runtime->response.parsed_head.head.status_code;
-    completed->content_type = runtime->response.parsed_head.representation.content_type;
-    completed->content_encoding = runtime->response.parsed_head.representation.content_encoding;
-    completed->body_kind = rest_classify_body(
-        ConstSlice<u8>{runtime->response_body, runtime->response.http.body_bytes});
-    completed->rate_limited = observation.rate_limited;
-    completed->global_rate_limit = observation.global;
-    completed->reused_connection = runtime->transaction.reused_connection;
 }
 
 bool finalize_response(RestClient* client, RestClientRuntime* runtime,
@@ -982,33 +1039,53 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         // A complete response follows the final TLS handshake send. Reuse its
         // idle output as inflate scratch; copy/erase finishes on this worker
         // before close/reconnect can clear or reuse the handshake buffer.
-        // Larger response capacities retain a separately owned scratch buffer;
-        // a signed-out client keeps a locked one from start, as its answers
-        // carry credentials.
-        if (runtime->decompression && runtime->decompression_capacity < runtime->response_capacity)
+        // Larger scratch needs retain a separately owned buffer; a signed-out
+        // client keeps a locked one from start, as its answers carry credentials.
+        // A scratch holds the configured capacity, or the wire bytes of a longer response.
+        const u32 scratch_bytes = maximum(runtime->default_response_capacity, runtime->wire_body_bytes);
+        if (runtime->decompression && runtime->decompression_capacity < scratch_bytes)
             release_decompression(runtime);
         if (!runtime->decompression) {
             u8* scratch = runtime->handshake_output;
-            if (runtime->response_capacity > kHandshakeOutputBytes) {
-                scratch = static_cast<u8*>(commit_pages(runtime->response_capacity));
+            if (scratch_bytes > kHandshakeOutputBytes) {
+                scratch = static_cast<u8*>(commit_pages(scratch_bytes));
                 if (!scratch)
                     return false;
             }
             runtime->decompression = scratch;
             runtime->decompression_capacity = scratch == runtime->handshake_output
-                                                  ? kHandshakeOutputBytes : runtime->response_capacity;
+                                                  ? kHandshakeOutputBytes : scratch_bytes;
         }
         const i64 begin = clock_now();
         // The smaller wire bytes move to the scratch, and the body inflates into the response storage.
         copy_bytes(runtime->decompression, runtime->response_body, runtime->wire_body_bytes);
         // HTTP's deflate is the zlib format (RFC 9110 section 8.4.1.2).
         const DeflateInputSpan wire{runtime->decompression, runtime->wire_body_bytes};
-        const Slice<u8> output{runtime->response_body, runtime->response_capacity};
-        const auto inflated = gzip ? gzip_inflate({wire.data, wire.bytes}, output, &runtime->inflate_workspace)
-                                   : zlib_inflate({&wire, 1}, output, ~0u, &runtime->inflate_workspace);
+        // The output is the committed part of a default body. A gzip member ends with its size, so the body commits
+        // through the last member's size first. A longer body commits the response capacity and inflates again.
+        u32 output_bytes = runtime->response_capacity;
+        if (runtime->response_body == runtime->default_body && !runtime->user_auth_mode) {
+            if (gzip && wire.bytes >= 4 &&
+                !commit_response_body(runtime, byte_load_le32(wire.data + wire.bytes - 4))) {
+                secure_clear_bytes(runtime->decompression, runtime->wire_body_bytes);
+                return false;
+            }
+            output_bytes = minimum(output_bytes, runtime->body_committed);
+        }
+        ZlibInflateResult inflated{};
+        for (;;) {
+            const Slice<u8> output{runtime->response_body, output_bytes};
+            inflated = gzip ? gzip_inflate({wire.data, wire.bytes}, output, &runtime->inflate_workspace)
+                            : zlib_inflate({&wire, 1}, output, ~0u, &runtime->inflate_workspace);
+            if (inflated.error != ZlibInflateError::output_capacity ||
+                output_bytes == runtime->response_capacity ||
+                !commit_response_body(runtime, runtime->response_capacity))
+                break;
+            output_bytes = runtime->response_capacity;
+        }
         secure_clear_bytes(runtime->decompression, runtime->wire_body_bytes);
         if (!inflated.ok()) {
-            secure_clear_bytes(runtime->response_body, runtime->response_capacity);
+            secure_clear_bytes(runtime->response_body, output_bytes);
             return false;
         }
         runtime->response.http.body_bytes = inflated.output_bytes;
@@ -1065,28 +1142,16 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     if (!observation.ok() || !rest_transaction_complete(&runtime->transaction)) {
         return false;
     }
-    RestClientResponse completed{};
-    prepare_response_metadata(runtime, observation, &completed);
-    // Auth challenge/error JSON need not have the rate-limit body schema.
-    // Preserve a verified 429 even without a deadline, so its owner can hold
-    // retries instead of interpreting a challenge or inventing a short delay.
-    if (auth_limited)
-        completed.rate_limited = true;
-    completed.rejection = rejection;
-    // Retry eligibility is shared by every request type, including typing,
-    // edits, reactions and commands. Keep the raw rate headers for diagnostics.
-    if (action_required) {
-        completed.rate_limited = false;
-        completed.retry_at_ms = 0;
-    }
     runtime->transport_idle_since_ms = now_ms;
     ++runtime->connection_request_count;
     if (!runtime->response.http.connection_reusable) {
         close_transport(runtime);
     }
-    if (rest_retryable_status(completed.status_code) && schedule_retry(client, runtime, now_ms))
+    if (rest_retryable_status(runtime->response.parsed_head.head.status_code) &&
+        schedule_retry(client, runtime, now_ms))
         return true;
-    publish_completed(client, runtime, completed);
+    const RestAnswer answer{observation, rejection, auth_limited, action_required};
+    publish_completed(client, runtime, RestClientError::none, 0, &answer);
     return true;
 }
 

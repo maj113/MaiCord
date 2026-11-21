@@ -1861,7 +1861,8 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
 maicord_test(MaiCordRestClientFixtureTests ONLY WINDOWS ENTRY maicord_rest_client_fixtures_entry
     SOURCES ${maicord_account_fake} src/app/net/rest_client_trace.cpp
     SOURCES tests/app/net/rest_client_fixtures.cpp src/app/chat/messages/account_bulk_message_ack.cpp src/app/account/account_logout.cpp
-        src/app/account/account_host.cpp src/media/image/png_common.cpp src/app/account/user_client_configuration.cpp
+        src/app/account/account_host.cpp src/media/image/png_common.cpp src/media/image/png_encode.cpp
+        src/app/account/user_client_configuration.cpp
         src/app/account/client_session_metadata.cpp src/app/net/signed_out_session.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ${maicord_tls_libs} ntdll
     TIMEOUT 15

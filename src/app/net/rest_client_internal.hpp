@@ -128,7 +128,11 @@ struct RestClientRuntime {
     u8* response_input;
     u8* response_body;
     u8* decompression;
+    // An ordinary client's default body starts a reservation of kRestClientMaximumLargeResponseBytes. An extended
+    // response commits more of it as its bytes arrive, and the release decommits all past default_body_bytes.
     u8* default_body;
+    u32 default_body_bytes;
+    u32 body_committed;
     u8* extended_body;
     u32 extended_body_bytes;
     u32 default_response_capacity;
@@ -144,6 +148,9 @@ struct RestClientRuntime {
     bool stopping;
     bool user_auth_mode;
     bool waiting_for_peer;
+    // Written under the shared lock by each admission attempt: true while this worker waits for a peer's release.
+    // rate_changed wakes only such a peer.
+    bool waiting_for_admission;
     u8* user_super_properties;
     char* user_locale;
     char* user_timezone;
@@ -194,7 +201,7 @@ bool authentication_rejected(const RestClient* client) noexcept;
 AccountRequirement required_action(RestClient* client) noexcept;
 u32 user_auth_secure_bytes(u32 response_capacity, u32 request_capacity) noexcept;
 u32 allocation_bytes(u32 response_capacity, bool user_auth_mode, bool normal_user, bool shared = false) noexcept;
-void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullptr) noexcept;
+bool assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullptr) noexcept;
 void publish_phase(RestClient* client, RestClientPhase phase) noexcept;
 void trace_identity(TraceRecord& line, const RestClientRuntime* runtime, u64 request) noexcept;
 void publish_worker_phase(RestClient* client, RestClientRuntime* runtime,

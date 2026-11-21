@@ -1,13 +1,16 @@
 #include "maicord/app/voice/mls/tree.hpp"
+#include "maicord/core/intrinsics.hpp"
 
 namespace maicord {
+namespace {
+// The smallest power of two at or above count (one for zero), for a count of at most 2^31.
+__forceinline u32 full_leaves(u32 count) noexcept {
+    return count > 1 ? 2u << (31 - __builtin_clz(count - 1)) : 1;
+}
+} // namespace
+// The number of trailing one bits, at most 31.
 u32 mls_tree_level(u32 node) noexcept {
-    if (mls_tree_is_leaf(node))
-        return 0;
-    u32 level = 0;
-    while (level < 31 && (node & (1u << level)))
-        ++level;
-    return level;
+    return lowest_set_bit(~node | 0x80000000u);
 }
 bool mls_tree_is_below(u32 node, u32 ancestor) noexcept {
     const u32 node_level = mls_tree_level(node), ancestor_level = mls_tree_level(ancestor);
@@ -48,20 +51,14 @@ MlsStatus mls_tree_node_count(u32 leaf_count, u32* node_count) noexcept {
 MlsStatus mls_tree_full_leaf_count(u32 leaf_count, u32* full_leaf_count) noexcept {
     if (!full_leaf_count || leaf_count > 0x80000000u)
         return MlsStatus::invalid_argument;
-    u32 value = 1;
-    while (value < leaf_count)
-        value <<= 1;
-    *full_leaf_count = value;
+    *full_leaf_count = full_leaves(leaf_count);
     return MlsStatus::ok;
 }
+// A tree of L leaves has 2L - 1 nodes, and its root is the highest power of two in that count, less one.
 MlsStatus mls_tree_root(u32 leaf_count, u32* root) noexcept {
-    u32 nodes = 0;
-    if (!leaf_count || mls_tree_node_count(leaf_count, &nodes) != MlsStatus::ok)
+    if (!leaf_count || leaf_count > 0x80000000u)
         return MlsStatus::invalid_argument;
-    u32 log = 0;
-    while (nodes >> (log + 1))
-        ++log;
-    *root = (1u << log) - 1;
+    *root = full_leaves(leaf_count) - 1;
     return MlsStatus::ok;
 }
 MlsStatus mls_tree_leaf_ancestor(u32 left_leaf, u32 right_leaf, u32* ancestor) noexcept {

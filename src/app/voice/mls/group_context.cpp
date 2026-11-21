@@ -240,9 +240,7 @@ MlsStatus mls_group_info_verify_confirmation(KdfSha256Workspace& kdf, const MlsG
     if (!hmac_sha256(kdf, {confirmation_key, kMlsHashBytes}, {&confirmed, 1}, {expected, kMlsHashBytes})
              .ok())
         return MlsStatus::crypto_failure;
-    return mls_confirmation_matches({expected, kMlsHashBytes}, {info.confirmation_tag, kMlsHashBytes})
-               ? MlsStatus::ok
-               : MlsStatus::crypto_failure;
+    return mls_equal(expected, info.confirmation_tag, kMlsHashBytes) ? MlsStatus::ok : MlsStatus::crypto_failure;
 }
 
 MlsStatus mls_transcript_initial(KdfSha256Workspace& kdf, MlsTranscript* transcript,

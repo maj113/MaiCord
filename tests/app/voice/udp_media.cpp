@@ -72,7 +72,7 @@ bool until(VoiceUdpMedia& media, VoiceUdpDiscovery& discovery, NetworkLoop& loop
     }
     return true;
 }
-void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backend) noexcept {
+void loopback(Check check, u32 index, i32 family, u32 mode) noexcept {
     // Pending owners and buffers remain alive even on a failed drain assertion.
     static NetworkLoop loops[6];
     static VoiceUdpDiscovery discoveries[6];
@@ -119,7 +119,7 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
     sockaddr_storage client{};
     i32 client_bytes = sizeof(client);
     if (ok) {
-        ok = voice_packet_initialize(&key, 9, mode, {secret, 32}, backend).ok() &&
+        ok = voice_packet_initialize(&key, 9, mode, {secret, 32}).ok() &&
              voice_udp_begin(&discovery, &loop, test_network_address(&address, address_bytes), 0x01020304,
                              GetTickCount64());
         check(ok, "UDP media begins with a real discovery and negotiated cipher");
@@ -214,9 +214,9 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
                       "UDP media independent inbound fixture sent");
                 ++ordinal;
                 ok = until(media, discovery, loop, ordinal, ordinal, 0);
-                check(ok && consumer.calls == ordinal && zero(rx, wire_bytes) && zero(tx, wire_bytes) &&
+                check(ok && consumer.calls == ordinal && zero(rx, wire_bytes) &&
                           discovery.socket.receive_pending && !discovery.socket.send_pending,
-                      "UDP media dispatches then erases used buffers and rearms without a timer");
+                      "UDP media dispatches then erases the used receive buffer and rearms without a timer");
                 if (!ok)
                     break;
             }
@@ -265,7 +265,7 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
             // Other posted slots retire through their canceled completions.
             check(until(media, discovery, loop, previous + 1, previous, 4) &&
                       (slots == 1 || drain(media, discovery, loop)) && consumer.calls == previous + 1 &&
-                      voice_udp_media_drained(media) && zero(rx, 256) && zero(tx, 256) &&
+                      voice_udp_media_drained(media) && zero(rx, 256) &&
                       voice_udp_drained(discovery),
                   "UDP media callback cancellation retires buffers after callback and does not rearm");
         }
@@ -299,12 +299,8 @@ void loopback(Check check, u32 index, i32 family, u32 mode, XChaChaBackend backe
 } // namespace
 void test_voice_udp_media(Check check) noexcept {
     for (u32 family = 0; family != 2; ++family) {
-        loopback(check, family * 3, family ? AF_INET6 : AF_INET, voice_transport_aes256_gcm_rtpsize,
-                 XChaChaBackend::automatic);
-        loopback(check, family * 3 + 1, family ? AF_INET6 : AF_INET,
-                 voice_transport_xchacha20_poly1305_rtpsize, XChaChaBackend::automatic);
-        loopback(check, family * 3 + 2, family ? AF_INET6 : AF_INET,
-                 voice_transport_xchacha20_poly1305_rtpsize, XChaChaBackend::portable);
+        loopback(check, family * 3, family ? AF_INET6 : AF_INET, voice_transport_aes256_gcm_rtpsize);
+        loopback(check, family * 3 + 1, family ? AF_INET6 : AF_INET, voice_transport_xchacha20_poly1305_rtpsize);
     }
 }
 } // namespace maicord

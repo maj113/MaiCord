@@ -135,7 +135,8 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
         }
         // This reservation was never visible outside the locked admission
         // attempt, so releasing it needs no peer wake (which could ping-pong).
-        if (!acquired.acquired_request())
+        runtime->waiting_for_admission = !acquired.acquired_request();
+        if (runtime->waiting_for_admission)
             endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms, false);
     }
     const bool peer_wait = acquired.kind == RestRateAcquireKind::busy;
@@ -198,7 +199,6 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
         runtime->trace_phase = RestClientPhase::queued;
         runtime->first_byte_counter = runtime->receive_counter = 0;
         runtime->request_started_counter = 0;
-        reset_value<RestTransaction>(&runtime->transaction);
         publish_request_error(client, runtime, RestClientError::cancelled, ERROR_OPERATION_ABORTED);
         return;
     }
@@ -217,7 +217,6 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
     line.field("queue_us", clock_microseconds(runtime->clock, runtime->command.submitted_counter,
                                                runtime->request_started_counter));
     rest_trace(line.text);
-    reset_value<RestTransaction>(&runtime->transaction);
     acquire_request(client, runtime, loop, now_ms);
 }
 
@@ -359,6 +358,10 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
         runtime->decompression = nullptr;
     release_extended_body(runtime);
     release_decompression(runtime);
+    if (!runtime->user_auth_mode && runtime->default_body) {
+        secure_clear_bytes(runtime->default_body, runtime->body_committed);
+        pages_release(runtime->default_body);
+    }
     const u32 bytes = runtime->allocation_bytes;
     if (restored) {
         secure_clear_bytes(runtime, bytes);
@@ -431,7 +434,8 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         if (!initialized.ok())
             return fail_start(client, RestClientError::memory, initialized.native_error);
     }
-    assign_storage(runtime, shared);
+    if (!assign_storage(runtime, shared))
+        return fail_start(client, RestClientError::memory, thread_last_error());
     runtime->default_body = runtime->request_body;
     if ((user_configuration && !copy_user_configuration(runtime, *user_configuration)) ||
         (user_auth_mode && !initialize_auth_user_configuration(runtime))) {
@@ -473,7 +477,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
     TraceRecord line("worker_online");
     trace_identity(line, runtime, 0);
     line.field("startup_us", clock_microseconds(runtime->clock, worker_start, clock_now()));
-    line.field("runtime_bytes", runtime->allocation_bytes);
+    line.field("runtime_bytes", runtime->allocation_bytes + runtime->default_body_bytes);
     rest_trace(line.text);
     return client_result(client);
 }

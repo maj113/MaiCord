@@ -726,7 +726,7 @@ DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const Co
                                      u64 now_ms, const Slice<u8>& scratch,
                                      const Slice<u8>& output) noexcept {
     DaveMediaResult result{};
-    if (!session || !session->initialized || !user_id || !frame.data || !frame.count) {
+    if (!session->initialized || !user_id || !frame.data || !frame.count) {
         result.error = DaveMediaError::invalid_input;
         return result;
     }

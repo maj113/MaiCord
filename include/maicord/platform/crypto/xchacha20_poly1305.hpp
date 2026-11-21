@@ -5,36 +5,23 @@
 
 namespace maicord {
 
-// native is the operating system's ChaCha20-Poly1305 (CNG, or OpenSSL on Linux); portable is the in-house one,
-// which serves Windows 10 builds that lack the native cipher (Linux has none: portable and a missing OpenSSL are
-// platform_failure there).
-enum class XChaChaBackend : u8 {
-    automatic,
-    native,
-    portable
-};
-
-// Zero-initialize; single worker ownership, no copying or concurrent operations.
-// One locked allocation holds the native workspace, original key and derived
-// key. The native workspace is reused, not allocated per packet. Only the original key
-// survives an operation; temporary keys are erased. Backend selection is once
-// at initialization, not a retry after an authentication or key-import failure.
+// The cipher is the in-house ChaCha20-Poly1305 on Windows and the system OpenSSL on Linux (a missing OpenSSL is
+// platform_failure there). Zero-initialize; single worker ownership, no copying or concurrent operations. One locked
+// allocation holds the original key and the derived key. Only the original key survives an operation; the derived
+// key is erased.
 struct XChaChaKey {
     SecureBuffer storage;
-    u32 object_bytes;
-    XChaChaBackend backend;
 };
 
-AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret,
-                              XChaChaBackend backend = XChaChaBackend::automatic) noexcept;
+AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret) noexcept;
 void xchacha_release(XChaChaKey* key) noexcept;
 
 // 192-bit nonce, detached 128-bit tag. Caller owns per-key nonce uniqueness.
 // Exact in-place payload operation and adjacent tags are supported. No argument
 // may overlap key storage/owner. Partial payload overlap or writes into AAD,
 // nonce or tag are rejected unchanged, as are malformed/short destinations.
-// Native authentication failure erases the attempted output prefix; key-import
-// failure leaves it unchanged. Both return zero bytes, never valid plaintext.
+// Authentication failure erases the attempted output prefix and returns zero
+// bytes, never valid plaintext.
 AeadResult xchacha_encrypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                            ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept;
 AeadResult xchacha_decrypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

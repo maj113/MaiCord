@@ -159,7 +159,7 @@ bool startup_shell_decode(ConstSlice<u8> input, StartupShell* shell) noexcept {
 }
 
 bool startup_shell_key_create(StartupShellKey* key, u64 profile_id) noexcept {
-    if (!key || key->aead.handle || !profile_id)
+    if (!key || key->aead.storage.data || !profile_id)
         return false;
     SecureBuffer secret{};
     bool ok = secure_buffer_initialize(&secret, kKeyBytes).ok() &&
@@ -192,7 +192,7 @@ void startup_shell_key_release(StartupShellKey* key) noexcept {
 
 u32 startup_shell_seal(const StartupShellKey& key, ConstSlice<u8> plaintext, Slice<u8> output) noexcept {
     const u32 wrapped = key.wrapped_bytes;
-    if (!key.aead.handle || !key.profile_id || !wrapped || wrapped > kStartupShellWrappedKeyBytes ||
+    if (!key.aead.storage.data || !key.profile_id || !wrapped || wrapped > kStartupShellWrappedKeyBytes ||
         !plaintext.data || !plaintext.count || plaintext.count > kStartupShellPlaintextBytes || !output.data)
         return 0;
     const u32 aad_bytes = kHeaderBytes + wrapped + kAesGcmNonceBytes;
@@ -232,7 +232,7 @@ StartupShellOpenError startup_shell_open(ConstSlice<u8> image, u64 profile_id, u
         ciphertext > kStartupShellPlaintextBytes || ciphertext > plaintext.count ||
         image.count != kHeaderBytes + wrapped + kAesGcmNonceBytes + ciphertext + kAesGcmTagBytes)
         return E::format;
-    if (!key->aead.handle || key->profile_id != profile_id) {
+    if (!key->aead.storage.data || key->profile_id != profile_id) {
         startup_shell_key_release(key);
         SecureBuffer secret{};
         u8 entropy[24];
@@ -308,7 +308,7 @@ bool startup_shell_save_file(const wchar_t* path, StartupShellKey* key, const St
     const u32 length = wide_length(path, kAccountProfileMaximumPathCharacters);
     if (!length || !shell.profile_id)
         return false;
-    if (!key->aead.handle || key->profile_id != shell.profile_id) {
+    if (!key->aead.storage.data || key->profile_id != shell.profile_id) {
         startup_shell_key_release(key);
         if (!startup_shell_key_create(key, shell.profile_id))
             return false;

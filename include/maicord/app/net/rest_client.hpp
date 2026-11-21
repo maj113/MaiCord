@@ -20,6 +20,9 @@ inline constexpr u32 kRestClientMaximumRequestBodyBytes = 64 * 1024;
 inline constexpr u32 kRestClientMaximumLargeRequestBodyBytes = 12 * 1024 * 1024;
 inline constexpr u32 kRestClientMinimumResponseBytes = 4 * 1024;
 inline constexpr u32 kRestClientMaximumResponseBytes = 2 * 1024 * 1024;
+// The most rest_client_submit_large_response takes: a full relationships list (1,000 friends, 5,000 blocked users
+// and the pending requests) is about 3 MB.
+inline constexpr u32 kRestClientMaximumLargeResponseBytes = 4 * 1024 * 1024;
 inline constexpr u32 kRestUserSettingsMaximumBodyBytes = 2 * 1024 * 1024;
 inline constexpr u64 kRestUserSettingsRouteId = 0x5553455454494e47ull;
 inline constexpr u32 kRestClientDefaultTimeoutMs = 30 * 1000;
@@ -376,15 +379,17 @@ RestClientSubmitResult rest_client_submit_large_owned(
     RestClient* client, const RestClientRequest& request, u8** body_owner) noexcept;
 // A bodyless GET, or a POST with an ordinary JSON body (a members search),
 // whose response may exceed the configured capacity (a large list such as a
-// server's bans): the response lands in a bank of
-// response_capacity bytes allocated for this transaction and released with
-// the response. Take it with output of at least the reported body size.
+// server's bans): the response may hold response_capacity bytes (at most
+// kRestClientMaximumLargeResponseBytes). Its pages past the configured
+// capacity are committed as the bytes arrive and decommitted with the
+// response. Take it with output of at least the reported body size.
 RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
                                                          const RestClientRequest& request,
                                                          u32 response_capacity) noexcept;
 // Normal-user settings-proto/2 GET/PATCH only, with the normalized route above
-// and no major parameter. A transaction-owned body bank is copied
-// synchronously and released after response consumption or joined shutdown.
+// and no major parameter. A body above the ordinary ceiling is copied
+// synchronously into a transaction-owned bank, released after response
+// consumption or joined shutdown. The response grows as above.
 // Short output keeps the response and bank for a later take.
 RestClientSubmitResult rest_client_submit_user_settings(
     RestClient* client, const RestClientRequest& request,

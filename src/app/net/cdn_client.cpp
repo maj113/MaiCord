@@ -88,7 +88,7 @@ constexpr u32 fixed_storage_bytes() noexcept {
 }
 static_assert(sizeof(CdnClientRuntime) + fixed_storage_bytes() <= 1024u * 1024u);
 
-void assign_storage(CdnClientRuntime* runtime) noexcept {
+inline void assign_storage(CdnClientRuntime* runtime) noexcept {
     u8* cursor = reinterpret_cast<u8*>(runtime) + sizeof(CdnClientRuntime);
     runtime->request_target = cursor;
     cursor += kCdnMaximumTargetBytes;
@@ -113,7 +113,12 @@ CdnClientPhase load_phase(const CdnClient* client) noexcept {
     return static_cast<CdnClientPhase>(read_acquire(&client->phase));
 }
 
-CdnClientError load_error(const CdnClient* client) noexcept {
+inline bool worker_ending(const CdnClient* client) noexcept {
+    const CdnClientPhase phase = load_phase(client);
+    return phase == CdnClientPhase::stopping || phase == CdnClientPhase::stopped || phase == CdnClientPhase::failed;
+}
+
+inline CdnClientError load_error(const CdnClient* client) noexcept {
     return static_cast<CdnClientError>(read_acquire(&client->error));
 }
 
@@ -217,7 +222,7 @@ void close_transport(CdnClientRuntime* runtime) noexcept {
 
 // Connects afresh once an idle connection is old enough for the edge to have
 // closed it (see kTlsStreamIdleReuseMs).
-void retire_idle_transport(CdnClientRuntime* runtime, u64 now_ms) noexcept {
+inline void retire_idle_transport(CdnClientRuntime* runtime, u64 now_ms) noexcept {
     if (runtime->transport_ready &&
         now_ms >= deadline_after(runtime->transport_idle_since_ms, kTlsStreamIdleReuseMs))
         close_transport(runtime);
@@ -240,7 +245,6 @@ void copy_policy_metadata(CdnClientRuntime* runtime, CdnClientResponse* response
     response->status_code = runtime->policy.status_code;
     response->store_allowed = runtime->policy.store_allowed;
     response->must_revalidate = runtime->policy.must_revalidate;
-    response->http_error = runtime->policy.error;
     response->etag_bytes = runtime->policy.etag.count;
     copy_bytes(response->etag, runtime->policy.etag.data, runtime->policy.etag.count);
     response->conditional_etag_bytes = runtime->command.etag_bytes;
@@ -249,30 +253,37 @@ void copy_policy_metadata(CdnClientRuntime* runtime, CdnClientResponse* response
     response->entity_bytes = runtime->policy.entity_bytes;
 }
 
-void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
-                       CdnClientResponse response) noexcept {
+// Publishes the request's response: `error`, or with no error the policy's metadata. The worker writes
+// `completed` in place only after it owns the publication. The taker zeroes it in recycle_request, and a new
+// runtime starts zeroed, so it is zero here.
+void publish_completed(CdnClient* client, CdnClientRuntime* runtime, CdnClientError error,
+                       CdnHttpError http_error, u32 native_error) noexcept {
     bool cancelled = false;
     if (!network_client_begin_publish(client, &cancelled)) {
         return;
     }
+    CdnClientResponse& response = runtime->completed;
     if (cancelled) {
         erase_response(runtime);
-        reset_value<CdnClientResponse>(&response);
-        response.error = CdnClientError::cancelled;
-        response.native_error = ERROR_OPERATION_ABORTED;
-        response.reused_connection = runtime->logical_reused_connection;
-        response.redirects = runtime->redirects;
+        error = CdnClientError::cancelled;
+        http_error = CdnHttpError::none;
+        native_error = ERROR_OPERATION_ABORTED;
         close_transport(runtime);
+    } else if (error == CdnClientError::none) {
+        copy_policy_metadata(runtime, &response);
     }
+    response.error = error;
+    response.http_error = http_error;
+    response.native_error = native_error;
+    response.reused_connection = runtime->logical_reused_connection;
+    response.redirects = runtime->redirects;
     if (runtime->request_started_counter != 0) {
         response.elapsed_us =
             clock_microseconds(runtime->clock, runtime->request_started_counter, clock_now());
     }
     response.request_id = runtime->command.request_id;
     copy_value(&response.requested_range, runtime->command.range);
-    runtime->completed = response;
     runtime->deadline_ms = 0;
-    secure_clear_bytes(runtime->request_head, kRequestHeadBytes);
     erase_command(runtime);
     increment_single_writer(&client->responses); // worker thread only
     InterlockedExchange(&client->request_state, request_state_ready);
@@ -284,13 +295,7 @@ void publish_request_error(CdnClient* client, CdnClientRuntime* runtime,
                            CdnClientError error, CdnHttpError http_error,
                            u32 native_error) noexcept {
     erase_response(runtime);
-    CdnClientResponse response{};
-    response.error = error;
-    response.http_error = http_error;
-    response.native_error = native_error;
-    response.reused_connection = runtime->logical_reused_connection;
-    response.redirects = runtime->redirects;
-    publish_completed(client, runtime, response);
+    publish_completed(client, runtime, error, http_error, native_error);
 }
 
 void begin_drain(CdnClient* client, CdnClientRuntime* runtime, CdnClientError error,
@@ -304,6 +309,8 @@ void begin_drain(CdnClient* client, CdnClientRuntime* runtime, CdnClientError er
     runtime->draining = true;
     publish_phase(client, CdnClientPhase::draining);
     close_transport(runtime);
+    // request_committed erased each head byte that went out. Only a failed or cut send leaves head bytes.
+    secure_clear_bytes(runtime->request_head, kRequestHeadBytes);
 }
 
 NetworkWorkerStep finish_drain(CdnClient* client, CdnClientRuntime* runtime) noexcept {
@@ -562,11 +569,7 @@ bool finish_http_response(CdnClient* client, CdnClientRuntime* runtime, NetworkL
     if (!reusable) {
         close_transport(runtime);
     }
-    CdnClientResponse completed{};
-    copy_policy_metadata(runtime, &completed);
-    completed.redirects = runtime->redirects;
-    completed.reused_connection = runtime->logical_reused_connection;
-    publish_completed(client, runtime, completed);
+    publish_completed(client, runtime, CdnClientError::none, CdnHttpError::none, 0);
     return true;
 }
 
@@ -633,7 +636,6 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
     if (prior != request_state_pending) {
         return;
     }
-    runtime->clock = clock_initialize();
     runtime->request_started_counter = clock_now();
     runtime->deadline_ms = deadline_after(now_ms, runtime->command.timeout_ms);
     runtime->redirects = 0;
@@ -864,9 +866,7 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          ((request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mpeg_ts) || request.etag.count ||
           request.range.bytes > kMediaMaximumProgressiveVideoBytes ||
           request.range.first > kMediaMaximumProgressiveVideoBytes - u64{request.range.bytes})) ||
-        load_phase(client) == CdnClientPhase::stopping ||
-        load_phase(client) == CdnClientPhase::stopped ||
-        load_phase(client) == CdnClientPhase::failed) {
+        worker_ending(client)) {
         return CdnClientSubmitResult{CdnClientSubmitError::invalid_input};
     }
     if (request.target.count > kCdnMaximumTargetBytes) {

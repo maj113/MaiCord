@@ -38,14 +38,14 @@ AeadResult crypt(VoicePacketCrypto& crypto, ConstSlice<u8> nonce, ConstSlice<u8>
 } // namespace
 
 AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u32 mode,
-                                   ConstSlice<u8> secret, XChaChaBackend backend) noexcept {
-    if (!crypto || crypto->generation || crypto->mode || crypto->aes.handle || crypto->aes.object.data ||
-        crypto->xchacha.storage.data || !generation || secret.count != 32 ||
+                                   ConstSlice<u8> secret) noexcept {
+    if (!crypto || crypto->generation || crypto->mode || crypto->aes.storage.data || crypto->xchacha.storage.data ||
+        !generation || secret.count != 32 ||
         (mode != voice_transport_aes256_gcm_rtpsize && mode != voice_transport_xchacha20_poly1305_rtpsize))
         return {0, 0, AeadError::invalid_input};
     const auto result = mode == voice_transport_aes256_gcm_rtpsize
                             ? aes_gcm_initialize(&crypto->aes, secret)
-                            : xchacha_initialize(&crypto->xchacha, secret, backend);
+                            : xchacha_initialize(&crypto->xchacha, secret);
     if (!result.ok())
         return result;
     crypto->generation = generation;
@@ -97,24 +97,24 @@ VoicePacketResult voice_packet_open(VoicePacketCrypto& crypto, u64 generation, C
     const auto valid = validate(crypto, generation, plaintext, bytes);
     if (valid != VoicePacketError::none)
         return failure(valid);
-    MediaPacketLayout header{};
-    if (!media_packet_header({packet.data, bytes}, &header))
+    MediaPacketLayout layout{};
+    if (!media_packet_header({packet.data, bytes}, &layout))
         return failure(VoicePacketError::malformed_packet);
     u8 nonce[24]{};
     copy_bytes(nonce, packet.data + packet.count - 4, 4);
     const u32 counter = byte_load_be32(nonce);
-    const u32 body = bytes - header.clear_bytes;
+    const u32 body = bytes - layout.clear_bytes;
     const auto decrypted = crypt(
-        crypto, {nonce, 24}, {packet.data, header.clear_bytes}, {packet.data + header.clear_bytes, body},
-        {plaintext.data + header.clear_bytes, body}, const_cast<u8*>(packet.data + bytes), false);
+        crypto, {nonce, 24}, {packet.data, layout.clear_bytes}, {packet.data + layout.clear_bytes, body},
+        {plaintext.data + layout.clear_bytes, body}, const_cast<u8*>(packet.data + bytes), false);
     if (!decrypted.ok()) {
         secure_clear_bytes(plaintext.data, bytes);
         return failure(VoicePacketError::crypto, decrypted);
     }
     if (plaintext.data != packet.data)
-        copy_bytes(plaintext.data, packet.data, header.clear_bytes);
-    MediaPacketLayout layout{};
-    if (!media_packet_plaintext({plaintext.data, bytes}, &layout)) {
+        copy_bytes(plaintext.data, packet.data, layout.clear_bytes);
+    // The plaintext has the clear header that the layout came from.
+    if (!media_packet_payload({plaintext.data, bytes}, &layout)) {
         secure_clear_bytes(plaintext.data, bytes);
         return failure(VoicePacketError::malformed_packet);
     }

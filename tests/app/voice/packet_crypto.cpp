@@ -76,12 +76,12 @@ void framing(Check check) noexcept {
     check(!media_packet_header({nullptr, 12}, &empty), "media framing rejects null packet storage");
 }
 
-void vectors(Check check, u32 mode, XChaChaBackend backend) noexcept {
+void vectors(Check check, u32 mode) noexcept {
     u8 secret[32], plain[128], expected[160], output[192], opened[192];
     for (u32 i = 0; i != 32; ++i)
         secret[i] = static_cast<u8>(i);
     VoicePacketCrypto crypto{};
-    check(voice_packet_initialize(&crypto, 7, mode, {secret, 32}, backend).ok(),
+    check(voice_packet_initialize(&crypto, 7, mode, {secret, 32}).ok(),
           "voice packet cipher initialization");
     if (!crypto.generation)
         return;
@@ -134,19 +134,19 @@ void vectors(Check check, u32 mode, XChaChaBackend backend) noexcept {
                   VoicePacketError::nonce_exhausted &&
               crypto.next_nonce == (u64{1} << 32) && test_filled(output, sizeof(output), 0xa5),
           "voice transport consumes final legal nonce then refuses wrap without writing");
-    check(voice_packet_initialize(&crypto, 8, mode, {secret, 32}, backend).error ==
+    check(voice_packet_initialize(&crypto, 8, mode, {secret, 32}).error ==
                   AeadError::invalid_input &&
               crypto.generation == 7 && crypto.next_nonce == (u64{1} << 32),
           "voice key initialization cannot rewind a live counter or silently replace a key");
     voice_packet_release(&crypto);
-    check(!crypto.generation && !crypto.mode && !crypto.aes.object.data && !crypto.xchacha.storage.data,
+    check(!crypto.generation && !crypto.mode && !crypto.aes.storage.data && !crypto.xchacha.storage.data,
           "voice packet release destroys and erases both possible cipher owners");
 }
 
-void lifecycle(Check check, u32 mode, XChaChaBackend backend) noexcept {
+void lifecycle(Check check, u32 mode) noexcept {
     u8 secret[32]{}, plain[128], packet[192], opened[192];
     VoicePacketCrypto crypto{};
-    check(voice_packet_initialize(&crypto, 11, mode, {secret, 32}, backend).ok(),
+    check(voice_packet_initialize(&crypto, 11, mode, {secret, 32}).ok(),
           "voice lifecycle cipher initialization");
     if (!crypto.generation)
         return;
@@ -228,13 +228,10 @@ void authenticated_malformed(Check check) noexcept {
 
 void test_voice_packet_crypto(Check check) noexcept {
     framing(check);
-    vectors(check, voice_transport_aes256_gcm_rtpsize, XChaChaBackend::automatic);
-    lifecycle(check, voice_transport_aes256_gcm_rtpsize, XChaChaBackend::automatic);
-    constexpr XChaChaBackend backends[]{XChaChaBackend::automatic, XChaChaBackend::portable};
-    for (auto backend : backends) {
-        vectors(check, voice_transport_xchacha20_poly1305_rtpsize, backend);
-        lifecycle(check, voice_transport_xchacha20_poly1305_rtpsize, backend);
-    }
+    vectors(check, voice_transport_aes256_gcm_rtpsize);
+    lifecycle(check, voice_transport_aes256_gcm_rtpsize);
+    vectors(check, voice_transport_xchacha20_poly1305_rtpsize);
+    lifecycle(check, voice_transport_xchacha20_poly1305_rtpsize);
     authenticated_malformed(check);
 }
 } // namespace maicord

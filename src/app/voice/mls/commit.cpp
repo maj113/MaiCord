@@ -454,8 +454,7 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
         status = next_epoch(kdf, current.epoch, commit_secret, confirmed, candidate.context.serialized,
                             &candidate.epoch);
     if (status == MlsStatus::ok &&
-        !mls_confirmation_matches({candidate.epoch.confirmation_tag, kMlsHashBytes},
-                                  {commit.confirmation_tag, kMlsHashBytes}))
+        !mls_equal(candidate.epoch.confirmation_tag, commit.confirmation_tag, kMlsHashBytes))
         status = MlsStatus::crypto_failure;
     if (status == MlsStatus::ok)
         status = mls_transcript_join(kdf, &candidate.transcript, confirmed, commit.confirmation_tag);

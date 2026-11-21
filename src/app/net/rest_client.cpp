@@ -9,11 +9,10 @@ namespace maicord {
 bool rest_transaction_acquire(RestTransaction* transaction, u64 request_id,
                               const RestRateLease& lease, u64 deadline_ms,
                               bool reused_connection) noexcept {
-    if (!transaction || request_id == 0 || !lease.active || deadline_ms == 0 ||
-        transaction->phase != RestTransactionPhase::idle) {
+    if (request_id == 0 || !lease.active || deadline_ms == 0 || transaction->phase != RestTransactionPhase::idle) {
         return false;
     }
-    reset_value<RestTransaction>(transaction);
+    // begin_send sets the byte counts, and nothing reads them before it.
     transaction->lease = lease;
     transaction->request_id = request_id;
     transaction->deadline_ms = deadline_ms;
@@ -23,7 +22,7 @@ bool rest_transaction_acquire(RestTransaction* transaction, u64 request_id,
 }
 
 bool rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes) noexcept {
-    if (!transaction || request_bytes == 0 || transaction->phase != RestTransactionPhase::acquired) {
+    if (request_bytes == 0 || transaction->phase != RestTransactionPhase::acquired) {
         return false;
     }
     transaction->request_bytes = request_bytes;
@@ -33,7 +32,7 @@ bool rest_transaction_begin_send(RestTransaction* transaction, u32 request_bytes
 }
 
 bool rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) noexcept {
-    if (!transaction || bytes == 0 || transaction->phase != RestTransactionPhase::sending ||
+    if (bytes == 0 || transaction->phase != RestTransactionPhase::sending ||
         bytes > transaction->request_bytes - transaction->committed_bytes) {
         return false;
     }
@@ -45,9 +44,8 @@ bool rest_transaction_commit_plaintext(RestTransaction* transaction, u32 bytes) 
 }
 
 bool rest_transaction_complete(RestTransaction* transaction) noexcept {
-    if (!transaction || transaction->lease.active ||
-        transaction->phase != RestTransactionPhase::receiving ||
-        transaction->committed_bytes != transaction->request_bytes) {
+    // Receiving starts only when every request byte is committed.
+    if (transaction->lease.active || transaction->phase != RestTransactionPhase::receiving) {
         return false;
     }
     transaction->phase = RestTransactionPhase::complete;
@@ -130,15 +128,14 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
         trace_busy(client, runtime, request);
         return RestClientSubmitResult{RestClientSubmitError::busy};
     }
-    // Only an oversized body or an extended response (settings, large lists)
-    // leaves the fixed arena; an oversized body's response keeps the configured
-    // capacity and shares the bank after the upload is committed.
-    const bool extended =
-        extended_response_capacity || request.body.count > kRestClientMaximumRequestBodyBytes;
+    // Only an oversized body leaves the fixed arena for a bank. An extended
+    // response (settings, large lists) commits more of the default body as it
+    // arrives. An oversized body's response shares the bank after the upload
+    // is committed.
+    const u32 response_capacity =
+        extended_response_capacity ? extended_response_capacity : runtime->response_capacity;
     bool adopted_body = false;
-    if (extended) {
-        const u32 response_capacity =
-            extended_response_capacity ? extended_response_capacity : runtime->response_capacity;
+    if (request.body.count > kRestClientMaximumRequestBodyBytes) {
         const u32 bank_bytes = maximum(request.body.count, response_capacity);
         adopted_body = owned_body && request.body.count >= response_capacity;
         auto* bank = adopted_body ? *owned_body : static_cast<u8*>(commit_pages(bank_bytes));
@@ -150,12 +147,12 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
         runtime->extended_body_bytes = bank_bytes;
         runtime->request_body = runtime->response_body = bank;
         runtime->request_body_capacity = bank_bytes;
-        runtime->response_capacity = response_capacity;
         // Ownership changes before pending publication. REST retains ownership
         // on every return path. Rollback or response/stop cleanup releases it;
         // a concurrent pending claimant can keep it after a failed signal.
         if (adopted_body) *owned_body = nullptr;
     }
+    runtime->response_capacity = response_capacity;
     TraceRecord line("submit");
     trace_identity(line, runtime, request.request_id);
     line.field("route", request.route.route_id);

@@ -216,6 +216,7 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
 // downgrade to version 0 (close 4804) request a fresh session instead. Flush
 // sends queued replies in order while the socket is idle.
 bool voice_connection_dave_description(VoiceConnection* connection) noexcept;
+// Binary takes only a frame that voice_dave_route_binary defers.
 bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewayBinary& frame,
                                   u64 now_ms) noexcept;
 bool voice_connection_dave_json(VoiceConnection* connection, u8 opcode, JsonValue data, Slice<u32> scratch,

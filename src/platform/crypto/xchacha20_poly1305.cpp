@@ -2,135 +2,117 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
-
-#if defined(_WIN32)
-#include "maicord/sys/crypto.hpp"
-#else
-#include "maicord/core/win32_kernel.hpp"
-#endif
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
 
-u32 rotate(u32 value, u32 shift) noexcept {
-    return (value << shift) | (value >> (32 - shift));
+// "expand 32-byte k", the first row of every ChaCha20 state.
+inline __m128i sigma() noexcept {
+    return _mm_set_epi32(0x6b206574, 0x79622d32, 0x3320646e, 0x61707865);
 }
 
-void quarter(u32& a, u32& b, u32& c, u32& d) noexcept {
-    a += b;
-    d = rotate(d ^ a, 16);
-    c += d;
-    b = rotate(b ^ c, 12);
-    a += b;
-    d = rotate(d ^ a, 8);
-    c += d;
-    b = rotate(b ^ c, 7);
-}
-
-void rounds(u32* state) noexcept {
+// The ChaCha20 block of `key` and `row` (the counter word, then the nonce words) and the block of the next counter,
+// 128 bytes into `output`. With `hchacha`, only the HChaCha20 key of the first block (draft-irtf-cfrg-xchacha-03
+// section 2.2): its first and last rows after the twenty rounds, without the input added back, 32 bytes. The state
+// is four rows of four words, with the first block in the low 128 bits of each row register and the second block
+// in the high 128 bits. One column round works on whole rows, and turning rows 1-3 by one, two and three words
+// makes the diagonals columns (the row layout of Bernstein's vector ChaCha, also Goll and Gueron, "Vectorization on
+// ChaCha Stream Cipher", ITNG 2014). Arithmetic and memory access are independent of secret values; no lookup
+// tables.
+MAICORD_HASWELL void blocks(const u8* key, __m128i row, u8* output, bool hchacha) noexcept {
+    // Byte orders that turn each 32-bit word left by 16 and by 8 bits, then the counter step of the second block.
+    alignas(32) static constexpr u8 constants[96]{
+        2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13, 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13,
+        3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14, 3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const auto* table = reinterpret_cast<const __m256i_u*>(constants);
+    const __m256i by16 = _mm256_loadu_si256(table), by8 = _mm256_loadu_si256(table + 1);
+    const auto* words = reinterpret_cast<const __m128i*>(key);
+    const __m256i a0 = _mm256_broadcastsi128_si256(sigma()),
+                  b0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(words)),
+                  c0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(words + 1)),
+                  d0 = _mm256_add_epi32(_mm256_broadcastsi128_si256(row), _mm256_loadu_si256(table + 2));
+    __m256i a = a0, b = b0, c = c0, d = d0;
+    const auto quarter = [&]() MAICORD_HASWELL __attribute__((always_inline)) noexcept {
+        a = _mm256_add_epi32(a, b);
+        d = _mm256_shuffle_epi8(_mm256_xor_si256(d, a), by16);
+        c = _mm256_add_epi32(c, d);
+        b = _mm256_xor_si256(b, c);
+        b = _mm256_or_si256(_mm256_slli_epi32(b, 12), _mm256_srli_epi32(b, 20));
+        a = _mm256_add_epi32(a, b);
+        d = _mm256_shuffle_epi8(_mm256_xor_si256(d, a), by8);
+        c = _mm256_add_epi32(c, d);
+        b = _mm256_xor_si256(b, c);
+        b = _mm256_or_si256(_mm256_slli_epi32(b, 7), _mm256_srli_epi32(b, 25));
+    };
     for (u32 round = 0; round != 10; ++round) {
-        quarter(state[0], state[4], state[8], state[12]);
-        quarter(state[1], state[5], state[9], state[13]);
-        quarter(state[2], state[6], state[10], state[14]);
-        quarter(state[3], state[7], state[11], state[15]);
-        quarter(state[0], state[5], state[10], state[15]);
-        quarter(state[1], state[6], state[11], state[12]);
-        quarter(state[2], state[7], state[8], state[13]);
-        quarter(state[3], state[4], state[9], state[14]);
+        quarter();
+        b = _mm256_shuffle_epi32(b, 0x39);
+        c = _mm256_shuffle_epi32(c, 0x4E);
+        d = _mm256_shuffle_epi32(d, 0x93);
+        quarter();
+        b = _mm256_shuffle_epi32(b, 0x93);
+        c = _mm256_shuffle_epi32(c, 0x4E);
+        d = _mm256_shuffle_epi32(d, 0x39);
     }
-}
-
-// HChaCha20 from draft-irtf-cfrg-xchacha-03 section 2.2. Unlike a ChaCha stream
-// block it does not add the input state back after twenty rounds. Arithmetic
-// and memory access are independent of secret values; no lookup tables.
-void derive(const u8* secret, const u8* nonce, u8* subkey) noexcept {
-    u32 state[16]{0x61707865, 0x3320646e, 0x79622d32, 0x6b206574};
-    for (u32 i = 0; i != 8; ++i)
-        state[i + 4] = byte_load_le32(secret + i * 4);
-    for (u32 i = 0; i != 4; ++i)
-        state[i + 12] = byte_load_le32(nonce + i * 4);
-    rounds(state);
-    for (u32 i = 0; i != 4; ++i) {
-        byte_store_le32(subkey + i * 4, state[i]);
-        byte_store_le32(subkey + 16 + i * 4, state[i + 12]);
+    auto* out = reinterpret_cast<__m256i_u*>(output);
+    if (hchacha) {
+        _mm256_storeu_si256(out, _mm256_permute2x128_si256(a, d, 0x20));
+        return;
     }
-    SecureZeroMemory(state, sizeof(state));
+    a = _mm256_add_epi32(a, a0);
+    b = _mm256_add_epi32(b, b0);
+    c = _mm256_add_epi32(c, c0);
+    d = _mm256_add_epi32(d, d0);
+    // x86 stores each word little-endian, the byte order of a ChaCha block.
+    _mm256_storeu_si256(out, _mm256_permute2x128_si256(a, b, 0x20));
+    _mm256_storeu_si256(out + 1, _mm256_permute2x128_si256(c, d, 0x20));
+    _mm256_storeu_si256(out + 2, _mm256_permute2x128_si256(a, b, 0x31));
+    _mm256_storeu_si256(out + 3, _mm256_permute2x128_si256(c, d, 0x31));
 }
 
 #if defined(_WIN32)
-// The in-house ChaCha20-Poly1305, for Windows 10 builds whose CNG lacks the cipher. Linux always has OpenSSL by the
-// time a voice key exists (the Gateway's TLS needs it), so it carries no copy.
-struct ChaChaStream {
-    u32 initial[16], state[16];
-    u8 block[64];
-};
-
-void stream_initialize(ChaChaStream& stream, const u8* secret, const u8* nonce) noexcept {
-    auto& initial = stream.initial;
-    initial[0] = 0x61707865;
-    initial[1] = 0x3320646e;
-    initial[2] = 0x79622d32;
-    initial[3] = 0x6b206574;
-    for (u32 i = 0; i != 8; ++i)
-        initial[i + 4] = byte_load_le32(secret + i * 4);
-    initial[12] = 0;
-    for (u32 i = 0; i != 3; ++i)
-        initial[i + 13] = byte_load_le32(nonce + i * 4);
-}
-
-void stream_block(ChaChaStream& stream, u32 counter) noexcept {
-    stream.initial[12] = counter;
-    copy_bytes(stream.state, stream.initial, sizeof(stream.state));
-    rounds(stream.state);
-    for (u32 i = 0; i != 16; ++i)
-        byte_store_le32(stream.block + i * 4, stream.state[i] + stream.initial[i]);
-}
-
+// The in-house ChaCha20-Poly1305. Linux always has OpenSSL by the time a voice key exists (the Gateway's TLS needs
+// it), so it carries no copy.
+//
+// Poly1305 in two 64-bit words and a small third (h2), as in the 64-bit C code of OpenSSL and of Andrew Moon's
+// poly1305-donna: four 64x64->128 products for each block. The clamp leaves the low two bits of r1 zero, so
+// s1 = r1 + r1/4 folds 2^130 = 5 into one product.
 struct Poly1305 {
-    u32 r[5], h[5], pad[4];
-    u64 products[5];
+    u64 r0, r1, s1, h0, h1, h2, pad0, pad1;
 };
 
-void poly_initialize(Poly1305& poly, const u8* key) noexcept {
-    reset_value(&poly);
-    poly.r[0] = byte_load_le32(key) & 0x3ffffff;
-    poly.r[1] = (byte_load_le32(key + 3) >> 2) & 0x3ffff03;
-    poly.r[2] = (byte_load_le32(key + 6) >> 4) & 0x3ffc0ff;
-    poly.r[3] = (byte_load_le32(key + 9) >> 6) & 0x3f03fff;
-    poly.r[4] = (byte_load_le32(key + 12) >> 8) & 0x00fffff;
-    for (u32 i = 0; i != 4; ++i)
-        poly.pad[i] = byte_load_le32(key + 16 + i * 4);
+inline void poly_initialize(Poly1305& poly, const u8* key) noexcept {
+    poly.r0 = byte_load_le64(key) & 0x0ffffffc0fffffffull;
+    poly.r1 = byte_load_le64(key + 8) & 0x0ffffffc0ffffffcull;
+    poly.s1 = poly.r1 + (poly.r1 >> 2);
+    poly.h0 = poly.h1 = poly.h2 = 0;
+    poly.pad0 = byte_load_le64(key + 16);
+    poly.pad1 = byte_load_le64(key + 24);
 }
 
-// All AEAD MAC blocks are a full 16 bytes, including the zero-padded
-// final AAD/ciphertext block and length block. Use radix 2^26 for arithmetic mod
-// 2^130-5; each product sum fits in u64. Carries and final reduction use fixed
-// arithmetic, not data-dependent branches or tables.
+// All AEAD MAC blocks are a full 16 bytes, including the zero-padded final AAD/ciphertext block and length block.
+// h stays below 2^131 between blocks: a partial reduction, as OpenSSL's poly1305_blocks. Carries and the reduction
+// use fixed arithmetic, not data-dependent branches or tables.
 void poly_block(Poly1305& poly, const u8* input) noexcept {
-    auto& h = poly.h;
-    const auto& r = poly.r;
-    h[0] += byte_load_le32(input) & 0x3ffffff;
-    h[1] += (byte_load_le32(input + 3) >> 2) & 0x3ffffff;
-    h[2] += (byte_load_le32(input + 6) >> 4) & 0x3ffffff;
-    h[3] += (byte_load_le32(input + 9) >> 6) & 0x3ffffff;
-    h[4] += (byte_load_le32(input + 12) >> 8) | (1u << 24);
-    auto& d = poly.products;
-    d[0] =
-        u64{h[0]} * r[0] + 5 * (u64{h[1]} * r[4] + u64{h[2]} * r[3] + u64{h[3]} * r[2] + u64{h[4]} * r[1]);
-    d[1] =
-        u64{h[0]} * r[1] + u64{h[1]} * r[0] + 5 * (u64{h[2]} * r[4] + u64{h[3]} * r[3] + u64{h[4]} * r[2]);
-    d[2] =
-        u64{h[0]} * r[2] + u64{h[1]} * r[1] + u64{h[2]} * r[0] + 5 * (u64{h[3]} * r[4] + u64{h[4]} * r[3]);
-    d[3] = u64{h[0]} * r[3] + u64{h[1]} * r[2] + u64{h[2]} * r[1] + u64{h[3]} * r[0] + 5 * u64{h[4]} * r[4];
-    d[4] = u64{h[0]} * r[4] + u64{h[1]} * r[3] + u64{h[2]} * r[2] + u64{h[3]} * r[1] + u64{h[4]} * r[0];
-    for (u32 i = 0; i != 4; ++i) {
-        h[i] = static_cast<u32>(d[i]) & 0x3ffffff;
-        d[i + 1] += d[i] >> 26;
-    }
-    h[4] = static_cast<u32>(d[4]) & 0x3ffffff;
-    h[0] += static_cast<u32>(d[4] >> 26) * 5;
-    h[1] += h[0] >> 26;
-    h[0] &= 0x3ffffff;
+    using u128 = unsigned __int128;
+    const u128 sum0 = u128{poly.h0} + byte_load_le64(input);
+    const u128 sum1 = u128{poly.h1} + byte_load_le64(input + 8) + static_cast<u64>(sum0 >> 64);
+    const u64 h0 = static_cast<u64>(sum0), h1 = static_cast<u64>(sum1);
+    u64 h2 = poly.h2 + static_cast<u64>(sum1 >> 64) + 1;
+    const u128 d0 = u128{h0} * poly.r0 + u128{h1} * poly.s1;
+    u128 d1 = u128{h0} * poly.r1 + u128{h1} * poly.r0 + u128{h2 * poly.s1};
+    h2 *= poly.r0;
+    d1 += static_cast<u64>(d0 >> 64);
+    h2 += static_cast<u64>(d1 >> 64);
+    // The bits from 2^130 up fold back times 5: (h2 >> 2) * 5 = (h2 >> 2) + (h2 & ~3).
+    const u64 fold = (h2 >> 2) + (h2 & ~u64{3});
+    const u128 low = u128{static_cast<u64>(d0)} + fold;
+    const u128 middle = u128{static_cast<u64>(d1)} + static_cast<u64>(low >> 64);
+    poly.h0 = static_cast<u64>(low);
+    poly.h1 = static_cast<u64>(middle);
+    poly.h2 = (h2 & 3) + static_cast<u64>(middle >> 64);
 }
 
 void poly_padded(Poly1305& poly, ConstSlice<u8> input) noexcept {
@@ -143,40 +125,22 @@ void poly_padded(Poly1305& poly, ConstSlice<u8> input) noexcept {
         u8 last[16]{};
         copy_bytes(last, input.data + offset, input.count - offset);
         poly_block(poly, last);
-        SecureZeroMemory(last, sizeof(last));
+        secure_clear_bytes(last, sizeof(last));
     }
 }
 
-void poly_finish(Poly1305& poly, u8* tag) noexcept {
-    auto& h = poly.h;
-    for (u32 i = 1; i != 4; ++i) {
-        h[i + 1] += h[i] >> 26;
-        h[i] &= 0x3ffffff;
-    }
-    h[0] += (h[4] >> 26) * 5;
-    h[4] &= 0x3ffffff;
-    h[1] += h[0] >> 26;
-    h[0] &= 0x3ffffff;
-    u32 reduced[5], carry = 5;
-    for (u32 i = 0; i != 5; ++i) {
-        reduced[i] = h[i] + carry;
-        carry = reduced[i] >> 26;
-        reduced[i] &= 0x3ffffff;
-    }
-    // A carry out of bit 130 means h >= 2^130-5; choose h+5 modulo 2^130.
-    const u32 mask = 0u - carry;
-    for (u32 i = 0; i != 5; ++i)
-        h[i] = (h[i] & ~mask) | (reduced[i] & mask);
-    u32 words[4]{h[0] | (h[1] << 26), (h[1] >> 6) | (h[2] << 20), (h[2] >> 12) | (h[3] << 14),
-                 (h[3] >> 18) | (h[4] << 8)};
-    u64 sum = 0;
-    for (u32 i = 0; i != 4; ++i) {
-        sum = u64{words[i]} + poly.pad[i] + (sum >> 32);
-        byte_store_le32(tag + i * 4, static_cast<u32>(sum));
-    }
-    SecureZeroMemory(reduced, sizeof(reduced));
-    SecureZeroMemory(words, sizeof(words));
-    SecureZeroMemory(&poly, sizeof(poly));
+inline void poly_finish(Poly1305& poly, u8* tag) noexcept {
+    using u128 = unsigned __int128;
+    // h + 5 reaches 2^130 exactly when h >= 2^130-5: then h + 5 modulo 2^130 is the remainder.
+    const u128 g0 = u128{poly.h0} + 5;
+    const u128 g1 = u128{poly.h1} + static_cast<u64>(g0 >> 64);
+    const u64 mask = 0 - ((poly.h2 + static_cast<u64>(g1 >> 64)) >> 2);
+    const u64 h0 = (poly.h0 & ~mask) | (static_cast<u64>(g0) & mask);
+    const u64 h1 = (poly.h1 & ~mask) | (static_cast<u64>(g1) & mask);
+    const u128 low = u128{h0} + poly.pad0;
+    byte_store_le64(tag, static_cast<u64>(low));
+    byte_store_le64(tag + 8, h1 + poly.pad1 + static_cast<u64>(low >> 64));
+    secure_clear_bytes(&poly, sizeof(poly));
 }
 
 void authenticate(Poly1305& poly, ConstSlice<u8> aad, ConstSlice<u8> ciphertext, u8* tag) noexcept {
@@ -190,22 +154,44 @@ void authenticate(Poly1305& poly, ConstSlice<u8> aad, ConstSlice<u8> ciphertext,
     poly_finish(poly, tag);
 }
 
+// The derived key, the nonce row and the last pair of keystream blocks.
+struct ChaChaStream {
+    const u8* key;
+    __m128i row;
+    u8 block[128];
+};
+
+inline void stream_blocks(ChaChaStream& stream, u32 counter) noexcept {
+    blocks(stream.key, _mm_blend_epi16(stream.row, _mm_cvtsi32_si128(static_cast<i32>(counter)), 0x03),
+           stream.block, false);
+}
+
+// The keystream starts with block 1, the second block of the pair that gave the Poly1305 key.
 void xor_stream(ChaChaStream& stream, ConstSlice<u8> input, Slice<u8> output) noexcept {
-    u32 counter = 1, offset = 0;
-    while (offset != input.count) {
-        stream_block(stream, counter++);
-        const u32 count = minimum(64u, input.count - offset);
+    const u8* key_stream = stream.block + 64;
+    u32 counter = 2, available = 64;
+    for (u32 offset = 0; offset != input.count;) {
+        if (!available) {
+            stream_blocks(stream, counter);
+            counter += 2;
+            key_stream = stream.block;
+            available = 128;
+        }
+        const u32 count = minimum(available, input.count - offset);
         for (u32 i = 0; i != count; ++i)
-            output.data[offset + i] = input.data[offset + i] ^ stream.block[i];
+            output.data[offset + i] = input.data[offset + i] ^ key_stream[i];
         offset += count;
+        key_stream += count;
+        available -= count;
     }
 }
 
-AeadResult portable_crypt(const u8* subkey, const u8* nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
+AeadResult portable_crypt(const u8* subkey, const u8* row, ConstSlice<u8> aad, ConstSlice<u8> input,
                           Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     ChaChaStream stream;
-    stream_initialize(stream, subkey, nonce);
-    stream_block(stream, 0);
+    stream.key = subkey;
+    stream.row = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row));
+    stream_blocks(stream, 0);
     Poly1305 poly;
     poly_initialize(poly, stream.block);
     if (encrypt) {
@@ -217,16 +203,15 @@ AeadResult portable_crypt(const u8* subkey, const u8* nonce, ConstSlice<u8> aad,
         u32 difference = 0;
         for (u32 i = 0; i != 16; ++i)
             difference |= expected[i] ^ tag[i];
-        SecureZeroMemory(expected, sizeof(expected));
+        secure_clear_bytes(expected, sizeof(expected));
         if (difference) {
-            SecureZeroMemory(&stream, sizeof(stream));
-            if (input.count)
-                SecureZeroMemory(output.data, input.count);
+            secure_clear_bytes(stream.block, sizeof(stream.block));
+            secure_clear_bytes(output.data, input.count);
             return aead_result(AeadError::authentication_failed);
         }
         xor_stream(stream, input, output);
     }
-    SecureZeroMemory(&stream, sizeof(stream));
+    secure_clear_bytes(stream.block, sizeof(stream.block));
     return aead_result(AeadError::none, input.count);
 }
 
@@ -241,88 +226,45 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
                                      output, tag, encrypt);
     if (!valid.ok())
         return valid;
-    u8* secret = key.storage.data + key.object_bytes;
-    u8* subkey = secret + 32;
-    derive(secret, nonce.data, subkey);
-    u8 ietf_nonce[12]{};
-    copy_bytes(ietf_nonce + 4, nonce.data + 16, 8);
+    // The storage holds the key, then the HChaCha20 subkey of the key and the first 16 nonce bytes.
+    u8* subkey = key.storage.data + 32;
+    blocks(key.storage.data, _mm_loadu_si128(reinterpret_cast<const __m128i*>(nonce.data)), subkey, true);
+    // The counter word, then the 96-bit IETF nonce: four zero bytes and the last eight nonce bytes.
+    u8 row[16]{};
+    copy_bytes(row + 8, nonce.data + 16, 8);
 #if defined(_WIN32)
-    if (key.backend == XChaChaBackend::portable) {
-        const auto result = portable_crypt(subkey, ietf_nonce, aad, input, output, tag, encrypt);
-        SecureZeroMemory(subkey, 32);
-        return result;
-    }
-    BCRYPT_KEY_HANDLE handle = nullptr;
-    const NTSTATUS status = BCryptGenerateSymmetricKey(BCRYPT_CHACHA20_POLY1305_ALG_HANDLE, &handle,
-                                                       key.storage.data, key.object_bytes, subkey, 32, 0);
-    SecureZeroMemory(subkey, 32);
-    AeadResult result = aead_result(AeadError::platform_failure, 0, status);
-    if (status >= 0) {
-        result = aead_cng_crypt(handle, {ietf_nonce, 12}, aad, input, output, const_cast<u8*>(tag.data),
-                                encrypt);
-    }
-    // Destroy even a partially initialized handle before erasing its object.
-    if (handle)
-        BCryptDestroyKey(handle);
-    SecureZeroMemory(key.storage.data, key.object_bytes);
-    return result;
+    const auto result = portable_crypt(subkey, row, aad, input, output, tag, encrypt);
 #else
     // OpenSSL builds its key schedule per call in its own heap; the subkey here is the only copy of ours.
     const auto result =
-        aead_openssl_chacha_crypt(subkey, {ietf_nonce, 12}, aad, input, output, const_cast<u8*>(tag.data), encrypt);
-    SecureZeroMemory(subkey, 32);
-    return result;
+        aead_openssl_chacha_crypt(subkey, {row + 4, 12}, aad, input, output, const_cast<u8*>(tag.data), encrypt);
 #endif
+    secure_clear_bytes(subkey, 32);
+    return result;
 }
 } // namespace
 
-AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret, XChaChaBackend backend) noexcept {
+AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret) noexcept {
     if (!key || key->storage.data || key->storage.locked || secret.count != 32 ||
         !byte_range_valid(secret) ||
         byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
-#if defined(_WIN32)
-    ULONG bytes = 0, returned = 0;
-    if (backend != XChaChaBackend::portable) {
-        const NTSTATUS status =
-            BCryptGetProperty(BCRYPT_CHACHA20_POLY1305_ALG_HANDLE, BCRYPT_OBJECT_LENGTH,
-                              reinterpret_cast<PUCHAR>(&bytes), sizeof(bytes), &returned, 0);
-        const bool unavailable = status == static_cast<NTSTATUS>(0xc0000008u) ||
-                                 status == static_cast<NTSTATUS>(0xc00000bbu) ||
-                                 status == static_cast<NTSTATUS>(0xc0000225u);
-        if (backend == XChaChaBackend::automatic && unavailable) {
-            backend = XChaChaBackend::portable;
-            bytes = 0;
-        } else {
-            if (status < 0 || returned != sizeof(bytes) || !bytes || bytes > ~u32{0} - 64)
-                return aead_result(AeadError::platform_failure, 0, status);
-            backend = XChaChaBackend::native;
-        }
-    }
-#else
-    // OpenSSL needs no object storage of ours: the key lives in the storage only as its two 32-byte keys. There is
-    // no portable cipher here: a system without OpenSSL cannot reach a voice key at all.
-    const u32 bytes = 0;
-    if (backend == XChaChaBackend::portable || !aead_openssl_available())
+#if !defined(_WIN32)
+    // There is no in-house cipher here: a system without OpenSSL cannot reach a voice key at all.
+    if (!aead_openssl_available())
         return aead_result(AeadError::platform_failure);
-    backend = XChaChaBackend::native;
 #endif
-    const auto allocated = secure_buffer_initialize(&key->storage, bytes + 64);
+    const auto allocated = secure_buffer_initialize(&key->storage, 64);
     if (!allocated.ok())
         return aead_result(AeadError::storage, 0, static_cast<i32>(allocated.native_error));
-    copy_bytes(key->storage.data + bytes, secret.data, 32);
+    copy_bytes(key->storage.data, secret.data, 32);
     key->storage.bytes = key->storage.capacity;
-    key->object_bytes = bytes;
-    key->backend = backend;
     return aead_result(AeadError::none);
 }
 
 void xchacha_release(XChaChaKey* key) noexcept {
-    if (key) {
+    if (key)
         secure_buffer_release(&key->storage);
-        key->object_bytes = 0;
-        key->backend = XChaChaBackend::automatic;
-    }
 }
 
 AeadResult xchacha_encrypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,

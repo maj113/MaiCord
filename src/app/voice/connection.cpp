@@ -320,8 +320,8 @@ void voice_connection_stop(VoiceConnection* connection) noexcept {
 }
 namespace {
 u32 offered_cipher(const VoiceConnection& connection) noexcept {
-    // Both primitives are implemented. AES is available on the Windows 10
-    // target; XChaCha includes a portable path when its CNG provider is absent.
+    // Both primitives are implemented: AES-GCM on AES-NI, and XChaCha in
+    // house on Windows and through OpenSSL on Linux.
     return (connection.media.offered_modes & voice_transport_aes256_gcm_rtpsize)
                ? voice_transport_aes256_gcm_rtpsize
            : (connection.media.offered_modes & voice_transport_xchacha20_poly1305_rtpsize)

@@ -23,7 +23,7 @@ struct Opened {
     AeadError error;
     u64 counter;
 };
-Opened open(const DaveFrameView& view, const AesGcm64Key& key, u32 generation, DaveReplay& replay,
+Opened open(const DaveFrameView& view, const AesGcmKey& key, u32 generation, DaveReplay& replay,
             u8* scratch, u8* output) noexcept {
     DaveFrameCounter counter{};
     if (!dave_frame_counter(generation, view.nonce, &counter) || counter.generation != generation ||
@@ -38,14 +38,14 @@ void fixtures(Check check) noexcept {
         const u32 size = test_unhex(vector.wire, frame);
         copy_bytes(original, frame, size);
         test_unhex(vector.key, secret);
-        AesGcm64Key key{}, wrong{};
-        check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE receive fixture key initialization");
+        AesGcmKey key{}, wrong{};
+        check(aes_gcm_initialize(&key, {secret, 16}).ok(), "DAVE receive fixture key initialization");
         secret[0] ^= 1;
-        check(aes_gcm64_initialize(&wrong, {secret, 16}).ok(),
+        check(aes_gcm_initialize(&wrong, {secret, 16}).ok(),
               "DAVE alternate epoch fixture key initialization");
         if (!key.storage.data || !wrong.storage.data) {
-            aes_gcm64_release(&key);
-            aes_gcm64_release(&wrong);
+            aes_gcm_release(&key);
+            aes_gcm_release(&wrong);
             continue;
         }
         DaveFrameView view{};
@@ -110,18 +110,18 @@ void fixtures(Check check) noexcept {
         }
         check(bytes_equal(frame, original, size),
               "DAVE failed authentication attempts preserve source bytes");
-        aes_gcm64_release(&key);
-        aes_gcm64_release(&wrong);
+        aes_gcm_release(&key);
+        aes_gcm_release(&wrong);
         check(!key.storage.data, "DAVE frame key release clears owner");
-        aes_gcm64_release(&key);
+        aes_gcm_release(&key);
     }
 }
 void ordering(Check check) noexcept {
     const auto& first = dave_crypto_vectors[12];
     u8 secret[16], frame[128], output[128];
     test_unhex(first.key, secret);
-    AesGcm64Key key{};
-    check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE ordering key initialization");
+    AesGcmKey key{};
+    check(aes_gcm_initialize(&key, {secret, 16}).ok(), "DAVE ordering key initialization");
     if (!key.storage.data)
         return;
     DaveReplay replay{};
@@ -146,7 +146,7 @@ void ordering(Check check) noexcept {
                       replay.largest == (i ? 7u : 5u) && replay.count == (i == 2 ? 1u : 0u),
                   "DAVE accepts an authentic future frame and its missing predecessor once");
     }
-    aes_gcm64_release(&key);
+    aes_gcm_release(&key);
 }
 void guards(Check check) noexcept {
     Win32SystemInfo info{};
@@ -167,10 +167,10 @@ void guards(Check check) noexcept {
             const auto& vector = dave_crypto_vectors[index];
             const u32 size = test_unhex(vector.wire, original);
             test_unhex(vector.key, secret);
-            AesGcm64Key key{}, wrong{};
-            check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE guarded-source key initialization");
+            AesGcmKey key{}, wrong{};
+            check(aes_gcm_initialize(&key, {secret, 16}).ok(), "DAVE guarded-source key initialization");
             secret[0] ^= 1;
-            check(aes_gcm64_initialize(&wrong, {secret, 16}).ok(),
+            check(aes_gcm_initialize(&wrong, {secret, 16}).ok(),
                   "DAVE guarded-source wrong key initialization");
             if (key.storage.data && wrong.storage.data) {
                 auto* frame = pages + info.dwPageSize - size;
@@ -208,8 +208,8 @@ void guards(Check check) noexcept {
                           "DAVE reconstruction and plaintext erasure respect exact guarded scratch capacity");
                 }
             }
-            aes_gcm64_release(&key);
-            aes_gcm64_release(&wrong);
+            aes_gcm_release(&key);
+            aes_gcm_release(&wrong);
         }
     }
     VirtualFree(pages, 0, MEM_RELEASE);

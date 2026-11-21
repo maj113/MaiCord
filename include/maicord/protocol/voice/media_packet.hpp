@@ -22,4 +22,8 @@ bool media_packet_header(ConstSlice<u8> packet, MediaPacketLayout* output) noexc
 // lengths/padding. RTP payload excludes extension contents and trailing padding.
 // This is framing validation, not negotiated codec or RTCP feedback decoding.
 bool media_packet_plaintext(ConstSlice<u8> packet, MediaPacketLayout* output) noexcept;
+// The checks of media_packet_plaintext after the clear header. `layout` is the media_packet_header result for the
+// same clear header and count: voice_packet_open parses the ciphertext and checks the plaintext, which has the same
+// clear header. Sets the payload fields. A failure can leave some of them changed.
+bool media_packet_payload(ConstSlice<u8> packet, MediaPacketLayout* layout) noexcept;
 } // namespace maicord

@@ -223,10 +223,9 @@ void preemption() noexcept {
     ready.client.request_state = request_state_active;
     memset(ready.runtime->response_body, 'X', 128);
     ready.runtime->response.http.body_bytes = 128;
-    RestClientResponse old{};
-    old.status_code = 200;
-    old.body_bytes = 128;
-    publish_completed(&ready.client, ready.runtime, old);
+    ready.runtime->response.parsed_head.head.status_code = 200;
+    const RestAnswer old{};
+    publish_completed(&ready.client, ready.runtime, RestClientError::none, 0, &old);
     check(account_logout(&ready.client, AccountLogoutOperation::begin, 602, &untouched).submit_error ==
                   RestClientSubmitError::none &&
               untouched.request_id == 502 && ready.client.current_request_id == 602 &&

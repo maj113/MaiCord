@@ -35,7 +35,7 @@ void annex_b(u8* body, u32 size, u8 seed, ConstSlice<DaveClearRange> ranges) noe
 // Seals body with clear ranges exactly as a DAVE sender lays out the frame:
 // ciphertext in the gaps, 8-byte tag, ULEB nonce and ranges, size, 0xFAFA.
 // Returns the wire size, or zero; the computed tag is returned in tag_out.
-u32 seal(const AesGcm64Key& key, u32 nonce, ConstSlice<u8> body, ConstSlice<DaveClearRange> ranges, u8* frame,
+u32 seal(const AesGcmKey& key, u32 nonce, ConstSlice<u8> body, ConstSlice<DaveClearRange> ranges, u8* frame,
          u8* cipher, u8* tag_out) noexcept {
     u8 aad[1024], iv[12]{};
     u32 aad_bytes = 0, cipher_bytes = 0, at = 0;
@@ -52,8 +52,8 @@ u32 seal(const AesGcm64Key& key, u32 nonce, ConstSlice<u8> body, ConstSlice<Dave
     for (u32 i = 0; i != 4; ++i)
         iv[8 + i] = static_cast<u8>(nonce >> (8 * i));
     // In place over the gathered plaintext; the frame receives the result below.
-    if (!aes_gcm64_encrypt(key, {iv, 12}, {aad, aad_bytes}, {cipher, cipher_bytes}, {cipher, cipher_bytes},
-                           {tag_out, kDaveFrameTagBytes})
+    if (!aes_gcm_encrypt(key, {iv, 12}, {aad, aad_bytes}, {cipher, cipher_bytes}, {cipher, cipher_bytes},
+                         {tag_out, kDaveFrameTagBytes})
              .ok())
         return 0;
     u32 read = 0;
@@ -94,8 +94,8 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         u8 secret[16], oracle_tag[8], tag[8];
         test_unhex(vector.key, secret);
         test_unhex(vector.tag, oracle_tag);
-        AesGcm64Key key{};
-        if (!aes_gcm64_initialize(&key, {secret, 16}).ok()) {
+        AesGcmKey key{};
+        if (!aes_gcm_initialize(&key, {secret, 16}).ok()) {
             check(false, "DAVE video fixture key initialization");
             continue;
         }
@@ -139,7 +139,7 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         const auto in_place = dave_frame_open(view, key, fresh, counter.value, b.scratch, b.frame);
         check(in_place == AeadError::none && bytes_equal(b.frame, b.body, vector.size),
               "DAVE video: in-place open over the assembled frame buffer reconstructs the body");
-        aes_gcm64_release(&key);
+        aes_gcm_release(&key);
     }
 }
 
@@ -156,16 +156,16 @@ void interleaved(Check check, const Buffers& b) noexcept {
     for (u32 i = 0; i != 16; ++i)
         seed[i] = static_cast<u8>(0x30 + i * 5);
     DaveReceiveSender sender{};
-    AesGcm64Key key{};
+    AesGcmKey key{};
     bool ready = dave_ratchet_step(workspace, {seed, 16}, 0, key_bytes, next).ok() &&
-                 aes_gcm64_initialize(&key, {key_bytes, 16}).ok() &&
+                 aes_gcm_initialize(&key, {key_bytes, 16}).ok() &&
                  dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none &&
                  dave_receive_sender_transition(sender, identity, 1, {seed, 16}, 0, 10'000).ok();
     secure_clear_bytes(key_bytes, sizeof(key_bytes));
     secure_clear_bytes(next, sizeof(next));
     check(ready, "DAVE video interleave: sender epoch and generation-0 key");
     if (!ready) {
-        aes_gcm64_release(&key);
+        aes_gcm_release(&key);
         dave_receive_sender_release(&sender);
         kdf_sha256_release(&workspace);
         return;
@@ -213,7 +213,7 @@ void interleaved(Check check, const Buffers& b) noexcept {
     all = open(2100, false) && open(1500, true);
     check(all && !open(40, true),
           "DAVE video interleave: a frame displaced by 1000 newer gaps is rejected; recent gaps remain eligible");
-    aes_gcm64_release(&key);
+    aes_gcm_release(&key);
     dave_receive_sender_release(&sender);
     kdf_sha256_release(&workspace);
 }

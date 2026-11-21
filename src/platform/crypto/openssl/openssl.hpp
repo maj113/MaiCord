@@ -53,7 +53,6 @@ inline constexpr u32 kFailureTrust = 3;    // no certificate authorities (TLS co
 inline constexpr u32 kFailureOutput = 5;   // the caller's output buffer is smaller than the result
 
 // Constants (openssl/evp.h, ssl.h, bio.h, x509_vfy.h, obj_mac.h, rsa.h).
-inline constexpr int kCtrlAeadSetIvLength = 0x9;   // EVP_CTRL_AEAD_SET_IVLEN
 inline constexpr int kCtrlAeadGetTag = 0x10;       // EVP_CTRL_AEAD_GET_TAG
 inline constexpr int kCtrlAeadSetTag = 0x11;       // EVP_CTRL_AEAD_SET_TAG
 inline constexpr int kSelectionPublicKey = 0x86;   // EVP_PKEY_PUBLIC_KEY
@@ -101,8 +100,6 @@ inline constexpr int kSslErrorZeroReturn = 6; // SSL_ERROR_ZERO_RETURN
     F(int, EVP_MAC_init, (void*, const u8*, usize, const Param*))                                                      \
     F(int, EVP_MAC_update, (void*, const u8*, usize))                                                                  \
     F(int, EVP_MAC_final, (void*, u8*, usize*, usize))                                                                 \
-    F(const void*, EVP_aes_128_gcm, (void))                                                                            \
-    F(const void*, EVP_aes_256_gcm, (void))                                                                            \
     F(const void*, EVP_chacha20_poly1305, (void))                                                                      \
     F(void*, EVP_CIPHER_CTX_new, (void))                                                                               \
     F(void, EVP_CIPHER_CTX_free, (void*))                                                                              \

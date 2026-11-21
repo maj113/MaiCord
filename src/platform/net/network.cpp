@@ -63,24 +63,43 @@ bool network_socket_skip_port(SOCKET socket) noexcept {
                                                                                     FILE_SKIP_SET_EVENT_ON_HANDLE);
 }
 
-void network_operation_finished(NetworkLoop* loop, NetworkOperation* operation, u32 transferred,
-                                bool after_port) noexcept {
-    operation->overlapped.Internal = 0;
-    // The port also gets its turn: after a batch of ready operations with no wait on it, the next ones go through it.
-    if ((after_port || loop->ready_since_wait >= kNetworkLoopBatch) &&
-        PostQueuedCompletionStatus(loop->completion_port, transferred, reinterpret_cast<ULONG_PTR>(operation->owner),
-                                   native(&operation->overlapped))) {
-        return;
+NetworkResult network_socket_start(SOCKET socket, NetworkLoop* loop, NetworkOperation* operation, u8* pending,
+                                   u8 pending_bit, bool after_port) noexcept {
+    const bool receive = operation->kind == NetworkOperationKind::receive ||
+                         operation->kind == NetworkOperationKind::datagram_receive;
+    DWORD transferred = 0;
+    const i32 started =
+        receive ? WSARecv(socket, native(&operation->buffer), 1, &transferred, &operation->receive_flags,
+                          native(&operation->overlapped), nullptr)
+                : WSASend(socket, native(&operation->buffer), 1, &transferred, 0, native(&operation->overlapped), nullptr);
+    if (started == SOCKET_ERROR) {
+        const i32 native_error = WSAGetLastError();
+        if (native_error != WSA_IO_PENDING) {
+            return failure(receive ? NetworkError::receive_start : NetworkError::send_start, native_error);
+        }
+    } else if (loop) {
+        operation->overlapped.Internal = 0;
+        // The port also gets its turn: after a batch of ready operations with no wait on it, the next ones go
+        // through it.
+        const bool posted =
+            (after_port || loop->ready_since_wait >= kNetworkLoopBatch) &&
+            PostQueuedCompletionStatus(loop->completion_port, transferred,
+                                       reinterpret_cast<ULONG_PTR>(operation->owner), native(&operation->overlapped));
+        if (!posted) {
+            ++loop->ready_since_wait;
+            operation->overlapped.InternalHigh = transferred;
+            operation->overlapped.hEvent = nullptr;
+            if (loop->ready_tail) {
+                loop->ready_tail->overlapped.hEvent = operation;
+            } else {
+                loop->ready_head = operation;
+            }
+            loop->ready_tail = operation;
+        }
     }
-    ++loop->ready_since_wait;
-    operation->overlapped.InternalHigh = transferred;
-    operation->overlapped.hEvent = nullptr;
-    if (loop->ready_tail) {
-        loop->ready_tail->overlapped.hEvent = operation;
-    } else {
-        loop->ready_head = operation;
-    }
-    loop->ready_tail = operation;
+    // Only the loop's thread polls, so no completion of the operation can be seen before this flag is set.
+    *pending = static_cast<u8>(*pending | pending_bit);
+    return success();
 }
 
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
@@ -205,21 +224,8 @@ NetworkResult network_connection_receive(NetworkConnection* connection, Slice<u8
                                  connection->generation);
     connection->receive_operation.buffer.buf = reinterpret_cast<char*>(buffer.data);
     connection->receive_operation.buffer.len = buffer.count;
-    connection->receive_pending = true;
-    DWORD transferred = 0;
-    const i32 started = WSARecv(connection->socket, native(&connection->receive_operation.buffer), 1, &transferred,
-                                &connection->receive_operation.receive_flags,
-                                native(&connection->receive_operation.overlapped), nullptr);
-    if (started == SOCKET_ERROR) {
-        const i32 native_error = WSAGetLastError();
-        if (native_error != WSA_IO_PENDING) {
-            connection->receive_pending = false;
-            return failure(NetworkError::receive_start, native_error);
-        }
-    } else if (connection->loop) {
-        network_operation_finished(connection->loop, &connection->receive_operation, transferred, false);
-    }
-    return success();
+    return network_socket_start(connection->socket, connection->loop, &connection->receive_operation,
+                                reinterpret_cast<u8*>(&connection->receive_pending), 1, false);
 }
 
 NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<u8> buffer) noexcept {
@@ -231,20 +237,8 @@ NetworkResult network_connection_send(NetworkConnection* connection, ConstSlice<
                                  connection->generation);
     connection->send_operation.buffer.buf = reinterpret_cast<char*>(const_cast<u8*>(buffer.data));
     connection->send_operation.buffer.len = buffer.count;
-    connection->send_pending = true;
-    DWORD transferred = 0;
-    const i32 started = WSASend(connection->socket, native(&connection->send_operation.buffer), 1, &transferred, 0,
-                                native(&connection->send_operation.overlapped), nullptr);
-    if (started == SOCKET_ERROR) {
-        const i32 native_error = WSAGetLastError();
-        if (native_error != WSA_IO_PENDING) {
-            connection->send_pending = false;
-            return failure(NetworkError::send_start, native_error);
-        }
-    } else if (connection->loop) {
-        network_operation_finished(connection->loop, &connection->send_operation, transferred, false);
-    }
-    return success();
+    return network_socket_start(connection->socket, connection->loop, &connection->send_operation,
+                                reinterpret_cast<u8*>(&connection->send_pending), 1, false);
 }
 
 void network_connection_close(NetworkConnection* connection) noexcept {

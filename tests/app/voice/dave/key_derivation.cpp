@@ -152,8 +152,8 @@ void ratchet(Check check, KdfSha256Workspace& workspace) noexcept {
         feed_hash(check, hash, secret, 32);
     }
     finish_hash(check, hash, dave_chain_digest);
-    AesGcm64Key frame_key{};
-    check(aes_gcm64_initialize(&frame_key, {key, 16}).ok(),
+    AesGcmKey frame_key{};
+    check(aes_gcm_initialize(&frame_key, {key, 16}).ok(),
           "DAVE derived generation key imports into frame cipher");
     if (frame_key.storage.data) {
         u8 wire[128], output[64], scratch[64];
@@ -174,7 +174,7 @@ void ratchet(Check check, KdfSha256Workspace& workspace) noexcept {
               "DAVE protocol-derived key authenticates independent encrypted frame after generation-byte "
               "wrap");
     }
-    aes_gcm64_release(&frame_key);
+    aes_gcm_release(&frame_key);
     for (const auto& vector : dave_step_vectors) {
         for (u32 i = 0; i != 32; ++i)
             secret[i] = static_cast<u8>(i);

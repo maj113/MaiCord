@@ -9,11 +9,10 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 
 bool workspace_erased(const XChaChaKey& key) noexcept {
-    return key.storage.data && key.storage.locked && test_filled(key.storage.data, key.object_bytes, 0) &&
-           test_filled(key.storage.data + key.object_bytes + 32, 32, 0);
+    return key.storage.data && key.storage.locked && test_filled(key.storage.data + 32, 32, 0);
 }
 
-void draft_vector(Check check, XChaChaBackend backend) noexcept {
+void draft_vector(Check check) noexcept {
     // draft-irtf-cfrg-xchacha-03 A.3.1, independently published ciphertext/tag.
     u8 secret[32], nonce[24], aad[12], plaintext[114], expected[114], tag[16], packet[131];
     test_unhex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f", secret);
@@ -31,7 +30,7 @@ void draft_vector(Check check, XChaChaBackend backend) noexcept {
           expected);
     test_unhex("c0875924c1c7987947deafd8780acf49", tag);
     XChaChaKey key{};
-    check(xchacha_initialize(&key, {secret, 32}, backend).ok(), "XChaCha draft-vector initialization");
+    check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha draft-vector initialization");
     if (!key.storage.data)
         return;
     memset(packet, 0xa5, sizeof(packet));
@@ -60,12 +59,12 @@ void draft_vector(Check check, XChaChaBackend backend) noexcept {
             fields[part][i] ^= 1;
         }
     }
-    check(bytes_equal(key.storage.data + key.object_bytes, secret, 32),
+    check(bytes_equal(key.storage.data, secret, 32),
           "XChaCha retains only its original key");
     xchacha_release(&key);
 }
 
-void matrix(Check check, XChaChaBackend backend) noexcept {
+void matrix(Check check) noexcept {
     // Every ciphertext and tag is checked against the libsodium oracle digest.
     // Regenerate independently with tools/xchacha_oracle.py, never MaiCord code.
     constexpr u32 sizes[]{0,   1,   2,    7,    15,   16,   17,   31,    32,    33,
@@ -85,7 +84,7 @@ void matrix(Check check, XChaChaBackend backend) noexcept {
         for (u32 i = 0; i != 32; ++i)
             secret[i] = static_cast<u8>(k == 0 ? 0 : k == 1 ? 255 : k == 2 ? i : i * 13 + 39);
         XChaChaKey key{};
-        check(xchacha_initialize(&key, {secret, 32}, backend).ok(), "XChaCha matrix initialization");
+        check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha matrix initialization");
         if (!key.storage.data)
             continue;
         const u8* retained_storage = key.storage.data;
@@ -119,16 +118,16 @@ void matrix(Check check, XChaChaBackend backend) noexcept {
         test_unhex(digests[k], expected);
         check(bytes_equal(digest, expected, 32),
               "XChaCha ciphertexts/tags match independent libsodium matrix");
-        check(bytes_equal(key.storage.data + key.object_bytes, secret, 32),
+        check(bytes_equal(key.storage.data, secret, 32),
               "XChaCha matrix original key unchanged");
         xchacha_release(&key);
-        check(!key.storage.data && !key.storage.locked && !key.storage.capacity && !key.object_bytes,
+        check(!key.storage.data && !key.storage.locked && !key.storage.capacity,
               "XChaCha releases all retained key storage");
         xchacha_release(&key);
     }
 }
 
-void boundaries(Check check, XChaChaBackend backend) noexcept {
+void boundaries(Check check) noexcept {
     u8 secret[32]{}, nonce[24]{}, plain[33]{}, tag[16], output[64];
     XChaChaKey key{};
     check(xchacha_encrypt(key, {nonce, 24}, {}, {}, {}, {tag, 16}).error == AeadError::not_initialized,
@@ -141,11 +140,11 @@ void boundaries(Check check, XChaChaBackend backend) noexcept {
     check(xchacha_initialize(nullptr, {secret, 32}).error == AeadError::invalid_input &&
               xchacha_initialize(&key, {nullptr, 32}).error == AeadError::invalid_input,
           "XChaCha rejects null owner/secret");
-    check(xchacha_initialize(&key, {secret, 32}, backend).ok(), "XChaCha boundary initialization");
+    check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha boundary initialization");
     if (!key.storage.data)
         return;
     const u8* retained_storage = key.storage.data;
-    check(xchacha_initialize(&key, {secret, 32}, backend).error == AeadError::invalid_input &&
+    check(xchacha_initialize(&key, {secret, 32}).error == AeadError::invalid_input &&
               key.storage.data == retained_storage,
           "XChaCha rejects overwriting live key storage");
     memset(output, 0xa5, sizeof(output));
@@ -187,21 +186,20 @@ void boundaries(Check check, XChaChaBackend backend) noexcept {
               test_filled(output, 64, 0xa5),
           "XChaCha rejects payload/tag alias");
     const auto storage = key.storage.data;
-    const u32 offset = key.object_bytes;
     check(
         xchacha_encrypt(key, {storage, 24}, {}, {plain, 33}, {output, 64}, {tag, 16}).error ==
                 AeadError::invalid_input &&
             xchacha_encrypt(key, {nonce, 24}, {storage, 12}, {plain, 33}, {output, 64}, {tag, 16}).error ==
                 AeadError::invalid_input &&
-            xchacha_encrypt(key, {nonce, 24}, {}, {storage + offset, 32}, {output, 64}, {tag, 16}).error ==
+            xchacha_encrypt(key, {nonce, 24}, {}, {storage, 32}, {output, 64}, {tag, 16}).error ==
                 AeadError::invalid_input &&
             xchacha_encrypt(key, {nonce, 24}, {}, {plain, 33}, {storage, 33}, {tag, 16}).error ==
                 AeadError::invalid_input &&
             xchacha_encrypt(key, {nonce, 24}, {}, {}, {}, {storage, 16}).error ==
                 AeadError::invalid_input &&
-            workspace_erased(key) && bytes_equal(storage + offset, secret, 32) &&
+            workspace_erased(key) && bytes_equal(storage, secret, 32) &&
             test_filled(output, 64, 0xa5),
-        "XChaCha rejects all key-workspace aliases before it imports or erases derived state");
+        "XChaCha rejects all key-workspace aliases before it derives or erases state");
     check(xchacha_encrypt(key, {nonce, 24}, {}, {}, {}, {tag, 16}).ok(),
           "XChaCha authenticates empty data with null payload pointers");
     tag[0] ^= 1;
@@ -219,35 +217,15 @@ void boundaries(Check check, XChaChaBackend backend) noexcept {
     xchacha_release(&key);
     check(xchacha_decrypt(key, {nonce, 24}, {}, {}, {tag, 16}, {}).error == AeadError::not_initialized,
           "XChaCha rejects use after release");
-    check(xchacha_initialize(&key, {secret, 32}, backend).ok(), "XChaCha reinitializes released owner");
+    check(xchacha_initialize(&key, {secret, 32}).ok(), "XChaCha reinitializes released owner");
     xchacha_release(&key);
     xchacha_release(nullptr);
 }
 } // namespace
 
 void test_xchacha20_poly1305(Check check) noexcept {
-    // Exercise the selected native backend where available, and on Windows also force the portable implementation:
-    // older Windows 10 can run this same suite without requiring a provider it does not ship. Linux has no portable
-    // cipher.
-#if defined(_WIN32)
-    constexpr XChaChaBackend backends[]{XChaChaBackend::automatic, XChaChaBackend::portable};
-#else
-    constexpr XChaChaBackend backends[]{XChaChaBackend::automatic};
-    XChaChaKey refused{};
-    u8 refused_secret[32]{};
-    check(xchacha_initialize(&refused, {refused_secret, 32}, XChaChaBackend::portable).error ==
-              AeadError::platform_failure,
-          "XChaCha has no portable backend on Linux");
-#endif
-    for (auto backend : backends) {
-        draft_vector(check, backend);
-        matrix(check, backend);
-        boundaries(check, backend);
-    }
-    XChaChaKey automatic{};
-    u8 key[32]{};
-    check(xchacha_initialize(&automatic, {key, 32}).ok() && automatic.backend != XChaChaBackend::automatic,
-          "XChaCha resolves automatic backend once");
-    xchacha_release(&automatic);
+    draft_vector(check);
+    matrix(check);
+    boundaries(check);
 }
 } // namespace maicord

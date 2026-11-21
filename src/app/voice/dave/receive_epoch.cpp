@@ -6,7 +6,7 @@ namespace {
 constexpr u64 never = ~u64{0};
 constexpr u32 key_lifetime_ms = 10000, maximum_gap = 250;
 struct Entry {
-    AesGcm64Key key;
+    AesGcmKey key;
     u64 expiry_ms;
     u8 material[16];
 };
@@ -43,7 +43,7 @@ void cleanup(DaveReceiveEpoch& epoch, u64 now) noexcept {
     epoch.next_key_expiry_ms = never;
     for (u32 i = 0; i != epoch.count; ++i) {
         if (data[i].key.storage.data && now > data[i].expiry_ms)
-            aes_gcm64_release(&data[i].key);
+            aes_gcm_release(&data[i].key);
         if (data[i].key.storage.data)
             epoch.next_key_expiry_ms = minimum(epoch.next_key_expiry_ms, data[i].expiry_ms);
     }
@@ -74,7 +74,7 @@ void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept {
     if (epoch->storage.data) {
         auto* data = entries(*epoch);
         for (u32 i = 0; i != epoch->count; ++i)
-            aes_gcm64_release(&data[i].key);
+            aes_gcm_release(&data[i].key);
         secure_buffer_release(&epoch->storage);
     }
     reset_value(epoch);
@@ -116,7 +116,7 @@ DaveEpochError dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspa
     }
     auto& entry = data[generation - epoch.oldest_generation];
     if (!entry.key.storage.data) {
-        if (!aes_gcm64_initialize(&entry.key, {entry.material, 16}).ok())
+        if (!aes_gcm_initialize(&entry.key, {entry.material, 16}).ok())
             return DaveEpochError::key_import;
         entry.expiry_ms = generation < epoch.newest_generation ? deadline(now) : never;
         epoch.next_key_expiry_ms = minimum(epoch.next_key_expiry_ms, entry.expiry_ms);

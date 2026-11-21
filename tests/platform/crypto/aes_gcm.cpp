@@ -35,7 +35,7 @@ void known_answers(Check check) noexcept {
     for (u32 k = 0; k != 2; ++k) {
         AesGcmKey key{};
         check(aes_gcm_initialize(&key, {secret, k ? 32u : 16u}).ok(), "AES NIST key initialization");
-        if (!key.handle)
+        if (!key.storage.data)
             continue;
         test_unhex(ciphertexts[k], expected);
         for (u32 v = 0; v != 5; ++v) {
@@ -91,10 +91,9 @@ void matrix(Check check) noexcept {
             secret[i] = static_cast<u8>(i * 13 + 7 + key_bytes);
         AesGcmKey key{};
         check(aes_gcm_initialize(&key, {secret, key_bytes}).ok(), "AES matrix key initialization");
-        if (!key.handle)
+        if (!key.storage.data)
             continue;
-        const void* retained_handle = key.handle;
-        const void* retained_object = key.object.data;
+        const void* retained_storage = key.storage.data;
         TestSha256 hash;
         test_sha256_begin(&hash);
         u32 counter = 0;
@@ -115,17 +114,16 @@ void matrix(Check check) noexcept {
                 check(dec.ok() && dec.bytes == size && bytes_equal(packet, plain, size) &&
                           packet[size + 16] == 0xa5,
                       "AES matrix in-place authenticated round trip");
-                check(key.handle == retained_handle && key.object.data == retained_object &&
-                          key.object.locked,
-                      "AES packets retain the initialized locked key object");
+                check(key.storage.data == retained_storage && key.storage.locked,
+                      "AES packets retain the initialized locked key storage");
             }
         }
         test_sha256_finish(&hash, digest);
         test_unhex(digests[k], expected);
         check(bytes_equal(digest, expected, 32), "AES ciphertexts and tags match independent OpenSSL matrix");
         aes_gcm_release(&key);
-        check(!key.handle && !key.object.data && !key.object.locked && !key.object.capacity,
-              "AES release retires handle and locked storage");
+        check(!key.storage.data && !key.storage.locked && !key.storage.capacity,
+              "AES release retires locked storage");
         aes_gcm_release(&key);
     }
 }
@@ -137,14 +135,14 @@ void boundaries(Check check) noexcept {
           "AES rejects encryption before initialization");
     constexpr u32 invalid_key_sizes[]{0, 1, 15, 17, 24, 31, 33};
     for (u32 length : invalid_key_sizes)
-        check(aes_gcm_initialize(&key, {secret, length}).error == AeadError::invalid_input && !key.handle,
+        check(aes_gcm_initialize(&key, {secret, length}).error == AeadError::invalid_input && !key.storage.data,
               "AES rejects unsupported key lengths without allocating");
     check(aes_gcm_initialize(&key, {secret, 32}).ok(), "AES boundary key initialization");
-    if (!key.handle)
+    if (!key.storage.data)
         return;
-    const auto* storage = key.object.data;
+    const auto* storage = key.storage.data;
     check(aes_gcm_initialize(&key, {secret, 32}).error == AeadError::invalid_input &&
-              key.object.data == storage,
+              key.storage.data == storage,
           "AES cannot overwrite a live owner");
     check(aes_gcm_encrypt(key, {nonce, 12}, {aad, 20}, {plain, 33}, {ciphertext, 33}, {tag, 16}).ok(),
           "AES tamper fixture encryption");
@@ -219,7 +217,7 @@ void boundaries(Check check) noexcept {
                   AeadError::invalid_input &&
               test_filled(output, 64, 0xa5),
           "AES rejects overlapping payload/tag");
-    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 33}, {key.object.data, 33}, {tag, 16}).error ==
+    check(aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 33}, {key.storage.data, 33}, {tag, 16}).error ==
               AeadError::invalid_input,
           "AES rejects overwriting retained key storage");
     check(aes_gcm_encrypt(key, {output, 12}, {}, {}, {}, {output, 16}).error == AeadError::invalid_input &&

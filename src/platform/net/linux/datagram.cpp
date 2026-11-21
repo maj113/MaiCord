@@ -105,18 +105,16 @@ NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot,
     if (!datagram || !datagram->open || slot >= kNetworkDatagramReceiveSlots || !buffer.data || !buffer.count) {
         return fail(NetworkError::invalid_argument);
     }
-    const u8 bit = slot ? static_cast<u8>(1u << (slot - 1)) : 0;
-    if (slot ? (datagram->extra_receive_pending & bit) != 0 : datagram->receive_pending) {
+    // Slot 0's flag is receive_pending (a bool: 0 or 1), slot n's is bit n - 1 of extra_receive_pending.
+    const u8 bit = static_cast<u8>(slot ? 1u << (slot - 1) : 1u);
+    u8* const pending = slot ? &datagram->extra_receive_pending : reinterpret_cast<u8*>(&datagram->receive_pending);
+    if (*pending & bit) {
         return fail(NetworkError::invalid_argument);
     }
     NetworkOperation& receive = receive_operation(datagram, slot);
     network_operation_initialize(&receive, datagram, NetworkOperationKind::datagram_receive, datagram->generation);
     receive.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
-    if (slot) {
-        datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending | bit);
-    } else {
-        datagram->receive_pending = true;
-    }
+    *pending = static_cast<u8>(*pending | bit);
     datagram->receive_queue[datagram->receive_queued++] = static_cast<u8>(slot);
     next_receive(datagram);
     return success();

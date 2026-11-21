@@ -4,7 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
-AeadError dave_frame_open(const DaveFrameView& view, const AesGcm64Key& key, DaveReplay& replay, u64 counter,
+AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveReplay& replay, u64 counter,
                           u8* scratch, u8* output) noexcept {
     const u32 body = view.body_bytes, clear = view.clear_bytes;
     // In-place output and clear headers authenticate in scratch; the frame is
@@ -23,8 +23,8 @@ AeadError dave_frame_open(const DaveFrameView& view, const AesGcm64Key& key, Dav
     for (u32 i = 0; i != 4; ++i)
         nonce[8 + i] = static_cast<u8>(view.nonce >> (i * 8));
     const auto crypto =
-        aes_gcm64_decrypt(key, {nonce, 12}, {scratch, clear}, {cipher, body - clear},
-                          {view.frame.data + body, kDaveFrameTagBytes}, {plaintext, body - clear});
+        aes_gcm_decrypt(key, {nonce, 12}, {scratch, clear}, {cipher, body - clear},
+                        {view.frame.data + body, kDaveFrameTagBytes}, {plaintext, body - clear});
     if (!crypto.ok()) {
         if (staged)
             secure_clear_bytes(scratch, body);
@@ -45,7 +45,7 @@ void dave_frame_sealer_initialize(DaveFrameSealer* sealer, const u8* seed) noexc
     copy_bytes(sealer->next_secret, seed, 16);
 }
 void dave_frame_sealer_release(DaveFrameSealer* sealer) noexcept {
-    aes_gcm64_release(&sealer->key);
+    aes_gcm_release(&sealer->key);
     secure_clear_bytes(sealer, sizeof(*sealer));
 }
 namespace {
@@ -69,9 +69,9 @@ __declspec(noinline) DaveSealError rotate_key(DaveFrameSealer& sealer, KdfSha256
         secure_clear_bytes(key, sizeof(key));
         return DaveSealError::derivation;
     }
-    aes_gcm64_release(&sealer.key);
+    aes_gcm_release(&sealer.key);
     sealer.key_ready = false;
-    const auto imported = aes_gcm64_initialize(&sealer.key, {key, 16});
+    const auto imported = aes_gcm_initialize(&sealer.key, {key, 16});
     secure_clear_bytes(key, sizeof(key));
     if (imported.ok()) {
         copy_bytes(sealer.next_secret, secret, 32);
@@ -106,17 +106,20 @@ DaveSealResult seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, Cons
     const Slice<u8> tag{output.data + frame.count, kDaveFrameTagBytes};
     bool sealed = false;
     if (!ranges.count)
-        sealed = aes_gcm64_encrypt(sealer.key, {iv, 12}, {}, frame, {output.data, frame.count}, tag).ok();
+        sealed = aes_gcm_encrypt(sealer.key, {iv, 12}, {}, frame, {output.data, frame.count}, tag).ok();
     else {
         const DaveFrameView view{frame, ranges, frame.count, clear, nonce};
         dave_frame_gather(view, scratch, scratch + clear);
         const u32 cipher = frame.count - clear;
-        sealed = aes_gcm64_encrypt(sealer.key, {iv, 12}, {scratch, clear}, {scratch + clear, cipher},
-                                   {scratch + clear, cipher}, tag)
+        sealed = aes_gcm_encrypt(sealer.key, {iv, 12}, {scratch, clear}, {scratch + clear, cipher},
+                                 {scratch + clear, cipher}, tag)
                      .ok();
+        // After a seal, scratch holds only the clear bytes and the ciphertext, which both go on the wire. Only a
+        // failure leaves plaintext there.
         if (sealed)
             dave_frame_reconstruct(view, scratch + clear, output.data);
-        secure_clear_bytes(scratch, frame.count);
+        else
+            secure_clear_bytes(scratch, frame.count);
     }
     if (!sealed)
         return {0, 0, 0, DaveSealError::crypto_failure};

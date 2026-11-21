@@ -280,32 +280,25 @@ bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewa
     }
     if (opcode == VoiceDaveOpcode::mls_proposals)
         return proposals_message(*connection, frame.data);
-    if (frame.data.count <= 2) {
-        voice_log(kWarning, "dave_binary_truncated", "opcode", frame.opcode);
-        return true;
-    }
+    // The route defers only the commit (29) and the welcome (30) here, each with a transition ID and a message.
     const u16 transition_id = byte_load_be16(frame.data.data);
     const ConstSlice<u8> message{frame.data.data + 2, frame.data.count - 2};
-    if (opcode == VoiceDaveOpcode::mls_announce_commit_transition) {
-        const auto status = dave_session_commit(&session, transition_id, message);
-        if (status == MlsStatus::ok) {
-            voice_log(kInfo, "dave_commit_staged", "transition", transition_id, "epoch", active_epoch(session) + 1);
-            return acknowledge(*connection, transition_id, now_ms);
-        }
-        // While rejoining, commits of the abandoned group are expected noise;
-        // reporting them would replace the join key the Welcome is for.
-        if (connection->dave_recovering) {
-            voice_log(kInfo, "dave_commit_ignored_recovering", "transition", transition_id, "status",
-                      status_value(status));
-            return true;
-        }
-        voice_log(kWarning, "dave_commit_failed", "transition", transition_id, "status", status_value(status));
-        return flag_invalid(*connection, transition_id);
-    }
     if (opcode == VoiceDaveOpcode::mls_welcome)
         return welcome_message(*connection, transition_id, message, now_ms);
-    voice_log(kWarning, "dave_binary_unexpected", "opcode", frame.opcode);
-    return true;
+    const auto status = dave_session_commit(&session, transition_id, message);
+    if (status == MlsStatus::ok) {
+        voice_log(kInfo, "dave_commit_staged", "transition", transition_id, "epoch", active_epoch(session) + 1);
+        return acknowledge(*connection, transition_id, now_ms);
+    }
+    // While rejoining, commits of the abandoned group are expected noise;
+    // reporting them would replace the join key the Welcome is for.
+    if (connection->dave_recovering) {
+        voice_log(kInfo, "dave_commit_ignored_recovering", "transition", transition_id, "status",
+                  status_value(status));
+        return true;
+    }
+    voice_log(kWarning, "dave_commit_failed", "transition", transition_id, "status", status_value(status));
+    return flag_invalid(*connection, transition_id);
 }
 bool voice_connection_dave_json(VoiceConnection* connection, u8 opcode, JsonValue data, Slice<u32> scratch,
                                 u64 now_ms) noexcept {
@@ -319,12 +312,13 @@ bool voice_connection_dave_json(VoiceConnection* connection, u8 opcode, JsonValu
         voice_log(kWarning, "dave_json_malformed", "opcode", opcode, "error", static_cast<u64>(decoded.error));
         return true;
     }
+    // The decoder accepts only these three opcodes.
     switch (static_cast<VoiceDaveOpcode>(opcode)) {
     case VoiceDaveOpcode::prepare_transition:
         return stage_and_acknowledge(*connection, command.transition_id, command.protocol_version, now_ms);
     case VoiceDaveOpcode::execute_transition:
         return execute(*connection, command.transition_id, now_ms);
-    case VoiceDaveOpcode::prepare_epoch:
+    default: // prepare_epoch
         voice_log(kInfo, "dave_prepare_epoch", "epoch", command.epoch, "version", command.protocol_version);
         if (!command.protocol_version)
             return refuse_downgrade(*connection, DowngradeAt::epoch, command.transition_id);
@@ -341,9 +335,6 @@ bool voice_connection_dave_json(VoiceConnection* connection, u8 opcode, JsonValu
         }
         return !command.has_transition || !command.transition_id ||
                stage_and_acknowledge(*connection, command.transition_id, command.protocol_version, now_ms);
-    default:
-        voice_log(kWarning, "dave_json_unexpected", "opcode", opcode);
-        return true;
     }
 }
 bool voice_connection_dave_flush(VoiceConnection* connection, u64 now_ms) noexcept {
@@ -404,8 +395,7 @@ DaveMediaResult voice_connection_dave_decrypt_frame(VoiceConnection* connection,
                                                     ConstSlice<u8> frame, Slice<u8> scratch, Slice<u8> output,
                                                     u64 now_ms) noexcept {
     DaveMediaResult result{};
-    const auto source =
-        connection ? voice_participants_source(connection->participants, ssrc) : VoiceSsrcBinding{};
+    const auto source = voice_participants_source(connection->participants, ssrc);
     if (!user_id || source.user_id != user_id ||
         (source.kind != VoiceSourceKind::video && source.kind != VoiceSourceKind::screen)) {
         result.error = DaveMediaError::invalid_input;
@@ -421,7 +411,7 @@ DaveMediaResult voice_connection_dave_decrypt_frame(VoiceConnection* connection,
 }
 DaveSealResult voice_connection_dave_encrypt(VoiceConnection* connection, ConstSlice<u8> opus,
                                              Slice<u8> output) noexcept {
-    if (!connection || !connection->dave_session.initialized)
+    if (!connection->dave_session.initialized)
         return {0, 0, 0, DaveSealError::not_initialized};
     return dave_session_encrypt(&connection->dave_session, opus, output);
 }

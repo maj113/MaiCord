@@ -44,33 +44,17 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
 NetworkResult network_datagram_receive_slot(NetworkDatagram* datagram, u32 slot, Slice<u8> buffer) noexcept {
     if (!datagram || !datagram->open || slot >= kNetworkDatagramReceiveSlots || !buffer.data || !buffer.count)
         return fail(NetworkError::invalid_argument);
-    const u8 bit = slot ? static_cast<u8>(1u << (slot - 1)) : 0;
-    if (slot ? (datagram->extra_receive_pending & bit) != 0 : datagram->receive_pending)
+    // Slot 0's flag is receive_pending (a bool: 0 or 1), slot n's is bit n - 1 of extra_receive_pending.
+    const u8 bit = static_cast<u8>(slot ? 1u << (slot - 1) : 1u);
+    u8* const pending = slot ? &datagram->extra_receive_pending : reinterpret_cast<u8*>(&datagram->receive_pending);
+    if (*pending & bit)
         return fail(NetworkError::invalid_argument);
     auto& receive = slot ? datagram->extra_receive_operations[slot - 1] : datagram->receive_operation;
     network_operation_initialize(&receive, datagram, NetworkOperationKind::datagram_receive, datagram->generation);
     receive.buffer = {buffer.count, reinterpret_cast<char*>(buffer.data)};
     // A read that finishes at once shows that the system finished every read posted before it.
     const bool earlier_reads = datagram->receive_pending || datagram->extra_receive_pending;
-    if (slot)
-        datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending | bit);
-    else
-        datagram->receive_pending = true;
-    DWORD transferred = 0;
-    if (WSARecv(datagram->socket, native(&receive.buffer), 1, &transferred, &receive.receive_flags,
-                native(&receive.overlapped), nullptr) == SOCKET_ERROR) {
-        const auto error = WSAGetLastError();
-        if (error != WSA_IO_PENDING) {
-            if (slot)
-                datagram->extra_receive_pending = static_cast<u8>(datagram->extra_receive_pending & ~bit);
-            else
-                datagram->receive_pending = false;
-            return fail(NetworkError::receive_start, error);
-        }
-    } else if (datagram->loop) {
-        network_operation_finished(datagram->loop, &receive, transferred, earlier_reads);
-    }
-    return {};
+    return network_socket_start(datagram->socket, datagram->loop, &receive, pending, bit, earlier_reads);
 }
 bool network_datagram_set_receive_buffer(NetworkDatagram* datagram, u32 bytes) noexcept {
     if (!datagram || !datagram->open || !bytes || bytes > 0x7fffffff)
@@ -85,19 +69,8 @@ NetworkResult network_datagram_send(NetworkDatagram* datagram, ConstSlice<u8> bu
     auto& send = datagram->send_operation;
     network_operation_initialize(&send, datagram, NetworkOperationKind::datagram_send, datagram->generation);
     send.buffer = {buffer.count, reinterpret_cast<char*>(const_cast<u8*>(buffer.data))};
-    datagram->send_pending = true;
-    DWORD transferred = 0;
-    if (WSASend(datagram->socket, native(&send.buffer), 1, &transferred, 0, native(&send.overlapped), nullptr) ==
-        SOCKET_ERROR) {
-        const auto error = WSAGetLastError();
-        if (error != WSA_IO_PENDING) {
-            datagram->send_pending = false;
-            return fail(NetworkError::send_start, error);
-        }
-    } else if (datagram->loop) {
-        network_operation_finished(datagram->loop, &send, transferred, false);
-    }
-    return {};
+    return network_socket_start(datagram->socket, datagram->loop, &send, reinterpret_cast<u8*>(&datagram->send_pending),
+                                1, false);
 }
 void network_datagram_close(NetworkDatagram* datagram) noexcept {
     if (!datagram || !datagram->open)

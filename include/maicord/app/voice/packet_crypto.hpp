@@ -33,8 +33,7 @@ struct VoicePacketCrypto {
     u32 mode;
 };
 AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u32 mode,
-                                   ConstSlice<u8> secret,
-                                   XChaChaBackend backend = XChaChaBackend::automatic) noexcept;
+                                   ConstSlice<u8> secret) noexcept;
 void voice_packet_release(VoicePacketCrypto* crypto) noexcept;
 
 // Input/output are full packets, the callers' own buffers. Seal appends a 16-byte tag and 4-byte BE nonce.

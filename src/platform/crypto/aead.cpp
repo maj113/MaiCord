@@ -1,9 +1,5 @@
 #include "aead_internal.hpp"
 
-#if defined(_WIN32)
-#include "maicord/sys/crypto.hpp"
-#endif
-
 namespace maicord {
 
 // Runs on every packet. Ranges are normalized once (an empty one overlaps nothing) so each alias test is two
@@ -41,40 +37,5 @@ AeadResult aead_validate(ConstSlice<u8> owner, ConstSlice<u8> storage, u32 nonce
                 overlap(w, o) | overlap(w, s) | overlap(t, o) | overlap(t, s);
     return aead_result(conflict ? AeadError::invalid_input : AeadError::none);
 }
-
-#if defined(_WIN32)
-AeadResult aead_cng_crypt(void* handle, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
-                          Slice<u8> output, u8* tag, bool encrypt) noexcept {
-    BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO auth;
-    BCRYPT_INIT_AUTH_MODE_INFO(auth);
-    auth.pbNonce = const_cast<u8*>(nonce.data);
-    auth.cbNonce = nonce.count;
-    auth.pbAuthData = aad.count ? const_cast<u8*>(aad.data) : nullptr;
-    auth.cbAuthData = aad.count;
-    auth.pbTag = tag;
-    auth.cbTag = 16;
-    // Both null pointers mean authenticated empty data. Only a null output
-    // would instead ask CNG for a size and skip authentication altogether.
-    u8* source = input.count ? const_cast<u8*>(input.data) : nullptr;
-    u8* destination = input.count ? output.data : nullptr;
-    ULONG bytes = 0;
-    const NTSTATUS status = encrypt ? BCryptEncrypt(handle, source, input.count, &auth, nullptr, 0,
-                                                    destination, input.count, &bytes, 0)
-                                    : BCryptDecrypt(handle, source, input.count, &auth, nullptr, 0,
-                                                    destination, input.count, &bytes, 0);
-    if (status < 0 || bytes != input.count) {
-        if (input.count)
-            SecureZeroMemory(output.data, input.count);
-        if (encrypt)
-            SecureZeroMemory(tag, 16);
-        constexpr NTSTATUS auth_tag_mismatch = static_cast<NTSTATUS>(0xc000a002u);
-        return aead_result(status == auth_tag_mismatch ? AeadError::authentication_failed
-                                                       : AeadError::platform_failure,
-                           0, status);
-    }
-    return aead_result(AeadError::none, bytes);
-}
-
-#endif
 
 } // namespace maicord

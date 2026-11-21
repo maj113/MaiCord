@@ -93,12 +93,4 @@ KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> c
     const ConstSlice<u8> parts[]{confirmed_hash, {&length, 1}, confirmation_tag};
     return sha256(workspace, {parts, 3}, output);
 }
-bool mls_confirmation_matches(const ConstSlice<u8>& expected, const ConstSlice<u8>& received) noexcept {
-    const volatile u8* left = expected.data;
-    const volatile u8* right = received.data;
-    u32 difference = 0;
-    for (u32 i = 0; i != 32; ++i)
-        difference |= left[i] ^ right[i];
-    return difference == 0;
-}
 } // namespace maicord

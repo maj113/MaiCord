@@ -21,10 +21,10 @@ struct RestStorageProbe {
         client.runtime = runtime;
         runtime->owner = &client;
         runtime->allocation_bytes = bytes;
-        runtime->response_capacity = capacity;
+        runtime->response_capacity = runtime->default_response_capacity = capacity;
         runtime->authorization = normal_user ? RestAuthorization::normal_user : RestAuthorization::none;
         runtime->clock = clock_initialize();
-        assign_storage(runtime, shared);
+        if (!assign_storage(runtime, shared)) return false;
         client.shared = shared;
         // A real connection has written the handshake output before any HTTP
         // response arrives. Include that first resident page in the fixture.
@@ -772,7 +772,6 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             const auto* r = layout.runtime;
             const Slice<u8> spans[]{
                 {r->request_target, kRestClientMaximumTargetBytes},
-                {r->request_body, maximum(kRestClientMaximumRequestBodyBytes, capacity)},
                 {r->encrypted_storage, kEncryptedInputBytes}, {r->record_output, kRecordOutputBytes},
                 {r->response_input, kRestMaximumHeaderBytes},
                 {r->handshake_output, kHandshakeOutputBytes}};
@@ -782,7 +781,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
                 (reinterpret_cast<usize>(r->handshake_output) & 4095) == 0 && r->request_body == r->response_body &&
                 r->request_head >= r->response_input &&
                 r->request_head + r->request_head_capacity == r->response_input + kRestMaximumHeaderBytes;
-            for (u32 i = 0; valid && i < 6; ++i) {
+            for (u32 i = 0; valid && i < 5; ++i) {
                 const usize first = reinterpret_cast<usize>(spans[i].data), last = first + spans[i].count;
                 valid = first >= begin && last <= end;
                 for (u32 j = 0; valid && j < i; ++j) {
@@ -790,8 +789,16 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
                     valid = last <= other || first >= other + spans[j].count;
                 }
             }
+            // The body is its own reservation of the largest response, committed through the capacity.
+            const u32 body = (maximum(kRestClientMaximumRequestBodyBytes, capacity) + 4095) & ~4095u;
+            MEMORY_BASIC_INFORMATION region{};
+            valid = valid && r->request_body == r->default_body && r->default_body_bytes == body &&
+                r->body_committed == body && VirtualQuery(r->default_body, &region, sizeof(region)) &&
+                region.AllocationBase == r->default_body && region.State == MEM_COMMIT && region.RegionSize == body &&
+                VirtualQuery(r->default_body + body, &region, sizeof(region)) && region.State == MEM_RESERVE &&
+                region.AllocationBase == r->default_body && body + region.RegionSize == kRestClientMaximumLargeResponseBytes;
             if (normal_user) valid = valid &&
-                r->user_super_properties >= r->response_body + capacity &&
+                r->user_super_properties >= r->response_input + kRestMaximumHeaderBytes &&
                 reinterpret_cast<const u8*>(r->user_timezone) + kRestUserTimezoneMaximumBytes <= r->handshake_output;
         }
         check(valid, "rest_storage_page_aligned_scratch_nonoverlapping_at_capacity_boundaries");
@@ -1059,6 +1066,49 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
                     !retryable_transport_error(RestClientError::account_restricted);
         }
         check(valid, "rest_transport_failure_replays_a_get_and_never_a_cancellation");
+    }
+    {
+        // A response of one lane wakes the other lane only while that lane waits for admission.
+        RestSharedState shared{};
+        RestStorageProbe lane;
+        RestStorageProbe peer;
+        const bool loop = network_loop_initialize(&peer.client.worker.loop).ok();
+        bool valid = loop &&
+                     rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                                    {shared.bindings, kRateBindingCount}) &&
+                     lane.initialize(4096, false, &shared) && peer.initialize(4096, false, &shared);
+        shared.clients[0] = &lane.client;
+        shared.clients[1] = &peer.client;
+        // Counts the rate signals on the peer's loop. Any other completion counts as 100.
+        const auto signals = [&]() noexcept {
+            u32 count = 0;
+            for (;;) {
+                const auto polled = network_loop_poll(&peer.client.worker.loop, 0);
+                if (polled.state != NetworkPollState::completion)
+                    return count;
+                count += polled.completion.signal == &peer.runtime->rate_signal ? 1u : 100u;
+            }
+        };
+        valid = valid && lane.begin_request(true) && lane.respond(200, utf8_literal("{}")) && signals() == 0;
+        if (valid) {
+            lane.consume();
+            auto* r = peer.runtime;
+            constexpr auto target = utf8_literal("/api/v9/channels/1/messages");
+            r->command.endpoint_key = endpoint_key({reinterpret_cast<const u8*>(target.data), target.bytes});
+            r->command.target_bytes = target.bytes;
+            copy_bytes(r->request_target, target.data, target.bytes);
+            r->command.route = {7, 1, RestMethod::post, RestMajorParameter::channel};
+            r->command.request_id = 93;
+            r->command.timeout_ms = 5000;
+            peer.client.request_state = request_state_active;
+            shared.mutation_owner = &lane.client;
+            valid = acquire_request(&peer.client, r, nullptr, 2) && r->waiting_for_peer &&
+                    lane.begin_request(true) && lane.respond(200, utf8_literal("{}")) && signals() == 1 &&
+                    !shared.mutation_owner;
+        }
+        if (loop)
+            network_loop_release(&peer.client.worker.loop);
+        check(valid, "rest_response_wakes_the_other_lane_only_while_it_waits_for_admission");
     }
 }
 } // namespace maicord

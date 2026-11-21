@@ -172,10 +172,10 @@ void storage_erasure(RestClient* client, RestClientRuntime* runtime) noexcept {
     runtime->command.head_bytes = runtime->request_head_capacity;
     InterlockedExchange64(&client->current_request_id, 101);
     InterlockedExchange(&client->request_state, request_state_active);
-    RestClientResponse complete{};
-    complete.body_bytes = 19;
-    complete.status_code = 200;
-    publish_completed(client, runtime, complete);
+    runtime->response.http.body_bytes = 19;
+    runtime->response.parsed_head.head.status_code = 200;
+    const RestAnswer complete{};
+    publish_completed(client, runtime, RestClientError::none, 0, &complete);
     storage_check(runtime->response_body[0] == 0x37 && runtime->response_body[18] == 0x37 &&
         storage_zero(runtime->request_head, runtime->request_head_capacity), "publication preserves aliased response and erases head");
     storage_check(!rest_client_cancel(client, 101) && runtime->response_body[0] == 0x37,
@@ -198,7 +198,7 @@ void storage_erasure(RestClient* client, RestClientRuntime* runtime) noexcept {
     storage_check(rest_client_cancel(client, 102) &&
         InterlockedCompareExchange(&client->request_state, 0, 0) == request_state_cancel_pending,
         "public cancellation atomically claims synthetic pending state without a network signal");
-    publish_completed(client, runtime, complete);
+    publish_completed(client, runtime, RestClientError::none, 0, &complete);
     storage_check(runtime->completed.error == RestClientError::cancelled &&
         runtime->completed.request_id == 102 && runtime->completed.body_bytes == 0 &&
         storage_zero(runtime->request_body, runtime->request_body_capacity),

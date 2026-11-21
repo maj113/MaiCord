@@ -340,6 +340,8 @@ TlsResult tls_client_encrypt_spans(
     SecBufferDesc descriptor{SECBUFFER_VERSION, 4, buffers};
     const SECURITY_STATUS status = EncryptMessage(context(client), 0, &descriptor, 0);
     if (status != SEC_E_OK) {
+        // The plaintext copy (a request may carry the account token) must not stay in the caller's record buffer.
+        secure_clear_bytes(message, static_cast<usize>(plaintext_bytes));
         return result(TlsError::encrypt, status);
     }
     *produced = buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer;

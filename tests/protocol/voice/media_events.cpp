@@ -115,12 +115,12 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
           "voice media setup owns a numeric IPv6 endpoint beyond input lifetime");
     check(voice_media_description(&media, object(description_json), {scratch, 512}, 16, 1, 7) ==
                   VoiceMediaSetupError::order &&
-              !media.packets.aes.object.data,
+              !media.packets.aes.storage.data,
           "voice rejects unsolicited description before protocol selection");
     check(voice_media_protocol_selected(&media, 2) &&
               voice_media_description(&media, object(description_json), {scratch, 512}, 16, 1, 7) ==
                   VoiceMediaSetupError::mode &&
-              !media.packets.aes.object.data && !media.has_description,
+              !media.packets.aes.storage.data && !media.has_description,
           "voice server cannot substitute another transport mode after selection");
     check(voice_media_ready(&media, ready) == VoiceMediaSetupError::none,
           "voice mode fixture resets with Ready");
@@ -129,13 +129,13 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
           "voice selects one offered mode per Ready");
     check(voice_media_description(&media, object(description_json), {scratch, 512}, 16, 0, 7) ==
                   VoiceMediaSetupError::dave_version &&
-              !media.packets.aes.object.data,
+              !media.packets.aes.storage.data,
           "voice rejects DAVE versions beyond the actual Identify advertisement");
     check(voice_media_description(&media, object(description_json), {scratch, 512}, 16, 1, 7) ==
                   VoiceMediaSetupError::none &&
-              media.packets.aes.object.locked && media.packets.generation == 7 && media.has_description,
+              media.packets.aes.storage.locked && media.packets.generation == 7 && media.has_description,
           "voice negotiated transport key lives only in its locked owner");
-    auto* installed = media.packets.aes.object.data;
+    auto* installed = media.packets.aes.storage.data;
     const u8 rtp[]{0x80, 0x78, 0, 1, 0, 0, 3, 0xc0, 1, 2, 3, 4, 0xf8, 0xff, 0xfe};
     u8 wire[64], restored[64];
     const auto sealed = voice_packet_seal(media.packets, 7, {rtp, sizeof(rtp)}, {wire, sizeof(wire)});
@@ -146,19 +146,19 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
           "accepted voice Session Description installs an operational packet cipher");
     check(voice_media_description(&media, object(description_json), {scratch, 512}, 16, 1, 7) ==
                   VoiceMediaSetupError::order &&
-              media.packets.aes.object.data == installed && media.packets.next_nonce == 1,
+              media.packets.aes.storage.data == installed && media.packets.next_nonce == 1,
           "voice duplicate description cannot silently replace installed key");
     auto invalid = ready;
     invalid.ip = {utf8_literal("127.0.0.1\\u0000evil"), 0, true};
     check(voice_media_ready(&media, invalid) == VoiceMediaSetupError::endpoint &&
-              media.packets.aes.object.data == installed,
+              media.packets.aes.storage.data == installed,
           "voice numeric endpoint rejects embedded NUL without clobbering negotiation");
     invalid.ip = {utf8_literal("voice.example.test"), 0, false};
     check(voice_media_ready(&media, invalid) == VoiceMediaSetupError::endpoint,
           "voice Ready IP cannot become an unexpected DNS lookup");
     invalid.ip = {utf8_literal("127.0.0.1"), 0, false};
     check(voice_media_ready(&media, invalid) == VoiceMediaSetupError::none &&
-              !media.packets.aes.object.data && !media.selected_mode && media.endpoint.family == 4,
+              !media.packets.aes.storage.data && !media.selected_mode && media.endpoint.family == 4,
           "voice replacement Ready retires previous key and protocol selection");
     check(voice_packet_seal(media.packets, 7, {rtp, sizeof(rtp)}, {wire, sizeof(wire)}).error ==
               VoicePacketError::not_initialized,
@@ -170,7 +170,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
     check(voice_media_protocol_selected(&media, 2) &&
               voice_media_description(&media, object(xdescription), {scratch, 512}, 16, 1, 8) ==
                   VoiceMediaSetupError::none &&
-              media.packets.xchacha.storage.locked && !media.packets.aes.object.data &&
+              media.packets.xchacha.storage.locked && !media.packets.aes.storage.data &&
               media.packets.generation == 8,
           "replacement voice description installs the selected XChaCha cipher in its new generation");
     check(voice_packet_seal(media.packets, 7, {rtp, sizeof(rtp)}, {wire, sizeof(wire)}).error ==
@@ -180,7 +180,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
     check(voice_packet_seal(media.packets, 8, {rtp, sizeof(rtp)}, {wire, sizeof(wire)}).ok(),
           "new voice generation encrypts with the selected replacement cipher");
     voice_media_clear(&media);
-    check(!media.has_ready && !media.packets.aes.object.data && !media.packets.xchacha.storage.data &&
+    check(!media.has_ready && !media.packets.aes.storage.data && !media.packets.xchacha.storage.data &&
               !media.endpoint.family,
           "voice media teardown clears owned state");
     SecureZeroMemory(key, sizeof(key));

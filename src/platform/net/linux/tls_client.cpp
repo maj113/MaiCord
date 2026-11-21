@@ -561,6 +561,10 @@ TlsResult tls_client_encrypt_spans(TlsClient* client, ConstSlice<ConstSlice<u8>>
         transfer.output_bytes += transfer.spill_bytes;
         heap_free(transfer.spill);
     }
+    // A staged plaintext copy (a request may carry the account token) must not stay in the caller's record buffer
+    // when no record comes out.
+    if (transfer.staged && (transfer.overflow || written != static_cast<int>(total)))
+        secure_clear_bytes(output.data + output.count - total, total);
     if (transfer.overflow) {
         return result(TlsError::output_too_small, kStatusBufferTooSmall);
     }

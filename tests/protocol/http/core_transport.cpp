@@ -2000,6 +2000,21 @@ void test_tls_client_bootstrap() noexcept {
         &client, ConstSlice<u8>{plaintext, 1}, Slice<u8>{g_tls_token, kTlsTokenCapacity}, &encrypted_bytes);
     expect(premature_encrypt.error == TlsError::invalid_argument && encrypted_bytes == 0,
            "tls_encrypt_requires_handshake");
+    // A failed EncryptMessage (here: a context handle that never existed) leaves no plaintext in the output.
+    TlsClient forged{};
+    forged.handshake_complete = true;
+    forged.stream_sizes = {5, 32, 16384, 4, 16};
+    const u8 secret[] = {'t', 'o', 'k', 'e', 'n', '-', 's', 'e', 'c', 'r', 'e', 't'};
+    for (u32 i = 0; i < 5 + sizeof(secret) + 32; ++i)
+        g_tls_token[i] = 0xA5;
+    encrypted_bytes = 99;
+    const TlsResult failed_encrypt = tls_client_encrypt(
+        &forged, ConstSlice<u8>{secret, sizeof(secret)}, Slice<u8>{g_tls_token, kTlsTokenCapacity}, &encrypted_bytes);
+    bool cleared = true;
+    for (u32 i = 0; i < sizeof(secret); ++i)
+        cleared = cleared && g_tls_token[5 + i] == 0;
+    expect(failed_encrypt.error == TlsError::encrypt && encrypted_bytes == 0 && cleared && g_tls_token[4] == 0xA5,
+           "tls_encrypt_failure_clears_the_plaintext_copy");
     if (hello_started) {
         const u8 malformed[]{0, 0, 0, 0, 0};
         const auto failed = tls_client_handshake(&client, {malformed, sizeof(malformed)},

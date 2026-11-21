@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/platform/crypto/aes_gcm64.hpp"
+#include "maicord/platform/crypto/aes_gcm.hpp"
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
 #include "maicord/protocol/voice/dave_frame.hpp"
 #include "maicord/protocol/voice/dave_replay.hpp"
@@ -28,7 +28,7 @@ namespace maicord {
 // Failed authentication does not commit replay and, for wholly encrypted
 // disjoint output, wipes the attempted output prefix. Successful AEAD commits
 // replay before reconstruction, matching the native receive ordering.
-AeadError dave_frame_open(const DaveFrameView& view, const AesGcm64Key& key, DaveReplay& replay, u64 counter,
+AeadError dave_frame_open(const DaveFrameView& view, const AesGcmKey& key, DaveReplay& replay, u64 counter,
                           u8* scratch, u8* output) noexcept;
 
 // Outbound per-sender frame cipher for one MLS epoch. The 32-bit truncated
@@ -37,7 +37,7 @@ AeadError dave_frame_open(const DaveFrameView& view, const AesGcm64Key& key, Dav
 // reused under one key. Zero-initialize, worker-exclusive, never copy. The
 // secret held is the 16-byte seed until the first ratchet step, then 32 bytes.
 struct DaveFrameSealer {
-    AesGcm64Key key;
+    AesGcmKey key;
     u8 next_secret[32];
     // The generation whose secret next_secret holds; the live key, if any, is
     // for the one before it.
@@ -75,7 +75,8 @@ DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& work
 // A video frame from dave_frame_prepare: the clear ranges stay in place and
 // are the AAD, every other byte is encrypted where it stood, and the trailer
 // lists the ranges after the nonce (at most 255 supplemental bytes, else
-// invalid_input). scratch holds frame.count bytes and is wiped; output
+// invalid_input). scratch holds frame.count bytes: after a seal only the clear
+// bytes and the ciphertext, and a failed seal wipes it. output
 // (frame.count + 255 is always enough) overlaps neither.
 DaveSealResult dave_frame_seal_ranges(DaveFrameSealer& sealer, KdfSha256Workspace& workspace, ConstSlice<u8> frame,
                                       ConstSlice<DaveClearRange> ranges, Slice<u8> scratch,

@@ -5,17 +5,15 @@
 #include "../../support/rest_client_probe.hpp"
 #include "../../fixtures/rest_gzip_fixtures.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/media/image/png_encode.hpp"
 #include "../../support/test_output.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord {
 namespace user_settings_storage {
 u32 failures;
 void check(bool pass, const char* label) noexcept {
     test_check(&failures, pass, label);
-}
-bool freed(const void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION memory{};
-    return VirtualQuery(pointer, &memory, sizeof(memory)) && memory.State == MEM_FREE;
 }
 struct Probe : RestClientProbe {
     RestClientRequest request(RestMethod method, u64 id, ConstSlice<u8> body = {}) noexcept {
@@ -65,15 +63,21 @@ struct Probe : RestClientProbe {
         return response_plaintext_received(runtime, {reinterpret_cast<const u8*>(end), sizeof(end) - 1}, false) ==
             TlsStreamReadAction::complete && finalize_response(&client, runtime, runtime->response_step, 1);
     }
-    bool gzip_response(const RestGzipFixture& gzip) noexcept {
+    bool compressed_response(ConstSlice<u8> encoded, bool gzip) noexcept {
         u8 head[192]{};
         ProtocolWriter writer{{head, sizeof(head)}, 0};
-        protocol_writer_append_literal(&writer, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: ");
-        protocol_writer_append_u64(&writer, gzip.bytes);
+        protocol_writer_append_literal(&writer, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: ");
+        if (gzip) protocol_writer_append_literal(&writer, "gzip");
+        else protocol_writer_append_literal(&writer, "deflate");
+        protocol_writer_append_literal(&writer, "\r\nContent-Length: ");
+        protocol_writer_append_u64(&writer, encoded.count);
         protocol_writer_append_literal(&writer, "\r\n\r\n");
         return response_plaintext_received(runtime, {head, writer.used}, false) == TlsStreamReadAction::continue_read &&
-            response_plaintext_received(runtime, {gzip.encoded, gzip.bytes}, false) == TlsStreamReadAction::complete &&
+            response_plaintext_received(runtime, encoded, false) == TlsStreamReadAction::complete &&
             finalize_response(&client, runtime, runtime->response_step, 1);
+    }
+    bool gzip_response(const RestGzipFixture& gzip) noexcept {
+        return compressed_response({gzip.encoded, gzip.bytes}, true);
     }
 };
 u32 user_settings_rest_storage_fixture() noexcept {
@@ -115,47 +119,79 @@ u32 user_settings_rest_storage_fixture() noexcept {
     wrong = patch; wrong.route.method = RestMethod::get;
     check(rest_client_submit_user_settings(&probe.client, wrong, 2 * 1024 * 1024).error ==
         RestClientSubmitError::invalid_input, "settings GET cannot submit a mutation body");
+    // The PATCH body leaves the fixed arena for a bank. The GET response commits more of the default body
+    // as its bytes arrive, and consumption decommits it again.
+    const u32 default_body = r->default_body_bytes;
+    const auto grown_released = [&]() noexcept {
+        MEMORY_BASIC_INFORMATION region{};
+        return r->body_committed == default_body &&
+            VirtualQuery(r->default_body + default_body, &region, sizeof(region)) && region.State == MEM_RESERVE &&
+            region.AllocationBase == r->default_body && default_body + region.RegionSize == kRestClientMaximumLargeResponseBytes;
+    };
     for (u32 cycle = 0; cycle < 2; ++cycle) {
         auto request = cycle ? probe.request(RestMethod::get, 1002) : patch;
         const auto submitted = rest_client_submit_user_settings(&probe.client, request, 2 * 1024 * 1024);
         const void* bank = r->extended_body;
-        check(submitted.ok() && bank && r->request_body == r->response_body &&
-            r->extended_body_bytes == 2 * 1024 * 1024 && r->allocation_bytes == baseline &&
-            (cycle || bytes_equal(r->request_body, payload, sizeof(payload))),
-            "large settings admission copies into bounded transaction owned alias without fixed growth");
+        check(submitted.ok() && r->request_body == r->response_body && r->response_capacity == 2 * 1024 * 1024 &&
+            r->allocation_bytes == baseline && r->body_committed == default_body &&
+            (cycle ? !bank && r->request_body == r->default_body
+                   : bank && r->extended_body_bytes == 2 * 1024 * 1024 &&
+                         bytes_equal(r->request_body, payload, sizeof(payload))),
+            "large settings admission copies a large body into a bank and commits nothing ahead of a large response");
         if (!submitted.ok()) return failures + 1;
         check(rest_client_submit_user_settings(&probe.client, request, 2 * 1024 * 1024).error ==
             RestClientSubmitError::busy && r->extended_body == bank,
             "busy settings admission cannot replace existing bank");
         check(probe.begin_commits() && probe.plain_response({payload, sizeof(payload)}),
             "large PATCH commit and chunked GET use existing callback pipeline");
+        check(r->body_committed == (cycle ? (sizeof(payload) + 65535) & ~65535u : default_body),
+            "a large response commits the default body in 64 KiB steps as its bytes arrive");
         RestClientResponse response{};
         const auto small = rest_client_take_response(&probe.client, &response, {output, 16});
         check(small.error == RestClientTakeError::output_too_small && small.body_bytes == sizeof(payload) &&
             probe.client.request_state == request_state_ready && r->extended_body == bank &&
             !rest_client_cancel(&probe.client, request.request_id),
             "short output and late cancellation retain ready exact ticket and bank");
+        const auto bank_mark = memory_mark(bank);
         const auto take = rest_client_take_response(&probe.client, &response, {output, sizeof(output)});
         check(take.ok() && response.request_id == request.request_id && response.body_bytes == sizeof(payload) &&
-            bytes_equal(output, payload, sizeof(payload)) && !r->extended_body && freed(bank) &&
+            bytes_equal(output, payload, sizeof(payload)) && !r->extended_body &&
+            (cycle || memory_released(bank_mark)) && grown_released() &&
             r->request_body == r->default_body && r->response_body == r->default_body &&
             r->response_capacity == 256 * 1024 && r->request_body_capacity == 64 * 1024 &&
             probe.client.request_state == request_state_empty && !probe.client.current_request_id,
-            "consumption returns exact large response and frees bank before idle restoring default capacities");
+            "consumption returns exact large response, frees bank or grown pages and restores default capacities");
     }
-    // A retained handshake-backed inflater must grow before a later large response.
+    // A gzip body commits through the size at its end. A body that inflates past the committed default body
+    // without one (deflate) commits the capacity and inflates again.
     for (u32 cycle = 0; cycle < 2; ++cycle) {
         const auto request = probe.request(RestMethod::get, 2001 + cycle);
         const u32 capacity = cycle ? 2 * 1024 * 1024 : 256 * 1024;
         const auto& fixture = rest_gzip_fixtures[cycle ? 5 : 1];
         const auto submit = rest_client_submit_user_settings(&probe.client, request, capacity);
         check(submit.ok() && probe.begin_commits() && probe.gzip_response(fixture) &&
-            r->decompression_capacity >= capacity &&
-            (cycle ? r->decompression != r->handshake_output : r->decompression == r->handshake_output),
-            "retained inflater grows from handshake scratch to bounded settings capacity");
+            r->completed.body_bytes == fixture.decoded_bytes && r->decompression == r->handshake_output &&
+            r->body_committed == (cycle ? fixture.decoded_bytes : default_body),
+            "a gzip large response keeps the handshake scratch and grows the body to its stated size");
         if (probe.client.request_state == request_state_ready) release_completed_response(&probe.client, r);
-        check(!r->extended_body && r->decompression_capacity <= 256 * 1024,
-            "large transaction inflater allocation released at consumption");
+        check(!r->extended_body && r->decompression_capacity <= 256 * 1024 && grown_released(),
+            "large transaction inflater and grown body released at consumption");
+    }
+    {
+        alignas(4) static u8 workspace[kZlibCompressWorkspaceBytes];
+        const u32 bound = static_cast<u32>(zlib_compress_bound(sizeof(payload)));
+        auto* deflated = static_cast<u8*>(VirtualAlloc(nullptr, bound, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        const u32 deflated_bytes = deflated ? zlib_compress({payload, sizeof(payload)}, {workspace, sizeof(workspace)},
+                                                            {deflated, bound}) : 0;
+        const auto request = probe.request(RestMethod::get, 2003);
+        check(deflated_bytes && rest_client_submit_user_settings(&probe.client, request, 2 * 1024 * 1024).ok() &&
+            probe.begin_commits() && probe.compressed_response({deflated, deflated_bytes}, false) &&
+            r->completed.body_bytes == sizeof(payload) && bytes_equal(r->response_body, payload, sizeof(payload)) &&
+            r->body_committed == 2 * 1024 * 1024,
+            "a deflate response past the default body commits the capacity and inflates again");
+        if (probe.client.request_state == request_state_ready) release_completed_response(&probe.client, r);
+        check(grown_released(), "the deflate response's grown body is released at consumption");
+        if (deflated) VirtualFree(deflated, 0, MEM_RELEASE);
     }
     const auto cancelled = probe.request(RestMethod::patch, 3001, {payload, sizeof(payload)});
     check(rest_client_submit_user_settings(&probe.client, cancelled, 2 * 1024 * 1024).ok() && probe.signal(),
@@ -178,7 +214,8 @@ u32 user_settings_rest_storage_fixture() noexcept {
         r->completed.body_bytes == 0 && zeros({r->extended_body, r->extended_body_bytes}),
         "drained cancellation publishes exact ticket and erases entire unsent suffix");
     RestClientResponse response{};
-    check(rest_client_take_response(&probe.client, &response, {}).ok() && !r->extended_body && freed(cancelled_bank),
+    const auto cancelled_mark = memory_mark(cancelled_bank);
+    check(rest_client_take_response(&probe.client, &response, {}).ok() && !r->extended_body && memory_released(cancelled_mark),
         "cancelled response consumption frees bank");
     // Consume the cancel IOCP signal before exercising another pending ticket.
     const auto cancelled_signal = network_loop_poll(&probe.client.worker.loop, 1000);
@@ -190,9 +227,10 @@ u32 user_settings_rest_storage_fixture() noexcept {
         "queued large cancellation claims pending ticket before activation");
     const void* pending_bank = r->extended_body;
     activate_request(&probe.client, r, &probe.client.worker.loop, 1);
+    const auto pending_mark = memory_mark(pending_bank);
     check(r->completed.request_id == 3002 && r->completed.error == RestClientError::cancelled &&
         r->extended_body == pending_bank && zeros({r->extended_body, r->extended_body_bytes}) &&
-        rest_client_take_response(&probe.client, &response, {}).ok() && freed(pending_bank),
+        rest_client_take_response(&probe.client, &response, {}).ok() && memory_released(pending_mark),
         "pending cancellation publishes exact ticket without connecting and releases after take");
     // Opt-in large bodies (image data URIs, multipart uploads): a bank exists
     // only for an oversized body, the response keeps its configured capacity,
@@ -235,9 +273,10 @@ u32 user_settings_rest_storage_fixture() noexcept {
         check(submitted.ok() && probe.begin_commits() && probe.plain_response({payload, 4096}),
               "the large upload commits through the ordinary write pipeline and receives a response");
         RestClientResponse large_response{};
+        const auto bank_mark = memory_mark(bank);
         const auto take = rest_client_take_response(&probe.client, &large_response, {output, sizeof(output)});
         check(take.ok() && large_response.request_id == 5001 && large_response.body_bytes == 4096 && !r->extended_body &&
-                  freed(bank) && r->request_body == r->default_body && r->request_body_capacity == 64 * 1024 &&
+                  memory_released(bank_mark) && r->request_body == r->default_body && r->request_body_capacity == 64 * 1024 &&
                   !r->command.multipart_boundary_bytes && zeros({r->multipart_boundary, sizeof(r->multipart_boundary)}),
               "taking the response erases and releases the bank and restores the fixed arena");
         auto small = large;
@@ -263,13 +302,15 @@ u32 user_settings_rest_storage_fixture() noexcept {
     // or ready transactions need not be taken before joined storage teardown.
     const auto destroy_request = probe.request(RestMethod::get, 4001);
     check(rest_client_submit_user_settings(&probe.client, destroy_request, 2 * 1024 * 1024).ok() &&
-        probe.signal(), "joined teardown fixture retains pending bank");
-    const void* destroy_bank = r->extended_body;
+        probe.signal() && commit_response_body(r, 1024 * 1024) && r->body_committed == 1024 * 1024,
+        "joined teardown fixture retains a pending response that grew its body");
+    const auto destroy_bank = memory_mark(r->default_body);
     close_transport(r);
     check(tls_stream_drained(&r->transport), "teardown connection has drained every borrow");
     destroy_client_storage(&probe.client, nullptr);
     probe.runtime = nullptr;
-    check(!probe.client.runtime && freed(destroy_bank), "joined storage teardown releases pending extended bank");
+    check(!probe.client.runtime && memory_released(destroy_bank),
+        "joined storage teardown releases the body reservation of a pending extended response");
     return failures;
 }
 } // namespace user_settings_storage

@@ -31,7 +31,4 @@ KdfResult mls_epoch_from_joiner(KdfSha256Workspace& workspace, ConstSlice<u8> jo
 // is exactly 32 bytes; excess capacity preserved, input alias follows SHA contract.
 KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> confirmed_hash,
                                  ConstSlice<u8> confirmation_tag, Slice<u8> output) noexcept;
-// Fixed-length, full-byte comparison; never a prefix comparison. Call only on
-// a successfully derived candidate's tag, then complete all other MLS checks.
-bool mls_confirmation_matches(const ConstSlice<u8>& expected, const ConstSlice<u8>& received) noexcept;
 } // namespace maicord

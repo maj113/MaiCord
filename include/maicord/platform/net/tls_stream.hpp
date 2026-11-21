@@ -78,15 +78,12 @@ using TlsStreamCommitHandler = void (*)(void* context, ConstSlice<u8> committed)
 using TlsStreamReadHandler = TlsStreamReadAction (*)(void* context, ConstSlice<u8> plaintext,
                                                      bool peer_closed) noexcept;
 
+// tls_stream_begin_connect clears every member before `encrypted_input` and keeps the rest.
 struct TlsStream {
     NetworkResolver resolver;
     NetworkConnection connection;
     TlsClient tls;
-    ByteQueue encrypted_input;
-    TlsStreamBuffers buffers;
     u32 next_address; // The index in resolver.addresses of the next address to try.
-    const wchar_t* server_name;
-    wchar_t service[6];
     const u8* send_data;
     ConstSlice<u8> write_spans[kTlsStreamMaximumWriteSpans];
     TlsStreamCommitHandler commit_handler;
@@ -102,7 +99,6 @@ struct TlsStream {
     u32 outstanding_operations;
     i32 tls_status;
     TlsHandshakeState after_tls_send;
-    TlsStreamState state;
     bool resolver_started;
     bool tls_initialized;
     bool handshake_send;
@@ -110,6 +106,13 @@ struct TlsStream {
     bool paused_peer_closed;
     bool read_completed;
     bool buffers_released;
+    // The queue over buffers.encrypted_input, the endpoint and buffers of tls_stream_initialize_endpoint, and the
+    // state.
+    ByteQueue encrypted_input;
+    TlsStreamBuffers buffers;
+    const wchar_t* server_name;
+    wchar_t service[6];
+    TlsStreamState state;
 };
 
 // Zero-initialize before first use. All API calls belong to one worker; socket

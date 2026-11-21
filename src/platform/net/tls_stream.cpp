@@ -5,6 +5,7 @@
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include <stddef.h>
 
 namespace maicord {
 namespace {
@@ -54,11 +55,11 @@ bool valid_server_name(const wchar_t* value) noexcept {
     return bytes != 0 && label_bytes != 0 && value[bytes - 1] != L'-';
 }
 
-bool valid_slice(Slice<u8> value) noexcept {
+inline bool valid_slice(Slice<u8> value) noexcept {
     return value.data && value.count != 0;
 }
 
-bool ranges_overlap(Slice<u8> left, Slice<u8> right) noexcept {
+inline bool ranges_overlap(Slice<u8> left, Slice<u8> right) noexcept {
     return byte_ranges_conflict(left.data, left.count, right.data, right.count);
 }
 
@@ -73,7 +74,7 @@ struct PageRange {
 };
 
 // The whole pages inside a buffer; bytes is 0 when it holds none.
-PageRange interior_pages(Slice<u8> bytes) noexcept {
+inline PageRange interior_pages(Slice<u8> bytes) noexcept {
     const usize begin = reinterpret_cast<usize>(bytes.data);
     const usize first = (begin + 4095) & ~usize{4095};
     const usize last = (begin + bytes.count) & ~usize{4095};
@@ -438,22 +439,10 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
     if (!tls_stream_restore_buffers(stream)) {
         return failure(stream, TlsStreamError::capacity);
     }
+    // Empty the queue and keep the endpoint, buffers and state; reset everything else.
     byte_queue_clear(&stream->encrypted_input, true);
-    // Keep the initialized endpoint, buffers and state; reset everything else.
-    const wchar_t* const server_name = stream->server_name;
-    const TlsStreamBuffers buffers = stream->buffers;
-    const TlsStreamState state = stream->state;
-    wchar_t service[sizeof(stream->service) / sizeof(wchar_t)];
-    copy_bytes(service, stream->service, sizeof(service));
-    reset_value<TlsStream>(stream);
+    clear_bytes(stream, static_cast<u32>(offsetof(TlsStream, encrypted_input)));
     network_connection_reset(&stream->connection);
-    stream->server_name = server_name;
-    copy_bytes(stream->service, service, sizeof(service));
-    stream->buffers = buffers;
-    stream->state = state;
-    if (!byte_queue_initialize(&stream->encrypted_input, stream->buffers.encrypted_input)) {
-        return failure(stream, TlsStreamError::capacity);
-    }
     const TlsResult initialized = tls_client_initialize(&stream->tls, stream->server_name);
     if (!initialized.ok() || stream->tls.maximum_token_bytes > stream->buffers.handshake_output.count) {
         if (initialized.ok()) {
@@ -609,14 +598,9 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
             }
             return event(TlsStreamEventKind::waiting);
         }
-        const bool handshake_send = stream->handshake_send;
-        const u32 sent_bytes = stream->send_bytes;
+        // The buffer holds only the bytes that went on the wire: nothing to erase. start_send sets the other fields.
         stream->send_data = nullptr;
-        stream->send_bytes = 0;
-        stream->send_offset = 0;
-        stream->handshake_send = false;
-        if (handshake_send) {
-            SecureZeroMemory(stream->buffers.handshake_output.data, sent_bytes);
+        if (stream->handshake_send) {
             return stream->after_tls_send == TlsHandshakeState::complete_and_send ? ready(stream)
                                                                                   : drive_handshake(stream);
         }
@@ -624,7 +608,6 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
             !commit_current_record(stream)) {
             return failure(stream, TlsStreamError::send);
         }
-        SecureZeroMemory(stream->buffers.record_output.data, sent_bytes);
         return start_next_record(stream);
     }
     if (completion.stale || !completion.succeeded) {
@@ -675,14 +658,7 @@ void tls_stream_close(TlsStream* stream) noexcept {
     }
     network_connection_close(&stream->connection);
     release_tls(stream);
-    stream->send_data = nullptr;
-    stream->read_handler = nullptr;
-    stream->commit_handler = nullptr;
-    stream->callback_context = nullptr;
-    stream->read_context = nullptr;
-    stream->duplex = false;
-    stream->paused_peer_closed = false;
-    stream->read_completed = false;
+    // A closing or closed stream reads no write or read member: begin_connect and initialize reset them.
     finish_close(stream);
 }
 

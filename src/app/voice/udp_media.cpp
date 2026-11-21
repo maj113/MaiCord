@@ -18,9 +18,9 @@ void finish(VoiceUdpMedia* media) noexcept {
         !network_datagram_idle(media->discovery->socket))
         return;
     // A canceled read can contain bytes without a successful completion. Clear
-    // the entire borrowed buffers once on retirement, never while kernel-owned.
+    // the entire receive buffer once on retirement, never while kernel-owned.
+    // The send buffer holds only sealed packets, the bytes that went on the wire.
     secure_clear_bytes(media->receive_buffer.data, media->receive_buffer.count);
-    secure_clear_bytes(media->send_buffer.data, media->send_buffer.count);
     media->receive_buffer = media->send_buffer = {};
     media->discovery = nullptr;
     media->crypto = nullptr;
@@ -51,7 +51,7 @@ bool safe_buffer(ConstSlice<u8> buffer, const VoiceUdpMedia& media, const VoiceU
            !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&media), sizeof(media)}) &&
            !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&discovery), sizeof(discovery)}) &&
            !byte_ranges_overlap(buffer, {reinterpret_cast<const u8*>(&crypto), sizeof(crypto)}) &&
-           !byte_ranges_overlap(buffer, {crypto.aes.object.data, crypto.aes.object.capacity}) &&
+           !byte_ranges_overlap(buffer, {crypto.aes.storage.data, crypto.aes.storage.capacity}) &&
            !byte_ranges_overlap(buffer, {crypto.xchacha.storage.data, crypto.xchacha.storage.capacity});
 }
 } // namespace
@@ -140,7 +140,6 @@ void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& c
             fail(media, VoiceUdpMediaError::send, static_cast<u32>(completion.native_error));
             return;
         }
-        secure_clear_bytes(media->send_buffer.data, media->send_bytes);
         media->send_bytes = 0;
         ++media->sent_packets;
         return;

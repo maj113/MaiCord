@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "../../../support/test_output.hpp"
+#include "../../../../src/app/voice/mls/wire.hpp"
 
 namespace maicord {
 namespace {
@@ -45,7 +46,7 @@ void published(Check check, KdfSha256Workspace& workspace) noexcept {
                       .ok() &&
                   bytes_equal(exported, answer, length),
               "MLS key schedule's exporter agrees with published working-group exporter output");
-        check(mls_confirmation_matches({current.confirmation_tag, 32}, {expected.confirmation_tag, 32}),
+        check(mls_equal(current.confirmation_tag, expected.confirmation_tag, kMlsHashBytes),
               "MLS complete confirmation tag matches");
         P256Key external{};
         u8 external_point[65], expected_point[65];
@@ -57,9 +58,8 @@ void published(Check check, KdfSha256Workspace& workspace) noexcept {
         p256_release(&external);
         for (u32 bit = 0; bit != 256; ++bit) {
             expected.confirmation_tag[bit / 8] ^= static_cast<u8>(1u << (bit % 8));
-            check(
-                !mls_confirmation_matches({current.confirmation_tag, 32}, {expected.confirmation_tag, 32}),
-                "MLS confirmation rejects every single-bit tamper");
+            check(!mls_equal(current.confirmation_tag, expected.confirmation_tag, kMlsHashBytes),
+                  "MLS confirmation rejects every single-bit tamper");
             expected.confirmation_tag[bit / 8] ^= static_cast<u8>(1u << (bit % 8));
         }
     }
@@ -149,7 +149,7 @@ void failures(Check check, KdfSha256Workspace& workspace) noexcept {
           "MLS provider failure preserves in-place predecessor and all secrets");
     check(mls_epoch_initial(workspace, {input, 32}, {}, &output).ok(),
           "MLS schedule retries after provider failure");
-    check(mls_confirmation_matches({tag, 32}, {tag, 32}), "MLS confirmation accepts the full tag");
+    check(mls_equal(tag, tag, kMlsHashBytes), "MLS confirmation accepts the full tag");
     for (u32 size = 0; size != 32; ++size)
         check(mls_transcript_interim(workspace, {}, {tag, 32}, {input, size}).error ==
                   KdfError::output_capacity,

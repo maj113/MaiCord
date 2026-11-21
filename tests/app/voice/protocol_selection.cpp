@@ -162,7 +162,7 @@ void test_voice_protocol_selection(Check check) noexcept {
               "accepted protocol command commits once, records its video offer and cannot be resent");
         check(voice_connection_description(&connection, data, {scratch, 256}, 16, 2002) ==
                       VoiceMediaSetupError::none &&
-                  connection.media.has_description && connection.media.packets.aes.handle &&
+                  connection.media.has_description && connection.media.packets.aes.storage.data &&
                   !connection.protocol_deadline_ms && !voice_connection_deadline(connection),
               "accepted description installs the selected key and retires negotiation deadline");
         check(voice_connection_description(&connection, data, {scratch, 256}, 16, 2003) ==
@@ -186,7 +186,7 @@ void test_voice_protocol_selection(Check check) noexcept {
               "controller drains both media directions after key retirement without dispatching a canceled "
               "packet");
         check(!connection.identify_submitted && !connection.media.packets.generation &&
-                  !connection.media.packets.aes.object.data && voice_connection_drained(connection),
+                  !connection.media.packets.aes.storage.data && voice_connection_drained(connection),
               "ended signaling retires an installed media key without waiting for account release");
         finish(check, connection);
 
