@@ -1,8 +1,18 @@
 #pragma once
 
 #include "../support/model_store_fixtures.hpp"
+#include "maicord/media/core/asset_key.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/app/plugins/catalog_index.hpp"
 
 namespace maicord {
+struct UiRect;
+struct D3D11Renderer;
+struct UiSettingsScene;
+struct UiPageRegistry;
+namespace app_detail {
+struct ContentPageOwner;
+}
 namespace showcase_probe_detail {
 
 // 2026-10-18 13:00 UTC; every message is earlier the same day.
@@ -35,6 +45,66 @@ void paint_game_art(u8* out, u32 s) noexcept;
 void paint_record(u8* out, u32 s) noexcept;
 
 void paint_party(u8* out, u32 w, u32 h, u32 variant) noexcept;
+
+// A game's key art in one of kShowcaseGames palettes, at any aspect (covers are 3:4, icons square).
+void paint_game_cover(u8* out, u32 w, u32 h, u32 game) noexcept;
+
+// A pixel-art night scene for the gallery channel: 0 moonlit hills, 1 a city skyline.
+void paint_pixel_scene(u8* out, u32 w, u32 h, u32 scene) noexcept;
+
+// --- The content pages (showcase_probe_hub.cpp, showcase_probe_channels.cpp) -------------------------------------
+
+// The games of the Server Hub, by their application ids.
+constexpr u32 kShowcaseGames = 5;
+constexpr u64 kShowcaseGameIds[kShowcaseGames]{720000000000000001ull, 720000000000000002ull, 720000000000000003ull,
+                                               720000000000000004ull, 720000000000000005ull};
+// A leaderboard entry: the member, minutes played this week and the games (indexes, the last played first).
+struct ShowcaseLeader {
+    u64 user;
+    u32 minutes;
+    u8 games[3];
+    u8 game_count;
+    u16 game_total;
+};
+// The probe's world as the pages read it: the account's stores, the server, the people with pictures and the hub's
+// numbers.
+struct ShowcaseWorld {
+    const ChatStateStore* state;
+    const UserStore* users;
+    const GuildMemberStore* members;
+    u64 guild, list;
+    MediaAssetKey guild_icon;
+    const u64* people;
+    u32 people_count;
+    u32 dpi, width, height;
+    u32 member_count, online_count, boosts;
+    const ShowcaseLeader* leaders;
+    u32 leader_count;
+    const char* const* game_names;
+    const u32* game_players;
+    u32 players_total, games_total;
+};
+// What a page's picture slot shows.
+enum class ShowcaseArt : u8 { none, avatar, guild_icon, banner, game_icon, game_cover };
+struct ShowcasePicture {
+    ShowcaseArt art;
+    u64 subject; // the user, the guild or the game's index
+};
+// The application's account UI over the world's stores (the pages read g_app.account_ui).
+bool showcase_account_ui(const ShowcaseWorld& world) noexcept;
+// The Server Hub page with its data loaded (hub.cpp's owner), or null.
+const app_detail::ContentPageOwner* showcase_hub_page(const ShowcaseWorld& world) noexcept;
+ShowcasePicture showcase_hub_picture(u32 slot) noexcept;
+// Channels & Roles on its Browse Channels tab (channels_roles.cpp's page), or null.
+const app_detail::ContentPageOwner* showcase_channels_page(const ShowcaseWorld& world) noexcept;
+
+// --- The store pages (showcase_probe_store.cpp) -------------------------------------------------------------------
+
+// Settings shows the Plugins, Themes or Effects page with the catalog's listings and their pictures, bound to the
+// renderer as the store host binds it. False when the page cannot be laid out or a picture is missing.
+bool showcase_store_page(D3D11Renderer& r, UiSettingsScene* settings, UiPageRegistry* registry, CatalogKind kind,
+                         const UiRect& viewport) noexcept;
+void showcase_store_close(D3D11Renderer& r) noexcept;
 
 } // namespace showcase_probe_detail
 

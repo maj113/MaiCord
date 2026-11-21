@@ -370,5 +370,95 @@ void paint_party(u8* out, u32 w, u32 h, u32 variant) noexcept {
         }
 }
 
+// Key art of the Server Hub's games, one palette and motif each: 0 a glass canyon at night (Lumen Drift), 1 a
+// racer's light trails, 2 lanterns over moss, 3 a ringed planet, 4 a harbour of pixel blocks.
+void paint_game_cover(u8* out, u32 w, u32 h, u32 game) noexcept {
+    constexpr u32 kSky[5][2]{{0x0b1e3a, 0x1f6f8b}, {0x1b0a33, 0xd6336c}, {0x0f2a1d, 0x6a8f3a},
+                             {0x050816, 0x3b2a8a}, {0x0d2a4a, 0xf2a65a}};
+    const float aspect = static_cast<float>(h) / w;
+    for (u32 y = 0; y < h; ++y)
+        for (u32 x = 0; x < w; ++x) {
+            const float u = (x + .5f) / w, v = (y + .5f) / h;
+            Rgb c = mix(hex(kSky[game % 5][0]), hex(kSky[game % 5][1]), v);
+            if (game % 5 == 0) {
+                c = mix(c, hex(0xffffff), stars(u * 300, v * 300 * aspect, 11, .1f) * (1 - v));
+                c = mix(c, hex(0x9ff3ff), disc(u, v * aspect, .62f, .3f * aspect, .1f, .01f));
+                const float wall = v > (u < .5f ? .8f - .5f * u : .3f + .5f * u) ? 1.f : 0.f;
+                c = mix(c, mix(hex(0x143b5a), hex(0x2c8fa8), u), wall * .85f);
+            } else if (game % 5 == 1) {
+                for (u32 k = 0; k < 5; ++k) {
+                    const float lane = .55f + k * .09f + .05f * sine(u * 6 + k);
+                    c = mix(c, k & 1 ? hex(0x4cd7c8) : hex(0xffd166), 1 - smooth(.004f, .012f, v > lane ? v - lane : lane - v));
+                }
+                c = mix(c, hex(0xff5fa2), disc(u, v * aspect, .5f, .3f * aspect, .16f, .01f) * .8f);
+            } else if (game % 5 == 2) {
+                c = mix(c, hex(0x2e5a24), smooth(.62f, .66f, v + .04f * sine(u * 9)));
+                for (u32 k = 0; k < 4; ++k) {
+                    const float lx = .18f + k * .22f, ly = .3f + .12f * (k & 1);
+                    c = mix(c, hex(0xffb347), disc(u, v * aspect, lx, ly * aspect, .045f, .012f));
+                    c = mix(c, hex(0xffe8a3), disc(u, v * aspect, lx, ly * aspect, .02f, .01f));
+                }
+            } else if (game % 5 == 3) {
+                c = mix(c, hex(0xffffff), stars(u * 300, v * 300 * aspect, 23, .12f));
+                const float dx = u - .5f, dy = v * aspect - .45f * aspect;
+                c = mix(c, mix(hex(0xff9a5a), hex(0x8f7bff), v), disc(u, v * aspect, .5f, .45f * aspect, .2f, .01f));
+                const float ring = root(dx * dx + dy * dy * 9);
+                c = mix(c, hex(0xffe0b0), (1 - smooth(.01f, .02f, ring > .33f ? ring - .33f : .33f - ring)) * .9f);
+            } else {
+                const u32 col = static_cast<u32>(u * 12), row = static_cast<u32>(v * 16);
+                const float top = .45f + .25f * static_cast<float>(hash32(col * 13u + 5u) & 255) / 255.f;
+                if (v > top)
+                    c = mix(hex(0x14304e), hex(0x2a5d8a), static_cast<float>(hash32(col * 31u + row) & 7) / 10);
+                if (v > top && (hash32(col * 7u + row * 3u) & 3) == 0)
+                    c = hex(0xffd166);
+                c = mix(c, hex(0x0a1a30), smooth(.88f, .9f, v));
+            }
+            put(out + (y * w + x) * 4, c);
+        }
+}
+
+// The gallery's pixel art: drawn on a 160-pixel-wide grid and enlarged without smoothing, as a pixel artist posts it.
+// 0: a full moon over layered mountains; 1: a city skyline under a crescent moon, its windows lit.
+void paint_pixel_scene(u8* out, u32 w, u32 h, u32 scene) noexcept {
+    constexpr u32 kGrid = 160;
+    const u32 rows = kGrid * h / w;
+    for (u32 y = 0; y < h; ++y)
+        for (u32 x = 0; x < w; ++x) {
+            const u32 gx = x * kGrid / w, gy = y * rows / h;
+            const float u = (gx + .5f) / kGrid, v = (gy + .5f) / rows;
+            Rgb c{};
+            if (scene == 0) {
+                c = mix(hex(0x0b1230), hex(0x2f4f86), v);
+                if ((hash32(gx * 7919u + gy * 104729u) & 255) < 3 && v < .55f)
+                    c = hex(0xe8f0ff);
+                const float mx = u - .3f, my = (v - .3f) * rows / kGrid;
+                if (mx * mx + my * my < .0036f)
+                    c = hex(0xfff6d8);
+                for (u32 layer = 0; layer < 3; ++layer) {
+                    const float ridge = .5f + layer * .12f -
+                                        .1f * (sine(u * (7 + layer * 5) + layer) * .6f + sine(u * (17 + layer * 3)) * .3f);
+                    if (v > ridge)
+                        c = mix(hex(0x1b2a52), hex(0x0c1430), layer / 2.f);
+                }
+            } else {
+                c = mix(hex(0x10082a), hex(0x3a1f6a), v);
+                if ((hash32(gx * 104729u + gy * 7919u) & 255) < 3 && v < .5f)
+                    c = hex(0xf4ecff);
+                const float mx = u - .74f, my = (v - .14f) * rows / kGrid;
+                if (mx * mx + my * my < .0016f && (mx + .015f) * (mx + .015f) + my * my > .0012f)
+                    c = hex(0xfff2c0);
+                const u32 block = gx / 9;
+                const float top = .3f + .4f * static_cast<float>(hash32(block * 977u + 11u) & 255) / 255.f;
+                if (v > top) {
+                    c = hex(0x0c0a1c);
+                    if (gx % 9 > 1 && gx % 9 < 8 && gy % 3 == 1 && gx % 2 == 0 &&
+                        (hash32(gx * 31u + gy * 17u) & 3) != 0)
+                        c = (hash32(gx + gy * 3u) & 7) == 0 ? hex(0x7fd6ff) : hex(0xffd37a);
+                }
+            }
+            put(out + (y * w + x) * 4, c);
+        }
+}
+
 } // namespace showcase_probe_detail
 } // namespace maicord

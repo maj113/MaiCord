@@ -12,6 +12,7 @@
 #include "probe_capture.hpp"
 #include "probe_present.hpp"
 #include "settings/catalog.hpp"
+#include "shell/content_page.hpp"
 #include "../../src/app/shell/app_icon.hpp"
 #include "../../src/render/d3d11/renderer_caption.hpp"
 #include "../../src/render/d3d11/renderer_draw.hpp"
@@ -47,6 +48,9 @@
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/ui/voice/panel.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -71,7 +75,7 @@ constexpr Person kPeople[]{
      kRoleMaintainers,
      GuildMemberStatus::online,
      {0x5865f2, 0x9b6bff},
-     "Shipping 0.6",
+     "Shipping 0.8.2",
      nullptr},
     {11,
      "Ada Park",
@@ -153,15 +157,59 @@ struct Line {
 };
 constexpr Line kLines[]{
     {11, 52, 0,
-     "Morning, everyone! \xE2\x98\x80\xEF\xB8\x8F The 0.5 release notes are pinned in <#302>."},
+     "Morning, everyone! \xE2\x98\x80\xEF\xB8\x8F The 0.8.2 release notes are pinned in <#302>."},
     {12, 20, 0,
      "Tried the **Aurora** gradient on my laptop and it idles at basically 0% CPU. "
      "Here's a palette study for the website:"},
     {14, 14, 0, "That sunset is gorgeous. Mind if we use it for the release banner?"},
     {16, 6, 0,
-     "<@12> writing up the theme docs next, draft is here: https://lab.example/notes/theme-gallery"},
+     "<@&902> writing up the theme docs next, draft is here: https://lab.example/notes/theme-gallery"},
 };
 constexpr u32 kLineCount = sizeof(kLines) / sizeof(kLines[0]);
+
+// Display name styles (Settings > Profiles): a name's font and colour. In a server the name keeps the style's font and
+// shows the role colour, as in the official client.
+struct NameStyle {
+    u64 user;
+    u8 font;
+    u32 color;
+};
+constexpr NameStyle kNameStyles[]{{12, 6, 0xb57bff}, {13, 16, 0x5fd3a5}, {18, 8, 0x8fa8ff}};
+// The roles' enhanced colours (MaiCord Lab has ENHANCED_ROLE_COLORS): names, role mentions and reply names show the
+// gradient from the role's colour to its second one.
+struct RoleSeed {
+    u64 id;
+    const char* name;
+    u32 position, color, secondary;
+};
+constexpr RoleSeed kLabRoles[]{{kRoleMaintainers, "Maintainers", 3, 0xf0b232, 0xff6a3d},
+                               {kRoleDesigners, "Designers", 2, 0xeb6fa1, 0x9b6bff},
+                               {kRoleContributors, "Contributors", 1, 0x3fbfa8, 0x7ee081}};
+
+// MAICORD_SHOWCASE_GALLERY: Pixel Garden's #gallery instead, two pixel-art posts with reactions, under the server's
+// own roles and members.
+constexpr u64 kGalleryGuild = 200, kGalleryChannel = 400, kGalleryList = 2;
+constexpr u64 kRoleGardeners = 911, kRoleSprouts = 912;
+constexpr RoleSeed kGalleryRoles[]{{kRoleGardeners, "Gardeners", 2, 0x8bd17c, 0},
+                                   {kRoleSprouts, "Sprouts", 1, 0xf6c177, 0}};
+struct GalleryMember {
+    u64 user, role;
+};
+constexpr GalleryMember kGalleryMembers[]{{13, kRoleGardeners}, {19, kRoleGardeners}, {kSelf, kRoleSprouts},
+                                          {12, kRoleSprouts},   {18, kRoleSprouts},   {17, 0},
+                                          {20, 0},              {21, 0}};
+constexpr Line kGalleryLines[]{
+    {13, 41, 0, "moonrise study, drawn 160 pixels wide and scaled up with no smoothing \xF0\x9F\x8C\x95"},
+    {19, 12, 0, "pixel city, round two! added rooftop lights"},
+};
+constexpr u64 kGalleryMoon = 0x5c0010, kGalleryCity = 0x5c0011;
+// The guild, channel and member list the views show: MaiCord Lab's #general, or the gallery.
+bool g_gallery;
+u64 g_guild = kGuild, g_channel = kChannel, g_list = kList;
+// The row of the content page that shows (the Server Hub, Channels & Roles), 0 for the channel.
+u64 g_page_row;
+// The shot's theme as the settings rows read it.
+constinit ClientPreferences g_preferences = client_preferences_defaults();
 
 Utf8View text(const char* s) noexcept {
     return {s, c_string_length(s)};
@@ -187,7 +235,7 @@ struct Fixture {
     u32 member_order[kMembers];
     MemberListView member_view;
     MemberListRow member_rows[kMembers * 2];
-    u32 member_scratch[kMembers];
+    MemberListSortKey member_scratch[kMembers];
     NavigationView view;
     GuildViewRow guild_rows[kGuilds];
     ChannelViewRow channel_rows[kChannels];
@@ -347,7 +395,7 @@ bool build_state(Fixture& f) noexcept {
     constexpr u64 everyone = kPermissionViewChannel | kPermissionSendMessages |
                              kPermissionReadMessageHistory | kPermissionAddReactions |
                              kPermissionEmbedLinks | kPermissionAttachFiles | kPermissionConnect |
-                             kPermissionSpeak;
+                             kPermissionSpeak | kPermissionCreateInvite;
     const auto& guilds = kGuildSeeds;
     bool ok = chat_state_store_initialize(&f.state, {f.guilds, kGuilds}, {f.guild_order, kGuilds},
                                           {f.channels, kChannels}, {f.channel_order, kChannels},
@@ -358,6 +406,12 @@ bool build_state(Fixture& f) noexcept {
         GuildInput input{guilds[i].id, text(guilds[i].name), GuildMutationKind::create, 999};
         input.icon_hash = {f.icon_hashes[i], 32};
         input.icon_known = true;
+        // MaiCord Lab is a community server with onboarding questions (its list leads with Channels & Roles) and
+        // enhanced role colours.
+        if (guilds[i].id == kGuild) {
+            input.upload_features = guild_record_community | guild_record_onboarding_prompts;
+            input.upload_features_known = input.enhanced_role_colors = true;
+        }
         ok = chat_state_store_upsert_guild(&f.state, input).ok() &&
              chat_state_store_upsert_role(
                  &f.state, RoleInput{guilds[i].id, guilds[i].id, everyone, utf8_literal("@everyone")}) &&
@@ -388,7 +442,13 @@ bool build_state(Fixture& f) noexcept {
                                      {320, kGuild, 0, 2, 4, "Voice"},
                                      {321, kGuild, 320, 0, 2, "Lounge"},
                                      {322, kGuild, 320, 1, 2, "Pairing Room"},
-                                     {400, 200, 0, 0, 0, "general"},
+                                     {405, 200, 0, 0, 4, "Gallery"},
+                                     {400, 200, 405, 0, 0, "gallery"},
+                                     {406, 200, 405, 1, 0, "wip"},
+                                     {407, 200, 405, 2, 0, "palettes"},
+                                     {408, 200, 0, 1, 4, "Hangout"},
+                                     {409, 200, 408, 0, 0, "chat"},
+                                     {410, 200, 408, 1, 2, "Sketch Session"},
                                      {401, 201, 0, 0, 0, "general"},
                                      {402, 202, 0, 0, 0, "general"},
                                      {403, 203, 0, 0, 0, "general"},
@@ -397,16 +457,23 @@ bool build_state(Fixture& f) noexcept {
         ok = ok && chat_state_store_upsert_channel(
                        &f.state, ChannelInput{c.id, c.guild, c.parent, text(c.name), c.position, 0, c.type})
                        .ok();
-    ok =
-        ok &&
-        chat_state_store_upsert_role(&f.state, RoleInput{kRoleMaintainers, kGuild, 0,
-                                                         utf8_literal("Maintainers"), 3, 0xf0b232, true}) &&
-        chat_state_store_upsert_role(
-            &f.state, RoleInput{kRoleDesigners, kGuild, 0, utf8_literal("Designers"), 2, 0xeb6fa1, true}) &&
-        chat_state_store_upsert_role(&f.state, RoleInput{kRoleContributors, kGuild, 0,
-                                                         utf8_literal("Contributors"), 1, 0x3fbfa8, true});
-    const u64 self_roles[]{kRoleMaintainers};
-    ok = ok && chat_state_store_set_self_roles(&f.state, kGuild, 999, kSelf, {self_roles, 1});
+    const auto role = [&](u64 guild, const RoleSeed& seed) noexcept {
+        RoleInput input{seed.id, guild, 0, text(seed.name), seed.position, seed.color, true};
+        input.secondary_color = seed.secondary ? seed.secondary | kRoleColorPresent : 0;
+        return chat_state_store_upsert_role(&f.state, input);
+    };
+    // The channels Mai follows (Browse Channels): the Information category, #general, #design-crit, #plugins and the
+    // Lounge.
+    constexpr u64 kFollowed[]{300, 311, 312, 314, 321};
+    for (const u64 followed : kFollowed)
+        ok = ok && chat_state_store_set_channel_opted_in(&f.state, followed, true);
+    for (const RoleSeed& seed : kLabRoles)
+        ok = ok && role(kGuild, seed);
+    for (const RoleSeed& seed : kGalleryRoles)
+        ok = ok && role(kGalleryGuild, seed);
+    const u64 self_roles[]{kRoleMaintainers}, gallery_roles[]{kRoleSprouts};
+    ok = ok && chat_state_store_set_self_roles(&f.state, kGuild, 999, kSelf, {self_roles, 1}) &&
+         chat_state_store_set_self_roles(&f.state, kGalleryGuild, 999, kSelf, {gallery_roles, 1});
     for (const auto& g : guilds)
         chat_state_store_recompute_guild_permissions(&f.state, g.id);
     // Unread channels and servers, with a couple of mentions.
@@ -416,7 +483,7 @@ bool build_state(Fixture& f) noexcept {
          chat_state_store_note_message(&f.state, 401, snowflake(20), 18, true, false) &&
          chat_state_store_note_message(&f.state, 401, snowflake(19), 18, true, false) &&
          chat_state_store_note_message(&f.state, 403, snowflake(25), 19, false, false) &&
-         chat_state_store_select_channel(&f.state, kChannel).ok();
+         chat_state_store_select_channel(&f.state, g_channel).ok();
     return check(ok, "state_failed");
 }
 
@@ -471,9 +538,17 @@ bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
              user_store_set_avatar(&f.users, p.id, hash) &&
              upload_rgba(r, media_asset_user_avatar(p.id, user_avatar_variant(hash), false), g_avatars[i],
                          kAvatar, kAvatar) &&
-             guild_member_store_upsert(&f.members, f.state, kGuild, p.id, {}, {roles, p.role ? 1u : 0u},
-                                       true, p.status, i, kList)
-                 .ok();
+             (g_gallery || guild_member_store_upsert(&f.members, f.state, kGuild, p.id, {},
+                                                     {roles, p.role ? 1u : 0u}, true, p.status, i, kList)
+                               .ok());
+        for (u32 m = 0; ok && g_gallery && m < sizeof(kGalleryMembers) / sizeof(kGalleryMembers[0]); ++m)
+            if (kGalleryMembers[m].user == p.id) {
+                const u64 gallery_role[]{kGalleryMembers[m].role};
+                ok = guild_member_store_upsert(&f.members, f.state, kGalleryGuild, p.id, {},
+                                               {gallery_role, gallery_role[0] ? 1u : 0u}, true, p.status, m,
+                                               kGalleryList)
+                         .ok();
+            }
         if (ok && p.id == kBot) {
             UserAppearance bot{};
             bot.user_id = p.id;
@@ -510,20 +585,34 @@ bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
         if (ok && user_guild_badge_media(tag, {}, {}, &badge))
             ok = upload_png(r, badge.key, g_badges[seed], 32, 32);
     }
+    for (const NameStyle& s : kNameStyles) {
+        UserAppearance style{};
+        if (const auto* old = user_appearance_find(f.users.appearance, s.user))
+            user_appearance_expand(*old, &style);
+        style.user_id = s.user;
+        style.fields |= appearance_name;
+        style.name.font_id = s.font;
+        style.name.color_count = 1;
+        style.name.colors[0] = s.color;
+        ok = ok && user_appearance_upsert(&f.users.appearance, style);
+    }
     ok = ok &&
          member_list_view_initialize(&f.member_view, {f.member_rows, kMembers * 2},
                                      {f.member_scratch, kMembers}) &&
-         member_list_view_rebuild(&f.member_view, f.members, f.users, f.state, kGuild, kList).ok();
+         member_list_view_rebuild(&f.member_view, f.members, f.users, f.state, g_guild, g_list).ok();
     return check(ok, "people_failed");
 }
 
 bool build_messages(Fixture& f) noexcept {
     bool ok = message_store_initialize(&f.store, {f.records, kMessages}, {f.order, kMessages},
                                        {f.text, sizeof(f.text)});
-    for (const auto& line : kLines) {
+    const ConstSlice<Line> lines = g_gallery ? ConstSlice<Line>{kGalleryLines, sizeof(kGalleryLines) / sizeof(Line)}
+                                             : ConstSlice<Line>{kLines, kLineCount};
+    for (u32 i = 0; i < lines.count; ++i) {
+        const Line& line = lines[i];
         const u64 id = snowflake(line.minutes, line.serial);
         ok = ok &&
-             message_store_upsert(&f.store, MessageInput{id, kChannel, line.author,
+             message_store_upsert(&f.store, MessageInput{id, g_channel, line.author,
                                                          snowflake_timestamp_ms(id), 0, text(line.text), 0})
                  .ok();
     }
@@ -531,8 +620,8 @@ bool build_messages(Fixture& f) noexcept {
          message_rich_store_initialize_owned_sparse(&f.rich, &f.rich_storage, kMessages,
                                                     {f.rich_order, kMessages},
                                                     {f.rich_text, sizeof(f.rich_text)}) &&
-         ui_variable_list_initialize(&f.list, {f.heights, kMessages}, {f.fenwick, kMessages}, kLineCount,
-                                     ui_extent_units(48)) &&
+         ui_variable_list_initialize(&f.list, {f.heights, kMessages}, {f.fenwick, kMessages},
+                                     static_cast<u32>(lines.count), ui_extent_units(48)) &&
          message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(48),
                                      ui_extent_units(800), true) &&
          message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
@@ -547,6 +636,37 @@ bool build_messages(Fixture& f) noexcept {
         event.id = id;
         return record && message_rich_store_apply(&f.rich, id, record->revision, event).ok();
     };
+    if (g_gallery) {
+        // The two posts: each picture at its own size, with the reactions they got.
+        const struct {
+            u32 minutes;
+            u64 id;
+            const char* name;
+            u16 width, height;
+            Utf8View emoji;
+            u32 count;
+        } posts[]{{41, kGalleryMoon, "moonrise.png", 480, 270, utf8_literal("\xF0\x9F\x92\x9C"), 9},
+                  {12, kGalleryCity, "pixel-city.png", 560, 315, utf8_literal("\xF0\x9F\x8C\x99"), 6}};
+        bool posted = true;
+        for (const auto& post : posts) {
+            GatewayMessageAttachment picture{};
+            picture.id = post.id;
+            picture.size = 24'000 + post.width * 7;
+            picture.filename = text(post.name);
+            picture.content_type = utf8_literal("image/png");
+            picture.url = utf8_literal("https://cdn.discordapp.com/attachments/400/6029320/gallery.png");
+            picture.width = post.width;
+            picture.height = post.height;
+            picture.has_width = picture.has_height = true;
+            GatewayMessageReaction reaction{0, post.emoji, post.count, post.count, 0, post.id == kGalleryMoon};
+            GatewayMessageEvent event{};
+            event.fields = gateway_message_field_attachments | gateway_message_field_reactions;
+            event.attachments = {&picture, 1};
+            event.reactions = {&reaction, 1};
+            posted = apply(snowflake(post.minutes), event) && posted;
+        }
+        return check(posted, "gallery_apply_failed");
+    }
     // The palette study, with reactions.
     GatewayMessageAttachment photo{};
     photo.id = 0x5c0001;
@@ -619,8 +739,7 @@ void display_pixels(float w_dip, float h_dip, u32 dpi, u32 max_w, u32* w, u32* h
 // Attachment and embed pixels for the keys the laid-out rows ask for, painted
 // at the displayed size as the media proxy would deliver them.
 bool upload_rows(Fixture& f, D3D11Renderer& r) noexcept {
-    static u32 photo_w, photo_h, card_w, card_h;
-    static bool photo_party;
+    static u32 photo_w, photo_h, card_w, card_h, photo_kind;
     bool ok = true;
     for (u32 i = 0; i < f.messages.count; ++i) {
         const MessageSceneRowWidget& row = f.messages.rows[i];
@@ -637,13 +756,19 @@ bool upload_rows(Fixture& f, D3D11Renderer& r) noexcept {
                 media_resolution_tier_for_display(w, h, r.dpi, media_preview_extent_cap(format));
             u32 pw{}, ph{};
             display_pixels(w, h, r.dpi, kPhotoW, &pw, &ph);
-            const bool party = row.message_id == kGifMessage;
-            if (pw != photo_w || ph != photo_h || party != photo_party) {
-                if (party)
+            // 0 the palette study, 1 the party GIF, 2 and 3 the gallery's moon and city.
+            const u32 kind = row.message_id == kGifMessage   ? 1u
+                             : attachment.id == kGalleryMoon ? 2u
+                             : attachment.id == kGalleryCity ? 3u
+                                                             : 0u;
+            if (pw != photo_w || ph != photo_h || kind != photo_kind) {
+                if (kind == 1)
                     paint_party(g_photo, pw, ph, 1);
+                else if (kind >= 2)
+                    paint_pixel_scene(g_photo, pw, ph, kind - 2);
                 else
                     paint_landscape(g_photo, pw, ph);
-                photo_w = pw, photo_h = ph, photo_party = party;
+                photo_w = pw, photo_h = ph, photo_kind = kind;
             }
             ok = upload_png(r, media_asset_attachment(attachment.id, format, tier), g_photo, photo_w,
                             photo_h) &&
@@ -743,12 +868,21 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     // The typing line as the composer gets it from the typing store.
     MessageTypingName typing_names[3]{};
-    const auto typed = message_typing_presentation_build(f.typing, f.users, kChannel, kSelf,
+    const auto typed = message_typing_presentation_build(f.typing, f.users, g_channel, kSelf,
                                                          {f.typing_label, sizeof(f.typing_label)}, typing_names);
     const Utf8View typing{f.typing_label, typed.ok() ? typed.bytes : 0};
-    // Pins and threads as a readable channel with history shows them.
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
-    metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins | ui_shell_layout_threads);
+    // Pins and threads as a readable channel with history shows them (a content page shows neither), and Invite
+    // People while a channel of the server takes invites (shell_header_flags).
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(ui_theme_metrics(f.theme.styles));
+    if (!g_page_row)
+        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins | ui_shell_layout_threads);
+    if (guild_context_invite_channel(f.state, g_guild, g_channel))
+        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_guild_invite);
+    // The scenes take the theme's styles before they lay out, as synchronize_shell_layout binds them.
+    message_composer_scene_bind_theme_styles(&f.composer_scene, f.theme.styles);
+    message_scene_bind_theme_styles(&f.messages, f.theme.styles);
+    ui_search_scene_bind_theme_styles(&f.search, f.theme.styles);
+    popup_scene_bind_theme_styles(&f.popup, f.theme.styles);
     const bool bar = f.command.command_bar_name.bytes != 0;
     metrics.composer_height =
         message_composer_scene_preferred_height(f.composer, ui_scene_composer_width(metrics, width), false) +
@@ -770,9 +904,9 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     MessageComposerProjectionContext& projection = f.command;
     projection.users = &f.users;
     projection.state = &f.state;
-    projection.guild_id = kGuild;
+    projection.guild_id = g_guild;
     // Send and Upload a File as the channel's permissions allow them, as the application derives them.
-    const ChannelViewRow* row = navigation_view_find_channel(f.view, kChannel);
+    const ChannelViewRow* row = navigation_view_find_channel(f.view, g_channel);
     const u32 actions = row ? row->actions : 0;
     MessageComposerAttachmentInput attachments{};
     attachments.can_attach = (actions & (channel_action_send_messages | channel_action_attach_files)) ==
@@ -853,20 +987,17 @@ ClientPreferences preferences(ClientTheme theme, BackgroundEffect effect) noexce
     return p;
 }
 
-// The window caption. With the channel tabs on (g_tabs) the strip takes the bar and the server's icon
-// and name its region beside the window buttons, as the app sets them for a server channel; else the
-// server's name alone.
+// The window caption: the shown server's icon and name, as the app sets them for a server channel. With the channel
+// tabs on (g_tabs) the strip takes the bar and the server's icon and name its region beside the window buttons.
 const UiTabStripView* g_tabs;
 bool set_caption(Fixture& f, D3D11Renderer& r) noexcept {
     UiCaptionBarState state{
         UiCaptionPart::none, UiCaptionPart::none, true, false, UiCaptionUpdate::hidden, false, 0};
-    if (!g_tabs)
-        return renderer_set_caption(&r, state, utf8_literal("MaiCord Lab"));
     state.tabs = g_tabs;
-    const GuildRecord* guild = chat_state_store_find_guild(f.state, kGuild);
+    const GuildRecord* guild = chat_state_store_find_guild(f.state, g_guild);
     UiCaptionTitleInput title{};
     title.signed_in = guild != nullptr;
-    title.guild_id = kGuild;
+    title.guild_id = g_guild;
     title.guild_icon_variant = guild ? guild->icon_variant : 0;
     title.guild_name = guild ? chat_state_store_guild_name(f.state, *guild) : Utf8View{};
     return renderer_set_caption(&r, state, ui_caption_title(title));
@@ -898,7 +1029,8 @@ bool shot(Fixture& f, D3D11Renderer& r, const wchar_t* name, float phase = 6.f) 
 
 bool set_theme(Fixture& f, D3D11Renderer& r, ClientTheme theme,
                BackgroundEffect effect = BackgroundEffect::none) noexcept {
-    f.theme = client_theme_projection(preferences(theme, effect));
+    g_preferences = preferences(theme, effect);
+    f.theme = client_theme_projection(g_preferences);
     return project(f, r);
 }
 
@@ -1037,15 +1169,15 @@ bool open_profile(Fixture& f, D3D11Renderer& r, bool modal) noexcept {
     return true;
 }
 
-// Settings catalog rows at representative values (see user_settings_ui_probe).
-constexpr ClientPreferences kPreferences = client_preferences_defaults();
+// Settings catalog rows at representative values (see user_settings_ui_probe), the theme rows at the shot's theme
+// (g_preferences).
 SettingBinding binding_of(u64 id) noexcept {
     UiSettingsSchemaLocation location{};
     const auto* n = settings_control_location(id, &location) ? settings_catalog_node(location) : nullptr;
     return n ? static_cast<SettingBinding>(n->binding()) : SettingBinding::none;
 }
 bool palette(void*, u64 id, u32 choice, BackgroundTheme* output) noexcept {
-    return settings_theme_swatch(kPreferences, binding_of(id), choice, output);
+    return settings_theme_swatch(g_preferences, binding_of(id), choice, output);
 }
 constexpr Utf8View kDevices[]{utf8_literal("Default"), utf8_literal("Speakers (Synthetic Audio)")};
 constexpr Utf8View kGames[]{utf8_literal("Lumen Drift")};
@@ -1084,7 +1216,7 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
                                                       : kUiSettingsNoDefault};
         SettingValue value{};
         if (n.kind == UiSettingsControlKind::palette &&
-            settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding()), &value))
+            settings_store_read(g_preferences, static_cast<SettingBinding>(n.binding()), &value))
             c.selected_choice = value.choice;
         // "Your themes" with no theme installed: the application lists only the Browse tile, drawn as an arrow,
         // and checks none.
@@ -1097,19 +1229,27 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
     }
     return count;
 }
-bool open_settings(Fixture& f, D3D11Renderer& r) noexcept {
+bool open_settings(Fixture& f, D3D11Renderer& r, SettingsPanel shown = SettingsPanel::appearance) noexcept {
     static bool registered;
+    bool ok = registered || ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount});
+    for (u32 panel = 0; ok && panel < kSettingsPanelCount; ++panel) {
+        const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
+        // As settings_projection's ensure(): the store pages are wide hosts without a summary or rows of their own.
+        const auto owner = static_cast<SettingsPanel>(panel);
+        const bool store =
+            owner == SettingsPanel::plugins || owner == SettingsPanel::themes || owner == SettingsPanel::effects;
+        const u32 count = store ? 0 : project_panel(panel, f.controls[panel], f.looks[panel]);
+        const u32 revision = f.contents[panel].revision + 1;
+        f.contents[panel] = {source.title, store ? Utf8View{} : source.summary, {f.controls[panel], count},
+                             revision};
+        f.contents[panel].host = f.contents[panel].wide = store;
+        f.contents[panel].presentation = f.looks[panel];
+        ok = registered ||
+             ui_page_registry_register(&f.registry,
+                                       {{kSettingsNativeOwner, panel + 1u}, source.title, &f.contents[panel]})
+                 .ok();
+    }
     if (!registered) {
-        bool ok = ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount});
-        for (u32 panel = 0; ok && panel < kSettingsPanelCount; ++panel) {
-            const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
-            const u32 count = project_panel(panel, f.controls[panel], f.looks[panel]);
-            f.contents[panel] = {source.title, {}, {f.controls[panel], count}, 1};
-            f.contents[panel].presentation = f.looks[panel];
-            ok = ui_page_registry_register(
-                     &f.registry, {{kSettingsNativeOwner, panel + 1u}, source.title, &f.contents[panel]})
-                     .ok();
-        }
         ok = ok && ui_settings_scene_set_presentation(&f.settings, UiSettingsPresentation::modal) &&
              ui_settings_scene_bind_navigation(&f.settings, settings_catalog_navigation(true), 1) &&
              ui_settings_scene_bind_palette(&f.settings, {&f, palette, 1});
@@ -1118,12 +1258,177 @@ bool open_settings(Fixture& f, D3D11Renderer& r) noexcept {
         registered = true;
     }
     const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
-    const UiPageKey page{kSettingsNativeOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
+    const UiPageKey page{kSettingsNativeOwner, static_cast<u64>(shown) + 1};
+    // The chrome as bind_chrome sets it: the text cache, the search field and the build under the sidebar. The
+    // shots name the release they show, not the build's own version.
+    ui_settings_scene_bind_theme_styles(&f.settings, f.theme.styles);
+    ui_settings_scene_bind_measure(&f.settings, r.message_measure_cache);
+    ui_settings_scene_set_navigation_note(&f.settings, utf8_literal("MaiCord 0.8.2\nWindows x64"));
+    ui_settings_scene_set_search(&f.settings, {{{}, 0, 0, true, false, false}, nullptr, utf8_literal("Search")});
     renderer_bind_settings_scene(&r, &f.settings);
+    const bool store =
+        shown == SettingsPanel::plugins || shown == SettingsPanel::themes || shown == SettingsPanel::effects;
     return check(ui_page_registry_select(&f.registry, page).ok() &&
                      ui_settings_scene_update(&f.settings, &f.registry, viewport) &&
-                     f.settings.content.controls.count,
+                     (store || f.settings.content.controls.count),
                  "settings_open_failed");
+}
+// Settings on the Plugins, Themes or Effects page over the catalog (showcase_probe_store.cpp).
+bool open_store(Fixture& f, D3D11Renderer& r, CatalogKind kind) noexcept {
+    const SettingsPanel panel = kind == CatalogKind::plugin  ? SettingsPanel::plugins
+                                : kind == CatalogKind::theme ? SettingsPanel::themes
+                                                             : SettingsPanel::effects;
+    const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
+    return open_settings(f, r, panel) &&
+           check(showcase_store_page(r, &f.settings, &f.registry, kind, viewport), "store_page_failed");
+}
+void close_settings(D3D11Renderer& r) noexcept {
+    showcase_store_close(r);
+    renderer_bind_settings_scene(&r, nullptr);
+}
+
+// --- Content pages (the Server Hub, Channels & Roles) ---------------------------------------------------------------
+
+// The hub's numbers: the members' week of play, the games and their players. All invented. Eight leaders fill the
+// leaderboard's list without a scroll.
+constexpr ShowcaseLeader kLeaders[]{{12, 1730, {0, 3, 1}, 3, 5}, {13, 1265, {2}, 1, 1},    {19, 1090, {1, 0}, 2, 2},
+                                    {kSelf, 905, {0, 4}, 2, 2},  {15, 760, {3, 2, 4}, 3, 3}, {17, 540, {1}, 1, 1},
+                                    {14, 420, {4, 0}, 2, 2},     {18, 255, {2}, 1, 1}};
+constexpr const char* kGameNames[kShowcaseGames]{"Lumen Drift", "Neon Circuit", "Moss & Lanterns", "Ringfall",
+                                                 "Harbor Blocks"};
+constexpr u32 kGamePlayers[kShowcaseGames]{7, 5, 4, 3, 3};
+u64 g_people_ids[kPeopleCount];
+
+ShowcaseWorld world(Fixture& f, D3D11Renderer& r) noexcept {
+    for (u32 i = 0; i < kPeopleCount; ++i)
+        g_people_ids[i] = kPeople[i].id;
+    const GuildRecord* guild = chat_state_store_find_guild(f.state, kGuild);
+    return {&f.state,
+            &f.users,
+            &f.members,
+            kGuild,
+            kList,
+            media_asset_guild_icon(kGuild, guild ? guild->icon_variant : 0, false),
+            g_people_ids,
+            kPeopleCount,
+            r.dpi,
+            r.width,
+            r.height,
+            1284,
+            312,
+            14,
+            kLeaders,
+            sizeof(kLeaders) / sizeof(kLeaders[0]),
+            kGameNames,
+            kGamePlayers,
+            11,
+            14};
+}
+
+// The page as the application's content page host shows it (src/app/shell/content_page.cpp): a centred column of
+// the content area under the header, the chat column and the member list covered, its row selected in the list.
+UiStoreScene g_page_scene;
+UiStoreMeasure g_page_measure;
+const app_detail::ContentPageOwner* g_page_owner;
+bool page_media_key(const void*, u32 slot, const UiRect&, MediaAssetKey* key, u8* domain) noexcept {
+    const auto* media = g_page_owner ? g_page_owner->media(slot) : nullptr;
+    if (!media || !media->key.id)
+        return false;
+    *key = media->key;
+    *domain = 0;
+    return true;
+}
+// The page's pictures that are not resident yet (the avatars and the server icon are), painted at their size.
+bool upload_page_pictures(D3D11Renderer& r, bool hub) noexcept {
+    UiStoreMedia media{};
+    u32 cursor = 0;
+    bool ok = true;
+    while (ui_store_scene_next_media(g_page_scene, &cursor, &media)) {
+        if (media_atlas_peek(r.media_atlas, media.key).ok())
+            continue;
+        const ShowcasePicture picture = hub ? showcase_hub_picture(media.slot) : ShowcasePicture{};
+        u32 w{}, h{};
+        display_pixels(ui_rect_width(media.rect), ui_rect_height(media.rect), r.dpi, kPhotoW, &w, &h);
+        if (picture.art == ShowcaseArt::game_icon || picture.art == ShowcaseArt::game_cover)
+            paint_game_cover(g_photo, w, h, static_cast<u32>(picture.subject));
+        else if (picture.art == ShowcaseArt::banner)
+            paint_banner(g_photo, w, h);
+        else {
+            u32 person = 0;
+            while (person < kPeopleCount && kPeople[person].id != picture.subject)
+                ++person;
+            if (!check(picture.art == ShowcaseArt::avatar && person < kPeopleCount, "page_picture_unknown")) {
+                ok = false;
+                continue;
+            }
+            ok = upload_png(r, media.key, g_avatars[person], kAvatar, kAvatar) && ok;
+            continue;
+        }
+        ok = upload_png(r, media.key, g_photo, w, h) && ok;
+    }
+    return ok;
+}
+void browse_clock(Fixture& f, bool now) noexcept;
+bool show_page(Fixture& f, D3D11Renderer& r, const app_detail::ContentPageOwner* owner, bool hub) noexcept {
+    if (!check(owner != nullptr, "page_owner_missing"))
+        return false;
+    g_page_owner = owner;
+    g_page_row = owner->row;
+    if (!project(f, r))
+        return false;
+    // Browse Channels reads the times after the channel list was laid out, so the list keeps its unread marks.
+    if (!hub)
+        browse_clock(f, true);
+    if (!g_page_scene.nodes && !check(ui_store_scene_open(&g_page_scene), "page_open_failed"))
+        return false;
+    g_page_measure = ui_store_cache_measure(r.message_measure_cache);
+    g_page_scene.measure = &g_page_measure;
+    g_page_scene.media_key = page_media_key;
+    g_page_scene.active = true;
+    UiRect viewport = ui_scene_content_rectangle(f.shell, UiSemantic::content);
+    viewport.top = ui_scene_content_rectangle(f.shell, UiSemantic::title_bar).bottom;
+    viewport.right = r.width * 96.f / r.dpi;
+    const float pad = owner->padding ? owner->padding : 16;
+    const float room = maximum(1.f, ui_rect_width(viewport) - pad * 2);
+    const float width = minimum(room, owner->column_maximum ? owner->column_maximum : app_detail::kContentPageColumnMaximum);
+    const float left = viewport.left + pad + (room - width) * .5f;
+    const UiRect column{left, viewport.top + pad, left + width, viewport.bottom - pad};
+    ui_store_scene_begin(&g_page_scene);
+    UiStoreBuilder builder(&g_page_scene);
+    owner->build(builder, width);
+    if (!check(ui_store_scene_commit(&g_page_scene, viewport, column, viewport), "page_commit_failed") ||
+        !check(renderer_bind_content_page(&r, &g_page_scene, owner->row), "page_bind_failed"))
+        return false;
+    r.retained_presentation.valid = false;
+    return check(upload_page_pictures(r, hub), "page_pictures_failed");
+}
+void close_page(Fixture& f, D3D11Renderer& r) noexcept {
+    renderer_bind_content_page(&r, nullptr, 0);
+    g_page_owner = nullptr;
+    g_page_row = 0;
+    project(f, r);
+}
+// Browse Channels says when each channel was last active by the real clock: for its shot the channels of the server
+// take messages from minutes to days before now, and give back their own afterwards.
+u64 g_saved_last[kChannels];
+void browse_clock(Fixture& f, bool now) noexcept {
+    constexpr u32 kMinutesAgo[]{0, 2 * 1440, 5, 0, 3, 40, 6 * 60, 2 * 1440 + 30, 26 * 60, 0, 0, 0};
+    u32 next = 0;
+    for (u32 i = 0; i < f.state.channel_count && i < kChannels; ++i) {
+        ChannelRecord& c = f.state.channels[i];
+        if (c.guild_id != kGuild)
+            continue;
+        if (now) {
+            g_saved_last[i] = c.last_message_id;
+            const u32 minutes = next < sizeof(kMinutesAgo) / sizeof(kMinutesAgo[0]) ? kMinutesAgo[next] : 60;
+            ++next;
+            if (c.type != 4 && c.type != 2)
+                c.last_message_id =
+                    ((clock_unix_milliseconds() - minutes * 60'000ull - kSnowflakeEpochMs) << 22) + i;
+        } else {
+            c.last_message_id = g_saved_last[i];
+        }
+    }
 }
 
 wchar_t g_frame_name[64];
@@ -1183,10 +1488,10 @@ bool react(Fixture& f, u64 id, Utf8View emoji, bool self) noexcept {
 bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
     GatewayMessageEmbed card{};
     card.type = GatewayMessageEmbedType::rich;
-    card.title = utf8_literal("MaiCord 0.5.2");
-    card.url = utf8_literal("https://lab.example/releases/0.5.2");
-    card.description = utf8_literal("Slash commands, bot buttons and sticker popouts. Voice encrypts in hardware "
-                                    "and Opus decodes up to 25% faster.");
+    card.title = utf8_literal("MaiCord 0.8.2");
+    card.url = utf8_literal("https://lab.example/releases/0.8.2");
+    card.description = utf8_literal("The Server Hub, Browse Channels, role gradients on names and the connection "
+                                    "status in the title bar.");
     card.color = 0x7c5cff;
     card.has_color = card.has_title = true;
     GatewayMessageComponent components[3]{};
@@ -1195,7 +1500,7 @@ bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
     components[1].type = components[2].type = gateway_component_button;
     components[1].style = components[2].style = 5;
     components[1].label = utf8_literal("Release notes");
-    components[1].url = utf8_literal("https://lab.example/releases/0.5.2");
+    components[1].url = utf8_literal("https://lab.example/releases/0.8.2");
     components[2].label = utf8_literal("Download");
     components[2].url = utf8_literal("https://lab.example/download");
     components[2].order = 1;
@@ -1870,7 +2175,9 @@ bool project_friends(Fixture& f, D3D11Renderer& r) noexcept {
         return check(false, "friends_home_failed");
     f.state.selected_channel_id = 0;
     if (!navigation_view_rebuild(&f.view, f.state).ok() ||
-        !ui_scene_layout_with_metrics(&f.shell, UiShellView::friends, kFriendsShellLayoutMetrics, width, height))
+        !ui_scene_layout_with_metrics(&f.shell, UiShellView::friends,
+                                      ui_friends_shell_layout_metrics(ui_theme_metrics(f.theme.styles)), width,
+                                      height))
         return check(false, "friends_layout_failed");
     const UiLayoutNode* rail = node(f.shell, UiSemantic::guild_navigation);
     const UiLayoutNode* channels = node(f.shell, UiSemantic::channel_navigation);
@@ -1927,6 +2234,8 @@ bool friends_pages(Fixture& f, D3D11Renderer& r) noexcept {
 }
 bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) noexcept {
     f.theme = kDefaultTheme;
+    // The header times follow the user's locale: the shots use the 12-hour cycle on every computer.
+    timestamp_set_hour_cycle(HourCycle::h12);
     // Atlases that hold every image at both scales; nothing is uploaded yet. The primary one has the client's
     // extent: a 1024-pixel square left no room for the second activity's art beside what the hero frames pin.
     renderer_unbind_media_atlas(&r);
@@ -1956,11 +2265,16 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
          popup_scene_initialize_owned(&f.popup, 32, {f.popup_widgets, 70}, {f.popup_nodes, 70});
     if (!check(ok, "scene_initialize_failed"))
         return false;
-    message_composer_reset(&f.composer, kChannel, false);
+    message_composer_reset(&f.composer, g_channel, false);
     f.search_content.edit = {{}, 0, 0, true, false, false};
-    f.search_content.heading = f.search_content.placeholder = utf8_literal("Search MaiCord Lab");
+    f.search_content.heading = f.search_content.placeholder =
+        g_gallery ? utf8_literal("Search Pixel Garden") : utf8_literal("Search MaiCord Lab");
     f.search_content.revision = 1;
     build_folders(f);
+    // The rows that lead MaiCord Lab's list: the Server Hub and Channels & Roles, as the hub and community modules
+    // set them for a community server with a published hub.
+    f.view.hub_row = f.view.channels_roles_row = !g_gallery;
+    ++f.view.events_revision;
     // The application always binds its voice view: the account panel shows the microphone and deafen buttons, and
     // the connection card stays hidden while no call is up.
     static constexpr UiVoicePanelView kNoCall{};
@@ -1998,12 +2312,68 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
     return check(bound, "presentation_bind_failed");
 }
 
+// The Server Hub and Channels & Roles (Browse Channels) as content pages of MaiCord Lab.
+void page_shots(Fixture& f, D3D11Renderer& r, const wchar_t* hub, const wchar_t* channels) noexcept {
+    if (show_page(f, r, showcase_hub_page(world(f, r)), true))
+        shot(f, r, hub);
+    close_page(f, r);
+    // Its times go back before the next layout (close_page).
+    if (show_page(f, r, showcase_channels_page(world(f, r)), false))
+        shot(f, r, channels);
+    browse_clock(f, false);
+    close_page(f, r);
+}
+// MAICORD_SHOWCASE_README: the README's stills, the window at 1600x900 DIPs and 2x (readme-*.bmp): the channel in
+// Dark and Light, the profile popout, the Server Hub, Channels & Roles, and Settings on Appearance, Themes, Effects
+// and Plugins in the Aurora theme. With MAICORD_SHOWCASE_GALLERY only Pixel Garden's #gallery (readme-servers.bmp).
+bool readme_shots(Fixture& f, D3D11Renderer& r) noexcept {
+    g_width = 1600;
+    g_height = 900;
+    if (!size_window(f, r, 192))
+        return false;
+    if (g_gallery) {
+        if (set_theme(f, r, ClientTheme::dark))
+            shot(f, r, L"readme-servers.bmp");
+        return g_failures == 0;
+    }
+    if (set_theme(f, r, ClientTheme::dark)) {
+        shot(f, r, L"readme-chat.bmp");
+        if (open_profile(f, r, false))
+            shot(f, r, L"readme-profile.bmp");
+        r.profile_scene = nullptr;
+        page_shots(f, r, L"readme-hub.bmp", L"readme-channels.bmp");
+    }
+    if (set_theme(f, r, ClientTheme::light))
+        shot(f, r, L"readme-chat-light.bmp");
+    if (set_theme(f, r, ClientTheme::aurora)) {
+        if (open_settings(f, r))
+            shot(f, r, L"readme-themes.bmp");
+        if (open_store(f, r, CatalogKind::theme))
+            shot(f, r, L"readme-themes-store.bmp");
+        if (open_store(f, r, CatalogKind::effect))
+            shot(f, r, L"readme-effects.bmp");
+        if (open_store(f, r, CatalogKind::plugin))
+            shot(f, r, L"readme-plugins.bmp");
+        close_settings(r);
+    }
+    log_u64(g_failures ? LogLevel::error : LogLevel::info, "showcase", "failures", g_failures);
+    return g_failures == 0;
+}
+
 } // namespace
 
 bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) noexcept {
     Fixture& f = fixture;
+    if (GetEnvironmentVariableW(L"MAICORD_SHOWCASE_GALLERY", nullptr, 0)) {
+        g_gallery = true;
+        g_guild = kGalleryGuild;
+        g_channel = kGalleryChannel;
+        g_list = kGalleryList;
+    }
     if (!r.message_text || !r.message_measure_cache || !setup(f, r, presentation))
         return false;
+    if (GetEnvironmentVariableW(L"MAICORD_SHOWCASE_README", nullptr, 0))
+        return readme_shots(f, r);
     if (GetEnvironmentVariableW(L"MAICORD_SHOWCASE_FRIENDS", nullptr, 0))
         return friends_pages(f, r);
     bool day_only = false;
@@ -2036,6 +2406,8 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
                 shot(f, r,
                      two ? L"showcase-settings-appearance@2x.bmp" : L"showcase-settings-appearance@1x.bmp");
             renderer_bind_settings_scene(&r, nullptr);
+            page_shots(f, r, two ? L"showcase-hub@2x.bmp" : L"showcase-hub@1x.bmp",
+                       two ? L"showcase-channels@2x.bmp" : L"showcase-channels@1x.bmp");
             message_composer_insert_utf8(&f.composer, utf8_literal("/"));
             if (project(f, r) && open_commands(f, r))
                 shot(f, r, two ? L"showcase-commands@2x.bmp" : L"showcase-commands@1x.bmp");

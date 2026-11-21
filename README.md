@@ -18,7 +18,7 @@ No Electron, no browser engine: one ~6.5 MB program on Windows and on Linux.
 
 <br>
 
-<picture><source srcset=".github/assets/hero.avif" type="image/avif"><img src=".github/assets/hero.webp" alt="MaiCord in the Silk Waves theme on a September night, its violet ribbon drifting behind a busy #general channel. Channel tabs fill the title bar (#general open, three more channels and a media tab playing a trailer), with the server's name beside the window buttons. Juniper finishes typing and posts, reactions land and Ada replies with a code block; Mai sends a party GIF with /gif, then runs /release and a bot answers with a release card and link buttons. Around the chat: the server and channel lists and a member list with roles, activities and server tags." width="100%"></picture>
+<picture><source srcset=".github/assets/hero.avif" type="image/avif"><img src=".github/assets/hero.webp" alt="MaiCord in the Silk Waves theme on a September night, its violet ribbon drifting behind a busy #general channel. Channel tabs fill the title bar (#general open, three more channels and a media tab playing a trailer), with the server's name beside the window buttons. Juniper finishes typing and posts, reactions land and Ada replies with a code block; Mai sends a party GIF with /gif, then runs /release and a bot answers with a release card and link buttons. Around the chat: the server list, a channel list led by the Server Hub and Channels &amp; Roles, and a member list with role gradients on names, name styles, activities and server tags." width="100%"></picture>
 
 <sub>Every name, message and image on screen is made-up demo content.</sub>
 
@@ -64,38 +64,48 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset=".github/assets/screens/chat-light.webp">
-        <img src=".github/assets/screens/chat.webp" alt="A developers' server: a release checklist with reactions, a reply, a poll with votes, voice channels showing who is in them, and the member list by role" width="100%">
+        <img src=".github/assets/screens/chat.webp" alt="A server channel: an image and a link preview with reactions, a reply, a role mention, names in their role gradients and name styles, server tags, the typing line and the member list by role" width="100%">
       </picture><br>
-      <b>Chat.</b> Markdown, replies, reactions, polls, threads and forums; voice channels show who's in them.
+      <b>Chat.</b> Markdown, embeds, replies, reactions and role mentions; names in role gradients and name styles.
     </td>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/profile.webp" alt="A profile card open beside the chat, with a banner, bio, mutual friends and role, over the member list grouped by role" width="100%"><br>
+      <img src=".github/assets/screens/profile.webp" alt="A profile popout open beside the chat, with a banner, bio, server tag, role and a game activity card, over the member list grouped by role" width="100%"><br>
       <b>Profiles.</b> Profile cards with banners, bios and roles; member lists with activities.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/servers.webp" alt="An art server's gallery channel with two pixel-art night scenes, reactions and members' activities" width="100%"><br>
-      <b>Servers and media.</b> Image posts, reactions, member activities and unread badges.
+      <img src=".github/assets/screens/servers.webp" alt="An art server's gallery channel with two pixel-art night scenes, reactions, and members by role with name styles and activities" width="100%"><br>
+      <b>Servers and media.</b> Image posts, reactions, member activities, server tags and unread badges.
     </td>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/themes.webp" alt="Settings, Appearance: Light, Dark and AMOLED bases, gradient colour themes, and buttons to browse themes and effects" width="100%"><br>
+      <img src=".github/assets/screens/themes.webp" alt="Settings, Appearance in the Aurora theme: Light, Dark and AMOLED bases, gradient colour themes, buttons to customize the theme and browse effects, and the MaiCord version under the sidebar" width="100%"><br>
       <b>Appearance.</b> Light, dark and AMOLED bases, gradient themes and a theme editor.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/themes-store.webp" alt="Settings, Themes: catalog themes such as Deep Ocean, Fjord, High Contrast, Neon Grid, Obsidian and Rose Dusk with previews and Install buttons" width="100%"><br>
+      <img src=".github/assets/screens/hub.webp" alt="The Server Hub page: the server's banner with its online, member and boost counts, a Most Game Time leaderboard with medals, play times and game icons, Popular Games with covers, and a text widget" width="100%"><br>
+      <b>Server Hub.</b> A server's hub as a page: its banner, Most Game Time and Popular Games.
+    </td>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/channels-roles.webp" alt="Channels &amp; Roles on its Browse Channels tab: each category with a Follow Category box over its channels, and a follow box and the last activity for each channel" width="100%"><br>
+      <b>Channels &amp; Roles.</b> Answer the server's questions, and follow the channels and categories you want.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src=".github/assets/screens/themes-store.webp" alt="Settings, Themes: catalog themes such as Deep Ocean, Fjord, High Contrast, Neon Grid, Obsidian and Rose Dusk with previews, swatches and Install buttons" width="100%"><br>
       <b>Themes.</b> Colours, type, spacing and motion; themes can follow the time of day.
     </td>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/effects.webp" alt="Settings, Effects: animated backgrounds such as ASCII rain, Aurora, Plasma, Silk Waves and Soft bokeh with previews and Install buttons" width="100%"><br>
+      <img src=".github/assets/screens/effects.webp" alt="Settings, Effects: animated backgrounds such as ASCII rain, Aurora, Film grain, Plasma, Silk Waves and Soft bokeh with previews and Install buttons" width="100%"><br>
       <b>Background effects.</b> Animated GPU backgrounds behind the whole window.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src=".github/assets/screens/plugins.webp" alt="Settings, Plugins: catalog plugins with descriptions, an access level for each, and Install buttons" width="100%"><br>
+      <img src=".github/assets/screens/plugins.webp" alt="Settings, Plugins: catalog plugins with descriptions, an access level for each, filter chips and Install buttons" width="100%"><br>
       <b>Plugins.</b> Native plugins from a signed, reviewed catalog; permissions you approve.
     </td>
     <td width="50%" valign="top">

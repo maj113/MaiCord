@@ -108,7 +108,6 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept;
 
 bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
-bool go_live_ui_gpu_probe(D3D11Renderer& renderer, u32 count) noexcept;
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
 // Glyph placement: settings and caption titles across one-pixel width steps, and
@@ -128,6 +127,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                       bool (*show_login)(bool visible) noexcept) noexcept;
 
 bool showcase_ui_probe(D3D11Renderer& renderer, MessageTextPresentation& presentation) noexcept;
+
 bool login_recovery_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
                              bool (*text_pixels)(ConstSlice<UiRect>) noexcept) noexcept;
 
@@ -1836,7 +1836,7 @@ int run_probe() noexcept {
     if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE"))
         return finish_gate(
             initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text),
-            "showcase_native_ui_passed", "showcase_native_ui_failed", 304);
+            "showcase_native_ui_passed", "showcase_native_ui_failed", 311);
     if (probe_option_enabled(L"MAICORD_UI_INLINE_FLAGS_PROBE"))
         return finish_gate(initialize_fixture(true) &&
                            inline_flags_ui_probe({g_probe.renderer, g_probe.shell_scene, g_probe.chat_state,
@@ -1984,11 +1984,6 @@ int run_probe() noexcept {
         // Atlas growth/trim pixels and GPU memory of synthetic media workloads.
         const bool valid = initialize_fixture(true) && media_memory_probe(g_probe.renderer);
         return finish_probe(valid ? 0 : 156);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_GO_LIVE_GPU_PROBE")) {
-        // Run by hand: the self-preview's conversion and repaint at 1440p, ten seconds a layout (go_live_ui_gpu_probe.cpp).
-        const bool valid = initialize_fixture(true) && go_live_ui_gpu_probe(g_probe.renderer, 600);
-        return finish_probe(valid ? 0 : 399);
     }
     if (probe_option_enabled(L"MAICORD_UI_CALL_PROBE")) {
         const bool valid = initialize_fixture(true) &&

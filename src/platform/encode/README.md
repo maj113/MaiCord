@@ -59,8 +59,6 @@ without hardware H.264 cannot stream.
     picture from a synthetic 1440p60 desktop or panning texture (or, with `MAICORD_CAPTURE_PROBE=1`, the real screen):
     the conversion and self-preview conversion timed with D3D11 timestamp queries, the units' latency and sizes, and
     with `MAICORD_GO_LIVE_GPU_PSNR=1` the stream's PSNR through MaiCord's own decoder. The video engine's share is read
-    beside it from the process's GPU Engine counters. The UI probe's `MAICORD_UI_GO_LIVE_GPU_PROBE=1` times the call
-    view's side: a new 1440p self-preview picture converted into the preview atlas and the damage repainted, 60 times a
-    second.
+    beside it from the process's GPU Engine counters.
   - `maicord_stream_encoder_units` covers the presets, extents, tiers and unit rewriting, and parses the AV1 headers
     of many configurations with MaiCord's own AV1 parser (every field and patch position must round-trip).
