@@ -2,6 +2,7 @@
 // settings change, and the message box of the startup failures.
 #include "maicord/platform/window/win32.hpp"
 
+#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -13,50 +14,48 @@ namespace maicord {
 namespace {
 
 // What changes only with a settings change (WM_SETTINGCHANGE), read once and again after win32_settings_reset: the
-// registry and the SystemParametersInfo values are not worth a system call per reader.
-struct Cached {
-    u32 wheel_lines;
-    bool valid, wheel_page, animation, dark;
-} g_cached;
+// registry, SystemParametersInfo and the double-click and caret values are not worth a system call per reader
+// (event.hpp: settings_pointer and settings_caret). read_cached fills all but system_idle_ms, which
+// platform_settings_read reads each time.
+PlatformSettings g_cached;
+bool g_cached_valid;
 
 void read_cached() noexcept {
+    const UINT interval = GetDoubleClickTime();
+    g_cached.double_click_ms = interval ? interval : 500;
+    g_cached.double_click_dx_px = static_cast<u32>(maximum(GetSystemMetrics(SM_CXDOUBLECLK), 1));
+    g_cached.double_click_dy_px = static_cast<u32>(maximum(GetSystemMetrics(SM_CYDOUBLECLK), 1));
+    g_cached.caret_blink_ms = GetCaretBlinkTime();
     UINT lines = 3;
     SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
     g_cached.wheel_lines = lines;
     g_cached.wheel_page = lines == WHEEL_PAGESCROLL;
     BOOL animation = FALSE;
-    g_cached.animation = SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) != FALSE && animation;
+    g_cached.client_area_animation =
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) != FALSE && animation;
     // The app colour mode; without the value Windows draws apps light.
     DWORD light = 1, bytes = sizeof(light);
     const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                         L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes);
-    g_cached.dark = status == ERROR_SUCCESS && light == 0;
-    g_cached.valid = true;
+    g_cached.dark_scheme = status == ERROR_SUCCESS && light == 0;
+    g_cached_valid = true;
 }
 
 } // namespace
 
 void win32_settings_reset() noexcept {
-    g_cached.valid = false;
+    g_cached_valid = false;
 }
 
 PlatformSettings platform_settings_read() noexcept {
-    if (!g_cached.valid)
+    if (!g_cached_valid)
         read_cached();
-    PlatformSettings settings{};
-    const UINT interval = GetDoubleClickTime();
-    settings.double_click_ms = interval ? interval : 500;
-    settings.double_click_dx_px = static_cast<u32>(maximum(GetSystemMetrics(SM_CXDOUBLECLK), 1));
-    settings.double_click_dy_px = static_cast<u32>(maximum(GetSystemMetrics(SM_CYDOUBLECLK), 1));
-    settings.caret_blink_ms = GetCaretBlinkTime();
-    settings.wheel_lines = g_cached.wheel_lines;
-    settings.wheel_page = g_cached.wheel_page;
-    settings.client_area_animation = g_cached.animation;
-    settings.dark_scheme = g_cached.dark;
+    PlatformSettings settings = g_cached;
     LASTINPUTINFO input{sizeof(input), 0};
-    // dwTime is the low half of the tick count that GetTickCount64 returns whole.
-    settings.system_idle_ms =
-        GetLastInputInfo(&input) ? static_cast<DWORD>(GetTickCount64()) - input.dwTime : kSystemIdleUnknown;
+    // dwTime is the low half of the tick count that clock_monotonic_milliseconds returns whole.
+    settings.system_idle_ms = GetLastInputInfo(&input)
+                                  ? static_cast<DWORD>(clock_monotonic_milliseconds()) - input.dwTime
+                                  : kSystemIdleUnknown;
     return settings;
 }
 

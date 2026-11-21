@@ -76,7 +76,7 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
 }
 
 WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPumpHooks& hooks) noexcept {
-    static const Clock clock = clock_initialize();
+    const Clock clock = clock_initialize();
     WindowPumpResult result{};
     MSG message{};
     const i64 start = clock_now();
@@ -96,7 +96,7 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
         bool consumed = false;
         if (hooks.key_prefilter && (message.message == WM_KEYDOWN || message.message == WM_KEYUP) &&
             message.hwnd == win32_main_window()) {
-            WindowEvent event{};
+            WindowEvent event; // win32_translate writes all of it
             if (win32_translate(message.hwnd, message.message, message.wParam, message.lParam, &event)) {
                 event.native = &message;
                 consumed = hooks.key_prefilter(hooks.context, event);

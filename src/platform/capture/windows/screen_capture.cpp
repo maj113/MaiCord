@@ -18,6 +18,7 @@
 #include "thumbnail.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/heap.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
@@ -53,7 +54,7 @@ ULONG __stdcall callback_release(SignalCallback* self) noexcept {
     const LONG count = InterlockedDecrement(&self->references);
     if (!count) {
         CloseHandle(self->event);
-        HeapFree(GetProcessHeap(), 0, self);
+        heap_free(self);
     }
     return static_cast<ULONG>(count);
 }
@@ -68,15 +69,15 @@ void* const kCallbackTable[]{reinterpret_cast<void*>(&callback_query), reinterpr
 } // namespace
 
 SignalCallback* signal_callback_create(HANDLE event, const GUID& iid) noexcept {
-    auto* callback = static_cast<SignalCallback*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(SignalCallback)));
+    auto* callback = static_cast<SignalCallback*>(heap_allocate(sizeof(SignalCallback), true));
     if (!callback)
         return nullptr;
     callback->vtable = kCallbackTable;
     callback->references = 1;
     callback->iid = iid;
-    if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(), &callback->event, 0, FALSE,
+    if (!DuplicateHandle(current_process(), event, current_process(), &callback->event, 0, FALSE,
                          DUPLICATE_SAME_ACCESS)) {
-        HeapFree(GetProcessHeap(), 0, callback);
+        heap_free(callback);
         return nullptr;
     }
     return callback;
@@ -688,7 +689,7 @@ CaptureSupport capture_support() noexcept {
 u32 capture_sources(Slice<CaptureSource> output) noexcept {
     if (!output.data || !output.count)
         return 0;
-    SourceList list{output, 0, GetCurrentProcessId(), GetShellWindow(),
+    SourceList list{output, 0, process_id(), GetShellWindow(),
                     system_function<DwmAttribute>(L"dwmapi.dll", "DwmGetWindowAttribute")};
     EnumDisplayMonitors(nullptr, nullptr, visit_monitor, reinterpret_cast<LPARAM>(&list));
     // The primary screen first, then "Screen 1", "Screen 2", ... in that order.

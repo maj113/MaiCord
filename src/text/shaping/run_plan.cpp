@@ -10,6 +10,7 @@
 
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 
 namespace maicord {namespace {
 struct PlanData {
@@ -241,7 +242,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
         available=0;while(available<store->slots.count&&(store->slots[available].references||store->slots[available].generation==0xffffffffu))++available;
         if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};}
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
-    if(!arena_initialize(&state,bold?page+ink:limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
+    if(!arena_initialize(&state,bold?page+ink:limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,thread_last_error()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);data->kind=kind;
     SubstitutionScope substitutions{store->substitutions};
     if(bold){const auto& base=*reinterpret_cast<const PlanData*>(store->slots[parent.slot-1].state.base);
@@ -250,7 +251,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
         if(ink){data->ink=static_cast<u64*>(arena_bump_zero(&state,ink,page));data->ink_glyphs=ink_glyphs;if(!data->ink)return failure(SfntStatus::resource_limit);}
         for(u32 mode=0;mode<2;++mode){data->plans[mode]=base.plans[mode];data->plans[mode].metric_context=data;data->plans[mode].advance=bold_advance;data->plans[mode].cache_advances=true;}}
     else{arena_reset(scratch);const auto status=prepare(*font,*face,*data,state,*scratch,work,limit,store->substitutions);if(status!=SfntStatus::ok)return failure(status);}
-    if(!pages_protect(state.base,ink?page:state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+    if(!pages_protect(state.base,ink?page:state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,thread_last_error()};
     if(!bold&&!native_font_instance_retain(store->instances,instance))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     auto& p=store->slots[available];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     substitutions.keep=true;reset_value(&parent);*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};

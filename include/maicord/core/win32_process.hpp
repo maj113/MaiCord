@@ -35,6 +35,15 @@ __forceinline u32 thread_last_error() noexcept {
     return __readgsdword(0x68);
 }
 
+// The pseudo handles of the calling process and thread: the constants GetCurrentProcess and GetCurrentThread return
+// (NtCurrentProcess and NtCurrentThread of the WDK's wdm.h).
+__forceinline HANDLE current_process() noexcept {
+    return reinterpret_cast<HANDLE>(-1ll);
+}
+__forceinline HANDLE current_thread() noexcept {
+    return reinterpret_cast<HANDLE>(-2ll);
+}
+
 } // namespace maicord
 
 #endif // _WIN32

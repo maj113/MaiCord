@@ -1,6 +1,8 @@
 #include "maicord/platform/decode/aac_decoder.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/media/audio/aac_configuration.hpp"
 #include "../audio/audio_support.hpp"
 #include "maicord/sys/media_foundation.hpp"
@@ -36,7 +38,7 @@ AacDecodeResult fail(AacDecoder& owner, Error error, HRESULT native = S_OK) noex
 }
 using audio_detail::disjoint;
 bool thread(const AacDecoder& owner) noexcept {
-    return !owner.runtime || owner.thread_id == GetCurrentThreadId();
+    return !owner.runtime || owner.thread_id == current_thread_id();
 }
 HRESULT output_type(AacDecoder& owner, State& s) noexcept {
     // Use the advertised complete native type (including channel assignment
@@ -108,11 +110,11 @@ HRESULT open(AacDecoder& owner) noexcept {
     if (!s)
         return E_OUTOFMEMORY;
     owner.runtime = s;
-    owner.thread_id = GetCurrentThreadId();
+    owner.thread_id = current_thread_id();
     s->discontinuity = true;
     s->library = LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!s->library)
-        return HRESULT_FROM_WIN32(GetLastError());
+        return HRESULT_FROM_WIN32(thread_last_error());
     s->api.startup = reinterpret_cast<decltype(s->api.startup)>(GetProcAddress(s->library, "MFStartup"));
     s->api.shutdown = reinterpret_cast<decltype(s->api.shutdown)>(GetProcAddress(s->library, "MFShutdown"));
     s->api.type = reinterpret_cast<decltype(s->api.type)>(GetProcAddress(s->library, "MFCreateMediaType"));
@@ -409,11 +411,11 @@ AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
         }
         if (s->library) {
             if (!FreeLibrary(s->library))
-                return fail(*owner, Error::release, HRESULT_FROM_WIN32(GetLastError()));
+                return fail(*owner, Error::release, HRESULT_FROM_WIN32(thread_last_error()));
             s->library = nullptr;
         }
         if (!pages_release(s))
-            return fail(*owner, Error::release, HRESULT_FROM_WIN32(GetLastError()));
+            return fail(*owner, Error::release, HRESULT_FROM_WIN32(thread_last_error()));
     }
     reset_value(owner);
     return {};

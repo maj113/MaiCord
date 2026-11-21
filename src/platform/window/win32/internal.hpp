@@ -7,6 +7,11 @@
 
 namespace maicord::win32_detail {
 
+// The private messages of the wake causes that window_post sends and win32_translate turns back into wake events.
+inline constexpr UINT kBeginWebAuthnMessage = kWindowMessageApp + 0x31;
+inline constexpr UINT kPhoneVerifyMessage = kWindowMessageApp + 0x32;
+inline constexpr UINT kNotificationMessage = kWindowMessageApp + 0x33;
+
 // The cursor position (client pixels) the window procedure resolved for the WM_SETCURSOR being dispatched, so
 // every layer that asks where the pointer is reads it (window_pointer_position) instead of querying the system
 // again.
@@ -16,6 +21,9 @@ void dispatch_cursor_end() noexcept;
 bool dispatch_cursor(HWND window, float* x, float* y) noexcept;
 // The window procedure.
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+// Asks the system for a leave message (TME_LEAVE, with TME_NONCLIENT for the frame) when the pointer leaves `window`.
+// True when the request stands.
+bool request_pointer_leave(HWND window, DWORD flags) noexcept;
 
 // Delivers an event to the sink of the window created by win32_window_create.
 bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept;

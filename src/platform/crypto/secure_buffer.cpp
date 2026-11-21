@@ -88,7 +88,7 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
     for (u32 attempt = 0; attempt < kLockRecoveryAttempts; ++attempt) {
         SIZE_T minimum = 0, maximum = 0;
         DWORD flags = 0;
-        if (!GetProcessWorkingSetSizeEx(GetCurrentProcess(), &minimum, &maximum, &flags))
+        if (!GetProcessWorkingSetSizeEx(current_process(), &minimum, &maximum, &flags))
             return thread_last_error();
         // Preserve the host's maximum and hard/soft enforcement flags. Never
         // lower a value on failure or release: other threads can have locked
@@ -97,7 +97,7 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
         if (minimum >= ceiling) return error;
         const SIZE_T available = ceiling - minimum;
         const SIZE_T next = minimum + (growth < available ? growth : available);
-        if (!SetProcessWorkingSetSizeEx(GetCurrentProcess(), next, maximum, flags))
+        if (!SetProcessWorkingSetSizeEx(current_process(), next, maximum, flags))
             return thread_last_error();
         if (VirtualLock(address, bytes)) return 0;
         error = thread_last_error();

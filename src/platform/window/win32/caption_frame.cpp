@@ -60,8 +60,9 @@ static_assert(sizeof(kHitCodes) == static_cast<usize>(FrameHit::nowhere) + 1 &&
               kHitCodes[static_cast<usize>(FrameHit::close)] == HTCLOSE &&
               kHitCodes[static_cast<usize>(FrameHit::bottom_right)] == HTBOTTOMRIGHT);
 
+// win32_caption_hit answers an enumerator, and each has its code.
 LRESULT hit_code(FrameHit hit) noexcept {
-    return static_cast<usize>(hit) < sizeof(kHitCodes) ? kHitCodes[static_cast<usize>(hit)] : HTCLIENT;
+    return kHitCodes[static_cast<usize>(hit)];
 }
 
 FrameHit button_part(WPARAM hit) noexcept {
@@ -116,10 +117,8 @@ void calculate_client(HWND window, RECT* rectangle) noexcept {
 }
 
 void track_leave(HWND window) noexcept {
-    if (g_tracking)
-        return;
-    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE | TME_NONCLIENT, window, 0};
-    g_tracking = TrackMouseEvent(&tracking) != FALSE;
+    if (!g_tracking)
+        g_tracking = request_pointer_leave(window, TME_LEAVE | TME_NONCLIENT);
 }
 
 RECT screen_rect(const POINT& origin, const i32 (&rectangle)[4]) noexcept {

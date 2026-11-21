@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/platform/audio/endpoint_watch.hpp"
 #include "maicord/sys/wasapi.hpp"
 
@@ -165,9 +166,9 @@ __declspec(noinline) inline HRESULT pinned_endpoint_refresh(IMMDeviceEnumerator*
     while (pinned->id[pinned->id_chars])
         ++pinned->id_chars;
     HRESULT h = S_OK;
-    if (!DuplicateHandle(GetCurrentProcess(), wake, GetCurrentProcess(), &pinned->event, 0, FALSE,
+    if (!DuplicateHandle(current_process(), wake, current_process(), &pinned->event, 0, FALSE,
                          DUPLICATE_SAME_ACCESS)) {
-        h = HRESULT_FROM_WIN32(GetLastError());
+        h = HRESULT_FROM_WIN32(thread_last_error());
     } else {
         AcquireSRWLockExclusive(lock);
         ++*handles;
@@ -214,9 +215,9 @@ inline HRESULT audio_endpoint_watch(EDataFlow flow, ERole role, bool follow_defa
     observer->role = role;
     observer->follow_default = follow_default;
     *notify = observer;
-    if (!DuplicateHandle(GetCurrentProcess(), wake, GetCurrentProcess(), &observer->event, 0, FALSE,
+    if (!DuplicateHandle(current_process(), wake, current_process(), &observer->event, 0, FALSE,
                          DUPLICATE_SAME_ACCESS))
-        return HRESULT_FROM_WIN32(GetLastError());
+        return HRESULT_FROM_WIN32(thread_last_error());
     return (*enumerator)->RegisterEndpointNotificationCallback(observer);
 }
 

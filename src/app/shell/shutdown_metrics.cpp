@@ -24,6 +24,7 @@ struct StartupProbe {
     Clock clock;
     i64 correlation_qpc;
     u64 creation_offset_us;
+    u32 entry_modules;
     StartupMark marks[kStartupMarkCapacity];
     u32 mark_count;
     bool initialized, recorded;
@@ -37,6 +38,14 @@ u64 startup_probe_us(i64 at) noexcept {
 
 u64 filetime_value(FILETIME value) noexcept {
     return static_cast<u64>(value.dwHighDateTime) << 32 | value.dwLowDateTime;
+}
+
+// The DLLs that the process has mapped, the image included.
+u32 loaded_module_count() noexcept {
+    HMODULE first = nullptr;
+    DWORD needed = 0;
+    K32EnumProcessModules(current_process(), &first, sizeof(first), &needed);
+    return needed / sizeof(HMODULE);
 }
 
 bool startup_probe_profile_marked() noexcept {
@@ -67,11 +76,12 @@ bool application_startup_probe_initialize() noexcept {
     GetSystemTimePreciseAsFileTime(&precise);
     const i64 after = clock_now();
     if (g_startup_probe.clock.frequency <= 0 ||
-        !GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user) ||
+        !GetProcessTimes(current_process(), &created, &exited, &kernel, &user) ||
         filetime_value(precise) < filetime_value(created) || !startup_probe_profile_marked())
         return false;
     g_startup_probe.correlation_qpc = before + (after - before) / 2;
     g_startup_probe.creation_offset_us = (filetime_value(precise) - filetime_value(created)) / 10;
+    g_startup_probe.entry_modules = loaded_module_count();
     g_startup_probe.initialized = true;
     return true;
 }
@@ -91,18 +101,18 @@ void application_startup_probe_first_present() noexcept {
         return;
     const i64 presented = clock_now();
     ULONG64 process_cycles = 0, main_cycles = 0;
-    const bool process_cycles_ok = QueryProcessCycleTime(GetCurrentProcess(), &process_cycles) != FALSE;
-    const bool main_cycles_ok = QueryThreadCycleTime(GetCurrentThread(), &main_cycles) != FALSE;
+    const bool process_cycles_ok = QueryProcessCycleTime(current_process(), &process_cycles) != FALSE;
+    const bool main_cycles_ok = QueryThreadCycleTime(current_thread(), &main_cycles) != FALSE;
     g_startup_probe.recorded = true;
     FILETIME created{}, exited{}, process_kernel{}, process_user{}, main_kernel{}, main_user{};
     const bool process_times_ok =
-        GetProcessTimes(GetCurrentProcess(), &created, &exited, &process_kernel, &process_user) != FALSE;
+        GetProcessTimes(current_process(), &created, &exited, &process_kernel, &process_user) != FALSE;
     const bool main_times_ok =
-        GetThreadTimes(GetCurrentThread(), &created, &exited, &main_kernel, &main_user) != FALSE;
+        GetThreadTimes(current_thread(), &created, &exited, &main_kernel, &main_user) != FALSE;
     PROCESS_MEMORY_COUNTERS_EX2 memory{};
     memory.cb = sizeof(memory);
     bool memory_ok =
-        GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+        GetProcessMemoryInfo(current_process(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
                              sizeof(memory)) != FALSE;
     const bool pws_ok = memory_ok;
     if (!memory_ok) {
@@ -110,12 +120,16 @@ void application_startup_probe_first_present() noexcept {
         // private working set. The separate status keeps that absence explicit.
         memory.cb = sizeof(PROCESS_MEMORY_COUNTERS_EX);
         memory_ok =
-            GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+            GetProcessMemoryInfo(current_process(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
                                  sizeof(PROCESS_MEMORY_COUNTERS_EX)) != FALSE;
     }
     TraceRecord line("MAICORD_STARTUP");
     line.field("ttff_us", startup_probe_us(presented));
     line.field("app_ttff_us", clock_microseconds(g_app.clock, g_app.process_start, presented));
+    line.field("entry_us", g_startup_probe.creation_offset_us);
+    line.field("entry_modules", g_startup_probe.entry_modules);
+    line.field("modules", loaded_module_count());
+    line.field("page_faults", static_cast<u64>(memory.PageFaultCount));
     line.field("main_cycles", main_cycles);
     line.field("process_cycles", process_cycles);
     line.field("main_cpu_us", (filetime_value(main_kernel) + filetime_value(main_user)) / 10);

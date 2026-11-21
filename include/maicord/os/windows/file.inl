@@ -210,7 +210,7 @@ inline bool file_mark_delete_on_close(FileHandle file) noexcept {
 }
 
 __forceinline bool file_duplicate_sealed(FileHandle file, FileHandle* sealed) noexcept {
-    return DuplicateHandle(GetCurrentProcess(), file, GetCurrentProcess(), sealed, GENERIC_READ | DELETE, FALSE, 0) != 0;
+    return DuplicateHandle(current_process(), file, current_process(), sealed, GENERIC_READ | DELETE, FALSE, 0) != 0;
 }
 
 // The system calls the pattern "<directory>\*" a listing of the directory.

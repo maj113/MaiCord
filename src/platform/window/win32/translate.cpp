@@ -5,14 +5,12 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/event.hpp"
+#include "internal.hpp"
 
 namespace maicord {
 namespace {
 
-// The private messages the application posts to its own window (window_post maps WakeCause to them).
-constexpr UINT kBeginWebAuthnMessage = WM_APP + 0x31;
-constexpr UINT kPhoneVerifyMessage = WM_APP + 0x32;
-constexpr UINT kNotificationMessage = WM_APP + 0x33;
+using win32_detail::kBeginWebAuthnMessage, win32_detail::kPhoneVerifyMessage, win32_detail::kNotificationMessage;
 
 constexpr u8 bit_of(PointerButton button) noexcept {
     return static_cast<u8>(1u << static_cast<u8>(button));
@@ -65,6 +63,13 @@ bool set_screen_point(HWND window, WindowEvent* event, LPARAM lparam) noexcept {
     return mapped;
 }
 
+// The button messages from WM_LBUTTONDOWN to WM_XBUTTONDBLCLK, with the wheel message between the middle and the X
+// buttons: four times the PointerButton (back for both X buttons), plus 0 for a press, 1 for a release and 2 for a
+// double click.
+constexpr u8 kButtonMessages[]{0, 1, 2, 4, 5, 6, 8, 9, 10, 0, 12, 13, 14};
+static_assert(WM_LBUTTONDOWN + 9 == WM_MOUSEWHEEL && WM_XBUTTONDBLCLK - WM_LBUTTONDOWN + 1 == sizeof kButtonMessages);
+static_assert(static_cast<u32>(PointerButton::back) == 3 && static_cast<u32>(PointerButton::forward) == 4);
+
 u32 scale_of_dpi(u32 dpi) noexcept {
     return dpi * 120 / 96;
 }
@@ -101,36 +106,31 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
         set_pointer(&event, wparam, lparam);
         break;
     case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
     case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
     case WM_RBUTTONDBLCLK:
     case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
     case WM_MBUTTONDBLCLK:
     case WM_XBUTTONDOWN:
-    case WM_XBUTTONDBLCLK:
-        event.type = EventType::pointer_down;
-        set_pointer(&event, wparam, lparam);
-        event.button = static_cast<u8>(message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK   ? PointerButton::left
-                                       : message == WM_RBUTTONDOWN || message == WM_RBUTTONDBLCLK ? PointerButton::right
-                                       : message == WM_MBUTTONDOWN || message == WM_MBUTTONDBLCLK ? PointerButton::middle
-                                       : HIWORD(wparam) == XBUTTON1 ? PointerButton::back
-                                                                    : PointerButton::forward);
-        if (message == WM_LBUTTONDBLCLK || message == WM_RBUTTONDBLCLK || message == WM_MBUTTONDBLCLK ||
-            message == WM_XBUTTONDBLCLK)
-            event.flags = ev_double_click;
-        break;
-    case WM_LBUTTONUP:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONUP:
     case WM_XBUTTONUP:
-        event.type = EventType::pointer_up;
+    case WM_XBUTTONDBLCLK: {
+        // The high word of wparam names the X button.
+        const u32 code = kButtonMessages[message - WM_LBUTTONDOWN];
+        u32 button = code >> 2;
+        if (button == static_cast<u32>(PointerButton::back) && HIWORD(wparam) != XBUTTON1)
+            button = static_cast<u32>(PointerButton::forward);
+        event.type = (code & 3) == 1 ? EventType::pointer_up : EventType::pointer_down;
+        if ((code & 3) == 2)
+            event.flags = ev_double_click;
+        event.button = static_cast<u8>(button);
         set_pointer(&event, wparam, lparam);
-        event.button = static_cast<u8>(message == WM_LBUTTONUP   ? PointerButton::left
-                                       : message == WM_RBUTTONUP ? PointerButton::right
-                                       : message == WM_MBUTTONUP ? PointerButton::middle
-                                       : HIWORD(wparam) == XBUTTON1 ? PointerButton::back
-                                                                    : PointerButton::forward);
+        // The press and release times (one system call each) count multi-clicks; no other event's time is read.
+        event.time_ms = static_cast<u32>(GetMessageTime());
         break;
+    }
     case WM_MOUSELEAVE:
         event.type = EventType::pointer_leave;
         break;
@@ -314,9 +314,6 @@ bool win32_translate(HWND window, UINT message, WPARAM wparam, LPARAM lparam, Wi
     default:
         break;
     }
-    // The press and release times (one system call each) count multi-clicks; no other event's time is read.
-    if (event.type == EventType::pointer_down || event.type == EventType::pointer_up)
-        event.time_ms = static_cast<u32>(GetMessageTime());
     return event.type != EventType::none;
 }
 

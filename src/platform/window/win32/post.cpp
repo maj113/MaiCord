@@ -2,23 +2,23 @@
 #include "maicord/core/win32_types.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/window.hpp"
+#include "internal.hpp"
 
 namespace maicord {
 namespace {
 
-// The message of each WakeCause. The ids are the ones the application's window procedure handles
-// (kBeginWebAuthnMessage, kApplicationPhoneVerifyMessage, kApplicationNotificationMessage,
-// kApplicationAccessibilityMessage and the tray message), all kWindowMessageApp + id.
+// The message of each WakeCause: the ones win32_translate turns into wake events (internal.hpp), and the ones the
+// application's window procedure handles itself (kApplicationAccessibilityMessage and the tray message).
 UINT wake_message(u32 cause) noexcept {
     switch (cause) {
     case wake_poke:
         return WM_NULL;
     case wake_begin_webauthn:
-        return kWindowMessageApp + 0x31;
+        return win32_detail::kBeginWebAuthnMessage;
     case wake_phone_verify:
-        return kWindowMessageApp + 0x32;
+        return win32_detail::kPhoneVerifyMessage;
     case wake_notifications:
-        return kWindowMessageApp + 0x33;
+        return win32_detail::kNotificationMessage;
     case wake_accessibility:
         return kWindowMessageApp + 0x3A;
     case wake_tray:

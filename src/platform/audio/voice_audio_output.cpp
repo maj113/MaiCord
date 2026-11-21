@@ -97,7 +97,7 @@ bool pause(Runtime& r, u32 milliseconds) noexcept {
 }
 DWORD WINAPI audio_thread(void* parameter) noexcept {
     auto& r = *static_cast<Runtime*>(parameter);
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    SetThreadPriority(current_thread(), THREAD_PRIORITY_TIME_CRITICAL);
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     Engine e{};
     HRESULT h = FAILED(apartment) ? apartment : watch(r, e);

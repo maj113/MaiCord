@@ -351,15 +351,11 @@ bool window_inject(Window window, const WindowEvent& event, WindowEventResult* r
                  ((buttons & (1u << static_cast<u8>(PointerButton::right))) ? MK_RBUTTON : 0) |
                  ((buttons & (1u << static_cast<u8>(PointerButton::middle))) ? MK_MBUTTON : 0) |
                  ((event.modifiers & mod_shift) ? MK_SHIFT : 0) | ((event.modifiers & mod_ctrl) ? MK_CONTROL : 0);
-        if (event.type == EventType::pointer_move) {
+        // Each button has a row of three messages (press, release, double click), in PointerButton order.
+        if (event.type == EventType::pointer_move)
             message = WM_MOUSEMOVE;
-        } else if (event.button == static_cast<u8>(PointerButton::left)) {
-            message = event.type == EventType::pointer_down ? WM_LBUTTONDOWN : WM_LBUTTONUP;
-        } else if (event.button == static_cast<u8>(PointerButton::right)) {
-            message = event.type == EventType::pointer_down ? WM_RBUTTONDOWN : WM_RBUTTONUP;
-        } else if (event.button == static_cast<u8>(PointerButton::middle)) {
-            message = event.type == EventType::pointer_down ? WM_MBUTTONDOWN : WM_MBUTTONUP;
-        }
+        else if (event.button <= static_cast<u8>(PointerButton::middle))
+            message = WM_LBUTTONDOWN + 3u * event.button + (event.type == EventType::pointer_up);
         if (message) {
             SendMessageW(hwnd, message, wparam,
                          MAKELPARAM(static_cast<i32>(event.pointer.x), static_cast<i32>(event.pointer.y)));

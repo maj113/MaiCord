@@ -446,7 +446,7 @@ bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exe
         const LSTATUS tree = RegDeleteTreeW(s.root, root_key);
         if (tree != ERROR_SUCCESS && tree != ERROR_FILE_NOT_FOUND)
             return false;
-        const LSTATUS key = RegDeleteKeyW(s.root, root_key);
+        const LSTATUS key = RegDeleteKeyExW(s.root, root_key, 0, 0);
         return key == ERROR_SUCCESS || key == ERROR_FILE_NOT_FOUND;
     }
     if (!executable_valid(executable))
@@ -469,7 +469,7 @@ HANDLE desktop_instance_mutex(const wchar_t* name, bool* existed) noexcept {
         return nullptr;
     const HANDLE mutex = CreateMutexW(nullptr, TRUE, name);
     if (mutex && existed)
-        *existed = GetLastError() == ERROR_ALREADY_EXISTS;
+        *existed = thread_last_error() == ERROR_ALREADY_EXISTS;
     return mutex;
 }
 

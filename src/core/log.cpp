@@ -2,6 +2,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
@@ -84,9 +85,7 @@ void CALLBACK flush_timer_callback(PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) noex
 }
 
 LineWriter begin_line(LogLevel level, const char* component) noexcept {
-    FILETIME now{};
-    GetSystemTimeAsFileTime(&now);
-    const u64 ticks = (static_cast<u64>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+    const u64 ticks = clock_system_ticks();
     AcquireSRWLockExclusive(&g_log.lock);
     if (kBufferBytes - g_log.buffered < kLineBytes) {
         flush_locked();

@@ -51,7 +51,8 @@ foreach(output IN ITEMS "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PA
         "${MAICORD_SETTINGS_CATALOG_PACK}" "${MAICORD_GENERATED_DIRECTORY}/settings_catalog_packed.bin"
         "${MAICORD_PERMISSION_GRID_PACK}" "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin"
         "${MAICORD_BUILTIN_COMMANDS_PACK}" "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_packed.bin"
-        "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" ${MAICORD_PACKED_SHADER_HEADERS}
+        "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" "${maicord_kernelbase_import_library}"
+        ${MAICORD_PACKED_SHADER_HEADERS}
         # The source rules' stamp and depfile (cmake/client.cmake), the stamp of the client's inputs that test targets
         # wait for (maicord_order_tests_after_client, cmake/test_support.cmake), and the linker map of a -SizeReport run,
         # which a later run without it no longer writes but must still remove.

@@ -103,8 +103,8 @@ function Invoke-Probe([string]$RunProfile) {
             throw "The production startup report is incomplete (exit $code; $($records.Count) records)."
         }
         $record = (ConvertFrom-Report $records[0]).lines['MAICORD_STARTUP']
-        foreach ($field in @('pid', 'ttff_us', 'app_ttff_us', 'main_cycles', 'process_cycles',
-                'main_cpu_us', 'process_cpu_us', 'ws_bytes', 'private_bytes', 'pws_bytes',
+        foreach ($field in @('pid', 'ttff_us', 'app_ttff_us', 'entry_us', 'entry_modules', 'modules', 'page_faults',
+                'main_cycles', 'process_cycles', 'main_cpu_us', 'process_cpu_us', 'ws_bytes', 'private_bytes', 'pws_bytes',
                 'cycles_ok', 'times_ok', 'memory_ok', 'pws_ok', 'backend_loaded', 'login_active')) {
             [UInt64]$number = 0
             if (!$record.ContainsKey($field) -or ![UInt64]::TryParse($record[$field], [ref]$number)) {
@@ -236,6 +236,8 @@ if ($ProductionStartup) {
     }
     $columns = @(
         @('ttff_us', 'process TTFF ms', 1000, 3), @('app_ttff_us', 'app TTFF ms', 1000, 3),
+        @('entry_us', 'entry ms', 1000, 3), @('entry_modules', 'DLLs at entry', 1, 0),
+        @('modules', 'DLLs at present', 1, 0), @('page_faults', 'page faults', 1, 0),
         @('main_cycles', 'main cycles', 1, 0), @('process_cycles', 'process cycles', 1, 0),
         @('main_cpu_us', 'main CPU ms', 1000, 3), @('process_cpu_us', 'process CPU ms', 1000, 3),
         @('ws_bytes', 'WS KiB', 1024, 1), @('private_bytes', 'private KiB', 1024, 1),

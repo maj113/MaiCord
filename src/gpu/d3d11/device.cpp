@@ -126,12 +126,12 @@ HardwareDevice adopt_prestart() noexcept {
 } // namespace
 
 GpuStatus gpu_device_create(GpuDevice** device, GpuContext** context) {
-    // MaiCord.exe delay-loads these, so the loader does not map them before the
-    // entry point (which the device worker waits for). Map them here, in parallel
-    // with the worker: GPU user-mode drivers import shell32, ole32 and advapi32
-    // themselves, which would otherwise load on the device's critical path, and
-    // composition needs dcomp right after it. The references stay for the process
-    // lifetime.
+    // MaiCord.exe delay-loads dcomp, shell32 and ole32 and does not import
+    // advapi32, so the loader maps none of them before the entry point (which
+    // the device worker waits for). Map them here, in parallel with the worker:
+    // GPU user-mode drivers import shell32, ole32 and advapi32 themselves, which
+    // would otherwise load on the device's critical path, and composition needs
+    // dcomp right after it. The references stay for the process lifetime.
     static constexpr const wchar_t* kParallelLibraries[] = {L"dcomp.dll", L"shell32.dll", L"ole32.dll",
                                                             L"advapi32.dll"};
     for (const wchar_t* library : kParallelLibraries)

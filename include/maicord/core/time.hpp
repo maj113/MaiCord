@@ -5,11 +5,8 @@
 #if defined(_WIN32)
 // Declared as <Windows.h> declares them, without parsing it.
 union _LARGE_INTEGER;
-struct _FILETIME;
 extern "C" __declspec(dllimport) int __stdcall QueryPerformanceCounter(_LARGE_INTEGER* counter);
-extern "C" __declspec(dllimport) int __stdcall QueryPerformanceFrequency(_LARGE_INTEGER* frequency);
 extern "C" __declspec(dllimport) unsigned long long __stdcall GetTickCount64();
-extern "C" __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(_FILETIME* time);
 #else
 #include "maicord/sys/linux/libc.hpp"
 #endif
@@ -61,10 +58,11 @@ struct Clock {
 };
 
 #if defined(_WIN32)
+// QueryPerformanceFrequency's body: ntdll's RtlQueryPerformanceFrequency copies QpcFrequency from KUSER_SHARED_DATA, the
+// page that every process maps at 0x7FFE0000. The WDK fixes the offset (ntddk.h C_ASSERT), and Windows 10 1809 and
+// Windows 11 24H2 have it there too. The value is fixed at boot, so one plain load replaces three jumps into ntdll.
 inline Clock clock_initialize() noexcept {
-    i64 frequency = 0;
-    QueryPerformanceFrequency(reinterpret_cast<_LARGE_INTEGER*>(&frequency));
-    return Clock{frequency};
+    return Clock{*reinterpret_cast<const i64*>(0x7FFE0300ull)}; // QpcFrequency
 }
 
 inline i64 clock_now() noexcept {
@@ -108,21 +106,34 @@ inline u64 clock_now_microseconds() noexcept {
     return clock_microseconds(clock_initialize(), 0, clock_now());
 }
 
-inline u64 clock_monotonic_milliseconds() noexcept {
 #if defined(_WIN32)
-    return GetTickCount64();
+// GetTickCount64's x64 body: Windows reads the tick count and its multiplier from KUSER_SHARED_DATA, the page
+// that every process maps at 0x7FFE0000. The WDK fixes both offsets (ntddk.h C_ASSERT), and they are the same
+// since Windows 2003 SP1. One local copy makes each call site a direct 5-byte call, not an indirect call into
+// kernel32.
+__declspec(noinline) inline u64 clock_monotonic_milliseconds() noexcept {
+    const u64 ticks = *reinterpret_cast<const volatile u64*>(0x7FFE0320ull);      // TickCount: LowPart, High1Time
+    const u64 multiplier = *reinterpret_cast<const volatile u32*>(0x7FFE0004ull); // TickCountMultiplier
+    return static_cast<u64>(static_cast<unsigned __int128>(ticks << 8) * (multiplier << 32) >> 64);
+}
+
+// GetSystemTimeAsFileTime's x64 body: the UTC time in 100 ns units since 1601 is one 64-bit read of SystemTime
+// (LowPart, High1Time) at 0x7FFE0014 in KUSER_SHARED_DATA. The WDK fixes the offset (ntddk.h C_ASSERT), and Windows 10
+// 1809 and Windows 11 24H2 have it there too.
+inline u64 clock_system_ticks() noexcept {
+    return *reinterpret_cast<const volatile u64*>(0x7FFE0014ull);
+}
 #else
+inline u64 clock_monotonic_milliseconds() noexcept {
     TimeSpec time{};
     clock_gettime(kClockBoottime, &time);
     return static_cast<u64>(time.seconds) * 1'000 + static_cast<u64>(time.nanoseconds) / 1'000'000;
-#endif
 }
+#endif
 
 __declspec(noinline) inline u64 clock_unix_milliseconds() noexcept {
 #if defined(_WIN32)
-    // FILETIME is the little-endian low/high halves of one 64-bit count.
-    u64 ticks = 0;
-    GetSystemTimeAsFileTime(reinterpret_cast<_FILETIME*>(&ticks));
+    const u64 ticks = clock_system_ticks();
     constexpr u64 windows_to_unix_ticks = 116'444'736'000'000'000ull;
     return ticks >= windows_to_unix_ticks ? (ticks - windows_to_unix_ticks) / 10'000ull : 0;
 #else

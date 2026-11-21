@@ -353,7 +353,7 @@ bool directory_valid(ConstSlice<wchar_t> path) noexcept {
 bool directory_release(PluginDirectory* directory, DWORD* error) noexcept {
     while (directory->ancestor_count) {
         if (!CloseHandle(directory->ancestors[directory->ancestor_count - 1])) {
-            *error = GetLastError();
+            *error = thread_last_error();
             return false;
         }
         directory->ancestors[--directory->ancestor_count] = nullptr;
@@ -377,13 +377,13 @@ bool directory_pin(PluginDirectory* directory, ConstSlice<wchar_t> path, DWORD* 
                                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         directory->path[end] = saved;
         if (handle == INVALID_HANDLE_VALUE) {
-            *error = GetLastError();
+            *error = thread_last_error();
             return false;
         }
         directory->ancestors[directory->ancestor_count++] = handle;
         BY_HANDLE_FILE_INFORMATION info{};
         if (!GetFileInformationByHandle(handle, &info)) {
-            *error = GetLastError();
+            *error = thread_last_error();
             return false;
         }
         if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
@@ -415,12 +415,12 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
                             FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (out->file == INVALID_HANDLE_VALUE) {
         out->file = nullptr;
-        *error = GetLastError();
+        *error = thread_last_error();
         return false;
     }
     BY_HANDLE_FILE_INFORMATION info{};
     if (GetFileType(out->file) != FILE_TYPE_DISK || !GetFileInformationByHandle(out->file, &info)) {
-        *error = GetLastError();
+        *error = thread_last_error();
         return false;
     }
     if (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) return false;
@@ -429,7 +429,7 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
     const DWORD final_count = GetFinalPathNameByHandleW(out->file, final_path, kPluginPathCapacity + 4,
                                                         FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     if (!final_count) {
-        *error = GetLastError();
+        *error = thread_last_error();
         return false;
     }
     if (final_count != out->path_characters + 4 || final_path[0] != L'\\' || final_path[1] != L'\\' ||
@@ -446,21 +446,21 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
 // handle keeps the file from being written). One byte more is asked for, so a file longer than it was is refused.
 PluginLoadResult file_view(PinnedFile* file, ConstSlice<wchar_t>) noexcept {
     file->view = static_cast<u8*>(commit_pages(file->bytes + 1));
-    if (!file->view) return failure(PluginLoadError::read, GetLastError());
+    if (!file->view) return failure(PluginLoadError::read, thread_last_error());
     DWORD read = 0;
     if (!ReadFile(file->file, file->view, static_cast<DWORD>(file->bytes + 1), &read, nullptr))
-        return failure(PluginLoadError::read, GetLastError());
+        return failure(PluginLoadError::read, thread_last_error());
     return read == file->bytes ? success() : failure(PluginLoadError::read);
 }
 PluginLoadResult image_map(const PinnedFile& file, u64, HMODULE* module, const u8** base) noexcept {
     *module = LoadLibraryExW(file.path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!*module) return failure(PluginLoadError::load, GetLastError());
+    if (!*module) return failure(PluginLoadError::load, thread_last_error());
     *base = reinterpret_cast<const u8*>(*module);
     return success();
 }
 bool image_free(HMODULE module, DWORD* error) noexcept {
     if (FreeLibrary(module)) return true;
-    *error = GetLastError();
+    *error = thread_last_error();
     return false;
 }
 void file_close(PinnedFile* file, PluginImage*) noexcept {

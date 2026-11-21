@@ -1,0 +1,17 @@
+; KernelBase.dll exports that MaiCord.exe imports by name: the registry calls
+; (include/maicord/sys/registry.hpp). advapi32.dll and kernel32.dll only jump
+; to these exports, so importing them from KernelBase.dll keeps advapi32.dll
+; out of the import table. cmake/windows_libraries.cmake builds the import
+; library from this file.
+LIBRARY KernelBase.dll
+EXPORTS
+    RegCloseKey
+    RegCreateKeyExW
+    RegDeleteKeyExW
+    RegDeleteKeyValueW
+    RegDeleteTreeW
+    RegDeleteValueW
+    RegGetValueW
+    RegOpenKeyExW
+    RegQueryValueExW
+    RegSetValueExW

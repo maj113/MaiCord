@@ -1,5 +1,6 @@
 #include "maicord/platform/desktop/screen_color.hpp"
 #if defined(_WIN32)
+#include "maicord/core/module.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/gdi.hpp"
@@ -128,7 +129,7 @@ void on_reply(void* context, dbus::Status status, const dbus::Message* reply) no
 bool screen_color_pick_start(void (*settled)(void* context) noexcept, void* context) noexcept {
     screen_color_pick_end();
 #if defined(_WIN32)
-    g_pick.hook = SetWindowsHookExW(WH_MOUSE_LL, hook, GetModuleHandleW(nullptr), 0);
+    g_pick.hook = SetWindowsHookExW(WH_MOUSE_LL, hook, module_instance(), 0);
     if (!g_pick.hook)
         return false;
 #else

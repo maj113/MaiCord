@@ -12,18 +12,7 @@
 #endif
 
 MAICORD_SYS_TYPES_BEGIN
-struct ID2D1EllipseGeometry;
-struct ID2D1Factory;
-struct ID2D1Geometry;
-struct ID2D1GeometrySink;
-struct ID2D1PathGeometry;
-struct ID2D1RectangleGeometry;
-struct ID2D1Resource;
-struct ID2D1RoundedRectangleGeometry;
 struct ID2D1SimplifiedGeometrySink;
-struct ID2D1StrokeStyle;
-struct ID2D1TessellationSink;
-struct ID2D1TransformedGeometry;
 
 // <dcommon.h>
 struct D2D_POINT_2F {
@@ -55,27 +44,7 @@ struct D2D_MATRIX_3X2_F {
     };
 };
 typedef D2D_POINT_2F D2D1_POINT_2F;
-typedef D2D_RECT_F D2D1_RECT_F;
-typedef D2D_MATRIX_3X2_F D2D1_MATRIX_3X2_F;
 // <d2d1.h>
-enum D2D1_CAP_STYLE {
-    D2D1_CAP_STYLE_FORCE_DWORD = 0xffffffff
-};
-enum D2D1_DASH_STYLE {
-    D2D1_DASH_STYLE_FORCE_DWORD = 0xffffffff
-};
-enum D2D1_LINE_JOIN {
-    D2D1_LINE_JOIN_FORCE_DWORD = 0xffffffff
-};
-enum D2D1_COMBINE_MODE {
-    D2D1_COMBINE_MODE_FORCE_DWORD = 0xffffffff
-};
-enum D2D1_GEOMETRY_RELATION {
-    D2D1_GEOMETRY_RELATION_FORCE_DWORD = 0xffffffff
-};
-enum D2D1_GEOMETRY_SIMPLIFICATION_OPTION {
-    D2D1_GEOMETRY_SIMPLIFICATION_OPTION_FORCE_DWORD = 0xffffffff
-};
 enum D2D1_FIGURE_BEGIN {
     D2D1_FIGURE_BEGIN_HOLLOW = 1,
     D2D1_FIGURE_BEGIN_FORCE_DWORD = 0xffffffff
@@ -96,72 +65,6 @@ enum D2D1_FILL_MODE {
     D2D1_FILL_MODE_WINDING = 1,
     D2D1_FILL_MODE_FORCE_DWORD = 0xffffffff
 };
-struct D2D1_ELLIPSE {
-    D2D1_POINT_2F point;
-    FLOAT radiusX;
-    FLOAT radiusY;
-};
-struct D2D1_ROUNDED_RECT {
-    D2D1_RECT_F rect;
-    FLOAT radiusX;
-    FLOAT radiusY;
-};
-struct D2D1_STROKE_STYLE_PROPERTIES {
-    D2D1_CAP_STYLE startCap;
-    D2D1_CAP_STYLE endCap;
-    D2D1_CAP_STYLE dashCap;
-    D2D1_LINE_JOIN lineJoin;
-    FLOAT miterLimit;
-    D2D1_DASH_STYLE dashStyle;
-    FLOAT dashOffset;
-};
-struct __declspec(uuid("2cd90691-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1Resource : IUnknown {
-    MAICORD_COM_UNUSED(GetFactory);
-};
-struct __declspec(uuid("2cd9069d-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1StrokeStyle : ID2D1Resource {
-};
-struct __declspec(uuid("2cd906a1-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1Geometry : ID2D1Resource {
-    virtual __declspec(nothrow) HRESULT __stdcall GetBounds(const D2D1_MATRIX_3X2_F* worldTransform,
-        D2D1_RECT_F* bounds) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetWidenedBounds(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle,
-        const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance, D2D1_RECT_F* bounds) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall StrokeContainsPoint(D2D1_POINT_2F point, FLOAT strokeWidth,
-        ID2D1StrokeStyle* strokeStyle, const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance,
-        BOOL* contains) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall FillContainsPoint(D2D1_POINT_2F point,
-        const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance, BOOL* contains) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CompareWithGeometry(ID2D1Geometry* inputGeometry,
-        const D2D1_MATRIX_3X2_F* inputGeometryTransform, FLOAT flatteningTolerance,
-        D2D1_GEOMETRY_RELATION* relation) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplificationOption,
-        const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance,
-        ID2D1SimplifiedGeometrySink* geometrySink) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall Tessellate(const D2D1_MATRIX_3X2_F* worldTransform,
-        FLOAT flatteningTolerance, ID2D1TessellationSink* tessellationSink) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CombineWithGeometry(ID2D1Geometry* inputGeometry,
-        D2D1_COMBINE_MODE combineMode, const D2D1_MATRIX_3X2_F* inputGeometryTransform, FLOAT flatteningTolerance,
-        ID2D1SimplifiedGeometrySink* geometrySink) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall Outline(const D2D1_MATRIX_3X2_F* worldTransform,
-        FLOAT flatteningTolerance, ID2D1SimplifiedGeometrySink* geometrySink) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall ComputeArea(const D2D1_MATRIX_3X2_F* worldTransform,
-        FLOAT flatteningTolerance, FLOAT* area) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall ComputeLength(const D2D1_MATRIX_3X2_F* worldTransform,
-        FLOAT flatteningTolerance, FLOAT* length) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall ComputePointAtLength(FLOAT length,
-        const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance, D2D1_POINT_2F* point,
-        D2D1_POINT_2F* unitTangentVector) const = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall Widen(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle,
-        const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance,
-        ID2D1SimplifiedGeometrySink* geometrySink) const = 0;
-};
-struct __declspec(uuid("2cd906a2-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1RectangleGeometry : ID2D1Geometry {
-};
-struct __declspec(uuid("2cd906a3-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1RoundedRectangleGeometry : ID2D1Geometry {
-};
-struct __declspec(uuid("2cd906a4-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1EllipseGeometry : ID2D1Geometry {
-};
-struct __declspec(uuid("2cd906bb-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1TransformedGeometry : ID2D1Geometry {
-};
 struct __declspec(uuid("2cd9069e-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1SimplifiedGeometrySink : IUnknown {
     virtual __declspec(nothrow) void __stdcall SetFillMode(D2D1_FILL_MODE fillMode) = 0;
     virtual __declspec(nothrow) void __stdcall SetSegmentFlags(D2D1_PATH_SEGMENT vertexFlags) = 0;
@@ -170,32 +73,5 @@ struct __declspec(uuid("2cd9069e-12e2-11dc-9fed-001143a055f9")) __declspec(novta
     virtual __declspec(nothrow) void __stdcall AddBeziers(const D2D1_BEZIER_SEGMENT* beziers, UINT32 beziersCount) = 0;
     virtual __declspec(nothrow) void __stdcall EndFigure(D2D1_FIGURE_END figureEnd) = 0;
     virtual __declspec(nothrow) HRESULT __stdcall Close() = 0;
-};
-struct __declspec(uuid("2cd9069f-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1GeometrySink : ID2D1SimplifiedGeometrySink {
-    MAICORD_COM_UNUSED(AddLine);
-    virtual __declspec(nothrow) void __stdcall AddBezier(const D2D1_BEZIER_SEGMENT* bezier) = 0;
-    __declspec(nothrow) void AddBezier(const D2D1_BEZIER_SEGMENT& bezier) { AddBezier(& bezier); }
-};
-struct __declspec(uuid("2cd906a5-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1PathGeometry : ID2D1Geometry {
-    virtual __declspec(nothrow) HRESULT __stdcall Open(ID2D1GeometrySink** geometrySink) = 0;
-};
-struct __declspec(uuid("06152247-6f50-465a-9245-118bfd3b6007")) __declspec(novtable) ID2D1Factory : IUnknown {
-    MAICORD_COM_UNUSED(ReloadSystemMetrics);
-    MAICORD_COM_UNUSED(GetDesktopDpi);
-    virtual __declspec(nothrow) HRESULT __stdcall CreateRectangleGeometry(const D2D1_RECT_F* rectangle,
-        ID2D1RectangleGeometry** rectangleGeometry) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CreateRoundedRectangleGeometry(const D2D1_ROUNDED_RECT* roundedRectangle,
-        ID2D1RoundedRectangleGeometry** roundedRectangleGeometry) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CreateEllipseGeometry(const D2D1_ELLIPSE* ellipse,
-        ID2D1EllipseGeometry** ellipseGeometry) = 0;
-    MAICORD_COM_UNUSED(CreateGeometryGroup);
-    virtual __declspec(nothrow) HRESULT __stdcall CreateTransformedGeometry(ID2D1Geometry* sourceGeometry,
-        const D2D1_MATRIX_3X2_F* transform, ID2D1TransformedGeometry** transformedGeometry) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CreatePathGeometry(ID2D1PathGeometry** pathGeometry) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall CreateStrokeStyle(const D2D1_STROKE_STYLE_PROPERTIES* strokeStyleProperties,
-        const FLOAT* dashes, UINT32 dashesCount, ID2D1StrokeStyle** strokeStyle) = 0;
-    __declspec(nothrow) HRESULT CreateRoundedRectangleGeometry(const D2D1_ROUNDED_RECT& roundedRectangle, ID2D1RoundedRectangleGeometry** roundedRectangleGeometry) { return CreateRoundedRectangleGeometry(& roundedRectangle, roundedRectangleGeometry); }
-    __declspec(nothrow) HRESULT CreateEllipseGeometry(const D2D1_ELLIPSE& ellipse, ID2D1EllipseGeometry** ellipseGeometry) { return CreateEllipseGeometry(& ellipse, ellipseGeometry); }
-    __declspec(nothrow) HRESULT CreateStrokeStyle(const D2D1_STROKE_STYLE_PROPERTIES& strokeStyleProperties, const FLOAT* dashes, UINT32 dashesCount, ID2D1StrokeStyle** strokeStyle) { return CreateStrokeStyle(& strokeStyleProperties, dashes, dashesCount, strokeStyle); }
 };
 MAICORD_SYS_TYPES_END

@@ -81,6 +81,9 @@ These flags confirm that the real backend and login instance exist. They do not 
 | --- | --- |
 | Process TTFF | Process creation to the first successful `Present` return, including the loader work before entry. |
 | App TTFF | `application_run` to the same `Present` return. |
+| Entry | Process creation to the client's entry point: the loader maps the static imports in this time. |
+| DLLs | The mapped modules, the client included, at the entry point and at the first `Present` return. |
+| Page faults | The page faults of the process through the first `Present` return. |
 | Main/process cycles | Raw lifetime counts from `QueryThreadCycleTime` and `QueryProcessCycleTime`, through the first present. |
 | Main/process CPU time | User plus kernel time from `GetThreadTimes` and `GetProcessTimes`, through the first present. |
 | WS/private/PWS | Whole-process working set, private committed bytes and private working set at the first present. |

@@ -151,10 +151,10 @@ NotificationIdentityResult notification_identity_create(const NotificationIdenti
     if(r==ERROR_SUCCESS){NotificationIdentityResult done{};done.registry_created=clsid_created||aumid_created;return done;}
     // Only keys exclusively created by this invocation are eligible for rollback.
     bool removed=true;
-    if(aumid_created)removed=RegDeleteKeyW(HKEY_CURRENT_USER,p.aumid_key)==ERROR_SUCCESS;
+    if(aumid_created)removed=RegDeleteKeyExW(HKEY_CURRENT_USER,p.aumid_key,0,0)==ERROR_SUCCESS;
     if(clsid_created){
-        const LSTATUS s=RegDeleteKeyW(HKEY_CURRENT_USER,p.server_key);
-        removed=(s==ERROR_SUCCESS||s==ERROR_FILE_NOT_FOUND)&&RegDeleteKeyW(HKEY_CURRENT_USER,p.clsid_key)==ERROR_SUCCESS&&removed;
+        const LSTATUS s=RegDeleteKeyExW(HKEY_CURRENT_USER,p.server_key,0,0);
+        removed=(s==ERROR_SUCCESS||s==ERROR_FILE_NOT_FOUND)&&RegDeleteKeyExW(HKEY_CURRENT_USER,p.clsid_key,0,0)==ERROR_SUCCESS&&removed;
     }
     auto result=failure(!removed?NotificationIdentityError::rollback:r==ERROR_ALREADY_EXISTS?NotificationIdentityError::foreign_resource:
         NotificationIdentityError::registry,static_cast<u32>(r));

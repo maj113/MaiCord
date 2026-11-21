@@ -57,6 +57,7 @@ maicord_library(maicord_cdn_media src/app/media/cdn_media_pipeline.cpp
 # combase: the toast path's Windows Runtime activation and string calls, rather
 # than runtimeobject.lib's api-ms-win-core-winrt API sets. sspicli: the TLS
 # stream's Schannel calls, which secur32.dll only forwards to SspiCli.dll.
+# kernelbase: the registry calls, which advapi32.dll only forwards to it.
 function(maicord_import_library target def)
     set(library "${MAICORD_GENERATED_DIRECTORY}/${target}.lib")
     add_custom_command(OUTPUT "${library}"
@@ -72,6 +73,7 @@ function(maicord_import_library target def)
 endfunction()
 maicord_import_library(maicord_combase desktop/combase.def)
 maicord_import_library(maicord_sspicli net/sspicli.def)
+maicord_import_library(maicord_kernelbase desktop/kernelbase.def)
 
 # window_post (include/maicord/platform/window/window.hpp) for Windows: the audio workers wake the UI thread through it.
 maicord_library(maicord_window_post src/platform/window/win32/post.cpp
@@ -84,7 +86,7 @@ maicord_library(maicord_window_win32 src/platform/window/win32/keys.cpp src/plat
     src/platform/window/win32/icon.cpp src/platform/window/win32/create_icon.cpp src/platform/window/win32/settings.cpp
     src/platform/window/win32/drop.cpp src/platform/window/win32/main_window.cpp src/platform/window/win32/pump.cpp
     src/platform/window/win32/caption_frame.cpp
-    LIBS maicord_core maicord_window_post user32 advapi32 shell32)
+    LIBS maicord_core maicord_window_post user32 maicord_kernelbase shell32)
 
 # What the test hooks (include/maicord/core/test_hook.hpp) of a client built with tools/build.ps1 -TestHooks add; a
 # shipping build compiles none of it.
@@ -113,7 +115,7 @@ maicord_library(maicord_platform
     src/app/net/file_persistence.cpp
     ${maicord_test_hook_net_sources}
     LIBS maicord_core maicord_media_codec maicord_window_win32 ${maicord_tls_libs} ole32 user32 gdi32 shell32 mfuuid ntdll
-        maicord_combase advapi32)
+        maicord_combase maicord_kernelbase)
 
 maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
     src/platform/audio/notification_audio_mixer.cpp
@@ -224,7 +226,7 @@ maicord_library(maicord_account_media
 
 maicord_library(maicord_text
     src/ui/text/text.cpp src/ui/text/native_text_candidate.cpp src/ui/text/native_text_catalog.cpp src/core/log.cpp
-    LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
+    LIBS maicord_core maicord_font maicord_ui gdi32)
 # The native layout adapter is compiled for size by a minsize attribute region
 # in its source, which leaves retained-layout publication and the single-line
 # entry optimized for speed.

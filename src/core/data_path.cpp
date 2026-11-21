@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 
 #include "data_path_shared.inc"
 
@@ -58,7 +59,7 @@ DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
     wchar_t root[kRootCapacity];
     const u32 root_length = GetEnvironmentVariableW(L"LOCALAPPDATA", root, kRootCapacity);
     if (root_length == 0)
-        return failure(DataPathError::path, GetLastError());
+        return failure(DataPathError::path, thread_last_error());
     if (root_length >= kRootCapacity || !root_valid(root, root_length))
         return failure(DataPathError::path, ERROR_BAD_PATHNAME);
     const u32 length = data_path_build(root, output, capacity, relative);
@@ -91,12 +92,12 @@ bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
     if (attributes == INVALID_FILE_ATTRIBUTES) {
         if (CreateDirectoryW(path, nullptr))
             return true;
-        error = GetLastError();
+        error = thread_last_error();
         // Another thread or process made it between the two calls.
         if (error == ERROR_ALREADY_EXISTS) {
             attributes = GetFileAttributesW(path);
             if (attributes == INVALID_FILE_ATTRIBUTES)
-                error = GetLastError();
+                error = thread_last_error();
         }
     }
     if (attributes != INVALID_FILE_ATTRIBUTES) {

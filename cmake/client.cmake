@@ -204,12 +204,12 @@ else()
     target_link_options(MaiCord PRIVATE "/MAP:${maicord_client_map}")
     # Startup: DLLs the device prestart does not need map on first use instead of
     # before the entry point, which the prestart waits for. The renderer maps
-    # dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main
-    # thread while the worker creates the device; the rest load when first used.
+    # dcomp, shell32 and ole32 (which GPU drivers import) on the main thread
+    # while the worker creates the device; the rest load when first used.
     # maicord_core's __delayLoadHelper2 (src/core/delay_load.cpp) resolves them
     # through kernel32's ResolveDelayLoadedAPI and fails fast when one is missing.
     # The audit below checks the list.
-    set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole32.dll advapi32.dll
+    set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole32.dll
         combase.dll bcrypt.dll crypt32.dll)
     list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
     target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
@@ -233,7 +233,7 @@ if(NOT maicord_test_hooks)
     list(APPEND maicord_client_audit_options --no-test-hooks)
 endif()
 if(NOT MAICORD_LINUX)
-    set(MAICORD_CLIENT_STATIC_IMPORTS kernel32.dll user32.dll d3d11.dll gdi32.dll ntdll.dll)
+    set(MAICORD_CLIENT_STATIC_IMPORTS kernel32.dll kernelbase.dll user32.dll d3d11.dll gdi32.dll ntdll.dll)
     list(APPEND maicord_client_audit_options --maximum-initialized-data-bytes 16384
         --static-imports ${MAICORD_CLIENT_STATIC_IMPORTS} --delay-load ${MAICORD_CLIENT_DELAY_LOADS})
 endif()

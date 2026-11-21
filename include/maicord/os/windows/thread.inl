@@ -1,4 +1,5 @@
 // The Windows bodies of maicord/os/thread.hpp: inline forwarders to the Win32 calls. Included by thread.hpp only.
+#include "maicord/core/win32_process.hpp"
 #include "maicord/sys/com.hpp"
 
 namespace maicord {
@@ -9,7 +10,7 @@ __forceinline Thread* thread_start(ThreadProc procedure, void* argument, u32 sta
     HANDLE handle = CreateThread(nullptr, stack_reserve_bytes, reinterpret_cast<LPTHREAD_START_ROUTINE>(procedure),
                                  argument, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (handle == nullptr && native_error != nullptr) {
-        *native_error = GetLastError();
+        *native_error = thread_last_error();
     }
     return reinterpret_cast<Thread*>(handle);
 }
@@ -43,7 +44,7 @@ __forceinline void thread_com_leave() noexcept {
 }
 
 __forceinline void thread_boost_realtime() noexcept {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    SetThreadPriority(current_thread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
 
 __forceinline void thread_sleep(u32 milliseconds) noexcept {

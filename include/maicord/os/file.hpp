@@ -127,8 +127,11 @@ struct FileMap {
 
 #if defined(_WIN32)
 namespace maicord {
-// Walks a directory: zero-initialized, dir_open to dir_close.
+// Walks a directory: dir_open to dir_close.
 struct DirIter {
+    // `DirIter iterator{}` runs this constructor: it closes the iterator and leaves the 592 bytes of `data`, which
+    // FindFirstFileW fills, uncleared.
+    DirIter() noexcept : find(nullptr) {}
     HANDLE find;
     // The first entry FindFirstFileW returned that dir_next has not handed out yet.
     u32 pending;

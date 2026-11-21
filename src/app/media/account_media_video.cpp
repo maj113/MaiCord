@@ -254,7 +254,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
     if (!worker->video_runtime) {
         auto* memory = static_cast<AccountMediaVideoRuntime*>(commit_pages(sizeof(AccountMediaVideoRuntime)));
         if (!memory)
-            return failed(AccountVideoError::memory, GetLastError());
+            return failed(AccountVideoError::memory, thread_last_error());
         memory->selected_lane = -1;
         memory->worker = worker;
         worker->video_runtime = memory;
@@ -322,11 +322,11 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
         if (!event_set(lane.command_event)) {
             AcquireSRWLockExclusive(&v.lock);
             v.snapshot.playback.error = AccountVideoError::event;
-            v.snapshot.playback.native_error = GetLastError();
+            v.snapshot.playback.native_error = thread_last_error();
             // Publication cannot be rolled back without proving the worker has
             // not consumed selection. Keep ownership for explicit account stop.
             ReleaseSRWLockExclusive(&v.lock);
-            return failed(AccountVideoError::event, GetLastError());
+            return failed(AccountVideoError::event, thread_last_error());
         }
         event_set(worker->output_event);
         return {AccountVideoError::none, 0, true, false};
@@ -364,7 +364,7 @@ AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker
     WriteRelease(&v.command_pending, 1);
     ReleaseSRWLockExclusive(&v.lock);
     if (!event_set(worker->lanes[lane].command_event))
-        return failed(AccountVideoError::event, GetLastError());
+        return failed(AccountVideoError::event, thread_last_error());
     return {AccountVideoError::none, 0, true, false};
 }
 AccountVideoPlaybackStatus account_media_worker_video_status(const AccountMediaWorker* worker) noexcept {

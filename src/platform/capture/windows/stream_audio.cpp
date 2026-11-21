@@ -55,7 +55,7 @@ HRESULT activate_process_loopback(Runtime& r, IAudioClient** client) noexcept {
         return E_NOINTERFACE;
     const bool application = r.options.scope == StreamAudioScope::application && r.options.process_id;
     ActivationParams parameters{kActivationProcessLoopback,
-                                application ? r.options.process_id : GetCurrentProcessId(),
+                                application ? r.options.process_id : process_id(),
                                 application ? kLoopbackIncludeTree : kLoopbackExcludeTree};
     PROPVARIANT variant{};
     variant.vt = VT_BLOB;
@@ -132,16 +132,16 @@ HRESULT drain(Runtime& r, Engine& e) noexcept {
 
 u32 capture_thread(void* parameter) noexcept {
     auto& r = *static_cast<Runtime*>(parameter);
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    SetThreadPriority(current_thread(), THREAD_PRIORITY_TIME_CRITICAL);
     const bool com = thread_com_enter();
     Engine e{};
     u64 retry_ms = 0;
     for (;;) {
-        if (!e.client && GetTickCount64() >= retry_ms) {
+        if (!e.client && clock_monotonic_milliseconds() >= retry_ms) {
             const HRESULT opened = open_stream(r, e);
             if (FAILED(opened)) {
                 log_u64(LogLevel::warning, "stream_audio", "open_failed", static_cast<u32>(opened));
-                retry_ms = GetTickCount64() + 1000;
+                retry_ms = clock_monotonic_milliseconds() + 1000;
             }
         }
         HANDLE events[]{r.stop, r.wake};
@@ -150,7 +150,7 @@ u32 capture_thread(void* parameter) noexcept {
             break;
         if (e.client && FAILED(drain(r, e))) {
             close_stream(e);
-            retry_ms = GetTickCount64() + 50;
+            retry_ms = clock_monotonic_milliseconds() + 50;
         }
     }
     close_stream(e);

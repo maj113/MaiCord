@@ -4,6 +4,7 @@
 #include "maicord/platform/window/win32.hpp"
 
 #include "internal.hpp"
+#include "maicord/core/module.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -35,10 +36,8 @@ bool blocked_class(UINT message) noexcept {
 // Hover affordances end when the pointer leaves the client, as a DOM mouseleave would: the request is shared by
 // every layer and re-armed by the first move after each WM_MOUSELEAVE.
 void arm_pointer_leave(HWND window) noexcept {
-    if (g.leave_armed)
-        return;
-    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, window, 0};
-    g.leave_armed = TrackMouseEvent(&tracking) != FALSE;
+    if (!g.leave_armed)
+        g.leave_armed = win32_detail::request_pointer_leave(window, TME_LEAVE);
 }
 
 // The system frame follows the dark scheme (DWMWA_USE_IMMERSIVE_DARK_MODE, with its pre-20H1 number as the fallback).
@@ -81,6 +80,11 @@ bool dispatch_cursor(HWND window, float* x, float* y) noexcept {
     return true;
 }
 
+bool request_pointer_leave(HWND window, DWORD flags) noexcept {
+    TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), flags, window, 0};
+    return TrackMouseEvent(&tracking) != FALSE;
+}
+
 bool deliver(const WindowEvent& event, WindowEventResult* result) noexcept {
     if (!g.sink)
         return false;
@@ -110,7 +114,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             if (active)
                 dispatch_cursor_end();
         }
-    } cursor_scope{modeled && event.type == EventType::cursor_query};
+    } cursor_scope{event.type == EventType::cursor_query};
     if (cursor_scope.active)
         dispatch_cursor_begin(window, event.pointer.x, event.pointer.y);
     if (message == WM_MOUSEMOVE)
@@ -204,7 +208,7 @@ bool win32_window_create(const WindowCreateInfo& info, const Win32WindowOptions&
     g = {};
     g.sink = sink;
     g.context = context;
-    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    const HINSTANCE instance = module_instance();
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
     // A flip-model swap chain owns all client pixels. Class-wide redraws generate duplicate WM_PAINT traffic during

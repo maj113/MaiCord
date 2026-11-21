@@ -30,11 +30,29 @@ bool pages_unmap(void* base, usize hint_bytes) noexcept;
 // The base of the recorded range that holds `address` (what VirtualQuery reports as AllocationBase), or null when
 // the address is in none. A binary search under the table's lock: for diagnostics and tests, not for hot paths.
 void* pages_range_base(const void* address) noexcept;
+#else
+// The one copy of each page call that the Windows call sites share: it sets the constant arguments and jumps to
+// VirtualAlloc or VirtualFree, so each site is a 5-byte call and the call (a system call) gains only that jump.
+__declspec(noinline) inline void* pages_reserve_call(usize bytes) noexcept {
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE);
+}
+__declspec(noinline) inline void* pages_allocate_call(usize bytes) noexcept {
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+__declspec(noinline) inline void* pages_commit_call(void* address, usize bytes) noexcept {
+    return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE);
+}
+__declspec(noinline) inline BOOL pages_decommit_call(void* address, usize bytes) noexcept {
+    return VirtualFree(address, bytes, MEM_DECOMMIT);
+}
+__declspec(noinline) inline BOOL pages_release_call(void* base) noexcept {
+    return VirtualFree(base, 0, MEM_RELEASE);
+}
 #endif
 
 __forceinline void* pages_reserve(usize bytes) noexcept {
 #if defined(_WIN32)
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE);
+    return pages_reserve_call(bytes);
 #else
     return pages_map(bytes, false);
 #endif
@@ -53,7 +71,7 @@ __forceinline void* pages_reserve_no_access(usize bytes) noexcept {
 // Commits [address, address + bytes) of a reservation.
 __forceinline bool pages_commit(void* address, usize bytes) noexcept {
 #if defined(_WIN32)
-    return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE) == address;
+    return pages_commit_call(address, bytes) == address;
 #else
     return !syscall_failed(sys_mprotect(address, bytes, kProtectRead | kProtectWrite));
 #endif
@@ -64,7 +82,7 @@ __forceinline bool pages_commit(void* address, usize bytes) noexcept {
 // that ends inside one commits through its end.
 __forceinline void* pages_commit_at(void* address, usize bytes) noexcept {
 #if defined(_WIN32)
-    return VirtualAlloc(address, bytes, MEM_COMMIT, PAGE_READWRITE);
+    return pages_commit_call(address, bytes);
 #else
     const usize page = process_startup().page_size;
     const usize start = reinterpret_cast<usize>(address) & ~(page - 1);
@@ -76,7 +94,7 @@ __forceinline void* pages_commit_at(void* address, usize bytes) noexcept {
 // Returns the pages to the system; the range stays reserved and a later commit gives zero pages.
 __forceinline bool pages_decommit(void* address, usize bytes) noexcept {
 #if defined(_WIN32)
-    return VirtualFree(address, bytes, MEM_DECOMMIT) != 0;
+    return pages_decommit_call(address, bytes) != 0;
 #else
     return !syscall_failed(sys_madvise(address, bytes, kAdviseDontNeed)) &&
            !syscall_failed(sys_mprotect(address, bytes, kProtectNone));
@@ -87,7 +105,7 @@ __forceinline bool pages_decommit(void* address, usize bytes) noexcept {
 // Linux looks it up). False when the system refuses.
 __forceinline bool pages_release(void* base) noexcept {
 #if defined(_WIN32)
-    return VirtualFree(base, 0, MEM_RELEASE) != 0;
+    return pages_release_call(base) != 0;
 #else
     return pages_unmap(base, 0);
 #endif
@@ -98,7 +116,7 @@ __forceinline bool pages_release(void* base) noexcept {
 __forceinline bool pages_release(void* base, usize bytes) noexcept {
 #if defined(_WIN32)
     (void)bytes;
-    return VirtualFree(base, 0, MEM_RELEASE) != 0;
+    return pages_release_call(base) != 0;
 #else
     return pages_unmap(base, bytes);
 #endif
@@ -131,7 +149,7 @@ u64 system_memory_total_kib() noexcept;
 // Zeroed pages, reserved and committed in one call; null when the system refuses.
 __forceinline void* pages_allocate(usize bytes) noexcept {
 #if defined(_WIN32)
-    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    return pages_allocate_call(bytes);
 #else
     return pages_map(bytes, true);
 #endif
@@ -160,12 +178,11 @@ __forceinline bool pages_protect(void* address, usize bytes, PageAccess access) 
 #endif
 }
 
-// The system page size: the granularity of the functions above.
+// The system page size: the granularity of the functions above. Windows on x64 has 4 KiB pages only (as
+// system_memory_total_kib above counts them); GetSystemInfo would make two system calls to report it.
 __forceinline usize pages_page_size() noexcept {
 #if defined(_WIN32)
-    Win32SystemInfo info{};
-    GetSystemInfo(info.native());
-    return info.dwPageSize;
+    return 4096;
 #else
     return process_startup().page_size;
 #endif

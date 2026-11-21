@@ -1,6 +1,7 @@
 // Icons on Windows: the window's own (window_set_icon) and the one stored in the program (window_app_icon_png).
 #include "maicord/platform/window/win32.hpp"
 
+#include "maicord/core/module.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 
@@ -29,8 +30,8 @@ void window_set_icon(Window window, const IconImage* images, u32 count) noexcept
 
 // The program's icon (resource group 1): the stored image closest above the wanted size.
 ConstSlice<u8> window_app_icon_png(u32 extent, u32 largest, u32* side) noexcept {
-    const HMODULE module = GetModuleHandleW(nullptr);
-    const HRSRC group = module ? FindResourceW(module, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(14)) : nullptr;
+    const HMODULE module = module_image();
+    const HRSRC group = FindResourceW(module, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(14));
     const HGLOBAL group_data = group ? LoadResource(module, group) : nullptr;
     const auto* directory = group_data ? static_cast<const u8*>(LockResource(group_data)) : nullptr;
     const u32 directory_bytes = group ? SizeofResource(module, group) : 0;

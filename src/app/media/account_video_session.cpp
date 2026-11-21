@@ -1,3 +1,4 @@
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "account_video_session_internal.hpp"
 
@@ -323,7 +324,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
                 return result(AccountVideoError::release, static_cast<u32>(decoder.native_status), true);
         }
         if (!pages_release(s->workspace))
-            return result(AccountVideoError::release, GetLastError(), true);
+            return result(AccountVideoError::release, thread_last_error(), true);
     }
     reset_value(s);
     return result(AccountVideoError::none, 0, true, true);

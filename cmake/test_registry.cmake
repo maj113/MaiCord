@@ -546,7 +546,7 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_client_preferences
         maicord_account_host maicord_account_paths maicord_account_media maicord_message_media
         maicord_ui_input maicord_text maicord_render_core maicord_model kernel32 user32 bcrypt crypt32 ws2_32
-        maicord_sspicli ole32 ntdll
+        maicord_sspicli ole32 ntdll advapi32
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}"
     DEFINES "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     USES_CLIENT MaiCord)
@@ -1661,7 +1661,7 @@ endif()
 maicord_test(MaiCordNativeNotificationTests ONLY WINDOWS ENTRY maicord_native_notifications_tests_entry
     SOURCES tests/platform/desktop/native_notifications.cpp $<TARGET_OBJECTS:maicord_toast_abi_conformance>
         tests/integration/desktop_notifications_probe.cpp
-    LIBS maicord_core maicord_platform kernel32 runtimeobject
+    LIBS maicord_core maicord_platform kernel32 runtimeobject advapi32
     TEST maicord_native_notifications)
 # Compile the explicit enrollment branch without invoking it: this fixture
 # substitutes a copied notification sink and never creates desktop identity.

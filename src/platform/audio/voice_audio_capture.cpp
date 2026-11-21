@@ -135,7 +135,7 @@ void arm(Runtime& r, u64 wake_us) noexcept {
 }
 DWORD WINAPI capture_thread(void* parameter) noexcept {
     auto& r = *static_cast<Runtime*>(parameter);
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    SetThreadPriority(current_thread(), THREAD_PRIORITY_TIME_CRITICAL);
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     Engine e{};
     HRESULT h = FAILED(apartment) ? apartment : watch(r, e);

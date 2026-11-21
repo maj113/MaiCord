@@ -31,10 +31,10 @@ NativeFontResult load_face(NativeTextCatalogs& owner,const wchar_t* path,u32 ind
     u32 path_units=0;while(path[path_units])++path_units;
 #if defined(_WIN32)
     const auto& opened=fonts->files[fonts->faces[handle.slot-1].file_slot];FILE_BASIC_INFO basic{};
-    if(!GetFileInformationByHandleEx(opened.file,FileBasicInfo,&basic,sizeof(basic)))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+    if(!GetFileInformationByHandleEx(opened.file,FileBasicInfo,&basic,sizeof(basic)))return {NativeFontError::io,SfntStatus::ok,thread_last_error()};
 #else
     const auto& opened=fonts->files[fonts->faces[handle.slot-1].file_slot];u64 write_time=0,change_time=0;
-    if(!file_times(opened.file,&write_time,&change_time))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+    if(!file_times(opened.file,&write_time,&change_time))return {NativeFontError::io,SfntStatus::ok,thread_last_error()};
 #endif
     const auto mark=arena_mark(&owner.storage);bool published=false;
     struct Rollback {Arena& storage;ArenaMark mark;bool& published;~Rollback() noexcept {if(!published)arena_rewind(&storage,mark);}} rollback{owner.storage,mark,published};

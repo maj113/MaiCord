@@ -318,7 +318,7 @@ struct Element {
     bool root;
 };
 
-template <usize Offset> Element* element_from(void* self) noexcept {
+template <usize Offset> inline Element* element_from(void* self) noexcept {
     return reinterpret_cast<Element*>(static_cast<char*>(self) - Offset);
 }
 
@@ -338,7 +338,7 @@ struct WindowCall {
 __declspec(noinline) HRESULT run_on_window_thread(UiaProviderHost* host, WindowCallFunction run,
                                                   const void* context) noexcept;
 
-template <typename F> HRESULT on_window_thread(UiaProviderHost* host, const F& f) noexcept {
+template <typename F> inline HRESULT on_window_thread(UiaProviderHost* host, const F& f) noexcept {
     return run_on_window_thread(
         host, [](const void* context) noexcept -> HRESULT { return (*static_cast<const F*>(context))(); }, &f);
 }
@@ -372,7 +372,7 @@ bool resolve_element(const Element* element, Resolved* out) noexcept;
 BSTR make_bstr(const UiaRuntime* runtime, Utf8View text) noexcept;
 void variant_bool(VARIANT* out, bool value) noexcept;
 int toggle_state(u16 state) noexcept;
-int expand_state(const UiAccessNode& node) noexcept;
+int expand_state(u16 state) noexcept;
 UiaBounds screen_bounds(const UiaProviderHost* host, const UiRect& rectangle) noexcept;
 HRESULT request(Element* element, UiAccessAction action, double number, const Utf8View& text) noexcept;
 __declspec(noinline) HRESULT request(Element* element, UiAccessAction action) noexcept;
@@ -399,7 +399,7 @@ template <typename T>
 __declspec(noinline) HRESULT read_node(Element* element, T* out, T (*read)(const UiAccessNode&) noexcept) noexcept {
     if (!out)
         return E_POINTER;
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     *out = read(*r.node);

@@ -10,6 +10,7 @@
 #include "../update/updates.hpp"
 #include "test_mode.hpp"
 #include "maicord/ui/widgets/kit.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "../store/store_host.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
@@ -101,7 +102,7 @@ bool persist() noexcept {
     if (g_app.settings)
         g_app.settings->save_failed = !result;
     if (!result)
-        log_u64(LogLevel::warning, "preferences", "save_queue_failed", GetLastError());
+        log_u64(LogLevel::warning, "preferences", "save_queue_failed", thread_last_error());
     return result;
 }
 

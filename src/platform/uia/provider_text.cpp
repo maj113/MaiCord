@@ -1,6 +1,7 @@
 #include "provider_internal.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/heap.hpp"
 
 namespace maicord {
 namespace provider_detail {
@@ -53,7 +54,7 @@ bool range_resolve(TextRange* range, RangeText* out) noexcept {
     return true;
 }
 
-void ordered_selection(const RangeText& text, u32* start, u32* end) noexcept {
+inline void ordered_selection(const RangeText& text, u32* start, u32* end) noexcept {
     const u32 length = text.text.bytes;
     u32 anchor = text.node->placement.selection_anchor, caret = text.node->placement.selection_caret;
     anchor = ui_access_text_align(text.text, anchor < length ? anchor : length);
@@ -81,7 +82,7 @@ HRESULT STDMETHODCALLTYPE text_selection(void* self, SAFEARRAY** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kText>(self);
-    RangeText text{};
+    RangeText text;
     if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     u32 start = 0, end = 0;
@@ -94,7 +95,7 @@ HRESULT STDMETHODCALLTYPE text_visible_ranges(void* self, SAFEARRAY** out) noexc
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kText>(self);
-    RangeText text{};
+    RangeText text;
     if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     return range_array(element->host, text.node->key, 0, text.text.bytes, out);
@@ -105,7 +106,7 @@ HRESULT text_range(void* self, void** out, bool caret) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kText>(self);
-    RangeText text{};
+    RangeText text;
     if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     u32 start = 0, end = text.text.bytes;
@@ -160,7 +161,7 @@ ULONG STDMETHODCALLTYPE range_release(void* self) noexcept {
     const LONG remaining = InterlockedDecrement(&range->references);
     if (remaining == 0) {
         InterlockedDecrement(&range->host->ranges);
-        HeapFree(GetProcessHeap(), 0, range);
+        heap_free(range);
     }
     return static_cast<ULONG>(remaining);
 }
@@ -187,7 +188,7 @@ HRESULT STDMETHODCALLTYPE range_compare(void* self, void* other, BOOL* out) noex
         return E_INVALIDARG;
     auto* range = static_cast<TextRange*>(self);
     auto* target = static_cast<TextRange*>(other);
-    RangeText text{}, target_text{};
+    RangeText text, target_text;
     if (!range_resolve(range, &text) || !range_resolve(target, &target_text))
         return kElementNotAvailable;
     *out = range->key == target->key && range->start == target->start && range->end == target->end ? TRUE : FALSE;
@@ -203,7 +204,7 @@ HRESULT STDMETHODCALLTYPE range_compare_endpoints(void* self, int endpoint, void
         return E_INVALIDARG;
     auto* range = static_cast<TextRange*>(self);
     auto* target = static_cast<TextRange*>(other);
-    RangeText text{}, target_text{};
+    RangeText text, target_text;
     if (!range_resolve(range, &text) || !range_resolve(target, &target_text))
         return kElementNotAvailable;
     if (range->key != target->key)
@@ -216,7 +217,7 @@ HRESULT STDMETHODCALLTYPE range_compare_endpoints(void* self, int endpoint, void
 
 HRESULT STDMETHODCALLTYPE range_expand(void* self, int unit) noexcept {
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     ui_access_text_expand(text.text, text_unit(unit), &range->start, &range->end);
@@ -227,7 +228,7 @@ HRESULT STDMETHODCALLTYPE range_find_attribute(void* self, int, VARIANT, BOOL, v
     if (!out)
         return E_POINTER;
     *out = nullptr;
-    RangeText text{};
+    RangeText text;
     return range_resolve(static_cast<TextRange*>(self), &text) ? S_OK : kElementNotAvailable;
 }
 
@@ -239,7 +240,7 @@ HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward
     if (!needle)
         return E_INVALIDARG;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
@@ -273,7 +274,7 @@ HRESULT STDMETHODCALLTYPE range_attribute(void* self, int attribute, VARIANT* ou
         return E_POINTER;
     V_VT(out) = VT_EMPTY;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     switch (attribute) {
@@ -301,11 +302,11 @@ HRESULT STDMETHODCALLTYPE range_bounds(void* self, SAFEARRAY** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     auto* host = range->host;
-    UiRect rectangles[16]{};
+    UiRect rectangles[16];
     const u32 count = host->callbacks.text_bounds
                           ? host->callbacks.text_bounds(host->callbacks.context, range->key, range->start, range->end,
                                                         rectangles, 16)
@@ -331,7 +332,7 @@ HRESULT STDMETHODCALLTYPE range_enclosing(void* self, void** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     *out = element_create(range->host, range->key, false);
@@ -343,7 +344,7 @@ HRESULT STDMETHODCALLTYPE range_text(void* self, int maximum_length, BSTR* out) 
         return E_POINTER;
     *out = nullptr;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     const auto* runtime = range->host->runtime;
@@ -370,7 +371,7 @@ HRESULT STDMETHODCALLTYPE range_move(void* self, int unit, int count, int* out) 
         return E_POINTER;
     *out = 0;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     *out = ui_access_text_move(text.text, text_unit(unit), count, &range->start, &range->end);
@@ -382,7 +383,7 @@ HRESULT STDMETHODCALLTYPE range_move_endpoint(void* self, int endpoint, int unit
         return E_POINTER;
     *out = 0;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     u32* moving = endpoint == 0 ? &range->start : &range->end;
@@ -402,7 +403,7 @@ HRESULT STDMETHODCALLTYPE range_move_endpoint_by_range(void* self, int endpoint,
         return E_INVALIDARG;
     auto* range = static_cast<TextRange*>(self);
     auto* target = static_cast<TextRange*>(other);
-    RangeText text{}, target_text{};
+    RangeText text, target_text;
     if (!range_resolve(range, &text) || !range_resolve(target, &target_text))
         return kElementNotAvailable;
     if (range->key != target->key)
@@ -422,7 +423,7 @@ HRESULT STDMETHODCALLTYPE range_move_endpoint_by_range(void* self, int endpoint,
 
 HRESULT STDMETHODCALLTYPE range_select(void* self) noexcept {
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     if (text.node->state & ui_access_disabled)
@@ -440,7 +441,7 @@ HRESULT STDMETHODCALLTYPE range_selection_change(void*) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE range_scroll(void* self, BOOL) noexcept {
-    RangeText text{};
+    RangeText text;
     return range_resolve(static_cast<TextRange*>(self), &text) ? S_OK : kElementNotAvailable;
 }
 
@@ -449,7 +450,7 @@ HRESULT STDMETHODCALLTYPE range_children(void* self, SAFEARRAY** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* range = static_cast<TextRange*>(self);
-    RangeText text{};
+    RangeText text;
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     *out = range->host->runtime->create_vector(VT_UNKNOWN, 0, 0);
@@ -487,7 +488,7 @@ bool is_range(const void* unknown) noexcept {
 void* range_create(UiaProviderHost* host, u64 key, u32 start, u32 end) noexcept {
     if (!host || !host->connected)
         return nullptr;
-    auto* range = static_cast<TextRange*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(TextRange)));
+    auto* range = static_cast<TextRange*>(heap_allocate(sizeof(TextRange), true));
     if (!range)
         return nullptr;
     range->vtbl = &kTextRangeVtbl;

@@ -4,6 +4,7 @@
 
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 
 namespace maicord {namespace {
 // Independent letters disable kern, so each typography mode has its own shape descriptor.
@@ -66,10 +67,10 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
     const usize page=pages_page_size();if(!page || (page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
     if(limit<page || limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
-    if(!arena_initialize(&state,limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
+    if(!arena_initialize(&state,limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,thread_last_error()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);
     arena_reset(scratch);const auto status=prepare(*store->runs,run,*data,state,*scratch,work);if(status!=SfntStatus::ok)return failure(status);
-    if(!pages_protect(state.base,state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+    if(!pages_protect(state.base,state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,thread_last_error()};
     if(!native_run_plan_retain(store->runs,run))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     auto& value=store->slots[available];value.run=run;value.state=state;reset_value(&state);value.references=1;++value.generation;*output={available+1,value.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }

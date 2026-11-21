@@ -23,7 +23,7 @@ HRESULT STDMETHODCALLTYPE selection_get(void* self, SAFEARRAY** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kSelection>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     const auto* runtime = element->host->runtime;
@@ -60,7 +60,7 @@ HRESULT STDMETHODCALLTYPE selection_item_select(void* self) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE selection_item_add(void* self) noexcept {
-    Resolved r{};
+    Resolved r;
     auto* element = element_from<kSelectionItem>(self);
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
@@ -68,7 +68,7 @@ HRESULT STDMETHODCALLTYPE selection_item_add(void* self) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE selection_item_remove(void* self) noexcept {
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element_from<kSelectionItem>(self), &r))
         return kElementNotAvailable;
     return (r.node->state & ui_access_selected) ? kInvalidOperation : S_OK;
@@ -85,7 +85,7 @@ HRESULT STDMETHODCALLTYPE selection_item_container(void* self, void** out) noexc
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kSelectionItem>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     const u32 container = ui_access_ancestor(*r.tree, r.index,
@@ -108,7 +108,7 @@ __declspec(noinline) int wide_argument_utf8(const wchar_t* text, char* output, i
 
 HRESULT STDMETHODCALLTYPE value_set(void* self, const wchar_t* text) noexcept {
     auto* element = element_from<kValue>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (r.node->state & ui_access_read_only)
@@ -130,7 +130,7 @@ HRESULT STDMETHODCALLTYPE value_get(void* self, BSTR* out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kValue>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (r.node->state & ui_access_password)
@@ -141,7 +141,7 @@ HRESULT STDMETHODCALLTYPE value_get(void* self, BSTR* out) noexcept {
 
 HRESULT STDMETHODCALLTYPE range_set(void* self, double value) noexcept {
     auto* element = element_from<kRangeValue>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (r.node->state & ui_access_read_only)
@@ -238,7 +238,7 @@ HRESULT STDMETHODCALLTYPE expand_collapse_action(void* self) noexcept {
 
 HRESULT STDMETHODCALLTYPE expand_state_get(void* self, int* out) noexcept {
     return read_node<int>(element_from<kExpandCollapse>(self), out,
-                          [](const UiAccessNode& node) noexcept -> int { return expand_state(node); });
+                          [](const UiAccessNode& node) noexcept -> int { return expand_state(node.state); });
 }
 
 // ScrollItem
@@ -269,7 +269,7 @@ HRESULT STDMETHODCALLTYPE grid_item_at(void* self, int row, int column, void** o
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kGrid>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (row < 0 || column < 0 || row >= r.node->placement.grid_row || column >= r.node->placement.grid_column)
@@ -310,7 +310,7 @@ HRESULT STDMETHODCALLTYPE grid_item_container(void* self, void** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kGridItem>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     for (u32 current = r.node->parent; current != kUiAccessNone; current = r.tree->nodes[current].parent)

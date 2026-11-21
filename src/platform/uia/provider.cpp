@@ -1,4 +1,6 @@
 #include "provider_internal.hpp"
+#include "maicord/core/heap.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
@@ -57,7 +59,7 @@ const UiaRuntime* load_runtime() noexcept {
 // marshaled COM method; each method only adds its typed thunk.
 __declspec(noinline) HRESULT run_on_window_thread(UiaProviderHost* host, WindowCallFunction run,
                                                   const void* context) noexcept {
-    if (!host->window || !host->call_message || GetCurrentThreadId() == host->thread)
+    if (!host->window || !host->call_message || current_thread_id() == host->thread)
         return run(context);
     WindowCall call{run, context, kTimeout, 0};
     AcquireSRWLockExclusive(host->call_lock.native());
@@ -83,7 +85,7 @@ ULONG element_release(Element* element) noexcept {
     const LONG remaining = InterlockedDecrement(&element->references);
     if (remaining == 0) {
         InterlockedDecrement(&element->host->elements);
-        HeapFree(GetProcessHeap(), 0, element);
+        heap_free(element);
     }
     return static_cast<ULONG>(remaining);
 }
@@ -207,12 +209,12 @@ int toggle_state(u16 state) noexcept {
     return (state & ui_access_mixed) ? 2 : (state & ui_access_checked) ? 1 : 0;
 }
 
-int expand_state(const UiAccessNode& node) noexcept {
-    return (node.state & ui_access_expanded) ? 1 : (node.state & ui_access_collapsed) ? 0 : 3;
+int expand_state(u16 state) noexcept {
+    return (state & ui_access_expanded) ? 1 : (state & ui_access_collapsed) ? 0 : 3;
 }
 
 HRESULT request(Element* element, UiAccessAction action, double number, const Utf8View& text) noexcept {
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if ((r.node->state & ui_access_disabled) && action != UiAccessAction::focus &&
@@ -293,7 +295,7 @@ __declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, vo
         result = element->root ? &element->fragment_root : nullptr;
     } else if (const Pattern* pattern = pattern_for(*iid)) {
         on_window_thread(element->host, [&]() noexcept -> HRESULT {
-            Resolved r{};
+            Resolved r;
             if (resolve_element(element, &r) && supports(r, pattern->id))
                 result = reinterpret_cast<char*>(element) + pattern->offset;
             return S_OK;
@@ -322,7 +324,7 @@ HRESULT STDMETHODCALLTYPE simple_pattern_provider(void* self, int pattern, void*
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kSimple>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (!supports(r, pattern))
@@ -342,7 +344,7 @@ HRESULT STDMETHODCALLTYPE simple_property_value(void* self, int property, VARIAN
         return E_POINTER;
     V_VT(out) = VT_EMPTY;
     auto* element = element_from<kSimple>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     const auto& node = *r.node;
@@ -433,7 +435,7 @@ HRESULT STDMETHODCALLTYPE fragment_navigate(void* self, int direction, void** ou
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kFragment>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     u32 target = kUiAccessNone;
@@ -466,7 +468,7 @@ HRESULT STDMETHODCALLTYPE fragment_runtime_id(void* self, SAFEARRAY** out) noexc
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kFragment>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (element->root)
@@ -496,7 +498,7 @@ HRESULT STDMETHODCALLTYPE fragment_bounds(void* self, UiaBounds* out) noexcept {
         return E_POINTER;
     reset_value(out);
     auto* element = element_from<kFragment>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (element->root || (r.node->state & ui_access_offscreen))
@@ -536,7 +538,7 @@ HRESULT STDMETHODCALLTYPE root_from_point(void* self, double x, double y, void**
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kFragmentRoot>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     POINT point{static_cast<LONG>(x), static_cast<LONG>(y)};
@@ -558,7 +560,7 @@ HRESULT STDMETHODCALLTYPE root_focus(void* self, void** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kFragmentRoot>(self);
-    Resolved r{};
+    Resolved r;
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
     if (r.tree->focus == kUiAccessNone || r.tree->focus == 0)
@@ -631,7 +633,7 @@ void* element_create(UiaProviderHost* host, u64 key, bool root) noexcept {
         element_add_ref(cached);
         return cached;
     }
-    auto* element = static_cast<Element*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Element)));
+    auto* element = static_cast<Element*>(heap_allocate(sizeof(Element)));
     if (!element)
         return nullptr;
     element->simple = &kSimpleVtbl;
@@ -678,14 +680,11 @@ bool property_values(const UiaProviderHost* host, const Resolved& r, const UiAcc
         variant_bool(old_value, (change.old_state & ui_access_selected) != 0);
         variant_bool(new_value, (node.state & ui_access_selected) != 0);
         return true;
-    case UiAccessProperty::expanded: {
+    case UiAccessProperty::expanded:
         *id = property_expand_collapse_state;
-        UiAccessNode old_node = node;
-        old_node.state = change.old_state;
-        variant_int(old_value, expand_state(old_node));
-        variant_int(new_value, expand_state(node));
+        variant_int(old_value, expand_state(change.old_state));
+        variant_int(new_value, expand_state(node.state));
         return true;
-    }
     case UiAccessProperty::range:
         *id = property_range_value_value;
         variant_double(old_value, static_cast<double>(change.old_range));
@@ -735,7 +734,7 @@ bool uia_host_initialize(UiaProviderHost* host, HWND window, const UiaHostCallba
     reset_value<UiaProviderHost>(host);
     host->window = window;
     host->callbacks = callbacks;
-    host->thread = GetCurrentThreadId();
+    host->thread = current_thread_id();
     host->call_message = window ? RegisterWindowMessageW(L"MaiCord.UiaProviderCall") : 0;
     host->connected = true;
     return true;
@@ -757,7 +756,7 @@ bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam,
                              LRESULT* result) noexcept {
     if (host && result && host->call_message && message == host->call_message) {
         // Only a call queued by run_on_window_thread runs; the message carries no data.
-        if (wparam == kCallSignature && GetCurrentThreadId() == host->thread) {
+        if (wparam == kCallSignature && current_thread_id() == host->thread) {
             auto* call = static_cast<WindowCall*>(
                 InterlockedExchangePointer(const_cast<void**>(&host->pending_call), nullptr));
             if (call) {
@@ -810,7 +809,7 @@ bool uia_host_raise_property(UiaProviderHost* host, u64 key, const UiAccessPrope
     auto* element = event_element(host, key);
     if (!element)
         return false;
-    Resolved r{};
+    Resolved r;
     bool raised = false;
     int id = 0;
     VARIANT old_value, new_value;

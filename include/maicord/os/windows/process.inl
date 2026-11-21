@@ -1,5 +1,6 @@
 // The Windows body of maicord/os/process.hpp. Included by process.hpp only.
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/win32_process_launch.hpp"
 
 namespace maicord {
@@ -26,7 +27,7 @@ __forceinline bool process_launch_detached(const wchar_t* executable, u32* nativ
         CreateProcessW(executable, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process) != FALSE;
     if (!started) {
         if (native_error)
-            *native_error = GetLastError();
+            *native_error = thread_last_error();
         return false;
     }
     CloseHandle(process.hThread);

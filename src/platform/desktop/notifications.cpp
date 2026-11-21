@@ -1,7 +1,10 @@
 #include "maicord/platform/desktop/notifications.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/sys/winrt.hpp"
 #include "toast_abi.hpp"
 
@@ -117,14 +120,14 @@ struct Server final : IClassFactory, INotificationActivationCallback {
         else if(count==kDesktopNotificationActivationCapacity)result=HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA);
         else {
             queue[(head+count)%kDesktopNotificationActivationCapacity]=a; ++count;
-            if(wake.window && !window_post(wake,0,0)) {--count;result=HRESULT_FROM_WIN32(GetLastError());}
+            if(wake.window && !window_post(wake,0,0)) {--count;result=HRESULT_FROM_WIN32(thread_last_error());}
         }
         ReleaseSRWLockExclusive(&lock); return result;
     }
 };
 static_assert(sizeof(Server)<=2048, "early activation owner remains bounded");
 Server* owner(DesktopNotifications* n) noexcept {return n?static_cast<Server*>(n->runtime):nullptr;}
-bool ui_owner(Server* s) noexcept {return s && s->active && s->thread==GetCurrentThreadId();}
+bool ui_owner(Server* s) noexcept {return s && s->active && s->thread==current_thread_id();}
 void drop_transport(Server* s) noexcept {release(s->notifier);release(s->factory);release(s->history);release(s->xml_factory);}
 void drop_snapshot(Server* s) noexcept {release(s->history_snapshot);s->history_cursor=s->history_size=0;}
 void retire_history_request(Server* s) noexcept {
@@ -227,8 +230,8 @@ DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications*
     HRESULT h=S_OK;if(c.register_activator)h=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
     if(FAILED(h))return failed(DesktopNotificationError::apartment,h);
     void* allocation=CoTaskMemAlloc(sizeof(Server));if(!allocation){if(c.register_activator)CoUninitialize();return failed(DesktopNotificationError::memory,E_OUTOFMEMORY);}
-    auto* s=new(allocation) Server; s->thread=GetCurrentThreadId();s->enrolled=c.register_activator;
-    LARGE_INTEGER frequency{};if(QueryPerformanceFrequency(&frequency))s->performance_frequency=frequency.QuadPart;
+    auto* s=new(allocation) Server; s->thread=current_thread_id();s->enrolled=c.register_activator;
+    s->performance_frequency=clock_initialize().frequency;
     s->wake=c.wake;s->app_units=c.app_id.count;copy_bytes(s->app_id,c.app_id.data,c.app_id.count*sizeof(wchar_t));
     if(c.register_activator)h=CoRegisterClassObject(c.activator_id,static_cast<IClassFactory*>(s),CLSCTX_LOCAL_SERVER,REGCLS_MULTIPLEUSE,&s->cookie);
     if(FAILED(h)){s->active=false;s->Release();CoUninitialize();return failed(DesktopNotificationError::identity,h);}n->runtime=s;return {};
@@ -270,11 +273,11 @@ DesktopNotificationResult desktop_notifications_remove_channel(DesktopNotificati
     for(u32 i=0;i<s->history_count;++i){auto& r=s->history_requests[(s->history_head+i)%8];if(r.profile==profile&&r.channel==channel){if(i==0&&s->history_snapshot)r.refresh=true;return {};}}
     if(s->history_count==8)return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA));
     const bool starting=s->history_count==0;s->history_requests[(s->history_head+s->history_count)%8]={profile,channel};++s->history_count;
-    if(starting&&s->wake.window&&!window_post(s->wake,0,0)){--s->history_count;reset_value(&s->history_requests[s->history_head]);return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(GetLastError()));}
+    if(starting&&s->wake.window&&!window_post(s->wake,0,0)){--s->history_count;reset_value(&s->history_requests[s->history_head]);return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(thread_last_error()));}
     return {};
 }
 bool desktop_notifications_history_pending(const DesktopNotifications* n) noexcept {
-    const auto* s=n?static_cast<const Server*>(n->runtime):nullptr;return s&&s->active&&s->thread==GetCurrentThreadId()&&s->history_count!=0;
+    const auto* s=n?static_cast<const Server*>(n->runtime):nullptr;return s&&s->active&&s->thread==current_thread_id()&&s->history_count!=0;
 }
 DesktopNotificationResult desktop_notifications_history_step(DesktopNotifications* n,bool* pending) noexcept {
     if(pending)*pending=false;auto* s=owner(n);if(!ui_owner(s)||!pending)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
@@ -320,7 +323,7 @@ DesktopNotificationResult desktop_notifications_setting(DesktopNotifications* n,
 DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications* n,const Waker& wake) noexcept {
     auto* s=owner(n);if(!ui_owner(s)||!wake.window)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     AcquireSRWLockExclusive(&s->lock);s->wake=wake;
-    const bool posted=(!s->count&&!s->history_count)||window_post(wake,0,0);const DWORD error=posted?0:GetLastError();
+    const bool posted=(!s->count&&!s->history_count)||window_post(wake,0,0);const DWORD error=posted?0:thread_last_error();
     ReleaseSRWLockExclusive(&s->lock);return posted?DesktopNotificationResult{}:failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(error));
 }
 bool desktop_notifications_take_activation(DesktopNotifications* n,DesktopNotificationActivation* out) noexcept {
@@ -332,7 +335,7 @@ void desktop_notifications_discard_activations(DesktopNotifications* n) noexcept
     auto* s=owner(n);if(!ui_owner(s))return;AcquireSRWLockExclusive(&s->lock);clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
 }
 void desktop_notifications_release(DesktopNotifications* n) noexcept {
-    auto* s=owner(n);if(!s||s->thread!=GetCurrentThreadId())return;n->runtime=nullptr;
+    auto* s=owner(n);if(!s||s->thread!=current_thread_id())return;n->runtime=nullptr;
     AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake={};clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
     if(s->cookie)CoRevokeClassObject(s->cookie);drop_snapshot(s);clear_bytes(s->history_requests,sizeof(s->history_requests));s->history_count=0;
     drop_transport(s);const bool apartment=s->enrolled;s->Release();if(apartment)CoUninitialize();

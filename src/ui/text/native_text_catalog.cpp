@@ -4,6 +4,7 @@
 #include "maicord/core/log_event.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/os/ordinal.hpp"
 #if defined(_WIN32)
 #include "maicord/sys/gdi.hpp"

@@ -1,7 +1,8 @@
 #pragma once
 
-// Registry (advapi32), declared as the SDK declares them; see
-// maicord/sys/sdk.hpp.
+// Registry, declared as the SDK declares them; see maicord/sys/sdk.hpp. MaiCord.exe imports them from
+// KernelBase.dll (src/platform/desktop/kernelbase.def). Tests link advapi32.lib, which also has RegDeleteKeyW and
+// RegQueryInfoKeyW.
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -28,6 +29,8 @@ extern "C" __declspec(dllimport) LSTATUS WINAPI RegCreateKeyExW(HKEY hKey, LPCWS
     LPWSTR lpClass, DWORD dwOptions, REGSAM samDesired, const LPSECURITY_ATTRIBUTES lpSecurityAttributes,
     PHKEY phkResult, LPDWORD lpdwDisposition);
 extern "C" __declspec(dllimport) LSTATUS WINAPI RegDeleteKeyW(HKEY hKey, LPCWSTR lpSubKey);
+extern "C" __declspec(dllimport) LSTATUS WINAPI RegDeleteKeyExW(HKEY hKey, LPCWSTR lpSubKey, REGSAM samDesired,
+    DWORD Reserved);
 extern "C" __declspec(dllimport) LSTATUS WINAPI RegDeleteValueW(HKEY hKey, LPCWSTR lpValueName);
 extern "C" __declspec(dllimport) LSTATUS WINAPI RegOpenKeyExW(HKEY hKey, LPCWSTR lpSubKey, DWORD ulOptions,
     REGSAM samDesired, PHKEY phkResult);

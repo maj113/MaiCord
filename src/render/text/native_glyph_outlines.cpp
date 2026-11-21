@@ -8,6 +8,7 @@
 #include "maicord/render/effects/colr_source.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 namespace maicord {
 namespace {constexpr u32 capacity=glyph_font_maximum_capacity;}
 struct NativeColorOutline {
@@ -117,7 +118,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     struct Retain {NativeFontInstanceStore* store;NativeFontInstanceHandle handle;~Retain() noexcept {native_font_instance_release(store,handle);}} retained{instances,binding};
     if(!o.color){
         auto* color=static_cast<NativeColorState*>(commit_pages(sizeof(NativeColorState)));
-        if(!color)return failed(o,21,GetLastError());
+        if(!color)return failed(o,21,thread_last_error());
         if(!arena_initialize(&color->scalars,1024*1024,0,4096,ArenaTag::text)||!arena_initialize(&color->stops,2*1024*1024,0,4096,ArenaTag::text)){
             arena_release(&color->scalars);arena_release(&color->stops);pages_release(color);return failed(o,22,0);}
         o.color=color;
