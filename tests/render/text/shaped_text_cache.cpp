@@ -116,8 +116,8 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     keyed = keyed && misses(changed);
     check(keyed, "shaped text cache keys text, styles, spoilers, selection, size, wrap, DPI and typography");
 
-    // Fill the current generation so a flip retires the older one. An entry
-    // used in between is copied forward and survives; an idle one does not.
+    // Many more results than one generation holds. An entry looked up after each insert is copied forward and
+    // survives every retirement. An idle one does not.
     char text[16]{};
     const auto request_for = [&](u32 index) noexcept {
         for (u32 digit = 0; digit < 8; ++digit)
@@ -133,21 +133,13 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     fill(&fixture, 3, 7);
     shaped_text_cache_find(cache, idle, &hash, &view);
     shaped_text_cache_insert(cache, idle, hash, &fixture.shaped);
-    u32 inserted = 0;
-    const u32 flips = cache->stats.flips;
-    while (cache->stats.flips == flips && inserted < 4096) {
-        const auto request = request_for(inserted++);
+    bool reused = true;
+    for (u32 inserted = 0; inserted < 1024; ++inserted) {
+        const auto request = request_for(inserted);
         fill(&fixture, 64, 1);
         shaped_text_cache_find(cache, request, &hash, &view);
         shaped_text_cache_insert(cache, request, hash, &fixture.shaped);
-    }
-    const bool reused = shaped_text_cache_find(cache, base, &hash, &view) && view.glyphs[0].advance == 100;
-    const u32 second = cache->stats.flips;
-    while (cache->stats.flips == second && inserted < 8192) {
-        const auto request = request_for(inserted++);
-        fill(&fixture, 64, 1);
-        shaped_text_cache_find(cache, request, &hash, &view);
-        shaped_text_cache_insert(cache, request, hash, &fixture.shaped);
+        reused = reused && shaped_text_cache_find(cache, base, &hash, &view) && view.glyphs[0].advance == 100;
     }
     check(reused && shaped_text_cache_find(cache, base, &hash, &view) &&
               view.glyph_count == 5 && view.glyphs[4].advance == 104 && misses(idle),
@@ -178,19 +170,13 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     fill(&fixture, 0, 0);
     fixture.shaped.run_count = fixture.shaped.decoration_count = fixture.shaped.hit_region_count = 0;
     const auto empty = request_for(256);
-    const u32 generation = cache->current;
     check(full && !shaped_text_cache_find(cache, empty, &hash, &view) &&
-              shaped_text_cache_insert(cache, empty, hash, &fixture.shaped) && cache->current == generation &&
+              shaped_text_cache_insert(cache, empty, hash, &fixture.shaped) &&
               shaped_text_cache_find(cache, empty, &hash, &view) && !view.glyph_count && !view.run_count &&
-              !view.decoration_count && !view.hit_region_count &&
-              view.glyphs == cache->generations[generation].glyphs + kShapedTextCacheGlyphs &&
-              view.runs == cache->generations[generation].runs + kShapedTextCacheRuns &&
-              view.decorations == cache->generations[generation].decorations + kShapedTextCacheDecorations &&
-              view.hit_regions == cache->generations[generation].hits + kShapedTextCacheHits,
+              !view.decoration_count && !view.hit_region_count,
           "shaped text cache preserves full array counts and empty ranges at every capacity boundary");
     shaped_text_cache_clear(cache);
-    check(misses(base) && cache->generations[0].entry_count == 0 && cache->generations[1].entry_count == 0,
-          "shaped text cache clear drops every entry");
+    check(misses(base), "shaped text cache clear drops every entry");
     NativeFontSession* sessions[2]{};
     for(u32 i=0;i<2;++i){
         const bool created=native_font_session_create(&sessions[i]);

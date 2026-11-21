@@ -428,7 +428,7 @@ bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAcc
 inline constexpr u64 kUiAccessRebuildIntervalMs = 100;
 struct UiAccessThrottle {
     u64 last_build_ms;
-    u32 builds, coalesced;
+    u32 builds;
     bool urgent;
     bool deferred;
 };

@@ -29,6 +29,9 @@ struct Probe {
     GatewayClientUserMutation self_content;
     GatewayClientStateMutation huge;
     u64 digest = 14695981039346656037ull;
+    // Set by the staged tests: payloads published from the staging pages.
+    const ReservedBytes* staging;
+    u32 staged_payloads;
 };
 bool work(void* opaque, GatewayReadyProjectionPhase phase) noexcept {
     auto& probe = *static_cast<Probe*>(opaque); probe.phase = phase;
@@ -41,6 +44,9 @@ bool publish(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> bytes
     probe.valid = probe.valid && probe.phase == GatewayReadyProjectionPhase::publication &&
         event.sequence == 88 && event.has_sequence && event.timestamp_ms == 99 &&
         event.dispatch_payload_bytes == bytes.count;
+    if (probe.staging && bytes.count && bytes.data >= probe.staging->base &&
+        bytes.data < probe.staging->base + probe.staging->reserved)
+        ++probe.staged_payloads;
     if (probe.admitted == probe.fail_admission) return false;
     probe.digest = (probe.digest ^ static_cast<u8>(event.dispatch_kind) ^ (u64{event.state.record_count} << 8)) *
                    1099511628211ull;
@@ -363,10 +369,11 @@ Utf8View huge_ready() noexcept {
 }
 // Oversized guild records go to storage committed on demand, as in the worker.
 ReservedBytes huge_large{};
-u32 huge_acquires = 0;
+u32 huge_acquires = 0, huge_largest = 0;
 bool acquire_huge(void*, u32 bytes, Slice<char>* storage) noexcept {
     ++huge_acquires;
     if (!reserved_bytes_commit(&huge_large, bytes)) return false;
+    huge_largest = maximum(huge_largest, huge_large.committed);
     *storage = {reinterpret_cast<char*>(huge_large.base), huge_large.committed};
     return true;
 }
@@ -451,7 +458,7 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
         publish, work, &projected);
     check(result.ok() && !result.degraded_guilds && projected.complete == 1 && projected.valid &&
         projected.guild_creates == 2 && projected.huge.record_count == 502 && projected.huge.role_count == 251 &&
-        huge_large.peak == 256 * 1024,
+        huge_largest == 256 * 1024,
         "huge community READY projects every guild through the on-demand oversized record storage");
     reserved_bytes_release(&huge_large);
 }
@@ -1016,12 +1023,13 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     auto staged_scratch = scratch();
     staged_scratch.staging = &staging;
     Probe staged{};
+    staged.staging = &staging;
     const auto replayed = gateway_ready_project(staged_ready, staged_scratch, 88, 99, publish, work, &staged);
     bool same_order = staged.admitted == valid.admitted;
     for (u32 i = 0; i < 32 && i < valid.admitted && same_order; ++i) same_order = staged.order[i] == valid.order[i];
     check(replayed.ok() && staged.valid && same_order && staged.digest == valid.digest && staged.users == valid.users &&
         staged.batches == valid.batches && staged.complete == 1 && staged.publication_checks >= staged.admitted &&
-        staged.preflight_checks == valid.preflight_checks && staging.peak && !staging.committed &&
+        staged.preflight_checks == valid.preflight_checks && staged.staged_payloads && !staging.committed &&
         hash(input) == immutable,
         "READY publication replays staged preflight records byte-for-byte and decommits the staging pages");
     Probe staged_stop{}; staged_stop.stop_publication = 6;

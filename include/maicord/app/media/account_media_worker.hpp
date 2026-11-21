@@ -100,10 +100,6 @@ struct AccountMediaWorkerLane {
     u8 reserved;
 };
 
-struct AccountMediaWorkerCounters {
-    volatile LONG64 queued;
-};
-
 struct AccountMediaWorkerRetry {
     MediaAssetKey key;
     u64 retry_at_ms;
@@ -131,7 +127,6 @@ struct AccountMediaWorker {
     // Admission and frame leasing run on the UI thread.
     LONG preferred_lane;
     AccountMediaVideoRuntime* video_runtime;
-    AccountMediaWorkerCounters counters;
     // UI-owned admission serial and pre-Present mask. A borrowed device stays
     // alive until account stop, as required by local preview admission.
     u64 next_lease_serial;

@@ -79,13 +79,10 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         ++scene->revision;
         return true; // Native caret/search text changes need no gallery re-resolve.
     }
-    if (!scene->storage.arena.base) {
-        if (!ui_fixed_widget_storage_initialize(&scene->storage, kUiMediaPickerWidgetCapacity,
-                                                sizeof(UiMediaPickerProjection),
-                                                alignof(UiMediaPickerProjection)))
-            return false;
-        ++scene->counters.allocations;
-    }
+    if (!scene->storage.arena.base &&
+        !ui_fixed_widget_storage_initialize(&scene->storage, kUiMediaPickerWidgetCapacity,
+                                            sizeof(UiMediaPickerProjection), alignof(UiMediaPickerProjection)))
+        return false;
     if (!scene->widgets.storage.data &&
         !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets, scene->storage.layout_nodes))
         return false;

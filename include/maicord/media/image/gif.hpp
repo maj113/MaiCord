@@ -93,9 +93,6 @@ enum class GifError : u8 {
 };
 
 struct GifParseResult {
-    u32 blocks;
-    u32 extensions;
-    u32 data_subblocks;
     GifError error;
 
     constexpr bool ok() const noexcept {
@@ -127,10 +124,7 @@ struct GifDecodeResult {
 
 GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image,
                          GifWorkspace* workspace) noexcept;
-GifDecodeResult gif_decode_parsed_frame(
-    ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
-    GifWorkspace* workspace, Slice<u8> indices) noexcept;
-// The same, filling a caller-owned result in place.
+// Fills a caller-owned result in place.
 void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const GifImage& image,
                              u32 frame_index, GifWorkspace* workspace, Slice<u8> indices) noexcept;
 

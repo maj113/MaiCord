@@ -17,12 +17,6 @@
 namespace maicord::wayland {
 
 inline constexpr u32 kRingCapacity = 1024;
-inline constexpr u32 kMaxGlobals = 128;
-
-struct GlobalName {
-    char name[56];
-    u32 version;
-};
 
 struct EventRing {
     WindowEvent events[kRingCapacity];
@@ -171,7 +165,6 @@ struct TextState {
 
 struct ExtrasState {
     xdg_activation_token_v1* token;
-    u32 tokens_done;
     zwp_idle_inhibitor_v1* inhibitor;
     // wl_output scales, for compositors without fractional scale.
     wl_output* outputs[8];
@@ -262,8 +255,6 @@ struct Backend {
     KeyboardState keyboard;
     WindowState window;
     bool window_exists;
-    GlobalName globals[kMaxGlobals];  // everything the registry advertised, for the support matrix
-    u32 global_count;
 
     bool quit;
     int exit_code;

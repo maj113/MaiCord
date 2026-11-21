@@ -9,6 +9,7 @@
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure, HWND window,
@@ -170,7 +171,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         const auto counters = [&]() noexcept {
             return Counters{{scene->rebuilds, renderer.ui_scene->layout_passes,
                 renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
-                renderer.shell_navigation_scene->layout_passes, context.navigation.revision, measure.backend_calls,
+                renderer.shell_navigation_scene->layout_passes, context.navigation.revision, text_measure_calls(&measure),
                 renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
                 renderer.paint_instance_uploads, renderer.text_instance_uploads, renderer.media_instance_uploads,
                 renderer.painted_frames, renderer.unchanged_present_skips}};

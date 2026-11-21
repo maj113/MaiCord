@@ -11,8 +11,6 @@ struct ReservedBytes {
     u8* base;
     u32 reserved;
     u32 committed;
-    // Largest commit since initialization (measurement and tests).
-    u32 peak;
 };
 
 bool reserved_bytes_initialize(ReservedBytes* bytes, u32 reserve_bytes) noexcept;

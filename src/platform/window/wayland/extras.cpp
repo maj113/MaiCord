@@ -81,7 +81,6 @@ const wl_surface_listener kSurfaceEvents = {on_surface_enter, on_surface_leave, 
                                             on_preferred_buffer_transform};
 
 void on_token_done(void*, xdg_activation_token_v1* token, const char* string) noexcept {
-    ++g.extras.tokens_done;
     if (g.activation_manager && g.window.surface)
         xdg_activation_v1_activate(g.activation_manager, string, g.window.surface);
     xdg_activation_token_v1_destroy(token);

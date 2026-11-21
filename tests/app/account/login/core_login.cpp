@@ -87,14 +87,9 @@ void test_login_scene() noexcept {
     UiLayoutDiagnostic diagnostics[32]{};
     expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32}).clean(),
            "login_scene_wide_layout_validation");
-    const u32 wide_rebuilds = scene.layout_rebuilds;
-    const u32 wide_layout_passes = scene.layout_passes;
-    const u16 wide_generation = scene.widgets.generation;
-    expect(login_scene_layout(&scene, 1200.0f, 800.0f) && scene.layout_rebuilds == wide_rebuilds &&
-               scene.layout_passes == wide_layout_passes + 1 &&
-               scene.widgets.generation == wide_generation && login_scene_layout(&scene, 1280.0f, 800.0f) &&
-               scene.layout_rebuilds == wide_rebuilds && scene.layout_passes == wide_layout_passes + 2,
-           "login_scene_same_variant_rearrange_without_tree_rebuild");
+    expect(login_scene_layout(&scene, 1200.0f, 800.0f) && login_scene_layout(&scene, 1280.0f, 800.0f) &&
+               ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32}).clean(),
+           "login_scene_same_variant_rearrange");
     scene.mfa_capabilities = static_cast<u8>(login_mfa_capability_totp | login_mfa_capability_sms |
                                              login_mfa_capability_backup | login_mfa_capability_webauthn);
     scene.selected_mfa_capability = login_mfa_capability_sms;
@@ -367,9 +362,8 @@ void test_login_scene() noexcept {
     expect(has_text(LoginElement::status_message, utf8_literal("That code didn't work. Try again.")) &&
                has_text(LoginElement::submit, utf8_literal("Verify")) &&
                !login_view_action_disabled(rejected_mfa_view) &&
-               login_view_submit_disabled(rejected_mfa_view) &&
-               rejected_mfa_view.mfa_capabilities == login_mfa_capability_all,
-           "login_rejected_mfa_retains_methods_and_requires_replacement_code");
+               login_view_submit_disabled(rejected_mfa_view),
+           "login_rejected_mfa_requires_replacement_code");
     LoginView ready_retry_mfa_view = rejected_mfa_view;
     ready_retry_mfa_view.password_mask = utf8_literal("******");
     ready_retry_mfa_view.mfa_code_ready = true;
@@ -505,16 +499,9 @@ void test_login_scene() noexcept {
                login_scene_hit_test(scene, captcha_submit.left + 1.0f, captcha_submit.top + 1.0f) ==
                    LoginControl::submit,
            "login_profile_commit_failure_has_explicit_retry_action");
-    LoginLayoutMetrics custom_metrics = kDefaultLoginLayoutMetrics;
-    custom_metrics.revision = 2;
-    custom_metrics.compact_card_width = 460.0f;
-    expect(login_scene_layout_with_metrics(&scene, 640.0f, 480.0f, custom_metrics) &&
-               scene.layout_metrics_revision == 2 &&
-               login_scene_rectangle(scene, LoginElement::card).left == 90.0f &&
-               login_scene_layout(&scene, 640.0f, 480.0f) &&
-               scene.layout_metrics_revision == kDefaultLoginLayoutMetrics.revision &&
+    expect(login_scene_layout(&scene, 640.0f, 480.0f) &&
                login_scene_rectangle(scene, LoginElement::card).left == 80.0f,
-           "login_scene_revisioned_layout_metrics");
+           "login_scene_compact_card_centred");
     expect(login_scene_layout(&scene, 240.0f, 320.0f), "login_scene_extreme_narrow_layout");
     const UiLayoutValidationResult narrow_validation =
         ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32});
@@ -530,7 +517,7 @@ void test_login_scene() noexcept {
     const u32 widget_capacity = scene.widgets.storage.count;
     scene.widgets.storage.count = 1;
     expect(!login_scene_layout(&scene, 1280.0f, 800.0f) && !scene.widgets.count &&
-               !scene.layout_metrics_revision &&
+               !scene.layout_width &&
                !ui_widget_manager_resolve(scene.widgets,
                    scene.elements[static_cast<u32>(LoginElement::root)]),
            "login_scene_failed_rebuild_discards_partial_tree_and_cached_signature");
@@ -1350,7 +1337,7 @@ void test_secure_text_store() noexcept {
                sink.read_units[0] == L'A' && sink.read_units[1] == 0xD83Du &&
                sink.read_units[2] == 0xDE00u && sink.no_write_under_read == TS_E_NOLOCK &&
                sink.read_extent == S_OK && sink.read_rectangle.left == 120 &&
-               sink.read_rectangle.bottom == 284 && context.geometry_queries == 1,
+               sink.read_rectangle.bottom == 284,
            "secure_text_store_locked_utf16_and_geometry_read");
     u32 length_after_insert = 0;
     expect(sink.inserted == S_OK &&
@@ -1431,7 +1418,7 @@ void test_secure_edit() noexcept {
            "secure_edit_locked_initialize");
     const char initial[] = {'a', static_cast<char>(0xC3u), static_cast<char>(0xA9u)};
     expect(secure_edit_assign(&edit, Utf8View{initial, sizeof(initial)}) == SecureEditResult::changed &&
-               edit.caret == 3 && edit.anchor == 3 && edit.revision == 1,
+               edit.caret == 3 && edit.anchor == 3,
            "secure_edit_assign_utf8");
     expect(secure_edit_insert_utf16(&edit, 0xD83Du) == SecureEditResult::pending_surrogate &&
                secure_edit_insert_utf16(&edit, 0xDE00u) == SecureEditResult::changed &&

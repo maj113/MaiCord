@@ -13,14 +13,6 @@ MediaAtlasGpuResult failure(MediaAtlasGpuError error, GpuStatus native_error,
     return MediaAtlasGpuResult{allocation, native_error, error};
 }
 
-MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, GpuStatus native_error,
-                           MediaAtlasResult allocation) noexcept {
-    if (gpu) {
-        ++gpu->rejected;
-    }
-    return failure(error, native_error, allocation);
-}
-
 bool dimensions_valid(u16 width, u16 height) noexcept {
     return width >= 16 && height >= 16 && width <= 4'096 && height <= 16'384;
 }

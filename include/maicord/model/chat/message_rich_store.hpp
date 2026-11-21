@@ -331,7 +331,6 @@ struct MessageRichStore {
     u32 text_capacity;
     u32 text_used;
     u32 text_wasted;
-    u32 rejected;
     u32 updated;
     u32 deleted;
     u32 compactions;

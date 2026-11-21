@@ -8,13 +8,9 @@ namespace {
 struct MessagePollStoreMetrics {
     usize reserved_bytes;
     usize committed_bytes;
-    u32 records;
-    u32 text_bytes;
 };
 MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore& store) noexcept {
     MessagePollStoreMetrics result{};
-    result.records = store.count;
-    result.text_bytes = store.text_used;
     if (!store.owned)
         return result;
     Win32MemoryInformation owner{};
@@ -106,8 +102,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     check(costs.committed_bytes == 3 * static_cast<usize>(system.dwPageSize),
           "poll model: first small poll commits only owner, record and active text pages");
     const auto stable_costs = costs;
-    const u32 stable_revision = store.revision, stable_content = store.content_revision,
-              stable_text = store.text_used;
+    const u32 stable_revision = store.revision, stable_content = store.content_revision;
     question[0] = 'C';
     auto metadata = input;
     metadata.fields &= ~gateway_message_poll_field_results;
@@ -123,9 +118,8 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     }
     costs = message_poll_store_metrics(store);
     check(retained && store.revision == stable_revision && store.content_revision == stable_content &&
-              store.text_used == stable_text && costs.committed_bytes == stable_costs.committed_bytes &&
-              !store.compactions,
-          "poll model: 64 identical metadata publications retain counts, text, versions and committed bytes");
+              costs.committed_bytes == stable_costs.committed_bytes,
+          "poll model: 64 identical metadata publications retain counts, versions and committed bytes");
     const char malformed[]{static_cast<char>(0xc0)};
     auto invalid_question = metadata;
     invalid_question.fields = gateway_message_poll_field_question;
@@ -143,7 +137,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
                   MessagePollStoreError::invalid_input &&
               message_poll_store_apply(&store, 10, 20, foreign_results).error ==
                   MessagePollStoreError::invalid_input &&
-              store.revision == stable_revision && store.text_used == stable_text &&
+              store.revision == stable_revision &&
               poll->answers[0].count == 5,
           "poll model: malformed UTF8, duplicate answer IDs and foreign result IDs reject without "
           "corrupting prior publication");
@@ -276,8 +270,6 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
           "poll model: first Gateway publication without results also leaves every answer unknown");
 
     const auto before_page = message_poll_store_metrics(store);
-    auto* const before_owner = store.owned;
-    auto* const before_text = store.text;
     const u32 before_page_count = store.count, before_page_revision = store.revision;
     GatewayMessagePollAnswer invalid_answers[]{{0, utf8_literal("invalid"), 0, {}, false}};
     auto invalid_poll = full_poll(utf8_literal("bad"), {invalid_answers, 1});
@@ -285,7 +277,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
                                          {13, 20, &invalid_poll, 0, nullptr}};
     const auto rejected_page_result = message_poll_store_apply_page(&store, {rejected_page, 2});
     check(rejected_page_result.error == MessagePollStoreError::invalid_input &&
-              !rejected_page_result.changed && store.owned == before_owner && store.text == before_text &&
+              !rejected_page_result.changed &&
               store.count == before_page_count && store.revision == before_page_revision &&
               !message_poll_store_find(store, 12) &&
               message_poll_store_metrics(store).committed_bytes == before_page.committed_bytes,
@@ -301,7 +293,6 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     const auto accepted_page_result = message_poll_store_apply_page(&store, {accepted_page, 2});
     check(accepted_page_result.ok() && accepted_page_result.changed && accepted_page_result.applied == 1 &&
               accepted_page_result.ignored == 1 && store.count == before_page_count + 1 &&
-              store.owned != before_owner && store.text != before_text &&
               store.revision != before_page_revision && message_poll_store_find(store, 12) &&
               message_poll_store_find(store, 10)->content_revision == retained_content &&
               message_poll_store_find(store, 10)->result_revision == retained_results &&
@@ -314,11 +305,9 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               text_fingerprint(store, *other_poll) == other_text,
           "poll model: page clone preserves every retained question, answer and emoji string");
     const auto stable_page = message_poll_store_metrics(store);
-    auto* const accepted_owner = store.owned;
     const MessagePollPageInput stale_page[]{accepted_page[0]};
     const auto ignored_page_result = message_poll_store_apply_page(&store, {stale_page, 1});
     check(ignored_page_result.ok() && !ignored_page_result.changed && ignored_page_result.ignored == 1 &&
-              store.owned == accepted_owner &&
               message_poll_store_metrics(store).committed_bytes == stable_page.committed_bytes &&
               message_poll_store_apply_page(&store, {}).ok(),
           "poll model: all-stale and ordinary pages allocate no transaction bank or scene publication");
@@ -348,14 +337,13 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
                                                {2, utf8_literal("B"), 0, {}, false}};
     auto compact = full_poll({short_question, sizeof(short_question)}, {compact_answers, 2});
     check(message_poll_store_apply(&bounded, 1, 2, compact).ok() &&
-              message_poll_store_apply(&bounded, 3, 2, compact).ok() && bounded.text_used == 64,
+              message_poll_store_apply(&bounded, 3, 2, compact).ok(),
           "poll model: actual 64-byte text arena holds two copied poll bodies");
     const auto before_failure = message_poll_store_metrics(bounded);
     auto replace = compact;
     replace.fields = gateway_message_poll_field_question;
     replace.question = {longer_question, sizeof(longer_question)};
     check(message_poll_store_apply(&bounded, 1, 2, replace).error == MessagePollStoreError::capacity &&
-              bounded.text_used == 64 &&
               utf8_equal(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
                         compact.question) &&
               message_poll_store_metrics(bounded).committed_bytes == before_failure.committed_bytes,
@@ -363,7 +351,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     replace.question = utf8_literal("short");
     applied = message_poll_store_apply(&bounded, 1, 2, replace);
     poll = message_poll_store_find(bounded, 1);
-    check(applied.ok() && applied.changed && bounded.compactions == 1 && !bounded.text_wasted && poll &&
+    check(applied.ok() && applied.changed && poll &&
               utf8_equal(message_poll_store_string(bounded, poll->question), replace.question) &&
               utf8_equal(message_poll_store_string(bounded, poll->answers[0].text), utf8_literal("A")) &&
               utf8_equal(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),

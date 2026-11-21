@@ -678,7 +678,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
                                            &request) &&
               !ui_friends_scene_activation(
                   sectional,
-                  {UiFriendsAction::toggle_section, 0, UiFriendsTab::pending, UiFriendsSectionKind::spam},
+                  {UiFriendsAction::toggle_section, 0, UiFriendsTab::pending, static_cast<UiFriendsSectionKind>(2)},
                   &request),
           "friends_sections_semantic_headers_reject_collapsed_row_and_unknown_section_actions");
     check(!ui_friends_scene_activation(

@@ -59,7 +59,7 @@ inline u32 user_activity_count(const UserActivityStore& store, u64 user_id) noex
 }
 
 inline void voice_channel_info_store_reset(VoiceChannelInfoStore* store) noexcept {
-    store->count = store->text_used = store->dropped = 0;
+    store->count = store->text_used = 0;
     ++store->revision;
 }
 

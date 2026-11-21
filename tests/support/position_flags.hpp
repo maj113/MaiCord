@@ -5,6 +5,7 @@
 // advance follows mark classification. Outputs are valid only on success.
 #include "maicord/core/byte_order.hpp"
 #include "maicord/text/opentype/gpos_execute.hpp"
+#include "cluster_map_export.hpp"
 
 namespace maicord {
 

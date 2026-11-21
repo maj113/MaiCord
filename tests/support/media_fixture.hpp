@@ -108,6 +108,14 @@ u32 png_fixture_crc32(ConstSlice<u8> bytes) noexcept;
 u32 png_fixture_adler32(ConstSlice<u8> bytes) noexcept;
 void png_fixture_write_be32(u8* output, u32 value) noexcept;
 
+// The decode of one parsed frame, returned by value.
+inline GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
+                                               GifWorkspace* workspace, Slice<u8> indices) noexcept {
+    GifDecodeResult result;
+    gif_decode_parsed_frame(&result, encoded, image, frame_index, workspace, indices);
+    return result;
+}
+
 // Parse-then-decode helpers over the decoders' production entry points, which take the parsed image.
 inline GifDecodeResult gif_decode_frame(ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
                                         GifWorkspace* workspace, Slice<u8> indices) noexcept {

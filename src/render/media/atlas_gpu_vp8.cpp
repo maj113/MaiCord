@@ -13,7 +13,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients) noexcept {
     if (!gpu || !device || !context || !gpu->surface ||
         !vp8_reconstruction_valid(frame, modes, coefficients)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
     const u32 columns = modes.columns;
@@ -44,7 +44,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
         result = ensure_vp8_yuv_buffer(gpu, device, yuv_bytes);
     }
     if (FAILED(result)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, result);
+        return failure(MediaAtlasGpuError::device_failure, result);
     }
 
     result = upload_discard(context, gpu->vp8_mode_buffer, modes.macroblocks, mode_bytes);
@@ -53,7 +53,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
                                 coefficient_bytes);
     }
     if (FAILED(result)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, result);
+        return failure(MediaAtlasGpuError::device_failure, result);
     }
 
     bind_compute_2srv(context, gpu->vp8_idct_shader, gpu->vp8_constants,
@@ -88,11 +88,7 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
     gpu->vp8_chroma_stride = static_cast<u16>(chroma_stride);
     gpu->vp8_chroma_rows = static_cast<u16>(chroma_rows);
     ++gpu->vp8_reconstructions;
-    saturating_accumulate(gpu->vp8_reconstruction_dispatches, 2u);
-    const u64 uploaded = static_cast<u64>(mode_bytes) + coefficient_bytes;
-    saturating_accumulate(gpu->vp8_uploaded_bytes, uploaded);
-    const u64 pixels = static_cast<u64>(frame.width) * frame.height;
-    saturating_accumulate(gpu->vp8_reconstructed_pixels, pixels);
+    saturating_accumulate(gpu->vp8_uploaded_bytes, static_cast<u64>(mode_bytes) + coefficient_bytes);
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
 }
 
@@ -108,37 +104,20 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
         gpu->vp8_height != frame.height || gpu->vp8_luma_stride != expected_luma_stride ||
         gpu->vp8_luma_rows != expected_luma_rows || gpu->vp8_reconstructions == 0 ||
         gpu->vp8_last_filtered_reconstruction == gpu->vp8_reconstructions) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
     bool active = false;
-    u32 filtered_edges = 0;
-    for (u32 macroblock = 0; macroblock < modes.macroblock_count; ++macroblock) {
-        const Vp8MacroblockMode& mode = modes.macroblocks[macroblock];
-        if (vp8_macroblock_filter_level(header, mode) == 0) {
-            continue;
-        }
-        active = true;
-        const u32 macroblock_x = macroblock % modes.columns;
-        const u32 macroblock_y = macroblock / modes.columns;
-        const u32 plane_edges = header.loop_filter.simple ? 1u : 3u;
-        filtered_edges += macroblock_x != 0 ? plane_edges : 0u;
-        filtered_edges += macroblock_y != 0 ? plane_edges : 0u;
-        const bool inner = mode.luma == Vp8IntraMode::subblocks ||
-                           coefficients.macroblocks[macroblock].has_coefficients != 0;
-        if (inner) {
-            filtered_edges += header.loop_filter.simple ? 6u : 10u;
-        }
-    }
+    for (u32 macroblock = 0; !active && macroblock < modes.macroblock_count; ++macroblock)
+        active = vp8_macroblock_filter_level(header, modes.macroblocks[macroblock]) != 0;
     if (!active) {
         gpu->vp8_last_filtered_reconstruction = gpu->vp8_reconstructions;
-        ++gpu->vp8_filter_skips;
         return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
     }
 
     const GpuStatus result = create_vp8_filter_resources(gpu, device);
     if (FAILED(result)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, result);
+        return failure(MediaAtlasGpuError::device_failure, result);
     }
     const u32 luma_samples = static_cast<u32>(gpu->vp8_luma_stride) * gpu->vp8_luma_rows;
     const u32 chroma_samples = static_cast<u32>(gpu->vp8_chroma_stride) * gpu->vp8_chroma_rows;
@@ -172,10 +151,6 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
     unbind_compute(context);
 
     gpu->vp8_last_filtered_reconstruction = gpu->vp8_reconstructions;
-    ++gpu->vp8_filter_dispatches;
-    saturating_accumulate(gpu->vp8_filtered_edges, filtered_edges);
-    const u64 pixels = static_cast<u64>(frame.width) * frame.height;
-    saturating_accumulate(gpu->vp8_filtered_pixels, pixels);
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
 }
 
@@ -186,19 +161,19 @@ MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context ||
         !surface_ready(gpu, *atlas, preview) || !vp8_atlas_frame_ready(gpu, frame, alpha) ||
         !image_fits(*atlas, frame.width, frame.height)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
     const GpuStatus result = upload_vp8_alpha(gpu, device, context, alpha);
     if (FAILED(result)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, result);
+        return failure(MediaAtlasGpuError::device_failure, result);
     }
 
     MediaAtlasResult local{};
     const MediaAtlasResult allocation =
         allocate_and_clear_surface(gpu, atlas, context, preview, key, frame.width, frame.height, &local);
     if (!allocation.ok()) {
-        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+        return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
     dispatch_vp8_atlas(gpu, context, frame, alpha, local.x, local.y, false, gpu->texture_uav);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
@@ -214,11 +189,11 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
         animation_frame.codec != AnimatedWebpCodec::vp8_lossy || animation_frame.width != vp8_frame.width ||
         animation_frame.height != vp8_frame.height || animation_frame.has_alpha != (alpha.count != 0) ||
         !vp8_atlas_frame_ready(gpu, vp8_frame, alpha)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
     if (FAILED(uploaded)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, uploaded);
+        return failure(MediaAtlasGpuError::device_failure, uploaded);
     }
     MediaAtlasResult local{};
     const MediaAtlasGpuResult canvas =
@@ -228,7 +203,7 @@ MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(
         dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
                            local.y + animation_frame.y_offset,
                            animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
-        account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
+        account_animated_webp_dispatch(gpu, alpha.count);
     }
     return canvas;
 }
@@ -244,7 +219,7 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
         animation_frame.codec != AnimatedWebpCodec::vp8_lossy || animation_frame.width != vp8_frame.width ||
         animation_frame.height != vp8_frame.height || animation_frame.has_alpha != (alpha.count != 0) ||
         !vp8_atlas_frame_ready(gpu, vp8_frame, alpha)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
+        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG, allocation);
     }
     MediaAtlasResult local = allocation;
     GpuStatus uploaded = upload_vp8_alpha(gpu, device, context, alpha);
@@ -252,17 +227,15 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
         uploaded = E_OUTOFMEMORY;
     }
     if (FAILED(uploaded)) {
-        return reject(gpu, MediaAtlasGpuError::device_failure, uploaded, allocation);
+        return failure(MediaAtlasGpuError::device_failure, uploaded, allocation);
     }
     unbind_apng_atlas(context);
-    if (previous_frame.dispose == AnimatedWebpDispose::background) {
+    if (previous_frame.dispose == AnimatedWebpDispose::background)
         clear_animated_webp_region(gpu, context, local, previous_frame, background_rgba);
-        ++gpu->animated_webp_background_disposals;
-    }
     dispatch_vp8_atlas(gpu, context, vp8_frame, alpha, local.x + animation_frame.x_offset,
                        local.y + animation_frame.y_offset,
                        animation_frame.blend == AnimatedWebpBlend::over, gpu->texture_uav);
-    account_animated_webp_dispatch(gpu, animation_frame, alpha.count);
+    account_animated_webp_dispatch(gpu, alpha.count);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 

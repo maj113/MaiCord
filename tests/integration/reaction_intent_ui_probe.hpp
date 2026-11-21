@@ -6,6 +6,7 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/chat/messages/reaction_presentation.hpp"
 #include "reaction_intent_ui_adapter.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace reaction_intent_probe_detail {
@@ -429,7 +430,7 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
     const auto warm = [&](u32 case_index) noexcept {
         const auto& scene = context.native.scene;
         const u32 resolves = scene.rebuilds, layouts = scene.layout_passes,
-                  prepares = scene.preparation_passes, shape = measure.backend_calls, raster = renderer.glyph_text.cache_builds,
+                  prepares = scene.preparation_passes, shape = text_measure_calls(&measure), raster = renderer.glyph_text.cache_builds,
                   builds = renderer.content_text->rebuilds, pu = renderer.paint_instance_uploads,
                   tu = renderer.text_instance_uploads, mu = renderer.media_instance_uploads,
                   draws = renderer.painted_frames, skips = renderer.unchanged_present_skips;
@@ -450,7 +451,7 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
         const u32 values[]{scene.rebuilds - resolves,
                            scene.layout_passes - layouts,
                            scene.preparation_passes - prepares,
-                           measure.backend_calls - shape,
+                           text_measure_calls(&measure) - shape,
                            renderer.glyph_text.cache_builds - raster,
                            renderer.content_text->rebuilds - builds,
                            renderer.paint_instance_uploads - pu,

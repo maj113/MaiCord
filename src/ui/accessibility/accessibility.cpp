@@ -1227,7 +1227,6 @@ UiAccessThrottleDecision ui_access_throttle_frame(UiAccessThrottle* throttle, u6
         return UiAccessThrottleDecision::build;
     }
     throttle->deferred = true;
-    ++throttle->coalesced;
     return UiAccessThrottleDecision::defer;
 }
 

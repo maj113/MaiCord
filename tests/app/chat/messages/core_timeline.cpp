@@ -70,6 +70,7 @@ struct PumpFixtureSource {
     PumpFixtureEntry* entries;
     u32 count;
     u32 cursor;
+    u32 largest_output; // the largest payload storage the pump offered
 };
 
 GatewayClientPopResult pump_fixture_pop(void* source_pointer, GatewayClientEvent* event,
@@ -78,6 +79,7 @@ GatewayClientPopResult pump_fixture_pop(void* source_pointer, GatewayClientEvent
         return GatewayClientPopResult{0, GatewayClientPopError::invalid_input};
     }
     auto* source = static_cast<PumpFixtureSource*>(source_pointer);
+    source->largest_output = maximum(source->largest_output, static_cast<u32>(payload_output.count));
     if (source->cursor >= source->count) {
         return GatewayClientPopResult{0, GatewayClientPopError::empty};
     }
@@ -1068,7 +1070,7 @@ void test_message_event_pump() noexcept {
     const MessageEventPumpDrainResult large =
         message_event_pump_drain(&drain_pump, &large_source, pump_fixture_pop, 1);
     expect(large.popped == 1 && large_source.cursor == 1 && drain_pump.large_payload.base &&
-               !drain_pump.large_payload.committed && drain_pump.large_payload.peak != 0,
+               !drain_pump.large_payload.committed && large_source.largest_output > kMessageEventPumpPayloadCapacity,
            "message_event_pump_pops_oversized_records_into_on_demand_storage");
     reserved_bytes_release(&drain_pump.large_payload);
 

@@ -5,6 +5,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/window/null.hpp"
 #include "../../../src/app/voice/send_shared.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -16,11 +17,6 @@ u32 voice_send_queued(const VoiceSend& send) noexcept {
     return send.shared ? static_cast<u32>(read_acquire(&send.shared->write)) -
                              static_cast<u32>(read_acquire(&send.shared->read))
                        : 0;
-}
-// Overrides the push-to-talk key probe (GetAsyncKeyState) the capture pipeline polls.
-void voice_send_set_key_probe(VoiceSend* send, bool (*probe)(void*, u8 key) noexcept, void* context) noexcept {
-    if (send && send->shared)
-        send->shared->probe = probe, send->shared->probe_context = context;
 }
 using Check = void (*)(bool, const char*) noexcept;
 constexpr u32 kSsrc = 0x0a0b0c0d;
@@ -245,17 +241,13 @@ void test_pipeline(Check check) noexcept {
     check(rec.count >= 7 && rec.order[rec.count - 1] == 1000 && rec.order[rec.count - 2] == 3,
           "Voice send pipeline: muting mid-sentence finishes with the silence tail and Speaking off");
 
-    // Push-to-talk with a probed key and the 20 ms release delay.
-    struct Key {
-        bool down;
-    } key{};
-    voice_send_set_key_probe(
-        &send, [](void* c, u8 vk) noexcept { return vk == 0x56 && static_cast<Key*>(c)->down; }, &key);
-    voice_send_set_control(&send, {100, 20, VoiceInputMode::push_to_talk, 50, 0x56, false, true});
+    // Push-to-talk with a key of the headless window and the 20 ms release delay.
+    constexpr Key kTalkKey = 0x56;
+    voice_send_set_control(&send, {100, 20, VoiceInputMode::push_to_talk, 50, kTalkKey, false, true});
     rec.count = 0;
     feed(send, t, &now, 3, 12000);
     const bool silent_when_up = rec.count == 0 && !voice_send_queued(send);
-    key.down = true;
+    null_window_set_key(kTalkKey, true);
     feed(send, t, &now, 4, 0);
     voice_send_flush(&send, transport);
     const bool transmits_when_down = rec.count == 5 && rec.order[0] == 1001;
@@ -263,7 +255,7 @@ void test_pipeline(Check check) noexcept {
     check(read_acquire(&send.cells.transmitting) && !voice_send_status(&send).transmitting &&
               !voice_send_transmitting(send),
           "Voice send: transmitting needs a capture that runs, with and without the lock");
-    key.down = false;
+    null_window_set_key(kTalkKey, false);
     feed(send, t, &now, 8, 0);
     voice_send_flush(&send, transport);
     check(silent_when_up && transmits_when_down && rec.order[rec.count - 1] == 1000 &&

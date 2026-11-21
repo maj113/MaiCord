@@ -170,8 +170,9 @@ void run() noexcept {
             AccountMediaWorkerPhase::working, AccountMediaWorkerPhase::command_ready};
         for (auto phase : phases) {
             lane.phase = static_cast<LONG>(phase);
-            check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::busy &&
-                !ReadAcquire64(&worker->counters.queued), "collection switching waits for the old track owner without queuing on a spare lane");
+            // A request that queued on a spare lane would answer queued.
+            check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::busy,
+                "collection switching waits for the old track owner without queuing on a spare lane");
         }
         request.options.collection_track = 1;
         check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::pending,

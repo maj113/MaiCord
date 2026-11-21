@@ -207,7 +207,7 @@ void store_cases(Check check) noexcept {
     for (u64 i = 0; i < kVoiceChannelInfoCapacity; ++i)
         filled = filled && voice_channel_info_store_set_start(&store, 1 + i % 2, 1'000 + i, 1);
     check(filled && voice_channel_info_store_set_start(&store, 1, 9'999, 1) &&
-              store.count == kVoiceChannelInfoCapacity && store.dropped == 1 &&
+              store.count == kVoiceChannelInfoCapacity &&
               voice_channel_info_store_find(store, 9'999) && !voice_channel_info_store_find(store, 1'001),
           "store: when full another guild's record makes room");
 }

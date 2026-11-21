@@ -42,9 +42,6 @@ inline constexpr float kMessageSceneEphemeralAlpha = 0.05f;
 inline constexpr float kMessageScenePreparationMarginDips = 512.0f;
 inline constexpr u64 kMessageGroupIntervalMilliseconds = 7ull * 60ull * 1'000ull;
 inline constexpr u32 kMessageSceneBaseWidgetsPerRow = 15;
-// Widgets of a plain text row: row, avatar, body, reply, author, content and
-// the notice group. Rich groups, reactions, polls and the group of an "(edited)" line add widgets only when present.
-inline constexpr u32 kMessageScenePlainRowWidgets = 7;
 inline constexpr u32 kMessageSceneWidgetsPerContent =
     kMessageSceneBaseWidgetsPerRow + kGatewayMessageReactionMaximum + kMessageRichItemMaximum + 1u;
 inline constexpr u32 kMessageSceneWidgetsPerRow = 2u * kMessageSceneWidgetsPerContent;

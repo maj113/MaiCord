@@ -65,7 +65,6 @@ __forceinline GpuStatus video_frame_convert(VideoFrameGpu* gpu, GpuContext1* con
     gpu_set_constants(context, GpuStage::compute, 0, 1, &no_buffer);
     gpu_set_shader(context, static_cast<GpuComputeShader*>(nullptr));
     ++gpu->frames;
-    gpu->converted_pixels += static_cast<u64>(width) * height;
     return kGpuOk;
 }
 

@@ -3,6 +3,7 @@
 #include "maicord/media/audio/encoded_audio.hpp"
 #include "../../fixtures/mp3_original_tone.hpp"
 #include "../../support/ogg_page_fixture.hpp"
+#include "../../support/account_video_session_probe.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/time.hpp"
 

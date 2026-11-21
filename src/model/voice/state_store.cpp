@@ -124,8 +124,7 @@ bool evict(VoiceStateStore* store, u64 keep) noexcept {
             best = slot;
     if (best == kTally)
         return false;
-    saturating_accumulate(store->dropped, remove_guild(store, ids[best]));
-    saturating_increment(store->evictions);
+    remove_guild(store, ids[best]);
     saturating_increment(store->revision);
     return true;
 }
@@ -247,7 +246,6 @@ VoiceStateResult voice_state_store_apply(VoiceStateStore* store, u64 guild_id,
         }
         erase_at(store, existing);
     } else if (!make_room(store, 1, guild_id)) {
-        saturating_increment(store->dropped);
         return VoiceStateResult::capacity;
     }
     insert(store, {guild_id, channel_id, user_id, flags & ~u32{voice_speaking}, request_to_speak_s});

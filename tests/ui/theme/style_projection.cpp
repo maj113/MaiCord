@@ -10,6 +10,7 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
 #include "../../support/fake_text_measure.hpp"
+#include "../../support/counted_text_measure.hpp"
 
 namespace maicord {
 void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noexcept {
@@ -83,13 +84,13 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
               text_form_focused(scene) == TextFormElement::edit &&
               scene.elements[static_cast<u32>(TextFormElement::edit)].generation == edit.generation,
           "Theme form reflows retained fields while preserving owner and focus");
-    const u32 layout = scene.widgets.layout.revision, calls = cache.backend_calls,
+    const u32 layout = scene.widgets.layout.revision, calls = text_measure_calls(&cache),
               revision = scene.revision;
     for (u32 frame = 0; valid && frame < 64; ++frame)
         valid = !text_form_bind_theme_styles(&scene, &bank) &&
                 !text_form_bind_measure_revision(&scene, 17) &&
                 text_form_update(&scene, content, viewport, &cache);
-    check(valid && scene.widgets.layout.revision == layout && cache.backend_calls == calls &&
+    check(valid && scene.widgets.layout.revision == layout && text_measure_calls(&cache) == calls &&
               scene.revision == revision,
           "Theme no-op form publication retains 64 layout and measurement frames");
     metrics.compact_radius = 9;

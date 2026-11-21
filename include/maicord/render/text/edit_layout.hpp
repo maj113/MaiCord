@@ -60,8 +60,6 @@ struct TextEditLayoutOwner {
     u32 utf16_units;
     u32 selection_count;
     u32 builds;
-    u32 hits;
-    u32 rejected;
     float origin_x;
     float origin_y;
     float width;

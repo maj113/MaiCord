@@ -7,8 +7,6 @@
 namespace maicord {
 struct VoiceSendShared {
     volatile LONG64 control; // The bytes of a VoiceSendControl.
-    bool (*probe)(void*, u8) noexcept;
-    void* probe_context;
     volatile LONG write, read, end_lost;
     VoiceSendPacket packets[kVoiceSendQueue];
     OpusEncoder encoder;

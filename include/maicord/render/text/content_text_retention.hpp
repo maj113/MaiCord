@@ -19,10 +19,6 @@ struct ContentTextRetentionKey {
 
 struct ContentTextRetentionOwner {
     ContentTextRetentionKey key;
-    u32 builds;
-    u32 hits;
-    u32 misses;
-    u32 invalidations;
     // Advances on every invalidate/reset: a retained shell prefix recorded at
     // one generation is stale once anything else invalidated the stream.
     u32 generation;
@@ -50,6 +46,6 @@ void content_text_retention_invalidate(ContentTextRetentionOwner* owner) noexcep
 void content_text_retention_reset(ContentTextRetentionOwner* owner) noexcept;
 
 static_assert(sizeof(ContentTextRetentionKey) == 56);
-static_assert(sizeof(ContentTextRetentionOwner) == 80);
+static_assert(sizeof(ContentTextRetentionOwner) == 64);
 
 } // namespace maicord

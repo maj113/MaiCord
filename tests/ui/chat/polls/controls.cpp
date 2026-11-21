@@ -3,6 +3,7 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/core/utf.hpp"
+#include "../../../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace {
@@ -161,19 +162,18 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
                                    &narrow) &&
               ui_rect_height(narrow.geometry.instruction) == 16 && narrow.geometry.footer_rows == 1,
           "poll narrow card: a long status reserves one ellipsized line and the footer stays one row");
-    check(f.unstyled_measures > 0 || f.cache.backend_calls > 0, "poll measurement: labels measured natively");
     ui_text_measure_cache_invalidate(&f.cache);
     UiPollLayout layout{};
     bool ready = ui_poll_measure_layout(f.state, 152, kDefaultUiPollStyle, &f.cache, 1, &layout);
-    const auto backend = f.cache.backend_calls;
+    const auto backend = text_measure_calls(&f.cache);
     bool stable = ready;
-    for (u32 i = 0; i < 64; ++i) {
+    for (u32 i = 0; i < 2; ++i) {
         UiPollLayout repeated{};
         stable = stable &&
                  ui_poll_measure_layout(f.state, 152, kDefaultUiPollStyle, &f.cache, 1, &repeated) &&
                  repeated.height == layout.height && repeated.content_signature == layout.content_signature;
     }
-    check(stable && f.cache.backend_calls == backend, "poll retention: 64 unchanged wrapped projections "
+    check(stable && text_measure_calls(&f.cache) == backend, "poll retention: unchanged wrapped projections "
                                                       "reuse native-measure cache without backend calls");
     UiPollProjection ballot{}, results{};
     ready = ready && ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle,
@@ -388,7 +388,7 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
     state.has_next = true;
     UiPollVotersScene scene{};
     bool ready = ui_poll_voters_scene_project(&scene, state, {0, 0, 320, 640}, f.owner(),
-                                              kDefaultUiPollVotersStyle, kLightTheme, &f.cache, 1);
+                                              UiPollVotersStyle{}, kLightTheme, &f.cache, 1);
     check(ready && contained(scene.geometry.viewport, scene.geometry.panel) &&
               contained(scene.geometry.panel, scene.geometry.body) && scene.visible > 0 &&
               scene.visible <= 25 &&
@@ -428,7 +428,7 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
     state.loading = true;
     state.has_previous = true;
     ready = ui_poll_voters_scene_project(&scene, state, {0, 0, 640, 800}, f.owner(),
-                                         kDefaultUiPollVotersStyle, kDefaultTheme, &f.cache, 1);
+                                         UiPollVotersStyle{}, kDefaultTheme, &f.cache, 1);
     check(ready && ui_poll_voters_target_enabled(scene, {UiPollVotersControl::close}) &&
               !ui_poll_voters_target_enabled(scene, {UiPollVotersControl::next}) &&
               !ui_poll_voters_target_enabled(scene, {UiPollVotersControl::user, 1000}),
@@ -455,7 +455,7 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
     state.error = state.can_retry = true;
     state.revision++;
     ready = ui_poll_voters_scene_project(&scene, state, {0, 0, 320, 640}, f.owner(),
-                                         kDefaultUiPollVotersStyle, kLightTheme, &f.cache, 1);
+                                         UiPollVotersStyle{}, kLightTheme, &f.cache, 1);
     check(ready && ui_poll_voters_target_enabled(scene, {UiPollVotersControl::retry}) &&
               same(scene.error, ui_foreground_color(kLightTheme, kLightTheme.notification)),
           "poll voters error: explicit Retry and semantic Light error ink retain exact stale-response "

@@ -2,6 +2,7 @@
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "maicord/app/voice/call_video_presenter.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../../support/glyph_atlas_pins.hpp"
 
 namespace maicord {
 namespace {

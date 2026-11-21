@@ -125,9 +125,8 @@ bool message_media_apply_frame_dimensions(MessageRichStore* store, const Account
 
 namespace {
 
-MessageMediaControllerResult failure(MessageMediaController* controller, MessageMediaControllerError error,
-                                     u32 visited = 0, u32 candidates = 0) noexcept {
-    saturating_increment(controller->rejected);
+MessageMediaControllerResult failure(MessageMediaControllerError error, u32 visited = 0,
+                                     u32 candidates = 0) noexcept {
     return MessageMediaControllerResult{visited, candidates, error, false};
 }
 
@@ -164,10 +163,8 @@ bool first_asset_observation(MessageMediaController* controller, MediaAssetKey k
                 controller->asset_marks_saturated = true;
             return true;
         }
-        if (media_asset_key_equal(mark.key, key)) {
-            saturating_accumulate(controller->duplicate_assets_skipped, 1);
+        if (media_asset_key_equal(mark.key, key))
             return false;
-        }
         bucket = (bucket + 1u) & mask;
     }
     controller->asset_marks_saturated = true;
@@ -533,11 +530,11 @@ MessageMediaControllerResult message_media_controller_collect(MessageMediaContro
                                                               UiVariableRange range) noexcept {
     if (!controller_valid(controller) || !messages.records || !messages.order || !rich_store.records ||
         !scene.rows.data || range.first > messages.count || range.count > messages.count - range.first) {
-        return failure(controller, MessageMediaControllerError::invalid_input);
+        return failure(MessageMediaControllerError::invalid_input);
     }
     controller->row_count = 0;
     if (range.count > controller->row_capacity) {
-        return failure(controller, MessageMediaControllerError::capacity, range.count);
+        return failure(MessageMediaControllerError::capacity, range.count);
     }
     for (u32 visible = 0; visible < range.count; ++visible) {
         const u32 source_index = range.first + visible;
@@ -557,9 +554,6 @@ MessageMediaControllerResult message_media_controller_collect(MessageMediaContro
         controller->rows[controller->row_count++] =
             MessageMediaVisibleRow{message, rich, scene_row, handle, source_index};
     }
-    saturating_increment(controller->collections);
-    saturating_accumulate(controller->source_rows_visited, range.count);
-    saturating_accumulate(controller->rows_collected, controller->row_count);
     return MessageMediaControllerResult{range.count, controller->row_count,
                                         MessageMediaControllerError::none, false};
 }
@@ -568,7 +562,7 @@ MessageMediaControllerResult message_media_controller_visit_primary(
     MessageMediaController* controller, const MessageRichStore& rich_store, const MessageScene& scene,
     const MessageMediaControllerCallbacks& callbacks, bool prefetch_only) noexcept {
     if (!controller_valid(controller) || !rich_store.records || !callbacks.attachment || !callbacks.embed) {
-        return failure(controller, MessageMediaControllerError::invalid_input);
+        return failure(MessageMediaControllerError::invalid_input);
     }
     u32 candidates = 0;
     for (u32 visible = 0; visible < controller->row_count; ++visible) {
@@ -605,7 +599,7 @@ MessageMediaControllerResult message_media_controller_visit_primary(
             bool stop_scan = false;
             if (!callbacks.attachment(callbacks.context, *row.message, attachment, preview_width,
                                       preview_height, &stop_scan)) {
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             }
             if (stop_scan) {
                 return MessageMediaControllerResult{visible + 1u, candidates,
@@ -641,7 +635,7 @@ MessageMediaControllerResult message_media_controller_visit_primary(
             bool stop_scan = false;
             if (!callbacks.embed(callbacks.context, *row.message, *row.rich, embed_index, preview_width,
                                  preview_height, &stop_scan)) {
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             }
             if (stop_scan) {
                 return MessageMediaControllerResult{visible + 1u, candidates,
@@ -660,7 +654,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
     const MessageMediaControllerCallbacks& callbacks, const MessageRichStore* rich_store) noexcept {
     if (!controller_valid(controller) || !messages.records || !messages.text || !users.records ||
         !media_atlas || !callbacks.avatar || !callbacks.asset) {
-        return failure(controller, MessageMediaControllerError::invalid_input);
+        return failure(MessageMediaControllerError::invalid_input);
     }
     u32 candidates = 0;
     const auto stopped_at = [&](u32 visible) noexcept {
@@ -676,7 +670,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
         if (author && !request_avatar(callbacks, *author, controller, animations, media_atlas, now_us,
                                       &candidates, &stopped,
                                       row.message->id == controller->avatar_message_id)) {
-            return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+            return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
         }
         if (stopped)
             return stopped_at(visible);
@@ -687,7 +681,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
         if (!visit_inline_emojis(callbacks, message_store_content(messages, row.handle), animations,
                                  media_atlas, controller, now_us, &candidates, &stopped, emoji_plays,
                                  row.message->id, row.message->revision, 0)) {
-            return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+            return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
         }
         if (stopped)
             return stopped_at(visible);
@@ -698,7 +692,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             !visit_inline_emojis(callbacks, message_rich_store_string(*rich_store, content_rich->snapshot.content),
                                  animations, media_atlas, controller, now_us, &candidates, &stopped, emoji_plays,
                                  row.message->id, content_rich->message_revision, 1))
-            return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+            return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
         if (stopped) return {visible + 1u, candidates, MessageMediaControllerError::none, true};
         if (!content_rich) {
             continue;
@@ -709,7 +703,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             // Reply previews show the referenced author's avatar still.
             if (reference_author && !request_avatar(callbacks, *reference_author, controller, animations,
                                                     media_atlas, now_us, &candidates, &stopped, false)) {
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             }
             if (stopped)
                 return stopped_at(visible);
@@ -723,7 +717,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             }
             if (!request_asset(callbacks, key, animated, controller, animations, media_atlas, now_us,
                                &candidates, &stopped, stickers_play)) {
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             }
             if (stopped)
                 return stopped_at(visible);
@@ -736,7 +730,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             const bool animated = (value.flags & gateway_message_component_emoji_animated) != 0;
             if (!request_asset(callbacks, media_asset_custom_emoji(value.emoji_id, animated), animated, controller,
                                animations, media_atlas, now_us, &candidates, &stopped, emoji_plays))
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             if (stopped)
                 return stopped_at(visible);
         }
@@ -757,7 +751,7 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                     : media_asset_custom_emoji(value.emoji_id, animated),
                                animated, controller, animations, media_atlas, now_us, &candidates,
                                &stopped, emoji_plays)) {
-                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+                return failure(MessageMediaControllerError::callback, visible + 1u, candidates);
             }
             if (stopped)
                 return stopped_at(visible);
@@ -774,12 +768,12 @@ MessageMediaControllerResult message_media_controller_visit_asset(
     const MessageMediaControllerCallbacks& callbacks) noexcept {
     if (!controller_valid(controller) || !media_asset_key_valid(key) || !media_atlas ||
         !callbacks.asset)
-        return failure(controller, MessageMediaControllerError::invalid_input);
+        return failure(MessageMediaControllerError::invalid_input);
     u32 candidates = 0;
     bool stopped = false;
     if (!request_asset(callbacks, key, animated, controller, animations, media_atlas, now_us,
                        &candidates, &stopped))
-        return failure(controller, MessageMediaControllerError::callback, 0, candidates);
+        return failure(MessageMediaControllerError::callback, 0, candidates);
     return {0, candidates, MessageMediaControllerError::none, stopped};
 }
 

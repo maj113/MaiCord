@@ -132,16 +132,14 @@ bool acquire_layout(MessageHitTestCacheOwner* owner, const MessageTextCommand& c
                     const TextSystem& text_system, u32 command_index) noexcept {
     const float width = maximum(1.0f, ui_rect_width(command.rectangle));
     const float height = maximum(1.0f, ui_rect_height(command.rectangle));
-    if (cache_matches(*owner, command, text_system, command_index, width, height)) {
-        saturating_increment(owner->hits);
+    if (cache_matches(*owner, command, text_system, command_index, width, height))
         return true;
-    }
 
     message_hit_test_cache_invalidate(owner);
     u32 units=0;
     if(!utf8_utf16_position_for_byte_offset(command.text,command.text.bytes,&units)||!units||units>kMessageHitTestTextCapacity||(!owner->storage.base&&!arena_initialize(&owner->storage,512*1024,0,4096,ArenaTag::text))||
        !acquire_native(*owner,command,text_system,width,height,units)){
-        owner->geometry=false;saturating_increment(owner->rejected);return false;}
+        owner->geometry=false;return false;}
     owner->native_format=native_text_format_identity(text_system);
     owner->message_id = command.message_id;
     owner->measurement_identity = command.measurement_identity;
@@ -307,7 +305,7 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
         // The nearest cluster for trailing whitespace and the unused part of a
         // wrapped line is still a valid browser-style drag-selection position.
         u32 byte_offset=0;
-        if(!native_position(*owner,x-command.rectangle.left,y-command.rectangle.top,&byte_offset)){saturating_increment(owner->rejected);continue;}
+        if(!native_position(*owner,x-command.rectangle.left,y-command.rectangle.top,&byte_offset))continue;
         return MessagePositionHit{command.message_id,
                                   command.measurement_identity,
                                   command.message_revision,
@@ -364,10 +362,8 @@ MessagePositionHit message_position_nearest_hit_test(MessageHitTestCacheOwner* o
     const float px = clamp_value(x, nearest_box.left, nearest_box.right - kInside);
     const float py = clamp_value(y, nearest_box.top, nearest_box.bottom - kInside);
     u32 byte_offset = 0;
-    if (!native_position(*owner, px - command.rectangle.left, py - command.rectangle.top, &byte_offset)) {
-        saturating_increment(owner->rejected);
+    if (!native_position(*owner, px - command.rectangle.left, py - command.rectangle.top, &byte_offset))
         return MessagePositionHit{};
-    }
     return MessagePositionHit{command.message_id, command.measurement_identity, command.message_revision, nearest,
                               byte_offset, command.text.bytes, true};
 }
@@ -412,8 +408,6 @@ void message_hit_test_cache_release(MessageHitTestCacheOwner* owner) noexcept {
     message_hit_test_cache_invalidate(owner);
     arena_release(&owner->storage);
     owner->builds = 0;
-    owner->hits = 0;
-    owner->rejected = 0;
 }
 
 } // namespace maicord

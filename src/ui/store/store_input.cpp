@@ -243,20 +243,6 @@ bool ui_store_scene_release_pointer(UiStoreScene* s, float x, float y, UiStoreEv
     return fill_event(*s, hit, UiStoreEventKind::activate, 0, event);
 }
 
-bool ui_store_scene_focus(UiStoreScene* s, u32 action, bool visible_ring) noexcept {
-    if (!s)
-        return false;
-    if (!action) {
-        const bool changed = s->focus_action != 0;
-        s->focus_action = 0;
-        if (changed)
-            ++s->motion;
-        return changed;
-    }
-    const u16 index = find_action(*s, action);
-    return index != kUiStoreNone && set_focus(s, index, visible_ring);
-}
-
 u32 ui_store_scene_focused(const UiStoreScene& s) noexcept {
     return s.focus_action;
 }

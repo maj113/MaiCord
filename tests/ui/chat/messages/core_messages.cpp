@@ -2651,8 +2651,9 @@ void test_message_action_bar() noexcept {
     u32 action_icons = 0;
     for (u32 i = 0; i < paint.count; ++i)
         action_icons += ui_icon_quad(paint.quads[i]) ? 1u : 0u;
+    // The collapsed bar: three quick reactions, Add reaction, Reply and More.
     expect(opened.ok() && opened.changed && retained_identity && row_layout && bar.active &&
-               bar.item_count == kMessageActionBarItemCount && ui_rect_width(bar.rectangle) == 180.0f &&
+               bar.item_count == 6 && ui_rect_width(bar.rectangle) == 180.0f &&
                ui_rect_height(bar.rectangle) == 32.0f &&
                bar.rectangle.right == row_layout->rectangle.right - kMessageActionBarRowRightInset &&
                ui_rect_width(bar.items[0].rectangle) == kMessageActionBarCellExtent &&
@@ -2707,7 +2708,8 @@ void test_message_action_bar() noexcept {
     const auto arrow = bar.items[5].rectangle;
     const float arrow_x = (arrow.left + arrow.right) * .5f, arrow_y = (arrow.top + arrow.bottom) * .5f;
     paint_stream_reset(&paint);
-    expect(forward_opened && bar.item_count == kMessageActionBarMaximumItems &&
+    // The collapsed bar holds three quick reactions, Add reaction, Reply and More, and Forward before More.
+    expect(forward_opened && bar.item_count == 7 &&
         ui_rect_width(bar.rectangle) == 208.f && bar.items[5].action == MessageActionBarAction::forward &&
         bar.items[6].action == MessageActionBarAction::more &&
         message_action_bar_hit_test(bar, arrow_x, arrow_y).action == MessageActionBarAction::forward &&
@@ -2718,14 +2720,14 @@ void test_message_action_bar() noexcept {
         +[](void* context, u64) noexcept -> u16 {
             return *static_cast<bool*>(context) ? u16{message_action_bar_forward} : u16{0};
         }, &forward_allowed);
-    expect(revoked.ok() && revoked.changed && bar.item_count == kMessageActionBarItemCount &&
+    expect(revoked.ok() && revoked.changed && bar.item_count == 6 &&
         revoked.action_bar.action != MessageActionBarAction::forward,
         "message_action_bar_revalidates_retained_hover_forward_authority_before_dispatch");
     MessageRecord poll_source = message ? *message : MessageRecord{};
     poll_source.presentation_flags |= message_presentation_has_poll;
     expect(message_action_bar_open(&bar, scene, forward_hit, poll_source, &preferences,
                MessageActionBarOptions{message_action_bar_forward}).ok() &&
-        bar.item_count == kMessageActionBarItemCount,
+        bar.item_count == 6,
         "message_action_bar_unsupported_source_cannot_gain_forward_from_caller_hint");
     message_action_bar_close(&bar);
 }

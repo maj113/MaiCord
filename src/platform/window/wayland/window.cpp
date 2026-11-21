@@ -89,14 +89,6 @@ constexpr Binding kBindings[] = {
 #undef MAICORD_BINDING
 
 void on_global(void*, wl_registry* registry, u32 name, const char* interface, u32 version) noexcept {
-    if (g.global_count < kMaxGlobals) {
-        GlobalName& entry = g.globals[g.global_count++];
-        u32 length = 0;
-        for (; interface[length] && length + 1 < sizeof(entry.name); ++length)
-            entry.name[length] = interface[length];
-        entry.name[length] = 0;
-        entry.version = version;
-    }
     for (const Binding& binding : kBindings) {
         if (!c_string_equal(interface, binding.interface->name))
             continue;

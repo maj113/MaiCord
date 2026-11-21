@@ -62,7 +62,6 @@ struct UiTextMeasureCache {
     void* backend_context;
     u64 stamp;
     u32 generation;
-    u32 backend_calls;
 };
 
 bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMeasureRecord> storage,

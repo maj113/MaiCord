@@ -48,6 +48,15 @@ CatalogPhase phase() noexcept { return application_catalog_view().operation.phas
 bool finished() noexcept { return phase() == CatalogPhase::done || phase() == CatalogPhase::failed; }
 bool consent_or_finished() noexcept { return phase() == CatalogPhase::consent || finished(); }
 bool asks() noexcept { return phase() == CatalogPhase::consent; }
+// The console takes a line only while Developer Mode is on. The test line is cleared again (with any line before it).
+bool console_takes_lines() noexcept {
+    const u32 before = application_dev_console_count();
+    application_dev_console_add(DevLineKind::info, utf8_literal("test"), utf8_literal("console check"));
+    const bool taken = application_dev_console_count() == before + 1;
+    if (taken)
+        application_dev_console_clear();
+    return taken;
+}
 
 // One turn of the client's loop for the catalog: wait on its handles (the worker, HTTP and the dev folders) for at
 // most its own timeout and at most until deadline, then poll. Without waiting, false when no handle is set and nothing
@@ -186,7 +195,7 @@ void run_reload(const wchar_t* directory, const wchar_t* base, const wchar_t* de
     application_catalog_restore();
     application_catalog_poll();
     check(application_catalog_dev_notification(0) && application_catalog_dev_notification(1) && !application_catalog_runtime() &&
-              application_dev_console_enabled() && application_dev_console_count() == 0 &&
+              application_dev_console_count() == 0 && console_takes_lines() &&
               application_catalog_dev_folder(0).bytes && application_catalog_dev_folder(1).bytes,
           "Developer Mode watches both dev folders; nothing is loaded and nothing is logged");
 
@@ -296,17 +305,17 @@ void run_reload(const wchar_t* directory, const wchar_t* base, const wchar_t* de
     // Developer Mode off: nothing is watched, nothing is held.
     g_developer = false;
     application_catalog_poll();
-    check(!application_catalog_dev_notification(0) && !application_catalog_dev_notification(1) && !application_dev_console_enabled() &&
-              application_dev_console_count() == 0,
+    check(!application_catalog_dev_notification(0) && !application_catalog_dev_notification(1) &&
+              application_dev_console_count() == 0 && !console_takes_lines(),
           "turning Developer Mode off closes the watches and frees the console");
     check(copy_over(a, target) && stays([] { return phase() == CatalogPhase::consent || running_version("1.0.0"); }),
           "a change while Developer Mode is off does nothing");
     g_developer = true;
     check(settle([] { return running_version("1.0.0") && finished(); }) && phase() == CatalogPhase::done &&
-              application_dev_console_enabled() && application_catalog_dev_notification(0),
+              console_takes_lines() && application_catalog_dev_notification(0),
           "Developer Mode on again scans, and a build the user already allowed loads without a question");
     application_catalog_release();
-    check(!application_dev_console_enabled(), "release frees the console");
+    check(!console_takes_lines(), "release frees the console");
 }
 
 // ---- what the tool made --------------------------------------------------------------------------------------

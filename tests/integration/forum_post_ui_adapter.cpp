@@ -24,6 +24,7 @@
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "../support/window_fixture.hpp"
+#include "../support/counted_text_measure.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -454,7 +455,7 @@ bool forum_post_ui_adapter_costs(ForumPostProbeCosts* costs) noexcept {
     costs->scene_commit_count = form->scene.storage.arena.commit_count;
     costs->scene_revision = form->scene.revision;
     costs->layout_revision = form->scene.widgets.layout.revision;
-    costs->measure_calls = form->scene.measure->backend_calls;
+    costs->measure_calls = text_measure_calls(form->scene.measure);
     for (u32 field = 0; field < 2; ++field) {
         MEMORY_BASIC_INFORMATION memory{};
         if (!VirtualQuery(form->fields[field].edit.storage.data, &memory, sizeof(memory)) ||

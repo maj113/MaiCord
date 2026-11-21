@@ -594,19 +594,6 @@ bool glyph_atlas_unpin(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) noex
     return true;
 }
 
-bool glyph_atlas_is_pinned(const GlyphAtlasAllocator& atlas,
-                           GlyphAtlasHandle handle) noexcept {
-    return atlas.entries && atlas.rows && handle.generation != 0 &&
-           handle.slot < atlas.entry_capacity &&
-           atlas.entries[handle.slot].occupied &&
-           atlas.entries[handle.slot].generation == handle.generation &&
-           atlas.entries[handle.slot].row < atlas.row_count &&
-           atlas.entries[handle.slot].visibility_epoch ==
-               atlas.visibility_epoch &&
-           atlas.rows[atlas.entries[handle.slot].row].visibility_epoch ==
-               atlas.visibility_epoch;
-}
-
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept {
     if (!atlas->entries || !atlas->rows) {
         return rejected(0, 0, 0, GlyphAtlasError::invalid_input);

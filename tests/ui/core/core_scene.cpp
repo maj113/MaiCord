@@ -28,7 +28,7 @@
 #include "maicord/ui/text/flow_layout.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
-#include "maicord/render/text/glyph_atlas.hpp"
+#include "../../support/glyph_atlas_pins.hpp"
 
 namespace maicord {
 MessageRichRecord g_message_scene_rich_records[kMessageSceneRichRecords];

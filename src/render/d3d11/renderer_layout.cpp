@@ -2425,11 +2425,6 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
         ++renderer->paint_stream_builds;
         if (!renderer_paint_diff_damage(renderer, theme))
             presentation_damage_invalidate_full(&renderer->presentation_damage);
-    } else {
-        ++renderer->paint_stream_reuses;
-        if (!media_source_changed) {
-            ++renderer->media_source_upload_skips;
-        }
     }
     if (renderer->paint_stream.rejected != 0 && !renderer->paint_overflow_reported) {
         renderer->paint_overflow_reported = true;

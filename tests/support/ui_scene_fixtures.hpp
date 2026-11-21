@@ -37,6 +37,8 @@ inline bool shell_text_presentation_build(const UiScene& scene, const ChatStateS
 
 // The most rows a test message scene may grow to (message_scene_initialize_owned's maximum_rows).
 inline constexpr u32 kMessageSceneTestRows = 512;
+// Text commands for a test stream that holds the shell chrome's text (shell_text_presentation_build).
+inline constexpr u32 kMaximumShellChromeTextCommands = 384;
 
 // Opens a registered settings page: selects it, rebuilds the scene over its content and focuses its row.
 inline bool ui_settings_scene_select(UiSettingsScene* scene, UiPageKey page) noexcept {

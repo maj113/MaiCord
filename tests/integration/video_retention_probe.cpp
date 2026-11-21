@@ -6,6 +6,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../support/content_text_builds.hpp"
 
 namespace maicord {
 bool video_display_extent_probe(D3D11Renderer& r) noexcept {
@@ -54,7 +55,7 @@ bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 h
     Nv12TestPicture picture{};
     if (!picture.create(r.graphics.device, storage_width, storage_height, pixels)) return false;
     const GpuVideoFrame frame = picture.frame(width, height);
-    const u32 text_builds = r.content_text_retention.builds;
+    const u32 text_builds = content_text_builds(r);
     const u32 text_uploads = r.text_instance_uploads;
     const u32 layout_builds = r.paint_stream_builds;
     const u32 paint_uploads = r.paint_instance_uploads;
@@ -70,14 +71,14 @@ bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 h
     }
     picture.release();
     const u64 damage_pixels = r.partial_present_pixels - partial_pixels;
-    ok = ok && r.content_text_retention.builds == text_builds &&
+    ok = ok && content_text_builds(r) == text_builds &&
         r.text_instance_uploads == text_uploads && r.paint_stream_builds == layout_builds &&
         r.paint_instance_uploads == paint_uploads && r.media_instance_uploads == media_uploads &&
         r.full_present_draws == full_draws && r.partial_present_draws == partial_draws + count &&
         r.media_gpu.video.frames == video_frames + count && damage_pixels > 0 &&
         damage_pixels < static_cast<u64>(r.width) * r.height * count;
     log_u64(ok ? LogLevel::info : LogLevel::error, "probe", "video_retained_frames", r.media_gpu.video.frames - video_frames);
-    log_u64(LogLevel::info, "probe", "video_retained_text_builds", r.content_text_retention.builds - text_builds);
+    log_u64(LogLevel::info, "probe", "video_retained_text_builds", content_text_builds(r) - text_builds);
     log_u64(LogLevel::info, "probe", "video_retained_full_draws", r.full_present_draws - full_draws);
     log_u64(LogLevel::info, "probe", "video_retained_partial_draws", r.partial_present_draws - partial_draws);
     log_u64(LogLevel::info, "probe", "video_retained_damage_pixels", damage_pixels);

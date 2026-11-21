@@ -60,12 +60,6 @@ enum class TextFormElement : u8 {
 inline constexpr u32 kTextFormElements = static_cast<u32>(TextFormElement::count);
 inline constexpr u32 kTextFormChoices = 4;
 inline constexpr u32 kTextFormSelectOptions = 8;
-// The radio group and dropdown elements, absent unless a form uses them.
-inline constexpr u32 kTextFormChoiceElements = 2 + kTextFormChoices + 1 + kTextFormSelectOptions;
-// The colour picker's elements, absent unless a form is a picker.
-inline constexpr u32 kTextFormColorElements = 5;
-// The QR code and its caption, absent unless a form shows a code.
-inline constexpr u32 kTextFormQrElements = 2;
 
 // A colour picker form's picker state (ui/widgets/color_picker.hpp): the colour as HSV, the suggested swatches
 // (0xRRGGBB, at most kColorPickerSuggestedColors) with the keyboard's position among them, and the eyedropper:

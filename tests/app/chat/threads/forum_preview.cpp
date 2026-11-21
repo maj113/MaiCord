@@ -11,6 +11,7 @@
 #include "../../../support/test_output.hpp"
 #include "../../../support/fake_text_measure.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../../../support/counted_text_measure.hpp"
 
 namespace maicord::forum_preview_test {
 using namespace app_detail;
@@ -169,13 +170,13 @@ void run() noexcept {
               "preview owner: atlas upload commits ready projection and clears pending wake");
         const auto warm_frames = frames, warm_requests = requests,
                    warm_revision = application_forum_preview_revision();
-        const auto layouts = scene.widgets.layout.revision, measures = measure.backend_calls;
+        const auto layouts = scene.widgets.layout.revision, measures = text_measure_calls(&measure);
         bool warm = true;
         for (u32 i = 0; i < 8; ++i)
             warm = application_forum_preview_request(1200 + i, 1) && warm;
         check(warm && frames == warm_frames && requests == warm_requests &&
                   application_forum_preview_revision() == warm_revision &&
-                  scene.widgets.layout.revision == layouts && measure.backend_calls == measures,
+                  scene.widgets.layout.revision == layouts && text_measure_calls(&measure) == measures,
               "preview owner: unchanged ready frames perform zero admission layout text or frame "
               "requests");
         media_atlas_reset(&atlas);

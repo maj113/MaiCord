@@ -114,7 +114,6 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
                 return false;
             }
             *shaped_height = e.shaped_height;
-            ++picker_cache->hits;
             return true;
         }
     }
@@ -161,7 +160,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     bool ansi_colors = false;
     for (u32 index = 0; index < styles.count && !ansi_colors; ++index)
         ansi_colors = ansi_span_foreground(styles[index]) != kAnsiColorNone;
-    if (!renderer->shaped_text_cache_disabled && !flag_projection.count && !cluster_effect && !picker_emoji &&
+    if (!flag_projection.count && !cluster_effect && !picker_emoji &&
         !ansi_colors &&
         semantic_count == semantics.count) {
         if (!renderer->shaped_text_cache)

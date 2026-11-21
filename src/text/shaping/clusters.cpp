@@ -56,11 +56,6 @@ SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64
     *output=result;return SfntStatus::ok;
 }
 u32 sfnt_cluster_map_start(const SfntClusterMap& map,u32 source) noexcept {return find(map,source,false);}
-SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map,u32 source,u32* first,u32* end) noexcept {
-    if(!first || !end)return SfntStatus::invalid_input;*first=*end=0;if(source>=map.text_count)return SfntStatus::invalid_input;
-    *first=find(map,source,false);if(*first==absent)return SfntStatus::invalid_input;
-    const u32 next=source+1==map.text_count?absent:find(map,source+1,true);*end=next==absent?map.text_count:next;return SfntStatus::ok;
-}
 SfntStatus sfnt_cluster_map_plan(const SfntClusterMap& map,u32 first,u32 last,SfntClusterMerge* output,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!output)return SfntStatus::invalid_input;reset_value(output);if(first>last || last>=map.text_count)return SfntStatus::invalid_input;
     SfntClusterMerge plan{first,last,0};u64 charged=0;const u32 search_cost=map.levels*2+2;

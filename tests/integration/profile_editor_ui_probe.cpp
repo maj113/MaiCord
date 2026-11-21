@@ -22,6 +22,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "../support/counted_text_measure.hpp"
 
 // The probe links the application media pump without the editor owner: the
 // editor scenes are bound to the renderer directly below.
@@ -478,7 +479,7 @@ bool profile_name_styles(D3D11Renderer& renderer, UiTextMeasureCache* measure, c
         release(&page);
         build(&page, false, false, &style);
         page.content.revision = ++revision;
-        const u32 measures = measure->backend_calls, rebuilds = renderer.content_text->rebuilds,
+        const u32 measures = text_measure_calls(measure), rebuilds = renderer.content_text->rebuilds,
                   rejected = renderer.content_text->rejected;
         // The step that failed is the stage's last digit.
         bool ok = require(opened ? profile_scene_layout(&preview, view, true)
@@ -501,7 +502,7 @@ bool profile_name_styles(D3D11Renderer& renderer, UiTextMeasureCache* measure, c
              require(probe_present(&renderer, kDefaultTheme) && !renderer.paint_stream.rejected, stage * 10 + 6) &&
              require(renderer.content_text->rejected == rejected, stage * 10 + 7) &&
              require(!name || capture(name), stage * 10 + 8);
-        peak_measures = maximum(peak_measures, measure->backend_calls - measures);
+        peak_measures = maximum(peak_measures, text_measure_calls(measure) - measures);
         peak_rebuilds = maximum(peak_rebuilds, renderer.content_text->rebuilds - rebuilds);
         return ok;
     };

@@ -26,6 +26,7 @@
 #include "maicord/render/media/video_frame_gpu.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "../../../src/platform/decode/software/software_decoder.hpp"
+#include "../../support/account_video_session_probe.hpp"
 
 namespace maicord {
 namespace {

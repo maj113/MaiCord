@@ -28,7 +28,7 @@ Fixture fixture, before, mirror;
 
 u32 failures;
 u64 random_state;
-u64 operations, rejected_batches, compactions;
+u64 operations, rejected_batches;
 
 u32 next(u32 bound) noexcept {
     random_state ^= random_state >> 12;
@@ -277,7 +277,6 @@ bool step() noexcept {
     } else if (kind < 81) {
         ready();
     } else if (kind < 82) {
-        compactions += state.compactions;
         return initialize();
     } else if (kind < 86) {
         chat_state_store_invalidate_thread_authority(&state, next(4) ? guild_id() : 0);
@@ -308,7 +307,6 @@ bool run(u64 seed) noexcept {
             return false;
         }
     }
-    compactions += fixture.state.compactions;
     return true;
 }
 
@@ -335,11 +333,9 @@ MAICORD_TEST_ENTRY(maicord_channel_list_fuzz_entry) {
     for (u32 seed = 1; passed && seed <= count; ++seed)
         passed = run(seed);
     test_check(&failures, passed, "channel list fuzz: each list matches the channel records after every step");
-    test_check(&failures, compactions != 0 && rejected_batches != 0,
-               "channel list fuzz: the sequences compact names and refuse batches");
+    test_check(&failures, rejected_batches != 0, "channel list fuzz: the sequences refuse batches");
     test_write_metric("channel list fuzz: operations ", operations);
     test_write_metric("channel list fuzz: refused batches ", rejected_batches);
-    test_write_metric("channel list fuzz: name compactions ", compactions);
     test_exit(failures, "maicord_channel_list_fuzz");
 }
 

@@ -9,6 +9,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "../support/ogg_page_fixture.hpp"
+#include "../support/account_video_session_probe.hpp"
 
 // EXCLUDE_FROM_ALL, never default CTest. The entry requires an explicit opt-in
 // and a bounded original QA movie, --opus original memory stream, or --audio

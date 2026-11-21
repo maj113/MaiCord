@@ -25,7 +25,6 @@ bool shaped_text_cache_equivalence() noexcept {
     for (u32 step = 0; step < 6 && equal; ++step) {
         // 37/64 DIP steps move every cached command to a new subpixel phase.
         const u64 position = minimum(maximum_scroll, start + step * 37u);
-        renderer.shaped_text_cache_disabled = false;
         content_text_retention_invalidate(&renderer.content_text_retention);
         if (!message_timeline_set_scroll(&timeline, position, false) || !rebuild_probe_content_text())
             return false;
@@ -35,7 +34,8 @@ bool shaped_text_cache_equivalence() noexcept {
         copy_bytes(batches, text.batches, batch_count * sizeof(GlyphDrawBatch));
         copy_bytes(semantics, text.content_semantics, semantic_count * sizeof(MessageTextSemantic));
         copy_bytes(hits, text.content_hit_regions, hit_count * sizeof(TextHitRegion));
-        renderer.shaped_text_cache_disabled = true;
+        // An empty cache: this rebuild shapes every string again.
+        shaped_text_cache_clear(renderer.shaped_text_cache);
         content_text_retention_invalidate(&renderer.content_text_retention);
         if (!rebuild_probe_content_text())
             return false;
@@ -46,7 +46,6 @@ bool shaped_text_cache_equivalence() noexcept {
                 bytes_equal(semantics, text.content_semantics, semantic_count * sizeof(MessageTextSemantic)) &&
                 bytes_equal(hits, text.content_hit_regions, hit_count * sizeof(TextHitRegion));
     }
-    renderer.shaped_text_cache_disabled = false;
     const bool reused = renderer.shaped_text_cache && renderer.shaped_text_cache->stats.hits > hits_before;
     if (!equal || !reused) {
         log_u64(LogLevel::error, "probe", "shaped_text_cache_equivalence_equal", equal ? 1 : 0);

@@ -305,7 +305,9 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
         log_u64(LogLevel::info, "probe", "poll_native_marker_pixels", marker_pixels);
         valid = require(valid && question_pixels > 3 && footer_pixels > 3 && (compact || show_pixels > 3) &&
                             marker_pixels > 3 && renderer.paint_stream.count < 512 &&
-                            f.messages.widgets.count == kMessageScenePlainRowWidgets + 2,
+                            // A plain row has seven widgets: row, avatar, body, reply, author, content and the notice
+                            // group. The poll adds two.
+                            f.messages.widgets.count == 7 + 2,
                         10);
         if (compact) {
             // Ended: the winner's outline and fill, no actions.
@@ -339,7 +341,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
         voters.has_next = true;
         valid = valid && require(ui_poll_voters_scene_project(&f.inspector, voters, {0, 0, width, height},
                                                               {&f.inspector_owner, f.inspector_root},
-                                                              kDefaultUiPollVotersStyle, theme,
+                                                              UiPollVotersStyle{}, theme,
                                                               renderer.message_measure_cache, 1),
                                  12);
         valid = valid && require(renderer_bind_poll_voters_scene(&renderer, &f.inspector) &&

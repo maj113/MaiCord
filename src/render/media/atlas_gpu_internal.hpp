@@ -147,9 +147,6 @@ static_assert(sizeof(JpegAtlasConstants) == 560);
 
 MediaAtlasGpuResult failure(MediaAtlasGpuError error, GpuStatus native_error = kGpuOk,
                             MediaAtlasResult allocation = {}) noexcept;
-// A failure that also counts as a rejected request (gpu may be null).
-MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, GpuStatus native_error = kGpuOk,
-                           MediaAtlasResult allocation = {}) noexcept;
 
 bool dimensions_valid(u16 width, u16 height) noexcept;
 
@@ -309,7 +306,7 @@ void clear_animation_region(MediaAtlasGpu* gpu, GpuContext1* context,
                             const MediaAtlasResult& allocation, u32 x_offset, u32 y_offset,
                             u32 width, u32 height, const float* color) noexcept;
 
-void account_apng_dispatch(MediaAtlasGpu* gpu, const ApngFrame& frame, const PngImage& image) noexcept;
+void account_apng_dispatch(MediaAtlasGpu* gpu, const PngImage& image) noexcept;
 
 void account_gif_dispatch(MediaAtlasGpu* gpu, const GifFrame& frame) noexcept;
 
@@ -322,8 +319,7 @@ void clear_animated_webp_region(MediaAtlasGpu* gpu, GpuContext1* context,
                                 const MediaAtlasResult& allocation, const AnimatedWebpFrame& frame,
                                 u32 background_rgba) noexcept;
 
-void account_animated_webp_dispatch(MediaAtlasGpu* gpu, const AnimatedWebpFrame& frame,
-                                    u64 uploaded_bytes) noexcept;
+void account_animated_webp_dispatch(MediaAtlasGpu* gpu, u64 uploaded_bytes) noexcept;
 
 bool vp8_atlas_frame_ready(const MediaAtlasGpu* gpu, const Vp8Keyframe& frame,
                            ConstSlice<u8> alpha) noexcept;

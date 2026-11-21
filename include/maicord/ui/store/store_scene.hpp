@@ -259,7 +259,6 @@ bool ui_store_scene_scroll_range(const UiStoreScene&, bool dialog, UiRect* viewp
 enum class UiStoreKey : u8 { left, right, up, down, home, end, page_up, page_down, first, last, enter, space, menu, tab, back_tab };
 // Keyboard: returns whether the key was used; *event reports an activation.
 bool ui_store_scene_key(UiStoreScene*, UiStoreKey, UiStoreEvent*) noexcept;
-bool ui_store_scene_focus(UiStoreScene*, u32 action, bool visible) noexcept;
 u32 ui_store_scene_focused(const UiStoreScene&) noexcept;
 bool ui_store_scene_slider(UiStoreScene*, u32 action, float x, UiStoreEvent*) noexcept;
 bool ui_store_scene_rect(const UiStoreScene&, u32 action, UiRect*) noexcept;

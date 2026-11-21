@@ -22,26 +22,16 @@ u64 content_text_theme_signature(const Theme& theme) noexcept {
 
 bool content_text_retention_probe(ContentTextRetentionOwner* owner,
                                   const ContentTextRetentionKey& key) noexcept {
-    if (content_text_retention_base_current(*owner, key) &&
-        owner->key.popup_signature == key.popup_signature) {
-        saturating_increment(owner->hits);
-        return true;
-    }
-    saturating_increment(owner->misses);
-    return false;
+    return content_text_retention_base_current(*owner, key) && owner->key.popup_signature == key.popup_signature;
 }
 
 void content_text_retention_commit(ContentTextRetentionOwner* owner,
                                    const ContentTextRetentionKey& key) noexcept {
     owner->key = key;
     owner->valid = true;
-    saturating_increment(owner->builds);
 }
 
 void content_text_retention_invalidate(ContentTextRetentionOwner* owner) noexcept {
-    if (owner->valid) {
-        saturating_increment(owner->invalidations);
-    }
     reset_value<ContentTextRetentionKey>(&owner->key);
     owner->valid = false;
     ++owner->generation;

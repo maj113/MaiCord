@@ -20,6 +20,9 @@
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "../support/ui_scene_fixtures.hpp"
+#include "../support/glyph_atlas_pins.hpp"
+#include "../support/counted_text_measure.hpp"
+#include "../support/content_text_builds.hpp"
 
 namespace maicord {
 namespace ui_probe_detail {
@@ -979,7 +982,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
     const u32 prefix_quads = renderer.content_text_prefix.quads;
     const u64 prefix_hash =
         bytes_hash(1469598103934665603ull, g_probe.text.quads, prefix_quads * sizeof(GlyphQuad));
-    const u32 measurements = g_probe.text_measure_cache.backend_calls;
+    const u32 measurements = text_measure_calls(&g_probe.text_measure_cache);
     const u32 preparations = g_probe.message_scene.preparation_passes;
     const u32 layouts = g_probe.message_scene.layout_passes;
     const auto row_rectangle = message_scene_layout_node(g_probe.message_scene, row.widget)->rectangle;
@@ -998,7 +1001,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
         return renderer.content_text_prefix.quads == prefix_quads &&
                bytes_hash(1469598103934665603ull, g_probe.text.quads, prefix_quads * sizeof(GlyphQuad)) ==
                    prefix_hash &&
-               g_probe.text_measure_cache.backend_calls == measurements &&
+               text_measure_calls(&g_probe.text_measure_cache) == measurements &&
                g_probe.message_scene.preparation_passes == preparations &&
                g_probe.message_scene.layout_passes == layouts &&
                ui_rect_equal(message_scene_layout_node(g_probe.message_scene, row.widget)->rectangle,
@@ -1645,10 +1648,13 @@ bool probe_friends_scene() noexcept {
     if (!synchronize_probe_shell_layout() || g_probe.shell_scene.view != UiShellView::friends)
         return false;
     const auto pixels = [](const UiFriendsScene& scene, bool rows, bool last) noexcept {
-        UiTextCommand commands[kUiFriendsMaximumTextCommands]{};
+        // Two row labels and at most three inline actions for each row, plus headings, tabs, search, the Add Friend
+        // intro, the empty state and the Pending badge.
+        constexpr u32 kTextCommands = 20 + 5 * kUiFriendsMaximumVisibleRows;
+        UiTextCommand commands[kTextCommands]{};
         UiTextCommandStream text{};
         UiTextOutput text_output{&text, nullptr};
-        if (!ui_text_command_stream_initialize(&text, {commands, kUiFriendsMaximumTextCommands}) ||
+        if (!ui_text_command_stream_initialize(&text, {commands, kTextCommands}) ||
             !ui_friends_scene_text_output(scene, kDefaultTheme, &text_output, nullptr))
             return false;
         const Utf8View labels[]{utf8_literal("Friends"), utf8_literal("Pending"),
@@ -1769,12 +1775,12 @@ bool probe_friends_scene() noexcept {
         return false;
     const auto generation = friends.widgets.generation;
     const auto source_calls = fixture.calls;
-    const auto text_builds = g_probe.renderer.content_text_retention.builds;
+    const auto text_builds = content_text_builds(g_probe.renderer);
     const auto paints = g_probe.renderer.paint_stream_builds;
     if (!ui_friends_scene_update(&friends, &source, fixture.tab, UiFriendsPhase::ready, {}, center()) ||
         fixture.calls != source_calls || friends.widgets.generation != generation ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
-        g_probe.renderer.content_text_retention.builds != text_builds ||
+        content_text_builds(g_probe.renderer) != text_builds ||
         !probe_present(&g_probe.renderer, kDefaultTheme) || g_probe.renderer.paint_stream_builds != paints)
         return false;
     // Message/composer state is genuinely hidden; sidebar media stays live.
@@ -1790,7 +1796,7 @@ bool probe_friends_scene() noexcept {
             renderer_presentation_stamp_equal(
                 before, renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme)) &&
             renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
-            g_probe.renderer.content_text_retention.builds == text_builds &&
+            content_text_builds(g_probe.renderer) == text_builds &&
             probe_present(&g_probe.renderer, kDefaultTheme) &&
             g_probe.renderer.paint_stream_builds == paints;
         g_probe.message_scene.data_updates = old_updates;
@@ -1854,7 +1860,7 @@ bool probe_friends_scene() noexcept {
         if (!renderer_presentation_stamp_equal(
                 before, renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme)) ||
             !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
-            g_probe.renderer.content_text_retention.builds != text_builds)
+            content_text_builds(g_probe.renderer) != text_builds)
             return false;
         g_probe.renderer.retained_presentation.valid = false;
         if (!probe_present(&g_probe.renderer, kDefaultTheme) ||
@@ -1942,7 +1948,7 @@ bool probe_friends_scene() noexcept {
         g_probe.text.message_geometry_quads)
         return false;
     const auto settings_stamp = renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme);
-    const auto settings_text = g_probe.renderer.content_text_retention.builds,
+    const auto settings_text = content_text_builds(g_probe.renderer),
                settings_paint = g_probe.renderer.paint_stream_builds;
     const auto old_friends_revision = friends.revision, old_source_revision = source.revision;
     ++friends.revision;
@@ -1951,7 +1957,7 @@ bool probe_friends_scene() noexcept {
         renderer_presentation_stamp_equal(
             settings_stamp, renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme)) &&
         renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
-        g_probe.renderer.content_text_retention.builds == settings_text &&
+        content_text_builds(g_probe.renderer) == settings_text &&
         probe_present(&g_probe.renderer, kDefaultTheme) &&
         g_probe.renderer.paint_stream_builds == settings_paint;
     friends.revision = old_friends_revision;
@@ -2386,10 +2392,10 @@ bool probe_friends_requests_scene() noexcept {
         !probe_capture_frame(L"friends-requests-modal.bmp"))
         return false;
     const u32 calls = hidden_fixture.calls, main_calls = main_fixture.calls,
-              builds = renderer.content_text_retention.builds, paints = renderer.paint_stream_builds;
+              builds = content_text_builds(renderer), paints = renderer.paint_stream_builds;
     g_probe.failure_stage = 282;
     if (!paint() || hidden_fixture.calls != calls || main_fixture.calls != main_calls ||
-        renderer.content_text_retention.builds != builds || renderer.paint_stream_builds != paints)
+        content_text_builds(renderer) != builds || renderer.paint_stream_builds != paints)
         return false;
     const auto stamp = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
     g_probe.renderer.focus_owner = &main.widgets;
@@ -3268,12 +3274,12 @@ bool probe_settings_scene() noexcept {
         g_probe.renderer.media_quad_count || g_probe.text.message_geometry_quads ||
         !probe_capture_frame(L"settings-dark.bmp"))
         return false;
-    const u32 text_builds = g_probe.renderer.content_text_retention.builds;
+    const u32 text_builds = content_text_builds(g_probe.renderer);
     const u32 widget_generation = scene.widgets.generation;
     if (!ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, appearance_key, 2}) ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         scene.widgets.generation != widget_generation ||
-        g_probe.renderer.content_text_retention.builds != text_builds ||
+        content_text_builds(g_probe.renderer) != text_builds ||
         !probe_present(&g_probe.renderer, kDefaultTheme))
         return false;
     UiSettingsActivation activation{};
@@ -3293,7 +3299,7 @@ bool probe_settings_scene() noexcept {
         const UiPoint point{(anchor.left + anchor.right) * .5f, (anchor.top + anchor.bottom) * .5f};
         const u32 revision = scene.revision, generation = scene.widgets.generation;
         const auto layout = scene.widgets.layout.revision;
-        const u32 text_rebuilds = g_probe.renderer.content_text_retention.builds;
+        const u32 text_rebuilds = content_text_builds(g_probe.renderer);
         if (!ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, point).changed ||
             !probe_present(&g_probe.renderer, kDefaultTheme) ||
             g_probe.renderer.paint_stream_builds != paints + 1 ||
@@ -3308,7 +3314,7 @@ bool probe_settings_scene() noexcept {
             !probe_present(&g_probe.renderer, kDefaultTheme) ||
             g_probe.renderer.paint_stream_builds != paints + 3 || scene.revision != revision ||
             scene.widgets.generation != generation || scene.widgets.layout.revision != layout ||
-            g_probe.renderer.content_text_retention.builds != text_rebuilds)
+            content_text_builds(g_probe.renderer) != text_rebuilds)
             return false;
         ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {});
         if (!probe_present(&g_probe.renderer, kDefaultTheme))
@@ -3435,7 +3441,7 @@ bool probe_settings_scene() noexcept {
         hidden_bar.owner = {&hidden_popup.widgets, {0, hidden_popup.widgets.generation}};
         hidden_bar.message_id = 1;
         hidden_bar.active = true;
-        hidden_bar.item_count = kMessageActionBarItemCount;
+        hidden_bar.item_count = 6; // the collapsed bar: three quick reactions, Add reaction, Reply and More
         hidden_bar.rectangle = hidden_bar.clip = {20, 20, 220, 52};
         for (u32 i = 0; i < kMessageActionBarQuickReactionCount; ++i)
             hidden_bar.items[i] = {{20.f + i * 28, 20, 48.f + i * 28, 48},
@@ -3449,7 +3455,7 @@ bool probe_settings_scene() noexcept {
         const auto popup_layout = g_probe.renderer.popup_edit_layout;
         const auto profile_layout = g_probe.renderer.profile_edit_layout;
         const auto edit_selection = g_probe.renderer.edit_selection_owner;
-        const u32 retained_builds = g_probe.renderer.content_text_retention.builds;
+        const u32 retained_builds = content_text_builds(g_probe.renderer);
         const u32 text_rebuilds = g_probe.text.rebuilds, quads = g_probe.text.quad_count,
                   batches = g_probe.text.batch_count;
         const u32 stale_suppressions = g_probe.renderer.stale_interaction_text_suppressions;
@@ -3472,7 +3478,7 @@ bool probe_settings_scene() noexcept {
         if (!renderer_presentation_stamp_equal(
                 settings_stamp, renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme)) ||
             !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
-            g_probe.renderer.content_text_retention.builds != retained_builds ||
+            content_text_builds(g_probe.renderer) != retained_builds ||
             g_probe.text.rebuilds != text_rebuilds || g_probe.text.quad_count != quads ||
             g_probe.text.batch_count != batches ||
             g_probe.renderer.interaction_text_active_mask != (1u << 6) || hidden_surface.layout.active ||
@@ -3499,22 +3505,22 @@ bool probe_settings_scene() noexcept {
     }
     // Theme-only changes still invalidate the visible Settings text and paint.
     const Theme amoled_theme = ui_theme_amoled();
-    const u32 theme_text_builds = g_probe.renderer.content_text_retention.builds;
+    const u32 theme_text_builds = content_text_builds(g_probe.renderer);
     const u32 theme_paints = g_probe.renderer.paint_stream_builds;
     if (!renderer_rebuild_content_text(&g_probe.renderer, amoled_theme) ||
-        g_probe.renderer.content_text_retention.builds <= theme_text_builds ||
+        content_text_builds(g_probe.renderer) <= theme_text_builds ||
         !probe_present(&g_probe.renderer, amoled_theme) ||
         g_probe.renderer.paint_stream_builds <= theme_paints ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         !probe_present(&g_probe.renderer, kDefaultTheme))
         return false;
-    const u32 scene_text_builds = g_probe.renderer.content_text_retention.builds;
+    const u32 scene_text_builds = content_text_builds(g_probe.renderer);
     const u32 scene_paints = g_probe.renderer.paint_stream_builds;
     appearance_controls[0].selected_choice = 1;
     ++appearance.revision;
     if (!ui_settings_scene_update(&scene, &registry, viewport()) ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
-        g_probe.renderer.content_text_retention.builds <= scene_text_builds ||
+        content_text_builds(g_probe.renderer) <= scene_text_builds ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds <= scene_paints ||
         !renderer_rebuild_content_text(&g_probe.renderer, amoled_theme) ||
@@ -3543,7 +3549,7 @@ bool probe_settings_scene() noexcept {
         return false;
     g_probe.failure_stage = 248;
     const auto resize_stamp = renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme);
-    const u32 resize_text_builds = g_probe.renderer.content_text_retention.builds;
+    const u32 resize_text_builds = content_text_builds(g_probe.renderer);
     const u32 resize_paints = g_probe.renderer.paint_stream_builds;
     const u32 narrow_width = static_cast<u32>(480.0f * g_probe.renderer.dpi / 96.0f);
     const u32 narrow_height = static_cast<u32>(360.0f * g_probe.renderer.dpi / 96.0f);
@@ -3551,7 +3557,7 @@ bool probe_settings_scene() noexcept {
         !ui_settings_scene_update(&scene, &registry, viewport()) ||
         !ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, plugin_key, 70}) ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
-        g_probe.renderer.content_text_retention.builds <= resize_text_builds ||
+        content_text_builds(g_probe.renderer) <= resize_text_builds ||
         renderer_presentation_stamp_equal(
             resize_stamp, renderer_capture_presentation_stamp(g_probe.renderer, kDefaultTheme)) ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||

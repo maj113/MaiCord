@@ -298,8 +298,7 @@ int run_movie(ID3D11Device* device, ID3D11DeviceContext1* context, const Movie& 
     }
     if (!status && frames != movie.samples)
         status = 68;
-    if (!status &&
-        (converter.frames != frames || converter.converted_pixels != u64{width} * height * frames))
+    if (!status && converter.frames != frames)
         status = 72;
     video_frame_gpu_release(&converter);
     release_target(&target);

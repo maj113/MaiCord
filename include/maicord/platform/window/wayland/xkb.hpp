@@ -17,8 +17,6 @@ struct XkbComposeState;
 
 // xkb_keymap_format, xkb_state_component, xkb_log_level and the compose enums.
 inline constexpr int kXkbKeymapFormatTextV1 = 1;
-inline constexpr int kXkbKeyUp = 0;
-inline constexpr int kXkbKeyDown = 1;
 inline constexpr int kXkbStateDepressed = 1 << 0;  // xkb_state_component, for modifiers and layouts alike
 inline constexpr int kXkbStateLatched = 1 << 1;
 inline constexpr int kXkbStateModsLocked = 1 << 2;
@@ -33,14 +31,6 @@ inline constexpr int kXkbComposeFeedAccepted = 1;
 
 // An evdev keycode plus this is the xkb keycode of the same key.
 inline constexpr u32 kEvdevToXkb = 8;
-
-struct XkbRuleNames {
-    const char* rules;
-    const char* model;
-    const char* layout;
-    const char* variant;
-    const char* options;
-};
 
 struct XkbApi {
     XkbContext* (*context_new)(int flags) noexcept;

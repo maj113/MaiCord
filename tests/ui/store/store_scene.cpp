@@ -116,8 +116,7 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
               event.kind == UiStoreEventKind::activate && event.action == kCardAction,
           "store scene: press and release on a card activates it");
     check(!ui_store_scene_release_pointer(&g_scene, 0, 0, &event), "store scene: a release without a press does nothing");
-    // Keyboard.
-    ui_store_scene_focus(&g_scene, kCardAction, true);
+    // Keyboard, from the card the press focused.
     check(ui_store_scene_key(&g_scene, UiStoreKey::right, &event) && ui_store_scene_focused(g_scene) == kCardAction + 1,
           "store scene: Right moves to the next card of the group");
     check(ui_store_scene_key(&g_scene, UiStoreKey::down, &event) && ui_store_scene_focused(g_scene) == kCardAction + 4,
@@ -129,12 +128,13 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_store_scene_key(&g_scene, UiStoreKey::enter, &event) && event.kind == UiStoreEventKind::activate &&
               event.action == kCardAction + 6,
           "store scene: Enter activates the focused card");
-    check(ui_store_scene_focus(&g_scene, kSlider, true) && ui_store_scene_key(&g_scene, UiStoreKey::right, &event) &&
+    check(ui_store_scene_key(&g_scene, UiStoreKey::tab, &event) && ui_store_scene_focused(g_scene) == kSlider &&
+              ui_store_scene_key(&g_scene, UiStoreKey::right, &event) &&
               event.kind == UiStoreEventKind::value && event.value == 6 && ui_store_scene_key(&g_scene, UiStoreKey::end, &event) &&
               event.value == 10,
           "store scene: a slider steps with the arrows and jumps with End");
     // Tab walks every stop in order, then leaves the page.
-    ui_store_scene_focus(&g_scene, 0, false);
+    g_scene.focus_action = 0;
     u32 stops = 0;
     while (ui_store_scene_key(&g_scene, UiStoreKey::tab, &event) && stops < 100)
         ++stops;
@@ -223,7 +223,78 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         const bool below = ui_store_scene_commit(&g_scene, {0, 0, 900, 300}, {40, 30, 832, 300}, {0, 0, 900, 300}) &&
                            !ui_store_scene_live_visible(g_scene);
         check(shown && !under_dialog && below, "store scene: a live tile animates only while it is on screen");
+        // A preview's own radius (aux): a 32 DIP avatar past half its side is a disc, a game icon keeps its 6.
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder round(&g_scene);
+        static constexpr u16 kRadii[]{999, 6};
+        for (const u16 radius : kRadii) {
+            auto& picture = round.open(UiStoreKind::preview);
+            picture.variant = static_cast<u8>(UiStoreAspect::fixed);
+            picture.rw = picture.rh = 32;
+            picture.aux = radius;
+            picture.value = radius;
+            round.close();
+        }
+        round.close();
+        UiStoreMedia disc{}, icon{};
+        u32 at = 0;
+        const bool rounded = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700}) &&
+                             ui_store_scene_next_media(g_scene, &at, &disc) &&
+                             ui_store_scene_next_media(g_scene, &at, &icon);
+        check(rounded && disc.mask_radius == 16 && icon.mask_radius == 6 && ui_rect_width(disc.rect) == 32,
+              "store scene: a preview's own radius rounds its picture, a disc at most");
         g_scene.media_key = nullptr;
+    }
+    {
+        // A card's corner badge overhangs its top end corner and takes no room; a row's revealed button is hit only
+        // once its row is hovered (Channels & Roles' answer tile and Browse Channels' View).
+        constexpr u32 kTile = 0x5000, kRow = 0x5001, kView = 0x5002;
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder page(&g_scene);
+        auto& tile = page.open(UiStoreKind::card);
+        tile.variant = static_cast<u8>(UiStoreCard::answer);
+        tile.action = kTile;
+        tile.pad_x = tile.pad_y = 16;
+        page.text("Answer");
+        auto& badge = page.leaf(UiStoreKind::swatch);
+        badge.rw = badge.rh = 20;
+        badge.variant = 2;
+        badge.anchor = static_cast<u8>(UiStoreAnchor::top_right);
+        badge.pad_x = badge.pad_y = 10;
+        page.close();
+        auto& line = page.open(UiStoreKind::card);
+        line.variant = static_cast<u8>(UiStoreCard::row);
+        line.action = kRow;
+        page.open(UiStoreKind::row);
+        page.text("general").flags = ui_store_flex;
+        auto& view = page.button("View", UiStoreButton::secondary, kView);
+        view.aux = kRow;
+        page.close();
+        page.close();
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        g_scene.active = true;
+        const UiStoreNode* card = nullptr;
+        const UiStoreNode* disc = nullptr;
+        for (u32 i = 0; i < g_scene.count; ++i) {
+            const auto& n = g_scene.nodes[i];
+            if (n.kind == UiStoreKind::card && n.action == kTile)
+                card = &n;
+            if (n.kind == UiStoreKind::swatch)
+                disc = &n;
+        }
+        check(laid && card && disc && card->h == 52 && disc->x + disc->w == card->x + card->w + 10 &&
+                  disc->y == card->y - 10,
+              "store scene: a card's corner badge overhangs its top end corner and takes no room");
+        UiRect button{};
+        const bool found = ui_store_scene_rect(g_scene, kView, &button);
+        const float x = (button.left + button.right) * .5f, y = (button.top + button.bottom) * .5f;
+        ui_store_scene_hover(&g_scene, x, y);
+        const u32 first = g_scene.hover_action;
+        ui_store_scene_hover(&g_scene, x, y);
+        const u32 second = g_scene.hover_action;
+        check(found && first == kRow && second == kView,
+              "store scene: a revealed button is hit only once its row is hovered");
+        ui_store_scene_hover(&g_scene, -1, -1);
     }
     {
         // A search field with text tints its clear button while the pointer is over the button, not elsewhere in the field.
@@ -368,8 +439,9 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         Color off_track{}, on_track{}, mid_track{};
         UiRect off_thumb{}, on_thumb{}, mid_thumb{}, start_thumb{};
         g_scene.active = true;
+        g_scene.focus_action = 0;
         check(build_toggle(0) && look(&off_track, &off_thumb) && !ui_store_scene_animating(g_scene) &&
-                  ui_store_scene_focus(&g_scene, kToggle, true) &&
+                  ui_store_scene_key(&g_scene, UiStoreKey::tab, &event) && ui_store_scene_focused(g_scene) == kToggle &&
                   ui_store_scene_key(&g_scene, UiStoreKey::space, &event) && event.kind == UiStoreEventKind::activate &&
                   event.action == kToggle && ui_store_scene_animating(g_scene) && build_toggle(1) &&
                   ui_store_scene_tick(&g_scene, 3000, false, 300) && look(&mid_track, &start_thumb) &&
@@ -507,6 +579,187 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
                   shows_track(),
               "store scene: each layout decides again: long labels take the dropdown where short ones fit, and the "
               "track comes back when the width allows");
+    }
+    {
+        // A pane: a list 120 DIPs high whose ten rows of 40 scroll inside it, clipped to it; the page goes on below.
+        constexpr u32 kRow = 0x60000, kAfter = 0x60100;
+        static constexpr const char* kNames[]{"Row 0", "Row 1", "Row 2", "Row 3", "Row 4",
+                                              "Row 5", "Row 6", "Row 7", "Row 8", "Row 9"};
+        const auto pane = [&]() noexcept {
+            ui_store_scene_begin(&g_scene);
+            UiStoreBuilder page(&g_scene);
+            auto& list = page.open(UiStoreKind::column);
+            list.flags = ui_store_pane;
+            list.rh = 120;
+            for (u32 i = 0; i < 10; ++i) {
+                auto& row = page.open(UiStoreKind::row);
+                row.action = kRow + i;
+                row.text2 = Utf8View{kNames[i], 5};
+                page.spacer(0, 40);
+                page.close();
+            }
+            page.close();
+            page.button(utf8_literal("After"), UiStoreButton::secondary, kAfter);
+            page.close();
+            return ui_store_scene_commit(&g_scene, {0, 0, 900, 600}, {40, 30, 832, 600}, {0, 0, 900, 600});
+        };
+        g_scene.active = true;
+        UiRect view{}, after{};
+        float offset = -1, most = -1;
+        const bool laid = pane() && ui_store_scene_pane_range(g_scene, &view, &offset, &most);
+        check(laid && view.bottom - view.top == 120 && offset == 0 && most == 280 &&
+                  ui_store_scene_rect(g_scene, kAfter, &after) && after.top >= view.bottom,
+              "store scene: a pane keeps its own height and what follows it starts below it");
+        const float x = 100;
+        check(ui_store_scene_action_at(g_scene, x, view.top + 5) == kRow &&
+                  ui_store_scene_action_at(g_scene, x, view.top + 85) == kRow + 2 &&
+                  ui_store_scene_action_at(g_scene, (after.left + after.right) * .5f, after.top + 5) == kAfter,
+              "store scene: the hand finds the pane's rows inside it and the page's buttons below it");
+        Utf8View tip{};
+        UiRect anchor{};
+        u32 index = 0;
+        check(ui_store_scene_pane_scroll_to(&g_scene, 80) && ui_store_scene_pane_range(g_scene, &view, &offset, &most) &&
+                  offset == 80 && ui_store_scene_action_at(g_scene, x, view.top + 5) == kRow + 2 &&
+                  ui_store_scene_tooltip_at(g_scene, x, view.top + 5, &tip, &anchor, &index) &&
+                  utf8_equal(tip, utf8_literal("Row 2")) && anchor.top >= view.top &&
+                  !ui_store_scene_tooltip_at(g_scene, x, view.bottom + 2, &tip, &anchor, &index),
+              "store scene: the pane scrolls its rows; hits and tooltips follow them and stop at its edge");
+        check(ui_store_scene_pane_scroll_to(&g_scene, 10000) && ui_store_scene_pane_range(g_scene, &view, &offset, &most) &&
+                  offset == 280 && pane() && ui_store_scene_pane_range(g_scene, &view, &offset, &most) && offset == 280 &&
+                  !ui_store_scene_pane_scroll_to(&g_scene, 400),
+              "store scene: the pane stops at its end and keeps its offset when the page is built again");
+        ui_store_scene_pane_scroll_to(&g_scene, 0);
+        g_scene.focus_action = 0;
+        check(ui_store_scene_key(&g_scene, UiStoreKey::back_tab, nullptr) &&
+                  ui_store_scene_key(&g_scene, UiStoreKey::back_tab, nullptr) &&
+                  ui_store_scene_focused(g_scene) == kRow + 9 &&
+                  ui_store_scene_pane_range(g_scene, &view, &offset, &most) && offset == 280,
+              "store scene: Shift+Tab to a row out of the pane's view scrolls the pane to it");
+    }
+    {
+        // A card narrower than its content (Channels & Roles' question card and the Server Hub's banner): the wrapped
+        // title gives up the row's room and grows in lines, the required mark keeps its width, a long chip ellipsizes
+        // in its pill, a flow's long text wraps on its own line and a banner's caption stays inside the banner.
+        const auto card = [&](float width) noexcept {
+            ui_store_scene_begin(&g_scene);
+            UiStoreBuilder page(&g_scene);
+            auto& plate = page.open(UiStoreKind::card);
+            plate.pad_x = plate.pad_y = plate.gap = 16;
+            page.open(UiStoreKind::row).gap = 4;
+            page.text(utf8_literal("What do you want to do in this community?"), UiStoreType::body_bold,
+                      UiStoreInk::strong, ui_store_wrap);
+            page.text(utf8_literal("*"), UiStoreType::body_bold, UiStoreInk::critical);
+            page.close();
+            page.open(UiStoreKind::row).gap = 8;
+            page.chip(utf8_literal("A chip label much wider than the card it sits in"), UiStoreTone::neutral);
+            page.close();
+            page.open(UiStoreKind::flow).gap = 4;
+            page.text(utf8_literal("Tip:"), UiStoreType::body_bold, UiStoreInk::normal);
+            page.text(utf8_literal("Channels with mentions will always appear on your channel list, even if you hide them."),
+                      UiStoreType::body, UiStoreInk::normal, ui_store_wrap);
+            page.close();
+            auto& banner = page.open(UiStoreKind::preview);
+            banner.variant = static_cast<u8>(UiStoreAspect::fixed);
+            banner.rh = 120;
+            banner.pad_x = banner.pad_y = 16;
+            auto& caption = page.open(UiStoreKind::row);
+            caption.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
+            caption.gap = 12;
+            page.leaf(UiStoreKind::swatch).rw = 32;
+            page.text(utf8_literal("A server name much longer than its banner is wide"), UiStoreType::heading,
+                      UiStoreInk::strong);
+            page.close();
+            page.close();
+            page.close();
+            page.close();
+            return ui_store_scene_commit(&g_scene, {0, 0, 900, 600}, {40, 30, 40 + width, 600}, {0, 0, 900, 600});
+        };
+        const auto node = [&](Utf8View text) noexcept -> const UiStoreNode& {
+            u32 i = 0;
+            while (i + 1 < g_scene.count && !utf8_equal(g_scene.nodes[i].text, text))
+                ++i;
+            return g_scene.nodes[i];
+        };
+        // Every text and chip lies inside the card's padding, and every child of the banner inside its insets.
+        const auto inside = [&]() noexcept {
+            const UiStoreNode* plate = nullptr;
+            const UiStoreNode* banner = nullptr;
+            bool in = true;
+            for (u32 i = 0; i < g_scene.count; ++i) {
+                const auto& n = g_scene.nodes[i];
+                if (n.kind == UiStoreKind::card)
+                    plate = &n;
+                if (n.kind == UiStoreKind::preview)
+                    banner = &n;
+                if (!plate || (n.kind != UiStoreKind::text && n.kind != UiStoreKind::chip && n.kind != UiStoreKind::swatch))
+                    continue;
+                const float left = banner ? banner->x + banner->pad_x : plate->x + plate->pad_x;
+                const float right = banner ? banner->x + banner->w - banner->pad_x : plate->x + plate->w - plate->pad_x;
+                in = in && n.w > 0 && n.x >= left - .01f && n.x + n.w <= right + .01f && n.y >= plate->y + plate->pad_y &&
+                     n.y + n.h <= plate->y + plate->h - plate->pad_y + .01f;
+            }
+            return in;
+        };
+        const Utf8View title = utf8_literal("What do you want to do in this community?");
+        const Utf8View chip = utf8_literal("A chip label much wider than the card it sits in");
+        const bool wide = card(800);
+        const float title_width = node(title).w, chip_width = node(chip).w;
+        check(wide && inside() && node(title).h == 20 && node(utf8_literal("*")).x == node(title).x + title_width + 4,
+              "store scene: a wide card keeps the title on one line with the required mark beside it");
+        const bool narrow = card(256);
+        const auto& mark = node(utf8_literal("*"));
+        check(narrow && inside() && node(title).h >= 40 && node(title).w < title_width && mark.w > 4 &&
+                  node(chip).w < chip_width && node(chip).w <= 256 - 32,
+              "store scene: a narrow card wraps its title, keeps the mark and ellipsizes a long chip, all inside the card");
+    }
+    {
+        // The Server Hub banner (a red glow without a picture) under its scrim: the glow in the plates' layer, then in
+        // the top layer (drawn after the pictures) a shade from 13.5% of the height and a foot from its middle, from
+        // transparent to near black at its bottom. The foot is the dark theme's background, and the light theme keeps
+        // it, as the official client does.
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder page(&g_scene);
+        auto& banner = page.open(UiStoreKind::preview);
+        banner.variant = static_cast<u8>(UiStoreAspect::fixed);
+        banner.rh = 240;
+        banner.ink = static_cast<u8>(UiStoreInk::custom);
+        banner.group = 0xE81E1E;
+        banner.fill = static_cast<u8>(UiStoreFill::scrim);
+        page.close();
+        page.close();
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 600}, {40, 30, 840, 600}, {0, 0, 900, 600});
+        const auto& node = g_scene.nodes[1];
+        const float top = node.y + g_scene.column.top, bottom = top + 240;
+        const auto scrim = [&](const Theme& theme) noexcept {
+            PaintStream paint{};
+            bool ok = laid && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
+                      ui_store_scene_paint(g_scene, theme, &paint, 0);
+            const u32 plates = paint.count;
+            ok = ok && ui_store_scene_paint(g_scene, theme, &paint, 1);
+            u32 glow = paint.count, shades = 0;
+            bool dark = false;
+            for (u32 i = 0; ok && i < paint.count; ++i) {
+                const auto& q = paint.quads[i];
+                if (q.border_width == kPaintBannerGlowMode)
+                    glow = i;
+                if (q.border_width != -2 || i < glow || i < plates || q.bottom != bottom)
+                    continue;
+                ++shades;
+                const bool middle = q.top > top + 119.9f && q.top < top + 120.1f;
+                const auto near = [](float a, float b) noexcept { return a - b < .06f && b - a < .06f; };
+                const Color& base = kDefaultTheme.base_lowest;
+                dark = dark || (middle && q.fill.alpha == 0 && q.border.alpha == 1 && near(q.border.red, base.red) &&
+                                near(q.border.green, base.green) && near(q.border.blue, base.blue));
+            }
+            bool none_below = true;
+            for (u32 i = 0; i < plates; ++i)
+                none_below = none_below && paint.quads[i].border_width != -2;
+            const bool found = ok && glow < plates && none_below && shades == 2 && dark;
+            paint_stream_release(&paint);
+            return found;
+        };
+        check(scrim(kDefaultTheme) && scrim(kLightTheme),
+              "store scene: the hub banner darkens toward near black at its bottom over its glow, in both themes");
     }
     ui_store_scene_release(&g_scene);
 }

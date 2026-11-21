@@ -189,9 +189,8 @@ bool ordinary_cases(Harness& h) noexcept {
     same.content = lane.command.local_content; same.snapshot = lane.command.local_snapshot;
     same.key = token.key; same.owner_scope = token.owner_scope; same.owner_generation = token.owner_generation;
     same.video_device = lane.command.video_device;
-    const LONG64 queued = h.worker->counters.queued;
     CHECK(account_media_worker_request_local_preview(h.worker, same, 1, 1).state == AccountMediaRequestState::pending);
-    CHECK(h.worker->counters.queued == queued && lane.command.lease_serial == token.lease_serial);
+    CHECK(lane.command.lease_serial == token.lease_serial);
     // A hidden/skipped Present invokes no presented API and arms no event.
     CHECK(phase(lane) == AccountMediaWorkerPhase::poster_present_pending && h.fake.registrations == 0 && h.fake.signals == 0);
     CHECK(cancel(h, token) && idle(h, 0, sparse) && no_refs(h));

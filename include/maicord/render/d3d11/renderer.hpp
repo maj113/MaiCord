@@ -557,6 +557,9 @@ struct D3D11Renderer {
     // Link chip server icons: the timeline's last media batches, drawn after
     // the message text.
     u32 chip_media_first_batch, chip_media_end_batch;
+    // A content page's foreground pictures (the Server Hub's server icon): drawn after the media overlay paint,
+    // which holds the page's top paint layer (the hub banner's scrim over the banner's picture). Empty without a page.
+    u32 content_page_foreground_media_first_batch, content_page_foreground_media_end_batch;
     u32 friends_requests_text_end_batch;
     u32 media_picker_paint_first_batch, media_picker_paint_end_batch;
     u32 media_picker_foreground_first_batch;
@@ -699,7 +702,7 @@ struct D3D11Renderer {
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
 #if defined(_WIN32)
-static_assert(sizeof(D3D11Renderer) == 127928);
+static_assert(sizeof(D3D11Renderer) == 127912);
 #endif
 
 // Starts hardware device and draw-pipeline creation on a worker at process

@@ -459,7 +459,6 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         renderer->previous_buffer_damage_valid = false;
         renderer->previous_buffer_damage_full = false;
         reset_value(&renderer->previous_buffer_damage_rect);
-        ++renderer->idle_begin_frame_presents;
     } else {
         renderer->previous_buffer_damage_valid = true;
         renderer->previous_buffer_damage_full = renderer->present_logical_damage_full;

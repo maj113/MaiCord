@@ -13,7 +13,6 @@ struct VideoFrameGpu {
     GpuComputeShader* shader;
     GpuBuffer* constants;
     void* context_lock; // the backend's lock on the shared context (Direct3D 11: its ID3D11Multithread)
-    u64 converted_pixels;
     u32 frames;
 };
 
@@ -33,6 +32,6 @@ constexpr u32 video_frame_gpu_lanes(u32 step) noexcept {
     return step >= 11 ? 8u : step >= 7 ? 4u : 1u;
 }
 
-static_assert(sizeof(VideoFrameGpu) == 40);
+static_assert(sizeof(VideoFrameGpu) == 32);
 
 } // namespace maicord

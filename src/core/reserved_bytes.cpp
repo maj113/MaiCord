@@ -15,7 +15,7 @@ bool reserved_bytes_initialize(ReservedBytes* bytes, u32 reserve_bytes) noexcept
     auto* base = static_cast<u8*>(pages_reserve(reserved));
     if (!base)
         return false;
-    *bytes = ReservedBytes{base, reserved, 0, 0};
+    *bytes = ReservedBytes{base, reserved, 0};
     return true;
 }
 
@@ -31,8 +31,6 @@ bool reserved_bytes_commit(ReservedBytes* bytes, u32 required) noexcept {
     if (!pages_commit(address, target - bytes->committed))
         return false;
     bytes->committed = target;
-    if (target > bytes->peak)
-        bytes->peak = target;
     return true;
 }
 

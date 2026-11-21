@@ -27,6 +27,7 @@
 #include "../../src/app/account/account_ui_runtime.hpp"
 #include "../support/application_content_input_inactive.hpp"
 #include "../../src/app/chat/game_profile.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -439,7 +440,7 @@ Counters counters() noexcept {
             r.media_instance_uploads,
             r.painted_frames,
             r.unchanged_present_skips,
-            g_app.account_ui->text_measure_cache.backend_calls,
+            text_measure_calls(&g_app.account_ui->text_measure_cache),
             r.glyph_text.cache_builds,
             r.message_hit_test.builds,
             fixture->metadata_submissions,

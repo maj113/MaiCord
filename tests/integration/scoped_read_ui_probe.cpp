@@ -37,6 +37,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -461,7 +462,7 @@ WarmSnapshot snapshot() noexcept {
              g_app.shell_navigation_scene.layout_passes, g_app.popup_scene.revision,
              r.content_text->rebuilds, r.glyph_text.cache_builds, r.paint_stream_builds,
              r.paint_instance_uploads, r.text_instance_uploads, r.media_instance_uploads, r.painted_frames,
-             fixture->frames, fixture->encoded, g_app.account_ui->text_measure_cache.backend_calls}};
+             fixture->frames, fixture->encoded, text_measure_calls(&g_app.account_ui->text_measure_cache)}};
 }
 bool warm(u32 sample) noexcept {
     for (u32 i = 0; i < 4; ++i)

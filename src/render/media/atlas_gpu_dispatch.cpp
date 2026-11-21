@@ -184,23 +184,14 @@ void clear_animation_region(MediaAtlasGpu* gpu, GpuContext1* context,
     gpu_clear_uav_rect(context, gpu->texture_uav, color, rectangle);
 }
 
-void account_apng_dispatch(MediaAtlasGpu* gpu, const ApngFrame& frame, const PngImage& image) noexcept {
+void account_apng_dispatch(MediaAtlasGpu* gpu, const PngImage& image) noexcept {
     ++gpu->apng_frames;
-    if (frame.blend == ApngBlend::over) {
-        ++gpu->apng_over_blends;
-    } else {
-        ++gpu->apng_source_blends;
-    }
-    const u64 pixels = static_cast<u64>(image.width) * image.height;
-    saturating_accumulate(gpu->apng_dispatched_pixels, pixels);
     saturating_accumulate(gpu->apng_uploaded_bytes, image.inflated_bytes);
 }
 
 void account_gif_dispatch(MediaAtlasGpu* gpu, const GifFrame& frame) noexcept {
     ++gpu->gif_frames;
-    const u64 pixels = static_cast<u64>(frame.width) * frame.height;
-    saturating_accumulate(gpu->gif_uploaded_bytes, pixels);
-    saturating_accumulate(gpu->gif_dispatched_pixels, pixels);
+    saturating_accumulate(gpu->gif_uploaded_bytes, static_cast<u64>(frame.width) * frame.height);
 }
 
 void premultiplied_clear_color(u32 rgba, float* color) noexcept {
@@ -227,17 +218,9 @@ void clear_animated_webp_region(MediaAtlasGpu* gpu, GpuContext1* context,
                            frame.height, color);
 }
 
-void account_animated_webp_dispatch(MediaAtlasGpu* gpu, const AnimatedWebpFrame& frame,
-                                    u64 uploaded_bytes) noexcept {
+void account_animated_webp_dispatch(MediaAtlasGpu* gpu, u64 uploaded_bytes) noexcept {
     ++gpu->animated_webp_frames;
-    if (frame.blend == AnimatedWebpBlend::source) {
-        ++gpu->animated_webp_source_blends;
-    } else {
-        ++gpu->animated_webp_over_blends;
-    }
-    const u64 pixels = static_cast<u64>(frame.width) * frame.height;
     saturating_accumulate(gpu->animated_webp_uploaded_bytes, uploaded_bytes);
-    saturating_accumulate(gpu->animated_webp_dispatched_pixels, pixels);
 }
 
 bool vp8_atlas_frame_ready(const MediaAtlasGpu* gpu, const Vp8Keyframe& frame,
@@ -291,12 +274,8 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, GpuContext1* context, const Vp8Keyfr
 
     gpu->vp8_last_atlas_reconstruction = gpu->vp8_reconstructions;
     ++gpu->vp8_atlas_uploads;
-    const u64 pixel_count = static_cast<u64>(frame.width) * frame.height;
-    saturating_accumulate(gpu->vp8_atlas_pixels, pixel_count);
-    if (alpha.count != 0) {
-        ++gpu->vp8_alpha_uploads;
+    if (alpha.count != 0)
         saturating_accumulate(gpu->vp8_alpha_uploaded_bytes, alpha.count);
-    }
 }
 
 } // namespace maicord::media_atlas_gpu_detail

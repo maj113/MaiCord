@@ -223,7 +223,6 @@ struct UiPollVotersStyle {
     Utf8View loading{utf8_literal("Loading voters…")}, failed{utf8_literal("Couldn't load voters")};
     Utf8View empty{utf8_literal("No voters to show")};
 };
-inline constexpr UiPollVotersStyle kDefaultUiPollVotersStyle{};
 enum class UiPollVotersControl : u8 {
     none,
     close,

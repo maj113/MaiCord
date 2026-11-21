@@ -244,7 +244,6 @@ EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, con
         EncodedMediaCacheEntry& entry = cache->entries[entry_index];
         if (entry.leases != 0xFFFFu) {
             ++entry.leases;
-            ++cache->counters.lease_acquires;
             lease.entry_index = entry_index;
             lease.generation = entry.generation;
             lease.acquired = true;
@@ -266,7 +265,6 @@ bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLeas
     const bool valid = entry.occupied && entry.leases != 0 && entry.generation == lease->generation;
     if (valid) {
         --entry.leases;
-        ++cache->counters.lease_releases;
         if (entry.retiring && entry.leases == 0) {
             release_entry_locked(cache, lease->entry_index);
             maintain_index_locked(cache);
@@ -389,7 +387,6 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     ++cache->entry_count;
     cache->used_pages += required_pages;
     cache->stored_bytes += encoded.count;
-    cache->counters.bytes_copied += encoded.count;
     insert_index_locked(cache, slot);
     maintain_index_locked(cache);
     const EncodedMediaCacheStoreResult result{replacing ? EncodedMediaCacheStoreState::replaced

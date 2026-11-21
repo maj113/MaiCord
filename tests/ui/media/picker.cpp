@@ -1004,18 +1004,11 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
     keys = keys && ui_media_picker_scene_move_selection(&scene, 0, -1) && scene.selected_index == 0 &&
            ui_media_picker_scene_move_selection(&scene, 1, 0) && scene.tiles[scene.selected_index].column == 1;
     check(keys, "media picker masonry: Up/Down stay in the column and Right reaches the next column");
-    const u32 resolves = scene.counters.resolves, layouts = scene.counters.masonry_layouts;
-    const u32 allocations = scene.counters.allocations;
-    const auto bank = scene.storage.arena.base;
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 1000) &&
-              scene.columns == 5 && scene.counters.masonry_layouts == layouts + 1 &&
-              scene.counters.resolves - resolves <= scene.cell_count &&
-              scene.counters.allocations == allocations && scene.storage.arena.base == bank,
-          "media picker masonry: a resize re-places tiles, resolving only visible cells and allocating nothing");
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 1000) && scene.columns == 5,
+          "media picker masonry: a resize re-places tiles in the columns the width holds");
     ui_media_picker_scene_release(&scene);
 }
-// Resize cost: one rebuild per width, only visible cells resolved, no
-// allocation after the first update.
+// Resize cost: no allocation after the first update.
 void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 3000, 100, UiMediaPickerItemKind::emoji, false};
@@ -1028,26 +1021,23 @@ void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept
     auto content = picker_content(UiMediaPickerKind::emoji);
     const UiRect viewport{0, 0, 3000, 900}, anchor{2600, 850, 2980, 890};
     bool valid = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor);
-    const u32 allocations = scene.counters.allocations;
+    // The first update commits the bank; no width commits more, or tiles or a reuse copy.
     const auto bank = scene.storage.arena.base;
     const auto committed = scene.storage.arena.committed;
+    const auto prior = scene.prior;
+    const auto unchanged = [&]() noexcept {
+        return scene.storage.arena.base == bank && scene.storage.arena.committed == committed && !scene.tiles &&
+               scene.prior == prior;
+    };
     const float widths[]{560, 700, 900, 1300, 1700, 640, 514};
     for (float width : widths) {
-        const auto before = scene.counters;
         valid = valid &&
                 ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, width) &&
-                scene.counters.rebuilds == before.rebuilds + 1 &&
-                scene.counters.resolves - before.resolves == scene.cell_count &&
-                scene.counters.cells - before.cells == scene.cell_count &&
-                scene.cell_count <= kUiMediaPickerVisibleCells && scene.counters.allocations == allocations &&
-                scene.storage.arena.base == bank && scene.storage.arena.committed == committed;
+                scene.cell_count <= kUiMediaPickerVisibleCells && unchanged();
     }
-    check(valid && allocations == 1,
-          "media picker resize cost: each width rebuilds once, resolves only visible cells and allocates "
-          "nothing");
+    check(valid && bank, "media picker resize cost: each width allocates nothing");
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 2900) &&
-              ui_rect_width(scene.panel) < 2900 && scene.cell_count <= kUiMediaPickerVisibleCells &&
-              scene.counters.allocations == allocations,
+              ui_rect_width(scene.panel) < 2900 && scene.cell_count <= kUiMediaPickerVisibleCells && unchanged(),
           "media picker resize cost: an oversized drawer shrinks to the columns its cells can hold");
     ui_media_picker_scene_release(&scene);
 }

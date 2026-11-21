@@ -7,10 +7,6 @@ struct MessageScene;
 struct MessageSceneHit;
 
 inline constexpr u32 kMessageActionBarQuickReactionCount = 3;
-// Collapsed bar: three quick reactions, Add reaction, Reply or Edit, More,
-// plus Forward when available. Shift expansion and failed sends differ.
-inline constexpr u32 kMessageActionBarItemCount = 6;
-inline constexpr u32 kMessageActionBarMaximumItems = kMessageActionBarItemCount + 1;
 // Nine host items (Shift expansion) plus up to two plugin buttons.
 inline constexpr u32 kMessageActionBarPluginItems = 2;
 inline constexpr u32 kMessageActionBarCapacity = 9 + kMessageActionBarPluginItems;

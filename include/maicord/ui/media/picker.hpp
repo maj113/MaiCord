@@ -315,10 +315,6 @@ struct UiMediaPickerTile {
     // Inline strips place tiles left to right at a fixed height instead.
     float left, width;
 };
-// Work counters for resize/scroll cost tests.
-struct UiMediaPickerCounters {
-    u32 rebuilds, cells, resolves, masonry_layouts, allocations;
-};
 struct UiMediaPickerScene {
     UiFixedWidgetStorageOwner storage;
     UiWidgetManager widgets;
@@ -356,7 +352,6 @@ struct UiMediaPickerScene {
     u32 footer_index;
     u8 footer_title_bytes, footer_detail_bytes;
     char footer_title[96], footer_detail[96];
-    UiMediaPickerCounters counters;
     UiMediaPickerKind kind;
     UiMediaPickerVariant variant;
     u16 layout_flags;

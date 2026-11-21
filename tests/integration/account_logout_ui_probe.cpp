@@ -36,6 +36,7 @@
 #include "maicord/platform/window/key.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/app/gateway/client.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -609,7 +610,7 @@ WarmSnapshot snapshot() noexcept {
              g_app.text_form->scene.revision, r.content_text->rebuilds, r.glyph_text.cache_builds,
              r.paint_stream_builds, r.paint_instance_uploads, r.text_instance_uploads,
              r.media_instance_uploads, r.painted_frames, fixture->frames,
-             g_app.text_form->measure->backend_calls},
+             text_measure_calls(g_app.text_form->measure)},
             r.login_form_text ? r.login_form_text->arena.committed : 0,
             g_app.text_form->scene.text_signature};
 }

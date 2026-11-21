@@ -14,6 +14,7 @@
 #include "../support/model_store_fixtures.hpp"
 #include "../support/composer_height_model.hpp"
 #include "../support/application_downloads_inactive.hpp"
+#include "../support/glyph_atlas_pins.hpp"
 #include "../support/warp_device.hpp"
 #include "probe_draw_pipeline.hpp"
 #include "regional_flag_surfaces_probe.hpp"
@@ -69,6 +70,7 @@
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/gpu/api.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord::app_detail {
 // Search rendering fixtures bind caller-owned scenes directly. They do not
@@ -539,7 +541,7 @@ bool rebuild_probe_content_text() noexcept {
         log_u64(LogLevel::error, "probe", "content_text_measurements",
                 g_probe.message_text.measurement_count);
         log_u64(LogLevel::error, "probe", "text_measure_backend_calls",
-                g_probe.text_measure_cache.backend_calls);
+                text_measure_calls(&g_probe.text_measure_cache));
         log_u64(LogLevel::error, "probe", "text_measure_shape_error",
                 static_cast<u64>(g_probe.text.last_shape_error));
         for (u32 command_index = 0; command_index < g_probe.message_text.command_count; ++command_index) {
@@ -836,6 +838,7 @@ bool initialize_fixture(bool focused_text = false) noexcept {
         return false;
     }
     g_probe.renderer.message_measure_cache = &g_probe.text_measure_cache;
+    text_measure_calls(&g_probe.text_measure_cache); // count from here for the failure log
     // Focused render probes need the actual bound message/profile renderer,
     // but not the unrelated media, retention and interaction fixture sweeps.
     if (focused_text)

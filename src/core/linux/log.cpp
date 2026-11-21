@@ -45,7 +45,6 @@ struct LogState {
     bool flush_thread_started;
     bool stopping;
     u64 stamp_second;
-    LogCounters counters;
     u32 buffered;
     char stamp[kStampCharacters];
     char buffer[kBufferBytes];
@@ -79,11 +78,9 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
 // Caller holds the lock.
 void flush_locked() noexcept {
     if (g_log.buffered != 0 && log_file() >= 0) {
-        ++g_log.counters.file_writes;
         const long written = sys_write(log_file(), g_log.buffer, g_log.buffered);
         if (!syscall_failed(written)) {
             g_log.file_bytes += static_cast<u64>(written);
-            g_log.counters.file_bytes += static_cast<u64>(written);
         }
     }
     g_log.buffered = 0;
@@ -145,7 +142,6 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
             g_log.buffered += length;
-            ++g_log.counters.lines;
             if (level >= LogLevel::warning) {
                 flush_locked();
             } else if (!__atomic_load_n(&g_log.flush_wanted, __ATOMIC_ACQUIRE)) {
@@ -251,13 +247,6 @@ void log_close() noexcept {
     }
     g_log.flush_thread_started = false;
     g_log.flush_wanted = 0;
-}
-
-LogCounters log_counters() noexcept {
-    AcquireSRWLockExclusive(&g_log.lock);
-    const LogCounters counters = g_log.counters;
-    ReleaseSRWLockExclusive(&g_log.lock);
-    return counters;
 }
 
 } // namespace maicord

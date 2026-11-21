@@ -33,7 +33,6 @@ struct Fixture {
     u64 observed_channel, observed_cursor;
     bool observed_manual, observed_model_committed;
     MessageReadBadge badge;
-    u32 badge_calls;
     MessageStore messages;
     MessageRecord message_records[8];
     u32 message_order[8], heights[8];
@@ -56,7 +55,7 @@ void cancel(void* context, u64 channel_id) noexcept {
 }
 void reset(void* context) noexcept { ++static_cast<Fixture*>(context)->reset_calls; }
 MessageReadBadge badge_policy(void* context,const GatewayClientEvent&,ConstSlice<u8>) noexcept {
-    auto& f=*static_cast<Fixture*>(context);++f.badge_calls;return f.badge;
+    return static_cast<Fixture*>(context)->badge;
 }
 void observe_ack(void* context, u64 channel_id, u64 cursor, bool manual) noexcept {
     auto& f = *static_cast<Fixture*>(context); ++f.observed_calls;
@@ -75,7 +74,7 @@ bool initialize() noexcept {
     f.cancellation_queue = nullptr;
     f.observed_calls = 0; f.observed_channel = f.observed_cursor = 0;
     f.observed_manual = f.observed_model_committed = false;
-    f.badge=MessageReadBadge::none;f.badge_calls=0;
+    f.badge=MessageReadBadge::none;
     if (!chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 4},
             {f.channel_order, 4}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() ||
@@ -178,7 +177,7 @@ void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
     check(selected.ok() && selected.repaint && find(80)->last_message_id == 300 &&
         bytes_equal(&selected_before, &selected_after, sizeof(selected_before)) &&
         f.pump.catchup_required && f.timeline.newer_refetch_required && !f.pump.resync_required &&
-        !f.messages.count && !f.cancel_calls && !f.observed_calls && !f.badge_calls && !f.reserve_calls,
+        !f.messages.count && !f.cancel_calls && !f.observed_calls && !f.reserve_calls,
         "channel cursor pump: selected forward cursor requires tail catchup while preserving read, mention and manual metadata");
     f.pump.catchup_required = f.timeline.newer_refetch_required = false;
     const auto unchanged = *find(80);
@@ -226,7 +225,7 @@ void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
     check(consume(passive, utf8_literal("{\"guild_id\":\"9\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
         consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
         f.state.channel_count == count_before && !find(999) && !f.pump.catchup_required &&
-        !f.timeline.newer_refetch_required && !f.cancel_calls && !f.observed_calls && !f.badge_calls,
+        !f.timeline.newer_refetch_required && !f.cancel_calls && !f.observed_calls,
         "channel cursor pump: unknown guild and channel create no model, content or read-side work");
 }
 struct ManualBacking { u32 calls; bool fail; };
@@ -537,7 +536,7 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     check(snapshot(1).ok(),"read automation: authoritative read metadata is loaded");
     event=message(160,80,2);f.badge=MessageReadBadge::low_importance;
     check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1&&
-        find(80)->read_flags==0x80000005u&&f.guild.mention_count==1&&f.badge_calls==1,
+        find(80)->read_flags==0x80000005u&&f.guild.mention_count==1,
         "read automation: low-importance badge increments channel and guild counts while retaining unknown flag bits");
     event=message(170,80,2);f.badge=MessageReadBadge::none;
     event.message.mention_flags=gateway_client_message_mention_current_user;
@@ -574,9 +573,9 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==210&&
         find(80)->mention_count==0&&f.cancel_calls==before_poll_cancels+1,
         "read automation: ordinary own create still clears read counts and cancels older outgoing ACK");
-    const u32 before_reject=f.badge_calls;event=message(220,80,2);event.message.content_bytes=1;
-    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.badge_calls==before_reject&&find(80)->last_message_id==210,
-        "read automation: malformed create cannot invoke badge policy or change channel activity");
+    event=message(220,80,2);event.message.content_bytes=1;
+    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_message_id==210,
+        "read automation: malformed create cannot change channel activity");
 
     check(initialize(),"thread read automation: reset bounded parent activity fixture");
     ChannelInput parent{};parent.id=80;parent.guild_id=7;parent.type=15;

@@ -10,6 +10,7 @@
 #include "maicord/ui/media/avatar_media.hpp"
 #include "../../support/media_fixture.hpp"
 #include "../../support/jpeg_decode.hpp"
+#include "../../support/glyph_atlas_pins.hpp"
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -1800,9 +1801,6 @@ void test_cdn_gif_metadata_reuse() noexcept {
         exact = second.indices[pixel] == gif_fixture_source_index(1, pixel % 2, pixel / 2);
     expect(response_unkeyed && first.decoded() && identity_a && exact &&
                pipeline.gif_content_identity == identity_a && pipeline.gif_image.frames == workspace.frames &&
-               first.decode.parse.blocks == second.decode.parse.blocks &&
-               first.decode.parse.extensions == second.decode.parse.extensions &&
-               first.decode.parse.data_subblocks == second.decode.parse.data_subblocks &&
                first.decode.parse.error == second.decode.parse.error,
            "gif_metadata_response_unkeyed_then_leased_frame_reuse");
     const auto alias_store = encoded_media_cache_store(&cache, alias, bytes, policy);
@@ -2586,7 +2584,6 @@ void test_account_media_worker_reclaimed_failure_cooldown() noexcept {
     // reclaims the failed output lane, as Main's ordered visibility scan does.
     const auto good_queued = account_media_worker_request_static_asset(&worker, good_key, 1'001, 1'100);
     const u64 cooldown = account_media_worker_next_wake_at_ms(&worker);
-    const u64 queued_before_retry = worker.counters.queued;
     bool held = cooldown > 1'002 && cooldown != ~u64{0};
     for (u32 index = 0; index < 4; ++index) {
         const auto retry = account_media_worker_request_static_asset(&worker, bad_key, 1'002, 1'100);
@@ -2595,7 +2592,6 @@ void test_account_media_worker_reclaimed_failure_cooldown() noexcept {
     const DWORD good_wait = WaitForSingleObject(account_media_worker_notification_handle(&worker), 2'000);
     AccountMediaFrame good_frame{};
     const bool good_taken = account_media_worker_take_frame(&worker, &good_frame);
-    const u64 queued_while_held = worker.counters.queued;
     // Reinsert corrupt bytes so the eligible retry remains a cold codec test
     // with no network dependency, even if the decoder erased the first entry.
     const auto bad_restored = store_bad();
@@ -2603,16 +2599,15 @@ void test_account_media_worker_reclaimed_failure_cooldown() noexcept {
     const auto eligible = account_media_worker_request_static_asset(&worker, bad_key, cooldown, 1'100);
     const DWORD retry_wait = WaitForSingleObject(account_media_worker_notification_handle(&worker), 2'000);
     const auto reported = account_media_worker_request_static_asset(&worker, bad_key, cooldown + 1, 1'100);
-    const u64 queued_after_expiry = worker.counters.queued;
     const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_reclaimed_failure_stop");
     expect(bad_stored.stored() && good_stored.stored() && bad_restored.stored() &&
         bad_queued.state == AccountMediaRequestState::queued && bad_wait == WAIT_OBJECT_0 &&
         good_queued.state == AccountMediaRequestState::queued && good_wait == WAIT_OBJECT_0 &&
         good_taken && media_asset_key_equal(good_frame.key, good_key) &&
-        held && queued_before_retry == 2 && queued_while_held == queued_before_retry &&
+        held &&
         eligible.state == AccountMediaRequestState::queued && retry_wait == WAIT_OBJECT_0 &&
         reported.state == AccountMediaRequestState::failed && reported.error == AccountMediaError::decode &&
-        queued_after_expiry == 3 && stopped,
+        stopped,
         "account_media_worker_reclaimed_failure_keeps_cooldown_without_completion_storm");
 }
 
@@ -2647,14 +2642,12 @@ void test_account_media_worker_later_frame_failure_cooldown() noexcept {
     const DWORD second_wait = WaitForSingleObject(account_media_worker_notification_handle(&worker), 2'000);
     const AccountMediaRequestResult failed =
         account_media_worker_advance_animation(&worker, key, stored.generation, 3, 1'103);
-    const u64 queued_before_retry = worker.counters.queued;
     const u64 now_ms = clock_monotonic_milliseconds();
     const AccountMediaRequestResult restart =
         account_media_worker_request_static_asset(&worker, key, now_ms, 1'104);
     const AccountMediaRequestResult retained =
         account_media_worker_advance_animation(&worker, key, stored.generation, 3, 1'105);
     const u64 wake = account_media_worker_next_wake_at_ms(&worker);
-    const u64 queued_after_retry = worker.counters.queued;
     const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_later_frame_failure_stop");
     expect(stored.stored() && queued.state == AccountMediaRequestState::queued &&
                first_wait == WAIT_OBJECT_0 && ready.state == AccountMediaRequestState::ready &&
@@ -2663,7 +2656,7 @@ void test_account_media_worker_later_frame_failure_cooldown() noexcept {
                failed.error == AccountMediaError::decode &&
                restart.state == AccountMediaRequestState::retry_wait && restart.retry_at_ms > now_ms &&
                retained.state == AccountMediaRequestState::retry_wait && wake == restart.retry_at_ms &&
-               queued_before_retry == 2 && queued_after_retry == queued_before_retry && stopped,
+               stopped,
            "account_media_worker_later_frame_failure_blocks_redownload_across_lanes");
 }
 
@@ -2787,10 +2780,11 @@ void test_account_media_worker_shared_parallel_lanes() noexcept {
                 distinct_threads && worker.lanes[index].thread_id != worker.lanes[peer].thread_id;
         }
     }
-    const bool counters = InterlockedCompareExchange64(&worker.counters.queued, 0, 0) >= 8 &&
-                          worker.lanes[0].media.cache.counters.lease_acquires >= 8 &&
-                          worker.lanes[0].media.cache.counters.lease_acquires ==
-                              worker.lanes[0].media.cache.counters.lease_releases;
+    // The lanes read through the shared cache and released every lease they took.
+    const auto& shared = worker.lanes[0].media.cache;
+    bool counters = shared.entry_count != 0;
+    for (u32 index = 0; index < shared.entry_capacity; ++index)
+        counters = counters && (!shared.entries[index].occupied || shared.entries[index].leases == 0);
     const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_parallel_lanes_stop");
     expect(initial_queued && shared_cache && initial_frames == kAccountMediaDecodeLaneCount &&
                advances_queued && advanced_frames == kAccountMediaDecodeLaneCount && distinct_threads &&
@@ -3277,8 +3271,7 @@ void test_message_media_controller() noexcept {
     expect(messages_ready && first_message.ok() && second_message.ok() && rich_ready && rich_applied.ok() &&
                users_seeded && animations_ready && atlas_ready && controller_ready && collected.ok() &&
                collected.visited == 2 && collected.candidates == 2 && controller.row_count == 2 &&
-               controller.collections == 1 && controller.source_rows_visited == 2 &&
-               controller.rows_collected == 2 && primary.ok() && primary.candidates == 0 &&
+               primary.ok() && primary.candidates == 0 &&
                decorated.ok() && decorated.candidates == 6 && capture.count == 6 &&
                message_media_test_captured(capture, media_asset_custom_emoji(555, false), false) &&
                message_media_test_captured(capture, media_asset_user_avatar(10, static_variant, false),
@@ -3288,7 +3281,7 @@ void test_message_media_controller() noexcept {
                message_media_test_captured(capture, media_asset_custom_emoji(111, false), false) &&
                message_media_test_captured(capture, media_asset_custom_emoji(222, true), true) &&
                message_media_test_captured(capture, media_asset_sticker(333, 1), false) &&
-               controller.duplicate_assets_skipped == 4 && emoji_memo.parses == 2,
+               emoji_memo.parses == 2,
            "message_media_controller_single_snapshot_and_asset_dedupe");
 
     // A virtualized row may be taller than the viewport. Its off-screen rich
@@ -3357,8 +3350,7 @@ void test_message_media_controller() noexcept {
     expect(resident.ok() && second_collect.ok() && second_decorated.ok() &&
                second_decorated.candidates == 5 && capture.count == 5 &&
                !message_media_test_captured(capture, media_asset_custom_emoji(111, false), false) &&
-               controller.collections == 2 && controller.source_rows_visited == 4 &&
-               controller.duplicate_assets_skipped == 8 && emoji_memo.parses == 2,
+               second_collect.visited == 2 && second_collect.candidates == 2 && emoji_memo.parses == 2,
            "message_media_controller_resident_filter_and_epoch_reuse");
 
     // The official client animates an author avatar only while its message group (or the
@@ -3416,7 +3408,7 @@ void test_message_media_controller() noexcept {
     const bool throttled_log = message_media_controller_should_log_capacity(&small_controller, 1'200, 500);
     const bool next_log = message_media_controller_should_log_capacity(&small_controller, 1'500, 500);
     expect(small_ready && capacity.error == MessageMediaControllerError::capacity &&
-               small_controller.rejected == 1 && small_controller.retry_at_ms == 700 &&
+               small_controller.retry_at_ms == 700 &&
                !budget_before && budget_after && small_controller.scan_pending && first_log &&
                !throttled_log && next_log,
            "message_media_controller_capacity_retry_budget_and_throttle");

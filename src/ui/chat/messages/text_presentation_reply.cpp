@@ -402,10 +402,8 @@ MessageMarkdownResult markdown_parse_cached(MessageTextPresentation* presentatio
                                   (parsed.semantics_truncated ? markdown_cache_semantics_truncated : 0u) |
                                   (parsed.syntax_truncated ? markdown_cache_syntax_truncated : 0u));
     *entry = value;
-    if (markdown_cache_write(cache, entry,
-                             ConstSlice<MessageMarkdownSemantic>{semantic_output.data, parsed.semantic_count},
-                             ConstSlice<TextStyleSpan>{span_output.data, parsed.span_count}, parsed.text))
-        saturating_increment(cache->inserts);
+    markdown_cache_write(cache, entry, ConstSlice<MessageMarkdownSemantic>{semantic_output.data, parsed.semantic_count},
+                         ConstSlice<TextStyleSpan>{span_output.data, parsed.span_count}, parsed.text);
     return parsed;
 }
 } // namespace
@@ -783,14 +781,6 @@ retain_reply_summary(MessageTextPresentation* presentation, BuildContext* contex
             continue;
         semantic.byte_offset += content_offset;
         presentation->semantics[presentation->semantic_count++] = semantic;
-    }
-    if (parsed_markdown && parsed.ok()) {
-        saturating_accumulate(presentation->markdown_transformations, parsed.transformations);
-        saturating_accumulate(presentation->markdown_spans_emitted, parsed.span_count);
-        saturating_accumulate(presentation->markdown_resolved_entities, parsed.resolved_entities);
-        saturating_accumulate(presentation->markdown_timestamps, parsed.timestamps);
-    } else if (parsed_markdown) {
-        saturating_accumulate(presentation->markdown_rejected);
     }
     return RetainedReplySummary{
         Utf8View{presentation->utf8.data + text_begin, presentation->utf8_count - text_begin},

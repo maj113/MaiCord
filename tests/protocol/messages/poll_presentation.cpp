@@ -6,6 +6,7 @@
 #include "maicord/model/chat/message_reconcile.hpp"
 #include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/ui/chat/messages/system_text.hpp"
+#include "../../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace {
@@ -237,8 +238,9 @@ void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) n
     auto& row = fixture.scene.rows[0];
     const auto live = row.poll;
     const u32 widget_count = fixture.scene.widgets.count;
+    // A plain row has seven widgets: row, avatar, body, reply, author, content and the notice group. The poll adds two.
     check(row.poll_content_revision && row.poll_height > 160 &&
-              widget_count == kMessageScenePlainRowWidgets + 2 &&
+              widget_count == 7 + 2 &&
               message_scene_resolve(fixture.scene, live) == &row,
           "poll message: wrapped two-answer poll uses one root without answer child widgets");
     UiPollAnswer answers[kUiPollMaximumAnswers]{};
@@ -259,12 +261,12 @@ void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) n
               projection.state.content_revision == shared_poll->content_revision,
           "poll message: independent local message revision preserves shared poll authority and root");
     const float height = row.poll_height;
-    const u32 calls = fixture.cache.backend_calls;
+    const u32 calls = text_measure_calls(&fixture.cache);
     const auto vote = GatewayMessagePollVoteEvent{55, 4400, 90, 0, 1, true, false};
     ready = message_poll_store_vote(&fixture.polls, vote, 91, 2).ok() &&
             message_scene_update(&fixture.scene, fixture.scene.viewport).ok();
     check(ready && row.poll.slot == live.slot && row.poll.generation == live.generation &&
-              row.poll_height == height && fixture.cache.backend_calls == calls &&
+              row.poll_height == height && text_measure_calls(&fixture.cache) == calls &&
               fixture.scene.widgets.count == widget_count,
           "poll message: authoritative count-only update preserves root, wrapped height and measure "
           "backend work");

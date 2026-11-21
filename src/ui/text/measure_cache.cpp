@@ -98,7 +98,6 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
             replacement = &record;
         }
     }
-    saturating_increment(cache->backend_calls);
     UiTextMeasureValue measured{};
     if (!cache->backend(cache->backend_context, request, &measured) || !ui_size_valid_or_empty(measured.size)) {
         return UiTextMeasureResult{UiTextMeasureError::backend, false};

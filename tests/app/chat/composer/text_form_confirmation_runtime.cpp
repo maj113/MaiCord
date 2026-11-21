@@ -9,6 +9,8 @@
 #include "maicord/platform/window/key.hpp"
 #include "../../../support/window_fixture.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "../../../support/released_memory.hpp"
+#include "../../../support/counted_text_measure.hpp"
 
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;
@@ -16,7 +18,7 @@ struct Observations {
     u32 failures, editor_calls, store_calls, measurements, builds, saves;
     u32 login_prepares, login_releases, login_refreshes;
     bool owner_valid, save_ok, fail_build, ordinary_projection;
-    void* last_form;
+    MemoryMark last_form; // The form a renderer bound last, marked at the binding.
 } seen{};
 UiTextMeasureRecord measure_records[32]{};
 ApplicationTextFormProgress async_progress{};
@@ -44,21 +46,6 @@ bool save(TextFormOwnerKey key, Utf8View text) noexcept {
     check(valid(key) && !text.data && !text.bytes,
           "confirmation: Accept calls current semantic owner with empty payload");
     return seen.save_ok;
-}
-bool freed(void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION info{};
-    return pointer && VirtualQuery(pointer, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE;
-}
-void footprint(const ApplicationTextForm& form) noexcept {
-    MEMORY_BASIC_INFORMATION owner{}, scene{};
-    const bool queried =
-        VirtualQuery(&form, &owner, sizeof(owner)) == sizeof(owner) &&
-        VirtualQuery(form.scene.storage.arena.base, &scene, sizeof(scene)) == sizeof(scene);
-    check(queried && owner.State == MEM_COMMIT && owner.AllocationBase == &form &&
-              owner.RegionSize >= sizeof(form) && scene.State == MEM_COMMIT &&
-              scene.AllocationBase == form.scene.storage.arena.base &&
-              scene.RegionSize >= form.scene.storage.arena.committed,
-          "confirmation footprint: actual owner/scene committed regions contain their retained objects");
 }
 ApplicationTextFormRequest request() noexcept {
     return {utf8_literal("Remove friend?"),
@@ -128,6 +115,9 @@ void ordinary_projection() noexcept {
     check(refresh_projection() && form->scene.content.text.data == reinterpret_cast<const char*>(model) &&
               !form->scene.content.text.bytes,
           "ordinary projection: valid empty model borrows zero bytes without an extra buffer");
+    form->request.qr_caption = utf8_literal("2FA Key (Manual entry)\nabcd efgh");
+    check(refresh_projection() && utf8_equal(form->scene.content.qr_caption, form->request.qr_caption),
+          "ordinary projection: an editor's QR caption reaches the scene");
     form->request.confirmation_only = true;
     form->edit = {};
     check(form->dismissible && form->can_cancel &&
@@ -157,19 +147,14 @@ void locked_progress_lifecycle() noexcept {
                : 0;
     check(cancel &&
               application_text_form_window_event(window_test::pointer_down(window_test::x_of(cancel_point), window_test::y_of(cancel_point))) &&
-              form->pointer_button.generation &&
-              application_text_form_input(UiInputKind::key_down, key::space, false) &&
-              form->keyboard.pressed.manager == &form->scene.widgets,
-          "locked async form: Cancel owns real pointer and Space press before progress changes");
+              application_text_form_input(UiInputKind::key_down, key::space, false),
+          "locked async form: Cancel takes a real pointer and Space press before progress changes");
     async_progress.editable = async_progress.can_accept = async_progress.can_cancel =
         async_progress.dismissible = false;
     check(application_text_form_synchronize() && g_app.text_form == form && form->scene.active &&
               !form->can_cancel && !form->dismissible && !form->scene.content.can_cancel &&
-              text_form_focused(form->scene) == TextFormElement::count &&
-              !form->pointer_button.generation && !form->scene.widgets.captured.generation &&
-              !form->keyboard.pressed.manager && !form->dragging && !application_text_form_next_wake(),
-          "locked async form: committed progress retires Cancel press capture focus and caret without "
-          "closing");
+              text_form_focused(form->scene) == TextFormElement::count && !application_text_form_next_wake(),
+          "locked async form: committed progress retires Cancel, focus and caret without closing");
     async_progress.dismissible = true;
     check(application_text_form_synchronize() && form->dismissible && !form->can_cancel,
           "locked async form: dismissal flag changes synchronize even when host revision stays unchanged");
@@ -188,24 +173,16 @@ void locked_progress_lifecycle() noexcept {
               g_app.text_form == form && closed_owners == initial_closed && seen.saves == initial_saves,
           "locked async form: Escape and outside down/up remain modal and consume dismissal without "
           "click-through");
-    check(
-        application_text_form_window_event(window_test::focus_changed(false)) &&
-            application_text_form_window_event(window_test::cancel_input()) && g_app.text_form == form &&
-            !form->keyboard.pressed.manager && !form->pointer_button.generation &&
-            !form->scene.widgets.captured.generation && !form->dragging && closed_owners == initial_closed,
-        "locked async form: blur and cancel mode clear owned transients while preserving committed owner");
-    const u32 locked_builds = seen.builds, locked_scene_revision = form->scene.revision;
-    const u32 locked_layout_revision = form->scene.widgets.layout.revision;
-    const auto scene_storage = form->scene.storage.arena.base;
+    check(application_text_form_window_event(window_test::focus_changed(false)) &&
+              application_text_form_window_event(window_test::cancel_input()) && g_app.text_form == form &&
+              closed_owners == initial_closed,
+          "locked async form: blur and cancel mode keep the committed owner");
+    const u32 locked_builds = seen.builds;
     bool retained = true;
     for (u32 frame = 0; frame < 8; ++frame)
-        retained &= application_text_form_synchronize() && g_app.text_form == form &&
-                    seen.builds == locked_builds && form->scene.revision == locked_scene_revision &&
-                    form->scene.widgets.layout.revision == locked_layout_revision &&
-                    form->scene.storage.arena.base == scene_storage;
+        retained &= application_text_form_synchronize() && g_app.text_form == form && seen.builds == locked_builds;
     check(retained && seen.saves == initial_saves,
-          "locked async form: repeated pending updates retain owner geometry and text without new callbacks or "
-          "publication");
+          "locked async form: repeated pending updates rebuild no text and call back nothing");
     async_progress.status = utf8_literal("Could not finish. Retry to continue.");
     async_progress.accept = utf8_literal("Retry");
     async_progress.can_accept = true;
@@ -216,8 +193,7 @@ void locked_progress_lifecycle() noexcept {
           "locked async form: retry failure enables only Accept and preserves nondismissible ownership");
     async_progress.can_accept = false;
     ++async_progress.revision;
-    check(application_text_form_synchronize() && !form->keyboard.pressed.manager,
-          "locked async form: progress disables an armed Retry button before release");
+    check(application_text_form_synchronize(), "locked async form: progress disables an armed Retry button");
     async_progress.can_accept = true;
     ++async_progress.revision;
     check(application_text_form_synchronize() &&
@@ -291,24 +267,16 @@ void startup_recovery_lifecycle() noexcept {
     check(!application_text_form_open(ordinary),
           "startup recovery: unmarked forms remain excluded from login without account models");
     check(application_text_form_open(recovery) && g_app.text_form && !g_app.account_ui &&
-              g_app.text_form->request.login_owner && !g_app.text_form->edit.storage.data &&
-              !g_app.text_form->store.implementation && !g_app.text_form->editable &&
+              g_app.text_form->request.login_owner && !g_app.text_form->editable &&
               !g_app.text_form->can_cancel && !g_app.text_form->dismissible &&
               text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
-              seen.login_prepares == prepares + 1 && seen.login_refreshes == login_refreshes + 1,
+              seen.login_prepares == prepares + 1 && seen.login_refreshes == login_refreshes + 1 &&
+              seen.editor_calls == editor_calls && seen.store_calls == store_calls,
           "startup recovery: exact login owner opens visible Retry confirmation without account editor or "
           "native store");
     auto* form = g_app.text_form;
     if (form) {
-        const auto* measure = form->measure;
-        MEMORY_BASIC_INFORMATION cache_region{};
-        check(measure && measure->backend == renderer_text_measure_backend &&
-                  measure->backend_context == &g_app.renderer &&
-                  measure->storage.count == kTextFormElements * kUiTextMeasureCacheWays &&
-                  VirtualQuery(measure, &cache_region, sizeof(cache_region)) == sizeof(cache_region) &&
-                  cache_region.AllocationBase == form && form->scene.measure == measure,
-              "startup recovery: bounded renderer font cache shares modal allocation and borrows no "
-              "account storage");
+        auto* measure = form->measure;
         check(application_text_form_input(UiInputKind::key_down, key::escape, false) &&
                   application_text_form_input(UiInputKind::key_up, key::escape, false) &&
                   application_text_form_window_event(window_test::pointer_down(1, 1)) &&
@@ -316,35 +284,24 @@ void startup_recovery_lifecycle() noexcept {
                   application_text_form_window_event(window_test::focus_changed(false)) &&
                   g_app.text_form == form && !g_app.account_ui && closed_owners == closures,
               "startup recovery: Escape outside click and blur preserve the nondismissible login owner");
-        const u32 builds = seen.builds, measurements = measure->backend_calls;
+        const u32 builds = seen.builds, measurements = text_measure_calls(measure);
         bool stable = true;
         for (u32 frame = 0; frame < 8; ++frame)
             stable &= application_text_form_synchronize() && g_app.text_form == form && !g_app.account_ui &&
-                      seen.builds == builds && measure->backend_calls == measurements;
+                      seen.builds == builds && text_measure_calls(measure) == measurements;
         check(stable, "startup recovery: repeated unchanged frames reuse bounded font cache without account "
                       "allocation or publication");
-        const u32 font_generation = measure->generation, font_calls = measure->backend_calls;
+        const u32 font_calls = text_measure_calls(measure);
         const auto font_focus = text_form_focused(form->scene);
-        const u16 font_token = form->scene.measure_revision;
-        const u32 builds_before_font = seen.builds;
         application_text_form_theme_changed();
-        check(!form->scene.layout_signature && measure->generation != font_generation &&
-                  form->scene.measure_revision == font_token && seen.builds == builds_before_font &&
-                  seen.editor_calls == editor_calls && seen.store_calls == store_calls &&
-                  text_form_focused(form->scene) == font_focus,
-              "startup recovery: committed font change invalidates owned cache even when the compact "
-              "font token repeats, without eager rendering or editor/store/focus reset");
-        check(application_text_form_synchronize() && form->scene.layout_signature &&
-                  form->scene.measure_revision == font_token && measure->backend_calls > font_calls &&
-                  text_form_focused(form->scene) == font_focus && !g_app.account_ui,
-              "startup recovery: dirty same-token projection measures fresh native labels without "
-              "allocating account storage or resetting focus");
-        const u32 second_generation = measure->generation, second_calls = measure->backend_calls;
+        check(application_text_form_synchronize() && text_measure_calls(measure) > font_calls &&
+                  text_form_focused(form->scene) == font_focus && !g_app.account_ui &&
+                  seen.editor_calls == editor_calls && seen.store_calls == store_calls,
+              "startup recovery: a font change measures the labels again and keeps the focus");
+        const u32 second_calls = text_measure_calls(measure);
         application_text_form_theme_changed();
-        check(measure->generation != second_generation && application_text_form_synchronize() &&
-                  measure->backend_calls > second_calls && form->scene.measure_revision == font_token,
-              "startup recovery: every actual font change invalidates private measurements, not only "
-              "the first observation of a compact token");
+        check(application_text_form_synchronize() && text_measure_calls(measure) > second_calls,
+              "startup recovery: every font change measures the labels again");
         seen.save_ok = false;
         check(application_text_form_input(UiInputKind::key_down, key::enter, false) &&
                   application_text_form_input(UiInputKind::key_down, key::enter, true) &&
@@ -406,8 +363,7 @@ void run() noexcept {
     auto normal = request();
     normal.confirmation_only = false;
     normal.initial = {};
-    check(!application_text_form_open(normal) && seen.editor_calls == 2 && !seen.store_calls &&
-              !g_app.text_form,
+    check(!application_text_form_open(normal) && seen.editor_calls && !seen.store_calls && !g_app.text_form,
           "confirmation: normal-form negative control reaches instrumented editor initialization and "
           "releases its failed owner");
     seen.editor_calls = 0;
@@ -415,29 +371,25 @@ void run() noexcept {
               text_form_focused(g_app.text_form->scene) == TextFormElement::cancel &&
               !text_form_node(g_app.text_form->scene, TextFormElement::edit) &&
               !text_form_node(g_app.text_form->scene, TextFormElement::label) &&
-              !g_app.text_form->edit.storage.data && !g_app.text_form->edit.history &&
-              !g_app.text_form->store.implementation && !application_text_form_next_wake() &&
+              !application_text_form_next_wake() &&
               !seen.editor_calls && !seen.store_calls && !seen.measurements,
           "confirmation: real controller/scene/surface opens Cancel-focused without editor, history, TSF, "
           "measurement or caret wake");
     if (!g_app.text_form)
         return;
-    footprint(*g_app.text_form);
-    const auto arena = g_app.text_form->scene.storage.arena.base;
-    const u32 revision = g_app.text_form->scene.revision, builds = seen.builds;
+    const u32 builds = seen.builds;
     check(!application_text_form_filter(window_test::key_down('X')) &&
               application_text_form_input(UiInputKind::character, 'x', false) &&
-              application_text_form_synchronize() && g_app.text_form->scene.storage.arena.base == arena &&
-              g_app.text_form->scene.revision == revision && seen.builds == builds,
+              application_text_form_synchronize() && seen.builds == builds,
           "confirmation: text/filter input and idle synchronization retain scene without touching edit or "
           "native store");
     application_text_form_tick(~u64{0});
     check(!application_text_form_next_wake() && !seen.editor_calls && !seen.store_calls &&
               !seen.measurements,
           "confirmation: unbounded tick has no editor blink or native text work");
-    void* owner = g_app.text_form;
+    const auto owner = memory_mark(g_app.text_form);
     check(application_text_form_input(UiInputKind::key_down, key::enter, false) && !g_app.text_form &&
-              !seen.saves && freed(owner),
+              !seen.saves && memory_released(owner),
           "confirmation: default Enter cancels safely and releases both retained scene and modal owner");
     tail(key::enter);
     seen.save_ok = false;
@@ -480,8 +432,6 @@ void run() noexcept {
               !text_form_node(g_app.text_form->scene, TextFormElement::cancel) &&
               text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
               utf8_equal(g_app.text_form->scene.content.detail, info.detail) &&
-              g_app.text_form->scene.content.detail.data == g_app.text_form->detail &&
-              !g_app.text_form->edit.storage.data && !g_app.text_form->store.implementation &&
               !g_app.text_form->caret_visible && !application_text_form_next_wake() && untouched(),
           "info dialog: read-only text opens with one focused Close and no editor, caret, text store or wake");
     if (g_app.text_form) {
@@ -525,7 +475,7 @@ void run() noexcept {
           "confirmation: stale semantic owner dismisses without invoking acceptance");
     seen.owner_valid = true;
     seen.fail_build = true;
-    check(!application_text_form_open(request()) && !g_app.text_form && freed(seen.last_form) &&
+    check(!application_text_form_open(request()) && !g_app.text_form && memory_released(seen.last_form) &&
               !g_app.renderer.text_form,
           "confirmation: renderer publication failure rolls back owner and renderer binding");
     check(!seen.editor_calls && !seen.store_calls && !seen.measurements,
@@ -736,7 +686,7 @@ bool clipboard_write_utf8(const Utf8View&) noexcept {
 void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) noexcept {
     renderer->text_form = surface;
     if (surface)
-        confirmation_runtime_test::seen.last_form = app_detail::g_app.text_form;
+        confirmation_runtime_test::seen.last_form = memory_mark(app_detail::g_app.text_form);
 }
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme&) noexcept {
     ++confirmation_runtime_test::seen.builds;

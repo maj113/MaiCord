@@ -5,6 +5,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../support/counted_text_measure.hpp"
 namespace maicord {
 inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
@@ -141,10 +142,10 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         auto* form = thread_creation_ui_adapter_form(); if (!form) return false;
         const auto before = surface_motion_probe_detail::snapshot(external);
         const u32 layouts = form->scene.widgets.layout.revision, shell = external.ui_scene->layout_passes,
-            shapes = measure.backend_calls, painted = external.painted_frames, skips = external.unchanged_present_skips,
+            shapes = text_measure_calls(&measure), painted = external.painted_frames, skips = external.unchanged_present_skips,
             revision = form->scene.revision, submissions = thread_creation_ui_adapter_submissions();
         const u32 owner_publication = application_thread_creation_view().ticket.publication_revision;
-        const u32 form_shapes = form->scene.measure->backend_calls;
+        const u32 form_shapes = text_measure_calls(form->scene.measure);
         const usize form_committed = form->scene.storage.arena.committed;
         MEMORY_BASIC_INFORMATION memory{};
         if (!VirtualQuery(form, &memory, sizeof(memory)) || memory.State != MEM_COMMIT) return false;
@@ -153,10 +154,10 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         const auto after = surface_motion_probe_detail::snapshot(external);
         const bool passed = surface_motion_probe_detail::same(before, after) && before.source_refreshes == after.source_refreshes &&
             form->scene.widgets.layout.revision == layouts && form->scene.revision == revision &&
-            external.ui_scene->layout_passes == shell && measure.backend_calls == shapes && external.painted_frames == painted &&
+            external.ui_scene->layout_passes == shell && text_measure_calls(&measure) == shapes && external.painted_frames == painted &&
             external.unchanged_present_skips - skips == 64 && thread_creation_ui_adapter_submissions() == submissions &&
             application_thread_creation_view().ticket.publication_revision == owner_publication &&
-            form->scene.measure->backend_calls == form_shapes && form->scene.storage.arena.committed == form_committed;
+            text_measure_calls(form->scene.measure) == form_shapes && form->scene.storage.arena.committed == form_committed;
         log_u64(LogLevel::info, "thread_creation_warm", "sample", sample);
         log_u64(LogLevel::info, "thread_creation_warm", "unchanged_skips", external.unchanged_present_skips - skips);
         log_u64(LogLevel::info, "thread_creation_warm", "form_bytes", sizeof(ApplicationTextForm));

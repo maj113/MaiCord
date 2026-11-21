@@ -5,6 +5,12 @@
 
 namespace maicord {
 namespace {
+// The radio group and dropdown elements, absent unless a form uses them.
+constexpr u32 kTextFormChoiceElements = 2 + kTextFormChoices + 1 + kTextFormSelectOptions;
+// The colour picker's elements, absent unless a form is a picker.
+constexpr u32 kTextFormColorElements = 5;
+// The QR code and its caption, absent unless a form shows a code.
+constexpr u32 kTextFormQrElements = 2;
 struct ConfirmationMeasure {u32 calls=0;};
 bool confirmation_measure(void* context,const UiTextMeasureRequest& request,UiTextMeasureValue* value) noexcept {
     ++static_cast<ConfirmationMeasure*>(context)->calls;

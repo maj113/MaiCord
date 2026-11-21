@@ -2,6 +2,7 @@
 #include "../../support/layout_validation.hpp"
 #include "../../support/fake_text_measure.hpp"
 #include "maicord/ui/text/edit_signature.hpp"
+#include "../../support/counted_text_measure.hpp"
 
 namespace maicord {
 void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
@@ -53,11 +54,11 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
     }
     const auto generation = scene.widgets.generation;
     const auto layout_revision = scene.widgets.layout.revision;
-    const auto backend_calls = cache.backend_calls;
+    const auto backend_calls = text_measure_calls(&cache);
     const auto storage = scene.storage.arena.base;
     content.anchor_utf16 = content.caret_utf16;
     check(text_form_update(&scene, content, viewport, &cache) && scene.widgets.generation == generation &&
-              scene.widgets.layout.revision == layout_revision && cache.backend_calls == backend_calls &&
+              scene.widgets.layout.revision == layout_revision && text_measure_calls(&cache) == backend_calls &&
               scene.storage.arena.base == storage,
           "text_form_selection_update_reuses_layout_and_storage");
     check(text_form_move_focus(&scene, false) && text_form_focused(scene) == TextFormElement::cancel &&
@@ -114,12 +115,12 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(disabled_cancel, "text_form_disabled_cancel_uses_existing_disabled_action_ink_dark_light");
     }
-    const auto locked_revision = scene.revision, locked_measurements = cache.backend_calls;
+    const auto locked_revision = scene.revision, locked_measurements = text_measure_calls(&cache);
     bool locked_stable = true;
     for (u32 frame = 0; frame < 2; ++frame)
         locked_stable &=
             text_form_update(&scene, content, viewport, &cache) && scene.revision == locked_revision &&
-            scene.widgets.layout.revision == pending_layout && cache.backend_calls == locked_measurements &&
+            scene.widgets.layout.revision == pending_layout && text_measure_calls(&cache) == locked_measurements &&
             text_form_focused(scene) == TextFormElement::count;
     check(locked_stable, "text_form_locked_updates_reuse_geometry_measurements_and_disabled_focus");
     content.can_accept = true;
@@ -263,13 +264,13 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
                   "text_form_dynamic_action_dark_light_retains_disabled_style_and_no_wrap");
         }
         const auto action_revision = actions.revision, action_layout = actions.widgets.layout.revision;
-        const auto action_measurements = cache.backend_calls;
+        const auto action_measurements = text_measure_calls(&cache);
         bool retained = true;
         for (u32 frame = 0; frame < 2; ++frame)
             retained = text_form_update(&actions, name, action_viewport, &cache) && retained;
         check(retained && actions.revision == action_revision &&
                   actions.widgets.layout.revision == action_layout &&
-                  cache.backend_calls == action_measurements,
+                  text_measure_calls(&cache) == action_measurements,
               "text_form_dynamic_action_unchanged_updates_retain_geometry_and_measurements");
         text_form_release(&actions);
     }

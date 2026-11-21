@@ -12,9 +12,6 @@ struct UserStore;
 struct UiActivityCard;
 struct ProfileMedia;
 inline constexpr u32 kUiFriendsMaximumVisibleRows = 152;
-// Two row labels and at most three inline actions, plus headings/tabs/search,
-// the Add Friend intro, the empty state and the Pending badge.
-inline constexpr u32 kUiFriendsMaximumTextCommands = 20 + 5 * kUiFriendsMaximumVisibleRows;
 // The official client lists blocked (and ignored) accounts in settings, not in a Friends tab. Requests and spam
 // are the Message Requests page's tabs: the same page frame lists DMs from people the user may not know.
 enum class UiFriendsTab : u8 { online, all, pending, add_friend, requests, spam };
@@ -24,7 +21,7 @@ constexpr bool ui_friends_tab_requests(UiFriendsTab tab) noexcept {
 enum class UiFriendsPhase : u8 { ready, loading, error };
 // message_request: a DM request's other person (on the Message Requests page).
 enum class UiFriendsKind : u8 { friend_user, incoming, outgoing, blocked, message_request };
-enum class UiFriendsSectionKind : u8 { incoming, outgoing, spam };
+enum class UiFriendsSectionKind : u8 { incoming, outgoing };
 enum class UiFriendsAction : u8 { none, select_tab, open_dm, profile, accept, ignore, cancel, remove, block, add_friend, retry, search, clear_search, more, toggle_section, toggle_hidden, clear_hidden, clear_incoming, decline, unignore,
     // Active Now column: collapse/expand it, or open a card's first member.
     active_toggle, active_card,

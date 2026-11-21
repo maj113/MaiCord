@@ -324,13 +324,11 @@ bool layout_tiles(UiMediaPickerScene& scene) noexcept {
         scene.tile_capacity = static_cast<u32>(bytes / sizeof(UiMediaPickerTile));
         scene.tile_count = 0;
         resolved = false;
-        ++scene.counters.allocations;
     }
     if (!resolved) {
         scene.tile_count = 0;
         for (u32 i = 0; i < count; ++i) {
             UiMediaPickerItem item{};
-            ++scene.counters.resolves;
             if (!scene.source->resolve(scene.source->context, i, &item) || !item_valid(item))
                 return false;
             auto& tile = scene.tiles[i];
@@ -384,7 +382,6 @@ bool layout_tiles(UiMediaPickerScene& scene) noexcept {
     scene.tile_extent = count ? bottom : 0;
     scene.tile_width = scene.cell_width;
     scene.tile_columns = scene.columns;
-    ++scene.counters.masonry_layouts;
     return true;
 }
 } // namespace
@@ -469,8 +466,6 @@ bool cell(UiMediaPickerScene& scene, u32 index, const UiRect& rectangle, const U
                                            : scene.kind == UiMediaPickerKind::sticker
                                                ? UiMediaPickerItemKind::sticker
                                                : UiMediaPickerItemKind::emoji;
-    if (!reused)
-        ++scene.counters.resolves;
     if ((!reused && (!scene.source->resolve(scene.source->context, index, &item) || !item_valid(item))) ||
         (item.kind != expected &&
          !(scene.kind == UiMediaPickerKind::gif && item.kind == UiMediaPickerItemKind::category)))
@@ -484,7 +479,6 @@ bool cell(UiMediaPickerScene& scene, u32 index, const UiRect& rectangle, const U
     if (!widget.generation)
         return false;
     scene.projection->cells[scene.cell_count++] = {item, rectangle, clip, widget, index};
-    ++scene.counters.cells;
     return true;
 }
 bool project_items(UiMediaPickerScene& scene, u32 first, u32 count, float top,
@@ -636,7 +630,6 @@ bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u
 } // namespace
 bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
     const auto& m = scene.style.metrics;
-    ++scene.counters.rebuilds;
     // The previous cells are the reuse source: snapshot them (the rebuild
     // overwrites the projection) into owned storage that grows with the visible
     // count. Without it the rebuild resolves every cell again.

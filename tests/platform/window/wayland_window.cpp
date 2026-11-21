@@ -321,21 +321,47 @@ struct Painter {
 };
 Painter g_painter;
 
-void on_painter_global(void*, wl_registry* registry, u32 name, const char* interface, u32) noexcept {
+// The globals the compositor advertised, in registry order, as the painter's registry sees them: the support matrix.
+struct GlobalName {
+    char name[56];
+    u32 version;
+};
+GlobalName g_globals[128];
+u32 g_global_count;
+
+void on_painter_global(void*, wl_registry* registry, u32 name, const char* interface, u32 version) noexcept {
+    if (g_global_count < sizeof(g_globals) / sizeof(g_globals[0])) {
+        GlobalName& entry = g_globals[g_global_count++];
+        u32 length = 0;
+        for (; interface[length] && length + 1 < sizeof(entry.name); ++length)
+            entry.name[length] = interface[length];
+        entry.name[length] = 0;
+        entry.version = version;
+    }
     if (arg_is(interface, "wl_shm") && !g_painter.shm)
         g_painter.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
+}
+
+// The globals of the last painter_open, in registry order: false past the last.
+bool window_wayland_global(u32 index, const char** name, u32* version) noexcept {
+    if (index >= g_global_count)
+        return false;
+    *name = g_globals[index].name;
+    *version = g_globals[index].version;
+    return true;
 }
 
 void on_painter_global_remove(void*, wl_registry*, u32) noexcept {}
 
 const wl_registry_listener kPainterListener = {on_painter_global, on_painter_global_remove};
 
-// Binds wl_shm on the window's connection (the backend binds its own and keeps it).
+// Binds wl_shm on the window's connection (the backend binds its own and keeps it) and records the globals.
 bool painter_open(Window window) noexcept {
     WaylandSurfaceInfo info{};
     if (!window_wayland_info(window, &info))
         return false;
     wl_display* display = static_cast<wl_display*>(info.display);
+    g_global_count = 0;
     wl_registry* registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &kPainterListener, nullptr);
     g_client.display_roundtrip(display);
@@ -1750,9 +1776,9 @@ void test_extras() noexcept {
     }
 
     // Attention asks for a token and activates with it.
-    const u32 tokens = window_wayland_activation_count();
     window_request_attention(g_window, Attention::flash);
-    check(pump_until([&] { return window_wayland_activation_count() > tokens; }, 2000), "an activation token comes back");
+    check(window_wayland_activation_pending() && pump_until([] { return !window_wayland_activation_pending(); }, 2000),
+          "an activation token comes back");
 
     // Idle inhibit: the compositor reports it (the driver reads sway's tree).
     if (window_wayland_set_idle_inhibit(g_window, true)) {

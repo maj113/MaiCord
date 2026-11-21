@@ -257,6 +257,7 @@ struct Queue {
     u32 count, cursor, used;
     u32 kinds[256];
     bool overflow;
+    u32 largest_output; // the largest payload storage the pump offered
 };
 Queue mailbox{};
 bool enqueue(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
@@ -275,6 +276,7 @@ bool enqueue(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> paylo
 }
 GatewayClientPopResult pop(void* opaque, GatewayClientEvent* event, Slice<u8> output) noexcept {
     auto& q = *static_cast<Queue*>(opaque);
+    q.largest_output = maximum(q.largest_output, static_cast<u32>(output.count));
     if (q.cursor == q.count)
         return {0, GatewayClientPopError::empty};
     const auto& item = queue[q.cursor];
@@ -574,7 +576,7 @@ void oversized_guild() noexcept {
           "oversized guild: the pump applies every channel and overwrite of the oversized record");
     Win32MemoryInformation region{};
     check(stores.pump.large_payload.base && !stores.pump.large_payload.committed &&
-              stores.pump.large_payload.peak == 256 * 1024 && !worker_large.committed &&
+              mailbox.largest_output == 256 * 1024 && !worker_large.committed &&
               VirtualQuery(stores.pump.large_payload.base, region.native(), sizeof(region)) &&
               region.State == MEM_RESERVE,
           "oversized guild: both reservations are decommitted once the record is applied");

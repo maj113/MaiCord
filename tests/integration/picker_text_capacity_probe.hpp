@@ -87,13 +87,13 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
             renderer.content_text->quad_count < command_count * 16 || renderer.content_text->batch_count > 18 ||
             !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 0))
             return false;
-        // A warm rebuild reuses centered, unclipped cell-local glyphs. It must
-        // preserve the cold pixels even at fractional scrolling positions.
-        if (!renderer.picker_glyph_cache) return false;
-        const u32 hits = renderer.picker_glyph_cache->hits;
+        // A warm rebuild reuses centered, unclipped cell-local glyphs: the cold build stored them, and the warm one
+        // stores no new entry. It must preserve the cold pixels even at fractional scrolling positions.
+        if (!renderer.picker_glyph_cache || !renderer.picker_glyph_cache->cursor) return false;
+        const u16 stored = renderer.picker_glyph_cache->cursor;
         content_text_retention_invalidate(&renderer.content_text_retention);
         if (!renderer_rebuild_content_text(&renderer, theme) ||
-            renderer.picker_glyph_cache->hits <= hits ||
+            renderer.picker_glyph_cache->cursor != stored ||
             !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 1) ||
             !bytes_equal(readback.images, readback.images + readback.bytes, readback.bytes))
             return false;

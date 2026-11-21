@@ -12,10 +12,8 @@
 
 namespace maicord {
 namespace {
-bool key_down(VoiceSendShared& s, u8 key) noexcept {
-    if (!key)
-        return false;
-    return s.probe ? s.probe(s.probe_context, key) : global_key_down(key);
+bool key_down(u8 key) noexcept {
+    return key && global_key_down(key);
 }
 void wake_worker(const VoiceSend& send) noexcept {
     // The queue publication before this check is a full barrier (s.write is interlocked), so a
@@ -34,7 +32,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
     const LONG64 word = read_acquire(&s.control);
     VoiceSendControl c;
     copy_bytes(&c, &word, sizeof(c));
-    const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(s, c.key);
+    const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(c.key);
     bool queued = false;
     u64 index = 0;
     while (voice_framer_pop(&s.framer, now_us, {s.frame, kVoiceFrameSamples}, &index, &s.wake_us)) {

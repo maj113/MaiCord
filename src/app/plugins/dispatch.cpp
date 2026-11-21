@@ -95,7 +95,6 @@ PluginDraftResult plugin_dispatch_draft(PluginHook hook, const PluginDraft& draf
                       draft.reply_author_id};
         const PluginCallResult ran = plugin_binding_run_draft(subscriber.binding, static_cast<u32>(hook),
                                                               subscriber.function.draft, &call);
-        ++g_stats.calls;
         if (ran.overran) continue;
         if (ran.status != MC_OK) continue;
         if (hook == PluginHook::pre_send) flags = call.flags & kFlagsMask;

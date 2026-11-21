@@ -9,6 +9,30 @@
 
 namespace maicord {
 
+// The source range [first, end) of the cluster that holds `source`. The start comes from sfnt_cluster_map_start. The
+// start of a later source does not go down, so a binary search finds the first later source with a start of its own.
+inline SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map, u32 source, u32* first, u32* end) noexcept {
+    if (!first || !end)
+        return SfntStatus::invalid_input;
+    *first = *end = 0;
+    if (source >= map.text_count)
+        return SfntStatus::invalid_input;
+    const u32 start = sfnt_cluster_map_start(map, source);
+    if (start == 0xffffffffu)
+        return SfntStatus::invalid_input;
+    u32 low = source + 1, high = map.text_count;
+    while (low < high) {
+        const u32 middle = low + (high - low) / 2;
+        if (sfnt_cluster_map_start(map, middle) == start)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    *first = start;
+    *end = low;
+    return SfntStatus::ok;
+}
+
 inline SfntStatus sfnt_cluster_map_export(const SfntClusterMap& map, SfntGlyphView glyphs, Slice<u32> characters,
                                           Slice<u8> starts = {}, u64 work = 1000000) noexcept {
     constexpr u32 absent = 0xffffffffu;

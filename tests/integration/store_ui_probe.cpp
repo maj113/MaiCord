@@ -745,7 +745,14 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         for (u32 i = 0; !card && i < f.store.count; ++i)
             if (store_act(f.store.nodes[i].action) == StoreAct::card)
                 card = f.store.nodes[i].action;
-        valid = card && ui_store_scene_focus(&f.store, card, true);
+        // Tab from the top of the page to the card, as a keyboard user does.
+        f.store.focus_action = 0;
+        UiStoreEvent event{};
+        for (u32 step = 0; card && step < f.store.count && f.store.focus_action != card &&
+                           ui_store_scene_key(&f.store, UiStoreKey::tab, &event);
+             ++step) {
+        }
+        valid = card && f.store.focus_action == card;
         if (valid) {
             ++f.scene.revision;
             renderer.retained_presentation.valid = false;

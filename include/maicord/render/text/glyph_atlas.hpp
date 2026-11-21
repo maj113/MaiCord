@@ -158,8 +158,6 @@ void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept;
 bool glyph_atlas_pin(GlyphAtlasAllocator* atlas,
                      GlyphAtlasHandle handle) noexcept;
 bool glyph_atlas_unpin(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) noexcept;
-bool glyph_atlas_is_pinned(const GlyphAtlasAllocator& atlas,
-                           GlyphAtlasHandle handle) noexcept;
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept;
 // The caller has already established that key is absent. `pool` (0: the general region; n: pool n - 1) must take
 // the size.

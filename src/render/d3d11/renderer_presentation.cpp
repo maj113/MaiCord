@@ -805,8 +805,6 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
         diff.text_signature = text;
         diff.layout_signature = layout;
     }
-    if (partial)
-        ++diff.partial_rebuilds;
     return partial;
 }
 

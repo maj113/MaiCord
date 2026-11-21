@@ -8,6 +8,7 @@
 #include "../../support/jpeg_decode.hpp"
 #include "../../../src/media/image/jpeg_internal.hpp"
 #include "../../../src/media/image/png_common.hpp"
+#include "../../support/media_fixture.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/virtual_memory.hpp"
 

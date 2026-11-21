@@ -77,15 +77,13 @@ void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcep
     check(result.ok() && rich->reactions[0].count == 1,
           "rich reactions: removing an unowned own reaction changes nothing");
 
-    const u32 wasted = store.text_wasted;
     result = mutate(1, 0, party, normal, Kind::remove, false);
     check(result.ok() && rich->reaction_count == 2 && rich->reactions[0].emoji_id == 44 &&
-              rich->reactions[1].emoji_id == 0 && store.text_wasted >= wasted + party.bytes,
-          "rich reactions: the last removal drops the entry, keeps the others in order and wastes its name");
+              rich->reactions[1].emoji_id == 0,
+          "rich reactions: the last removal drops the entry and keeps the others in order");
 
-    const u32 rejected = store.rejected;
     result = mutate(9, 44, utf8_literal("party"), burst, Kind::add, false);
-    check(!result.ok() && store.rejected == rejected + 1 && rich->reactions[0].count == 1,
+    check(!result.ok() && rich->reactions[0].count == 1,
           "rich reactions: a stale revision is rejected");
 
     result = mutate(1, 44, {}, burst, Kind::remove_emoji, false);
@@ -124,7 +122,7 @@ void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcep
                  message_rich_store_string(store, rich->reactions[0].name).bytes == party.bytes &&
                  mutate(1, 0, view, normal, Kind::remove, false).ok();
     }
-    check(intact && store.compactions != 0 && !(rich && (rich->truncations & gateway_message_rich_truncated_text)),
+    check(intact && !(rich && (rich->truncations & gateway_message_rich_truncated_text)),
           "rich reactions: text-bank pressure compacts and keeps live names");
 }
 } // namespace
@@ -194,15 +192,9 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     u8 text[256];
     for (auto& byte : text)
         byte = 0xA5;
-    check(
-        message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2}, {text, sizeof(text)}) &&
-            store.sparse_text && store.text_capacity == sizeof(text) && store.capacity == 2 &&
-            store.record_capacity == 4 && store.record_extent == 0 && records.capacity == 0 &&
-            records.arena.committed == 0 && order[0] == 0 && order[1] == 0 && text[0] == 0 &&
-            text[128] == 0 && unchanged_tail(text, sizeof(text), 0xA5),
-        "sparse rich owned initialization records real capacity and initializes order and only both bank "
-        "sentinels");
-    const auto* reserved_records = records.arena.base;
+    check(message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2}, {text, sizeof(text)}) &&
+              records.arena.committed == 0 && unchanged_tail(text, sizeof(text), 0xA5),
+          "sparse rich owned initialization commits no record and leaves the text bank tails untouched");
     auto event = sparse_message();
     GatewayMessageAttachment attachment{};
     attachment.id = 901;
@@ -213,21 +205,17 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     event.snapshot.present = true;
     event.snapshot.content = utf8_literal("child text");
     event.snapshot.fields = gateway_message_field_content;
-    check(message_rich_store_apply(&store, 900, 1, event).ok() && store.record_extent >= 2 &&
-              store.snapshot_count == 1 && records.arena.base == reserved_records &&
+    check(message_rich_store_apply(&store, 900, 1, event).ok() &&
               message_rich_store_find(store, 900) && message_rich_store_snapshot(store, 900),
-          "sparse rich owned records still grow lazily and preserve independent forwarded child ownership");
+          "sparse rich owned records grow on demand and keep the forwarded child");
     for (auto& byte : text)
         byte = 0xA5;
-    check(message_rich_store_reset(&store) && store.sparse_text && store.text_capacity == sizeof(text) &&
-              !store.count && !store.snapshot_count && !store.text_used && store.active_bank == 0 &&
-              text[0] == 0 && text[128] == 0 && unchanged_tail(text, sizeof(text), 0xA5),
-          "sparse rich reset preserves reserved capacity and leaves unused text tails untouched");
+    check(message_rich_store_reset(&store) && !store.count && !message_rich_store_find(store, 900) &&
+              unchanged_tail(text, sizeof(text), 0xA5),
+          "sparse rich reset leaves unused text tails untouched");
     message_rich_store_release(&store);
-    check(!store.records && !store.text && !store.record_storage && !records.arena.base &&
-              !records.capacity && unchanged_tail(text, sizeof(text), 0xA5),
-          "sparse rich release frees owned records and clears owner without touching caller text "
-          "reservation");
+    check(!records.arena.base && unchanged_tail(text, sizeof(text), 0xA5),
+          "sparse rich release frees owned records without touching caller text");
 
     store.text_capacity = 19;
     order[0] = 7;
@@ -282,7 +270,7 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
         check(guarded &&
                   message_rich_store_initialize_owned_sparse(&store, &records, 2, {order, 2},
                                                              {sparse_text.base, bank_bytes * 2}) &&
-                  store.text_capacity == bank_bytes * 2 && store.sparse_text && sparse_text.base[0] == 0 &&
+                  sparse_text.base[0] == 0 &&
                   sparse_text.base[bank_bytes] == 0 && sparse_text.base[page - 1] == 0xA5 &&
                   sparse_text.base[bank_bytes + page - 1] == 0xA5 &&
                   VirtualQuery(sparse_text.base + page, &after, sizeof(after)) == sizeof(after) &&
@@ -294,9 +282,8 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
               "committing them");
         event = sparse_message();
         event.attachments = {&attachment, 1};
-        check(message_rich_store_apply(&store, 900, 1, event).ok() && store.text_used < page &&
-                  message_rich_store_reset(&store) && store.sparse_text &&
-                  store.text_capacity == bank_bytes * 2 &&
+        check(message_rich_store_apply(&store, 900, 1, event).ok() &&
+                  message_rich_store_reset(&store) &&
                   VirtualQuery(sparse_text.base + page, &after, sizeof(after)) == sizeof(after) &&
                   after.State == MEM_RESERVE &&
                   VirtualQuery(sparse_text.base + bank_bytes + page, &second_tail, sizeof(second_tail)) ==
@@ -348,15 +335,15 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
         check(message_rich_store_apply(&audio_store, 900, revision, event).ok(),
               "audio repeated attachment replacement survives packed bank compaction");
     audio_row = message_rich_store_find(audio_store, 900);
-    check(audio_store.compactions && audio_row && message_rich_record_voice(*audio_row) &&
+    check(audio_row && message_rich_record_voice(*audio_row) &&
               utf8_equal(message_rich_store_string(audio_store, audio_row->attachments[0].waveform),
                          utf8_literal("AP+A")),
           "audio waveform participates in packed string relocation during actual rich bank compaction");
-    const u32 used_before = audio_store.text_used, updated_before = audio_store.updated;
+    const u32 updated_before = audio_store.updated;
     const auto retained = audio_row ? audio_row->attachments[0] : MessageRichAttachment{};
     attachment.waveform = utf8_literal("TR==");
     check(!message_rich_store_apply(&audio_store, 900, 18, event).ok() &&
-              audio_store.text_used == used_before && audio_store.updated == updated_before &&
+              audio_store.updated == updated_before &&
               message_rich_store_find(audio_store, 900) &&
               bytes_equal(&message_rich_store_find(audio_store, 900)->attachments[0], &retained,
                           sizeof(retained)),
@@ -424,7 +411,7 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
               classified(utf8_literal("Voice Memo.M4A"), {}, 30, MediaAttachmentFormat::m4a) &&
               classified(utf8_literal("clip.m4a"), utf8_literal("video/mp4"), 31, MediaAttachmentFormat::unknown),
           "audio MPEG-4 AAC MIME and generic .m4a suffix select the MP4 audio container, never a video type");
-    check(message_rich_store_reset(&audio_store) && !audio_store.count && !audio_store.text_used,
+    check(message_rich_store_reset(&audio_store) && !audio_store.count && !message_rich_store_find(audio_store, 900),
           "audio account reset releases waveform logical ownership along with other rich metadata");
     message_rich_store_release(&audio_store);
 

@@ -38,7 +38,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
     const auto key = media_asset_attachment(987655, MediaAttachmentFormat::mp4);
     GpuVideoFrame frame = picture.frame(width, height);
     frame.bt709 = frame.full_range = true;
-    const u32 conversions = gpu.video.frames, cleared = gpu.cleared_regions;
+    const u32 conversions = gpu.video.frames;
     const u32 entries = atlas.entry_count;
     MediaAtlasResult first{};
     for (u32 pass = 0; ok && pass < 2; ++pass) {
@@ -98,7 +98,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
             }
         }
     }
-    ok = ok && gpu.video.frames == conversions + 2 && gpu.cleared_regions == cleared + 1 &&
+    ok = ok && gpu.video.frames == conversions + 2 &&
          atlas.entry_count == entries + 1 && media_atlas_validate(atlas, first.handle);
     if (ok) {
         // A visible shape above the codec budget is refused before allocation.

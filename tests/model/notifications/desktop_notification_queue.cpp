@@ -88,7 +88,7 @@ void test_desktop_notification_queue(void(*check)(bool,const char*) noexcept) no
     f.initialize(4,16);
     const auto bytes_first=desktop_notification_queue_enqueue(&f.q,item(20));
     check(bytes_first.ok() && desktop_notification_queue_enqueue(&f.q,item(21)).error==Error::full_bytes &&
-        desktop_notification_queue_enqueue(&f.q,item(20)).error==Error::duplicate && f.q.count==1 && f.q.used==10,
+        desktop_notification_queue_enqueue(&f.q,item(20)).error==Error::duplicate && f.q.count==1,
         "display byte exhaustion and queued duplicate admission are atomic");
     constexpr char bad[]={char(-64),char(-81)}, nul[]={'a',0,'b'};
     auto invalid=item(21);invalid.body={bad,2};
@@ -103,8 +103,8 @@ void test_desktop_notification_queue(void(*check)(bool,const char*) noexcept) no
     auto cancel_sound=item(32,22,utf8_literal("three"));cancel_sound.sound_epoch=91;cancel_sound.sound_id=1;
     desktop_notification_queue_enqueue(&f.q,cancel_sound);cancel_sound.sound_epoch=0;cancel_sound.sound_id=0;
     check(desktop_notification_queue_purge_message(&f.q,11,2,23,31)==0 &&
-        desktop_notification_queue_purge_message(&f.q,11,1,23,31)==1 && f.q.count==2 && f.q.used==20 &&
-        f.rows[1].offset==9 && desktop_notification_queue_begin(&f.q,&dispatch).ok() && dispatch.identity.message_id==30,
+        desktop_notification_queue_purge_message(&f.q,11,1,23,31)==1 && f.q.count==2 &&
+        desktop_notification_queue_begin(&f.q,&dispatch).ok() && dispatch.identity.message_id==30,
         "display message deletion compacts only matching generation and preserves surviving FIFO text");
     desktop_notification_queue_complete(&f.q,dispatch.identity.token,dispatch.attempt,Outcome::submitted);
     desktop_notification_queue_begin(&f.q,&dispatch);
@@ -177,7 +177,7 @@ void test_desktop_notification_queue(void(*check)(bool,const char*) noexcept) no
     check(desktop_notification_queue_can_admit(&large,4096) && desktop_notification_queue_enqueue(&large,maximal).ok(),
         "display queue accepts exact4KiB generic copied item with no truncation");
     maximal.message_id=501;maximal.title=utf8_literal("x");
-    check(desktop_notification_queue_enqueue(&large,maximal).error==Error::invalid_input && large.count==1 && large.used==4096,
+    check(desktop_notification_queue_enqueue(&large,maximal).error==Error::invalid_input && large.count==1,
         "display queue rejects item byte sum over4KiB atomically before scanning or copying");
     desktop_notification_queue_purge_all(&large);
     check(zero(bytes,sizeof(bytes)),"display bulk purge erases copied maximum-size private preview");

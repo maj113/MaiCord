@@ -204,7 +204,6 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
     ShapedTextGeneration& older = cache->generations[cache->current ^ 1u];
     ShapedTextCacheEntry* entry = find_in(older, request, *hash);
     if (!entry) {
-        saturating_increment(cache->stats.misses);
         return false;
     }
     const u32 key_count = entry->text_bytes + entry->style_count * static_cast<u32>(sizeof(TextStyleSpan)) +
@@ -219,7 +218,6 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
     copy_bytes(current.key_bytes + current.key_byte_count, older.key_bytes + entry->key_offset, key_count);
     const ShapedTextCacheEntry* moved = append(current, *entry, key_count, source);
     entry->moved = true;
-    saturating_increment(cache->stats.promotions);
     *view = view_of(current, *moved);
     return true;
 }
@@ -235,7 +233,6 @@ bool shaped_text_cache_insert(ShapedTextCache* cache, const ShapedTextCacheReque
               shaped->decoration_count, shaped->hit_region_count)) {
         cache->current ^= 1u;
         clear_generation(cache->generations[cache->current]);
-        saturating_increment(cache->stats.flips);
         if (!fits(cache->generations[cache->current], key_count, shaped->glyph_count, shaped->run_count,
                   shaped->decoration_count, shaped->hit_region_count)) {
             return false;

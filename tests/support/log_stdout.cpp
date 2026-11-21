@@ -17,7 +17,6 @@ constexpr u32 kStampCharacters = 19; // "YYYY-MM-DD HH:MM:SS"
 constexpr u32 kPrefixCharacters = kStampCharacters + 10; // stamp, ".mmm [L] ["
 
 SRWLOCK g_lock{};
-LogCounters g_counters{};
 char g_line[kLineBytes];
 
 LineWriter begin_line(LogLevel level, const char* component) noexcept {
@@ -39,7 +38,6 @@ void commit_line(LineWriter writer, LogLevel) noexcept {
     writer.put("\r\n");
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), g_line, static_cast<DWORD>(writer.at - g_line), &written, nullptr);
-    ++g_counters.lines;
     ReleaseSRWLockExclusive(&g_lock);
 }
 
@@ -50,12 +48,5 @@ bool log_open() noexcept {
 }
 
 void log_close() noexcept {}
-
-LogCounters log_counters() noexcept {
-    AcquireSRWLockExclusive(&g_lock);
-    const LogCounters counters = g_counters;
-    ReleaseSRWLockExclusive(&g_lock);
-    return counters;
-}
 
 } // namespace maicord

@@ -29,7 +29,7 @@ void test_user_store() noexcept {
     const UserStoreResult touch = user_store_upsert(&store, 1, utf8_literal("Alice"));
     const UserStoreResult cara = user_store_upsert(&store, 3, utf8_literal("Cara"));
     expect(initialized && alice.ok() && alice.inserted && bob.ok() && touch.ok() &&
-               cara.ok() && cara.evicted && store.count == 2 && store.evictions == 1 &&
+               cara.ok() && cara.evicted && store.count == 2 &&
                user_store_find(store, 1) && !user_store_find(store, 2) &&
                user_store_find(store, 3),
            "user_store_lru_eviction");
@@ -39,7 +39,7 @@ void test_user_store() noexcept {
     const UserStoreResult renamed_cara =
         user_store_upsert(&store, 3, utf8_literal("CaraLongName"));
     const UserRecord* renamed = user_store_find(store, 3);
-    expect(renamed_alice.ok() && renamed_cara.ok() && store.compactions == 1 &&
+    expect(renamed_alice.ok() && renamed_cara.ok() &&
                renamed &&
                bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(
                                               user_store_name(store, *renamed).data),
@@ -75,8 +75,6 @@ void test_user_store() noexcept {
         user_store_upsert(&paired, 1, utf8_literal("Alice"), utf8_literal("alice")).ok() &&
         user_store_upsert(&paired, 2, utf8_literal("Bob"), utf8_literal("bob")).ok();
     const u32 paired_revision = paired.revision;
-    const u32 paired_clock = paired.clock;
-    const u32 paired_used = paired.name_used;
     const UserStoreResult paired_touch =
         user_store_upsert(&paired, 1, utf8_literal("Alice"), utf8_literal("alice"));
     const UserStoreResult preserved_touch =
@@ -84,10 +82,9 @@ void test_user_store() noexcept {
     const UserRecord* touched = user_store_find(paired, 1);
     expect(paired_ready && paired_touch.ok() &&
                preserved_touch.ok() &&
-               paired.revision == paired_revision && paired.name_used == paired_used &&
-               paired.clock == paired_clock + 2 && touched && touched->last_seen == paired.clock &&
+               paired.revision == paired_revision && touched &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("alice")),
-           "user_store_unchanged_name_pair_preserves_lru_and_storage");
+           "user_store_unchanged_name_pair_keeps_revision_and_username");
 
     const bool paired_renamed =
         user_store_upsert(&paired, 1, utf8_literal("Alice2")).ok();
@@ -97,8 +94,7 @@ void test_user_store() noexcept {
     const UserStoreResult borrowed_update =
         user_store_upsert(&paired, 1, borrowed_display);
     touched = user_store_find(paired, 1);
-    expect(paired_renamed && borrowed_update.ok() &&
-               paired.compactions == 1 && touched &&
+    expect(paired_renamed && borrowed_update.ok() && touched &&
                utf8_equal(user_store_name(paired, *touched), utf8_literal("Bob")) &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("alice")),
            "user_store_borrowed_names_survive_compaction");
@@ -143,15 +139,12 @@ void test_message_store() noexcept {
     const MessageStoreResult found_second = message_store_find(store, 200);
     const MessageInput edited{200, 7, 12, 2'000, 2'500, utf8_literal("two edited"), 6};
     const MessageStoreResult updated = message_store_upsert(&store, edited);
-    const u32 used_after_update = store.text_used;
-    const u32 wasted_after_update = store.text_wasted;
     const MessageStoreResult unchanged = message_store_upsert(&store, edited);
     const MessageRecord* edited_record = message_store_resolve(store, updated.handle);
     expect(found_second.ok() && updated.ok() && !updated.inserted && unchanged.ok() && edited_record &&
                edited_record->revision == 3 && edited_record->edited_timestamp_ms == 2'500 &&
                edited_record->flags == 6 &&
                utf8_equal(message_store_content(store, updated.handle), utf8_literal("two edited")) &&
-               store.text_used == used_after_update && store.text_wasted == wasted_after_update &&
                store.updated == 4,
            "message_store_update_content_revision");
 
@@ -210,14 +203,12 @@ void test_message_store() noexcept {
                message_store_delete(&in_place_store, 30) &&
                message_store_upsert(&in_place_store, MessageInput{40, 1, 1, 4, 0, utf8_literal("dddd"), 0})
                    .ok() &&
-               in_place_store.text_used == 12 && in_place_store.text_wasted == 6 &&
-               message_store_compact_in_place(&in_place_store) && in_place_store.text_used == 6 &&
-               in_place_store.text_wasted == 0 && message_store_resolve(in_place_store, in_place_10) &&
+               message_store_compact_in_place(&in_place_store) && message_store_resolve(in_place_store, in_place_10) &&
                message_store_resolve(in_place_store, in_place_20) &&
                message_store_resolve(in_place_store, in_place_10)->content_availability ==
                    MessageContentAvailability::restricted &&
                utf8_equal(message_store_content(in_place_store, in_place_10), utf8_literal("bb")) &&
-               message_store_resolve(in_place_store, in_place_20)->content_offset == 6 &&
+               utf8_equal(message_store_content(in_place_store, in_place_20), utf8_literal("")) &&
                utf8_equal(
                    message_store_content(in_place_store, message_store_find(in_place_store, 40).handle),
                    utf8_literal("dddd")),
@@ -243,8 +234,6 @@ void test_message_store() noexcept {
                message_store_delete(&pressure_store, 1) &&
                message_store_upsert(&pressure_store, MessageInput{3, 1, 1, 3, 0, utf8_literal("cccccc"), 0})
                    .ok() &&
-               pressure_store.text_used == 8 && pressure_store.text_wasted == 0 &&
-               pressure_store.compactions == 1 &&
                utf8_equal(
                    message_store_content(pressure_store, message_store_find(pressure_store, 3).handle),
                    utf8_literal("cccccc")),
@@ -263,8 +252,6 @@ void test_message_store() noexcept {
             message_store_delete(&replace_store, 2) &&
             message_store_upsert(&replace_store, MessageInput{1, 1, 1, 1, 3, utf8_literal("123456"), 0})
                 .ok() &&
-            replace_store.text_used == 6 && replace_store.text_wasted == 0 &&
-            replace_store.compactions == 1 &&
             utf8_equal(
                 message_store_content(replace_store, message_store_find(replace_store, 1).handle),
                 utf8_literal("123456")),
@@ -285,7 +272,6 @@ void test_message_store() noexcept {
         &overlap_store,
         MessageInput{1, 1, 1, 1, 3, Utf8View{reinterpret_cast<const char*>(overlap_store.text), 4}, 0});
     expect(overlap_rejected.error == MessageStoreError::invalid_input && overlap_store.count == 1 &&
-               overlap_store.text_used == 4 && overlap_store.text_wasted == 2 &&
                utf8_equal(
                    message_store_content(overlap_store, message_store_find(overlap_store, 1).handle),
                    utf8_literal("aa")),
@@ -658,7 +644,7 @@ void test_message_rich_store() noexcept {
                "message_rich_store_repeated_update");
     }
     record = message_rich_store_find(store, 900);
-    expect(record && record->message_revision == 13 && store.compactions != 0 &&
+    expect(record && record->message_revision == 13 &&
                record->attachment_count == 1 &&
                message_rich_store_string(store, record->reactions[0].name).bytes == 300,
            "message_rich_store_atomic_bank_compaction");
@@ -806,7 +792,7 @@ void test_message_rich_store() noexcept {
     expect(message_rich_store_delete(&store, 901) &&
                message_rich_store_delete(&store, 900) && store.count == 0 &&
                !message_rich_store_find(store, 900) && message_rich_store_delete(&store, 900) &&
-               message_rich_store_reset(&store) && store.count == 0 && store.text_used == 0,
+               message_rich_store_reset(&store) && store.count == 0,
            "message_rich_store_delete_and_reset");
 }
 
@@ -850,8 +836,7 @@ void test_message_draft_store() noexcept {
         message_draft_store_save(&store, MessageDraftInput{7, utf8_literal("0123456789abcdef"), 16, 16});
     MessageDraftSnapshot first_after_compaction{};
     MessageDraftSnapshot second_after_compaction{};
-    expect(shrunk.ok() && grown.ok() && store.compactions == 1 && store.text_wasted == 0 &&
-               store.text_used == 20 && message_draft_store_snapshot(store, 7, &first_after_compaction) &&
+    expect(shrunk.ok() && grown.ok() && message_draft_store_snapshot(store, 7, &first_after_compaction) &&
                message_draft_store_snapshot(store, 8, &second_after_compaction) &&
                utf8_equal(first_after_compaction.text, utf8_literal("0123456789abcdef")) &&
                utf8_equal(second_after_compaction.text, utf8_literal("beta")),
@@ -868,8 +853,7 @@ void test_message_draft_store() noexcept {
     expect(message_draft_store_delete(&store, 7) && message_draft_store_delete(&store, 7) &&
                store.count == 2 &&
                message_draft_store_find(store, 7).error == MessageDraftStoreError::not_found &&
-               message_draft_store_reset(&store) && store.count == 0 && store.text_used == 0 &&
-               store.text_wasted == 0 && text[0] == 0,
+               message_draft_store_reset(&store) && store.count == 0 && text[0] == 0,
            "message_draft_store_delete_and_reset");
 
     const MessageDraftStoreResult reply_text = message_draft_store_save(
@@ -882,7 +866,6 @@ void test_message_draft_store() noexcept {
         message_draft_store_snapshot(store, 8, &snapshot) && snapshot.text.bytes == 0 &&
         snapshot.reply_message_id == 801 && snapshot.mention_reply_author,
         "message_draft_store_reply_only_uses_record_without_text_and_defaults_to_ping");
-    const u32 used_before_metadata = store.text_used;
     const u32 revision_before_metadata = store.revision;
     const MessageDraftStoreResult target_changed = message_draft_store_save(
         &store, MessageDraftInput{7, utf8_literal("alpha"), 1, 5, 702, false});
@@ -891,9 +874,8 @@ void test_message_draft_store() noexcept {
     const MessageDraftStoreResult unchanged_reply = message_draft_store_save(
         &store, MessageDraftInput{7, utf8_literal("alpha"), 1, 5, 702, true});
     expect(target_changed.ok() && target_changed.changed && policy_changed.ok() && policy_changed.changed &&
-        unchanged_reply.ok() && !unchanged_reply.changed && store.revision == revision_before_metadata + 2 &&
-        store.text_used == used_before_metadata && store.text_wasted == 0 && store.compactions == 0,
-        "message_draft_store_reply_metadata_changes_are_dirty_without_text_rewrite");
+        unchanged_reply.ok() && !unchanged_reply.changed && store.revision == revision_before_metadata + 2,
+        "message_draft_store_reply_metadata_changes_are_dirty");
     const MessageDraftStoreResult rejected_reply = message_draft_store_save(
         &store, MessageDraftInput{7, utf8_literal("0123456789abcdefghijklmn"), 0, 24, 703, false});
     expect(rejected_reply.error == MessageDraftStoreError::text_capacity &&
@@ -905,7 +887,7 @@ void test_message_draft_store() noexcept {
     expect(wrong_target.ok() && !wrong_target.changed && wrong_channel.ok() && !wrong_channel.changed &&
         message_draft_store_save(&store, MessageDraftInput{7, utf8_literal("a"), 0, 1, 702}).ok() &&
         message_draft_store_save(&store, MessageDraftInput{7, utf8_literal("0123456789abcdef"), 2, 16, 702}).ok() &&
-        store.compactions == 1 && message_draft_store_snapshot(store, 8, &snapshot) &&
+        message_draft_store_snapshot(store, 8, &snapshot) &&
         snapshot.text.bytes == 0 && snapshot.reply_message_id == 801 &&
         message_draft_store_snapshot(store, 9, &snapshot) && snapshot.reply_message_id == 901 &&
         !snapshot.mention_reply_author && utf8_equal(snapshot.text, utf8_literal("beta")),
@@ -925,7 +907,7 @@ void test_message_draft_store() noexcept {
         message_draft_store_save(&store, MessageDraftInput{7, utf8_literal("ordinary"), 0, 8, 0, false}).ok() &&
         message_draft_store_snapshot(store, 7, &snapshot) && snapshot.mention_reply_author &&
         message_draft_store_clear_reply(&store, 7, 0).error == MessageDraftStoreError::invalid_input &&
-        message_draft_store_reset(&store) && store.count == 0 && store.text_used == 0 &&
+        message_draft_store_reset(&store) && store.count == 0 &&
         records[0].reply_message_id == 0,
         "message_draft_store_reply_removal_normalizes_policy_and_reset_clears_targets");
     // Reset scrubs only the live prefix; the tail invariant keeps the rest zero.

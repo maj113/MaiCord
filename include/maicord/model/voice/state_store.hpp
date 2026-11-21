@@ -50,9 +50,6 @@ struct VoiceStateStore {
     // Moves with every change other than a speaking mark: no reader of the revision shows those marks, and the
     // caller of voice_state_store_set_speaking repaints for them.
     u32 revision;
-    // States lost at the bound, and the guild evictions that freed room.
-    u32 dropped;
-    u32 evictions;
     // Never evicted (the selected guild); private calls never are either.
     u64 retained_guild;
     StableStorage owned;

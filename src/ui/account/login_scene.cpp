@@ -134,34 +134,17 @@ void add_auxiliary_link(LoginScene* scene, UiWidgetBuilder& widgets, UiWidgetHan
     }
 }
 
-u8 login_layout_variant(bool full_viewport, bool qr_visible, float width, float height,
-                        const LoginLayoutMetrics& metrics) noexcept {
+// The login layout reads its metrics from this constant only.
+constexpr const LoginLayoutMetrics& metrics = kDefaultLoginLayoutMetrics;
+
+u8 login_layout_variant(bool full_viewport, bool qr_visible, float width, float height) noexcept {
     const bool intermediate_width = !full_viewport && width < metrics.intermediate_max_width;
     const bool short_viewport = height < metrics.short_viewport_height;
     return static_cast<u8>((full_viewport ? 1u : 0u) | (qr_visible ? 2u : 0u) |
                            (intermediate_width ? 4u : 0u) | (short_viewport ? 8u : 0u));
 }
 
-constexpr bool login_metrics_valid(const LoginLayoutMetrics& metrics) noexcept {
-    return metrics.revision != 0 && ui_extent_valid(metrics.full_viewport_max_width) &&
-           ui_extent_valid(metrics.qr_min_width) && ui_extent_valid(metrics.intermediate_max_width) &&
-           ui_extent_valid(metrics.short_viewport_height) && ui_extent_valid(metrics.wide_card_width) &&
-           ui_extent_valid(metrics.compact_card_width) && ui_extent_valid(metrics.card_height) &&
-           ui_insets_valid(metrics.outer_margin) && ui_insets_valid(metrics.card_padding) &&
-           ui_insets_valid(metrics.full_viewport_padding) && ui_extent_valid(metrics.qr_gap) &&
-           ui_extent_valid(metrics.qr_column_width) && ui_extent_valid(metrics.qr_extent) &&
-           ui_extent_valid(metrics.input_height) && ui_extent_valid(metrics.submit_height) &&
-           metrics.full_viewport_max_width > 0.0f &&
-           metrics.qr_min_width > metrics.full_viewport_max_width &&
-           metrics.intermediate_max_width > metrics.full_viewport_max_width &&
-           metrics.wide_card_width > 0.0f && metrics.compact_card_width > 0.0f &&
-           metrics.card_height > 0.0f && metrics.input_height > 0.0f && metrics.submit_height > 0.0f;
-}
-// The only runtime callers pass the default metrics (tests pass valid copies).
-static_assert(login_metrics_valid(kDefaultLoginLayoutMetrics));
-
-bool build_login_widgets(LoginScene* scene, float width, float height,
-                         const LoginLayoutMetrics& metrics) noexcept {
+bool build_login_widgets(LoginScene* scene, float width, float height) noexcept {
     if (!scene->widgets.storage.data) {
         if ((!scene->storage.arena.base &&
              !ui_fixed_widget_storage_initialize(&scene->storage, kMaximumLoginWidgets)) ||
@@ -344,7 +327,6 @@ void discard_login_layout(LoginScene* scene) noexcept {
     }
     scene->layout_width = 0;
     scene->layout_height = 0;
-    scene->layout_metrics_revision = 0;
 }
 
 bool control_input_enabled(const LoginScene& scene, LoginControl control) noexcept {
@@ -455,10 +437,6 @@ bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float
     return true;
 }
 
-bool login_scene_layout(LoginScene* scene, float width, float height) noexcept {
-    return login_scene_layout_with_metrics(scene, width, height, kDefaultLoginLayoutMetrics);
-}
-
 void login_scene_release(LoginScene* scene) noexcept {
     if (!scene) {
         return;
@@ -467,8 +445,7 @@ void login_scene_release(LoginScene* scene) noexcept {
     reset_value<LoginScene>(scene);
 }
 
-bool login_scene_layout_with_metrics(LoginScene* scene, float width, float height,
-                                     const LoginLayoutMetrics& metrics) noexcept {
+bool login_scene_layout(LoginScene* scene, float width, float height) noexcept {
     if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f) {
         return false;
     }
@@ -490,7 +467,7 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
         scene->mfa_capabilities = scene->selected_mfa_capability = 0;
     const bool qr_visible = !scene->phone_mode && !scene->recovery_mode && !scene->reset_mode && !scene->browser_mode &&
                             !full_viewport && width >= metrics.qr_min_width;
-    const u8 variant = login_layout_variant(full_viewport, qr_visible, width, height, metrics);
+    const u8 variant = login_layout_variant(full_viewport, qr_visible, width, height);
     const bool same_structure =
         scene->widgets.count != 0 && scene->layout_mfa_capabilities == scene->mfa_capabilities &&
         scene->layout_credential_fields_hidden == scene->credential_fields_hidden &&
@@ -498,7 +475,7 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
         scene->layout_reset_mode == scene->reset_mode && scene->layout_phone_mode == scene->phone_mode &&
         scene->layout_browser_mode == scene->browser_mode && scene->layout_browser_available == scene->browser_available &&
         scene->layout_recovery_result == (scene->recovery_mode && scene->back_only) &&
-        scene->layout_variant == variant && scene->layout_metrics_revision == metrics.revision;
+        scene->layout_variant == variant;
     const bool reusable = same_structure && scene->layout_width == width && scene->layout_height == height;
     scene->full_viewport = full_viewport;
     scene->qr_visible = qr_visible;
@@ -515,7 +492,7 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
             return false;
         }
     } else {
-        if (!build_login_widgets(scene, width, height, metrics)) {
+        if (!build_login_widgets(scene, width, height)) {
             discard_login_layout(scene);
             return false;
         }
@@ -533,7 +510,6 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
     scene->layout_browser_available = scene->browser_available;
     scene->layout_recovery_result = scene->recovery_mode && scene->back_only;
     scene->layout_variant = variant;
-    scene->layout_metrics_revision = metrics.revision;
     sync_login_input(scene);
     if (scene->focus != LoginControl::none && !login_scene_focus(scene, scene->focus)) {
         scene->focus = LoginControl::none;

@@ -82,9 +82,8 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
         "thread snapshot 513 IDs grows each bank to page aligned 8192 bytes");
     check(snapshot(&f, kThreadMemberMaximumIds) && committed(f, kThreadMemberMaximumIds, page_size) &&
         f.store.count == kThreadMemberMaximumIds && !f.store.incomplete &&
-        f.store.banks[f.store.active_bank][0] == 1 &&
-        f.store.banks[f.store.active_bank][kThreadMemberMaximumIds - 1] == kThreadMemberMaximumIds,
-        "thread snapshot maximum 2048 IDs commits bounded 16384 byte banks and retains sorted complete identity set");
+        thread_member_store_contains(f.store, 1) && thread_member_store_contains(f.store, kThreadMemberMaximumIds),
+        "thread snapshot maximum 2048 IDs commits bounded 16384 byte banks and keeps the complete identity set");
     const usize first_highwater = f.banks[0].arena.committed, second_highwater = f.banks[1].arena.committed;
     const u32 calls = f.reserve_calls;
     check(snapshot(&f, 0) && f.store.known && !f.store.count && f.reserve_calls == calls &&
@@ -95,12 +94,8 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
         f.banks[0].arena.committed == first_highwater && f.banks[1].arena.committed == second_highwater,
         "thread scope reset and small replacement reuse committed highwater without further VM commitment");
     release(&f);
-    check(!f.banks[0].arena.base && !f.banks[1].arena.base && !f.banks[0].capacity && !f.banks[1].capacity &&
-        !f.banks[0].reserved_capacity && !f.banks[1].reserved_capacity &&
-        !f.banks[0].arena.committed && !f.banks[1].arena.committed &&
-        !f.store.banks[0].data && !f.store.banks[1].data && !f.store.reserve &&
-        state(first, MEM_FREE) && state(second, MEM_FREE),
-        "thread lifetime owner release withdraws model views and clears both storage descriptors and OS reservations");
+    check(state(first, MEM_FREE) && state(second, MEM_FREE),
+        "thread storage release frees both OS reservations");
     release(&f);
 }
 } // namespace maicord

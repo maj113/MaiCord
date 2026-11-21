@@ -38,7 +38,6 @@ struct LogState {
     u64 file_bytes;
     PTP_TIMER flush_timer;
     u64 stamp_second;
-    LogCounters counters;
     u32 buffered;
     bool flush_armed;
     char stamp[kStampCharacters];
@@ -68,10 +67,8 @@ inline void copy_stamp_locked(char* line, u64 second) noexcept {
 void flush_locked() noexcept {
     if (g_log.buffered != 0 && g_log.file && g_log.file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
-        ++g_log.counters.file_writes;
         if (WriteFile(g_log.file, g_log.buffer, g_log.buffered, &written, nullptr)) {
             g_log.file_bytes += written;
-            g_log.counters.file_bytes += written;
         }
     }
     g_log.buffered = 0;
@@ -110,7 +107,6 @@ void commit_line(LineWriter writer, LogLevel level) noexcept {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
             g_log.buffered += length;
-            ++g_log.counters.lines;
             if (level >= LogLevel::warning) {
                 flush_locked();
             } else if (!g_log.flush_armed) {
@@ -204,13 +200,6 @@ void log_close() noexcept {
         WaitForThreadpoolTimerCallbacks(timer, TRUE);
         CloseThreadpoolTimer(timer);
     }
-}
-
-LogCounters log_counters() noexcept {
-    AcquireSRWLockExclusive(&g_log.lock);
-    const LogCounters counters = g_log.counters;
-    ReleaseSRWLockExclusive(&g_log.lock);
-    return counters;
 }
 
 } // namespace maicord

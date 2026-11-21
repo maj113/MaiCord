@@ -12,21 +12,21 @@ __attribute__((minsize)) NativeFontCoverageSlot& slot_for(NativeFontCoverageCach
     return c.slots[victim];
 }
 // Drops the slot's reference before it is reused; the cache owns every reference it holds.
-void evict(NativeFontCoverageCache& c,NativeFontCoverageSlot& slot,const NativeFontCatalog& catalog) noexcept {
+void evict(NativeFontCoverageCache& c,NativeFontCoverageSlot& slot) noexcept {
     if(!slot.catalog)return;
-    native_font_release(native_font_session_fonts(c.session),slot.handle);if(slot.catalog!=&catalog)++c.evictions;slot={};
+    native_font_release(native_font_session_fonts(c.session),slot.handle);slot={};
 }
 NativeFontResult lookup(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,NativeFontHandle* output,bool refresh) noexcept {
     auto& slot=slot_for(*c,catalog);
     if(slot.catalog==&catalog&&!refresh){slot.stamp=++c->clock;*output=slot.handle;return {};}
-    evict(*c,slot,catalog);auto* fonts=native_font_session_fonts(c->session);NativeFontHandle handle{};
+    evict(*c,slot);auto* fonts=native_font_session_fonts(c->session);NativeFontHandle handle{};
     auto result=native_font_session_face(c->session,catalog.path,catalog.face_index,&handle);if(!result.ok())return result;
     result=native_font_catalog_validate(catalog,*fonts,handle);if(!result.ok()){native_font_release(fonts,handle);return result;}
     slot={&catalog,handle,++c->clock};++c->acquisitions;*output=handle;return {};
 }
 }
 bool native_font_coverage_initialize(NativeFontSession* session,Slice<NativeFontCoverageSlot> slots,NativeFontCoverageCache* output) noexcept {
-    if(!native_font_session_retain(session))return false;*output={session,slots,0,0,0};return true;
+    if(!native_font_session_retain(session))return false;*output={session,slots,0,0};return true;
 }
 bool native_font_coverage_reset(NativeFontCoverageCache* c) noexcept {
     auto* fonts=native_font_session_fonts(c->session);bool okay=true;
@@ -50,7 +50,7 @@ NativeFontResult native_font_coverage_acquire(NativeFontCoverageCache* c,const N
     if(!native_font_retain(native_font_session_fonts(c->session),handle))return {NativeFontError::capacity,SfntStatus::resource_limit,0};*output=handle;return {};
 }
 NativeFontResult native_font_coverage_remember(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,NativeFontHandle ready) noexcept {
-    auto& slot=slot_for(*c,catalog);evict(*c,slot,catalog);
+    auto& slot=slot_for(*c,catalog);evict(*c,slot);
     if(!native_font_retain(native_font_session_fonts(c->session),ready))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     slot={&catalog,ready,++c->clock};++c->acquisitions;return {};
 }

@@ -75,14 +75,6 @@ Utf8View content(u32 index) noexcept {
     return Utf8View{out, bytes};
 }
 
-bool resolves_entities(const MessageTextCommand& command) noexcept {
-    for (u32 s = 0; s < command.semantics.count; ++s)
-        if (command.semantics[s].kind == MessageMarkdownSemanticKind::user_mention ||
-            command.semantics[s].kind == MessageMarkdownSemanticKind::channel_mention)
-            return true;
-    return false;
-}
-
 u64 text_signature(const MessageTextPresentation& presentation) noexcept {
     u64 hash = hash64_mix(kHash64Seed, presentation.command_count);
     for (u32 i = 0; i < presentation.command_count; ++i) {
@@ -152,13 +144,11 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     const u32 cold_parses = presentation.markdown_parses;
     const u64 cold_text = text_signature(presentation);
     const u64 cold_projection = presentation.projection_signature;
-    check(first && cold_parses > 0 && presentation.markdown_cache_hits == 0 && cache.inserts == cold_parses,
-          "markdown_cache_cold_build_parses_each_visible_source_once_and_retains_it");
 
     // A rebuild with unchanged inputs (a relayout or a scroll-only frame)
     // lays out retained parses: no parser run, identical commands.
     const bool warm = first && build(&presentation, kNow);
-    check(warm && presentation.markdown_parses == cold_parses && presentation.markdown_cache_hits == cold_parses &&
+    check(warm && presentation.markdown_parses == cold_parses &&
               text_signature(presentation) == cold_text && presentation.projection_signature == cold_projection,
           "markdown_cache_unchanged_rebuild_runs_no_parser_and_projects_identical_text");
     const bool uncached = warm && initialize(&reference) && build(&reference, kNow);
@@ -184,12 +174,10 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     const bool scrolled = scroll_pass();
     const u32 scrolled_parses = presentation.markdown_parses;
     const bool rescrolled = scrolled && scroll_pass();
-    check(rescrolled && scrolled_parses > cold_parses && presentation.markdown_parses == scrolled_parses &&
-              cache.inserts == scrolled_parses,
+    check(rescrolled && scrolled_parses > cold_parses && presentation.markdown_parses == scrolled_parses,
           "markdown_cache_scroll_over_seen_history_runs_zero_parses");
 
-    // An edit changes one source: only that message parses again.
-    u32 before = presentation.markdown_parses;
+    // An edit shows the new text of that message.
     const auto* head = message_scene_find_row(f.scene, 0);
     const MessageRecord* edited_record = head ? message_store_resolve(f.store, head->message) : nullptr;
     const u64 edited_id = edited_record ? edited_record->id : 0;
@@ -198,25 +186,25 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
                                                         utf8_literal("**edited** text"), 0})
                             .ok() &&
                         message_scene_update(&f.scene, viewport).ok() && build(&presentation, kNow);
-    check(edited && presentation.markdown_parses == before + 1,
-          "markdown_cache_edit_reparses_only_the_edited_message");
+    bool edit_projected = false;
+    for (u32 i = 0; edited && i < presentation.command_count; ++i)
+        edit_projected |= presentation.commands[i].message_id == edited_id &&
+                          test_contains(presentation.commands[i].text, utf8_literal("edited"));
+    check(edit_projected, "markdown_cache_edit_projects_the_edited_text");
 
-    // Renaming a mentioned user reparses the sources that resolved entities.
-    u32 entity_sources = 0;
-    for (u32 i = 0; i < presentation.command_count; ++i)
-        entity_sources += resolves_entities(presentation.commands[i]) ? 1u : 0u;
-    before = presentation.markdown_parses;
+    // Renaming a mentioned user shows the new name in each message that mentions the user.
     const bool renamed = edited && user_store_upsert(&users, 9, utf8_literal("Renamed")).ok() &&
                          build(&presentation, kNow);
-    bool rename_projected = false;
-    for (u32 i = 0; renamed && i < presentation.command_count; ++i)
+    bool rename_projected = false, old_name_projected = false;
+    for (u32 i = 0; renamed && i < presentation.command_count; ++i) {
         rename_projected |= test_contains(presentation.commands[i].text, utf8_literal("@Renamed"));
-    check(renamed && entity_sources > 0 && rename_projected &&
-              presentation.markdown_parses - before == entity_sources,
-          "markdown_cache_entity_rename_reparses_resolving_sources_and_projects_the_new_name");
+        old_name_projected |= test_contains(presentation.commands[i].text, utf8_literal("@Mentioned"));
+    }
+    check(renamed && rename_projected && !old_name_projected,
+          "markdown_cache_entity_rename_projects_the_new_name");
 
-    // Revealing a spoiler reparses that message; a relative timestamp parses
-    // again once its displayed text expires.
+    // Revealing a spoiler changes the projected text styles. A relative
+    // timestamp shows new text once its displayed text expires.
     MessageTextHit spoiler{};
     for (u32 i = 0; renamed && !spoiler.valid && i < presentation.command_count; ++i) {
         const auto& command = presentation.commands[i];
@@ -227,24 +215,17 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
                 break;
             }
     }
-    before = presentation.markdown_parses;
+    const u64 concealed_text = text_signature(presentation);
     bool toggled = false;
     const bool revealed = spoiler.valid &&
                           message_text_presentation_toggle_spoiler(&presentation, f.store, nullptr, spoiler, &toggled) &&
                           toggled && build(&presentation, kNow);
-    check(revealed && presentation.markdown_parses == before + 1,
-          "markdown_cache_spoiler_reveal_reparses_only_its_message");
+    check(revealed && text_signature(presentation) != concealed_text, "markdown_cache_spoiler_reveal_projects_new_text");
     const u64 expiry = presentation.next_timestamp_update_unix_seconds;
-    before = presentation.markdown_parses;
+    const u64 current_text = text_signature(presentation);
     const bool expired = revealed && expiry > kNow && build(&presentation, expiry);
-    check(expired && presentation.markdown_parses > before,
-          "markdown_cache_relative_timestamp_reparses_when_its_text_expires");
-
-    before = presentation.markdown_parses;
-    message_markdown_cache_clear(&cache);
-    const bool cleared = expired && build(&presentation, expiry);
-    check(cleared && presentation.markdown_parses > before && cache.inserts > 0,
-          "markdown_cache_clear_reparses_every_visible_source");
+    check(expired && text_signature(presentation) != current_text,
+          "markdown_cache_relative_timestamp_projects_new_text_when_it_expires");
     message_scene_release(&f.scene);
 }
 

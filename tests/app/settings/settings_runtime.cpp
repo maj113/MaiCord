@@ -1377,12 +1377,12 @@ void test_controller() noexcept {
     g_app.preferences.image_zoom_factor = 4;
     g_app.preferences.image_zoom_size = 20;
     g_app.renderer.content_text_retention.valid = true;
-    const u32 invalidations = g_app.renderer.content_text_retention.invalidations;
+    const u32 retention_generation = g_app.renderer.content_text_retention.generation;
     const u32 motion_layouts = observed.layout_updates;
     const u32 motion_account_text = observed.account_text_updates;
     check(activate_control(kAccessibilityPage, cid("accessibility.reduced_motion")) && g_app.preferences.reduced_motion &&
               g_app.renderer.reduced_motion && g_app.scroll_host.immediate &&
-              g_app.renderer.content_text_retention.invalidations > invalidations &&
+              g_app.renderer.content_text_retention.generation != retention_generation &&
               observed.layout_updates == motion_layouts &&
               observed.account_text_updates == motion_account_text,
           "settings: reduced motion applies immediate scrolling and animated text invalidation without "

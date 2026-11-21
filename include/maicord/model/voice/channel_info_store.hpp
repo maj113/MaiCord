@@ -20,7 +20,7 @@ static_assert(sizeof(VoiceChannelInfo) == 32);
 struct VoiceChannelInfoStore {
     VoiceChannelInfo records[kVoiceChannelInfoCapacity];
     char text[kVoiceChannelInfoTextBytes];
-    u32 count, text_used, revision, dropped;
+    u32 count, text_used, revision;
 };
 
 // Sets or clears (start_s 0, empty status) one value. When full, records of

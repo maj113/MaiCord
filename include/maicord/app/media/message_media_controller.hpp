@@ -115,11 +115,6 @@ struct MessageMediaController {
     u64 avatar_message_id;      // group head whose author avatar plays (on group hover)
     u64 avatar_hover_message_id; // message whose avatar is under the pointer
     u64 capacity_log_at_ms;
-    u64 source_rows_visited;
-    u64 rows_collected;
-    u64 duplicate_assets_skipped;
-    u32 collections;
-    u32 rejected;
     bool owns_storage;
 };
 

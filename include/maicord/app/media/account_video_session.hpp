@@ -94,9 +94,6 @@ enum class AccountVideoFrameDue : u8 {
 struct AccountVideoAudioObservation {
     bool epoch_ready{}, playing{}, paused{}, clock_valid{}, volume_valid{}, ended{};
 };
-struct AccountVideoAudioProgress {
-    u64 epoch{}, written_frames{}, submitted_frames{}, consumed_frames{};
-};
 AccountVideoAudioObservation account_video_audio_observation(const MediaAudioStatus&,
                                                              u64 playback_epoch) noexcept;
 // A copied target frame requires acknowledgement. A future picture or video
@@ -201,11 +198,7 @@ bool account_video_session_acknowledge(AccountVideoSession*, const AccountVideoI
 AccountVideoStatus account_video_session_status(const AccountVideoSession*) noexcept;
 // Lane owner: stop requesting PCM/frames after a terminal source failure.
 void account_video_session_source_failed(AccountVideoSession*) noexcept;
-// Codec worker snapshot only, no borrowed renderer pointer. Counters are returned
-// only after the native transport observes this session's playback epoch.
-AccountVideoAudioProgress account_video_session_audio_progress(const AccountVideoSession*) noexcept;
 // The producer is the caller's worker, so it is already idle during release.
 // Timeout/close failure keeps the workspace, AAC decoder and borrowed source/event.
 AccountVideoResult account_video_session_release(AccountVideoSession*, u32 timeout_ms) noexcept;
-u32 account_video_session_owned_bytes(const AccountVideoSession*) noexcept;
 } // namespace maicord

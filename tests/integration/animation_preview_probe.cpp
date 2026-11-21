@@ -5,6 +5,8 @@
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "../support/glyph_atlas_pins.hpp"
+#include "../support/content_text_builds.hpp"
 
 namespace maicord {
 bool png_preview_probe(D3D11Renderer& r) noexcept;
@@ -79,7 +81,7 @@ bool animation_preview_probe(D3D11Renderer& r) noexcept {
     auto* identity_backup = r.media_gpu.backup;
     const u32 identity_entries = r.media_atlas->entry_count;
     const u32 layouts = r.paint_stream_builds;
-    const u32 text_builds = r.content_text_retention.builds;
+    const u32 text_builds = content_text_builds(r);
     D3D11_TEXTURE2D_DESC description{};
     description.Width = description.Height = 4;
     description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
@@ -135,7 +137,7 @@ bool animation_preview_probe(D3D11Renderer& r) noexcept {
     readback->Release();
     ok = ok && r.media_gpu.surface == identity_surface && r.media_gpu.backup == identity_backup &&
          r.media_atlas->entry_count == identity_entries && r.paint_stream_builds == layouts &&
-         r.content_text_retention.builds == text_builds;
+         content_text_builds(r) == text_builds;
     // These test images are resident but are not in the scene. A full layout
     // rebuild (scroll/channel switch) must release their visibility pins.
     const auto offscreen = media_atlas_find(r.preview_media_atlas, gif);

@@ -30,7 +30,6 @@ bool evict(VoiceChannelInfoStore* s, u64 guild_id, bool text) noexcept {
     for (u32 i = 0; i < s->count; ++i)
         if (s->records[i].guild_id != guild_id && (!text || s->records[i].status_bytes)) {
             erase(s, i);
-            ++s->dropped;
             return true;
         }
     return false;
@@ -73,10 +72,8 @@ bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, 
     if (current ? current->start_s == start_s && current->guild_id == guild_id : !start_s)
         return true;
     auto* info = slot(s, guild_id, channel_id);
-    if (!info) {
-        ++s->dropped;
+    if (!info)
         return false;
-    }
     info->start_s = static_cast<u32>(start_s);
     return settle(s, channel_id);
 }
@@ -93,14 +90,11 @@ bool voice_channel_info_store_set_status(VoiceChannelInfoStore* s, u64 guild_id,
         return true;
     }
     auto* info = slot(s, guild_id, channel_id);
-    if (!info) {
-        ++s->dropped;
+    if (!info)
         return false;
-    }
     drop_text(s, info);
     while (s->text_used + status.bytes > kVoiceChannelInfoTextBytes) {
         if (!evict(s, guild_id, true)) {
-            ++s->dropped;
             settle(s, channel_id);
             return false;
         }

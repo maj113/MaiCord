@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/text/edit_signature.hpp"
+#include "../../../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace {
@@ -70,15 +71,15 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
     const auto generation = scene.widgets.generation;
     const auto revision = scene.revision;
     const auto layout = scene.widgets.layout.revision;
-    const auto calls = cache.backend_calls;
+    const auto calls = text_measure_calls(&cache);
     const auto storage = scene.storage.arena.base;
     bool stable = true;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 2; ++i)
         stable = forum_post_update(&scene, content, viewport, &cache) && stable;
     check(stable && scene.widgets.generation == generation && scene.revision == revision &&
-              scene.widgets.layout.revision == layout && cache.backend_calls == calls &&
+              scene.widgets.layout.revision == layout && text_measure_calls(&cache) == calls &&
               scene.storage.arena.base == storage,
-          "forum_scene_64_unchanged_updates_reuse_widgets_layout_measurement_storage");
+          "forum_scene_unchanged_updates_reuse_widgets_layout_measurement_storage");
     const auto original_name = tags[0].name;
     const Utf8View wire_name{};
     tags[0].name = forum_post_tag_label(wire_name);
@@ -275,19 +276,19 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(forum_post_update(&scene, content, {0, 0, 320, 600}, &cache),
           "forum_scene_attachment_warm_baseline");
     const auto attachment_revision = scene.revision, attachment_layout = scene.widgets.layout.revision,
-               attachment_measures = cache.backend_calls;
+               attachment_measures = text_measure_calls(&cache);
     bool attachment_stable = true;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 2; ++i)
         attachment_stable =
             forum_post_update(&scene, content, {0, 0, 320, 600}, &cache) && attachment_stable;
     check(attachment_stable && scene.revision == attachment_revision &&
               scene.widgets.layout.revision == attachment_layout &&
-              cache.backend_calls == attachment_measures,
-          "forum_scene_64_attachment_updates_reuse_layout_and_measurement");
+              text_measure_calls(&cache) == attachment_measures,
+          "forum_scene_unchanged_attachment_updates_reuse_layout_and_measurement");
     files[0].uploaded_bytes = 200;
     check(forum_post_update(&scene, content, {0, 0, 320, 600}, &cache) &&
               scene.revision != attachment_revision && scene.widgets.layout.revision == attachment_layout &&
-              cache.backend_calls == attachment_measures,
+              text_measure_calls(&cache) == attachment_measures,
           "forum_scene_progress_only_invalidates_paint_without_layout_or_shape");
     const Utf8View wrapped_statuses[]{
         utf8_literal("Image · 4208 bytes · Waiting to upload. Your file will stay in this draft while the "

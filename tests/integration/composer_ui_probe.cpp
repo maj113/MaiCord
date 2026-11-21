@@ -36,6 +36,7 @@
 #include "maicord/text/layout/pill_extent.hpp"
 #include "../../src/app/chat/composer/game_search.hpp"
 #include "../../src/app/settings/user_settings.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -837,7 +838,7 @@ bool warm(u32 sample) noexcept {
                            r.text_instance_uploads,
                            r.media_instance_uploads,
                            r.painted_frames,
-                           g_app.account_ui->text_measure_cache.backend_calls,
+                           text_measure_calls(&g_app.account_ui->text_measure_cache),
                            controller.drafts->revision,
                            controller.queued,
                            fixture->frame_requests};

@@ -9,6 +9,7 @@
 #include "maicord/ui/guild/channel_context_policy.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/chat/messages/unread_divider.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace unread_boundary_probe_detail {
@@ -267,14 +268,14 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     };
     if (!require(verify_boundary(),8)) return false;
     const u32 prepare = f.scene.preparation_passes,layout = f.scene.layout_passes,resolve = f.scene.rebuilds,
-        unread_revision = f.scene.unread_revision,shape = measure.backend_calls,builds = renderer.content_text->rebuilds,
+        unread_revision = f.scene.unread_revision,shape = text_measure_calls(&measure),builds = renderer.content_text->rebuilds,
         raster = renderer.glyph_text.cache_builds,paint_uploads = renderer.paint_instance_uploads,
         text_uploads = renderer.text_instance_uploads,media_uploads = renderer.media_instance_uploads,
         draws = renderer.painted_frames,skips = renderer.unchanged_present_skips;
     for (u32 i = 0; i < 64; ++i)
         if (!message_scene_set_unread_cursor(&f.scene,channel,first,true) || !project() || !probe_present(&renderer,theme)) return require(false,9);
     if (!require(f.scene.preparation_passes == prepare && f.scene.layout_passes == layout && f.scene.rebuilds == resolve &&
-        f.scene.unread_revision == unread_revision && measure.backend_calls == shape && renderer.content_text->rebuilds == builds &&
+        f.scene.unread_revision == unread_revision && text_measure_calls(&measure) == shape && renderer.content_text->rebuilds == builds &&
         renderer.glyph_text.cache_builds == raster && renderer.paint_instance_uploads == paint_uploads &&
         renderer.text_instance_uploads == text_uploads && renderer.media_instance_uploads == media_uploads &&
         renderer.painted_frames == draws && renderer.unchanged_present_skips - skips == 64,10)) return false;

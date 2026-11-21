@@ -552,7 +552,6 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
             return parse_failure(result, WebpError::chunk);
         }
         const u8* payload = encoded.data + cursor + 8;
-        ++result.chunks;
         if (type == kVp8x) {
             if (vp8x_seen || image_seen || size != 10) {
                 return parse_failure(result, vp8x_seen ? WebpError::duplicate_chunk : WebpError::chunk);
@@ -1473,8 +1472,6 @@ WebpDecodeResult webp_lossless_decode_vp8l_frame_rgba8(ConstSlice<u8> vp8l_paylo
     image->encoded_bytes = vp8l_payload.count;
     image->codec = WebpCodec::vp8l_lossless;
     image->has_alpha = (header & (1u << 28)) != 0;
-    result.parse.chunks = 1;
-    result.parse.error = WebpError::none;
     return decode_validated_lossless_pixels(image, result.parse, workspace, rgba_output, true);
 }
 
@@ -1503,8 +1500,6 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(ConstSlice<u8> bitstre
     image->height = height;
     image->encoded_bytes = bitstream.count;
     image->codec = WebpCodec::vp8l_lossless;
-    result.parse.chunks = 1;
-    result.parse.error = WebpError::none;
     return decode_validated_lossless_pixels(image, result.parse, workspace, pixel_output, false);
 }
 

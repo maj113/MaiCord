@@ -11,6 +11,7 @@
 #include "maicord/ui/chat/threads/header.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "chat/threads/header.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace thread_membership_probe_detail {
@@ -282,7 +283,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
                 r.guild_rail_scene->layout_passes, r.guild_rail_scene->rebuilds,
                 r.shell_navigation_scene->layout_passes, r.shell_navigation_scene->rebuilds,
                 r.message_composer_scene->layout_passes, header().revision, header().projections,
-                context.navigation.revision, measure.backend_calls, r.glyph_text.cache_builds,
+                context.navigation.revision, text_measure_calls(&measure), r.glyph_text.cache_builds,
                 r.content_text->rebuilds, r.paint_instance_uploads, r.text_instance_uploads,
                 r.media_instance_uploads, r.painted_frames, r.unchanged_present_skips,
                 state.guild_mutations, state.channel_mutations, state.selection_revision,

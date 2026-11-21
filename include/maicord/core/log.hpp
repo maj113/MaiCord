@@ -25,12 +25,4 @@ void log_write(LogLevel level, const char* component, const char* message) noexc
 // A line "key=value", for an event that is one number.
 void log_u64(LogLevel level, const char* component, const char* key, u64 value) noexcept;
 
-// What the log has done since the process started: lines accepted, file writes (system calls) and bytes written.
-struct LogCounters {
-    u64 lines;
-    u64 file_writes;
-    u64 file_bytes;
-};
-LogCounters log_counters() noexcept;
-
 } // namespace maicord

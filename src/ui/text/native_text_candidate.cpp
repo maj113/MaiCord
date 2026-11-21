@@ -142,7 +142,7 @@ static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
 static_assert(sizeof(NativeTextCatalogScope)==112);
 #if defined(_WIN32)
-static_assert(sizeof(NativeTextContext)==2592);
+static_assert(sizeof(NativeTextContext)==2584);
 #endif
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&

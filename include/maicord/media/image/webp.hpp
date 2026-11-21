@@ -64,7 +64,6 @@ struct WebpImage {
 };
 
 struct WebpParseResult {
-    u32 chunks;
     WebpError error;
 
     constexpr bool ok() const noexcept {

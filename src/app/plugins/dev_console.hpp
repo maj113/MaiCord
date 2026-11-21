@@ -26,7 +26,6 @@ struct DevLine {
 
 // Developer Mode turned on or off. Turning it off frees the lines.
 void application_dev_console_enable(bool on) noexcept;
-bool application_dev_console_enabled() noexcept;
 // Adds a line (control characters become spaces, long text is cut); name is the plugin's or the file's.
 void application_dev_console_add(DevLineKind, const Utf8View& name, const Utf8View& text) noexcept;
 // index 0 is the oldest of application_dev_console_count() lines; null past the end. Valid until the next add.

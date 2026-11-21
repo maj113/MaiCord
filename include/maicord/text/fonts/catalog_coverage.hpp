@@ -4,7 +4,7 @@
 namespace maicord {
 struct NativeFontCoverageSlot {const NativeFontCatalog* catalog;NativeFontHandle handle;u64 stamp;};
 struct NativeFontCoverageCache {
-    NativeFontSession* session;Slice<NativeFontCoverageSlot> slots;u64 clock,acquisitions,evictions;
+    NativeFontSession* session;Slice<NativeFontCoverageSlot> slots;u64 clock,acquisitions;
 };
 // Zeroed cache provided by the caller, with at least one zeroed slot at stable
 // addresses. Keeps a reference to the session, allocates nothing and opens no
@@ -36,5 +36,5 @@ NativeFontResult native_font_coverage_acquire(NativeFontCoverageCache*,const Nat
 // catalog from. The caller keeps its own reference; later coverage lookups use
 // the cache's reference. No revalidation.
 NativeFontResult native_font_coverage_remember(NativeFontCoverageCache*,const NativeFontCatalog&,NativeFontHandle) noexcept;
-static_assert(sizeof(NativeFontCoverageSlot)==24&&sizeof(NativeFontCoverageCache)==48);
+static_assert(sizeof(NativeFontCoverageSlot)==24&&sizeof(NativeFontCoverageCache)==40);
 }

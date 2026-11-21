@@ -28,12 +28,6 @@ struct EncodedMediaCacheEntry {
     u64 content_identity;
 };
 
-struct EncodedMediaCacheCounters {
-    u64 bytes_copied;
-    u64 lease_acquires;
-    u64 lease_releases;
-};
-
 struct EncodedMediaCache {
     EncodedMediaCacheEntry* entries;
     u16* page_owners;
@@ -50,7 +44,6 @@ struct EncodedMediaCache {
     u32 committed_pages;
     u64 stored_bytes;
     u64 clock;
-    EncodedMediaCacheCounters counters;
     SrwLock lock;
 };
 

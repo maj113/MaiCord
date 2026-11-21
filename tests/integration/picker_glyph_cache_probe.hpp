@@ -7,27 +7,16 @@ namespace maicord {
 // Exercise the production lookup with copied identities and recycled slots.
 // Borrow the existing owner only while no rendering is in progress, then restore it.
 inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
+    static PickerGlyphCache saved;
+    saved = cache;
     struct Restore {
         PickerGlyphCache& cache;
-        PickerGlyphCache::Entry entries[3];
-        u8 bytes[256];
-        u16 cursor, lookup_start;
-        u32 hits, probes;
-        explicit Restore(PickerGlyphCache& value) noexcept
-            : cache(value), entries{value.entries[0], value.entries[7], value.entries[255]},
-              cursor(value.cursor), lookup_start(value.lookup_start), hits(value.hits), probes(value.probes) {
-            for (u32 i=0;i<256;++i) {
-                bytes[i]=cache.entries[i].bytes;
-                cache.entries[i].bytes=0;
-            }
-        }
         ~Restore() noexcept {
-            for (u32 i=0;i<256;++i) cache.entries[i].bytes=bytes[i];
-            cache.entries[0]=entries[0];cache.entries[7]=entries[1];cache.entries[255]=entries[2];
-            cache.cursor=cursor;cache.lookup_start=lookup_start;
-            cache.hits=hits;cache.probes=probes;
+            cache = saved;
         }
-    } restore(cache);
+    } restore{cache};
+    for (auto& entry : cache.entries)
+        entry.bytes = 0;
     D3D11GlyphTextOwner owner{};
     TextSystem system{};
     system.em_size=32.f;
@@ -37,8 +26,7 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         return picker_glyph_cache_find(cache,owner,system,input,40.f,40.f,color,120,
                                        text_style_picker_emoji,capacity);
     };
-    const u32 empty_probes=cache.probes;
-    if(find(utf8_literal("a"))||cache.probes-empty_probes!=256)return false;
+    if(find(utf8_literal("a")))return false;
     for(u32 i=0;i<3;++i) {
         auto& e=cache.entries[slots[i]];
         e=PickerGlyphCache::Entry{};
@@ -52,16 +40,24 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         for(u32 i=0;i<3;++i) {
             cache.lookup_start=static_cast<u16>(hint);
             const auto& e=cache.entries[slots[i]];
-            const u32 before=cache.probes;
-            if(find({e.text,e.bytes})!=&e)return false;
-            const u32 cost=cache.probes-before;
-            if(cost>slots[i]+2||cost>256||!cost||
-               cache.lookup_start!=((slots[i]+1)&255))return false;
+            if(find({e.text,e.bytes})!=&e||cache.lookup_start!=((slots[i]+1)&255))return false;
+        }
+        // Of two equal entries the lookup finds the one in the hint slot: it tests that slot first.
+        if(hint!=0&&hint!=7&&hint!=255) {
+            cache.entries[hint]=cache.entries[0];
+            cache.lookup_start=static_cast<u16>(hint);
+            const bool first=find(utf8_literal("a"))==&cache.entries[hint];
+            cache.entries[hint].bytes=0;
+            if(!first)return false;
         }
         cache.lookup_start=static_cast<u16>(hint);
-        const u32 before=cache.probes;
-        if(find(utf8_literal("missing"))||cache.probes-before!=256)return false;
+        if(find(utf8_literal("missing")))return false;
     }
+    // After the hint the lookup tests the slots in order: of two equal entries it finds the lower one.
+    cache.entries[100]=cache.entries[7];
+    cache.lookup_start=50;
+    if(find(utf8_literal("b"))!=&cache.entries[7])return false;
+    cache.entries[100].bytes=0;
     cache.lookup_start=255;
     if(find(utf8_literal("c"),3))return false;
     if(find(utf8_literal("a"),0)!=&cache.entries[0])return false;

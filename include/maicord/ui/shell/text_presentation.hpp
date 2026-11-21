@@ -12,8 +12,6 @@ struct ShellNavigationScene;
 struct UserStore;
 struct UiTextMeasureCache;
 
-inline constexpr u32 kMaximumShellChromeTextCommands = 384;
-
 // A server's acronym as its rail item shows it without an icon: the first
 // character of each word ("MaiCord Lab" -> "ML"), at most six; characters
 // receives their count (longer acronyms take a smaller face).

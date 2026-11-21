@@ -4,6 +4,7 @@
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/core/log.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 namespace forwarded_messages_probe_detail {
@@ -196,12 +197,12 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
     const auto timestamp_hit = message_author_hit_test(fixture.scene, fixture.presentation, *renderer.chat_state,
         *renderer.user_store, renderer.message_measure_cache, theme,
         author_header.timestamp.rectangle.left + 1, (author_header.name.rectangle.top + author_header.name.rectangle.bottom) * .5f);
-    const u32 warm_author_calls = measure.backend_calls;
+    const u32 warm_author_calls = text_measure_calls(&measure);
     for (u32 i = 0; i < 32; ++i)
         if (!message_author_layout(fixture.scene, *author_command, *renderer.chat_state, *renderer.user_store,
                                    renderer.message_measure_cache, theme, &author_header)) return false;
     if (!require(name_hit.user_id == sender->id && !timestamp_hit.user_id &&
-                 measure.backend_calls == warm_author_calls, 13)) return false;
+                 text_measure_calls(&measure) == warm_author_calls, 13)) return false;
     log_write(LogLevel::info, "probe", "forwarded_sender_header_full_native_width_no_member_pane_zero_warm_backend_calls");
     event.fields |= gateway_message_field_message_snapshots | gateway_message_field_message_reference;
     event.reference.type = 1; event.reference.channel_id = 8; event.reference.message_id = 90;
@@ -238,7 +239,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
     if (!require(snapshot_link.valid && message_text_presentation_hit_source(fixture.store, &fixture.rich,
         snapshot_link).bytes != 0 && renderer.media_quad_count >= 4, 5)) return false;
     const u32 layout = fixture.scene.layout_passes, rebuilds = fixture.scene.rebuilds,
-        prepare = fixture.scene.preparation_passes, shape = measure.backend_calls,
+        prepare = fixture.scene.preparation_passes, shape = text_measure_calls(&measure),
         text_builds = renderer.content_text->rebuilds, raster = renderer.glyph_text.cache_builds,
         paint_uploads = renderer.paint_instance_uploads, text_uploads = renderer.text_instance_uploads,
         media_uploads = renderer.media_instance_uploads, draws = renderer.painted_frames,
@@ -247,7 +248,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
         if (!message_scene_update(&fixture.scene, fixture.scene.viewport).ok() ||
             !renderer_rebuild_content_text(&renderer, theme) || !probe_present(&renderer, theme)) return false;
     if (!require(fixture.scene.layout_passes == layout && fixture.scene.rebuilds == rebuilds &&
-        fixture.scene.preparation_passes == prepare && measure.backend_calls == shape &&
+        fixture.scene.preparation_passes == prepare && text_measure_calls(&measure) == shape &&
         renderer.content_text->rebuilds == text_builds && renderer.glyph_text.cache_builds == raster &&
         renderer.paint_instance_uploads == paint_uploads && renderer.text_instance_uploads == text_uploads &&
         renderer.media_instance_uploads == media_uploads && renderer.painted_frames == draws &&

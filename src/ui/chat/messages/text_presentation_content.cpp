@@ -297,10 +297,8 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
         Slice<MessageMarkdownSemantic>{
             presentation->semantics.data + semantic_begin,
             minimum(presentation->semantics.count - semantic_begin, kMessageMarkdownSemanticMaximum)});
-    if (!parsed.ok()) {
-        saturating_accumulate(presentation->markdown_rejected);
+    if (!parsed.ok())
         return true;
-    }
     presentation->utf8_count += parsed.text.bytes;
     presentation->style_count += parsed.span_count;
     presentation->semantic_count += parsed.semantic_count;
@@ -312,16 +310,6 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
     *styles = ConstSlice<TextStyleSpan>{presentation->styles.data + style_begin, parsed.span_count};
     *semantics = ConstSlice<MessageMarkdownSemantic>{presentation->semantics.data + semantic_begin,
                                                      parsed.semantic_count};
-    saturating_accumulate(presentation->markdown_transformations, parsed.transformations);
-    saturating_accumulate(presentation->markdown_spans_emitted, parsed.span_count);
-    saturating_accumulate(presentation->markdown_syntax_tokens, parsed.syntax_tokens);
-    saturating_accumulate(presentation->markdown_syntax_styled_bytes, parsed.syntax_styled_bytes);
-    saturating_accumulate(presentation->markdown_list_items, parsed.list_items);
-    saturating_accumulate(presentation->markdown_resolved_entities, parsed.resolved_entities);
-    saturating_accumulate(presentation->markdown_timestamps, parsed.timestamps);
-    if (parsed.syntax_truncated) {
-        saturating_accumulate(presentation->markdown_syntax_truncated);
-    }
     if (parsed.next_timestamp_update_unix_seconds != 0 &&
         (presentation->next_timestamp_update_unix_seconds == 0 ||
          parsed.next_timestamp_update_unix_seconds < presentation->next_timestamp_update_unix_seconds)) {

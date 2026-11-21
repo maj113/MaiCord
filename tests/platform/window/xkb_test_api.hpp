@@ -8,6 +8,17 @@
 
 namespace maicord::wayland {
 
+// xkb_key_direction, and struct xkb_rule_names of <xkbcommon/xkbcommon.h>.
+inline constexpr int kXkbKeyUp = 0;
+inline constexpr int kXkbKeyDown = 1;
+struct XkbRuleNames {
+    const char* rules;
+    const char* model;
+    const char* layout;
+    const char* variant;
+    const char* options;
+};
+
 struct XkbTestApi {
     XkbKeymap* (*keymap_new_from_names)(XkbContext* context, const XkbRuleNames* names, int flags) noexcept;
     char* (*keymap_get_as_string)(XkbKeymap* keymap, int format) noexcept;  // malloc'd: free() it

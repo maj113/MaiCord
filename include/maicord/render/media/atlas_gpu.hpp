@@ -71,52 +71,26 @@ struct MediaAtlasGpu {
     GpuComputeShader* jpeg_atlas_shader;
     u64 png_uploaded_bytes;
     u64 apng_uploaded_bytes;
-    u64 png_dispatched_pixels;
     u64 straight_rgba8_uploaded_bytes;
-    u64 apng_dispatched_pixels;
     u64 gif_uploaded_bytes;
-    u64 gif_dispatched_pixels;
     u64 animated_webp_uploaded_bytes;
-    u64 animated_webp_dispatched_pixels;
     u64 vp8_uploaded_bytes;
-    u64 vp8_reconstructed_pixels;
-    u64 vp8_filtered_pixels;
-    u64 vp8_atlas_pixels;
     u64 vp8_alpha_uploaded_bytes;
     u64 jpeg_uploaded_bytes;
-    u64 jpeg_reconstructed_pixels;
     u32 png_uploads;
     u32 straight_rgba8_uploads;
-    u32 cleared_regions;
-    u32 rejected;
     u32 png_scanline_capacity;
     u32 apng_frames;
-    u32 apng_source_blends;
-    u32 apng_over_blends;
-    u32 apng_background_disposals;
-    u32 apng_previous_disposals;
     u32 gif_frames;
-    u32 gif_background_disposals;
-    u32 gif_previous_disposals;
     u32 animated_webp_frames;
-    u32 animated_webp_source_blends;
-    u32 animated_webp_over_blends;
-    u32 animated_webp_background_disposals;
     u32 vp8_mode_capacity;
     u32 vp8_coefficient_capacity;
     u32 vp8_yuv_capacity;
     u32 vp8_reconstructions;
-    u32 vp8_reconstruction_dispatches;
-    u32 vp8_filter_dispatches;
-    u32 vp8_filtered_edges;
     u32 vp8_last_filtered_reconstruction;
-    u32 vp8_filter_skips;
     u32 vp8_atlas_uploads;
-    u32 vp8_alpha_uploads;
     u32 vp8_last_atlas_reconstruction;
     u32 jpeg_uploads;
-    u32 jpeg_idct_dispatches;
-    u32 jpeg_atlas_dispatches;
     u16 width;
     u16 height;
     u16 preview_width;
@@ -264,6 +238,6 @@ inline u32 media_atlas_video_step(const MediaAtlas& atlas, const GpuVideoFrame& 
     return minimum(step, kGpuVideoReductionMaximum);
 }
 
-static_assert(sizeof(MediaAtlasGpu) == 584);
+static_assert(sizeof(MediaAtlasGpu) == 440);
 
 } // namespace maicord

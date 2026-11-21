@@ -788,7 +788,6 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                 store_phase(&lane, AccountMediaWorkerPhase::failed);
                 return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
             }
-            InterlockedIncrement64(&worker->counters.queued);
             return request_result(AccountMediaRequestState::queued);
         }
     }
@@ -910,7 +909,6 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                 release_local_source(&lane);
                 return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
             }
-            InterlockedIncrement64(&worker->counters.queued);
             return request_result(AccountMediaRequestState::queued);
         }
     return request_result(AccountMediaRequestState::busy);

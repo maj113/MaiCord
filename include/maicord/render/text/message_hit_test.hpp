@@ -32,8 +32,6 @@ struct MessageHitTestCacheOwner {
     u32 command_index;
     u32 utf16_units;
     u32 builds;
-    u32 hits;
-    u32 rejected;
     float width;
     float height;
     float em_size;
@@ -87,6 +85,6 @@ MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const Me
                                        float y) noexcept;
 
 static_assert(sizeof(MessagePositionHit) == 40);
-static_assert(sizeof(MessageHitTestCacheOwner) == 120);
+static_assert(sizeof(MessageHitTestCacheOwner) == 112);
 
 } // namespace maicord

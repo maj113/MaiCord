@@ -8,6 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window/key.hpp"
+#include "../support/counted_text_measure.hpp"
 namespace maicord {
 inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
                                 bool (*capture)(const wchar_t*, const Theme&) noexcept,
@@ -339,7 +340,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                                   external.guild_rail_scene->layout_passes,
                                   external.shell_navigation_scene->layout_passes,
                                   context.navigation.revision};
-        const u32 shell = external.ui_scene->layout_passes, shapes = measure.backend_calls,
+        const u32 shell = external.ui_scene->layout_passes, shapes = text_measure_calls(&measure),
                   painted = external.painted_frames, skips = external.unchanged_present_skips,
                   submits = forum_post_ui_adapter_submissions(),
                   cancels = forum_post_ui_adapter_cancellations();
@@ -383,7 +384,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             surface_motion_probe_detail::same(before, after) &&
             before.source_refreshes == after.source_refreshes && stable_costs &&
             bytes_equal(source_before, source_after, sizeof(source_before)) &&
-            external.ui_scene->layout_passes == shell && measure.backend_calls == shapes &&
+            external.ui_scene->layout_passes == shell && text_measure_calls(&measure) == shapes &&
             external.painted_frames == painted && external.unchanged_present_skips - skips == 64 &&
             forum_post_ui_adapter_submissions() == submits &&
             forum_post_ui_adapter_cancellations() == cancels &&
@@ -411,7 +412,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         report("media_upload_delta", after.media_uploads - before.media_uploads);
         report("source_refresh_delta", after.source_refreshes - before.source_refreshes);
         report("shell_layout_delta", external.ui_scene->layout_passes - shell);
-        report("measure_delta", measure.backend_calls - shapes);
+        report("measure_delta", text_measure_calls(&measure) - shapes);
         report("form_measure_delta", after_costs.measure_calls - before_costs.measure_calls);
         report("scene_commit_delta", after_costs.scene_commit_count - before_costs.scene_commit_count);
         report("transport_submit_delta", forum_post_ui_adapter_submissions() - submits);

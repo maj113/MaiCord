@@ -55,8 +55,6 @@ void application_dev_console_enable(bool on) noexcept {
     ++g.revision;
 }
 
-bool application_dev_console_enabled() noexcept { return g.enabled; }
-
 void application_dev_console_add(DevLineKind kind, const Utf8View& name, const Utf8View& text) noexcept {
     if (!g.enabled) return;
     if (!g.lines) {

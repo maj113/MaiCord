@@ -77,7 +77,7 @@ void store_cases(Check check) noexcept {
     store.retained_guild = 1;
     check(voice_state_store_apply(&store, 3, 30, 103, 0) == VoiceStateResult::changed &&
               voice_state_store_apply(&store, 3, 30, 104, 0) == VoiceStateResult::changed &&
-              store.evictions == 1 && store.dropped == 1 && !voice_state_store_find(store, 2, 100) &&
+              !voice_state_store_find(store, 2, 100) &&
               voice_state_store_find(store, 1, 100) && voice_state_store_find(store, 3, 104) &&
               voice_state_store_apply(&store, 1, 10, 0, 0) == VoiceStateResult::invalid_input,
           "voice store at capacity evicts another guild, never the retained one, and rejects zero users");

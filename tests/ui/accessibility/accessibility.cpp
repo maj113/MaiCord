@@ -770,14 +770,14 @@ void test_announcer() noexcept {
 
 void test_throttle() noexcept {
     UiAccessThrottle throttle{};
-    check(ui_access_throttle_frame(&throttle, 1000, false) == UiAccessThrottleDecision::idle && !throttle.builds,
+    check(ui_access_throttle_frame(&throttle, 1000, false) == UiAccessThrottleDecision::idle,
           "no listener: frames cost nothing");
     check(ui_access_throttle_frame(&throttle, 1000, true) == UiAccessThrottleDecision::build,
           "the first listened frame builds");
     u32 builds = 0;
     for (u64 now = 1016; now < 1500; now += 16)
         builds += ui_access_throttle_frame(&throttle, now, true) == UiAccessThrottleDecision::build ? 1u : 0u;
-    check(builds >= 4 && builds <= 5 && throttle.coalesced > 20 && throttle.deferred,
+    check(builds >= 4 && builds <= 5 && throttle.deferred,
           "animation frames coalesce to about ten snapshots a second");
     check(ui_access_throttle_delay(throttle, throttle.last_build_ms + 30) == kUiAccessRebuildIntervalMs - 30,
           "a deferred rebuild is due at the end of the interval");

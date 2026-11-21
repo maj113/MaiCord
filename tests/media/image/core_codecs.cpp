@@ -642,7 +642,7 @@ void test_webp_lossless() noexcept {
         const WebpDecodeResult decoded =
             webp_lossless_decode_rgba8(fixtures[index].encoded, &image, &g_vp8l_workspace,
                                        Slice<u8>{g_webp_rgba, sizeof(g_webp_rgba)});
-        decoded_all = decoded_all && decoded.ok() && decoded.parse.chunks == 1 &&
+        decoded_all = decoded_all && decoded.ok() &&
                       image.codec == WebpCodec::vp8l_lossless && image.width == fixtures[index].width &&
                       image.height == fixtures[index].height &&
                       decoded.rgba_bytes == image.width * image.height * 4 &&
@@ -669,7 +669,7 @@ void test_webp_lossless() noexcept {
     };
     const WebpParseResult lossy_parse =
         webp_parse(ConstSlice<u8>{kWebpLossy4x4, sizeof(kWebpLossy4x4)}, &image);
-    expect(lossy_parse.ok() && lossy_parse.chunks == 1 && image.codec == WebpCodec::vp8_lossy &&
+    expect(lossy_parse.ok() && image.codec == WebpCodec::vp8_lossy &&
                image.width == 4 && image.height == 4 && image.bitstream.data == kWebpLossy4x4 + 20 &&
                image.bitstream.count == sizeof(kWebpLossy4x4) - 20 && !image.alpha_bitstream.data &&
                image.alpha_bitstream.count == 0 && !image.has_alpha &&
@@ -1256,7 +1256,7 @@ void test_lossy_webp_keyframe_decode() noexcept {
     const LossyWebpDecodeResult opaque = lossy_webp_decode_keyframe(
         ConstSlice<u8>{kWebpLossy4x4, sizeof(kWebpLossy4x4)}, &image, &frame, &header, &probabilities,
         &g_vp8_mode_workspace, &g_vp8_coefficient_workspace, nullptr, {}, {});
-    expect(opaque.ok() && opaque.parse.chunks == 1 && opaque.alpha_bytes == 0 &&
+    expect(opaque.ok() && opaque.alpha_bytes == 0 &&
                image.codec == WebpCodec::vp8_lossy && !image.has_alpha && frame.width == 4 &&
                frame.height == 4 && g_vp8_mode_workspace.macroblock_count == 1 &&
                g_vp8_coefficient_workspace.macroblock_count == 1,
@@ -1295,7 +1295,7 @@ void test_lossy_webp_keyframe_decode() noexcept {
         ConstSlice<u8>{alpha_webp, sizeof(alpha_webp)}, &image, &frame, &header, &probabilities,
         &g_vp8_mode_workspace, &g_vp8_coefficient_workspace, &g_vp8l_workspace,
         Slice<u8>{alpha_scratch, sizeof(alpha_scratch)}, Slice<u8>{alpha, sizeof(alpha)});
-    bool alpha_exact = decoded_alpha.ok() && decoded_alpha.parse.chunks == 3 &&
+    bool alpha_exact = decoded_alpha.ok() &&
                        decoded_alpha.alpha_bytes == 16 && image.has_alpha &&
                        image.alpha_bitstream.data == alpha_webp + 38 && image.alpha_bitstream.count == 17;
     for (u32 index = 0; index < 16 && alpha_exact; ++index) {
@@ -1721,8 +1721,7 @@ void test_gif_decode() noexcept {
                (image.frames[1].flags & gif_frame_local_palette) != 0 &&
                (image.frames[1].flags & gif_frame_transparent) != 0 &&
                image.frames[2].dispose == GifDispose::background &&
-               (image.frames[2].flags & gif_frame_interlaced) != 0 && image.frames[3].x_offset == 3 &&
-               parsed.extensions == 6,
+               (image.frames[2].flags & gif_frame_interlaced) != 0 && image.frames[3].x_offset == 3,
            "gif_exact_blocks_controls_palette_and_loop_normalization");
     const u32 first_data_offset = image.frames[0].data_offset;
     const u32 second_descriptor = image.frames[1].data_offset - 23;

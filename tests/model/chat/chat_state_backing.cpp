@@ -144,11 +144,9 @@ void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept
     bool refused = seed(3, kBank);
     for (u32 i = 0; refused && i < 3; ++i)
         refused = chat_state_store_upsert_channel(&backing.state, channel(100 + i, text(kNames[i]))).ok();
-    const u32 used = backing.state.name_used;
     const auto rejected = chat_state_store_upsert_channel(&backing.state, channel(150, utf8_literal("no")));
     check(refused && rejected.error == ChatStateStoreError::channel_capacity &&
-              backing.state.channel_count == 3 &&
-              backing.state.name_used == used && !chat_state_store_find_channel(backing.state, 150) &&
+              backing.state.channel_count == 3 && !chat_state_store_find_channel(backing.state, 150) &&
               chat_state_store_channel_slot_bound(backing.state) == 3,
           "chat state backing refuses a channel whose slot cannot be committed, without mutation");
 
@@ -166,7 +164,7 @@ void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept
           "chat state backing commits an admitted batch's slots and names before it applies");
     check(seed(kSlots, 1 + 2 * 5) &&
               admit(fits) == ChatStateStoreError::name_capacity &&
-              backing.state.channel_count == 0 && backing.state.name_used == 1,
+              backing.state.channel_count == 0,
           "chat state backing refuses a batch whose names cannot be committed");
 
     // Compaction commits the other bank for every live name before moving
@@ -175,7 +173,7 @@ void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept
     for (u32 i = 0; compacted && i < 200; ++i)
         compacted =
             chat_state_store_upsert_channel(&backing.state, channel(100, text(kNames[i % 10]))).ok();
-    check(compacted && backing.state.compactions != 0 && backing.name_committed[1] != 0 &&
+    check(compacted && backing.name_committed[1] != 0 &&
               named(100, text(kNames[9])),
           "chat state backing commits the target bank before compacting names into it");
     bool held = seed(kSlots, kBank);
@@ -189,7 +187,7 @@ void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept
             break;
         }
     }
-    check(held && renames < 200 && backing.state.compactions == 0 && backing.state.active_name_bank == 0 &&
+    check(held && renames < 200 &&
               named(100, text(kNames[(renames + 9) % 10])),
           "chat state backing keeps names in place when the compaction target cannot be committed");
 

@@ -26,11 +26,10 @@ struct PickerGlyphCache {
         Quad quads[4]; // Centered in the cell, before clipping, relative to its origin.
     } entries[256];
     u16 cursor,lookup_start;
-    u32 hits,probes;
 };
 static_assert(sizeof(PickerGlyphCache::Entry) == 264);
-// Cursors and counters take 12 bytes, padded to the entries' alignment.
-static_assert(sizeof(PickerGlyphCache) == sizeof(PickerGlyphCache::Entry) * 256 + 16);
+// The cursors take 4 bytes, padded to the entries' alignment.
+static_assert(sizeof(PickerGlyphCache) == sizeof(PickerGlyphCache::Entry) * 256 + 8);
 inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
                                        const D3D11GlyphTextOwner& owner,const TextSystem& system,
                                        Utf8View input,float width,float height,Color color,u32 dpi,u32 flags) noexcept {
@@ -55,10 +54,8 @@ inline const PickerGlyphCache::Entry* picker_glyph_cache_find(
         if(!picker_glyph_cache_matches(entry,owner,system,input,width,height,color,dpi,flags) ||
            entry.count>capacity)continue;
         cache.lookup_start=static_cast<u16>((slot+1)&255u);
-        cache.probes+=probe+1;
         return &entry;
     }
-    cache.probes+=256;
     return nullptr;
 }
 } // namespace maicord

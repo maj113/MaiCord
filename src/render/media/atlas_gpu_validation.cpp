@@ -243,7 +243,6 @@ MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atla
     };
     unbind_media_pixel_resources(context);
     gpu_clear_uav_rect(context, gpu->texture_uav, kTransparentColor, rectangle);
-    ++gpu->cleared_regions;
     return allocation;
 }
 

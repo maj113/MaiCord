@@ -79,7 +79,6 @@ inline constexpr LoginMfaPresentationMethod kLoginMfaPresentationMethods[kLoginM
 };
 
 struct LoginLayoutMetrics {
-    u32 revision;
     float full_viewport_max_width;
     float qr_min_width;
     float intermediate_max_width;
@@ -98,7 +97,6 @@ struct LoginLayoutMetrics {
 };
 
 inline constexpr LoginLayoutMetrics kDefaultLoginLayoutMetrics{
-    1,
     485.0f,
     830.0f,
     528.0f,
@@ -124,7 +122,6 @@ struct LoginScene {
     float layout_height;
     u32 layout_rebuilds;
     u32 layout_passes;
-    u32 layout_metrics_revision;
     LoginControl focus;
     u8 mfa_capabilities;
     u8 selected_mfa_capability;
@@ -172,8 +169,6 @@ bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float
 
 bool login_scene_layout(LoginScene* scene, float width, float height) noexcept;
 void login_scene_release(LoginScene* scene) noexcept;
-bool login_scene_layout_with_metrics(LoginScene* scene, float width, float height,
-                                     const LoginLayoutMetrics& metrics) noexcept;
 LoginControl login_scene_hit_test(const LoginScene& scene, float x, float y) noexcept;
 // Show/hide-password toggle box; empty unless the scene offers the toggle.
 UiRect login_password_reveal_rectangle(const LoginScene& scene) noexcept;

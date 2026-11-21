@@ -339,7 +339,6 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
                    static_cast<usize>(renderer->media_quad_count) * sizeof(MediaQuad));
         gpu_unmap(renderer->graphics.context, renderer->pipeline.media_instance_buffer);
         ++renderer->media_instance_uploads;
-        renderer->media_upload_bytes += static_cast<u64>(renderer->media_quad_count) * sizeof(MediaQuad);
     }
 
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;

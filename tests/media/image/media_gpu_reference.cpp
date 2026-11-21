@@ -363,12 +363,12 @@ void check_upload_shrink() noexcept {
 
 // Issue #8: out-of-range sizes are refused before any device call. In 0.6.6 the E_INVALIDARG of the 1048x2048
 // layer was this validation's own code (2048 rows and their padding against an atlas of at most 2048), not a device
-// error. Every stage's counters stay put: no upload buffer, clear, dispatch or allocation happened.
+// error. Every stage's counters stay put: no upload buffer, dispatch or allocation happened, so nothing was cleared.
 void check_oversized_rejected() noexcept {
     media_atlas_reset(&g->atlas);
     auto& gpu = g->gpu;
-    const u32 rejected = gpu.rejected, png = gpu.png_uploads, straight = gpu.straight_rgba8_uploads,
-              cleared = gpu.cleared_regions, capacity = gpu.png_scanline_capacity, apng = gpu.apng_frames;
+    const u32 png = gpu.png_uploads, straight = gpu.straight_rgba8_uploads, capacity = gpu.png_scanline_capacity,
+              apng = gpu.apng_frames;
     const u64 bytes = gpu.png_uploaded_bytes;
     // One row past what a page holds with its padding.
     PngImage tall{}, small{};
@@ -388,11 +388,10 @@ void check_oversized_rejected() noexcept {
     const bool refused = png_result.error == MediaAtlasGpuError::invalid_input &&
                          straight_result.error == MediaAtlasGpuError::invalid_input &&
                          apng_result.error == MediaAtlasGpuError::invalid_input;
-    check(configured && refused && gpu.rejected == rejected + 3 && gpu.png_uploads == png &&
-              gpu.straight_rgba8_uploads == straight && gpu.cleared_regions == cleared &&
+    check(configured && refused && gpu.png_uploads == png && gpu.straight_rgba8_uploads == straight &&
               gpu.png_scanline_capacity == capacity && gpu.apng_frames == apng && gpu.png_uploaded_bytes == bytes &&
               g->atlas.entry_count == 0,
-          "oversized_inputs_refused_before_any_device_call", gpu.rejected - rejected);
+          "oversized_inputs_refused_before_any_device_call", g->atlas.entry_count);
 }
 
 // A 1048x2048 effect layer, fitted at decode to 450x879, becomes resident in the identity surface's effect

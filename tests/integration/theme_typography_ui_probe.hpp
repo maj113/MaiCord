@@ -4,6 +4,7 @@
 #include "maicord/ui/chat/messages/scene.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../support/counted_text_measure.hpp"
 
 namespace maicord {
 inline bool theme_typography_probe_require(bool valid, const char* label) noexcept {
@@ -179,12 +180,12 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
     if (!theme_typography_probe_require(shaped_size, "semantic size reaches native glyph runs"))
         return false;
     const u32 unchanged_generation = cache.generation;
-    const u32 unchanged_calls = cache.backend_calls;
+    const u32 unchanged_calls = text_measure_calls(&cache);
     if (!theme_typography_probe_require(
             renderer_prepare_typography(&renderer, changed, &scope.candidate) && !scope.candidate.owner &&
                 renderer_commit_typography(&renderer, &scope.candidate) &&
                 renderer_typography_revision(renderer) == initial_revision + 1 &&
-                cache.generation == unchanged_generation && cache.backend_calls == unchanged_calls,
+                cache.generation == unchanged_generation && text_measure_calls(&cache) == unchanged_calls,
             "identical apply has no owner allocation or invalidation"))
         return false;
     renderer.text_measure_revision = 65535;
@@ -194,7 +195,7 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
                                             renderer_text_measure_revision(renderer) == 1 &&
                                             cache.generation != unchanged_generation &&
                                             ui_text_measure_cache_measure(&cache, request, &after).ok() &&
-                                            cache.backend_calls == unchanged_calls + 1,
+                                            text_measure_calls(&cache) == unchanged_calls + 1,
                                         "backend-token exhaustion clears real cached entries before reuse"))
         return false;
     // Text size in chat sizes chat text alone: with the body size kept, the chat face's system has the chat em and

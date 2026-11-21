@@ -289,15 +289,6 @@ bool account_video_session_acknowledge(AccountVideoSession* s, const AccountVide
 AccountVideoStatus account_video_session_status(const AccountVideoSession* s) noexcept {
     return thread(*s) ? s->status : AccountVideoStatus{};
 }
-AccountVideoAudioProgress account_video_session_audio_progress(const AccountVideoSession* s) noexcept {
-    if (!thread(*s) || !s->workspace)
-        return {};
-    const auto* owner = audio_owner(*s);
-    const auto a = media_audio_status(owner);
-    if (a.observed_epoch != s->playback_epoch)
-        return {};
-    return {a.observed_epoch, a.written_frames, a.submitted_frames, a.consumed_frames};
-}
 AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 timeout) noexcept {
     if (!s->initialized && !s->workspace) {
         reset_value(s);
@@ -328,9 +319,6 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
     }
     reset_value(s);
     return result(AccountVideoError::none, 0, true, true);
-}
-u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {
-    return s->workspace ? s->workspace->allocation_bytes : 0;
 }
 
 } // namespace maicord

@@ -320,11 +320,11 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
               admitted.metadata.wave.data.data == admitted.lease.lookup.bytes.data + 44 &&
               admitted.metadata.wave.data.count == 4 && !encoded_media_cache_erase(&cache, wave_key),
           "WAV admission validates metadata and rebases encoded and PCM subrange into one immutable lease");
-    const u64 copied = cache.counters.bytes_copied;
+    const u64 stored = cache.stored_bytes;
     auto hit = cdn_media_pipeline_lookup_audio(&pipeline, wave_key, 1);
     check(hit.ready() && hit.lease.acquired && hit.lease.lookup.content_identity == identity &&
               encoded_audio_bytes(hit.metadata).data == encoded_audio_bytes(admitted.metadata).data &&
-              cache.counters.bytes_copied == copied,
+              cache.stored_bytes == stored,
           "WAV cache read transfers same immutable source without an encoded body copy");
     if (hit.lease.acquired)
         encoded_media_cache_release(&cache, &hit.lease);

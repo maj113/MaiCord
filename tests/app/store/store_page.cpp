@@ -397,13 +397,18 @@ static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcep
             last_x = maximum(last_x, n.x);
         }
         u32 tested = 0, edge_cards = 0, failures = 0, hidden = 0;
-        for (u32 i = 0; g_scene.active && i < g_scene.count && i < g_scene.dialog_root; ++i) {
+        // Tab walks the page from its top as a keyboard user does: each stop is tested where Tab left the page.
+        ui_store_scene_scroll_to(&g_scene, 0);
+        g_scene.focus_action = 0;
+        UiStoreEvent event{};
+        for (u32 step = 0; g_scene.active && step < g_scene.count && ui_store_scene_key(&g_scene, UiStoreKey::tab, &event);
+             ++step) {
+            u32 i = 0;
+            while (i < g_scene.count && g_scene.nodes[i].action != g_scene.focus_action)
+                ++i;
+            if (i >= g_scene.count || i >= g_scene.dialog_root)
+                continue;
             const auto& n = g_scene.nodes[i];
-            if (!n.action || (n.flags & (ui_store_hidden | ui_store_disabled)))
-                continue;
-            ui_store_scene_scroll_to(&g_scene, 0);
-            if (!ui_store_scene_focus(&g_scene, n.action, true) || g_scene.focus_action != n.action)
-                continue;
             UiRect r{};
             if (!ui_store_scene_rect(g_scene, n.action, &r) || r.top < page.top || r.bottom > clip.bottom - reach)
                 continue;
