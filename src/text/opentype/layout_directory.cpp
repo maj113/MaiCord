@@ -55,7 +55,9 @@ SfntStatus sfnt_script_language(const SfntScript& script,u16 feature_limit,u32 i
     const u32 offset=index==sfnt_default_language?r16(script.table,0):r16(script.table,8+index*6);if(!offset)return SfntStatus::missing_table;
     const auto table=rest(script.table,offset); // validated when the script was prepared
     if(!span(table,0,6))return SfntStatus::truncated;if(r16(table,0))return SfntStatus::unsupported;
-    const u16 required=r16(table,2),count=r16(table,4);if(required!=0xffff && required>=feature_limit)return SfntStatus::malformed;
+    // A required feature index past the feature list names no feature, as HarfBuzz reads it: Unifont writes 0 with an
+    // empty list.
+    u16 required=r16(table,2);const u16 count=r16(table,4);if(required>=feature_limit)required=0xffff;
     if(!span(table,6,static_cast<u32>(count)*2))return SfntStatus::truncated;
     if(static_cast<u32>(count)+1>work)return SfntStatus::resource_limit;*work_used=static_cast<u32>(count)+1;
     for(u32 i=0;i<count;++i)if(r16(table,6+i*2)>=feature_limit)return SfntStatus::malformed;

@@ -52,9 +52,11 @@ struct NativeTextFontQuery {u32 scope;ConstSlice<u16> family;NativeFontPropertie
 // Supplying selected_scope also opts into the default-face fallback for
 // a missing requested family. Other failures never trigger that fallback.
 // Optional missing_family reports that successful fallback without repeating
-// family matching. It is false on a direct family match or failure.
+// family matching. It is false on a direct family match or failure. With `plain` the face is selected without the
+// bold or oblique simulation its match asks for.
 bool native_text_catalog_select_query(NativeTextCatalogs*,const NativeTextFontQuery&,NativeFontSession*,Arena*,
-    NativeFontInstanceHandle*,NativeFontSelection*,u32* candidate=nullptr,u32* simulations=nullptr,u32* selected_scope=nullptr,bool* missing_family=nullptr) noexcept;
+    NativeFontInstanceHandle*,NativeFontSelection*,u32* candidate=nullptr,u32* simulations=nullptr,u32* selected_scope=nullptr,
+    bool* missing_family=nullptr,bool plain=false) noexcept;
 struct NativeTextFontRange {NativeFontMatch match;u32 bytes,units,scope;};
 // en-US policy: preserves the base-family and fixed system-route preference,
 // including a missing base family. Returns the actual selected scope. First use

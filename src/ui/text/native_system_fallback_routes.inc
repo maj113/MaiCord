@@ -18,9 +18,12 @@ const RouteFamilies* route_families(NativeTextCatalogs& owner,u32 route) noexcep
     SystemFontName sorted[fallback_sorted_limit];u32 sorted_count=0;
     if(listed){
         auto* locator=system_locator(owner);
-        // The interval's first scalar stands for it; the control characters at the start of the Latin interval
-        // are represented by a letter.
-        const u32 sample=first<0x41?0x41u:first;
+        // The interval's first assigned scalar stands for it; the control characters at the start of the Latin interval
+        // are represented by a letter. An unassigned scalar (U+3040 opens the Hiragana interval) is covered only by
+        // last-resort fonts such as Unifont, which fontconfig then ranks first for every scalar of the interval.
+        const u32 end=route+1<policy.firsts.count?policy.firsts[route+1]:0x110000u;
+        u32 sample=first<0x41?0x41u:first;
+        while(sample+1<end&&unicode_properties(sample)->general_category()==UnicodeGeneralCategory::cn)++sample;
         if(locator)sorted_count=system_font_locator_fallbacks(locator,sample,sorted,fallback_sorted_limit);
     }
     ConstSlice<u16> names[fallback_route_limit];u32 count=0,units=0;

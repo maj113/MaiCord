@@ -1,5 +1,5 @@
-// Exercise the public shape dispatcher while the private catalog names an old
-// file generation. Unsupported CFF bold makes staging fail deterministically.
+// Exercise the public shape dispatcher while the private catalog names an old file generation. The engine cannot
+// simulate the bold of a variable TrueType face, which makes staging fail deterministically.
 bool native_request_recovery() noexcept {
     struct Files {
         wchar_t reserved[MAX_PATH]{},live[MAX_PATH]{},retired[MAX_PATH]{},file[MAX_PATH]{},old_file[MAX_PATH]{};
@@ -11,7 +11,8 @@ bool native_request_recovery() noexcept {
     copy_bytes(files.retired,files.reserved,length*2);copy_bytes(files.retired+length,L".old",10);
     copy_bytes(files.file,files.live,(length+5)*2);copy_bytes(files.file+length+5,L"\\font.otf",20);
     copy_bytes(files.old_file,files.retired,(length+4)*2);copy_bytes(files.old_file+length+4,L"\\font.otf",20);
-    CHECK(CreateDirectoryW(files.live,nullptr)&&CopyFileW(L"assets/fonts/Compagnon.otf",files.file,TRUE));
+    constexpr wchar_t source[]=L"tests/fixtures/fonts/variable/VariableFixture.ttf";
+    CHECK(CreateDirectoryW(files.live,nullptr)&&CopyFileW(source,files.file,TRUE));
     TextSystem system{};
     struct Release {TextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);shaped_text_reset(&second_output.text);text_system_release(&s);}} release{system};
     CHECK(native_font_session_create(&system.native_fonts)&&native_text_context_initialize(&system.native_text,system.native_fonts));system.em_size=16;
@@ -19,14 +20,15 @@ bool native_request_recovery() noexcept {
         CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256},{out->decorations,256},{out->hits,4096}));
     }
     u32 scope=0;CHECK(native_text_register_font_path(system.native_text,files.file,&scope));
-    const u16 missing[]{'N','o','-','M','a','i','C','o','r','d','-','F','a','m','i','l','y'},family[]{'C','o','m','p','a','g','n','o','n'};
+    const u16 missing[]{'N','o','-','M','a','i','C','o','r','d','-','F','a','m','i','l','y'},
+        family[]{'M','a','i','C','o','r','d',' ','V','a','r','i','a','b','l','e',' ','F','i','x','t','u','r','e'};
     CHECK(native_text_format_create(system.native_text,{{missing,17},scope,{400,5,0},16,64,true},&system.native_format));
     auto alias=system;const u64 identity=native_text_format_identity(alias);
     const auto text=utf8_literal("AV office words that wrap across several lines");
     CHECK(text_shape_utf8(&system, {text,{},1000,1000}, &second_output.text).ok());
     const auto old_run=second_output.text.runs[0].native_face;auto* fonts=system.native_fonts;
-    CHECK(MoveFileExW(files.live,files.retired,0)&&CreateDirectoryW(files.live,nullptr)&&CopyFileW(L"assets/fonts/Compagnon.otf",files.file,TRUE));
-    CHECK(native_text_format_create(system.native_text,{{family,9},scope,{600,5,0},16,64,true},&system.native_format));
+    CHECK(MoveFileExW(files.live,files.retired,0)&&CreateDirectoryW(files.live,nullptr)&&CopyFileW(source,files.file,TRUE));
+    CHECK(native_text_format_create(system.native_text,{{family,24},scope,{600,5,0},16,64,true},&system.native_format));
     const TextStyleSpan style{0,text.bytes,text_style_underline};
     for(u32 mode=0;mode<3;++mode){
         for(u32 i=0;i<2;++i){
@@ -35,7 +37,7 @@ bool native_request_recovery() noexcept {
             CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(fonts),old_run));
         }
     }
-    CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
+    CHECK(native_text_format_create(system.native_text,{{family,24},scope,{400,5,0},16,64,true},&system.native_format));
     CHECK(text_shape_utf8(&system, {text,{},60,20,TextWrapping::wrap,TextOverflow::ellipsis}, &native_output.text).ok());
     CHECK(native_text_format_identity(alias)!=identity&&system.native_fonts==fonts&&native_font_run_get(*native_font_session_runs(fonts),old_run)&&native_output.text.run_count);
     print("PASS public request recovery: plain/styled ellipsis, clip, repeated rejection, later commit, retained old run\n");return true;

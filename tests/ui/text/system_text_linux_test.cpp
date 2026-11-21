@@ -470,7 +470,7 @@ void composer_cjk_primary_faces(TextSystem& base) noexcept {
 // the whole text failed, and when the fallback substitutes failed too, one message took down every text of the view.
 void refused_fallback_face(TextSystem& base) noexcept {
     // The base face is Zilla Slab, a static TrueType face: its bold is a simulation the engine draws. A CFF face of the
-    // set (Compagnon) has no bold the engine can simulate, and fontconfig may pick it as the interface face.
+    // set (Compagnon) draws a simulated bold too, and fontconfig may pick it as the interface face.
     TextSystem system = base;
     const u16 family[] = {'Z', 'i', 'l', 'l', 'a', ' ', 'S', 'l', 'a', 'b'};
     const bool format = native_text_format_create(system.native_text, {{family, 10}, 0, {400, 5, 0}, 16.0f, 64.0f, true},

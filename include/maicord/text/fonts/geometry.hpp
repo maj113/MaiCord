@@ -50,7 +50,8 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
 // transformed ink.
 // Bold is supported for static TrueType text outlines, before oblique; it needs
 // prepared instructions when the font's prep policy affects widening. CFF and
-// variable bold remain unsupported.
+// CFF2 bold (cff_bold) applies after oblique, at any instance. Variable
+// TrueType bold remains unsupported.
 SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     FontGeometryScratch* scratch,GlyphOutline* output,u32 work_limit=1000000,
     bool oblique=false,bool bold=false) noexcept;

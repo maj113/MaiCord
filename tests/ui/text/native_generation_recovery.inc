@@ -90,10 +90,18 @@ struct ReplacementFont {
     }
     bool replace(const wchar_t* source) noexcept {CHECK(MoveFileExW(live,retired,0));CHECK(CreateDirectoryW(live,nullptr));CHECK(CopyFileW(source,file,TRUE));return true;}
 };
-bool automatic_generation_recovery(const wchar_t* path) noexcept {
+// The variable TrueType fixture beside the repository's fonts: `path` names assets/fonts/Compagnon.otf.
+bool variable_fixture(const wchar_t* path,wchar_t* output) noexcept {
+    u32 n=0,cut[3]{};while(path[n]){if(path[n]=='\\'||path[n]=='/'){cut[0]=cut[1];cut[1]=cut[2];cut[2]=n+1;}++n;}
+    const wchar_t file[]=L"tests/fixtures/fonts/variable/VariableFixture.ttf";constexpr u32 units=sizeof(file)/sizeof(file[0]);
+    if(!cut[0]||cut[0]+units>MAX_PATH)return false;copy_bytes(output,path,cut[0]*2);copy_bytes(output+cut[0],file,units*2);return true;
+}
+bool automatic_generation_recovery(const wchar_t* compagnon) noexcept {
+    wchar_t path[MAX_PATH];CHECK(variable_fixture(compagnon,path));
     ReplacementFont temp;CHECK(temp.open(path));TextSystem system{};CHECK(native_font_session_create(&system.native_fonts)&&native_text_context_initialize(&system.native_text,system.native_fonts));system.em_size=16;
     struct Release {TextSystem& s;~Release() noexcept {native_text_context_release(&s.native_text);native_font_session_release(&s.native_fonts);}} release{system};
-    u32 scope=0;CHECK(native_text_register_font_path(system.native_text,temp.file,&scope));const u16 family[]{'C','o','m','p','a','g','n','o','n'};
+    u32 scope=0;CHECK(native_text_register_font_path(system.native_text,temp.file,&scope));
+    const u16 family[]{'M','a','i','C','o','r','d',' ','V','a','r','i','a','b','l','e',' ','F','i','x','t','u','r','e'};
     const u16 missing[]{'N','o','-','M','a','i','C','o','r','d','-','F','a','m','i','l','y'};
     // Build the private catalog through a missing-family request. Its output
     // uses system fallback, leaving the unselected private file replaceable.
@@ -102,12 +110,12 @@ bool automatic_generation_recovery(const wchar_t* path) noexcept {
     GenerationOutput old,draw;CHECK(native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&old.text,nullptr));
     const auto old_run=old.text.runs[0].native_face;auto* old_fonts=old.text.native_fonts();
     CHECK(temp.replace(path));
-    // Existing CFF bold simulation is unsupported. Failed staged preparation
+    // The engine cannot simulate the bold of a variable TrueType face. Failed staged preparation
     // must keep the original generation and independently retained output.
-    CHECK(native_text_format_create(system.native_text,{{family,9},scope,{600,5,0},16,64,true},&system.native_format));
+    CHECK(native_text_format_create(system.native_text,{{family,24},scope,{600,5,0},16,64,true},&system.native_format));
     CHECK(!native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr)&&!draw.text.native_fonts()&&!draw.text.run_count);
     CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));
-    CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
+    CHECK(native_text_format_create(system.native_text,{{family,24},scope,{400,5,0},16,64,true},&system.native_format));
     const bool recovered=native_text_candidate_line(system,{utf8_literal("AV office"),{},1000,1000},&draw.text,nullptr);
     CHECK(recovered&&draw.text.run_count&&draw.text.native_fonts()==old_fonts);
     CHECK(system.native_text==root&&alias.native_text==root&&native_text_format_identity(alias)!=identity&&native_font_run_get(*native_font_session_runs(old_fonts),old_run));

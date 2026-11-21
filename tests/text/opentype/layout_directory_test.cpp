@@ -50,6 +50,11 @@ bool units() noexcept {
     u16 index=0;u32 tag=0;SfntScript script{};SfntLanguage lang{};
     if(sfnt_layout_find_script(l,sfnt_tag('l','a','t','n'),&index)!=SfntStatus::ok || index!=1 || sfnt_layout_find_script(l,sfnt_tag('a','r','a','b'),&index)!=SfntStatus::missing_table || index!=65535)return false;
     if(sfnt_layout_script(l,0,&tag,&script)!=SfntStatus::ok || sfnt_script_language(script,l.feature_count,sfnt_default_language,&tag,&lang)!=SfntStatus::ok || lang.required_feature!=1 || lang.feature_indices.count!=4 || byte_load_be16(lang.feature_indices.data)!=1 || byte_load_be16(lang.feature_indices.data+2)!=0)return false;
+    // A required feature index past the feature list (Unifont writes 0 with no features) names no feature.
+    {const u32 required=static_cast<u32>(lang.feature_indices.data-b)-4;const u16 values[]{3,0xfffe};
+        for(u16 value:values){put(b,required,value);SfntLanguage out{};
+            if(sfnt_script_language(script,l.feature_count,sfnt_default_language,&tag,&out)!=SfntStatus::ok || out.required_feature!=0xffff || out.feature_indices.count!=4)return false;}
+        put(b,required,1);}
     SfntLookup lookup{};if(sfnt_layout_lookup(l,1,&lookup)!=SfntStatus::ok || lookup.source_type!=7 || lookup.type!=1 || lookup.flags!=0x210 || lookup.mark_set!=1 || lookup.subtable_count!=2)return false;
     ConstSlice<u8> sub{};if(sfnt_lookup_subtable(lookup,2,&sub)!=SfntStatus::invalid_input || sub.data)return false;
     // Exhaust all normalized F2DOT14 x values across three y regions.

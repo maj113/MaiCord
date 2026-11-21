@@ -304,8 +304,15 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                     else{auto& owner=*system->native_text;NativeTextFontRange choice{};
                         if(!native_text_catalog_range(&owner.catalogs,font_query(owner,format,requested),owner.fonts,&owner.scratch,{text.data+at,mapping_limit-at},&choice))return 0;
                         if(!choice.bytes)return 0;
-                        const bool missing=choice.match.index==native_fallback_missing;
-                        mapped=missing?base:binding_face(owner,format,requested,choice);if(missing)mapped_script=script==egyptian_script?egyptian_missing_script:128;mapped_end=at+choice.bytes;
+                        bool missing=choice.match.index==native_fallback_missing;
+                        // A face the engine cannot prepare, even without its simulations (acquire_plan), must not
+                        // fail the whole text: its scalars are missing as if no face covered them. Capacity failures
+                        // stay failures, so the caller retries.
+                        mapped=nullptr;
+                        if(!missing){const u32 failures=owner.catalogs.retryable_failures;mapped=binding_face(owner,format,requested,choice);
+                            if(!mapped&&owner.catalogs.retryable_failures!=failures)return 0;
+                            missing=!mapped;}
+                        if(missing){mapped=base;mapped_script=script==egyptian_script?egyptian_missing_script:128;}mapped_end=at+choice.bytes;
                         if(!missing&&directions&&(!(directions[at]&1)||script==arabic_script)&&script!=64){bool neutral=true,symbol=false;
                             for(u32 byte=at;neutral&&byte<mapped_end;){const auto cp=utf8_decode_one(text.data+byte,mapped_end-byte);if(!cp.valid)return 0;
                                 neutral=(native_script_class(cp.codepoint).flags&native_script_contextual)!=0;const auto category=unicode_properties(cp.codepoint)->general_category();
@@ -324,8 +331,8 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                 // paint cuts within one mapped font-property item do not.
                 if(editor&&mapped_script==han_script)end=mapping_limit;
                 font=mapped;script=mapped_script;end=minimum(end,mapped_end);if(changed&&font!=base)*changed=true;
-                // binding_face answers null for a face that cannot be prepared (a bold simulation of a bitmap
-                // colour face); the refusal below handles it, this block must not read it first.
+                // A fallback face that cannot be prepared resolved to the base face above; `font` is null only when
+                // the base binding itself is missing, which the refusal below handles.
                 if(editor&&font&&(font->key&binding_missing_family)&&(script==64||script==arabic_script||script==armenian_script||script==georgian_script)){
                     const bool standard=script==armenian_script||script==georgian_script;
                     // A missing family resolves neutral punctuation and spaces

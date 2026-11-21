@@ -210,6 +210,7 @@ maicord_library(maicord_font
     # The font store, the catalog check and the handle stamp read the file system through the files seam
     # (include/maicord/os/file.hpp); handle_stat.cpp has a Linux twin.
     linux:src/text/fonts/store.cpp linux:src/text/fonts/catalog.cpp linux:src/text/fonts/linux/handle_stat.cpp
+    src/text/opentype/cff_bold.cpp
     LIBS maicord_core maicord_unicode windows:ntdll)
 # Font table opening, outlines and variations (once per font or glyph), the
 # non-Latin script shapers and the Unicode line geometry keep their short loops

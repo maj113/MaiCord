@@ -263,7 +263,11 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
     status = private_subrs(font.table, dict, subrs, seed, nominal_width, vsindex);
 #endif
     if (status != SfntStatus::ok) return status;
-    if (dict.has_matrix) {
+    if (dict.has_matrix && !font.top_matrix) {
+        // Without a Top DICT FontMatrix the Font DICT one applies alone, as FreeType and DirectWrite read it: Unifont
+        // gives only its Font DICT a matrix, and its product with the default 0.001 drew glyphs at a thousandth of their size.
+        for (u32 i = 0; i < 6; ++i) matrix[i] = dict.matrix[i];
+    } else if (dict.has_matrix) {
         // Font DICT transform, followed by the Top DICT transform.
         const auto* a = font.matrix; const auto* b = dict.matrix;
         matrix[0] = a[0]*b[0]+a[2]*b[1]; matrix[1] = a[1]*b[0]+a[3]*b[1];
@@ -403,7 +407,7 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     if (status != SfntStatus::ok) return status;
     if (result.charstrings.count != result.glyph_count) return SfntStatus::malformed;
     for (u32 i = 0; i < 6; ++i) result.matrix[i] = dict.matrix[i];
-    result.charset = dict.charset; result.cid = dict.cid;
+    result.charset = dict.charset; result.cid = dict.cid; result.top_matrix = dict.has_matrix;
 #if defined(_WIN32)
     status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed, &result.nominal_width);
 #else

@@ -303,6 +303,25 @@ bool run() noexcept {
     u32 scope=0,again=0;CHECK(native_text_register_font_path(system.native_text,path,&scope));CHECK(native_text_register_font_path(system.native_text,path,&again)&&again==scope);
     const u16 private_family[]{'C','o','m','p','a','g','n','o','n'};description={{private_family,9},scope,{400,5,0},16,64,true};
     CHECK(native_text_format_create(system.native_text,description,&system.native_format));system.em_size=16;CHECK(exercise(system));
+    // Compagnon is CFF and has no bold face: a bold span simulates it as DirectWrite does. A glyph with ink is
+    // (1000 + 25) / 50 = 20 of 1000 units wider (0.32 px at 16 px), the space keeps its advance, and the caret after
+    // "Abc" sits at the end of the widened advances. The kana take their fallback face.
+    {const auto mixed=utf8_literal("Abc \xe3\x81\x82\xe3\x81\x84");const TextStyleSpan bold{0,mixed.bytes,text_style_bold};
+        TextGlyph regular[4]{};auto draw=output();
+        CHECK(native_text_candidate_line(system,{mixed,{},1000000,1000},&draw,nullptr)&&draw.glyph_count==6);
+        for(u32 i=0;i<4;++i)regular[i]=draw.glyphs[i];release_output(draw);draw=output();
+        CHECK(native_text_candidate_styled(system,{mixed,{&bold,1},1000000,1000,TextWrapping::wrap},&draw,nullptr)&&draw.glyph_count==6);
+        for(u32 i=0;i<6;++i)CHECK(draw.glyphs[i].index||i==3);
+        float caret=0;
+        for(u32 i=0;i<3;++i){const float widened=draw.glyphs[i].advance-regular[i].advance;
+            CHECK(draw.glyphs[i].index==regular[i].index&&widened>.3199f&&widened<.3201f);caret+=draw.glyphs[i].advance;}
+        CHECK(draw.glyphs[3].advance==regular[3].advance);
+        NativeParagraphHitRun visual[16];NativeParagraphHits geometry{};TextMeasureResult measure{};
+        NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{advances,1280},&geometry,{parts,16},{visual,16}};
+        CHECK(native_text_candidate_hits(system,{mixed,{&bold,1},1000000,1000,TextWrapping::wrap},storage,&measure)&&measure.ok());
+        NativeParagraphHitMetric metric{};float x=0;CHECK(native_paragraph_hit_position(geometry,3,false,&metric,&x)==SfntStatus::ok);
+        CHECK(x>caret-.001f&&x<caret+.001f);
+        release_output(draw);}
     // The bundled BioRhyme (beside Compagnon) kerns A before V by 80 of 1000 units: the same cut on any machine.
     {wchar_t bio[1100];u32 n=0,directory=0;while(path[n]){bio[n]=path[n];if(path[n]=='\\'||path[n]=='/')directory=n+1;++n;}
         const wchar_t file[]=L"BioRhyme.ttf";for(u32 i=0;i<sizeof(file)/sizeof(file[0]);++i)bio[directory+i]=file[i];

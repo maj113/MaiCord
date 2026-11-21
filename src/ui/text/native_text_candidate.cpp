@@ -280,10 +280,10 @@ NativeTextFontQuery font_query(const NativeTextContext& owner,const NativeFormat
 #endif
     return query;
 }
-bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,NativeRunPlanHandle* output,NativeFontRunHandle* font,u32* key,const NativeTextFontRange* face=nullptr) noexcept {
+bool acquire_plan_once(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,NativeRunPlanHandle* output,NativeFontRunHandle* font,u32* key,const NativeTextFontRange* face,bool plain) noexcept {
     NativeFontInstanceHandle instance{};NativeFontSelection source{};const auto query=font_query(owner,format,font_flags);u32 candidate=0xffffffffu,simulations=0,scope=query.scope;bool missing_family=false;
-    if(face){candidate=face->match.index;simulations=face->match.simulations;scope=face->scope;if(!native_text_catalog_select_face(&owner.catalogs,scope,candidate,simulations,owner.fonts,&owner.scratch,&instance,&source))return false;}
-    else if(!native_text_catalog_select_query(&owner.catalogs,query,owner.fonts,&owner.scratch,&instance,&source,&candidate,&simulations,&scope,&missing_family))return false;
+    if(face){candidate=face->match.index;simulations=plain?0:face->match.simulations;scope=face->scope;if(!native_text_catalog_select_face(&owner.catalogs,scope,candidate,simulations,owner.fonts,&owner.scratch,&instance,&source))return false;}
+    else if(!native_text_catalog_select_query(&owner.catalogs,query,owner.fonts,&owner.scratch,&instance,&source,&candidate,&simulations,&scope,&missing_family,plain))return false;
     struct Release {NativeFontInstanceStore* store;NativeFontInstanceHandle instance;~Release() noexcept {native_font_instance_release(store,instance);}} release{owner.store.instances,instance};
     if(scope>=32||candidate>0x1fffffu||simulations>3)return false;*key=(simulations<<26)|(scope<<21)|candidate|(missing_family?binding_missing_family:0);
     const auto prepared=native_run_plan_acquire(&owner.store,instance,&owner.scratch,output,1000000,16*1024*1024,simulations,font_flags==emoji_font_flag?NativeRunPlanKind::emoji:NativeRunPlanKind::text);
@@ -291,6 +291,17 @@ bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_f
     const auto recorded=native_font_session_run(owner.fonts,instance,source,simulations,font);if(recorded.ok())return true;
     if(recorded.error==NativeFontError::capacity)++owner.catalogs.retryable_failures;
     native_run_plan_release(&owner.store,*output);reset_value(output);return false;
+}
+// A style the engine cannot simulate (a bold of a variable TrueType face) must not fail the text: the face draws
+// without the simulation, at its own weight and slant. Capacity failures stay failures, so the caller retries them.
+bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_flags,NativeRunPlanHandle* output,NativeFontRunHandle* font,u32* key,const NativeTextFontRange* face=nullptr) noexcept {
+    const u32 failures=owner.catalogs.retryable_failures;
+    if(acquire_plan_once(owner,format,font_flags,output,font,key,face,false))return true;
+    const bool simulated=face?face->match.simulations!=0:(font_flags&(text_style_bold|text_style_italic))!=0&&font_flags!=emoji_font_flag;
+    if(!simulated||owner.catalogs.retryable_failures!=failures||!acquire_plan_once(owner,format,font_flags,output,font,key,face,true))return false;
+    // binding_face finds the binding again by the simulations its face asked for.
+    if(face)*key=(*key&~(3u<<26))|(face->match.simulations<<26);
+    return true;
 }
 bool same_font(const NativeFormatFont& a,const NativeFormatFont& b) noexcept {
     return a.scope==b.scope&&bytes_equal(&a.properties,&b.properties,sizeof(a.properties))&&a.family.count==b.family.count&&bytes_equal(a.family.data,b.family.data,a.family.count*2);

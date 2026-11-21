@@ -13,7 +13,7 @@ NativeFontResult native_font_prepare(NativeFontSession* session,NativeFontHandle
     const auto* selected=native_font_get(*native_font_session_fonts(session),face);if(!selected)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(simulations>3||((simulations&2)&&!oblique)||((simulations&1)&&!bold))return failure(SfntStatus::unsupported);
     const auto& font=selected->geometry;const bool plain_bold=font_ignores_bold(font);
-    if((simulations&1)&&!plain_bold&&(font.kind!=FontGeometryKind::truetype||font.gvar.table.data))return failure(SfntStatus::unsupported);
+    if((simulations&1)&&font.kind==FontGeometryKind::truetype&&font.gvar.table.data)return failure(SfntStatus::unsupported);
     bool instructions=false;TtOutlineRequirements requirements{};
     if(outline_instructions&&font.kind==FontGeometryKind::truetype){SfntStatus status=SfntStatus::ok;
         // Bold prep policy affects widening even when glyphs have no bytecode.
