@@ -365,6 +365,9 @@ bool application_thread_browser_read_blocked() noexcept {
 UiThreadBrowserScene* application_thread_browser_scene() noexcept {
     return nullptr;
 }
+bool application_content_page_cursor(float, float, UiCursor*) noexcept {
+    return false;
+}
 bool application_thread_browser_toggle() noexcept {
     return false;
 }

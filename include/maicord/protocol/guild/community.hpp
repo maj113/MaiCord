@@ -31,8 +31,13 @@ inline constexpr u64 kDiscoveryCategoriesRouteId = 0x4449534343415453ull;
 inline constexpr u64 kGuildDiscoverySubcategoryRouteId = 0x4449534353554243ull;
 inline constexpr u64 kGuildProfileVisibilityRouteId = 0x4750524F46564953ull;
 inline constexpr u64 kGuildJoinRequestsRouteId = 0x4A4F494E52455153ull;
+// Server Hub: the space, its widgets' data and the account's consents (personalization).
+inline constexpr u64 kGuildSpaceRouteId = 0x4753504143454745ull;
+inline constexpr u64 kGuildSpaceHydrateRouteId = 0x4753504143454859ull;
+inline constexpr u64 kUserConsentRouteId = 0x55434F4E53454E54ull;
 
-inline constexpr u32 kGuildCommunityMaximumTargetBytes = 160;
+// The Server Hub's hydrate target with four widget ids is the longest (about 190 bytes).
+inline constexpr u32 kGuildCommunityMaximumTargetBytes = 224;
 inline constexpr u32 kGuildCommunityMaximumBodyBytes = 48 * 1024;
 inline constexpr u32 kGuildCommunityMaximumResponseBytes = 512 * 1024;
 
@@ -68,6 +73,13 @@ enum class GuildCommunityOperation : u8 {
     guild_profile_visibility, // PATCH  /guilds/{g}/profile               {"visibility":n}
     // The submitted applications, read for their total (the official client's fetch, first page of 25).
     join_requests_submitted, // GET    /guilds/{g}/requests?status=SUBMITTED&limit=25
+    // Server Hub. space_hydrate's `code` is the widget ids joined by "&widget_ids=".
+    space_get,     // GET    /guilds/{g}/space
+    space_hydrate, // GET    /guilds/{g}/space/widgets/hydrate?widget_ids={id}&widget_ids={id}
+    consent_get,   // GET    /users/@me/consent
+    // The hub's sharing modal (the official client's personalisation switch); the answer is the consents.
+    consent_grant,  // POST   /users/@me/consent                   {"grant":["personalization"],"revoke":[]}
+    consent_revoke, // POST   /users/@me/consent                   {"grant":[],"revoke":["personalization"]}
     count,
 };
 
@@ -108,6 +120,8 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
                                                        Utf8View session_id = {}) noexcept;
 // {"response":1}; returns the bytes written or 0.
 u32 guild_community_write_interest_body(Slice<u8> body) noexcept;
+// consent_grant's or consent_revoke's body; returns the bytes written or 0.
+u32 guild_community_write_consent_body(Slice<u8> body, bool grant) noexcept;
 // The fixed body of guild_join ({}); returns the bytes written or 0.
 u32 guild_community_write_join_body(Slice<u8> body) noexcept;
 // guild_join's X-Context-Properties line: base64 of an empty object (e30=).
@@ -354,5 +368,65 @@ struct GuildProfile {
 // Decodes GET /guilds/{g}/profile. False without an id or name, or for a body
 // that is not an object; unknown members are ignored and long text truncates.
 bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* output) noexcept;
+
+// Server Hub (the official client's guild space)
+
+inline constexpr u32 kGuildSpaceWidgets = 8;
+inline constexpr u32 kGuildSpaceIdBytes = 24;
+inline constexpr u32 kGuildSpaceTitleBytes = 128;
+// An Image & Text widget's text: 500 characters at most.
+inline constexpr u32 kGuildSpaceTextBytes = 1536;
+// The official client lists the first 20 entries and the account's own; the answer may hold it past them.
+inline constexpr u32 kGuildSpaceLeaders = 24;
+inline constexpr u32 kGuildSpaceGames = 5;
+inline constexpr u32 kGuildSpacePlayers = 4;
+inline constexpr u32 kGuildSpaceLeaderGames = 3;
+// The widget kinds MaiCord shows. Whiteboard and popular music read as other.
+enum class GuildSpaceWidgetType : u8 { other, leaderboard, popular_games, image_text };
+struct GuildSpaceWidget {
+    char id[kGuildSpaceIdBytes];
+    char kind[16];
+    char default_title[kGuildSpaceTitleBytes];
+    char title[kGuildSpaceTitleBytes]; // config.title
+    char text[kGuildSpaceTextBytes];   // config.text
+    u16 order, text_bytes;
+    u8 id_bytes, kind_bytes, default_title_bytes, title_bytes, column;
+    GuildSpaceWidgetType type;
+    bool hydrate, locked;
+};
+struct GuildSpaceLeader {
+    u64 user_id;
+    u64 games[kGuildSpaceLeaderGames]; // application_ids: the last one played first
+    u32 value;                         // ms played (stat 1), days (2) or games (3). A week of play fits.
+    u32 rank, seconds;                 // seconds: time_played_seconds
+    u16 game_total;                    // application_count
+    u8 game_count;
+};
+struct GuildSpaceGame {
+    u64 id;
+    u32 players; // total_users
+};
+// A widget's data from the hydrate request. The decoder sets `ready` for each widget it answered.
+struct GuildSpaceData {
+    bool ready;
+    u8 stat, next_stat, leader_count, game_count, player_count;
+    u32 week_start; // week_start_ts, Unix seconds
+    u32 total_users, total_games;
+    u64 computed_ms; // computed_at: when the standings were last updated
+    GuildSpaceLeader leaders[kGuildSpaceLeaders];
+    GuildSpaceGame games[kGuildSpaceGames];
+    u64 players[kGuildSpacePlayers]; // user_ids
+};
+struct GuildSpace {
+    GuildSpaceWidget widgets[kGuildSpaceWidgets];
+    GuildSpaceData data[kGuildSpaceWidgets];
+    u32 count;
+    char banner[kGuildProfileHashBytes]; // header.custom_banner_hash
+    u8 banner_bytes;
+};
+// GET /guilds/{g}/space: the widgets in display order (by column, then by order). False for a body that is not a space.
+bool guild_space_decode(Utf8View body, Slice<u32> scratch, GuildSpace* output) noexcept;
+// GET /guilds/{g}/space/widgets/hydrate: {"widgets":[{"id","data"}]} into the data of the widgets with those ids.
+bool guild_space_hydrate_decode(Utf8View body, Slice<u32> scratch, GuildSpace* space) noexcept;
 
 } // namespace maicord

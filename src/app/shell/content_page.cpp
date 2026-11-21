@@ -2,6 +2,7 @@
 #include "input.hpp"
 #include "overlay_input.hpp"
 #include "owner.hpp"
+#include "panel_cover.hpp"
 #include "retained_projection.hpp"
 #include "state.hpp"
 #include "../chat/threads/browser.hpp"
@@ -243,6 +244,18 @@ bool application_content_page_window_event(const WindowEvent& input) noexcept {
     const PointerStep step = input_pointer_step(input);
     if (step == PointerStep::none)
         return false;
+    // The window procedure asks the page before the profile, the menus and the reaction viewer. When one of these, a
+    // dialog or a viewer covers the page, the page gives the event to it. The page also ends its press and its hover.
+    if (!application_panel_uncovered()) {
+        if (p.pressing) {
+            p.pressing = p.dragging_scrollbar = false;
+            ui_store_scene_release_pointer(&p.scene, -1, -1, nullptr);
+            application_release_capture();
+        }
+        if (step == PointerStep::move && ui_store_scene_hover(&p.scene, -1, -1))
+            application_request_frame();
+        return false;
+    }
     UiPoint point{};
     client_event_dip(input, &point);
     const bool inside = ui_rect_contains(p.viewport, point.x, point.y);

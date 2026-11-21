@@ -119,6 +119,8 @@ void application_thread_browser_close() noexcept {
     ++search_runtime_test::browser_closes;
     search_runtime_test::browser_open = false;
 }
+void application_content_page_close() noexcept {
+}
 bool refresh_account_text(bool force) noexcept {
     ++search_runtime_test::repaints;
     search_runtime_test::forced_account_repaints += force ? 1u : 0u;

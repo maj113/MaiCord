@@ -116,6 +116,9 @@ bool application_thread_browser_consume_key_tail(UiInputKind, u32, bool) noexcep
 bool application_thread_browser_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
+bool application_content_page_input(UiInputKind, u32, bool) noexcept {
+    return false;
+}
 bool application_search_input(UiInputKind, u32, bool) noexcept {
     return false;
 }

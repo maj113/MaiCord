@@ -90,6 +90,10 @@ MAICORD_THEME_TOKEN(overlay, dense, RGBA(0, 0, 0, .68f), RGBA(0, 0, 0, .68f))
 MAICORD_THEME_TOKEN(overlay, media, RGBA(0, 0, 0, .92f), RGBA(0, 0, 0, .92f))
 MAICORD_THEME_TOKEN(overlay, shadow, RGBA(0, 0, 0, .32f), RGBA(0, 0, 0, .32f))
 MAICORD_THEME_TOKEN(overlay, shadow_soft, RGBA(0, 0, 0, .24f), RGBA(0, 0, 0, .24f))
+// The Server Hub banner's scrim, the same in every theme as the official client's: a shade toward the bottom over most
+// of the banner and a near-black foot over its lower half, under the white caption.
+MAICORD_THEME_TOKEN(overlay, banner_shade, RGBA(0, 0, 0, .4f), RGBA(0, 0, 0, .4f))
+MAICORD_THEME_TOKEN(overlay, banner_foot, RGBA(.047f, .047f, .051f, 1), RGBA(.047f, .047f, .051f, 1))
 // Text and icons on a scrim over a picture or an effect (pills on previews): 4.5:1 or better over the scrim on
 // anything from black to white.
 MAICORD_THEME_TOKEN(overlay, text, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))

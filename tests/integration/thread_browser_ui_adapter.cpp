@@ -246,6 +246,9 @@ namespace maicord::app_detail {
 bool application_settings_active() noexcept { return false; }
 bool application_search_close_panel() noexcept { return true; }
 void application_pinned_messages_close() noexcept {}
+// No content page (the Server Hub) in this fixture.
+bool application_content_page_active() noexcept { return false; }
+void application_content_page_close() noexcept {}
 bool application_navigate_known_message(u64 id, u64 message) noexcept {
     if (forum_post_ui_adapter_active()) return forum_post_ui_adapter_navigate(id, message);
     if (!g_app.account_ui || message || !chat_state_store_select_channel(&g_app.account_ui->chat_state, id).ok()) return false;

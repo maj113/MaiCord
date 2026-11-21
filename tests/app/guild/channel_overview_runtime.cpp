@@ -531,6 +531,7 @@ INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
 INACTIVE_MODAL_CORE(application_custom_status)
 INACTIVE_MODAL_CORE(application_plugin_settings)
 INACTIVE_MODAL_CORE(application_game_profile)
+INACTIVE_MODAL_CORE(application_guild_hub_sharing)
 bool application_profile_editor_input(UiInputKind, u32, bool) noexcept { return false; }
 bool application_profile_editor_window_event(const WindowEvent&) noexcept { return false; }
 SettingsLayer* application_profile_editor_edit_layer() noexcept { return nullptr; }

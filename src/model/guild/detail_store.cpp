@@ -13,8 +13,9 @@ constexpr char kFeatureNames[] = "MORE_EMOJI\0MORE_STICKERS\0ROLE_ICONS\0BANNER\
                                  "GUILD_TAGS\0GUILD_TAGS_BADGE_PACK_PETS\0GUILD_TAGS_BADGE_PACK_FLEX\0"
                                  "GUILD_TAGS_BADGE_PACK_PLANT\0GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES\0DISCOVERABLE\0"
                                  "MEMBER_VERIFICATION_GATE_ENABLED\0MEMBER_VERIFICATION_MANUAL_APPROVAL\0"
-                                 "PREVIEW_ENABLED\0VERIFIED\0PARTNERED\0";
-constexpr u8 kFeatureShifts[]{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 18, 19, 20, 24, 25, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45};
+                                 "PREVIEW_ENABLED\0VERIFIED\0PARTNERED\0PREMIUM_TIER_3_OVERRIDE\0";
+constexpr u8 kFeatureShifts[]{0,  1,  2,  3,  5,  6,  7,  8,  9,  10, 18, 19, 20, 24,
+                              25, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46};
 static_assert(name_list_count(kFeatureNames) == sizeof(kFeatureShifts));
 
 GuildDetailRecord* find(GuildDetailStore* store, u64 guild_id) noexcept {
@@ -171,6 +172,10 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
     if (k & guild_detail_features)
         record->features = features;
     record->known = static_cast<u16>(record->known | k);
+    // Each part of the hub's gate replaces the stored one only when the object carried it.
+    const u8 space = static_cast<u8>((input.space & guild_space_trial_known ? 0x03 : 0) |
+                                     (input.space & guild_space_settings_known ? 0x1C : 0));
+    record->space = static_cast<u8>((record->space & ~space) | (input.space & space));
 
     // Text pieces: the new value where observed, else the stored one.
     const bool description_new = k & guild_detail_description;

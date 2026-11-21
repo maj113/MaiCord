@@ -3,6 +3,7 @@
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/account_module_fake.hpp"
 #include "shell/state.hpp"
+#include "shell/content_page.hpp"
 #include "account/account_presentation.hpp"
 #include "account/friends.hpp"
 #include "chat/private_channel.hpp"
@@ -21,6 +22,10 @@
 #include "chat/game_lookup.hpp"
 #include "settings/settings.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/app/gateway/client.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/ui/chat/private_channel_rows.hpp"
+#include "maicord/ui/widgets/presence.hpp"
 
 namespace maicord::profile_runtime_test {
 using namespace app_detail;
@@ -56,6 +61,9 @@ PopupItem popup_items[100];
 PopupRowWidget popup_rows[100];
 UiWidget popup_widgets[210];
 UiLayoutNode popup_nodes[210];
+// The session's self status snapshot, and the DM rows' presence source (none: the fake returns null).
+GatewayClientSelfStatusSnapshot self_status;
+const UiPrivateRowSource* private_rows;
 
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
@@ -79,6 +87,9 @@ RestClientSubmitResult WINAPI read_profile(void*, u64 user, u64 server, u64 id, 
     check(operation >= 5 || !value.bytes, "profile runtime: profile and effect reads carry no mutation payload");
     // The real account bridge accepts profile operations 0..6 only.
     return {operation <= 6 ? RestClientSubmitError::none : RestClientSubmitError::invalid_input};
+}
+GatewayClientSelfStatusSnapshot WINAPI read_self_status(void*) noexcept {
+    return self_status;
 }
 bool click(ProfileAction action, u64 id = 0) noexcept {
     auto& scene = g_app.profile->scene;
@@ -202,6 +213,160 @@ bool setup() noexcept {
     p.scene.reduced_motion = true;
     return profile_scene_open(&p.scene, &p.data, &state, &g_app.account_ui->user_store, 99,
                               {700, 100, 720, 120}, application_viewport_dips());
+}
+// The account's own profile (issue 20). Opened from a DM, from a server whose member row shows an older status,
+// and from the account panel, it shows the status that the session publishes. The DM path knows no presence for
+// this user.
+void own_status(const UiRect& anchor) noexcept {
+    static GuildMemberRecord member_records[2];
+    static u32 member_order[2];
+    auto& p = *g_app.profile;
+    auto& state = g_app.account_ui->chat_state;
+    auto& members = g_app.account_ui->guild_member_store;
+    const UiPrivateRowSource rows{&state, &g_app.account_ui->user_store, nullptr, nullptr};
+    private_rows = &rows;
+    g_app.account.instance = reinterpret_cast<void*>(1);
+    g_app.account.status.profile_id = 4;
+    self_status = {};
+    self_status.profile_id = 4;
+    self_status.self_user_id = 99;
+    self_status.available = self_status.authoritative = true;
+    self_status.status = self_status.confirmed_status = GatewayUserStatus::idle;
+    g_account_fake.self_status_snapshot = read_self_status;
+    const bool member_row =
+        guild_member_store_initialize(&members, {member_records, 2}, {member_order, 2}) &&
+        guild_member_store_upsert(&members, state, 7, 99, {}, {}, false, GuildMemberStatus::dnd).ok();
+    constexpr auto own = utf8_literal(R"({"user":{"id":"99","username":"me"}})");
+    state.selected_guild_id = 7;
+    const bool server = application_profile_open(99, anchor) && application_profile_submit(600);
+    const UiPresence in_server = p.scene.presence;
+    response(200, own);
+    state.selected_guild_id = 0;
+    const bool direct = application_profile_open(99, anchor) && application_profile_submit(601);
+    const UiPresence in_direct = p.scene.presence;
+    response(200, own);
+    check(member_row && server && direct && in_server == UiPresence::idle && in_direct == UiPresence::idle,
+          "profile runtime: the own profile shows the saved status from a DM and from a server");
+    self_status.status = GatewayUserStatus::dnd;
+    check(application_profile_open(99, anchor, ProfileAnchor::account) && p.scene.phase == ProfilePhase::ready &&
+              p.scene.presence == UiPresence::busy,
+          "profile runtime: the cached own profile shows a new status from the account panel");
+    self_status.status = GatewayUserStatus::invisible;
+    check(application_profile_open(99, anchor) && p.scene.presence == UiPresence::offline,
+          "profile runtime: the own profile in a DM shows Invisible only when it is the saved status");
+    self_status.status = GatewayUserStatus::online;
+    self_status.idle = true;
+    check(application_profile_open(99, anchor) && p.scene.presence == UiPresence::idle,
+          "profile runtime: the own profile shows Idle while the user is away with Online saved");
+    // A status was never chosen: the session publishes Online, in the DM, in the server and from the account panel.
+    self_status.authoritative = self_status.idle = false;
+    self_status.status = GatewayUserStatus::invisible;
+    const bool unsaved_direct = application_profile_open(99, anchor) && p.scene.presence == UiPresence::online;
+    const bool unsaved_panel =
+        application_profile_open(99, anchor, ProfileAnchor::account) && p.scene.presence == UiPresence::online;
+    state.selected_guild_id = 7;
+    check(unsaved_direct && unsaved_panel && application_profile_open(99, anchor) &&
+              p.scene.presence == UiPresence::online,
+          "profile runtime: without a saved status the own profile shows Online from a DM, a server and the panel");
+    self_status.idle = true;
+    check(application_profile_open(99, anchor) && p.scene.presence == UiPresence::idle,
+          "profile runtime: without a saved status the own profile shows Idle while the user is away");
+    self_status.idle = false;
+    // Before the session is ready nothing is published: the member row does not stand in.
+    self_status.available = false;
+    check(application_profile_open(99, anchor) && p.scene.presence == UiPresence::unknown,
+          "profile runtime: before the session is ready the own profile shows no member row status");
+    check(application_profile_close(), "profile runtime: the own profile closes");
+    g_account_fake.self_status_snapshot = nullptr;
+    g_app.account.instance = nullptr;
+    g_app.account.status.profile_id = 0;
+    private_rows = nullptr;
+}
+// A content page under the profile, as the Server Hub and Channels & Roles show. Its one card fills the column. A
+// click on the card opens a member's profile, as the hub's member rows do.
+constexpr u32 kPageCard = 0x4855'0001u;
+u32 page_activations;
+void page_build(UiStoreBuilder& builder, float) noexcept {
+    auto& card = builder.open(UiStoreKind::card);
+    card.action = kPageCard;
+    builder.spacer(0, 800);
+    builder.close();
+}
+void page_activate(u32 action, const UiRect&) noexcept {
+    ++page_activations;
+    if (action == kPageCard)
+        application_profile_open(46, {600, 300, 640, 340});
+}
+const UiSettingsAvatarMedia* page_media(u32) noexcept {
+    return nullptr;
+}
+bool page_stale() noexcept {
+    return false;
+}
+constexpr ContentPageOwner kPage{0x4855, page_build, page_activate, page_media, page_stale, 0, 0};
+// A pointer event in the order of the window procedure: its chain asks the page first, then its switch gives the
+// press, move or release to the profile.
+bool page_pointer(EventType type, UiPoint point) noexcept {
+    WindowEvent event{};
+    event.type = type;
+    event.button = static_cast<u8>(PointerButton::left);
+    event.pointer.x = point.x;
+    event.pointer.y = point.y;
+    if (application_content_page_window_event(event))
+        return true;
+    return application_profile_pointer(type == EventType::pointer_down ? UiButtonPointerEvent::press
+                                       : type == EventType::pointer_up  ? UiButtonPointerEvent::release
+                                                                        : UiButtonPointerEvent::move,
+                                       point);
+}
+// A move, press and release at `point`. True when a handler took the press and the release.
+bool page_click(UiPoint point) noexcept {
+    page_pointer(EventType::pointer_move, point);
+    return page_pointer(EventType::pointer_down, point) && page_pointer(EventType::pointer_up, point);
+}
+// The center of the profile's part with `action`. False when the profile has no such part or the part does not lie
+// over the page's card.
+bool profile_part(ProfileAction action, UiPoint* point) noexcept {
+    const auto& scene = g_app.profile->scene;
+    for (u32 i = 0; i < scene.part_count; ++i) {
+        const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.parts[i].widget);
+        if (scene.parts[i].action != action || !node)
+            continue;
+        *point = {(node->rectangle.left + node->rectangle.right) * .5f,
+                  (node->rectangle.top + node->rectangle.bottom) * .5f};
+        UiCursor cursor{};
+        return application_content_page_cursor(point->x, point->y, &cursor) && cursor == UiCursor::hand;
+    }
+    return false;
+}
+// The profile over a content page takes the pointer before the page.
+void page_under_profile() noexcept {
+    auto& p = *g_app.profile;
+    g_app.renderer.dpi = 96;
+    g_app.account_ui->chat_state.selected_guild_id = 7;
+    constexpr auto member = utf8_literal(R"({"user":{"id":"46","username":"member"},)"
+                                         R"("mutual_friends":[{"id":"5","username":"pal"}],"mutual_friends_count":1})");
+    const UiPoint card{400, 500};
+    const bool opened = application_content_page_open(&kPage) && page_click(card) && page_activations == 1 &&
+                        p.scene.active && p.scene.presentation == ProfilePresentation::popout &&
+                        application_profile_submit(700) && read_user == 46;
+    response(200, member);
+    UiPoint friends{};
+    check(opened && p.scene.phase == ProfilePhase::ready && profile_part(ProfileAction::friends, &friends),
+          "profile runtime: a click on the page opens a profile over the page's card");
+    g_app.context_focus = nullptr;
+    check(page_click(friends) && p.scene.active && p.scene.presentation == ProfilePresentation::modal &&
+              p.scene.section == ProfileTab::friends && page_activations == 1 && !g_app.context_focus,
+          "profile runtime: the profile's mutual friend button over the page opens its full profile, not the page");
+    UiPoint close{};
+    check(profile_part(ProfileAction::close, &close) && page_click(close) && !p.scene.active &&
+              page_activations == 1 && !g_app.context_focus,
+          "profile runtime: the profile's close button over the page closes it, and the page does nothing");
+    check(page_click(card) && page_activations == 2 && p.scene.active,
+          "profile runtime: after the profile closes, a click on the page acts again");
+    application_profile_close();
+    application_content_page_close();
+    g_app.renderer.dpi = 0;
 }
 void run() noexcept {
     const bool initialized = setup();
@@ -456,6 +621,8 @@ void run() noexcept {
           "profile runtime: the tabs switch between Board and Activity, an empty Activity says so");
     check(click(ProfileAction::game, 503) && !p.scene.active && opened_game == 503,
           "profile runtime: a Board game opens its game profile in place of the full profile");
+    own_status(anchor);
+    page_under_profile();
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -493,6 +660,13 @@ RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
     return rest_client_submit(client, request);
 }
 bool rest_client_cancel(RestClient*, u64) noexcept {
+    return true;
+}
+// No renderer: the page binds to no draw slot.
+bool renderer_bind_content_page(D3D11Renderer*, const UiStoreScene*, u64) noexcept {
+    return true;
+}
+bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
     return true;
 }
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32*) noexcept {
@@ -562,7 +736,7 @@ bool application_commands_insert(u64 application, u64 command, Utf8View) noexcep
     return true;
 }
 const UiPrivateRowSource* application_private_channel_rows() noexcept {
-    return nullptr;
+    return profile_runtime_test::private_rows;
 }
 bool application_profile_editor_open(ProfileEditorTab, u64) noexcept {
     return false;
@@ -647,6 +821,20 @@ bool queue_profile_scroll(bool, i32) noexcept {
     return false;
 }
 void update_scrollbar_hover(float, float) noexcept {
+}
+// The content page's host: the panels it closes are absent, and its viewport is the whole window.
+void application_thread_browser_close() noexcept {
+}
+bool application_search_close_panel() noexcept {
+    return true;
+}
+void application_pinned_messages_close() noexcept {
+}
+UiRect application_thread_browser_viewport() noexcept {
+    return application_viewport_dips();
+}
+bool application_settings_active() noexcept {
+    return false;
 }
 } // namespace app_detail
 } // namespace maicord

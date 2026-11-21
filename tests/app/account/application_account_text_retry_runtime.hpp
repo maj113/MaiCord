@@ -50,6 +50,9 @@ bool application_pinned_messages_available() noexcept {
 bool application_thread_browser_available(u64) noexcept {
     return account_text_retry_runtime_test::threads;
 }
+bool application_content_page_active() noexcept {
+    return false;
+}
 bool synchronize_shell_widget_scenes() noexcept {
     ++account_text_retry_runtime_test::shell_syncs;
     return true;

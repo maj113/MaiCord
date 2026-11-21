@@ -7,6 +7,7 @@
 #include "../chat/composer/text_input.hpp"
 #include "../chat/search/search.hpp"
 #include "../chat/threads/browser.hpp"
+#include "../shell/content_page.hpp"
 #include "../shell/content_input.hpp"
 #include "../shell/cursor.hpp"
 #include "../shell/input.hpp"
@@ -531,6 +532,7 @@ bool application_media_page_show(u8 id) noexcept {
     application_image_viewer_close();
     application_search_close_panel();
     application_thread_browser_close();
+    application_content_page_close();
     application_composer_text_input_suspend();
     message_action_bar_close(&g_app.message_action_bar);
     auto& scene = g_pages.scene;

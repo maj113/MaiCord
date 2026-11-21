@@ -78,6 +78,8 @@ bool application_thread_browser_open(u64) noexcept {
 }
 void application_thread_browser_close() noexcept {
 }
+void application_content_page_close() noexcept {
+}
 void application_read_state_activity() noexcept {
 }
 bool application_stop_account() noexcept; // each fixture defines its own
@@ -115,6 +117,17 @@ bool application_guild_lifecycle_open_create() noexcept {
     return false;
 }
 bool application_guild_community_open_events(u64) noexcept {
+    return false;
+}
+bool application_guild_hub_open(u64) noexcept {
+    return false;
+}
+bool application_guild_hub_remembered(u64) noexcept {
+    return false;
+}
+void application_guild_hub_forget(u64) noexcept {
+}
+bool application_guild_community_open_onboarding(u64, bool) noexcept {
     return false;
 }
 bool application_invite_card_click(u64, UiWidgetHandle, float, float) noexcept {

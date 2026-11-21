@@ -44,6 +44,7 @@
 #include "../chat/messages/history.hpp"
 #include "../chat/threads/actions.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 #include "../chat/threads/creation.hpp"
 #include "../chat/polls/poll.hpp"
 #include "../guild/member_moderation.hpp"
@@ -143,6 +144,7 @@ void release_overlay_owners() noexcept {
     application_pinned_messages_release();
     application_inbox_release();
     application_thread_browser_release();
+    application_content_page_release();
     application_media_picker_release();
     application_downloads_release();
     application_shortcuts_overlay_release();

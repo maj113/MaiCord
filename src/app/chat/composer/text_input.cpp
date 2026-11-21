@@ -142,7 +142,7 @@ bool eligible() noexcept {
     // The thread browser covers the composer; the header search bar is the
     // only text field while it is open.
     const bool search = base_field() == Field::search;
-    if (application_thread_browser_active() || search)
+    if (application_thread_browser_read_blocked() || search)
         return search && !g_app.popup_scene.active && application_window_keyboard_focus();
     return g_app.message_composer.focused && g_app.message_composer_scene.active &&
            g_app.message_composer.channel_id &&

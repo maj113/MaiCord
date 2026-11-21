@@ -20,6 +20,7 @@
 #include "../account/account_ui_runtime.hpp"
 #include "maicord/ui/account/friends_media.hpp"
 #include "maicord/ui/chat/polls/voters_avatar_media.hpp"
+#include "../shell/content_page.hpp"
 
 namespace maicord::app_detail {
 namespace requests_detail {
@@ -497,7 +498,14 @@ bool ApplicationMediaPump::animation_resident(const MediaAssetKey& key, bool* fo
     return observed && media_atlas_find(application.renderer.media_atlas, key).ok();
 }
 bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) const noexcept {
-    if (!(surfaces() & d3d11_surface_settings_page))
+    const u32 shown = surfaces();
+    if (shown & d3d11_surface_content_page) {
+        UiStoreMedia picture{};
+        for (u32 cursor = 0; ui_store_scene_next_media(*application.renderer.content_page, &cursor, &picture);)
+            if (media_asset_key_equal(picture.key, key))
+                return true;
+    }
+    if (!(shown & d3d11_surface_settings_page))
         return false;
     UiSettingsAvatarGeometry avatar{};
     for (UiSettingsAvatarCursor cursor;
@@ -505,6 +513,47 @@ bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) 
         if (media_asset_key_equal(avatar.media->key, key))
             return true;
     return false;
+}
+bool ApplicationMediaPump::request_settings_media(const UiSettingsAvatarMedia& media, bool* stop) noexcept {
+    // The request validates the hash and skips a resident key. Server
+    // identity rows share the rail's guild icon key and CDN asset.
+    const Utf8View hash{media.hash, media.hash_bytes};
+    // Server Settings emoji and sticker previews, by their CDN identity.
+    if (media.key.kind == MediaAssetKind::custom_emoji || media.key.kind == MediaAssetKind::sticker)
+        return request_visible_static_media(media.key, stop, false, true);
+    if (media.key.kind == MediaAssetKind::profile_image) {
+        // Default avatars: the hash carries the CDN path, fetched by URL
+        // under the profile card's key; a game cover carries its full URL.
+        char joined[sizeof(ProfileMedia{}.url.data)];
+        Utf8View url = media.url;
+        if (!url.bytes) {
+            constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
+            copy_bytes(joined, host.data, host.bytes);
+            copy_bytes(joined + host.bytes, hash.data, hash.bytes);
+            url = {joined, host.bytes + hash.bytes};
+        }
+        return request_url_picture(media.key, url, stop, false);
+    }
+    return media.key.kind == MediaAssetKind::guild_icon
+               ? request_visible_hashed_identity(media.key, hash, stop, false)
+               : request_visible_user_avatar_value(media.key.id, hash, stop, false);
+}
+// The pictures of the content page's previews in view.
+bool ApplicationMediaPump::request_content_page_media(bool* stop) noexcept {
+    const auto* page = application_content_page();
+    if (!page || !(surfaces() & d3d11_surface_content_page))
+        return true;
+    UiStoreMedia picture{};
+    for (u32 cursor = 0; ui_store_scene_next_media(*application.renderer.content_page, &cursor, &picture);) {
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads))
+            return true;
+        const auto* media = page->media(picture.slot);
+        if (media && !request_settings_media(*media, stop))
+            return false;
+        if (*stop)
+            return true;
+    }
+    return true;
 }
 bool ApplicationMediaPump::request_settings_avatars() noexcept {
     if (!(surfaces() & d3d11_surface_settings_page))
@@ -515,40 +564,7 @@ bool ApplicationMediaPump::request_settings_avatars() noexcept {
         if (message_media_controller_upload_budget_reached(&application.message_media, uploads))
             return true;
         bool stop = false;
-        // The request validates the hash and skips a resident key. Server
-        // identity rows share the rail's guild icon key and CDN asset.
-        const Utf8View hash{avatar.media->hash, avatar.media->hash_bytes};
-        // Server Settings emoji and sticker previews, by their CDN identity.
-        if (avatar.media->key.kind == MediaAssetKind::custom_emoji ||
-            avatar.media->key.kind == MediaAssetKind::sticker) {
-            if (!request_visible_static_media(avatar.media->key, &stop, false,
-                                              true))
-                return false;
-            if (stop)
-                return true;
-            continue;
-        }
-        if (avatar.media->key.kind == MediaAssetKind::profile_image) {
-            // Default avatars: the hash carries the CDN path, fetched by URL
-            // under the profile card's key; a game cover carries its full URL.
-            char joined[sizeof(ProfileMedia{}.url.data)];
-            Utf8View url = avatar.media->url;
-            if (!url.bytes) {
-                constexpr auto host = utf8_literal("https://cdn.discordapp.com/");
-                copy_bytes(joined, host.data, host.bytes);
-                copy_bytes(joined + host.bytes, hash.data, hash.bytes);
-                url = {joined, host.bytes + hash.bytes};
-            }
-            if (!request_url_picture(avatar.media->key, url, &stop, false))
-                return false;
-            if (stop)
-                return true;
-            continue;
-        }
-        if (!(avatar.media->key.kind == MediaAssetKind::guild_icon
-                  ? request_visible_hashed_identity(avatar.media->key, hash,
-                                                    &stop, false)
-                  : request_visible_user_avatar_value(avatar.media->key.id, hash, &stop, false)))
+        if (!request_settings_media(*avatar.media, &stop))
             return false;
         if (stop)
             return true;

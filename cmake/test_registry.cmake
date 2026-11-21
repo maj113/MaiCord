@@ -1212,6 +1212,15 @@ maicord_test(MaiCordChannelOverviewRuntimeTests ONLY WINDOWS ENTRY maicord_appli
     LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_channel_overview_runtime)
+# The Server Hub's leaderboard through hub.cpp's page builder and the store layout: each row fills the list's 40 DIP
+# pitch, a short board shows every row whole and a long one eight (src/app/guild/hub.cpp). Linux links hub.cpp in
+# maicord_app_client, which this test includes, so it runs on Windows only.
+maicord_test(MaiCordHubPageTests ONLY WINDOWS ENTRY maicord_hub_page_entry
+    SOURCES ${maicord_account_fake}
+    SOURCES tests/app/guild/hub_page.cpp src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} kernel32 user32 shell32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_hub_page)
 # Go Live's snapshot polling over the account fake: a timer only while a stream starts or runs; no wake for an account
 # whose snapshot cannot be read or that is not streaming (src/app/voice/go_live.cpp).
 maicord_test(MaiCordGoLiveRuntimeTests ONLY WINDOWS ENTRY maicord_go_live_runtime_entry

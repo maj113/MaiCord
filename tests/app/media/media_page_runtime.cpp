@@ -684,6 +684,7 @@ bool application_search_close_panel() noexcept {
     return true;
 }
 void application_thread_browser_close() noexcept {}
+void application_content_page_close() noexcept {}
 void application_composer_text_input_suspend() noexcept {}
 bool application_downloads_available(u64, u64, bool) noexcept {
     return downloads_ok;

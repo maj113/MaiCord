@@ -29,7 +29,11 @@ bool describe(const UiStoreScene& s, u16 index, u8 surface, const Utf8View& cont
     Utf8View name = n.text, value = n.text2, help{};
     switch (n.kind) {
     case UiStoreKind::card:
-        first_texts(s, index, &name, &help);
+    case UiStoreKind::column:
+    case UiStoreKind::row:
+        // A clickable row is named by its texts unless it names itself (text: "Rank 1, Wowie", "View recent activity").
+        if (!name.bytes)
+            first_texts(s, index, &name, &help);
         break;
     case UiStoreKind::button:
         break;

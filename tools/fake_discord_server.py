@@ -424,6 +424,9 @@ def ready_payload() -> dict:  # noqa: F811 - with MAICORD_FAKE_GAME_FRIEND, the 
             "user": {"id": OTHER}, "user_id": OTHER, "status": "online", "client_status": {"desktop": "online"},
             "activities": [{"type": 0, "name": "Starfall Tactics", "application_id": 1402418696126992445,
                             "created_at": NOW - 600000, "timestamps": {"start": NOW - 600000}, "id": "game-0"}]}]
+    if SERVER_HUB:
+        payload["relationships"].append({"id": HUB_PLAYERS[5], "type": 2, "nickname": None,
+                                         "user_id": HUB_PLAYERS[5], "since": iso(NOW - 86400000)})
     if MESSAGE_REQUEST:
         payload["users"].append(user_object(STRANGER))
         payload["private_channels"].append({"id": REQUEST_CHANNEL, "type": 1, "recipient_ids": [STRANGER],
@@ -1228,6 +1231,85 @@ def guild_state() -> dict:
     return guild
 
 
+# MAICORD_FAKE_SERVER_HUB=1: the QA guild has a published Server Hub (its guild experiment "2026-09-guild-spaces",
+# Murmur3 4201393060, on variant 1 and guild_space_settings published) and shows its Boost Goal (3 boosts).
+# GET /guilds/{GID}/space lists a leaderboard, popular games and a text widget, and the hydrate request answers the
+# first two by id, in the shapes the official client reads: 22 entries with the account 15th, so the client lists
+# 20 and the account's row floats under the list while it is scrolled away. The account has not consented to
+# personalization until POST /users/@me/consent grants it, and has blocked the sixth player.
+# The players are not in READY: the client asks for them by id (op 8), which GUILD_MEMBERS_CHUNK answers, with
+# the "Gamer" role's colour on the first three and a nickname on the fourth.
+# MAICORD_FAKE_SERVER_HUB=empty answers the space with 404 instead (a hub never set up).
+SERVER_HUB = os.environ.get("MAICORD_FAKE_SERVER_HUB", "")
+HUB_PLAYERS = [named_user(name) for name in ("Wowie", "The Trickster", "Basil", "Mira", "Juniper", "Kestrel") +
+               tuple(f"Player {n}" for n in range(7, 21))] if SERVER_HUB else []
+if SERVER_HUB:
+    GUILD_OVERRIDES.update({"experiments": {"evaluation_id": "qa", "assignments": [[4201393060, 1, 0, 3]]},
+                            "guild_space_settings": {"enabled": True, "publish_status": 1},
+                            "premium_progress_bar_enabled": True, "premium_subscription_count": 3})
+    EXTRA_ROLE = EXTRA_ROLE or {"id": GID + 776, "name": "Gamer", "description": None, "permissions": 0,
+                                "position": 1, "color": 0xE67E22, "hoist": False, "managed": False,
+                                "mentionable": False, "icon": None, "unicode_emoji": None, "flags": 0}
+HUB_SPACE = {"guild_id": str(GID), "header": {"custom_banner_hash": None}, "widgets": [
+    {"id": "700000000000000001", "type": "leaderboard", "position": {"column": 0, "order": 0},
+     "requires_hydration": True, "default_title": "Gaming Leaderboard", "locked": False,
+     "config": {"type": "leaderboard"}},
+    {"id": "700000000000000002", "type": "popular_games", "position": {"column": 1, "order": 0},
+     "requires_hydration": True, "default_title": "Popular Games", "locked": False,
+     "config": {"type": "popular_games"}},
+    {"id": "700000000000000003", "type": "image_text", "position": {"column": 0, "order": 1},
+     "requires_hydration": False, "default_title": "Text & Image", "locked": False,
+     "config": {"type": "image_text", "title": None, "text": "balls", "image_hash": None}}]}
+
+
+def hub_route(command: str, path: str):
+    """(status, value) for the Server Hub's reads, or None for any other request."""
+    if not SERVER_HUB or command != "GET":
+        return None
+    # A leaderboard name opens the member's profile popout.
+    player = path[len("/users/"):-len("/profile")] if path.startswith("/users/") and path.endswith("/profile") else ""
+    if player.isdigit() and int(player) in HUB_PLAYERS:
+        return 200, {"user": user_object(int(player)), "user_profile": {"bio": "Plays a lot.", "pronouns": ""},
+                     "guild_member_profile": {}, "badges": [], "connected_accounts": [],
+                     "mutual_guilds": [{"id": str(GID), "nick": None}]}
+    if path == f"/guilds/{GID}/space":
+        return (404, {"message": "Unknown Guild Space", "code": 10004}) if SERVER_HUB == "empty" else (200, HUB_SPACE)
+    if path != f"/guilds/{GID}/space/widgets/hydrate":
+        return None
+    week = (int(time.time()) // 604800) * 604800 - 3 * 86400
+    starfall, racers, moss = GAMES
+    played = [[starfall, racers, moss], [racers], [moss, starfall], [starfall], [racers, moss], [moss]]
+    values = (54000000, 30900000, 28800000, 9000000, 5400000, 2700000)
+    leaders = [(user, values[i] if i < 6 else 2600000 - i * 60000, played[i] if i < 6 else [starfall])
+               for i, user in enumerate(HUB_PLAYERS)]
+    leaders.insert(14, (UID, 1900000, [racers]))
+    leaders.append((OTHER, 1500000, []))
+    entries = [{"user_id": str(user), "rank": rank + 1, "value": value, "time_played_seconds": value // 1000,
+                "application_ids": [str(game) for game in games], "application_count": len(games) + (rank == 0)}
+               for rank, (user, value, games) in enumerate(leaders)]
+    games = [{"application_id": str(game), "user_ids": [str(u) for u in HUB_PLAYERS[:2]], "total_users": 2}
+             for game in GAMES]
+    return 200, {"widgets": [
+        {"id": "700000000000000001", "data": {"stat": 1, "week_start_ts": week, "entries": entries, "next_stat": 2,
+                                              "computed_at": iso(NOW - 3600000)}},
+        {"id": "700000000000000002", "data": {"games": games, "user_ids": [str(u) for u in HUB_PLAYERS[:6]],
+                                              "total_users": 13, "total_games": 18}}]}
+
+
+def hub_members(dispatch, request: dict) -> None:
+    """GUILD_MEMBERS_CHUNK for an op 8 request by user id: the hub's players it names, the rest not found."""
+    wanted = [int(user) for user in request.get("user_ids") or []]
+    rows = [{"user": user_object(user), "roles": [str(EXTRA_ROLE["id"])] if HUB_PLAYERS.index(user) < 3 else [],
+             "nick": "Captain Mira" if HUB_PLAYERS.index(user) == 3 else None, "avatar": None,
+             "joined_at": iso(NOW - 86400000), "premium_since": None, "deaf": False, "mute": False, "flags": 0,
+             "pending": False} for user in wanted if user in HUB_PLAYERS]
+    chunk = {"guild_id": str(GID), "members": rows, "chunk_index": 0, "chunk_count": 1,
+             "not_found": [str(user) for user in wanted if user not in HUB_PLAYERS]}
+    if request.get("nonce"):
+        chunk["nonce"] = request["nonce"]
+    dispatch(0, chunk, "GUILD_MEMBERS_CHUNK")
+
+
 def guild_updated() -> dict:
     guild = guild_state()
     for push in list(GATEWAYS):
@@ -1345,7 +1427,7 @@ def access_api(command: str, path: str, body: bytes):
 # routes ask for verification (401, code 60003) until /mfa/finish hands out the token sent back in
 # X-Discord-MFA-Authorization.
 ACCOUNT = {"username": "qa", "email": "qa@example.invalid", "phone": None, "mfa": False, "sms": False,
-           "usage_statistics": True, "harvest": None,
+           "usage_statistics": True, "personalization": not SERVER_HUB, "harvest": None,
            "keys": [{"id": "1219430671865610261", "type": 1, "name": "QA Key", "last_used": None}],
            "sessions": [{"id_hash": "cur", "approx_last_used_time": "2026-11-08T12:00:00+00:00",
                          "client_info": {"os": "Linux", "platform": "Discord Client", "location": "Copenhagen, Denmark"}},
@@ -1543,11 +1625,12 @@ def account_api(command: str, path: str, body: bytes, headers):
             state["connections"].remove(connection)
             return 204, None
     if path == "/users/@me/consent" and command in ("GET", "POST"):
-        if "usage_statistics" in sent.get("grant", []):
-            state["usage_statistics"] = True
-        if "usage_statistics" in sent.get("revoke", []):
-            state["usage_statistics"] = False
-        consents = {"personalization": {"consented": True}}
+        for consent in ("usage_statistics", "personalization"):
+            if consent in sent.get("grant", []):
+                state[consent] = True
+            if consent in sent.get("revoke", []):
+                state[consent] = False
+        consents = {"personalization": {"consented": state["personalization"]}}
         return 200, dict(consents, usage_statistics={"consented": state["usage_statistics"]}) \
             if command == "GET" else consents
     if path == "/users/@me/harvest" and command == "GET":
@@ -1746,6 +1829,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path in (f"/guilds/{GID}/profile", "/users/@me/clan") and self.command in ("PATCH", "PUT") and self.options.log:
             with self.lock, open(self.options.log, "a", encoding="utf-8") as handle:
                 handle.write(f"body {self.command} {path} {body.decode('utf-8', 'replace')}\n")
+        hub = hub_route(self.command, path)
+        if hub is not None:
+            return self.json(*hub)
         games = game_route(self.command, path, (self.path.split("?", 1)[1:] or [""])[0])
         if games is not None:
             return self.json(200, games)
@@ -1927,6 +2013,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 dispatch(0, {"_trace": ["[\"qa\",{\"micros\":0}]"]}, "RESUMED")
             elif op == 4:  # a voice state update: join (or leave) the voice channel
                 voice_state(dispatch, message.get("d") or {})
+            elif op == 8 and SERVER_HUB:  # request guild members by id: the hub's players
+                hub_members(dispatch, message.get("d") or {})
             elif op in (18, 19, 20, 22):  # Go Live: create, delete, watch, pause
                 stream_command(dispatch, op, message.get("d") or {})
             elif op == 2:

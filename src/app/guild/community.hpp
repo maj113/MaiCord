@@ -35,6 +35,8 @@ void application_guild_community_joined(u64 guild_id) noexcept;
 // the join of a discoverable server; answers go to the guild card.
 bool application_guild_community_profile(u64 guild_id) noexcept;
 bool application_guild_community_join(u64 guild_id) noexcept;
+// The Server Hub's requests on this lane (space_get, space_hydrate, consent_get). Their answers go to the hub.
+bool application_guild_community_hub(GuildCommunityOperation op, u64 guild_id) noexcept;
 
 bool application_guild_community_open_rules(u64 guild_id) noexcept;
 bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noexcept;

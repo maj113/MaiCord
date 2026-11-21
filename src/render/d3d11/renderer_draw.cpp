@@ -1219,6 +1219,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const u32 chip_media_first = minimum(renderer->chip_media_first_batch, requests_media_first);
     const u32 chip_media_end =
         maximum(chip_media_first, minimum(renderer->chip_media_end_batch, requests_media_first));
+    // A content page's foreground pictures (the hub's server icon) follow its top paint layer (the banner's scrim),
+    // which is in the media overlay paint. Without a page the range is empty and the base media draw as one range.
+    const u32 page_media_first = minimum(renderer->content_page_foreground_media_first_batch, chip_media_first);
+    const u32 page_media_end =
+        maximum(page_media_first, minimum(renderer->content_page_foreground_media_end_batch, chip_media_first));
     // Timeline inline controls (video, audio, poll) are message content: their
     // glyphs follow the message text, before any timeline overlay paints.
     const u32 timeline_text_end =
@@ -1569,9 +1574,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             !paint(dialog_foreground, dialog_end) || !text(dialog_text, dialog_text_end, false) ||
             !forms(dialog_end, dialog_text_end, false))
             goto draw_failed;
-    } else if (!paint(0, media_overlay_begin) || !media(0, chip_media_first, upload_media) ||
+    } else if (!paint(0, media_overlay_begin) || !media(0, page_media_first, upload_media) ||
+               !media(page_media_end, chip_media_first, false) ||
                !media(chip_media_end, requests_media_first, false) ||
-               !paint(media_overlay_begin, edit_overlay) || !inline_media(RendererInlineMediaLayer::base) ||
+               !paint(media_overlay_begin, edit_overlay) || !media(page_media_first, page_media_end, false) ||
+               !inline_media(RendererInlineMediaLayer::base) ||
                !text(0, base_text_end, true) || !text(base_text_end, timeline_text_end, base_text_end == 0) ||
                !media(chip_media_first, chip_media_end, false) ||
                !paint(edit_overlay, base_paint_end) ||

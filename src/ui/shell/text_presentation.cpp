@@ -12,6 +12,7 @@
 #include "maicord/ui/shell/navigation_foreground.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/ui/voice/panel.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
@@ -167,6 +168,9 @@ static __declspec(noinline) bool title_output(const UiScene& scene, const ChatSt
             ? visual_selected_channel_id : navigation.selected_channel_id);
     if (state.restore_channel_id && !visual_selected_channel_id) {
         title_text = utf8_literal("Loading…");
+    } else if (visual_selected_channel_id == kNavigationHubRowId) {
+        // A content page names the header after its row.
+        title_text = utf8_literal("Server Hub");
     } else if (selected_channel) {
         const Utf8View name = channel_is_private(selected_channel->type)
                                   ? private_channel_title(state, users, *selected_channel,
@@ -576,6 +580,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 const Utf8View name = row.type == kNavigationEventsRowType
                                           ? Utf8View{navigation.events_label, navigation.events_label_bytes}
                                       : row.type == kNavigationRequestsRowType ? utf8_literal("Message Requests")
+                                      : row.type == kNavigationBoostRowType    ? utf8_literal("Boost Goal")
+                                      : row.type == kNavigationHubRowType      ? utf8_literal("Server Hub")
                                       : !channel ? Utf8View{}
                                       : channel_is_private(channel->type)
                                           ? private_channel_title(state, users, *channel,
@@ -667,6 +673,26 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         ink = theme.text_primary;
                     if (!append_command(channel_scene.widgets, row_widget.label, name, name_rectangle, visible_clip,
                                         ink, stream, look))
+                        return reject(stream);
+                }
+                // The Boost Goal's count ends its row, before the chevron: "N/33 Boosts", then "N Boosts" at the goal.
+                if (row.type == kNavigationBoostRowType) {
+                    char text[32];
+                    u32 used = decimal_write(text, navigation.boost_count);
+                    if (navigation.boost_count < navigation.boost_goal) {
+                        text[used++] = '/';
+                        used += decimal_write(text + used, navigation.boost_goal);
+                    }
+                    copy_bytes(text + used, " Boosts", 7);
+                    constexpr TextLook kLookCount{.style_flags = text_style_subtext | text_style_bold,
+                                                  .horizontal = UiTextAlignment::end,
+                                                  .vertical = UiTextAlignment::start,
+                                                  .overflow = TextOverflow::clip};
+                    const UiRect count{name_rectangle.left, name_rectangle.top,
+                                       layout->rectangle.right - kShellChannelHighlightRight - 22.0f,
+                                       name_rectangle.bottom};
+                    if (!append_command(channel_scene.widgets, row_widget.label, {text, used + 7}, count, visible_clip,
+                                        theme.text_secondary, stream, kLookCount))
                         return reject(stream);
                 }
                 // A live stage's topic sits on its own line under the name.

@@ -50,6 +50,8 @@ UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
     case 15: return UiIcon::message_text;
     case 16: return UiIcon::image;
     case kNavigationEventsRowType: return UiIcon::calendar;
+    case kNavigationBoostRowType: return UiIcon::boost;
+    case kNavigationHubRowType: return UiIcon::home;
     case kNavigationRequestsRowType: return UiIcon::inbox;
     default: return UiIcon::channel;
     }
@@ -642,7 +644,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 // its divider band.
                 const float row_height = row.voice_count || row.stage_live || row.voice_subtitle || row.voice_invite
                                              ? shell_navigation_voice_top(row)
-                                         : row.type == kNavigationEventsRowType ? shell_navigation_head_height()
+                                         : navigation_lead_row(row.type) ? shell_navigation_head_height()
                                                                                 : ui_rect_height(row_rectangle);
                 const float selected_right = row_rectangle.right - kShellChannelHighlightRight;
                 const bool thread = shell_navigation_thread_row(row) && !private_row;
@@ -678,6 +680,24 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         !paint_stream_push_rounded(stream, selected_rectangle, highlight,
                                                    private_row ? theme.scale.radius_sm : theme.scale.radius_md)) {
                         return false;
+                    }
+                    // The Boost Goal row: a track filled to the share of the goal, and a chevron at its end.
+                    if (row.type == kNavigationBoostRowType && navigation->boost_goal) {
+                        UiRect fill = selected_rectangle;
+                        fill.right = fill.left + ui_rect_width(fill) *
+                                                     minimum(1.0f, static_cast<float>(navigation->boost_count) /
+                                                                       navigation->boost_goal);
+                        Color tint = theme.tokens.accent.boost;
+                        tint.alpha *= .35f;
+                        const float centre = row_top + row_height * .5f;
+                        const UiRect chevron{selected_right - 20.0f, centre - 8.0f, selected_right - 4.0f,
+                                             centre + 8.0f};
+                        if (!paint_stream_push_rounded(stream, selected_rectangle, theme.tokens.state.row_hover,
+                                                       theme.scale.radius_md) ||
+                            (fill.right > fill.left &&
+                             !paint_stream_push_rounded(stream, fill, tint, theme.scale.radius_md)) ||
+                            !ui_icon_paint(stream, UiIcon::chevron_right, chevron, theme.text_secondary))
+                            return false;
                     }
                     const UiRect& icon_rectangle = icon_layout->rectangle;
                     const Color row_color = ui_navigation_foreground(theme, row, row_selected);
@@ -742,8 +762,8 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                         shell_navigation_control_rectangle(row_rectangle, row, channel_row_settings),
                                         control_ink)))
                         return false;
-                    // The leading rows' divider closes the events row's band.
-                    if (row.type == kNavigationEventsRowType && index + 1 < channel_scene->count) {
+                    // The leading rows' divider closes the band of the last one.
+                    if (navigation_lead_row(row.type) && row.collapsed && index + 1 < channel_scene->count) {
                         const float line = row_rectangle.bottom - 1.0f;
                         if (!paint_stream_push(stream, row_rectangle.left + kShellCategoryNameLeft, line,
                                                row_rectangle.right - 3.0f, line + 1.0f, ui_separator_color(theme)))

@@ -26,6 +26,15 @@ float centre_x(const UiRect& r) noexcept {
 void reveal(UiStoreScene* s, u16 index) noexcept {
     if (in_dialog(*s, index))
         return;
+    // A row of the pane scrolls into the pane first, then the pane into the page.
+    if (s->pane != kUiStoreNone && index > s->pane && index < s->pane_end) {
+        const UiRect r = screen_rect(*s, index), pane = screen_rect(*s, s->pane);
+        if (r.top < pane.top)
+            ui_store_scene_pane_scroll_to(s, s->pane_scroll + r.top - pane.top);
+        else if (r.bottom > pane.bottom)
+            ui_store_scene_pane_scroll_to(s, s->pane_scroll + r.bottom - pane.bottom);
+        index = s->pane;
+    }
     const UiRect r = screen_rect(*s, index);
     const float top = s->column.top, bottom = s->panel.bottom - 16;
     if (r.top < top)
@@ -179,6 +188,31 @@ u16 hit_node(const UiStoreScene& s, float x, float y) noexcept {
     return kUiStoreNone;
 }
 } // namespace store_detail
+
+u32 ui_store_scene_action_at(const UiStoreScene& s, float x, float y) noexcept {
+    const u16 hit = s.active ? hit_node(s, x, y) : kUiStoreNone;
+    return hit == kUiStoreNone ? 0 : s.nodes[hit].action;
+}
+
+bool ui_store_scene_tooltip_at(const UiStoreScene& s, float x, float y, Utf8View* text, UiRect* anchor,
+                               u32* index) noexcept {
+    if (!s.active || s.page_root == kUiStoreNone || s.dialog_open)
+        return false;
+    for (u32 i = s.dialog_root != kUiStoreNone ? s.dialog_root : s.count; i-- > 0;) {
+        const auto& n = s.nodes[i];
+        const bool named = n.kind <= UiStoreKind::preview || n.kind == UiStoreKind::swatch || n.kind == UiStoreKind::chip;
+        if (!named || !n.text2.bytes || hidden(n))
+            continue;
+        const UiRect r = ui_rect_intersection(screen_rect(s, static_cast<u16>(i)), clip_of(s, static_cast<u16>(i)));
+        if (!ui_rect_contains(r, x, y))
+            continue;
+        *text = n.text2;
+        *anchor = r;
+        *index = i;
+        return true;
+    }
+    return false;
+}
 
 bool ui_store_scene_hover(UiStoreScene* s, float x, float y) noexcept {
     if (!s || !s->active)

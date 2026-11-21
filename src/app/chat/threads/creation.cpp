@@ -247,7 +247,7 @@ inline bool queued(const CreationOwner& owner) noexcept {
 
 bool application_thread_creation_available(u64 id) noexcept {
     if (!id || !g_app.account_ui || !g_app.account.instance || g_app.login.visible ||
-        application_friends_active() || application_settings_active() || application_thread_browser_active() ||
+        application_friends_active() || application_settings_active() || application_thread_browser_read_blocked() ||
         !g_app.plugin_account_scope_serial || !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id ||
         g_app.account.status.required_action != AccountRequirement::none) return false;
     const auto* message = resident(id);

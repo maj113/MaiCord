@@ -66,9 +66,11 @@ enum class UiStoreType : u8 {
     count
 };
 
+// custom: the text's own colour, 0xRRGGBB in `group` (a server role's colour).
 enum class UiStoreInk : u8 {
-    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_scrim
+    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_scrim, custom
 };
+// A preview with the scrim fill shades its lower part toward near black (the Server Hub banner under its caption).
 enum class UiStoreFill : u8 {
     none, subtle, normal, strong, input, selected, translucent, scrim, positive_tint, warning_tint, critical_tint,
     brand, critical, success, caution, danger
@@ -88,6 +90,8 @@ enum UiStoreFlag : u16 {
     ui_store_busy = 1u << 6,
     ui_store_stretch = 1u << 7,   // a button or field fills its parent's width
     ui_store_foreground = 1u << 8,// drawn after the media layer (pills over previews)
+    // A column `rh` high whose children scroll inside it (one per page tree): the leaderboard's list.
+    ui_store_pane = 1u << 9,
     ui_store_critical = 1u << 10, // a critical emphasis (text, plate)
     ui_store_hairline = 1u << 11, // a card row is closed by a hairline
     ui_store_fallback = 1u << 12, // a dropdown shown in place of the segmented track before it when that doesn't fit
@@ -109,7 +113,7 @@ struct UiStoreNode {
     u16 flags;
     u16 first, next;
     u16 count;   // text: max lines; grid: columns (arranged); segments: option count
-    u16 aux;     // slider: default index + 1
+    u16 aux;     // slider: default index + 1; preview: corner radius (0: by size, past half the side: a disc)
     u32 action;  // host action id; 0 is passive
     u32 value;   // selected index / checked / rgb / media slot / slider position
     u32 group;   // arrow-key group (0 none)
@@ -191,6 +195,8 @@ struct UiStoreMedia {
     MediaAssetKey key;
     u32 slot;        // the preview node's value
     u8 domain;       // 0: the media atlas, 1: the local preview atlas
+    // The preview is ui_store_foreground: a content page draws it over its top paint layer (a banner's scrim).
+    bool foreground;
     UiRect rect, clip, mask;
     float mask_radius;
 };
@@ -217,6 +223,10 @@ struct UiStoreScene {
     // column, `modal` the settings modal the dialog centres in.
     UiRect panel, column, modal, dialog_rect;
     float scroll, content_height, dialog_scroll, dialog_height;
+    // The page's pane (ui_store_pane; kUiStoreNone: none), the end of its subtree and how far its children scroll
+    // (kept across rebuilds, clamped at each commit).
+    u16 pane, pane_end;
+    float pane_scroll, pane_most;
     u32 revision;   // content, layout and scroll: text must be rebuilt
     u32 motion;     // hover, press, focus and animation: paint only
     u32 hover_action, focus_action, press_action;
@@ -256,6 +266,14 @@ bool ui_store_scene_scroll(UiStoreScene*, float delta) noexcept;
 bool ui_store_scene_scroll_to(UiStoreScene*, float offset) noexcept;
 // The page's (or the open dialog body's) scroll viewport, offset and largest offset; false when it has none.
 bool ui_store_scene_scroll_range(const UiStoreScene&, bool dialog, UiRect* viewport, float* offset, float* most) noexcept;
+// The pane: its viewport, offset and largest offset; false when the page has none.
+bool ui_store_scene_pane_range(const UiStoreScene&, UiRect* viewport, float* offset, float* most) noexcept;
+bool ui_store_scene_pane_scroll_to(UiStoreScene*, float offset) noexcept;
+// The action of the interactive node under (x, y) (the pointer's hand), 0 for none.
+u32 ui_store_scene_action_at(const UiStoreScene&, float x, float y) noexcept;
+// A container, preview, swatch or chip under (x, y) that names a tooltip in its text2: the tooltip, its node's
+// rectangle and the node's index (the tooltip's identity). False for none.
+bool ui_store_scene_tooltip_at(const UiStoreScene&, float x, float y, Utf8View* text, UiRect* anchor, u32* index) noexcept;
 enum class UiStoreKey : u8 { left, right, up, down, home, end, page_up, page_down, first, last, enter, space, menu, tab, back_tab };
 // Keyboard: returns whether the key was used; *event reports an activation.
 bool ui_store_scene_key(UiStoreScene*, UiStoreKey, UiStoreEvent*) noexcept;

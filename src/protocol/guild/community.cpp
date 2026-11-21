@@ -475,7 +475,15 @@ bool guild_community_request_valid(const GuildCommunityRequest& request) noexcep
         return false;
     const bool coded = op == GuildCommunityOperation::template_sync || op == GuildCommunityOperation::template_update ||
                        op == GuildCommunityOperation::template_delete;
-    if (coded ? !guild_template_code_valid(request.code) : (request.code.data || request.code.bytes))
+    if (op == GuildCommunityOperation::space_hydrate) {
+        // Widget ids joined by "&widget_ids=": letters, digits and that separator only.
+        if (!request.code.data || !request.code.bytes)
+            return false;
+        for (u32 i = 0; i < request.code.bytes; ++i)
+            if (!ascii_is_alnum(request.code.data[i]) && request.code.data[i] != '&' && request.code.data[i] != '=' &&
+                request.code.data[i] != '_')
+                return false;
+    } else if (coded ? !guild_template_code_valid(request.code) : (request.code.data || request.code.bytes))
         return false;
     if (!guild_community_operation_has_body(op))
         return !request.body && !request.body_bytes;
@@ -535,6 +543,11 @@ constexpr CommunityRoute kCommunityRoutes[]{
                     CommunityTail::event_id),
     community_route(kGuildProfileVisibilityRouteId, RestMethod::patch),
     community_route(kGuildJoinRequestsRouteId, RestMethod::get),
+    community_route(kGuildSpaceRouteId, RestMethod::get),
+    community_route(kGuildSpaceHydrateRouteId, RestMethod::get, CommunityPath::guild, CommunityTail::code),
+    community_route(kUserConsentRouteId, RestMethod::get, CommunityPath::root),
+    community_route(kUserConsentRouteId, RestMethod::post, CommunityPath::root),
+    community_route(kUserConsentRouteId, RestMethod::post, CommunityPath::root),
 };
 // Their suffixes. Joining a discoverable server from its tag is a lurker join (lurker=true); session_id names the
 // Gateway session that receives the GUILD_CREATE. The official client asks in its own locale for every category.
@@ -544,7 +557,9 @@ constexpr char kCommunitySuffixes[] =
     "/api/v9/users/@me/scheduled-events?guild_ids=\0/onboarding-responses\0/profile\0/members/@me?lurker=true\0"
     "/member-verification\0/templates\0/templates\0/templates/\0/templates/\0/templates/\0/discovery-requirements\0"
     "/discovery-metadata\0/discovery-metadata\0/api/v9/discovery/categories?locale=en-US&primary_only=false\0"
-    "/discovery-categories/\0/discovery-categories/\0/profile\0/requests?status=SUBMITTED&limit=25\0";
+    "/discovery-categories/\0/discovery-categories/\0/profile\0/requests?status=SUBMITTED&limit=25\0/space\0"
+    "/space/widgets/hydrate?widget_ids=\0/api/v9/users/@me/consent\0/api/v9/users/@me/consent\0"
+    "/api/v9/users/@me/consent\0";
 static_assert(sizeof(kCommunityRoutes) / sizeof(kCommunityRoutes[0]) ==
                   static_cast<usize>(GuildCommunityOperation::count) &&
               name_list_count(kCommunitySuffixes) == static_cast<usize>(GuildCommunityOperation::count));
@@ -595,6 +610,14 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
 u32 guild_community_write_interest_body(Slice<u8> body) noexcept {
     ProtocolWriter w{body, 0};
     return protocol_write(&w, "{\"response\":1}") ? w.used : 0;
+}
+
+u32 guild_community_write_consent_body(Slice<u8> body, bool grant) noexcept {
+    ProtocolWriter w{body, 0};
+    return protocol_write(&w, grant ? "{\"grant\":[\"personalization\"],\"revoke\":[]}"
+                                    : "{\"grant\":[],\"revoke\":[\"personalization\"]}")
+               ? w.used
+               : 0;
 }
 
 u32 guild_community_write_join_body(Slice<u8> body) noexcept {
@@ -1258,6 +1281,185 @@ bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* outpu
         games[at] = game;
     }
     return output->id && output->name_bytes;
+}
+
+// Server Hub
+
+namespace {
+using protocol_detail::ItemReader;
+using protocol_detail::ObjectSpec;
+using protocol_detail::read_item;
+constexpr FieldDef kSpacePositionDefs[]{{"column", MAICORD_FIELD_SATURATE(GuildSpaceWidget, column)},
+                                        {"order", MAICORD_FIELD_SATURATE(GuildSpaceWidget, order)}};
+MAICORD_FIELD_TABLE(kSpacePositionSpec, kSpacePositionDefs, nullptr, kLenientCodes, kDepth);
+// An Image & Text widget's text is up to 500 characters: it reads up to 2048 bytes.
+constexpr FieldDef kSpaceConfigDefs[]{{"title", MAICORD_FIELD_LABEL(GuildSpaceWidget, title, title_bytes)},
+                                      {"text", MAICORD_FIELD_LABEL(GuildSpaceWidget, text, text_bytes)}};
+MAICORD_FIELD_TABLE(kSpaceConfigSpec, kSpaceConfigDefs, nullptr, kLenientCodes, kDepth, 0, 0, 0, 0, 8);
+// position and config are objects read into the same widget.
+bool space_widget_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    if (value.kind != JsonValueKind::object)
+        return true;
+    const ObjectSpec* spec = index == 5 ? static_cast<const ObjectSpec*>(&kSpacePositionSpec) : &kSpaceConfigSpec;
+    ObjectReader inner{{r.document, 0}, spec, r.base, 0};
+    return read_object(inner, value) == 0;
+}
+constexpr FieldDef kSpaceWidgetDefs[]{
+    {"id", MAICORD_FIELD_LABEL(GuildSpaceWidget, id, id_bytes)},
+    {"type", MAICORD_FIELD_LABEL(GuildSpaceWidget, kind, kind_bytes)},
+    {"default_title", MAICORD_FIELD_LABEL(GuildSpaceWidget, default_title, default_title_bytes)},
+    {"requires_hydration", MAICORD_FIELD_BOOL(GuildSpaceWidget, hydrate)},
+    {"locked", MAICORD_FIELD_BOOL(GuildSpaceWidget, locked)},
+    {"position", MAICORD_FIELD_HOOK},
+    {"config", MAICORD_FIELD_HOOK},
+};
+MAICORD_FIELD_TABLE(kSpaceWidgetSpec, kSpaceWidgetDefs, space_widget_hook, kLenientCodes, kDepth, 1,
+                    sizeof(GuildSpaceWidget));
+
+// application_ids: the games played, the last one first (the official client shows three icons, or two and a count).
+bool space_leader_hook(ObjectReader& r, u32, const JsonValue& value) noexcept {
+    auto& leader = *reinterpret_cast<GuildSpaceLeader*>(r.base);
+    u32 count = 0;
+    if (value.kind == JsonValueKind::array)
+        snowflake_string_array(*r.document, value, leader.games, kGuildSpaceLeaderGames, &count);
+    leader.game_count = static_cast<u8>(minimum(count, kGuildSpaceLeaderGames));
+    return true;
+}
+constexpr FieldDef kSpaceLeaderDefs[]{
+    {"user_id", MAICORD_FIELD_SNOWFLAKE(GuildSpaceLeader, user_id)},
+    {"rank", MAICORD_FIELD_SATURATE(GuildSpaceLeader, rank)},
+    {"value", MAICORD_FIELD_SATURATE(GuildSpaceLeader, value)},
+    {"time_played_seconds", MAICORD_FIELD_SATURATE(GuildSpaceLeader, seconds)},
+    {"application_ids", MAICORD_FIELD_HOOK},
+    {"application_count", MAICORD_FIELD_SATURATE(GuildSpaceLeader, game_total)},
+};
+MAICORD_FIELD_TABLE(kSpaceLeaderSpec, kSpaceLeaderDefs, space_leader_hook, kLenientCodes, kDepth, 1,
+                    sizeof(GuildSpaceLeader));
+constexpr FieldDef kSpaceGameDefs[]{{"application_id", MAICORD_FIELD_SNOWFLAKE(GuildSpaceGame, id)},
+                                    {"total_users", MAICORD_FIELD_SATURATE(GuildSpaceGame, players)}};
+MAICORD_FIELD_TABLE(kSpaceGameSpec, kSpaceGameDefs, nullptr, kLenientCodes, kDepth, 1, sizeof(GuildSpaceGame));
+// The lists of a leaderboard (entries) and of popular games (games, user_ids).
+bool space_data_hook(ObjectReader& r, u32 index, const JsonValue& value) noexcept {
+    auto& d = *reinterpret_cast<GuildSpaceData*>(r.base);
+    if (value.kind != JsonValueKind::array)
+        return true;
+    if (index == 4) {
+        u32 count = 0;
+        snowflake_string_array(*r.document, value, d.players, kGuildSpacePlayers, &count);
+        d.player_count = static_cast<u8>(minimum(count, kGuildSpacePlayers));
+        return true;
+    }
+    const bool leaders = index == 2;
+    ItemReader items{{r.document, 0}, leaders ? static_cast<const ObjectSpec*>(&kSpaceLeaderSpec) : &kSpaceGameSpec,
+                     leaders ? reinterpret_cast<u8*>(d.leaders) : reinterpret_cast<u8*>(d.games),
+                     leaders ? kGuildSpaceLeaders : kGuildSpaceGames, 0};
+    json_visit_indexed_array(*r.document, value, kDepth, read_item, &items);
+    (leaders ? d.leader_count : d.game_count) = static_cast<u8>(items.count);
+    return true;
+}
+constexpr FieldDef kSpaceDataDefs[]{
+    {"stat", MAICORD_FIELD_SATURATE(GuildSpaceData, stat)},
+    {"week_start_ts", MAICORD_FIELD_SATURATE(GuildSpaceData, week_start)},
+    {"entries", MAICORD_FIELD_HOOK},
+    {"games", MAICORD_FIELD_HOOK},
+    {"user_ids", MAICORD_FIELD_HOOK},
+    {"total_users", MAICORD_FIELD_SATURATE(GuildSpaceData, total_users)},
+    {"total_games", MAICORD_FIELD_SATURATE(GuildSpaceData, total_games)},
+    {"next_stat", MAICORD_FIELD_SATURATE(GuildSpaceData, next_stat)},
+    {"computed_at", MAICORD_FIELD_TIMESTAMP(GuildSpaceData, computed_ms)},
+};
+MAICORD_FIELD_TABLE(kSpaceDataSpec, kSpaceDataDefs, space_data_hook, kLenientCodes, kDepth);
+
+struct SpaceRead {
+    const JsonIndexedDocument* document;
+    GuildSpace* space;
+    bool hydrate, widgets;
+};
+// One hydrated widget, {"id","data"}: its data goes to the space's widget with that id.
+struct SpaceItem {
+    JsonValue id, data;
+};
+bool space_item_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& item = *static_cast<SpaceItem*>(context);
+    const u32 index = member_index<"id", "data">(name);
+    if (index < 2)
+        (index ? item.data : item.id) = value;
+    return true;
+}
+bool space_hydrated(void* context, u32, JsonValue value) noexcept {
+    auto& s = *static_cast<SpaceRead*>(context);
+    SpaceItem item{};
+    char id[kGuildSpaceIdBytes];
+    if (value.kind != JsonValueKind::object ||
+        !json_visit_indexed_object(*s.document, value, kDepth, space_item_member, &item).ok() ||
+        item.data.kind != JsonValueKind::object)
+        return true;
+    const u32 id_bytes = decode_text(item.id, id, sizeof(id));
+    for (u32 i = 0; i < s.space->count; ++i) {
+        const auto& widget = s.space->widgets[i];
+        if (!id_bytes || widget.id_bytes != id_bytes || !bytes_equal(widget.id, id, id_bytes))
+            continue;
+        auto& data = s.space->data[i];
+        reset_value(&data);
+        ObjectReader reader{{s.document, 0}, &kSpaceDataSpec, reinterpret_cast<u8*>(&data), 0};
+        data.ready = read_object(reader, item.data) == 0;
+    }
+    return true;
+}
+constexpr FieldDef kSpaceHeaderDefs[]{{"custom_banner_hash", MAICORD_FIELD_LABEL(GuildSpace, banner, banner_bytes)}};
+MAICORD_FIELD_TABLE(kSpaceHeaderSpec, kSpaceHeaderDefs, nullptr, kLenientCodes, kDepth);
+bool space_root(void* context, JsonString name, JsonValue value) noexcept {
+    auto& s = *static_cast<SpaceRead*>(context);
+    // header: the hub's own banner (custom_banner_hash).
+    if (!s.hydrate && value.kind == JsonValueKind::object && json_string_equals_ascii(name, utf8_literal("header"))) {
+        ObjectReader reader{{s.document, 0}, &kSpaceHeaderSpec, reinterpret_cast<u8*>(s.space), 0};
+        read_object(reader, value);
+    }
+    if (!json_string_equals_ascii(name, utf8_literal("widgets")) || value.kind != JsonValueKind::array)
+        return true;
+    s.widgets = true;
+    if (s.hydrate)
+        return json_visit_indexed_array(*s.document, value, kDepth, space_hydrated, &s).ok();
+    ItemReader items{{s.document, 0}, &kSpaceWidgetSpec, reinterpret_cast<u8*>(s.space->widgets),
+                     kGuildSpaceWidgets, 0};
+    // A space holds a few widgets: those past the capacity are left out.
+    json_visit_indexed_array(*s.document, value, kDepth, read_item, &items);
+    s.space->count = items.count;
+    return true;
+}
+bool space_read(Utf8View body, Slice<u32> scratch, GuildSpace* space, bool hydrate) noexcept {
+    const auto scanned = scan(body, scratch);
+    SpaceRead s{&scanned.document, space, hydrate, false};
+    return space && scanned.ok &&
+           json_visit_root_object(body, scanned.document.structurals, kDepth, space_root, &s).ok() && s.widgets;
+}
+} // namespace
+
+bool guild_space_decode(Utf8View body, Slice<u32> scratch, GuildSpace* output) noexcept {
+    if (output)
+        reset_value(output);
+    if (!space_read(body, scratch, output, false))
+        return false;
+    auto& w = output->widgets;
+    for (u32 i = 0; i < output->count; ++i) {
+        const u32 kind = member_index<"leaderboard", "popular_games", "image_text">(
+            JsonString{{w[i].kind, w[i].kind_bytes}, 0, false});
+        w[i].type = kind < 3 ? static_cast<GuildSpaceWidgetType>(kind + 1) : GuildSpaceWidgetType::other;
+    }
+    // The main column (0), then the side column, each by order; a stable insertion sort.
+    for (u32 i = 1; i < output->count; ++i) {
+        const GuildSpaceWidget widget = w[i];
+        const u32 key = static_cast<u32>(widget.column) << 16 | widget.order;
+        u32 at = i;
+        for (; at > 0 && (static_cast<u32>(w[at - 1].column) << 16 | w[at - 1].order) > key; --at)
+            w[at] = w[at - 1];
+        w[at] = widget;
+    }
+    return true;
+}
+
+bool guild_space_hydrate_decode(Utf8View body, Slice<u32> scratch, GuildSpace* space) noexcept {
+    return space_read(body, scratch, space, true);
 }
 
 } // namespace maicord

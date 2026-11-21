@@ -23,6 +23,7 @@
 #include "../chat/search/search.hpp"
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 #include "../media/picker.hpp"
 #include "quick_switcher.hpp"
 #include "../chat/messages/forward.hpp"
@@ -121,6 +122,8 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
     if (application_poll_input(event.kind, event.code, event.repeated))
         return UiInputDisposition::handled;
     if (application_thread_browser_input(event.kind, event.code, event.repeated))
+        return UiInputDisposition::handled;
+    if (application_content_page_input(event.kind, event.code, event.repeated))
         return UiInputDisposition::handled;
     if (application_media_picker_input(event.kind, event.code, event.repeated))
         return UiInputDisposition::handled;

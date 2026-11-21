@@ -7,6 +7,7 @@
 #include "../../../src/app/guild/settings/settings.hpp"
 #include "../../../src/app/chat/game_lookup.hpp"
 #include "../../../src/app/chat/composer/game_search.hpp"
+#include "../../../src/app/shell/content_page.hpp"
 
 namespace maicord::app_detail {
 bool application_stream_preview_key_current(const MediaAssetKey&) noexcept {
@@ -54,6 +55,10 @@ bool application_guild_settings_preview_media(u32, MediaAssetKey*, Utf8View*) no
 }
 bool application_guild_settings_preview_key_current(const MediaAssetKey&) noexcept {
     return false;
+}
+// Nor a content page (the Server Hub).
+const ContentPageOwner* application_content_page() noexcept {
+    return nullptr;
 }
 // Nor game mentions: no game is ever cached or searched.
 const GameStore* application_games() noexcept {

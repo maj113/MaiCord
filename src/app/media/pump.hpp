@@ -90,9 +90,12 @@ struct ApplicationMediaPump {
     bool request_friends_avatars(bool* stop) noexcept;
     // Forward-destination tiles: server icons (the rail's key) and DM avatars.
     bool request_forward_identities(bool* stop) noexcept;
-    // Opaque Settings: avatar rows (My account card) share the user-avatar cache.
+    // Opaque Settings: avatar rows (My account card) share the user-avatar cache. A content page's pictures
+    // (UiSettingsAvatarMedia by preview slot) take the same requests.
     bool settings_avatar_is_current(const MediaAssetKey& key) const noexcept;
     bool request_settings_avatars() noexcept;
+    bool request_settings_media(const UiSettingsAvatarMedia& media, bool* stop) noexcept;
+    bool request_content_page_media(bool* stop) noexcept;
 
     __declspec(noinline) bool animation_frame_cache_descriptor(
         const AccountMediaFrame& frame, AnimationFrameCacheDescriptor* descriptor) noexcept;

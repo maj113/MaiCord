@@ -35,6 +35,8 @@
 #include "../chat/scoped_read.hpp"
 #include "../chat/scoped_read_menu.hpp"
 #include "../chat/threads/browser.hpp"
+#include "../shell/content_page.hpp"
+#include "../guild/hub.hpp"
 #include "../chat/threads/creation.hpp"
 #include "../chat/threads/forum_post.hpp"
 #include "../chat/messages/forward.hpp"
@@ -374,6 +376,10 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
                 ids[count++] = rows[i];
         }
     }
+    // The Server Hub's members: pinned while it shows, asked for when their profile or member record is missing.
+    const u32 hub_begin = count;
+    if (selected)
+        count = application_guild_hub_people(selected->guild_id, ids, count, kVisibleAuthorMaximum);
     // Scrolling changes the interest key every frame, but the people shown
     // change only as rows cross the viewport. With the same people, scope,
     // revisions and pins, the pins applied last time still stand.
@@ -405,12 +411,12 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
             if (member)
                 guild_member_store_pin_user(&ui.guild_member_store, selected->guild_id, ids[i]);
             user_store_pin(&ui.user_store, ids[i]);
-            // Authors need their roles (name colour), voice rows their profile;
+            // Authors need their roles (name colour), voice rows and the hub's members their profile and record;
             // list rows were gathered because their record is missing.
             if (i < author_count ? !member || !member->roles_known
-                : i < voice_end  ? visible_voice_user_missing(ui.user_store, ui.guild_member_store,
-                                                              selected->guild_id, ids[i])
-                                 : true)
+                : i < voice_end || i >= hub_begin
+                    ? visible_voice_user_missing(ui.user_store, ui.guild_member_store, selected->guild_id, ids[i])
+                    : true)
                 missing[missing_count++] = ids[i];
         }
         const bool scope_changed =
@@ -745,6 +751,8 @@ void application_prepare_account_stop() noexcept {
     }
     application_pinned_messages_release();
     application_thread_browser_release();
+    application_content_page_close();
+    application_guild_hub_release();
     application_poll_release();
     application_member_moderation_release();
     application_thread_creation_release();

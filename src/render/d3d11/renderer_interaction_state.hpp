@@ -131,7 +131,11 @@ enum : u32 {
     d3d11_surface_media_page = 1u << 28,
     // The media page hosts the inline video scene on its stage.
     d3d11_surface_page_video = 1u << 29,
+    // A content page (the Server Hub) covers the chat column and the member list, under the popouts.
+    d3d11_surface_content_page = 1u << 30,
 };
+// The panels that cover the chat column and the member list.
+constexpr u32 d3d11_surfaces_content_panel = d3d11_surface_thread_browser | d3d11_surface_content_page;
 
 // The inline audio control is bound, enabled and drawable on a surface that shows (`shown` holds the bits below it).
 __declspec(noinline) inline bool d3d11_renderer_audio_shown(const D3D11Renderer& renderer, u32 shown) noexcept {
@@ -281,9 +285,9 @@ constexpr u32 d3d11_surface_simple =
     d3d11_surface_expression_card | d3d11_surface_message_forward | d3d11_surface_shortcuts |
     d3d11_surface_download | d3d11_surface_go_live | d3d11_surface_media_picker | d3d11_surface_search |
     d3d11_surface_pinned_messages | d3d11_surface_settings_page | d3d11_surface_theme_editor | d3d11_surface_form |
-    d3d11_surface_media_page;
+    d3d11_surface_media_page | d3d11_surface_content_page;
 // Every surface but the inline poll (see d3d11_renderer_frame_surfaces).
-constexpr u32 d3d11_surface_all = ((1u << 30) - 1) & ~d3d11_surface_poll;
+constexpr u32 d3d11_surface_all = ((1u << 31) - 1) & ~d3d11_surface_poll;
 // The modal and popup surfaces of the popup layer.
 constexpr u32 d3d11_surfaces_popup = d3d11_surface_quick_switcher | d3d11_surface_inbox |
                                      d3d11_surface_message_forward | d3d11_surface_shortcuts |
@@ -328,6 +332,10 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
         return d3d11_renderer_active(renderer.thread_browser_scene) && !over(page | friends) &&
                d3d11_current<ui_thread_browser_scene_current>(*renderer.thread_browser_scene);
     };
+    // A content page lies where the thread browser does, under the same covers.
+    const auto content_rule = [&]() __attribute__((always_inline)) noexcept {
+        return d3d11_renderer_active(renderer.content_page) && !over(page | friends);
+    };
     // The page lies under the popouts, profile, viewer and menus, which draw over it; pages replacing the shell
     // (and Friends, which replaces the content column) hide it.
     const auto page_rule = [&]() __attribute__((always_inline)) noexcept {
@@ -344,7 +352,7 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
         return full ? (shown & d3d11_surface_quick_switcher) != 0 : quick_rule();
     };
     const auto browser_up = [&]() __attribute__((always_inline)) noexcept {
-        return full ? (shown & d3d11_surface_thread_browser) != 0 : browser_rule();
+        return full ? (shown & d3d11_surfaces_content_panel) != 0 : browser_rule() || content_rule();
     };
     const auto page_up = [&]() __attribute__((always_inline)) noexcept {
         return full ? (shown & d3d11_surface_media_page) != 0 : page_rule();
@@ -361,6 +369,10 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
     if constexpr (kWant & d3d11_surface_thread_browser) {
         if (browser_rule())
             shown |= d3d11_surface_thread_browser;
+    }
+    if constexpr (kWant & d3d11_surface_content_page) {
+        if (content_rule())
+            shown |= d3d11_surface_content_page;
     }
     if constexpr (kWant & d3d11_surface_media_page) {
         if (page_rule())
@@ -437,13 +449,13 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
         if (message_modal)
             shown |= d3d11_surface_message_modal;
         if ((above & (login | settings | editor | friends | requests | profile | viewer | popup | reaction | form)) ||
-            (shown & (d3d11_surface_thread_browser | d3d11_surface_media_picker | d3d11_surface_quick_switcher |
+            (shown & (d3d11_surfaces_content_panel | d3d11_surface_media_picker | d3d11_surface_quick_switcher |
                       d3d11_surface_download | d3d11_surface_go_live | d3d11_surface_media_page)))
             shown |= d3d11_surface_inline_covered;
         const bool voters_active = d3d11_renderer_active(renderer.poll_voters_scene);
         // Inline controls have one host-owned scene and disappear beneath front surfaces.
         if (!voters_active &&
-            !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_picker |
+            !(shown & (d3d11_surfaces_content_panel | d3d11_surface_call | d3d11_surface_media_picker |
                        d3d11_surface_message_modal | d3d11_surface_media_page)) &&
             d3d11_renderer_active(renderer.video_scene) &&
             !(above & (login | settings | friends | requests | profile | viewer | popup | reaction | form)) &&
@@ -461,7 +473,7 @@ __declspec(noinline) inline u32 d3d11_renderer_shown(const D3D11Renderer& render
             shown |= d3d11_surface_tooltip;
         // Timeline overlay below every popup/modal layer; covering surfaces hide it.
         if (renderer.unread_banner_scene && !(above & (page | friends | requests | viewer)) &&
-            !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_page)) &&
+            !(shown & (d3d11_surfaces_content_panel | d3d11_surface_call | d3d11_surface_media_page)) &&
             d3d11_renderer_active(renderer.message_scene) && ui_unread_banner_visible(*renderer.unread_banner_scene))
             shown |= d3d11_surface_unread_banner;
         // Toasts show over every surface except the sign-in screen.
@@ -553,9 +565,10 @@ __declspec(noinline) inline const UiWidgetManager* d3d11_renderer_visible_focus_
     if (d3d11_renderer_active(renderer.friends_requests_scene))
         return owner == d3d11_renderer_front_over(renderer, &renderer.friends_requests_scene->widgets) ? owner
                                                                                                          : nullptr;
-    // The thread browser and Friends cover the chat column and the member list; a media page only the chat column.
+    // The thread browser, a content page and Friends cover the chat column and the member list; a media page only
+    // the chat column.
     const bool members_covered =
-        (shown & d3d11_surface_thread_browser) || d3d11_renderer_active(renderer.friends_scene);
+        (shown & d3d11_surfaces_content_panel) || d3d11_renderer_active(renderer.friends_scene);
     if (((members_covered || (shown & d3d11_surface_media_page)) &&
          ((renderer.message_scene && owner == &renderer.message_scene->widgets) ||
           (renderer.message_composer_scene && owner == &renderer.message_composer_scene->widgets))) ||

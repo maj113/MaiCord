@@ -1041,6 +1041,9 @@ void build_overlays(UiAccessTree* tree, bool settings) noexcept {
             ui_access_add_quick_switcher(tree, 0, *renderer.quick_switcher_scene, surface_quick);
         if (shown & d3d11_surface_go_live)
             ui_access_add_go_live(tree, 0, *renderer.go_live_scene, surface_go_live);
+        // A content page (the Server Hub) reads as the store pages do: its cards, rows and buttons, by name.
+        if ((shown & d3d11_surface_content_page) && renderer.content_page)
+            ui_access_add_store(tree, 0, *renderer.content_page, surface_store);
         if (g_app.image_viewer.scene.active)
             ui_access_add_image_viewer(tree, 0, g_app.image_viewer.scene, surface_viewer);
     }

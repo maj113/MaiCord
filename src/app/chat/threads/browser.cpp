@@ -28,6 +28,7 @@
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/platform/window/key.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
+#include "../../shell/content_page.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -633,12 +634,16 @@ bool application_thread_browser_available(u64 parent_id) noexcept {
     return parent_readable(parent) && g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }
 bool application_thread_browser_active() noexcept { return browser_owner && current(*browser_owner); }
-bool application_thread_browser_read_blocked() noexcept { return application_thread_browser_active(); }
+// The thread browser and a content page cover the chat column and the member list.
+bool application_thread_browser_read_blocked() noexcept {
+    return application_thread_browser_active() || application_content_page_active();
+}
 bool application_thread_browser_open(u64 parent_id) noexcept {
     const u64 id = parent_id ? parent_id : default_parent();
     if (!application_thread_browser_available(id)) return false;
     if (!application_search_close_panel()) return false;
     application_pinned_messages_close();
+    application_content_page_close();
     if (!ensure_owner()) return false;
     auto& value = *browser_owner;
     const auto* parent = application_channel_record(id);

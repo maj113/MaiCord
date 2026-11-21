@@ -21,6 +21,7 @@
 #include "../chat/private_header.hpp"
 #include "go_live.hpp"
 #include "../chat/threads/browser.hpp"
+#include "../shell/content_page.hpp"
 #include "voice.hpp"
 #include "../shell/window.hpp"
 #include "maicord/app/voice/call_video_presenter.hpp"
@@ -573,6 +574,7 @@ bool application_call_open(u64 channel_id, u64 focus_user) noexcept {
         application_pinned_messages_close();
     if (application_thread_browser_active())
         application_thread_browser_close();
+    application_content_page_close();
     if (!view.open || view.channel_id != channel_id) {
         view.opened_ms = clock_monotonic_milliseconds();
         reset_value(&view.lifecycle);
@@ -622,7 +624,7 @@ bool application_call_synchronize() noexcept {
     if (!g_app.account_ui || g_app.login.visible ||
         g_app.account_ui->chat_state.navigation_intent_revision != view.intent_revision ||
         application_search_active() || application_pinned_messages_active() ||
-        application_thread_browser_active()) {
+        application_thread_browser_read_blocked()) {
         application_call_close();
         return true;
     }

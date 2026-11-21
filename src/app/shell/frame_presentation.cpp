@@ -57,6 +57,7 @@
 #include "../chat/search/search.hpp"
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 #include "../chat/threads/creation.hpp"
 #include "../chat/threads/forum_post.hpp"
 #include "../chat/threads/forum_form.hpp"
@@ -325,7 +326,8 @@ bool application_present_frame() noexcept {
         !application_quick_switcher_synchronize() || !application_search_synchronize() ||
         !application_pinned_messages_synchronize() || !application_inbox_synchronize() ||
         !application_media_picker_synchronize() ||
-        !application_thread_browser_synchronize() || !application_thread_creation_synchronize() ||
+        !application_thread_browser_synchronize() || !application_content_page_synchronize() ||
+        !application_thread_creation_synchronize() ||
         !application_forum_post_synchronize() || !application_forum_attachments_synchronize())
         return present_rejected("panels");
     if (!application_image_viewer_synchronize())

@@ -1343,6 +1343,7 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
                                   : u8{0}};
     input.owner_configured_content_level = details.owner_configured_content_level;
     input.nsfw_level = details.nsfw_level;
+    input.space = details.space;
     input.discovery_splash = {details.discovery_splash, details.discovery_splash_bytes <= sizeof(details.discovery_splash)
                                                              ? details.discovery_splash_bytes
                                                              : u8{0}};

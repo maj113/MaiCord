@@ -1167,12 +1167,14 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         if (!consume_pending_animation_frame(pending, repaint, &consumed))
             return false;
         // Forum post cards are the browser's own content: their author avatars
-        // upload here. Other completions are leased without being shown, exactly
+        // upload here, and so do a content page's pictures. Other completions are leased without being shown, exactly
         // like the browser-covered forum preview drain; normal reacquisition reloads them.
-        if (!consumed && (pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
-                          pending.key.kind == MediaAssetKind::attachment) &&
-            (surfaces() & d3d11_surface_thread_browser) &&
-            application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) {
+        if (!consumed &&
+            (((pending.key.kind == MediaAssetKind::user_avatar || is_default_avatar_key(pending.key) ||
+               pending.key.kind == MediaAssetKind::attachment) &&
+              (surfaces() & d3d11_surface_thread_browser) &&
+              application.renderer.thread_browser_scene->forum && message_image_frame_is_current(pending)) ||
+             ((surfaces() & d3d11_surface_content_page) && settings_avatar_is_current(pending.key)))) {
             const auto upload = upload_account_media_frame(pending);
             if (upload == MediaFrameUploadResult::uploaded) {
                 ++uploads;
@@ -1182,10 +1184,9 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
             }
         }
     }
-    bool forum_stop = false;
-    if (!request_forum_avatars(&forum_stop))
-        return false;
-    return forum_stop || request_forum_thumbnails(&forum_stop);
+    bool stop = false;
+    return request_forum_avatars(&stop) &&
+           (stop || (request_forum_thumbnails(&stop) && (stop || request_content_page_media(&stop))));
 }
 
 ApplicationMediaPumpResult application_pump_covered_media(Application* application) noexcept {

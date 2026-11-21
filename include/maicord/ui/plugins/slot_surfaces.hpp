@@ -20,7 +20,7 @@ inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32
     reset_value(out);
     if (!ui_plugin_slot_surface_active(kUiPluginSlotChannelRow) || !scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
-    if (!row.view.id || row.view.type == kNavigationEventsRowType || row.view.type == kNavigationRequestsRowType)
+    if (!row.view.id || navigation_lead_row(row.view.type) || row.view.type == kNavigationRequestsRowType)
         return false;
     const auto* layout = shell_navigation_scene_layout_node(scene, row);
     const auto* label = ui_widget_manager_layout_node(scene.widgets, row.label);

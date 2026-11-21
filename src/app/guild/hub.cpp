@@ -38,11 +38,11 @@
 namespace maicord::app_detail {
 namespace {
 // The official client lists the first 20 entries of a leaderboard and the account's own after them, in a list
-// 320 DIPs high of 40 DIP rows, and the covers of a popular games widget in one row of four.
+// 320 DIPs high of 40 DIP rows. The covers of a popular games widget fill one row (guild_hub_covers).
 constexpr u32 kListed = 20;
 constexpr u32 kRows = kListed + 1;
 constexpr float kRowHeight = 40, kListHeight = 320;
-constexpr u32 kCoversShown = 4;
+constexpr u32 kCoversShown = kGuildSpaceGames;
 // The official client shows a leaderboard or popular games only with three members who share their activity.
 constexpr u32 kEnoughMembers = 3;
 // Pictures: the banner, the server icon, the rows' (and the floating row's) avatars and games, the covers and
@@ -445,10 +445,12 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
         r.action = action_jump;
         r.text = utf8_literal("Jump to you");
     }
+    // The identity and the value are each 36 DIPs of content (a 32 DIP avatar beside a name over a line, or two lines)
+    // in kRowHeight: 2 DIPs above and below.
     auto& identity = row(b, 12);
     identity.flags |= ui_store_flex;
     identity.pad_x = 8;
-    identity.pad_y = 4;
+    identity.pad_y = 2;
     if (rank <= 3) {
         static constexpr u8 kMedals[]{4, 6, 7};
         auto& medal = leaf(b, UiStoreKind::swatch, 24);
@@ -502,7 +504,7 @@ void leader_row(UiStoreBuilder& b, const GuildSpaceLeader& leader, u32 index, u3
     auto& value = b.open(UiStoreKind::column);
     value.rw = 104;
     value.pad_x = 8;
-    value.pad_y = 4;
+    value.pad_y = 2;
     if (!floating) {
         value.action = action_activity + index;
         value.text = utf8_literal("View recent activity");
@@ -680,10 +682,11 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
         b.close();
         return;
     }
-    // Four covers to a row of the card, each over its name and its players; a cover opens the game's profile.
-    const float cell = maximum(24.f, (width - 32 - 3 * 8) / kCoversShown);
-    row(b, 8).flags = 0;
-    for (u32 i = 0; i < data.game_count && i < kCoversShown; ++i) {
+    // The covers in one row of the card, each over its name and its players; a cover opens the game's profile.
+    const auto covers = guild_hub_covers(width);
+    const float cell = covers.cell;
+    row(b, 12).flags = 0;
+    for (u32 i = 0; i < data.game_count && i < covers.count; ++i) {
         const auto& game = data.games[i];
         const auto* record = known_game(game.id);
         const Utf8View name = record ? game_name(*record) : utf8_literal("Unknown Game");
@@ -725,7 +728,9 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
         notice(b, need_text(need_now, true), need_button(need_now), action_share_games);
         b.close();
     }
-    // The players: up to four avatars (each names its member), then how many more.
+    // The players: up to four avatars (two in a card under 480 DIPs, as the official client's compact footer), each
+    // naming its member, then how many more.
+    const u32 faces = width < 480 ? 2 : kGuildSpacePlayers;
     b.leaf(UiStoreKind::rule);
     row(b, 8);
     const u32 start = bank.used;
@@ -735,7 +740,7 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
     bank.add(" in the last 7 days");
     b.text(bank.since(start), UiStoreType::small, UiStoreInk::subtle, ui_store_wrap | ui_store_flex);
     u32 avatars = 0;
-    for (u32 i = 0; i < data.player_count; ++i)
+    for (u32 i = 0; i < data.player_count && avatars < faces; ++i)
         if (const u32 slot = add_avatar(data.players[i])) {
             note_person(data.players[i]);
             picture(b, slot, 24, 999, display_name(data.players[i]));
@@ -747,7 +752,8 @@ void popular_games(UiStoreBuilder& b, const GuildSpaceWidget& widget, const Guil
     b.close();
 }
 
-// The banner card: the hub's banner (or a plain plate), and over its foot the server's icon, name and counts.
+// The banner card: the hub's banner (or a plain plate) under the official client's scrim, and over its foot the
+// server's icon, name and counts in the scrim's white ink, in every theme.
 void header(UiStoreBuilder& b) noexcept {
     auto& p = *owner;
     const auto& ui = *g_app.account_ui;
@@ -765,6 +771,7 @@ void header(UiStoreBuilder& b) noexcept {
     banner.variant = static_cast<u8>(UiStoreAspect::fixed);
     banner.rh = 240;
     banner.pad_x = banner.pad_y = 16;
+    banner.fill = static_cast<u8>(UiStoreFill::scrim);
     banner.value = add_banner();
     // No picture: the glow of the brand colour, else of the icon's colour (under the accessibility saturation, as
     // the server card tints it), else of the theme's server banner colour (bit 24).
@@ -774,14 +781,16 @@ void header(UiStoreBuilder& b) noexcept {
         banner.ink = static_cast<u8>(UiStoreInk::custom);
         banner.group = brand ? p.brand_rgb : tinted ? ui_guild_card_desaturate(p.icon_rgb, p.saturation) : 1u << 24;
     }
-    const auto ink = banner.value || tinted ? UiStoreInk::on_scrim : UiStoreInk::strong;
-    row(b, 12).anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
+    constexpr auto ink = UiStoreInk::on_scrim;
+    row(b, 10).anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     const Utf8View name = guild ? p.bank.add(chat_state_store_guild_name(ui.chat_state, *guild)) : Utf8View{};
-    // The server's icon, or its initials on the plate as in the server list.
+    // The server's icon (the official client's large guild icon, 50 DIPs), or its initials on the plate as in the
+    // server list. The icon, the dots and the boost glyph are foreground: they draw over the banner's scrim.
     auto& plate = b.open(UiStoreKind::preview);
     plate.variant = static_cast<u8>(UiStoreAspect::fixed);
-    plate.rw = plate.rh = 64;
-    plate.aux = 16;
+    plate.flags = ui_store_foreground;
+    plate.rw = plate.rh = 50;
+    plate.aux = 8;
     plate.value = add_media(application_guild_icon_media(p.guild_id));
     if (!plate.value) {
         char initials[16];
@@ -793,16 +802,20 @@ void header(UiStoreBuilder& b) noexcept {
     b.open(UiStoreKind::column).gap = 4;
     b.text(name, UiStoreType::heading, ink);
     row(b, 4);
+    // The counts in the official client's small bold type, 12 DIPs apart.
     const auto dot = [&](u8 variant, Utf8View text) noexcept {
-        leaf(b, UiStoreKind::swatch, 8).variant = variant;
-        b.text(text, UiStoreType::small, ink);
-        b.spacer(8, 0);
+        auto& mark = leaf(b, UiStoreKind::swatch, 8);
+        mark.variant = variant;
+        mark.flags = ui_store_foreground;
+        b.text(text, UiStoreType::eyebrow, ink);
+        b.spacer(4, 0);
     };
     if (online_known)
         dot(5, plural(online, utf8_literal(" Online")));
     dot(6, plural(members, utf8_literal(" Members")));
-    icon(b, UiIcon::boost, 14, ink);
-    b.text(plural(details ? details->premium_subscription_count : 0, utf8_literal(" Boosts")), UiStoreType::small,
+    icon(b, UiIcon::boost, 12, ink);
+    b.node().flags = ui_store_foreground;
+    b.text(plural(details ? details->premium_subscription_count : 0, utf8_literal(" Boosts")), UiStoreType::eyebrow,
            ink);
     b.close();
     b.close();
@@ -863,17 +876,17 @@ void build(UiStoreBuilder& b, float width) noexcept {
         b.close();
         return;
     }
-    // The main column and the side column (a third), stacked when narrow.
+    // The main column and the side column (a third), stacked at full width when narrow (the split's own rule).
     const Need need_now = need(p.guild_id);
-    const float rail = width < 640 ? width : (width - 16) / 3;
+    const auto columns = guild_hub_columns(width);
     auto& split = b.open(UiStoreKind::split);
     split.gap = 16;
-    split.rw = rail;
+    split.rw = columns.side;
     for (u8 column = 0; column < 2; ++column) {
         b.open(UiStoreKind::column).gap = 16;
         for (u32 i = 0; i < p.space.count; ++i)
             if ((p.space.widgets[i].column != 0) == (column != 0))
-                widget(b, i, need_now, column ? rail : width - rail - 16);
+                widget(b, i, need_now, column ? columns.side : columns.main);
         b.close();
     }
     b.close();

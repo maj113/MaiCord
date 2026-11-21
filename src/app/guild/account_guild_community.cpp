@@ -15,15 +15,21 @@ RestClientSubmitResult account_guild_community_submit(RestClient* rest,
     if (!path.ok())
         return {path.error == GuildCommunityWriteError::output_capacity ? RestClientSubmitError::target_capacity
                                                                        : RestClientSubmitError::invalid_input};
-    u8 interest[32];
+    u8 interest[64];
     ConstSlice<u8> body{request->body, request->body_bytes};
     if (request->operation == GuildCommunityOperation::event_interested)
         body = {interest, guild_community_write_interest_body({interest, sizeof(interest)})};
     else if (request->operation == GuildCommunityOperation::guild_join)
         body = {interest, guild_community_write_join_body({interest, sizeof(interest)})};
-    // The RSVP list is a user route and the discovery categories a global one; everything else buckets per guild.
+    else if (request->operation >= GuildCommunityOperation::consent_grant)
+        body = {interest, guild_community_write_consent_body(
+                              {interest, sizeof(interest)},
+                              request->operation == GuildCommunityOperation::consent_grant)};
+    // The RSVP list and the consents are user routes and the discovery categories a global one; everything else
+    // buckets per guild.
     const bool user_route = request->operation == GuildCommunityOperation::event_rsvps ||
-                            request->operation == GuildCommunityOperation::discovery_categories;
+                            request->operation == GuildCommunityOperation::discovery_categories ||
+                            request->operation >= GuildCommunityOperation::consent_get;
     // The tag popout's join carries the X-Context-Properties header.
     u8 context[64];
     const u32 context_bytes = join ? guild_community_write_join_context({context, sizeof(context)}) : 0;

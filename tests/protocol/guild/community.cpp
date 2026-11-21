@@ -1,6 +1,7 @@
 // Membership screening, onboarding and scheduled events: request targets and
 // bodies, response decoding, the events store, the Gateway projections, the
-// channel-list events row and event link cards.
+// channel-list events row and event link cards. The Server Hub: its requests,
+// space and hydrate decoding, its gate and the Boost Goal and Server Hub rows.
 #include "maicord/app/gateway/chat_state_dispatch.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
@@ -9,6 +10,7 @@
 #include "maicord/core/memory.hpp"
 #include "../../support/jpeg_decode.hpp"
 #include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/guild/scheduled_event_store.hpp"
 #include "maicord/protocol/guild/assets.hpp"
 #include "maicord/protocol/guild/community.hpp"
@@ -1251,6 +1253,197 @@ void test_navigation_rows() noexcept {
     }
 }
 
+// The Server Hub: its requests, the space and hydrate fixtures (shaped from the official client's widgets), the
+// gate in the guild object and the channel list's Boost Goal and Server Hub rows.
+constexpr Utf8View kSpace = utf8_literal(
+    R"({"guild_id":"10","header":{"custom_banner_hash":null},"widgets":[)"
+    R"({"id":"501","type":"popular_games","position":{"column":1,"order":0},"requires_hydration":true,)"
+    R"("default_title":"Popular Games","locked":false,"config":{"type":"popular_games"}},)"
+    R"({"id":"502","type":"image_text","position":{"column":0,"order":1},"requires_hydration":false,)"
+    R"("default_title":"Text & Image","locked":false,"config":{"type":"image_text","title":null,"text":"balls",)"
+    R"("image_hash":null}},)"
+    R"({"id":"503","type":"leaderboard","position":{"column":0,"order":0},"requires_hydration":true,)"
+    R"("default_title":"Gaming Leaderboard","locked":false,"config":{"type":"leaderboard"}},)"
+    R"({"id":"504","type":"whiteboard","position":{"column":1,"order":1},"requires_hydration":true,)"
+    R"("locked":true,"config":{"type":"whiteboard"}}]})");
+constexpr Utf8View kHydrate = utf8_literal(
+    R"({"widgets":[{"id":"503","data":{"stat":1,"week_start_ts":1763164800,"day_pt":"2026-11-15",)"
+    R"("computed_at":"2026-11-15T08:00:00Z","next_stat":2,"entries":[)"
+    R"({"user_id":"31","rank":1,"value":54000000,"time_played_seconds":54000,"application_ids":["901","902"],)"
+    R"("application_count":3},)"
+    R"({"user_id":"32","rank":2,"value":30900000,"time_played_seconds":30900,"application_ids":["903"],)"
+    R"("application_count":1},)"
+    R"({"user_id":"33","rank":3,"value":28800000,"time_played_seconds":28800,"application_ids":[],)"
+    R"("application_count":0}]}},)"
+    R"({"id":"501","data":{"games":[{"application_id":"901","user_ids":["31","32"],"total_users":2},)"
+    R"({"application_id":"904","user_ids":["33"],"total_users":2}],"user_ids":["31","32","33","34","35"],)"
+    R"("total_users":13,"total_games":18}},{"id":"999","data":{"entries":[]}}]})");
+
+void test_space() noexcept {
+    u8 target[kGuildCommunityMaximumTargetBytes];
+    RestMethod method{};
+    GuildCommunityRequest hydrate{};
+    hydrate.operation = GuildCommunityOperation::space_hydrate;
+    hydrate.guild_id = 10;
+    hydrate.code = utf8_literal("501&widget_ids=503");
+    const auto hydrated = guild_community_write_target(hydrate, {target, sizeof(target)});
+    const bool hydrate_target =
+        hydrated.ok() && hydrated.method == RestMethod::get &&
+        text_is(target, hydrated.target_bytes,
+                utf8_literal("/api/v9/guilds/10/space/widgets/hydrate?widget_ids=501&widget_ids=503"));
+    hydrate.code = utf8_literal("501&x=1/");
+    const bool odd_query = !guild_community_request_valid(hydrate);
+    hydrate.code = {};
+    check(utf8_equal(target_of(GuildCommunityOperation::space_get, 10, 0, nullptr, &method, target, sizeof(target)),
+                     utf8_literal("/api/v9/guilds/10/space")) &&
+              method == RestMethod::get && hydrate_target && odd_query && !guild_community_request_valid(hydrate) &&
+              utf8_equal(target_of(GuildCommunityOperation::consent_get, 10, 0, nullptr, &method, target,
+                                   sizeof(target)),
+                         utf8_literal("/api/v9/users/@me/consent")),
+          "server hub: the space, its widgets' data by id and the consents are GETs of the official routes");
+    // The sharing dialog's personalization switch: the official client's POST and its body, either way.
+    RestMethod grant_method{}, revoke_method{};
+    u8 other[kGuildCommunityMaximumTargetBytes], body[64];
+    const bool grant = utf8_equal(target_of(GuildCommunityOperation::consent_grant, 10, 0, nullptr, &grant_method,
+                                            target, sizeof(target)),
+                                  utf8_literal("/api/v9/users/@me/consent"));
+    const bool revoke = utf8_equal(target_of(GuildCommunityOperation::consent_revoke, 10, 0, nullptr, &revoke_method,
+                                             other, sizeof(other)),
+                                   utf8_literal("/api/v9/users/@me/consent"));
+    const u32 granted = guild_community_write_consent_body({body, sizeof(body)}, true);
+    const bool grant_body = text_is(body, granted, utf8_literal(R"({"grant":["personalization"],"revoke":[]})"));
+    const u32 revoked = guild_community_write_consent_body({body, sizeof(body)}, false);
+    check(grant && revoke && grant_method == RestMethod::post && revoke_method == RestMethod::post && grant_body &&
+              text_is(body, revoked, utf8_literal(R"({"grant":[],"revoke":["personalization"]})")) &&
+              !guild_community_operation_has_body(GuildCommunityOperation::consent_grant) &&
+              !guild_community_write_consent_body({body, 8}, true),
+          "server hub: personalization is granted or revoked by POST /users/@me/consent with the official body");
+    // Four widget ids of 19 digits fit the target buffer.
+    hydrate.code = utf8_literal("1234567890123456789&widget_ids=1234567890123456789&widget_ids=1234567890123456789"
+                                "&widget_ids=1234567890123456789");
+    check(guild_community_write_target(hydrate, {target, sizeof(target)}).ok(),
+          "server hub: four snowflake widget ids fit one hydrate target");
+
+    static GuildSpace space;
+    const bool decoded = guild_space_decode(kSpace, {scratch, 16384}, &space);
+    const auto& w = space.widgets;
+    check(decoded && space.count == 4 && w[0].type == GuildSpaceWidgetType::leaderboard && w[0].hydrate &&
+              w[1].type == GuildSpaceWidgetType::image_text &&
+              utf8_equal({w[1].text, w[1].text_bytes}, utf8_literal("balls")) && !w[1].title_bytes &&
+              utf8_equal({w[1].default_title, w[1].default_title_bytes}, utf8_literal("Text & Image")) &&
+              w[2].type == GuildSpaceWidgetType::popular_games && w[2].column == 1 &&
+              w[3].type == GuildSpaceWidgetType::other && w[3].locked &&
+              utf8_equal({w[3].id, w[3].id_bytes}, utf8_literal("504")),
+          "server hub: widgets read with their kind, data need, text and lock, the main column first by order");
+    const bool data = guild_space_hydrate_decode(kHydrate, {scratch, 16384}, &space);
+    const auto& board = space.data[0];
+    const auto& games = space.data[2];
+    check(data && board.ready && board.stat == 1 && board.next_stat == 2 && board.computed_ms == 1794729600000ull &&
+              board.week_start == 1763164800 && board.leader_count == 3 &&
+              board.leaders[0].user_id == 31 && board.leaders[0].value == 54000000 && board.leaders[0].games[0] == 901 &&
+              board.leaders[0].games[1] == 902 && board.leaders[0].game_count == 2 && board.leaders[0].game_total == 3 &&
+              board.leaders[1].rank == 2 && board.leaders[1].seconds == 30900 && !board.leaders[2].game_count &&
+              games.ready && games.game_count == 2 && games.games[1].id == 904 && games.games[1].players == 2 &&
+              games.player_count == kGuildSpacePlayers && games.players[3] == 34 && games.total_users == 13 &&
+              games.total_games == 18 && !space.data[1].ready && !space.data[3].ready,
+          "server hub: hydrated data reaches its widgets by id, an unknown id is passed over");
+    static GuildSpace empty;
+    const bool banner = guild_space_decode(
+        utf8_literal(R"({"guild_id":"10","header":{"custom_banner_hash":"a1b2"},"widgets":[]})"), {scratch, 16384},
+        &empty);
+    check(banner && utf8_equal({empty.banner, empty.banner_bytes}, utf8_literal("a1b2")) && !space.banner_bytes &&
+              guild_space_decode(utf8_literal(R"({"guild_id":"10","widgets":[]})"), {scratch, 16384}, &empty) &&
+              !empty.count && !empty.banner_bytes &&
+              !guild_space_decode(utf8_literal(R"({"message":"Unknown"})"), {scratch, 16384}, &empty) &&
+              !guild_space_decode(utf8_literal("[]"), {scratch, 16384}, &empty),
+          "server hub: an empty space reads with its banner, a body without widgets does not");
+
+    // The gate: the guild experiment and the hub settings in a GUILD_CREATE.
+    const auto gate = [](Utf8View extra) noexcept -> u8 {
+        static char json[1024];
+        static constexpr char kHead[] =
+            R"({"id":"10","name":"G","owner_id":"1","roles":[{"id":"10","name":"@everyone","permissions":"0"}],)"
+            R"("channels":[])";
+        u32 bytes = 0;
+        copy_bytes(json, kHead, sizeof(kHead) - 1);
+        bytes = sizeof(kHead) - 1;
+        copy_bytes(json + bytes, extra.data, extra.bytes);
+        bytes += extra.bytes;
+        json[bytes++] = '}';
+        GatewayGuildDetails details{};
+        Utf8View description{}, vanity{};
+        ConstSlice<u8> names{};
+        return route(utf8_literal("GUILD_CREATE"), {json, bytes}).ok() &&
+                       gateway_client_event_guild_details(event, payload, &details, &description, &vanity, &names)
+                   ? details.space
+                   : u8{0xFF};
+    };
+    const u8 on = gate(utf8_literal(R"(,"experiments":{"evaluation_id":"e","assignments":[[1,1,0,1],)"
+                                    R"([4201393060,1,null,3]]},"guild_space_settings":{"enabled":true,)"
+                                    R"("publish_status":1})"));
+    const u8 eligibility = gate(utf8_literal(R"(,"experiments":{"assignments":[[4201393060,1,8,3]]})"));
+    const u8 control = gate(utf8_literal(R"(,"experiments":{"assignments":[[4201393060,0,0,3]]},)"
+                                         R"("guild_space_settings":null)"));
+    const u8 draft = gate(utf8_literal(R"(,"guild_space_settings":{"enabled":true,"publish_status":0})"));
+    const u8 disabled = gate(utf8_literal(R"(,"guild_space_settings":{"enabled":false,"publish_status":1})"));
+    check(on == (guild_space_trial | guild_space_trial_known | guild_space_published | guild_space_settings_known) &&
+              eligibility == guild_space_trial_known &&
+              control == (guild_space_trial_known | guild_space_settings_known) &&
+              draft == guild_space_settings_known && disabled == (guild_space_disabled | guild_space_settings_known) &&
+              gate({}) == 0,
+          "server hub: GUILD_CREATE carries the experiment's variant and the hub settings");
+    check(guild_space_visible(on, false) && !guild_space_visible(eligibility, true) &&
+              !guild_space_visible(guild_space_trial | guild_space_disabled, true) &&
+              guild_space_visible(guild_space_trial, true) && !guild_space_visible(guild_space_trial, false),
+          "server hub: a published hub shows to members, a draft only to its managers, a disabled one to nobody");
+    check(guild_boost_goal(0) == 33 && guild_boost_goal(guild_feature_tier_3_override) == 19 &&
+              guild_feature_bit(utf8_literal("PREMIUM_TIER_3_OVERRIDE")) == guild_feature_tier_3_override,
+          "server hub: the boost goal is 14 boosts and 19 for perks, less 14 with the level 3 override");
+
+    // The leading rows: Boost Goal, Server Hub, then events, the last one closing the band.
+    static GuildRecord guilds[2];
+    static ChannelRecord channels[4];
+    static u16 guild_order[2], channel_order[4];
+    static u8 names[4096];
+    static ChatStateStore state;
+    state = {};
+    chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 4}, {channel_order, 4},
+                                {names, sizeof(names)});
+    chat_state_store_upsert_guild(&state, {10, utf8_literal("G"), GuildMutationKind::create, 1});
+    ChannelInput input{20, 10, 0, utf8_literal("general"), 0, 0, 0};
+    input.name_known = true;
+    chat_state_store_upsert_channel(&state, input);
+    chat_state_store_select_guild(&state, 10);
+    static GuildViewRow guild_rows[2];
+    static ChannelViewRow channel_rows[5];
+    static u16 channel_scratch[5];
+    static u8 visibility[5];
+    static ChannelSortKey keys[5];
+    static NavigationView view;
+    view = {};
+    navigation_view_initialize(&view, {guild_rows, 2}, {channel_rows, 5}, {channel_scratch, 5}, {visibility, 5},
+                               {keys, 5});
+    view.boost_row = view.hub_row = view.events_row = true;
+    view.boost_count = 2;
+    view.boost_goal = 33;
+    ++view.events_revision;
+    const auto all = navigation_view_rebuild(&view, state);
+    const auto& r = view.channel_rows;
+    const bool ordered = all.ok() && view.channel_count == 4 && r[0].type == kNavigationBoostRowType &&
+                         r[1].id == kNavigationHubRowId && r[2].id == kNavigationEventsRowId && r[3].id == 20 &&
+                         !r[0].collapsed && !r[1].collapsed && r[2].collapsed && !r[1].selectable;
+    view.events_row = false;
+    ++view.events_revision;
+    navigation_view_rebuild(&view, state);
+    const bool hub_last = view.channel_count == 3 && r[1].id == kNavigationHubRowId && r[1].collapsed &&
+                          shell_navigation_row_height(r[1]) > shell_navigation_row_height(r[0]);
+    view.boost_row = view.hub_row = false;
+    ++view.events_revision;
+    navigation_view_rebuild(&view, state);
+    check(ordered && hub_last && view.channel_count == 1 && r[0].id == 20,
+          "server hub: Boost Goal and Server Hub lead the list in order, the last leading row closes the band");
+}
+
 void run() noexcept {
     test_requests();
     test_verification();
@@ -1263,6 +1456,7 @@ void run() noexcept {
     test_gateway();
     test_navigation();
     test_navigation_rows();
+    test_space();
 }
 } // namespace maicord::guild_community_test
 

@@ -445,7 +445,11 @@ void place(const UiStoreScene& s, u16 i, float x, float y, float width) noexcept
             n.h = place_preview(s, n, x, y, n.w);
             break;
         }
-        if (n.rh && n.kind != UiStoreKind::preview)
+        // A pane keeps its own height; its children's height (what scrolls) goes in `value`.
+        if (n.flags & ui_store_pane) {
+            n.value = static_cast<u32>(n.h);
+            n.h = n.rh;
+        } else if (n.rh && n.kind != UiStoreKind::preview)
             n.h = maximum(n.h, n.rh);
         return;
     }
@@ -701,7 +705,7 @@ void ui_store_scene_release(UiStoreScene* s) noexcept {
 
 void ui_store_scene_begin(UiStoreScene* s) noexcept {
     s->count = s->text_used = 0;
-    s->page_root = s->dialog_root = s->dialog_footer = kUiStoreNone;
+    s->page_root = s->dialog_root = s->dialog_footer = s->pane = kUiStoreNone;
 }
 
 namespace {
@@ -763,6 +767,35 @@ void layout_dialog(UiStoreScene* s) noexcept {
         shift(*s, footer, 0, height - total);
     root.h = height;
 }
+// Moves the pane's children by dy.
+void shift_pane(const UiStoreScene& s, float dy) noexcept {
+    for (u16 c = s.nodes[s.pane].first; c != kUiStoreNone; c = s.nodes[c].next)
+        shift(s, c, 0, dy);
+}
+// Finds the page's pane and its subtree and scrolls its children to the kept offset.
+void layout_pane(UiStoreScene* s) noexcept {
+    const u32 end = s->dialog_root != kUiStoreNone ? s->dialog_root : s->count;
+    s->pane = kUiStoreNone;
+    for (u32 i = 0; i < end; ++i)
+        if ((s->nodes[i].flags & ui_store_pane) && !hidden(s->nodes[i])) {
+            s->pane = static_cast<u16>(i);
+            break;
+        }
+    if (s->pane == kUiStoreNone)
+        return;
+    // The subtree ends after the last descendant of the last child, depth first.
+    u16 last = s->pane;
+    for (u16 c = s->nodes[last].first; c != kUiStoreNone; c = s->nodes[last].first) {
+        last = c;
+        while (s->nodes[last].next != kUiStoreNone)
+            last = s->nodes[last].next;
+    }
+    s->pane_end = static_cast<u16>(last + 1);
+    const auto& n = s->nodes[s->pane];
+    s->pane_most = maximum(0.f, static_cast<float>(n.value) - n.h);
+    s->pane_scroll = minimum(maximum(s->pane_scroll, 0.f), s->pane_most);
+    shift_pane(*s, -s->pane_scroll);
+}
 } // namespace
 
 bool ui_store_scene_commit(UiStoreScene* s, const UiRect& panel, const UiRect& column, const UiRect& modal) noexcept {
@@ -775,6 +808,7 @@ bool ui_store_scene_commit(UiStoreScene* s, const UiRect& panel, const UiRect& c
     s->modal = modal;
     place(*s, s->page_root, column.left, 0, ui_rect_width(column));
     s->content_height = s->nodes[s->page_root].h + kTailPadding;
+    layout_pane(s);
     layout_dialog(s);
     s->dialog_open = s->dialog_root != kUiStoreNone;
     clamp_scroll(s);
@@ -819,6 +853,27 @@ bool ui_store_scene_scroll_range(const UiStoreScene& s, bool dialog, UiRect* vie
     return ui_rect_has_area(*viewport);
 }
 
+bool ui_store_scene_pane_range(const UiStoreScene& s, UiRect* viewport, float* offset, float* most) noexcept {
+    if (!s.active || s.pane == kUiStoreNone || s.pane >= s.count)
+        return false;
+    *viewport = ui_rect_intersection(screen_rect(s, s.pane), s.panel);
+    *offset = s.pane_scroll;
+    *most = s.pane_most;
+    return ui_rect_has_area(*viewport);
+}
+
+bool ui_store_scene_pane_scroll_to(UiStoreScene* s, float offset) noexcept {
+    if (!s || !s->active || s->pane == kUiStoreNone || s->pane >= s->count)
+        return false;
+    const float next = minimum(maximum(offset, 0.f), s->pane_most);
+    if (next == s->pane_scroll)
+        return false;
+    shift_pane(*s, s->pane_scroll - next);
+    s->pane_scroll = next;
+    ++s->revision;
+    return true;
+}
+
 namespace store_detail {
 UiRect screen_rect(const UiStoreScene& s, u16 index) noexcept {
     const auto& n = s.nodes[index];
@@ -831,7 +886,9 @@ UiRect screen_rect(const UiStoreScene& s, u16 index) noexcept {
 }
 UiRect clip_of(const UiStoreScene& s, u16 index) noexcept {
     if (!in_dialog(s, index))
-        return s.panel;
+        return s.pane != kUiStoreNone && index > s.pane && index < s.pane_end
+                   ? ui_rect_intersection(s.panel, screen_rect(s, s.pane))
+                   : s.panel;
     UiRect clip = s.dialog_rect;
     if (s.dialog_footer != kUiStoreNone && index > s.dialog_root && index < s.dialog_footer)
         clip.bottom = s.nodes[s.dialog_footer].y;

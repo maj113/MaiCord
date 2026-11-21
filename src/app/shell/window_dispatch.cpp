@@ -68,6 +68,7 @@
 #include "../chat/search/search.hpp"
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 #include "../media/picker.hpp"
 #include "quick_switcher.hpp"
 #include "../chat/messages/forward.hpp"
@@ -361,6 +362,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         if (application_media_page_window_event(content))
             return consumed();
         if (application_thread_browser_window_event(content))
+            return consumed();
+        if (application_content_page_window_event(content))
             return consumed();
         if (application_poll_window_event(content))
             return consumed();

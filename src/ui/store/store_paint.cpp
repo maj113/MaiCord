@@ -235,6 +235,18 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
     const auto& t = k.t;
     const auto& c = t.color;
     const bool foreground = (n.flags & ui_store_foreground) != 0;
+    if (layer == 1 && n.kind == UiStoreKind::preview && n.fill == static_cast<u8>(UiStoreFill::scrim)) {
+        // The Server Hub banner's scrim under its caption, as the official client's: linear-gradient(0deg, shade 0,
+        // transparent 86.5%) and linear-gradient(0deg, foot 0, transparent 50%). It paints in the top layer, so it
+        // covers the banner's picture too.
+        const auto& o = k.theme.tokens.overlay;
+        const float h = ui_rect_height(r), radius = preview_radius(n, r);
+        p.use<paint_stream_push_gradient>(UiRect{r.left, r.top + h * .135f, r.right, r.bottom},
+                                          ui_theme_color_alpha(o.banner_shade, 0), o.banner_shade, radius);
+        p.use<paint_stream_push_gradient>(UiRect{r.left, r.top + h * .5f, r.right, r.bottom},
+                                          ui_theme_color_alpha(o.banner_foot, 0), o.banner_foot, radius);
+        return;
+    }
     if (layer < 2 && foreground != (layer == 1))
         return;
     const auto state = k.state(n);
@@ -745,6 +757,7 @@ bool ui_store_scene_next_media(const UiStoreScene& s, u32* cursor, UiStoreMedia*
         result.clip = clip;
         result.mask = (n.flags & ui_store_clip) ? UiRect{r.left, r.top, r.right, r.bottom + kRadius} : r;
         result.mask_radius = preview_radius(n, r);
+        result.foreground = (n.flags & ui_store_foreground) != 0;
         ++*cursor;
         return true;
     }

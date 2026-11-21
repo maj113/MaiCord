@@ -678,6 +678,11 @@ bool build_timeline_media(D3D11Renderer* renderer, u32 shown, const Theme& theme
     renderer->media_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     if (dm_panel && !profile_scene_foreground(*dm_panel, theme, &renderer->paint_stream, nullptr, renderer->dpi))
         return layout_step_failed(__LINE__);
+    // A content page's top layer (badges, the hub banner's scrim) covers the page's pictures; its foreground pictures
+    // draw after this layer.
+    if ((shown & d3d11_surface_content_page) &&
+        !ui_store_scene_paint(*renderer->content_page, theme, &renderer->paint_stream, 1))
+        return layout_step_failed(__LINE__);
     if (!content_hidden) {
         const UiVideoPlayAffordanceStyle affordance{};
         for (u32 i = 0; i < message_media_stream.count; ++i) {

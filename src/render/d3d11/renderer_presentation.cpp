@@ -241,7 +241,13 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .widgets(renderer.theme_editor_scene->widgets);
     const bool friends_active = d3d11_renderer_active(renderer.friends_scene);
     const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
-    const bool content_hidden = friends_active || browser_active;
+    const bool page_active = (shown & d3d11_surface_content_page) != 0;
+    const bool content_hidden = friends_active || browser_active || page_active;
+    s.push(renderer.content_page, page_active, renderer.content_page_row);
+    if (page_active) {
+        const auto& page = *renderer.content_page;
+        s.push(page.revision, page.motion, page.scroll).bytes(&page.panel, sizeof(page.panel));
+    }
     s.push(renderer.thread_browser_scene, browser_active);
     if (browser_active) {
         const auto& browser = *renderer.thread_browser_scene;

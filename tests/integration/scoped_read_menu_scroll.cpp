@@ -144,6 +144,12 @@ bool application_thread_browser_refresh_after_scroll() noexcept { return true; }
 bool application_thread_browser_scroll_range(UiScrollRange*) noexcept { return false; }
 bool application_thread_browser_scroll_to(double) noexcept { return false; }
 UiRect application_thread_browser_viewport() noexcept { return {}; }
+bool application_content_page_active() noexcept { return false; }
+bool application_content_page_refresh() noexcept { return true; }
+bool application_content_page_scroll_range(UiScrollRange*) noexcept { return false; }
+bool application_content_page_scroll_to(double) noexcept { return false; }
+bool application_content_page_pane_range(UiScrollRange*) noexcept { return false; }
+bool application_content_page_pane_scroll_to(double) noexcept { return false; }
 bool pump_message_history() noexcept { return true; }
 bool refresh_account_scroll(bool) noexcept { return refresh_account_text(true); }
 bool request_older_history_if_near_start() noexcept { return true; }

@@ -683,6 +683,8 @@ bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
 bool application_search_close_panel() noexcept { return true; }
 void application_pinned_messages_close() noexcept {}
+bool application_content_page_active() noexcept { return false; }
+void application_content_page_close() noexcept {}
 void application_composer_text_input_suspend() noexcept {}
 void end_message_composer_pointer_selection() noexcept {}
 void end_message_text_selection() noexcept {}

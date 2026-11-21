@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "../chat/application_channel_memory.hpp"
 #include "../guild/community.hpp"
+#include "../guild/hub.hpp"
 #include "../guild/settings/settings.hpp"
 #include "../guild/channel_overview.hpp"
 #include "../guild/menu.hpp"
@@ -27,6 +28,7 @@
 #include "navigation_drag.hpp"
 #include "../account/friends.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 
 #include "../account/account_presentation.hpp"
 #include "../chat/channel_session.hpp"
@@ -135,13 +137,15 @@ bool select_content_channel(u64 channel_id) noexcept {
         return application_thread_browser_open(channel_id);
     ui_scroll_host_cancel(&g_app.scroll_host);
     const bool was_friends = application_friends_active();
-    const bool was_browser = application_thread_browser_active();
+    const bool was_browser = application_thread_browser_read_blocked();
     const ChatStateSelectionResult selected =
         chat_state_store_select_channel(&g_app.account_ui->chat_state, channel_id);
     if (!selected.ok()) {
         return false;
     }
     application_thread_browser_close();
+    application_content_page_close();
+    application_guild_hub_forget(g_app.account_ui->chat_state.selected_guild_id);
     application_friends_hide();
     application_tabs_note_navigation();
     application_read_state_activity();
@@ -418,6 +422,11 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         return application_friends_show();
     if (!guild && navigation_events_row(id))
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
+    // MaiCord has no boost panel for the Boost Goal row to open.
+    if (!guild && (id == kNavigationHubRowId || id == kNavigationBoostRowId))
+        return (id == kNavigationHubRowId &&
+                application_guild_hub_open(g_app.account_ui->chat_state.selected_guild_id)) ||
+               true;
     if (!guild && navigation_requests_row(id))
         return application_friends_show_requests() || true;
     const bool was_friends = application_friends_active();
@@ -438,7 +447,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         return application_thread_browser_open(id);
     ui_scroll_host_cancel(&g_app.scroll_host);
     const bool leaving_home = guild && state.home_selected;
-    const bool was_browser = application_thread_browser_active();
+    const bool was_browser = application_thread_browser_read_blocked();
     const ChannelMemoryEntry recalled = guild ? application_channel_memory_recall(id) : ChannelMemoryEntry{};
     auto selected = home ? chat_state_store_select_home(&g_app.account_ui->chat_state)
                     : guild
@@ -457,6 +466,9 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     if (leaving_home)
         home_shows_conversation = !was_friends;
     application_thread_browser_close();
+    application_content_page_close();
+    if (!guild && !home)
+        application_guild_hub_forget(state.selected_guild_id);
     application_friends_hide();
     application_tabs_note_navigation();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;
@@ -499,6 +511,9 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     g_app.context_focus = home    ? &g_app.shell_scene.widgets
                           : guild ? &g_app.guild_rail_scene.widgets
                                   : &g_app.shell_navigation_scene.widgets;
+    // A server whose hub was its last view shows it again.
+    if (guild && application_guild_hub_remembered(id))
+        application_guild_hub_open(id);
     return true;
 }
 
@@ -619,6 +634,11 @@ bool activate_navigation_press(const WindowEvent& event) noexcept {
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel && navigation_events_row(hit.id)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
+    }
+    if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel &&
+        (hit.id == kNavigationHubRowId || hit.id == kNavigationBoostRowId)) {
+        shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
+        return select_navigation(false, hit.id, false);
     }
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel && navigation_requests_row(hit.id)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);

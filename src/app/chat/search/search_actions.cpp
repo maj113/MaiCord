@@ -2,6 +2,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "../composer/text_input.hpp"
 #include "../messages/pinned_messages.hpp"
+#include "../../shell/content_page.hpp"
 #include "../../media/downloads.hpp"
 #include "../../media/policy.hpp"
 #include "../../media/video.hpp"
@@ -24,9 +25,10 @@ bool commit(ApplicationSearch& s, bool tab_switch) noexcept {
         application_thread_browser_search(message_composer_text(s.edit));
         return repaint();
     }
-    // A widened search leaves the thread browser for the results pane.
+    // A widened search leaves the thread browser or a content page for the results pane.
     if (application_thread_browser_active())
         application_thread_browser_close();
+    application_content_page_close();
     application_pinned_messages_close();
     current_scope(s);
     s.panel = true;

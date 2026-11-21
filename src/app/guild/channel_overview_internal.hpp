@@ -8,6 +8,7 @@
 #include "../chat/report.hpp"
 #include "../chat/game_profile.hpp"
 #include "community.hpp"
+#include "hub.hpp"
 #include "../account/custom_status.hpp"
 #include "../plugins/settings_dialog.hpp"
 #include "../settings/modal.hpp"
@@ -168,6 +169,7 @@ constexpr HostedModal kModals[] = {
     {MAICORD_HOSTED_VIEW(custom_status)},
     {MAICORD_HOSTED_VIEW(plugin_settings)},
     {MAICORD_HOSTED_VIEW(game_profile)},
+    {MAICORD_HOSTED_VIEW(guild_hub_sharing)},
 };
 #undef MAICORD_HOSTED_MODAL
 #undef MAICORD_HOSTED_VIEW

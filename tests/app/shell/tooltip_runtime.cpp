@@ -641,6 +641,8 @@ bool application_interaction_card_target(u64, UiTooltipTarget*, UiTooltipStyle*)
 void application_interaction_card_press() noexcept {}
 void application_interaction_card_close() noexcept {}
 UiThreadBrowserScene* application_thread_browser_scene() noexcept { return nullptr; }
+bool application_content_page_cursor(float, float, UiCursor*) noexcept { return false; }
+bool application_content_page_tooltip(UiPoint, u64, UiTooltipTarget*) noexcept { return false; }
 bool application_friends_requests_active() noexcept {
     return false;
 }

@@ -570,9 +570,17 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         ++channel_count;
     }
 
-    // The events row leads a server's list when the host asks for it.
+    // Synthetic rows lead the list: message requests at home, or a server's Boost Goal, Server Hub and events rows
+    // when the host asks for them.
     const bool requests_lead = view->requests_row && state.home_selected;
-    const u32 lead = (view->events_row && !state.home_selected && state.selected_guild_id) || requests_lead ? 1u : 0u;
+    const bool guild_lead = !state.home_selected && state.selected_guild_id;
+    const bool events_lead = view->events_row && guild_lead;
+    const bool lead_shown[]{view->boost_row && guild_lead, view->hub_row && guild_lead, events_lead};
+    static constexpr u64 kLeadIds[]{kNavigationBoostRowId, kNavigationHubRowId, kNavigationEventsRowId};
+    static constexpr u8 kLeadTypes[]{kNavigationBoostRowType, kNavigationHubRowType, kNavigationEventsRowType};
+    u32 lead = requests_lead;
+    for (const bool shown : lead_shown)
+        lead += shown;
     if (channel_count + lead > view->channel_capacity)
         return view_error(view, NavigationViewError::channel_capacity);
     bool guild_changed = view->selected_guild_id != state.selected_guild_id;
@@ -596,29 +604,36 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         row.selectable = false;
         channel_changed = channel_changed || row_changed(view->channel_rows[0], row);
         view->channel_rows[0] = row;
-    } else if (lead) {
-        u32 used = 0;
-        const auto add = [&](const char* text) noexcept {
-            while (*text && used < sizeof(view->events_label))
-                view->events_label[used++] = *text++;
-        };
-        if (view->event_count) {
-            char digits[10];
-            const u32 count = decimal_write(digits, view->event_count);
-            for (u32 i = 0; i < count && used < sizeof(view->events_label); ++i)
-                view->events_label[used++] = digits[i];
-            add(view->event_count == 1 ? " Event" : " Events");
-        } else {
-            add("Events");
+    } else {
+        if (events_lead) {
+            u32 used = 0;
+            const auto add = [&](const char* text) noexcept {
+                while (*text && used < sizeof(view->events_label))
+                    view->events_label[used++] = *text++;
+            };
+            if (view->event_count) {
+                char digits[10];
+                const u32 count = decimal_write(digits, view->event_count);
+                for (u32 i = 0; i < count && used < sizeof(view->events_label); ++i)
+                    view->events_label[used++] = digits[i];
+                add(view->event_count == 1 ? " Event" : " Events");
+            } else {
+                add("Events");
+            }
+            view->events_label_bytes = static_cast<u8>(used);
         }
-        view->events_label_bytes = static_cast<u8>(used);
-        ChannelViewRow row{};
-        row.id = kNavigationEventsRowId;
-        row.type = kNavigationEventsRowType;
-        row.revision = view->events_revision;
-        row.selectable = false;
-        channel_changed = channel_changed || row_changed(view->channel_rows[0], row);
-        view->channel_rows[0] = row;
+        u32 at = 0;
+        for (u32 i = 0; i < sizeof(lead_shown); ++i) {
+            if (!lead_shown[i])
+                continue;
+            ChannelViewRow row{};
+            row.id = kLeadIds[i];
+            row.type = kLeadTypes[i];
+            row.revision = view->events_revision;
+            row.collapsed = at + 1 == lead;
+            channel_changed = channel_changed || row_changed(view->channel_rows[at], row);
+            view->channel_rows[at++] = row;
+        }
     }
     for (u32 order = 0; order < channel_count; ++order) {
         const ChannelSortKey& key = view->channel_sort_keys[view->channel_scratch[order]];

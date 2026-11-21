@@ -1112,6 +1112,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->media_picker_foreground_first_batch = 0;
     renderer->media_picker_media_first_batch = renderer->media_picker_media_end_batch = 0;
     renderer->chip_media_first_batch = renderer->chip_media_end_batch = 0;
+    renderer->content_page_foreground_media_first_batch = renderer->content_page_foreground_media_end_batch = 0;
     // Fractional-DIP viewport, as in the retained scene: integer division would
     // disagree at 125%/150% scales and the rectangle guard below would reject
     // valid frames.
@@ -1218,7 +1219,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     const bool friends_active = d3d11_renderer_active(renderer->friends_scene);
     const bool friends_requests_active = d3d11_renderer_active(renderer->friends_requests_scene);
     const bool browser_active = (shown & d3d11_surface_thread_browser) != 0;
-    const bool content_hidden = friends_active || browser_active;
+    const bool page_active = (shown & d3d11_surface_content_page) != 0;
+    const bool content_hidden = friends_active || browser_active || page_active;
     // Only the fully written prefixes are passed to presentation and hashing.
     LayoutScratch* const scratch = layout_scratch(renderer);
     if (!scratch)
@@ -1266,7 +1268,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 renderer->shell_navigation_scene, content_hidden ? nullptr : renderer->message_composer_scene,
                 content_hidden ? nullptr : renderer->member_list_scene, theme, width_dip, height_dip,
                 &renderer->paint_stream, &shell, &composer_presentation,
-                browser_active ? renderer->thread_browser_scene->view->parent_id : 0,
+                browser_active ? renderer->thread_browser_scene->view->parent_id
+                : page_active  ? renderer->content_page_row
+                               : 0,
                 ShellTextMeasure{renderer->chat_state, renderer->message_measure_cache})) {
             return layout_step_failed(__LINE__);
         }
@@ -1274,6 +1278,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
         if (browser_active)
             remove_covered_shell_paint(&renderer->paint_stream, renderer->thread_browser_scene->panel);
+        else if (page_active)
+            remove_covered_shell_paint(&renderer->paint_stream, renderer->content_page->panel);
     }
     const MessageScene* message_scene = renderer->message_scene;
     const bool messages_visible = !content_hidden && message_scene && message_scene->active;
@@ -1479,6 +1485,36 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (browser_active &&
         !ui_thread_browser_scene_paint(*renderer->thread_browser_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    // A content page: its plates, then its pictures cover-fit in their rounded shapes. Its top paint layer follows
+    // the media overlay seal (build_timeline_media), over the pictures, and its foreground pictures over that.
+    renderer->content_page_foreground_media_first_batch = renderer->content_page_foreground_media_end_batch =
+        renderer->media_batch_count;
+    if (page_active) {
+        const auto& page = *renderer->content_page;
+        if (!ui_store_scene_paint(page, theme, &renderer->paint_stream, 0))
+            return layout_step_failed(__LINE__);
+        for (u32 pass = 0; pass < 2; ++pass) {
+            UiStoreMedia picture{};
+            bool first = pass != 0;
+            for (u32 cursor = 0; renderer->media_atlas && ui_store_scene_next_media(page, &cursor, &picture);) {
+                if (picture.foreground != (pass != 0))
+                    continue;
+                const auto allocation = media_atlas_peek(renderer->media_atlas, picture.key);
+                if (!allocation.ok() || !allocation.width || !allocation.height)
+                    continue;
+                const u32 before = renderer->media_quad_count;
+                if (!queue_media_quad(renderer, allocation,
+                                      ui_call_video_fit(picture.rect, allocation.width, allocation.height, true),
+                                      picture.clip, false, first,
+                                      MediaQuadStyle{picture.mask, 1.f, 0.f, picture.mask_radius, 0.f, 0}))
+                    return layout_step_failed(__LINE__);
+                first = first && renderer->media_quad_count == before;
+            }
+            if (!pass)
+                renderer->content_page_foreground_media_first_batch = renderer->media_batch_count;
+        }
+        renderer->content_page_foreground_media_end_batch = renderer->media_batch_count;
+    }
     // Forum post cards: starter-image thumbnails, aspect-fitted in their media wells.
     if (browser_active && renderer->thread_browser_scene->forum) {
         const auto& browser = *renderer->thread_browser_scene;

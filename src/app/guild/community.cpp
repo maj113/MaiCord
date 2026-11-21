@@ -1,6 +1,7 @@
 #include "community_internal.hpp"
 #include "../shell/toast.hpp"
 #include "card.hpp"
+#include "hub.hpp"
 #include "../account/login/action_captcha.hpp"
 #include "../account/account_presentation.hpp"
 #include "channel_overview.hpp"
@@ -806,6 +807,8 @@ bool application_guild_community_submit(u64 now) noexcept {
     wire.guild_id = request.guild_id;
     wire.event_id = request.event_id;
     wire.operation = request.op;
+    if (request.op == GuildCommunityOperation::space_hydrate)
+        wire.code = application_guild_hub_query();
     if (guild_community_operation_has_body(request.op)) {
         const u32 bytes = build_body(request);
         if (!bytes) {
@@ -852,6 +855,10 @@ bool application_guild_community_join(u64 guild_id) noexcept {
     return application_account_available() && enqueue(GuildCommunityOperation::guild_join, guild_id);
 }
 
+bool application_guild_community_hub(GuildCommunityOperation op, u64 guild_id) noexcept {
+    return application_account_available() && enqueue(op, guild_id);
+}
+
 bool application_guild_community_owns_response(u64 request_id) noexcept {
     return request_id && background && background->request_id == request_id;
 }
@@ -881,6 +888,11 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
             b.retry_at = response.retry_at_ms;
             return true;
         }
+    }
+    // The Server Hub reads its answers itself (404: a server without a hub).
+    if (request.op >= GuildCommunityOperation::space_get) {
+        application_guild_hub_response(request.op, request.guild_id, ok, response.status_code, body);
+        return true;
     }
     // The server tag popout reads every answer itself (50001: private).
     if (request.op == GuildCommunityOperation::guild_profile_get || request.op == GuildCommunityOperation::guild_join) {

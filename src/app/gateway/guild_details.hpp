@@ -15,6 +15,9 @@ struct GatewayGuildDetailValues {
     JsonValue splash;
     JsonValue preferred_locale;
     JsonValue discovery_splash;
+    // The Server Hub's gate: guild_space_settings and the guild's experiment assignments.
+    JsonValue space_settings;
+    JsonValue experiments;
     u64 rules_channel_id;
     u64 public_updates_channel_id;
     u64 safety_alerts_channel_id;

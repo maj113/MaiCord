@@ -18,6 +18,7 @@
 #include "probe_draw_pipeline.hpp"
 #include "inline_flags_probe.hpp"
 #include "guild_rail_icon_probe.hpp"
+#include "content_page_probe.hpp"
 #include "background_theme_probe.hpp"
 #include "picker_glyph_cache_probe.hpp"
 #include "colr_binding_probe.hpp"
@@ -1854,6 +1855,13 @@ int run_probe() noexcept {
                                                      },
                                                      probe_capture_frame}),
                            "guild_rail_icons_native_ui_passed", "guild_rail_icons_native_ui_failed", 275);
+    if (probe_option_enabled(L"MAICORD_UI_CONTENT_PAGE_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                           content_page_ui_probe({g_probe.renderer, +[]() noexcept {
+                                                      return synchronize_probe_shell_layout() &&
+                                                             rebuild_probe_content_text();
+                                                  }}),
+                           "content_page_native_ui_passed", "content_page_native_ui_failed", 310);
     if (probe_option_enabled(L"MAICORD_UI_POST_RESIZE_PACING_PROBE")) {
         if (post_resize_probe_detail::compositor_asleep()) {
             log_write(LogLevel::info, "probe", "post_resize_pacing_skipped_display_asleep");

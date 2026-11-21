@@ -41,6 +41,7 @@
 #include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
 #include "maicord/ui/layout/splitter.hpp"
+#include "content_page.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -200,6 +201,8 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
         cursor = ui_thread_browser_scene_cursor(*browser, x, y);
         return true;
     }
+    if (application_content_page_cursor(x, y, &cursor))
+        return true;
     cursor = UiCursor::hand;
     if (message_action_bar_hit_test(g_app.message_action_bar, x, y).action != MessageActionBarAction::none)
         return true;

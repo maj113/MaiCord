@@ -15,6 +15,7 @@
 #include "../settings/theme_editor.hpp"
 #include "../chat/messages/pinned_messages.hpp"
 #include "../chat/threads/browser.hpp"
+#include "content_page.hpp"
 #include "../chat/inbox.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
@@ -35,6 +36,8 @@ inline bool finish_immediate_scroll(bool messages_changed) noexcept {
         return refresh_account_frame();
     if (application_thread_browser_active())
         return application_thread_browser_refresh_after_scroll();
+    if (application_content_page_active())
+        return application_content_page_refresh();
     return refresh_scrolled_projection(messages_changed);
 }
 enum Surface : u64 {
@@ -52,7 +55,8 @@ enum Surface : u64 {
     pinned_messages,
     thread_browser,
     inbox,
-    dm_profile
+    dm_profile,
+    content_pane
 };
 
 // Virtualized surfaces describe their full range, not just materialized rows.
@@ -84,8 +88,11 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
     switch (key) {
     case inbox:
         return application_inbox_scroll_range(range);
+    // The thread browser's surface serves a content page too: the two take the same panel, never at once.
     case thread_browser:
-        return application_thread_browser_scroll_range(range);
+        return application_thread_browser_scroll_range(range) || application_content_page_scroll_range(range);
+    case content_pane:
+        return application_content_page_pane_range(range);
     case pinned_messages:
         if (g_app.popup_scene.active || g_app.reaction_viewer.active ||
             g_app.image_viewer.scene.active || application_settings_active() || g_app.text_form)
@@ -201,8 +208,14 @@ bool write_surface(void*, u64 key, double offset, bool* changed) noexcept {
         return scroll_panel(application_inbox_scroll_to, application_inbox_scroll_range, offset, before.offset,
                             changed);
     case thread_browser:
-        return scroll_panel(application_thread_browser_scroll_to, application_thread_browser_scroll_range,
-                            offset, before.offset, changed);
+        return application_thread_browser_active()
+                   ? scroll_panel(application_thread_browser_scroll_to, application_thread_browser_scroll_range,
+                                  offset, before.offset, changed)
+                   : scroll_panel(application_content_page_scroll_to, application_content_page_scroll_range,
+                                  offset, before.offset, changed);
+    case content_pane:
+        return scroll_panel(application_content_page_pane_scroll_to, application_content_page_pane_range, offset,
+                            before.offset, changed);
     case pinned_messages:
         return scroll_panel(application_pinned_messages_scroll_to, application_pinned_messages_scroll_range,
                             offset, before.offset, changed);
@@ -375,11 +388,16 @@ bool handle_scroll_wheel(const WindowEvent& event) noexcept {
     }
     // The browser owns the entire main-content panel, including headers and
     // an empty list. Covered message/member descendants never receive its wheel.
-    if (application_thread_browser_active() &&
+    if (application_thread_browser_read_blocked() &&
         ui_rect_contains(application_thread_browser_viewport(), point.x, point.y) &&
         !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
         !(g_app.profile && g_app.profile->scene.active)) {
-        finish(wheel(thread_browser), "thread_browser_scroll_dispatch_failed", false);
+        // A content page's inner list takes the wheel while it can still move that way; then the page does.
+        UiScrollRange pane{};
+        const bool inner = application_content_page_pane_range(&pane) &&
+                           ui_rect_contains(pane.viewport, point.x, point.y) &&
+                           (delta > 0 ? pane.offset > 0 : pane.offset < pane.maximum);
+        finish(wheel(inner ? content_pane : thread_browser), "thread_browser_scroll_dispatch_failed", false);
         return true;
     }
     // The pin panel covers timeline/member descendants. Route its virtual
@@ -547,6 +565,8 @@ bool tick_smooth_scrolls(u64 now_us) noexcept {
         return refresh_account_frame();
     if (application_thread_browser_active())
         return application_thread_browser_refresh_after_scroll();
+    if (application_content_page_active())
+        return application_content_page_refresh();
     return refresh_scrolled_projection(g_app.message_view.timeline.scroll_units != message_scroll_before,
                                        messages_animating());
 }

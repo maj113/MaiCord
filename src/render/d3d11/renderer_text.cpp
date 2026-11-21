@@ -659,7 +659,7 @@ bool build_content_text_once(D3D11Renderer* renderer, u32 shown, const Theme& th
     const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);
     const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
                                 renderer->friends_scene->active;
-    const bool browser_active = !login_form && (shown & d3d11_surface_thread_browser);
+    const bool browser_active = !login_form && (shown & d3d11_surfaces_content_panel);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
                        !browser_active && d3d11_renderer_active(renderer->message_scene);
     RendererTextStorage* storage = renderer->content_text;
@@ -1194,7 +1194,7 @@ u32 interaction_text_active_mask(const D3D11Renderer& renderer, u32 shown) noexc
         mask |= 1u << 5;
     if (d3d11_renderer_active(renderer.image_viewer))
         mask |= 1u << 4;
-    if (!friends && !(shown & (d3d11_surface_thread_browser | d3d11_surface_call | d3d11_surface_media_page)) &&
+    if (!friends && !(shown & (d3d11_surfaces_content_panel | d3d11_surface_call | d3d11_surface_media_page)) &&
         d3d11_renderer_active(renderer.message_action_bar))
         mask |= d3d11_interaction_text_action_bar;
     if (d3d11_renderer_active(renderer.popup_scene))
@@ -1261,7 +1261,10 @@ u64 interaction_text_source_values(const D3D11Renderer& renderer, u32 shown, u64
     values[1] = (shown & d3d11_surface_theme_editor) ? renderer.theme_editor_scene->revision : 0;
     values[2] = renderer.settings_scene ? renderer.settings_scene->revision : 0;
     values[3] = interaction_text_active_mask(renderer, shown);
-    values[4] = thread_browser ? renderer.thread_browser_scene->revision : 0;
+    // A content page's revision covers its scroll: the thread browser's slot holds it while the browser is closed.
+    values[4] = thread_browser                                ? renderer.thread_browser_scene->revision
+                : (shown & d3d11_surface_content_page) != 0 ? renderer.content_page->revision
+                                                              : 0;
     values[5] = thread_browser ? renderer.thread_browser_scene->source_publication : 0;
     values[6] = (shown & (d3d11_surface_video | d3d11_surface_viewer_video | d3d11_surface_page_video))
                     ? ui_video_scene_text_paint_revision(*renderer.video_scene)
@@ -1376,9 +1379,9 @@ bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer
     const u32 shown = d3d11_renderer_frame_surfaces(renderer);
     u64 values[kInteractionTextSourceCount];
     u64 used = interaction_text_source_values(renderer, shown, values);
-    // Friends, the thread browser and a media page hide the action bar.
+    // Friends, the thread browser, a content page and a media page hide the action bar.
     if (d3d11_renderer_active(renderer.friends_scene) ||
-        (shown & (d3d11_surface_thread_browser | d3d11_surface_media_page)))
+        (shown & (d3d11_surfaces_content_panel | d3d11_surface_media_page)))
         used &= ~(1ull << kInteractionTextActionBarSource);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
         if (!(used >> i & 1u))
@@ -1564,6 +1567,16 @@ bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowser
     return true;
 }
 
+bool renderer_bind_content_page(D3D11Renderer* renderer, const UiStoreScene* scene, u64 row) noexcept {
+    if (renderer->content_page == scene && renderer->content_page_row == row)
+        return true;
+    renderer->content_page = scene;
+    renderer->content_page_row = scene ? row : 0;
+    text_edit_layout_invalidate(&renderer->composer_layout);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+    return true;
+}
+
 bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& theme,
                                       bool include_messages) noexcept {
     const u32 shown = d3d11_renderer_frame_surfaces(*renderer);
@@ -1571,7 +1584,7 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
     const bool settings_active = !login_form && (shown & d3d11_surface_settings_page);
     const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
                                 renderer->friends_scene->active;
-    const bool browser_active = !login_form && (shown & d3d11_surface_thread_browser);
+    const bool browser_active = !login_form && (shown & d3d11_surfaces_content_panel);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
                        !browser_active && renderer->message_scene && renderer->message_scene->active;
     if (!renderer->content_text ||

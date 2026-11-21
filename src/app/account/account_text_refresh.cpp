@@ -17,6 +17,7 @@
 #include "../plugins/surface_host.hpp"
 #include "../settings/settings.hpp"
 #include "../shell/state.hpp"
+#include "../shell/content_page.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
@@ -33,11 +34,13 @@ const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
 
 // The header's controls (pins, threads, DM actions) by what the selected
 // channel allows now: its type and permissions may arrive after the layout.
+// A content page (the Server Hub) shows no channel's pins or threads.
 u16 shell_header_flags(bool friends) noexcept {
     u16 flags = 0;
-    if (application_pinned_messages_available())
+    const bool page = application_content_page_active();
+    if (!page && application_pinned_messages_available())
         flags |= ui_shell_layout_pins;
-    if (application_thread_browser_available())
+    if (!page && application_thread_browser_available())
         flags |= ui_shell_layout_threads;
     const auto* ui = g_app.account_ui;
     const auto* selected =

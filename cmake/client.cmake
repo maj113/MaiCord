@@ -101,7 +101,7 @@ else()
         src/app/guild/folders.cpp src/app/shell/navigation_drag.cpp
         src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp src/app/account/profile_editor_preview.cpp
         src/app/account/profile_editor_images.cpp
-        src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp
+        src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp src/app/guild/hub.cpp
         src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp src/app/guild/hidden_channel.cpp
         src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
         src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp src/app/shell/surface_motion_owner.cpp
@@ -161,7 +161,7 @@ else()
         src/app/chat/game_lookup.cpp src/app/chat/game_profile.cpp src/app/chat/composer/game_search.cpp
         src/app/chat/messages/interaction.cpp src/app/chat/messages/interaction_popups.cpp src/app/account/user_actions.cpp
         src/app/chat/report.cpp src/app/shell/scheduler.cpp src/app/shell/shutdown_metrics.cpp
-        src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp
+        src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp src/app/shell/content_page.cpp
         src/app/shell/pane_resize.cpp src/app/shell/main.cpp src/app/windows/entry.cpp $<TARGET_OBJECTS:maicord_runtime>
         src/app/accessibility/accessibility.cpp src/app/accessibility/accessibility_describe.cpp
         src/app/accessibility/accessibility_actions.cpp src/app/accessibility/accessibility_status.cpp

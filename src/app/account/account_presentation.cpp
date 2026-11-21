@@ -1,4 +1,5 @@
 #include "../guild/community.hpp"
+#include "../guild/hub.hpp"
 #include "maicord/ui/shell/notice_band.hpp"
 #include "../guild/banner.hpp"
 #include "../voice/call.hpp"
@@ -105,6 +106,7 @@ bool synchronize_navigation_view() noexcept {
     ui.navigation_view.stage_instances = &application_stage_instances();
     ui.navigation_view.voice_extras = &application_voice_channels_extras();
     application_guild_community_navigation(&ui.navigation_view);
+    application_guild_hub_navigation(&ui.navigation_view);
     application_private_channel_navigation(&ui.navigation_view);
     // The official Home badge: incoming friend requests plus message requests. Each store is
     // counted again only after its revision changed (a key is the revision plus 1, zero without a store).

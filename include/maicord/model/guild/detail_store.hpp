@@ -65,6 +65,8 @@ enum GuildFeature : u64 {
     guild_feature_preview_enabled = 1ull << 43,
     guild_feature_verified = 1ull << 44,
     guild_feature_partnered = 1ull << 45,
+    // The boost goal leaves out the boosts of level 3 (see guild_boost_goal).
+    guild_feature_tier_3_override = 1ull << 46,
 };
 // Zero for names Server Settings does not act on.
 u64 guild_feature_bit(Utf8View name) noexcept;
@@ -80,6 +82,30 @@ inline constexpr u32 kGuildDetailVanityMaximumBytes = 64;
 inline constexpr u32 kGuildDetailHashBytes = 34;
 // A locale code (en-US, es-419).
 inline constexpr u32 kGuildDetailLocaleBytes = 8;
+
+// The Server Hub's gate, as the guild object carries it: the guild experiment "2026-09-guild-spaces" (Murmur3
+// kGuildSpaceExperimentHash in `experiments.assignments`) and guild_space_settings. A known bit says the object
+// carried that part, so an update without it keeps the stored bits.
+inline constexpr u32 kGuildSpaceExperimentHash = 4201393060u;
+enum GuildSpaceBit : u8 {
+    guild_space_trial = 1u << 0, // the experiment's variant 1 (enabled), not only as an eligibility gate
+    guild_space_trial_known = 1u << 1,
+    guild_space_disabled = 1u << 2,  // settings.enabled is false
+    guild_space_published = 1u << 3, // settings.enabled with publish_status 1 (PUBLISHED)
+    guild_space_settings_known = 1u << 4,
+};
+// The official client's rule: the experiment is on and the settings are not disabled. Only an account that can
+// manage the server sees an unpublished hub.
+constexpr bool guild_space_visible(u8 space, bool manage) noexcept {
+    return (space & guild_space_trial) && !(space & guild_space_disabled) &&
+           (manage || (space & guild_space_published));
+}
+// The Boost Goal's target: 14 boosts for level 3 (none with PREMIUM_TIER_3_OVERRIDE), plus the perks that level
+// does not include. These are the Server Tag (3), enhanced role colours (3) and the four badge packs (3, 5, 3, 2).
+// The official client also adds two perks that it shows only under experiments. MaiCord does not show them.
+constexpr u32 guild_boost_goal(u64 features) noexcept {
+    return (features & guild_feature_tier_3_override ? 0u : 14u) + 19u;
+}
 
 struct GuildDetailRecord {
     u64 guild_id;
@@ -117,6 +143,7 @@ struct GuildDetailRecord {
     char preferred_locale[kGuildDetailLocaleBytes];
     u8 discovery_splash_bytes;
     char discovery_splash[kGuildDetailHashBytes];
+    u8 space; // GuildSpaceBit
 };
 
 struct GuildDetailStore {
@@ -161,6 +188,7 @@ struct GuildDetailInput {
     Utf8View preferred_locale;
     // Empty for none.
     Utf8View discovery_splash;
+    u8 space; // GuildSpaceBit
 };
 
 bool guild_detail_store_bind(GuildDetailStore* store, Slice<GuildDetailRecord> records, Slice<char> text) noexcept;
