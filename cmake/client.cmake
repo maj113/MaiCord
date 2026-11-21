@@ -179,7 +179,7 @@ else()
         src/app/voice/stage.cpp src/app/voice/channels.cpp src/app/chat/messages/components.cpp
         src/app/chat/application_channel_memory.cpp src/app/shell/startup_history.cpp
         src/app/shell/application_startup_shell.cpp
-        src/app/guild/invite_cards.cpp src/app/voice/stream.cpp src/app/voice/go_live.cpp
+        src/app/guild/invite_cards.cpp src/app/voice/stream.cpp src/app/voice/go_live.cpp src/app/account/profile_bio.cpp
         LIBS maicord_compile_contract
         maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences maicord_packages
         maicord_notification_sound_assets maicord_plugin_catalog

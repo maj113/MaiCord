@@ -122,6 +122,10 @@ bool application_profile_menu_activate(u32 action) noexcept;
 bool application_profile_close() noexcept;
 void application_profile_release() noexcept;
 bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noexcept;
+// The spoilers and links of a profile's bio (the popout's, the DM panel's): a press on one arms it and captures the
+// pointer, a release over the same one reveals the spoiler (the bio lays out again) or opens the link, and a cancel
+// disarms. True when the press or release was the bio's (profile_bio.cpp).
+bool application_profile_bio_pointer(ProfileScene* s, UiButtonPointerEvent event, UiPoint point) noexcept;
 bool application_profile_double_click(UiPoint point) noexcept;
 bool application_profile_key(u32 key, bool down, bool repeated) noexcept;
 bool application_profile_character(u32 character) noexcept;

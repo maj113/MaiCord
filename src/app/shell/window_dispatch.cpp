@@ -495,7 +495,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         if (!input_release(event))
             break;
         const UiPoint dip{client_dip_x(content), client_dip_y(content)};
-        if (application_profile_pointer(UiButtonPointerEvent::release, dip))
+        if (application_profile_pointer(UiButtonPointerEvent::release, dip) ||
+            application_dm_profile_pointer(UiButtonPointerEvent::release, dip))
             return true;
         // A click on an emoji or sticker without a drag opens its popout; the
         // release still ends a text selection begun on it.
@@ -526,6 +527,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
     case EventType::capture_lost:
         application_video_cancel_pointer();
         application_profile_pointer(UiButtonPointerEvent::cancel, {});
+        application_dm_profile_pointer(UiButtonPointerEvent::cancel, {});
         g_app.scrollbar_drag = ScrollbarDragKind::none;
         g_app.scrollbar_thumb_grab_offset = 0.0f;
         end_pane_resize();
@@ -565,8 +567,8 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             // An attachment's ALT badge opens its description's popout instead of the media under it.
             if (application_alt_text_toggle(dip.x, dip.y) || application_gif_favorite_star_press(dip.x, dip.y) ||
                 application_message_media_reveal_at(dip.x, dip.y) || application_image_viewer_open_at(dip.x, dip.y) ||
-                application_dm_profile_click(dip) || handle_member_click(content) || handle_message_click(content) ||
-                handle_content_click(content) || handle_navigation_click(content) ||
+                application_dm_profile_pointer(UiButtonPointerEvent::press, dip) || handle_member_click(content) ||
+                handle_message_click(content) || handle_content_click(content) || handle_navigation_click(content) ||
                 application_plugins_message_click(content, false, 1))
                 return true;
             if (begin_message_text_selection(content)) {

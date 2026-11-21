@@ -1407,14 +1407,14 @@ maicord_test(MaiCordAccountSwitchObserveTests ONLY WINDOWS ENTRY maicord_account
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/chat/private_header.cpp
-        src/app/shell/state.cpp
+        src/app/shell/state.cpp src/app/account/profile_bio.cpp
     BUNDLE MaiCordAppUnitTests
     WINDOWS SOURCES src/core/log.cpp
     TIMEOUT 10 TEST maicord_dm_profile)
 maicord_test(MaiCordProfileRuntimeTests ONLY WINDOWS ENTRY maicord_profile_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/profile_runtime.cpp src/app/account/profile.cpp src/app/shell/state.cpp
-        src/app/account/self_status.cpp src/app/shell/content_page.cpp src/core/log.cpp
+        src/app/account/self_status.cpp src/app/shell/content_page.cpp src/app/account/profile_bio.cpp src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 bcrypt
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_profile_runtime)

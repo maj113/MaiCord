@@ -5,6 +5,10 @@
 // MAICORD_RENDER_DUMP=<prefix> writes every captured frame to <prefix>.<scene> as raw RGBA bytes.
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/text/renderer_text_storage.hpp"
+#include "maicord/ui/account/profile_scene.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "render/d3d11/renderer_text_internal.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "render/d3d11/renderer_draw.hpp"
@@ -264,6 +268,105 @@ void test_live_resize() noexcept {
           "the end of a live resize gives the surface the client size");
 }
 
+bool same_color(const Color& a, const Color& b) noexcept {
+    return a.red == b.red && a.green == b.green && a.blue == b.blue && a.alpha == b.alpha;
+}
+
+// A bio in the DM panel (a ProfileScene other than the popout) as profile_scene_text_output emits it: "secret 😀 ￼",
+// the last character a custom emoji's cell, all in one spoiler. Hidden, the spoiler draws only its cover in the theme's
+// spoiler colour and is published for the click that reveals it; its colour emoji draws no quad and its custom emoji is
+// published as hidden. Revealed, both draw (the colour emoji where the system has an emoji font). GitHub issue #28.
+void test_profile_bio_spoiler() noexcept {
+    auto& r = g_renderer;
+    const Theme& theme = kDefaultTheme;
+    renderer_set_dpi(&r, 96);
+    // The text storage a client binds after renderer_initialize, small: one bio.
+    static GlyphQuad quads[256];
+    static GlyphDrawBatch batches[16];
+    static TextGlyph glyphs[256];
+    static TextRun runs[32];
+    static u16 clusters[256];
+    static TextHitSpan hit_spans[16];
+    static TextHitRegion hit_scratch[32], hit_regions[32];
+    static TextDecoration decorations[32];
+    static MessageTextSemantic semantics[16];
+    static RendererTextStorage storage;
+    storage = {quads, batches, glyphs, runs, clusters, hit_spans, hit_scratch, decorations, semantics, hit_regions,
+               256, 16, 256, 32, 256, 16, 32, 32, 16, 32};
+    check(renderer_bind_text_storage(&r, &storage), "the content text storage binds");
+    if (!r.content_text)
+        return;
+    static ProfileScene panel;
+    panel.active = true;
+    panel.presentation = ProfilePresentation::panel;
+    panel.bio_widget = {3, 1};
+    panel.bio_semantics[0] = {0, 0, 15, 0, 22, MessageMarkdownSemanticKind::spoiler, 0};
+    panel.bio_semantics[1] = {111, 12, 3, 13, 9, MessageMarkdownSemanticKind::custom_emoji, 0};
+    panel.bio_semantic_count = 2;
+    r.dm_profile_panel = &panel;
+    constexpr auto bio = utf8_literal("secret \xF0\x9F\x98\x80 \xEF\xBF\xBC");
+    UiTextCommand command{};
+    command.text = bio;
+    command.owner = {&panel.widgets, panel.bio_widget};
+    command.rectangle = command.clip = {20, 20, 420, 60};
+    command.color = theme.tokens.text.normal;
+    command.wrapping = TextWrapping::wrap;
+    command.overflow = TextOverflow::ellipsis;
+    struct Drawn {
+        u32 cover, text_cover, color_glyphs;
+        bool spoiler, emoji, emoji_hidden;
+    };
+    const auto draw = [&](bool hidden) noexcept {
+        // As size_biography gives them: every byte spanned, at text-sm.
+        const u32 spoiler = hidden ? text_style_spoiler : 0u, emoji = spoiler | text_style_custom_emoji;
+        const TextStyleSpan spans[]{{0, 12, text_style_fold_size(spoiler, text_size_sm), 0, {}},
+                                    {12, 3, text_style_fold_size(emoji, text_size_sm), 0, {}}};
+        command.styles = {spans, 2};
+        Drawn drawn{};
+        auto& text = *r.content_text;
+        bool appended = false;
+        for (u32 attempt = 0; attempt < 2 && !appended; ++attempt) {
+            text.quad_count = text.batch_count = text.content_semantic_count = text.content_hit_region_count = 0;
+            bool invalidated = false;
+            appended = renderer_text_detail::append_content_text_command(&r, command, theme, &invalidated, true);
+        }
+        check(appended, "the bio text is appended");
+        for (u32 i = 0; i < text.quad_count; ++i) {
+            const auto& quad = text.quads[i];
+            drawn.cover += quad.u0 < 0 && same_color(quad.color, theme.interactive);
+            drawn.text_cover += quad.u0 < 0 && same_color(quad.color, command.color);
+            drawn.color_glyphs += quad.u0 >= 2;
+        }
+        for (u32 i = 0; i < text.content_hit_region_count; ++i) {
+            const auto& region = text.content_hit_regions[i];
+            if (region.semantic_index >= text.content_semantic_count)
+                continue;
+            const auto& semantic = text.content_semantics[region.semantic_index];
+            drawn.spoiler |= !semantic.message_id && semantic.kind == MessageMarkdownSemanticKind::spoiler;
+            if (semantic.kind == MessageMarkdownSemanticKind::custom_emoji && semantic.target == 111) {
+                drawn.emoji = true;
+                drawn.emoji_hidden = (semantic.reserved & 2u) != 0;
+            }
+        }
+        return drawn;
+    };
+    check(!same_color(theme.interactive, command.color), "the spoiler colour differs from the text colour");
+    const Drawn hidden = draw(true);
+    check(hidden.cover && !hidden.text_cover, "a DM panel bio's hidden spoiler is covered in the spoiler colour");
+    check(hidden.spoiler, "a DM panel bio's spoiler is published for its click");
+    check(!hidden.color_glyphs, "a hidden spoiler draws no colour emoji");
+    check(hidden.emoji && hidden.emoji_hidden, "a hidden spoiler's custom emoji is published hidden");
+    const Drawn shown = draw(false);
+    check(!shown.cover && shown.spoiler && shown.emoji && !shown.emoji_hidden,
+          "a revealed spoiler has no cover and shows its custom emoji");
+#if defined(_WIN32)
+    // Segoe UI Emoji ships with Windows; a Linux host may have no colour emoji font.
+    check(shown.color_glyphs, "a revealed spoiler draws its colour emoji");
+#endif
+    r.dm_profile_panel = nullptr;
+    renderer_unbind_text_storage(&r);
+}
+
 // The surface the scenes draw into: offscreen on Linux (the GLES backend draws to a frame texture of its own), a hidden
 // popup window of the same client size on Windows (the swap chain needs one).
 bool host_surface(GpuSurfaceDesc* desc) noexcept {
@@ -292,6 +395,7 @@ void run() noexcept {
     test_bootstrap_title();
     test_caption();
     test_live_resize();
+    test_profile_bio_spoiler();
     // The buffers the settings page and the text effects make on first use: shutdown releases them through the GPU seam.
     // It once released them as COM objects, which crashed every Linux run that had opened Settings when it closed.
     const GpuBufferDesc lazy{64, GpuUsage::dynamic, gpu_bind_vertex, false};

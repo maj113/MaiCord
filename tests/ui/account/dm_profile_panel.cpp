@@ -1,8 +1,8 @@
 // The DM view's chrome: the side slot plan (DM profile vs member list), the
 // shell layout around it, the title bar centre per view, the DM header's
 // activity line, the typing dots' clock, and the DM profile panel's runtime
-// (fetch dedupe, caching, rate limits, toggles, card geometry, activity art,
-// timers, failures). Synthetic fixtures only.
+// (fetch dedupe, caching, rate limits, toggles, card geometry, bio spoilers,
+// activity art, timers, failures). Synthetic fixtures only.
 #include "account/dm_profile.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "../../support/account_module_fake.hpp"
@@ -41,6 +41,8 @@
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/text/renderer_text_storage.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
 
 namespace maicord::dm_profile_test {
 using namespace app_detail;
@@ -451,8 +453,9 @@ bool click(ProfileAction action) noexcept {
     if (node)
         profile_scene_publish_text_hit(*s, {&s->widgets, part->widget}, node->rectangle, node->rectangle,
                                        node->clip_rectangle);
-    return node && application_dm_profile_click({(node->rectangle.left + node->rectangle.right) * .5f,
-                                                 (node->rectangle.top + node->rectangle.bottom) * .5f});
+    return node && application_dm_profile_pointer(UiButtonPointerEvent::press,
+                                                  {(node->rectangle.left + node->rectangle.right) * .5f,
+                                                   (node->rectangle.top + node->rectangle.bottom) * .5f});
 }
 
 void panel_cases() noexcept {
@@ -714,6 +717,56 @@ void geometry_cases() noexcept {
     check(bio && near(ui_rect_height(bio->rectangle), 60) && !find_part(*s, ProfileAction::view_bio) &&
               find_part(*s, ProfileAction::expand) && !rule,
           "DM panel: a long bio clamps to three lines without View Full Bio; no rule above View Full Profile");
+    application_dm_profile_release();
+}
+
+bool bio_spoiler_hidden(const ProfileScene& s) noexcept {
+    for (u32 i = 0; i < s.bio_style_count; ++i)
+        if (s.bio_styles[i].flags & text_style_spoiler)
+            return true;
+    return false;
+}
+// A spoiler in the panel's bio: the renderer publishes it (message id zero) over its text; a press and a release over
+// it reveal it and lay the bio out again, as the popout's do. A release elsewhere or a lost capture reveals nothing.
+// GitHub issue #28.
+void bio_spoiler_cases() noexcept {
+    application_dm_profile_release();
+    auto* s = show_loaded(9998, utf8_literal(R"({"user":{"id":"123","username":"mai","global_name":"Mai"},)"
+                                             R"("user_profile":{"bio":"Hi ||secret|| there"},"mutual_guilds":[]})"));
+    const auto* bio = s ? ui_widget_manager_layout_node(s->widgets, s->bio_widget) : nullptr;
+    const MessageMarkdownSemantic* spoiler = nullptr;
+    for (u32 i = 0; s && i < s->bio_semantic_count; ++i)
+        if (s->bio_semantics[i].kind == MessageMarkdownSemanticKind::spoiler)
+            spoiler = &s->bio_semantics[i];
+    check(bio && spoiler && bio_spoiler_hidden(*s), "DM panel bio: the spoiler starts hidden");
+    if (!bio || !spoiler)
+        return;
+    static MessageTextSemantic semantics[1];
+    static TextHitRegion regions[1];
+    static RendererTextStorage text;
+    semantics[0] = {0, 0, 0, spoiler->source_offset, spoiler->source_bytes, MessageMarkdownSemanticKind::spoiler, 0};
+    const UiRect& r = bio->rectangle;
+    regions[0] = {r.left + 20, r.top, r.left + 60, r.top + 16, 0, 0};
+    text.content_semantics = semantics;
+    text.content_semantic_count = 1;
+    text.content_hit_regions = regions;
+    text.content_hit_region_count = 1;
+    g_app.renderer.content_text = &text;
+    const UiPoint over{r.left + 40, r.top + 8}, beside{r.left + 100, r.top + 8};
+    check(application_dm_profile_pointer(UiButtonPointerEvent::press, over) && s->bio_pressed &&
+              application_dm_profile_pointer(UiButtonPointerEvent::release, beside) && !s->bio_pressed &&
+              bio_spoiler_hidden(*s),
+          "DM panel bio: a release away from the pressed spoiler reveals nothing");
+    check(application_dm_profile_pointer(UiButtonPointerEvent::press, over) &&
+              !application_dm_profile_pointer(UiButtonPointerEvent::cancel, {}) && !s->bio_pressed &&
+              !application_dm_profile_pointer(UiButtonPointerEvent::release, over) && bio_spoiler_hidden(*s),
+          "DM panel bio: a lost capture disarms the spoiler");
+    const u32 revision = s->revision, source = spoiler->source_offset;
+    check(application_dm_profile_pointer(UiButtonPointerEvent::press, over) &&
+              application_dm_profile_pointer(UiButtonPointerEvent::release, over) && s->bio_revealed_count == 1 &&
+              s->bio_revealed[0] == source && !bio_spoiler_hidden(*s) && s->revision != revision,
+          "DM panel bio: a click on the spoiler reveals it and lays the bio out again");
+    g_app.renderer.content_text = nullptr;
     application_dm_profile_release();
 }
 
@@ -1219,6 +1272,7 @@ void run() noexcept {
     panel_cases();
     bot_cases();
     geometry_cases();
+    bio_spoiler_cases();
     activity_art_cases();
     progress_cases();
     header_order_cases();

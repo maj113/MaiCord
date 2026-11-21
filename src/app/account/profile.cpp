@@ -975,49 +975,8 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
         application_profile_close();
         return true;
     }
-    MessageTextSemantic bio_value{};
-    const MessageTextSemantic* bio_hit = nullptr;
-    const auto* text = g_app.renderer.content_text;
-    if (text)
-        for (u32 i = text->content_hit_region_count; i > 0; --i) {
-            const auto& r = text->content_hit_regions[i - 1];
-            if (point.x < r.left || point.x >= r.right || point.y < r.top || point.y >= r.bottom ||
-                r.semantic_index >= text->content_semantic_count)
-                continue;
-            const auto& semantic = text->content_semantics[r.semantic_index];
-            if (!semantic.message_id && (semantic.kind == MessageMarkdownSemanticKind::spoiler ||
-                                         semantic.kind == MessageMarkdownSemanticKind::link)) {
-                bio_value = semantic;
-                bio_hit = &bio_value;
-                break;
-            }
-        }
-    if (event == UiButtonPointerEvent::press && bio_hit) {
-        s.bio_pressed = bio_hit->source_offset + 1;
-        window_capture_pointer(g_app.window);
+    if (application_profile_bio_pointer(&s, event, point))
         return true;
-    }
-    if (event == UiButtonPointerEvent::release && s.bio_pressed) {
-        const u32 pressed = s.bio_pressed;
-        s.bio_pressed = 0;
-        application_release_capture();
-        if (bio_hit && bio_hit->source_offset + 1 == pressed) {
-            if (bio_hit->kind == MessageMarkdownSemanticKind::spoiler && s.bio_revealed_count < 64) {
-                s.bio_revealed[s.bio_revealed_count++] = bio_hit->source_offset;
-                profile_scene_layout(&s, application_viewport_dips(), true);
-                repaint(true);
-            } else if (bio_hit->kind == MessageMarkdownSemanticKind::link) {
-                const auto source =
-                    s.profile->guild_bio.bytes ? s.profile->guild_bio.view() : s.profile->bio.view();
-                if (bio_hit->source_offset + bio_hit->source_bytes <= source.bytes)
-                    application_open_content_url(
-                        {source.data + bio_hit->source_offset, bio_hit->source_bytes});
-            }
-        }
-        return true;
-    }
-    if (event == UiButtonPointerEvent::cancel)
-        s.bio_pressed = 0;
     const bool in_edit = profile_scene_over_edit(s, point.x, point.y);
     if (event == UiButtonPointerEvent::cancel)
         p->message_dragging = false;

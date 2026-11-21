@@ -787,6 +787,10 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         const MessageMarkdownSemantic* role_mention =
             role_effect || !request.resolve_role_effect ? nullptr : role_mention_for_run(request, run);
         if (retained_font_face_is_color(owner, face_id)) {
+            // A hidden spoiler shows only its cover. Its plain glyphs take the cover's colour; a colour glyph paints
+            // its own, so it is left out until the spoiler is revealed.
+            if (run.style_flags & text_style_spoiler)
+                continue;
             if (!raster.finish())
                 return append_fail(5);
             if (!append_color_glyph_run(owner, context, request, run, foreground, origin_x, origin_y))

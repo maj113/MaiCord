@@ -594,9 +594,13 @@ bool application_dm_profile_hover(UiPoint point) noexcept {
     }
     return inside;
 }
-bool application_dm_profile_click(UiPoint point) noexcept {
+bool application_dm_profile_pointer(UiButtonPointerEvent event, UiPoint point) noexcept {
     auto* s = application_dm_profile_scene();
-    if (!s || !ui_rect_contains(s->rectangle, point.x, point.y))
+    if (!s || (event == UiButtonPointerEvent::press && !ui_rect_contains(s->rectangle, point.x, point.y)))
+        return false;
+    if (application_profile_bio_pointer(s, event, point))
+        return true;
+    if (event != UiButtonPointerEvent::press)
         return false;
     const auto hit = profile_scene_hit_test(*s, point.x, point.y);
     if (hit.generation)

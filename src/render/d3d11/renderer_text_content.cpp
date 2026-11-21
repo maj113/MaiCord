@@ -385,6 +385,16 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     }
     for (u32 index = 0; index < semantic_count; ++index) {
         const MessageMarkdownSemantic& semantic = semantics[index];
+        // What a hidden spoiler covers (custom emoji, flags, chip icons) is drawn only once it is revealed.
+        u8 reserved = semantic.reserved;
+        for (u32 j = 0; j < styles.count; ++j) {
+            const auto& span = styles[j];
+            if ((span.flags & text_style_spoiler) && semantic.byte_offset >= span.byte_offset &&
+                semantic.byte_offset - span.byte_offset < span.byte_count) {
+                reserved |= 2u;
+                break;
+            }
+        }
         storage->content_semantics[storage->content_semantic_count++] =
             MessageTextSemantic{message_id,
                                 semantic.target,
@@ -392,7 +402,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
                                 semantic.source_offset,
                                 semantic.source_bytes,
                                 semantic.kind,
-                                semantic.reserved};
+                                reserved};
     }
     for (u32 index = 0; index < layout.hit_region_count; ++index) {
         const TextHitRegion& local = layout.hit_regions[index];
@@ -474,8 +484,14 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         : command.styles.count                   ? command.styles
         : command.style_flags == text_style_none ? ConstSlice<TextStyleSpan>{}
                                                  : ConstSlice<TextStyleSpan>{&span, 1};
-    const auto* profile = renderer->profile_scene;
-    const bool profile_text = profile && profile->active && command.owner.manager == &profile->widgets;
+    // The profile scene whose text this is: the popout or modal, the DM panel or the profile editor's preview.
+    const ProfileScene* const profiles[]{renderer->profile_scene, renderer->dm_profile_panel,
+                                         renderer->settings_profile_preview};
+    const ProfileScene* profile = nullptr;
+    for (const auto* scene : profiles)
+        if (scene && scene->active && command.owner.manager == &scene->widgets)
+            profile = scene;
+    const bool profile_text = profile != nullptr;
     const bool bio = profile_text && command.owner.handle.slot == profile->bio_widget.slot;
     auto bio_semantics =
         bio ? ConstSlice<MessageMarkdownSemantic>{profile->bio_semantics, profile->bio_semantic_count}
@@ -779,29 +795,11 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         renderer->text_effect_count = first_effect;
         return false;
     }
-    {
-        auto& storage = *renderer->content_text;
-        for (u32 i = first_semantic; i < storage.content_semantic_count; ++i) {
-            auto& semantic = storage.content_semantics[i];
-            if (search_result)
-                semantic.reserved |= kRendererSearchSemanticFlag;
-            const u32 source_index = i - first_semantic;
-            if (source_index >= command.semantics.count)
-                continue;
-            const auto& source = command.semantics[source_index];
-            for (u32 j = 0; j < command.styles.count; ++j) {
-                const auto& span = command.styles[j];
-                if ((span.flags & text_style_spoiler) && source.byte_offset >= span.byte_offset &&
-                    source.byte_offset - span.byte_offset < span.byte_count) {
-                    semantic.reserved |= 2u;
-                    break;
-                }
-            }
-        }
-    }
+    auto& storage = *renderer->content_text;
+    for (u32 i = first_semantic; search_result && i < storage.content_semantic_count; ++i)
+        storage.content_semantics[i].reserved |= kRendererSearchSemanticFlag;
     // A link chip's server without an icon shows its initials in the cell; the
     // round plate is painted beneath the text.
-    auto& storage = *renderer->content_text;
     for (u32 i = first_region; i < storage.content_hit_region_count; ++i) {
         const TextHitRegion region = storage.content_hit_regions[i];
         if (region.semantic_index >= storage.content_semantic_count || !renderer->chat_state)

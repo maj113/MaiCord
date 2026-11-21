@@ -2,6 +2,7 @@
 #include "maicord/app/net/rest_client.hpp"
 #include "maicord/ui/account/dm_profile_panel.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
+#include "maicord/ui/widgets/button.hpp"
 
 namespace maicord::app_detail {
 // The DM profile panel: the recipient's profile (ProfilePresentation::panel)
@@ -26,8 +27,10 @@ ProfileScene* application_dm_profile_scene() noexcept;
 bool application_dm_profile_pending(u64 now) noexcept;
 bool application_dm_profile_submit(u64 request_id, u64 now) noexcept;
 bool application_dm_profile_response(const RestClientResponse& response, Utf8View body) noexcept;
-// Pointer input inside the panel (content DIPs); false elsewhere.
+// Pointer input (content DIPs). Hover: true inside the panel. A press inside the panel is the panel's: on a bio
+// spoiler or link it arms it (application_profile_bio_pointer), else it activates the part under it. The release
+// and the cancel of an armed bio press are the panel's wherever the pointer is; false for every other event.
 bool application_dm_profile_hover(UiPoint point) noexcept;
-bool application_dm_profile_click(UiPoint point) noexcept;
+bool application_dm_profile_pointer(UiButtonPointerEvent event, UiPoint point) noexcept;
 void application_dm_profile_release() noexcept;
 } // namespace maicord::app_detail
