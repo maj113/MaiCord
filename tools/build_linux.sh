@@ -39,8 +39,9 @@
 #             other. ~/.maicord-linux-test.lock makes the test runs of the machine wait for each other.
 #   Build     ~/mc-build (MAICORD_LINUX_BUILD), one Release configuration: clang and ld.lld, full LTO, IPRA,
 #             -fno-exceptions -fno-rtti, no unwind tables, -nostdinc with MaiCord's own headers
-#             (include/maicord/sys/linux for the kernel and glibc interface), -march=sandybridge -mtune=generic
-#             where Windows uses /arch:AVX (clang-cl's Sandy Bridge with generic tuning).
+#             (include/maicord/sys/linux for the kernel and glibc interface), -march=haswell -mtune=generic
+#             -mno-avx2 -mno-fma where Windows uses /arch:AVX2 -mno-avx2 -mno-fma (clang-cl's Haswell with generic
+#             tuning, without AVX2 and FMA).
 #             cmake/build_contract.cmake is the contract; the client and the tests the run selects from the
 #             test manifest (maicord-tests.txt, written by CMake as on Windows) are built. Size is the Windows client's:
 #             cmake/size_policy.cmake (-Oz, -Os for what no measurement shows hot, and helper folding per source), the
@@ -52,8 +53,9 @@
 #             The musl form is the same image with another program interpreter (tools/retarget_libc.py --libc musl).
 #   Audit     tools/audit_image.py runs on every image: no GLIBC_ symbol version above 2.34, only the libc stub library
 #             needed, no unwind tables, no TEXTREL, RPATH or RUNPATH, full RELRO, a non-executable stack. The client runs
-#             it when it links (without a test hook unless the build has tests), and this script on its musl form
-#             (--libc musl) and on the other images in the build directory.
+#             it when it links (without a test hook unless the build has tests, and with the processor entry check on
+#             the linker map), and this script on its musl form (--libc musl) and on the other images in the build
+#             directory.
 #   Tests     ctest under the build directory; each case runs with a private XDG_DATA_HOME below it.
 #   Cleanup   Unless --keep-intermediates, the run ends with the build directory holding only the client (MaiCord) and
 #             its runtime assets (fonts/, licenses/), as tools/build.ps1 leaves the Windows one.

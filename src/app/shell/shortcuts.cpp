@@ -25,6 +25,7 @@
 #include "input.hpp"
 #include "../voice/voice.hpp"
 #include "../voice/settings.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/core/cursor.hpp"
@@ -285,9 +286,9 @@ bool application_shortcuts_pump() noexcept {
     const bool active = g_app.window && !application_window_foreground() && keybinds.count && in_call();
     const u32 fired =
         background_keybinds_sample(&global, keybinds, application_custom_keybinds_revision(), active, global_key_down);
-    for (u32 i = 0; i < keybinds.count; ++i)
-        if (fired >> i & 1)
-            run_custom(keybinds.items[i].action);
+    // The sample sets bits only below keybinds.count.
+    for (u32 bits = fired; bits; bits &= bits - 1)
+        run_custom(keybinds.items[lowest_set_bit(bits)].action);
     return fired != 0;
 }
 

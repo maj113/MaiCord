@@ -3,6 +3,7 @@
 #include "maicord/sys/simd.hpp"
 namespace maicord::tt_math {
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 inline void normalized_vector(i64 x,i64 y,i16* vx,i16* vy) noexcept {
     if(!x&&!y){*vx=16384;*vy=0;return;}
     const double dx=static_cast<double>(x),dy=static_cast<double>(y);

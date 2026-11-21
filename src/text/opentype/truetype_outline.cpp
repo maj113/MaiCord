@@ -287,6 +287,7 @@ struct Writer {
 };
 
 #pragma float_control(precise, on, push)
+#pragma clang fp contract(off)
 inline SfntOutlinePoint middle(SfntOutlinePoint a, SfntOutlinePoint b) noexcept {
     return {(a.x + b.x) * .5f, (a.y + b.y) * .5f, 1, {0, 0, 0}};
 }

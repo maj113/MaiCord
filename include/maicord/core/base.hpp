@@ -11,6 +11,10 @@
 #define NOMINMAX
 #endif
 
+// For the code that runs before the processor check (maicord/app/shell/processor_check.hpp) returns: it runs on a
+// processor without AVX, so the compiler uses only the instructions of the first x86-64 there.
+#define MAICORD_ANY_PROCESSOR __attribute__((__target__("arch=x86-64")))
+
 namespace maicord {
 
 using u8 = unsigned char;

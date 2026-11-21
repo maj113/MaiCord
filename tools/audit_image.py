@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audits MaiCord images, Windows (PE) and Linux (ELF), with one set of options.
 
-    audit_image.py IMAGE... [--no-test-hooks] [--maximum-initialized-data-bytes N]
+    audit_image.py IMAGE... [--no-test-hooks] [--maximum-initialized-data-bytes N] [--processor-entry-map MAP]
                             [--libc glibc|musl]                              (ELF)
                             [--static-imports DLL...] [--delay-load DLL...]  (PE)
 
@@ -12,7 +12,9 @@ The format is read from each image. Every image:
     --test, packaging/build_tarball.py);
   * keeps its writable initialized data within --maximum-initialized-data-bytes (PE: the file bytes of .data; ELF: the
     writable PROGBITS sections but the GOT, the init and fini arrays, .data.rel.ro and .dynamic). One nonzero default
-    member initializer moves a whole zero-filled global (e.g. app_detail::g_app) from .bss into the file.
+    member initializer moves a whole zero-filled global (e.g. app_detail::g_app) from .bss into the file;
+  * with --processor-entry-map (the linker map of its link), runs only instructions of the first x86-64 until its
+    processor check decides (tools/check_processor_entry.py): an older processor gets the refusal, not a fault.
 
 A PE image (the Windows client, the opt-in probes) must
 
@@ -50,6 +52,8 @@ import argparse
 import os
 import struct
 import sys
+
+import check_processor_entry
 
 TEST_HOOKS_MARKER = b"maicord-test-hooks-compiled-in"
 
@@ -341,6 +345,12 @@ def audit(path, arguments):
         "was likely serialized into the file; zero it in its definition and apply the default at startup") % (
         initialized, maximum))
     check(not (arguments.no_test_hooks and TEST_HOOKS_MARKER in data), "the image holds test hooks (built with tests)")
+    if arguments.processor_entry_map:
+        with open(arguments.processor_entry_map, encoding="latin-1") as handle:
+            try:
+                summary += "; " + check_processor_entry.check_image(data, handle.read())
+            except check_processor_entry.EntryError as error:
+                raise AuditError(str(error))
     return summary
 
 
@@ -350,6 +360,9 @@ def main():
     parser.add_argument("--no-test-hooks", action="store_true", help="fail when an image holds a test hook")
     parser.add_argument("--maximum-initialized-data-bytes", type=int, default=-1, metavar="N",
                         help="fail when the writable initialized data exceeds N bytes")
+    parser.add_argument("--processor-entry-map", metavar="MAP",
+                        help="the client's linker map: fail when code before the processor check uses a later "
+                             "instruction")
     parser.add_argument("--libc", choices=sorted(INTERPRETERS), default="glibc",
                         help="ELF: the C library whose interpreter the images name (default: glibc)")
     parser.add_argument("--static-imports", nargs="+", metavar="DLL",

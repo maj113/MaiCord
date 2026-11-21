@@ -7,6 +7,7 @@
 #include "maicord/ui/guild/member_context_policy.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "../../account/account_ui_runtime.hpp"
@@ -255,12 +256,8 @@ Utf8View filter_value(Bank& bank, Menu menu) noexcept {
         return utf8_literal("All");
     case Menu::member_roles:
     case Menu::signals: {
-        u32 count = p.filter_role_count;
-        if (menu == Menu::signals) {
-            count = 0;
-            for (u32 i = 0; i < 4; ++i)
-                count += (p.filter_signals >> i) & 1;
-        }
+        const u32 count =
+            menu == Menu::signals ? population_count(p.filter_signals & 15u) : p.filter_role_count;
         if (!count)
             return utf8_literal("All");
         const u32 start = bank.used;

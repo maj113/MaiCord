@@ -2,14 +2,13 @@
 
 #include "maicord/core/base.hpp"
 
-// The hand-written vector code (MAICORD_HASWELL) has one version. It uses AVX2, BMI1, BMI2, LZCNT, MOVBE and F16C, so
-// MaiCord needs an Intel Haswell (2013), an AMD Excavator or Zen, or a later processor. Each client's entry calls
-// processor_too_old() before any other code and refuses to start on an older processor.
+// All compiled code uses BMI1, BMI2, LZCNT, MOVBE and F16C (the compiler baseline), and the hand-written vector code
+// (MAICORD_HASWELL) uses AVX2, with no other version. So MaiCord needs an Intel Haswell (2013), an AMD Excavator or Zen,
+// or a later processor. Each client's entry calls processor_too_old() before any other code and refuses to start on
+// an older processor. The code that runs before the check returns is MAICORD_ANY_PROCESSOR.
 
 // The reason, shown after "MaiCord cannot start: ".
 #define MAICORD_PROCESSOR_TOO_OLD "this processor is too old. MaiCord needs a processor from 2013 or later with AVX2."
-// The check runs on a processor without AVX: the compiler uses only the instructions of the first x86-64 here.
-#define MAICORD_ANY_PROCESSOR __attribute__((__target__("arch=x86-64")))
 
 namespace maicord {
 

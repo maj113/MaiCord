@@ -9,6 +9,7 @@
 #include "streamer_mode.hpp"
 #include "../account/friends.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
@@ -2125,13 +2126,10 @@ bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept {
     } else {
         const u16 missing = g_owner.wanted & ~g_owner.loaded & ~g_owner.failed;
         load = static_cast<u16>(missing & -missing);
-        // Each load bit's GET, in bit order.
+        // Each load bit's GET, in bit order. A load with no bit below bit 7 takes the last GET.
         constexpr Op kLoads[]{Op::self_user,   Op::profile,  Op::sessions,      Op::tokens,
                               Op::security_keys, Op::connections, Op::consents, Op::harvest};
-        u32 bit = 0;
-        while (bit + 1 < sizeof(kLoads) / sizeof(kLoads[0]) && !(load >> bit & 1))
-            ++bit;
-        request.operation = kLoads[bit];
+        request.operation = kLoads[lowest_set_bit(static_cast<u32>(load | 0x80u))];
         if (load == load_profile)
             request.id = g_owner.self_user_id;
     }

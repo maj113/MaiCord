@@ -1,5 +1,6 @@
 #include "maicord/ui/media/picker.hpp"
 #include "picker_internal.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/utf.hpp"
@@ -679,9 +680,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse) noexcept {
         return true;
     }
     float x = scene.tabs.left;
-    u32 tab_count = 0;
-    for (u32 i = 0; i < 3; ++i)
-        tab_count += (scene.content->available_tabs >> i) & 1u;
+    const u32 tab_count = population_count(scene.content->available_tabs & 7u);
     const float tab_width =
         tab_count
             ? minimum(m.tab_max_width, (ui_rect_width(scene.tabs) - m.gap * (tab_count - 1)) / tab_count)

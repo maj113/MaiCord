@@ -14,7 +14,8 @@
 #define MAICORD_ISOLATED_MAIN 1
 #endif
 
-extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
+// The entry runs before the processor check returns: MAICORD_ANY_PROCESSOR.
+extern "C" __declspec(noreturn) MAICORD_ANY_PROCESSOR void WINAPI maicord_entry() noexcept {
     if (maicord::processor_too_old()) {
         MessageBoxW(nullptr, L"MaiCord cannot start: " MAICORD_PROCESSOR_TOO_OLD, L"MaiCord", MB_OK | MB_ICONERROR);
         ExitProcess(1);

@@ -6,6 +6,7 @@ namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 offset) noexcept {return byte_load_be16(bytes.data+offset);}
 i16 signed_word(ConstSlice<u8> bytes,u32 offset) noexcept {return static_cast<i16>(word(bytes,offset));}
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 // Nearest integer of base plus its MVAR delta, ties upward. Without variations
 // that is base itself. The first failure is kept in status and later calls are no-ops.
 __attribute__((minsize)) i32 varied(i32 base,u32 tag,const SfntMvar* mvar,ConstSlice<double> scalars,SfntStatus& status) noexcept {

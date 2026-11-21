@@ -6,6 +6,7 @@
 namespace maicord {
 namespace {
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 bool failed(ColrNativeSource& s,SfntStatus status) noexcept {s.status=status;return false;}
 bool spend(ColrNativeSource& s) noexcept {if(!s.work)return failed(s,SfntStatus::resource_limit);--s.work;return true;}
 float scalar(double value) noexcept {return static_cast<float>(value);}

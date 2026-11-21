@@ -94,6 +94,7 @@ SfntStatus font_axis_mappings_open(const SfntFace& face,u16 count,Slice<AxisSegm
 }
 
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 namespace {
 double quantized(double value) noexcept {return round_value(value*65536.0)/65536.0;}
 double remap(const AxisSegmentMap& map,double value) noexcept {

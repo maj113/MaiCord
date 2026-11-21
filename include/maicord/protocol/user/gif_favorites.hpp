@@ -45,10 +45,8 @@ struct GifFavoritesResult {
 constexpr u32 gif_favorites_index_words(u32 entries) noexcept {
     if (!entries || entries > kGifFavoritesMaximumEntries)
         return 0;
-    u32 buckets = 1;
-    while (buckets < entries * 2)
-        buckets <<= 1;
-    return buckets * 2;
+    // Two words for each bucket: the buckets are the smallest power of two at least twice the entries.
+    return 4u << (31 - __builtin_clz(entries * 2 - 1));
 }
 constexpr u32 gif_favorites_write_scratch_bytes(u32 group_bytes, u32 entries) noexcept {
     if (group_bytes > kGifFavoritesMaximumGroupBytes || entries > kGifFavoritesMaximumEntries)

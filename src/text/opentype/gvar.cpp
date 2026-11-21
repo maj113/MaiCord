@@ -8,6 +8,7 @@ using namespace sfnt_read;
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool take(u32 n,ConstSlice<u8>* out) noexcept {if(!span(bytes,at,n))return false;*out={bytes.data+at,n};at+=n;return true;}bool byte(u8* v) noexcept {if(!span(bytes,at,1))return false;*v=bytes[at++];return true;}};
 inline u32 location(const SfntGvar& f,u32 glyph) noexcept {return f.offset_stride==4?r32(f.offsets,glyph*4):r16(f.offsets,glyph*2)*2u;}
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 // Peaks, supports and the F2DOT14-rounded coordinate compare as integers; each
 // ratio is one exact-integer division, bit-identical to dividing the scaled values.
 SfntStatus region(ConstSlice<u8> peak,ConstSlice<u8> start,ConstSlice<u8> end,ConstSlice<double> coords,double* out,u32& work) noexcept {

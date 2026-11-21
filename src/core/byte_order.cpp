@@ -7,11 +7,9 @@ u32 byte_load_le24(const u8* input) noexcept {
            static_cast<u32>(input[2]) << 16u;
 }
 
+// Seven bits per byte: 1 + h / 7 bytes for a highest set bit h, computed as (h * 9 + 73) / 64.
 u32 leb128_bytes(u32 value) noexcept {
-    u32 bytes = 1;
-    for (; value >= 0x80; value >>= 7)
-        ++bytes;
-    return bytes;
+    return ((31 - static_cast<u32>(__builtin_clz(value | 1))) * 9 + 73) / 64;
 }
 
 u32 leb128_write(u8* output, u32 value) noexcept {

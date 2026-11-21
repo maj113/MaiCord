@@ -1,4 +1,5 @@
 #include "maicord/text/opentype/gpos.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 #include "layout_read.hpp"
 #include "maicord/text/base.hpp"
@@ -89,7 +90,7 @@ SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,
         at=16+static_cast<u32>((static_cast<u64>(c1)*sub.counts[1]+c2)*(sub.value_bytes[0]+sub.value_bytes[1]));}
     result.values[0]=value_view(parent,at,sub.value_formats[0],sub.value_bytes[0]);result.values[1]=value_view(parent,at+sub.value_bytes[0],sub.value_formats[1],sub.value_bytes[1]);result.second_input=second;result.next_input=second+(sub.value_formats[1]?1u:0u);*output=result;return SfntStatus::ok;
 }
-u16 sfnt_position_value_size(u16 format) noexcept {if(format&0xff00)return 0xffff;u16 bytes=0;while(format){format=static_cast<u16>(format&(format-1));bytes+=2;}return bytes;}
+u16 sfnt_position_value_size(u16 format) noexcept {return format&0xff00?0xffff:static_cast<u16>(population_count(format)*2);}
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);SfntPositionValue result{};u32 at=record.offset;
     for(u32 i=0;i<8;++i)if(record.format&(1u<<i)){const u16 v=r16(record.parent,at);at+=2;if(i<4)result.design[i]=static_cast<i16>(v);else if(v){const auto s=sfnt_device_open({record.parent.data+v,record.parent.count-v},&result.devices[i-4]);if(s!=SfntStatus::ok)return s;}}

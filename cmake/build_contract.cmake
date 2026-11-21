@@ -279,11 +279,15 @@ if(MAICORD_LINUX)
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fms-extensions;-fms-volatile;-fshort-wchar>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fvisibility=hidden;-ffunction-sections;-fdata-sections;-fPIE>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-stack-protector;-fcf-protection=none>"
-        # Strict IEEE semantics, as /fp:precise.
+        # Strict IEEE semantics, as on Windows: no contraction of a * b + c, at run time or in constant folding.
         "$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>"
-        # The x86-64 baseline of the Windows build: clang-cl's /arch:AVX is Sandy Bridge (AVX, POPCNT, PCLMULQDQ,
-        # CMPXCHG16B) with generic tuning, plus -maes. Sandy Bridge's own tuning grew the client by 38 KB.
-        "$<$<COMPILE_LANGUAGE:CXX>:-march=sandybridge;-mtune=generic;-maes>"
+        # The x86-64 baseline of the Windows build: clang-cl's /arch:AVX2 is Haswell (AVX2, FMA, BMI1, BMI2, LZCNT,
+        # MOVBE, F16C, POPCNT, PCLMULQDQ) with generic tuning, plus -maes, less AVX2 and FMA. AVX2 stays in the
+        # MAICORD_HASWELL loops: as the baseline it vectorized more loops and grew the client by 4 KB. The processor
+        # check does not require FMA, and a fused multiply-add rounds once where the code rounds twice. The features
+        # come from the processor name and not from -m switches, so MAICORD_ANY_PROCESSOR removes all of them.
+        # Sandy Bridge's own tuning grew the client by 38 KB.
+        "$<$<COMPILE_LANGUAGE:CXX>:-march=haswell;-mtune=generic;-maes;-mno-avx2;-mno-fma>"
         "$<$<COMPILE_LANGUAGE:C,CXX>:-O2>" "$<$<COMPILE_LANGUAGE:CXX>:-finline-hint-functions>"
         "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>"
         "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>"
@@ -313,11 +317,12 @@ else()
         $<$<COMPILE_LANGUAGE:CXX>:/GS->
         $<$<COMPILE_LANGUAGE:CXX>:/GR->
         $<$<COMPILE_LANGUAGE:CXX>:/EHs-c->
-        # Strict IEEE semantics: text metrics and hit tests are bit-exact and NaN and
-        # infinity guards hold.
-        $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>
-        $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX>
-        $<$<COMPILE_LANGUAGE:CXX>:-maes>
+        # Strict IEEE semantics: text metrics and hit tests are bit-exact and NaN and infinity guards hold. This is
+        # /fp:precise (clang-cl's default) less its contraction of a * b + c, which LLVM folds fused for constant
+        # operands and computes unfused at run time: as on Linux, every a * b + c rounds twice.
+        $<$<COMPILE_LANGUAGE:CXX>:/clang:-ffp-contract=off>
+        $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX2>
+        "$<$<COMPILE_LANGUAGE:CXX>:-maes;-mno-avx2;-mno-fma>"
         $<$<COMPILE_LANGUAGE:CXX>:/Zc:threadSafeInit->
         $<$<COMPILE_LANGUAGE:CXX>:/Gy>
         $<$<COMPILE_LANGUAGE:CXX>:/Gw>

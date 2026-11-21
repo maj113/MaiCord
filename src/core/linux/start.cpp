@@ -10,6 +10,9 @@
 // or later and a symbol-version dependency that older loaders (2.35 of Ubuntu 22.04, 2.34 of Red Hat 9) cannot
 // satisfy, while the Android tags are unknown to every glibc and so ignored. maicord_start applies
 // them first of all, before anything reads a pointer from the image's data.
+//
+// Everything here runs before the entry's processor check, so it is compiled for the first x86-64
+// (MAICORD_ANY_PROCESSOR).
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
 #include "maicord/sys/linux/process.hpp"
@@ -51,8 +54,9 @@ struct DynamicEntry {
 // the image is started as `ld-musl-x86_64.so.1 image`, as musl (unlike glibc) leaves the vector as the kernel built
 // it. The PT_PHDR entry gives the link-time address, hence the load bias. The RELRO range is read-only by now (the
 // loader protected it after its own relocation pass, which did not include these): it is opened for the pass and
-// closed again. Anything unexpected ends the process, since an unrelocated image cannot run.
-void apply_packed_relocations() noexcept {
+// closed again. Anything unexpected ends the process, since an unrelocated image cannot run. It runs once: compiled for
+// size.
+MAICORD_ANY_PROCESSOR __attribute__((minsize)) void apply_packed_relocations() noexcept {
     const auto* elf = reinterpret_cast<const ElfHeader*>(__ehdr_start);
     const u64 headers = reinterpret_cast<u64>(__ehdr_start) + elf->program_offset;
     const u64 entry_size = elf->program_size;
@@ -112,11 +116,9 @@ void apply_packed_relocations() noexcept {
             where = reinterpret_cast<u64*>(bias + word);
             *where++ += bias;
         } else {
-            u64 bits = word >> 1;
-            for (u64 at = 0; bits != 0; ++at, bits >>= 1) {
-                if (bits & 1) {
-                    where[at] += bias;
-                }
+            // Only the set bits name words: visit those (bsf, then clear the lowest bit).
+            for (u64 bits = word >> 1; bits != 0; bits &= bits - 1) {
+                where[__builtin_ctzll(bits)] += bias;
             }
             where += 63;
         }
@@ -149,7 +151,7 @@ const char* environment_get(const char* name) noexcept {
     return nullptr;
 }
 
-u64 auxiliary_value(u64 type) noexcept {
+MAICORD_ANY_PROCESSOR u64 auxiliary_value(u64 type) noexcept {
     if (g_startup.auxiliary) {
         for (const AuxEntry* entry = g_startup.auxiliary; entry->type != kAuxNull; ++entry) {
             if (entry->type == type) {
@@ -171,12 +173,13 @@ bool process_libc_is_musl() noexcept {
 // strrchr()s it), the stack protector's canary and the threads' bookkeeping. glibc's loader has done all of that
 // before _start. The libc is told apart by gnu_get_libc_version, which only glibc defines; the functions are found by
 // name, so the image's imports stay the audited list.
-extern "C" [[noreturn]] int maicord_musl_main(int, char**, char**) noexcept {
+extern "C" [[noreturn]] MAICORD_ANY_PROCESSOR int maicord_musl_main(int, char**, char**) noexcept {
     maicord_program_entry();
 }
 
 // The stack pointer at _start points at argc, then argv[argc], a null, envp, a null and the auxiliary vector.
-extern "C" [[noreturn, gnu::used]] void maicord_start(maicord::usize* stack) noexcept {
+extern "C" [[noreturn, gnu::used]] MAICORD_ANY_PROCESSOR __attribute__((minsize)) void
+maicord_start(maicord::usize* stack) noexcept {
     using namespace maicord;
     const int argc = static_cast<int>(stack[0]);
     char** argv = reinterpret_cast<char**>(stack + 1);

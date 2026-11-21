@@ -7,7 +7,8 @@
 namespace maicord {
 namespace {
 #pragma float_control(precise,on,push)
-double ceil_value(double value) noexcept {return __builtin_elementwise_ceil(value)+0.0;}
+#pragma clang fp contract(off)
+inline double ceil_value(double value) noexcept {return __builtin_elementwise_ceil(value)+0.0;}
 SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock& block,u32 base,u32 field,double* value) noexcept {
     *value=0;
     if(!instance.present)return SfntStatus::ok;
@@ -62,11 +63,13 @@ SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const
     else if(base>=16 && base<=30) {
         static constexpr u8 masks[]{3,3,1,1,1,1,3,3};fractional=masks[(base-16)/2];
     }
+    // A static paint keeps its values: read_paint makes them from integers, so none is -0 and adding a zero delta
+    // would not change it.
     for(u32 i=0;i<result.count;++i) {
-        double delta=0;
-        if(paint.variable){const auto status=adjustment(instance,block,paint.variation_index,i,&delta);if(status!=SfntStatus::ok)return status;}
-        const double divisor=base==12?65536.0:(fractional&(1u<<i))?16384.0:1.0;
-        result.values[i]=paint.values[i]+delta/divisor;
+        result.values[i]=paint.values[i];
+        if(!paint.variable)continue;
+        double delta=0;const auto status=adjustment(instance,block,paint.variation_index,i,&delta);if(status!=SfntStatus::ok)return status;
+        result.values[i]+=delta/(base==12?65536.0:(fractional&(1u<<i))?16384.0:1.0);
     }
     if(base==2 && instance.mode==ColrVariationMode::standard)result.values[0]=clamp_value<double>(result.values[0],0,1);
     *output=result;return SfntStatus::ok;
@@ -76,8 +79,9 @@ SfntStatus colr_resolve_clip(const ColrVariationInstance& instance,const ColrCli
     if(!clip.present){output->variation_index=0xffffffff;return SfntStatus::ok;}
     double values[]{clip.minimum_x,clip.minimum_y,clip.maximum_x,clip.maximum_y};
     VariationDeltaBlock block;
-    for(u32 i=0;i<4;++i) {
-        double delta=0;if(clip.variable){const auto status=adjustment(instance,block,clip.variation_index,i,&delta);if(status!=SfntStatus::ok)return status;}
+    // colr_clip reads a static box as integers, so the range test, the floor and the ceiling would keep it.
+    if(clip.variable)for(u32 i=0;i<4;++i) {
+        double delta=0;const auto status=adjustment(instance,block,clip.variation_index,i,&delta);if(status!=SfntStatus::ok)return status;
         values[i]+=delta;
         if(!(values[i]>=-9.e18 && values[i]<=9.e18))return SfntStatus::malformed;
         values[i]=i<2?floor_value(values[i]):ceil_value(values[i]);

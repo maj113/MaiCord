@@ -9,7 +9,8 @@ describes the build and test runs. [`perf/`](perf/README.md) and [`release/`](re
 | `enter_build_environment.ps1`, `build_lock_name.ps1`, `maintain_build_outputs.ps1`, `list_checkout_files.ps1` | Helpers of the build entry points |
 | `llvm_toolchain.json`, `resolve_llvm_toolchain.ps1`, `.sh`, `install_linux_toolchain.sh` | The pinned toolchain ([below](#the-llvm-toolchain)); the Linux packages on Debian and Ubuntu |
 | The scripts that `cmake/*.cmake` runs | Generated inputs: packed data (`pack_*.py`, `optimal_deflate.py`, `deflate_cache.txt`, `embed_fixture.py`), the shader packs, the icon pack, regional flags, the emoji catalog, Wayland bindings and the SDK conformance unit |
-| `audit_image.py [--libc musl] [--no-test-hooks]` | The PE and ELF audit that every client link runs |
+| `audit_image.py [--libc musl] [--no-test-hooks] [--processor-entry-map MAP]` | The PE and ELF audit that every client link runs |
+| `check_processor_entry.py IMAGE MAP` | The audit's check that the client runs only first x86-64 instructions until its processor check decides |
 | `check_source_rules.py` | The source rules that every client link runs: shader twins, constant buffers, the example theme |
 | `check_{libc,openssl,pulse,speechd,fido2,video,pipewire}_abi.py` | Compare the `dlopen` tables and the libc pins with the installed `-dev` headers (CI) |
 | `check_linux_ui_text.py` | Fails when the Linux client's text names Windows (a registered test) |

@@ -4,8 +4,8 @@
 // well as C++: the MP3 decoder is C). Defined as clang's headers define them, so the
 // generated code is the same: vector extensions and the compiler's builtins,
 // usable in C++ constant expressions where clang's are. Every unit compiles
-// with /arch:AVX, so they need no target attributes; the AES intrinsics also need
-// the C++ build's -maes. Add what you use.
+// for the baseline (Haswell without AVX2 and FMA), so they need no target
+// attributes. The AES intrinsics also need the C++ build's -maes. Add what you use.
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <immintrin.h>

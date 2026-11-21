@@ -597,6 +597,7 @@ __declspec(noinline) bool finite_decoration_bounds(const TextDecoration& decorat
 // The area test must preserve unordered comparisons before classifying empty
 // geometry. /fp:fast otherwise permits NaN bounds to bypass the cold check.
 #pragma float_control(precise, on, push)
+#pragma clang fp contract(off)
 bool d3d11_glyph_text_append_solid(const TextDecoration& decoration, float origin_x, float origin_y,
                                    const Color& color, GlyphQuad* output, u32 capacity,
                                    u32* count) noexcept {

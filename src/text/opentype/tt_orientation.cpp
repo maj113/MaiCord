@@ -3,6 +3,7 @@
 #include "tt_math.hpp"
 #include "maicord/sys/simd.hpp"
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 namespace maicord {namespace {
 struct Point {double x,y;};
 struct IntegerPoint {i64 v[2];};

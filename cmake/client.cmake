@@ -8,6 +8,12 @@ include(cmake/update_config.cmake)
 # package take MaiCord as the build leaves it. MAICORD_SIZE_REPORT keeps what size analysis reads: the linker map
 # (MaiCord.map) on Windows, the symbol table (nm, bloaty, profilers) on Linux.
 option(MAICORD_SIZE_REPORT "Keep the client's linker map (Windows) or symbol table (Linux) for size analysis" OFF)
+# The linker map of every client link, in the build tree: the image audit finds the processor check in it
+# (tools/check_processor_entry.py). MAICORD_SIZE_REPORT moves the Windows map beside the client.
+set(maicord_client_map "${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
+if(MAICORD_SIZE_REPORT AND NOT MAICORD_LINUX)
+    set(maicord_client_map "${MAICORD_OUTPUT_DIRECTORY}/MaiCord.map")
+endif()
 
 if(MAICORD_LINUX)
     # The application's shell over the libraries (cmake/linux_libraries.cmake), with the Wayland window backend (the
@@ -29,6 +35,7 @@ if(MAICORD_LINUX)
             maicord_crypto maicord_net maicord_core
         INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}")
     target_compile_options(MaiCord PRIVATE -Wno-c23-extensions)
+    target_link_options(MaiCord PRIVATE "LINKER:-Map=${maicord_client_map}")
     if(NOT MAICORD_SIZE_REPORT)
         target_link_options(MaiCord PRIVATE LINKER:--strip-all)
     endif()
@@ -194,9 +201,7 @@ else()
             APPEND PROPERTY COMPILE_DEFINITIONS
             "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
     endif()
-    if(MAICORD_SIZE_REPORT)
-        target_link_options(MaiCord PRIVATE "/MAP:${MAICORD_OUTPUT_DIRECTORY}/MaiCord.map")
-    endif()
+    target_link_options(MaiCord PRIVATE "/MAP:${maicord_client_map}")
     # Startup: DLLs the device prestart does not need map on first use instead of
     # before the entry point, which the prestart waits for. The renderer maps
     # dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main
@@ -222,8 +227,10 @@ include(cmake/runtime_assets.cmake)
 # import sets and the .data budget (the image keeps large zero-filled globals in .bss; 16 KiB of initialized .data
 # leaves room for small tables but not for a serialized aggregate). A failed audit fails the link step, which Ninja
 # then runs again on the next build.
+# The processor entry check reads the map of the same link.
+set(maicord_client_audit_options --processor-entry-map "${maicord_client_map}")
 if(NOT maicord_test_hooks)
-    set(maicord_client_audit_options --no-test-hooks)
+    list(APPEND maicord_client_audit_options --no-test-hooks)
 endif()
 if(NOT MAICORD_LINUX)
     set(MAICORD_CLIENT_STATIC_IMPORTS kernel32.dll user32.dll d3d11.dll gdi32.dll ntdll.dll)

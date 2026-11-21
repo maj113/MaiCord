@@ -18,9 +18,9 @@ namespace {
 // Room for a link of kDesktopUrlCapacity units, its options and the program's path.
 constexpr maicord::u32 kCommandLineCapacity = 4096;
 
-// Ends the process with the reason the client cannot run, on standard error and in the log. The processor check calls
-// it, so the text reaches standard error on a processor without AVX too.
-[[noreturn]] MAICORD_ANY_PROCESSOR void refuse_to_start(const char* reason) noexcept {
+// Writes the reason the client cannot run to standard error. The processor check calls it, so it runs on a processor
+// without AVX too.
+MAICORD_ANY_PROCESSOR void print_refusal(const char* reason) noexcept {
     using namespace maicord;
     constexpr char kPrefix[] = "MaiCord cannot start: ";
     usize length = 0;
@@ -30,6 +30,12 @@ constexpr maicord::u32 kCommandLineCapacity = 4096;
     sys_write(2, kPrefix, sizeof(kPrefix) - 1);
     sys_write(2, reason, length);
     sys_write(2, "\n", 1);
+}
+
+// Ends the process with the reason the client cannot run, on standard error and in the log.
+[[noreturn]] void refuse_to_start(const char* reason) noexcept {
+    using namespace maicord;
+    print_refusal(reason);
     if (log_open()) {
         log_write(LogLevel::error, "startup", reason);
         log_close();
@@ -58,10 +64,13 @@ bool version_requested(const maicord::ProcessStartup& startup) noexcept {
 
 } // namespace
 
-extern "C" [[noreturn, gnu::used]] void maicord_entry() noexcept {
+extern "C" [[noreturn, gnu::used]] MAICORD_ANY_PROCESSOR void maicord_entry() noexcept {
     using namespace maicord;
     if (processor_too_old()) {
-        refuse_to_start(MAICORD_PROCESSOR_TOO_OLD);
+        // The log code uses the instructions that the check requires. So on a refused processor only standard error
+        // gives the reason.
+        print_refusal(MAICORD_PROCESSOR_TOO_OLD);
+        sys_exit_group(1);
     }
     if (version_requested(process_startup())) {
         print_version();

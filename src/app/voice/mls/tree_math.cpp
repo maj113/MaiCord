@@ -67,17 +67,14 @@ MlsStatus mls_tree_root(u32 leaf_count, u32* root) noexcept {
 MlsStatus mls_tree_leaf_ancestor(u32 left_leaf, u32 right_leaf, u32* ancestor) noexcept {
     if (left_leaf > 0x7fffffffu || right_leaf > 0x7fffffffu)
         return MlsStatus::invalid_argument;
-    u32 left = left_leaf * 2, right = right_leaf * 2, shifts = 0;
+    const u32 left = left_leaf * 2, right = right_leaf * 2;
     if (left == right) {
         *ancestor = left;
         return MlsStatus::ok;
     }
-    while (left != right) {
-        left >>= 1;
-        right >>= 1;
-        ++shifts;
-    }
-    *ancestor = (left << shifts) + (1u << (shifts - 1)) - 1;
+    // Above the highest bit where the two differ, the ancestor has their common bits. That bit is clear in the
+    // ancestor, and every bit below it is set.
+    *ancestor = (left & right) | ((1u << (31 - __builtin_clz(left ^ right))) - 1);
     return MlsStatus::ok;
 }
 namespace {

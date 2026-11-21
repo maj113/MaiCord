@@ -124,13 +124,9 @@ inline u64 proto_fixed64(const ProtoSource& w, u32 p) noexcept {
     return value;
 }
 
+// Seven bits per byte: 1 + h / 7 bytes for a highest set bit h, computed as (h * 9 + 73) / 64.
 inline u32 proto_varint_size(u64 value) noexcept {
-    u32 size = 1;
-    while (value >= 128) {
-        value >>= 7;
-        ++size;
-    }
-    return size;
+    return ((63 - static_cast<u32>(__builtin_clzll(value | 1))) * 9 + 73) / 64;
 }
 
 // Writes protobuf into output while it fits and keeps counting past its end,

@@ -62,10 +62,10 @@ maicord_library(maicord_media_codec
 # 0.9 KB smaller and its decode 0.9-1.8% slower, which the size cap takes.
 if(MAICORD_LINUX)
     target_compile_options(maicord_media_codec PRIVATE
-        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-march=sandybridge;-mtune=generic;-finline-hint-functions;-Wno-missing-braces>")
+        "$<$<COMPILE_LANGUAGE:C>:-Wall;-Wextra;-Werror;-march=haswell;-mtune=generic;-mno-avx2;-mno-fma;-finline-hint-functions;-Wno-missing-braces>")
 else()
     target_compile_options(maicord_media_codec PRIVATE
-        "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
+        "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX2;-mno-avx2;-mno-fma;/clang:-ffp-contract=off;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
 endif()
 
 # The Go Live encoder (include/maicord/platform/encode/gpu_stream_encoder.hpp): hardware Media Foundation transforms

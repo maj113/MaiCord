@@ -1,10 +1,14 @@
 #pragma once
 
-// Haswell instructions (AVX2, BMI1, BMI2, LZCNT, MOVBE, F16C) for a hot loop that is written by hand. The
-// compiler stays on the Sandy Bridge baseline for all other code. A function with MAICORD_HASWELL holds the
+// AVX2 for a hot loop that is written by hand. The compiler baseline has the other instructions of Haswell (BMI1,
+// BMI2, LZCNT, MOVBE, F16C) for all code, but not AVX2. A function with MAICORD_HASWELL holds the
 // whole loop: the compiler does not inline it into a caller without the attribute. There is one version of
 // each loop and no CPU dispatch. Declare an intrinsic here, with the same attribute, when a loop needs one.
-#define MAICORD_HASWELL __attribute__((__target__("avx2,bmi,bmi2,lzcnt,movbe,f16c")))
+#define MAICORD_HASWELL __attribute__((__target__("avx2")))
+// A hand loop that also uses FMA, only where no output must keep its exact rounding. Both systems compile with
+// -ffp-contract=off, and its body starts with `#pragma clang fp contract(off)`, so it fuses only where the code calls
+// an fmadd intrinsic.
+#define MAICORD_HASWELL_FMA __attribute__((__target__("avx2,fma")))
 
 #include "maicord/sys/simd.hpp"
 
@@ -127,6 +131,9 @@ MAICORD_SIMD_HASWELL __m256 _mm256_cvtepi32_ps(__m256i __a) {
 MAICORD_SIMD_HASWELL __m256i _mm256_cvttps_epi32(__m256 __a) {
     return (__m256i)__builtin_ia32_cvttps2dq256((__v8sf)__a);
 }
+MAICORD_SIMD_HASWELL __m256i _mm256_cvtps_epi32(__m256 __a) {
+    return (__m256i)__builtin_ia32_cvtps2dq256((__v8sf)__a);
+}
 MAICORD_SIMD_HASWELL __m256 _mm256_div_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a / (__v8sf)__b); }
 MAICORD_SIMD_HASWELL __m256i _mm256_set1_epi8(char __b) {
     return __extension__(__m256i)(__v32qi){__b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b,
@@ -134,6 +141,7 @@ MAICORD_SIMD_HASWELL __m256i _mm256_set1_epi8(char __b) {
 }
 MAICORD_SIMD_HASWELL __m256i _mm256_or_si256(__m256i __a, __m256i __b) { return (__m256i)((__v4du)__a | (__v4du)__b); }
 MAICORD_SIMD_HASWELL __m256i _mm256_xor_si256(__m256i __a, __m256i __b) { return (__m256i)((__v4du)__a ^ (__v4du)__b); }
+MAICORD_SIMD_HASWELL __m256i _mm256_add_epi8(__m256i __a, __m256i __b) { return (__m256i)((__v32qu)__a + (__v32qu)__b); }
 MAICORD_SIMD_HASWELL __m256i _mm256_sub_epi8(__m256i __a, __m256i __b) { return (__m256i)((__v32qu)__a - (__v32qu)__b); }
 MAICORD_SIMD_HASWELL __m256i _mm256_abs_epi8(__m256i __a) { return (__m256i)__builtin_elementwise_abs((__v32qs)__a); }
 MAICORD_SIMD_HASWELL __m256i _mm256_avg_epu8(__m256i __a, __m256i __b) {
@@ -150,6 +158,9 @@ MAICORD_SIMD_HASWELL __m256i _mm256_min_epu8(__m256i __a, __m256i __b) {
 }
 MAICORD_SIMD_HASWELL __m256i _mm256_cmpeq_epi8(__m256i __a, __m256i __b) {
     return (__m256i)((__v32qi)__a == (__v32qi)__b);
+}
+MAICORD_SIMD_HASWELL __m256i _mm256_cmpgt_epi8(__m256i __a, __m256i __b) {
+    return (__m256i)((__v32qs)__a > (__v32qs)__b);
 }
 MAICORD_SIMD_HASWELL __m256i _mm256_maddubs_epi16(__m256i __a, __m256i __b) {
     return (__m256i)__builtin_ia32_pmaddubsw256((__v32qi)__a, (__v32qi)__b);
@@ -204,6 +215,27 @@ MAICORD_SIMD_HASWELL __m256i _mm256_shuffle_epi8(__m256i __a, __m256i __b) {
 MAICORD_SIMD_HASWELL __m256i _mm256_permutevar8x32_epi32(__m256i __a, __m256i __b) {
     return (__m256i)__builtin_ia32_permvarsi256((__v8si)__a, (__v8si)__b);
 }
+// For the ChaCha20 rows.
+#define _mm256_shuffle_epi32(A, I) ((__m256i)__builtin_ia32_pshufd256((__v8si)(__m256i)(A), (int)(I)))
+MAICORD_SIMD_HASWELL __m256i _mm256_broadcastsi128_si256(__m128i __X) {
+    return (__m256i)__builtin_shufflevector((__v2di)__X, (__v2di)__X, 0, 1, 0, 1);
+}
+MAICORD_SIMD_HASWELL int _mm256_movemask_epi8(__m256i __a) { return __builtin_ia32_pmovmskb256((__v32qi)__a); }
+
+// FMA, for float loops whose rounding is not part of an output that must stay the same.
+#define MAICORD_SIMD_FMA(width)                                                                                        \
+    static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("fma"), __min_vector_width__(width)))
+MAICORD_SIMD_FMA(128) __m128 _mm_fmadd_ps(__m128 __A, __m128 __B, __m128 __C) {
+    return (__m128)__builtin_elementwise_fma((__v4sf)__A, (__v4sf)__B, (__v4sf)__C);
+}
+MAICORD_SIMD_FMA(256) __m256 _mm256_fmadd_ps(__m256 __A, __m256 __B, __m256 __C) {
+    return (__m256)__builtin_elementwise_fma((__v8sf)__A, (__v8sf)__B, (__v8sf)__C);
+}
+MAICORD_SIMD_FMA(128) __m128 _mm_fmadd_ss(__m128 __A, __m128 __B, __m128 __C) {
+    __A[0] = __builtin_elementwise_fma(__A[0], __B[0], __C[0]);
+    return __A;
+}
+#undef MAICORD_SIMD_FMA
 
 #undef MAICORD_SIMD_HASWELL
 

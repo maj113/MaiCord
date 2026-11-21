@@ -7,6 +7,7 @@ namespace maicord {
 namespace {
 
 #pragma float_control(precise, on, push)
+#pragma clang fp contract(off)
 bool bounded(double value) noexcept { return value >= -1.e12 && value <= 1.e12; }
 bool integer(double value, i32* out) noexcept {
     if (!(value >= -2147483648.0 && value <= 2147483647.0)) return false;

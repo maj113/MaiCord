@@ -91,6 +91,7 @@ SfntStatus item_variation_store_open(ConstSlice<u8> table,u32 at,ItemVariationSt
 }
 
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 // Once per instance and table: compiled for size.
 __attribute__((minsize)) SfntStatus variation_instance_prepare(const ItemVariationStore& store,ConstSlice<double> coordinates,
                                      Slice<double> storage,VariationInstance* output,u32 work,VariationCoordinatePrecision precision) noexcept {

@@ -38,6 +38,7 @@ SfntStatus sfnt_hvar_advance_delta(const SfntHvar& view,ConstSlice<double> scala
     return item_variation_delta({view.store,scalars},index,output);
 }
 #pragma float_control(precise,on,push)
+#pragma clang fp contract(off)
 SfntStatus sfnt_hvar_design_advance(const SfntHvar& view,ConstSlice<double> scalars,const SfntHorizontalMetrics& metrics,u16 glyph,u16* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output=0;SfntGlyphMetrics base{};
     auto s=sfnt_horizontal_metrics(metrics,glyph,&base);if(s!=SfntStatus::ok)return s;

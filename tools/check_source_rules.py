@@ -5,12 +5,12 @@
 
   * tools/check_shader_twins.py: every packed HLSL shader has its GLSL twin, written against the HLSL as it is;
   * tools/check_cbuffer_layout.py and its --self-test: the cbuffers agree between HLSL packing and std140;
-  * tools/check_theme_literals.py: no new presentation literal in src/ui;
-  * tools/generate_theme_example.py --check: assets/themes/example.maicord-theme.json matches the token tables.
+  * tools/generate_theme_example.py --check: assets/themes/example.maicord-theme.json matches the token tables;
+  * tools/check_processor_entry.py --self-test: the image audit's processor entry check finds what it must.
 
 The build runs it with --stamp: on success it touches FILE and writes FILE.d, a depfile that lists every file and
 directory the rules read, so Ninja runs it again only when one of them changes (an added or removed file changes its
-directory). Each rule's own script keeps its options (--stamp, --update, --list).
+directory). Each rule's own script keeps its options (check_shader_twins.py --stamp).
 
 Exit status: nonzero when a rule fails; every rule runs.
 """
@@ -25,16 +25,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
 import check_cbuffer_layout  # noqa: E402
+import check_processor_entry  # noqa: E402
 import check_shader_twins  # noqa: E402
-import check_theme_literals  # noqa: E402
 import generate_theme_example  # noqa: E402
 
 RULES = (
     ("shader twins", check_shader_twins.main, []),
     ("cbuffer layout", check_cbuffer_layout.main, []),
     ("cbuffer layout self-test", check_cbuffer_layout.main, ["--self-test"]),
-    ("theme literals", check_theme_literals.main, []),
     ("theme example", generate_theme_example.main, ["--check"]),
+    ("processor entry self-test", check_processor_entry.main, ["--self-test"]),
 )
 
 
@@ -43,15 +43,12 @@ def inputs():
     shaders = ROOT / "src" / "render" / "shaders"
     theme = ROOT / "include" / "maicord" / "ui" / "theme"
     paths = [pathlib.Path(module.__file__) for module in (
-        check_cbuffer_layout, check_shader_twins, check_theme_literals, generate_theme_example)]
+        check_cbuffer_layout, check_processor_entry, check_shader_twins, generate_theme_example)]
     paths += [pathlib.Path(__file__), ROOT / "cmake" / "generated_sources.cmake",
-              ROOT / "include" / "maicord" / "sdk" / "background.hlsli", check_theme_literals.BASELINE,
+              ROOT / "include" / "maicord" / "sdk" / "background.hlsli",
               generate_theme_example.OUTPUT, shaders, shaders / "gles"]
     paths += sorted(shaders.glob("*.hlsl")) + sorted((shaders / "gles").glob("*.glsl"))
     paths += [theme / name for name in ("theme.hpp", "presets.hpp", "tokens.inc", "styles.hpp")]
-    sources = check_theme_literals.SOURCES
-    paths += [sources] + sorted(path for path in sources.rglob("*")
-                                if path.is_dir() or path.suffix in (".cpp", ".hpp", ".inc"))
     return paths
 
 

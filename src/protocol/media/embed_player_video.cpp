@@ -283,6 +283,7 @@ EmbedPlayerError amazon_music_preview_stream(Utf8View url,u64 now,EmbedStreams* 
 }
 u64 twitter_post_id(const Utf8View& id) noexcept { return numeric_id(id); }
 #pragma float_control(precise, on, push)
+#pragma clang fp contract(off)
 u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
     const u64 post=twitter_post_id(id);
     if(!post || !output.data) return 0;

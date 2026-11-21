@@ -92,9 +92,8 @@ struct LogEvent {
     // "key=0x1F": masks, handles and identifiers that read better in hex.
     __declspec(noinline) LogEvent& hex(const char* key, u64 value) noexcept {
         char digits[19] = {'0', 'x'};
-        u32 count = 1;
-        while (count < 16 && (value >> (count * 4)) != 0)
-            ++count;
+        // One digit for each started group of four bits, and one for zero.
+        const u32 count = (67 - static_cast<u32>(__builtin_clzll(value | 1))) / 4;
         for (u32 index = 0; index < count; ++index)
             digits[2 + index] = ascii_hex_digit_upper(static_cast<u32>(value >> ((count - 1 - index) * 4)));
         digits[2 + count] = 0;
