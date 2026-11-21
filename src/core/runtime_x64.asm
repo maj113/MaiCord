@@ -359,11 +359,10 @@ compare_differs:
     ; The lowest set bit of the XOR is in the first differing byte.
     bsf rax, rax
     shr eax, 3
-    movzx r8d, BYTE PTR [rcx+rax]
-    add rcx, rdx
-    movzx eax, BYTE PTR [rcx+rax]
-    sub r8d, eax
-    mov eax, r8d
+    add rcx, rax
+    movzx eax, BYTE PTR [rcx]
+    movzx ecx, BYTE PTR [rcx+rdx]
+    sub eax, ecx
     ret
 memcmp ENDP
 

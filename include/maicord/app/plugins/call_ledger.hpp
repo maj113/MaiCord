@@ -57,7 +57,8 @@ struct PluginCallOutcome {
 
 // UI-thread only, zero-initialized and caller-owned. The marker is a small
 // mapped file: entering a call stores the owner and leaving clears one word,
-// so neither side costs a system call and the record survives a process crash.
+// so neither side costs a system call (but the first call after the watchdog
+// parked, which wakes it) and the record survives a process crash.
 // budget_us and lifecycle_budget_us are the gesture and lifecycle budgets.
 struct PluginCallLedger {
     HANDLE file;
@@ -67,11 +68,14 @@ struct PluginCallLedger {
     u64 budget_us, lifecycle_budget_us, decorate_budget_us, pre_budget_us, event_budget_us;
     u32 depth;
     u32 overrun_limit;
-    // The hang watchdog (call_watchdog.cpp): its thread, the event that stops it, its settings, and
-    // the function close calls to stop it. Null until plugin_call_watchdog_start.
+    // The hang watchdog (call_watchdog.cpp): its thread, the auto-reset event that wakes it (to stop, or for the first
+    // call after it parked), its settings, and the function close calls to stop it. Null until
+    // plugin_call_watchdog_start. The watchdog sets watchdog_parked when it found no call and sleeps until the next
+    // one; plugin_call_begin clears it and sets the event.
     Thread* watchdog;
-    Waitable watchdog_stop;
+    Waitable watchdog_wake;
     u32 hang_limit_ms;
+    volatile bool watchdog_parked, watchdog_stopping;
     void (*close_watchdog)(PluginCallLedger*) noexcept;
     PluginCallLedgerEntry entries[kPluginCallLedgerOwners];
 };
@@ -85,11 +89,12 @@ void plugin_call_ledger_close(PluginCallLedger*) noexcept;
 // A null ledger makes begin/end no-ops so hosts without accounting still work.
 PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind, PluginCallClass) noexcept;
 PluginCallOutcome plugin_call_finish(PluginCallLedger*, const PluginCallTicket&) noexcept;
-// Starts the thread that reads the marker once per limit_ms, and when a call it
-// found would reach limit_ms. A call inside a plugin for limit_ms is logged with
-// its owner and recorded in the marker, so the next start knows the plugin hung
-// even if the user killed the process. It cannot interrupt the plugin. Needs an
-// open marker file.
+// Starts the thread that reads the marker once per limit_ms while calls run,
+// and when a call it found would reach limit_ms; a look that finds no call
+// parks it until the next call begins. A call inside a plugin for limit_ms is
+// logged with its owner and recorded in the marker, so the next start knows the
+// plugin hung even if the user killed the process. It cannot interrupt the
+// plugin. Needs an open marker file.
 bool plugin_call_watchdog_start(PluginCallLedger*, u32 limit_ms = kPluginCallHangMilliseconds) noexcept;
 bool plugin_call_ledger_disable_requested(const PluginCallLedger*, u64 owner_id) noexcept;
 // Fresh accounting for an owner that was enabled again.

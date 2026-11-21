@@ -263,9 +263,6 @@ bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPal
         if (tray->added)
             Shell_NotifyIconW(NIM_DELETE, &data);
         tray->added = false;
-        if (tray->icon)
-            DestroyIcon(static_cast<HICON>(tray->icon));
-        tray->icon = nullptr;
         return true;
     }
     if (!plan.add && !plan.update && tray->added && palette_equal(palette, tray->palette))
@@ -289,15 +286,13 @@ bool system_tray_apply(SystemTray* tray, const TrayPlan& plan, const TrayIconPal
     } else {
         applied = Shell_NotifyIconW(NIM_MODIFY, &data) != FALSE;
     }
+    // The shell keeps its own copy of the icon.
+    DestroyIcon(icon);
     if (!applied) {
-        DestroyIcon(icon);
         tray->added = false;
         tray_model_reset(&tray->model);
         return false;
     }
-    if (tray->icon)
-        DestroyIcon(static_cast<HICON>(tray->icon));
-    tray->icon = icon;
     tray->added = true;
     tray->palette = palette;
     return true;
@@ -347,8 +342,6 @@ void system_tray_release(SystemTray* tray) noexcept {
         data.uID = kTrayId;
         Shell_NotifyIconW(NIM_DELETE, &data);
     }
-    if (tray->icon)
-        DestroyIcon(static_cast<HICON>(tray->icon));
     reset_value(tray);
 }
 

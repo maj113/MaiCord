@@ -48,6 +48,11 @@ void thread_cancel_synchronous_io(Thread* thread) noexcept;
 bool thread_com_enter() noexcept;
 void thread_com_leave() noexcept;
 
+// A memory barrier on every thread of this process (FlushProcessWriteBuffers; membarrier on Linux): when it returns,
+// the caller sees each store another thread made before it, and every thread sees the caller's earlier stores. The
+// slow side of a handshake whose fast side has no fence.
+void thread_process_barrier() noexcept;
+
 void thread_sleep(u32 milliseconds) noexcept;
 // The logical processors this process may run on (at least 1).
 u32 processor_count() noexcept;

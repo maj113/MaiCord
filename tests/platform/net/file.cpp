@@ -1,9 +1,31 @@
 #include "maicord/platform/net/network.hpp"
 #include "maicord/app/net/https_file_upload.hpp"
-
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/process_info.hpp"
 
 namespace maicord {
+namespace {
+u32 page_faults() noexcept {
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    return GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)) ? counters.PageFaultCount : 0;
+}
+// The pages of an allocation (one committed region) and how many of them are in the working set.
+struct Residency {
+    u32 pages, resident;
+};
+Residency residency(void* base) noexcept {
+    MEMORY_BASIC_INFORMATION region{};
+    if (VirtualQuery(base, &region, sizeof(region)) != sizeof(region)) return {};
+    Residency result{static_cast<u32>(region.RegionSize / 4096), 0};
+    for (u32 page = 0; page < result.pages; ++page) {
+        PSAPI_WORKING_SET_EX_INFORMATION info{};
+        info.VirtualAddress = static_cast<u8*>(base) + page * 4096ull;
+        result.resident += QueryWorkingSetEx(GetCurrentProcess(), &info, sizeof(info)) && info.VirtualAttributes.Valid;
+    }
+    return result;
+}
+}
 void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t directory[MAX_PATH]{}, path[MAX_PATH]{};
     if (!GetTempPathW(MAX_PATH, directory) || !GetTempFileNameW(directory, L"mcu", 0, path)) {
@@ -62,8 +84,14 @@ void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
         check(done == WAIT_OBJECT_0 && result.phase == HttpsFileUploadPhase::complete &&
             result.error == HttpsFileUploadError::file_size && !result.committed_bytes,
             "source size change fails before any connection or upload bytes");
+        // A finished upload wipes the bytes it wrote, not the whole runtime: most of it was never touched. Windows
+        // may map zero pages in 64 KiB clusters around a first touch, hence the bounds of a quarter and 16 faults.
+        const Residency pages = residency(upload.runtime);
+        check(pages.pages && pages.resident < pages.pages / 4, "a finished upload keeps its unwritten pages out of memory");
+        const u32 faults = page_faults();
         check(https_file_upload_release(&upload, 5000) && !upload.runtime && !upload.worker.thread,
             "completed upload owner joins and clears every handle");
+        check(page_faults() - faults < 16, "a released upload does not fault in its unwritten pages to wipe them");
     }
     const HANDLE changed = CreateFileW(path, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     const u64 changed_time = selected_identity.last_write + 10000000;

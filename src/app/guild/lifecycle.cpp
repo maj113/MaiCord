@@ -151,7 +151,6 @@ struct Background {
     Utf8View leave_status;
     bool leave_queued, leave_owner, leave_dialog, leave_done;
     u64 reorder_guild, reorder_request, reorder_retry;
-    GuildAdminPosition positions[kGuildAdminMaximumPositions];
     u32 position_count;
     bool reorder_queued;
     char join_code[kGuildInviteCodeMaximumBytes];
@@ -159,8 +158,13 @@ struct Background {
     bool join_pending, join_dialog;
     u64 join_revision;
     Utf8View join_status;
+    // Read only below position_count: a reset clears the members above and leaves these 12 KiB unwritten.
+    GuildAdminPosition positions[kGuildAdminMaximumPositions];
 };
 Background g_background{};
+inline void reset_background() noexcept {
+    clear_bytes(&g_background, static_cast<u32>(offsetof(Background, positions)));
+}
 
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready;
@@ -172,7 +176,7 @@ bool background_scope() noexcept {
     if (!g_app.account_ui)
         return false;
     if (g_background.account_scope != g_app.plugin_account_scope_serial) {
-        reset_value(&g_background);
+        reset_background();
         g_background.account_scope = g_app.plugin_account_scope_serial;
     }
     return true;
@@ -1062,7 +1066,7 @@ void application_guild_lifecycle_release() noexcept {
     auto& b = g_background;
     application_cancel_request(account_module_guild_admin, b.leave_request);
     application_cancel_request(account_module_guild_admin, b.reorder_request);
-    reset_value(&g_background);
+    reset_background();
     if (!owner)
         return;
     if (owner->op == Op::create)

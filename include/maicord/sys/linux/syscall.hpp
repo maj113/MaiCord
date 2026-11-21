@@ -74,6 +74,7 @@ enum SyscallNumber : long {
     kSysRenameat2 = 316,
     kSysGetrandom = 318,
     kSysMemfdCreate = 319,
+    kSysMembarrier = 324,
     kSysStatx = 332,
     kSysCloseRange = 436,
 };

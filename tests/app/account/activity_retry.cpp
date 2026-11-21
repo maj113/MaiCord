@@ -241,6 +241,54 @@ void call_idle(void (*check)(bool, const char*) noexcept) noexcept {
     g_account_fake.local_presence = old_presence;
     arena_release(&arena);
 }
+
+#if defined(_WIN32)
+// An idle presence while Windows reports the user away: an hour of loop turns asks for no wake and runs no input
+// check (the 5 s poll asked for 720). The report of the user's return makes the check due at once.
+void away_idle(void (*check)(bool, const char*) noexcept) noexcept {
+    const auto old_instance = g_app.account.instance;
+    const auto old_presence = g_account_fake.local_presence;
+    const auto old_preferences = g_app.preferences;
+    g_app.account.instance = &g_publishes;
+    g_account_fake.local_presence = capture_presence;
+    g_app.preferences.game_detection = g_app.preferences.streamer_auto = false;
+    g = {};
+    g.account_scope = g_app.plugin_account_scope_serial;
+    u64 now = 1'000'000;
+    g.idle = {now - kPresenceIdleTimeoutMs, true};
+    g.idle_check_at = now + kPresenceIdlePollMs;
+    struct Setting {
+        GUID setting;
+        DWORD bytes, value;
+    } report{kSessionUserPresence, sizeof(DWORD), 2};
+    Setting other = report;
+    other.setting.Data1 ^= 1;
+    check(!application_activity_window_message(WM_POWERBROADCAST, PBT_POWERSETTINGCHANGE,
+                                               reinterpret_cast<LPARAM>(&other)) &&
+              application_activity_window_message(WM_POWERBROADCAST, PBT_POWERSETTINGCHANGE,
+                                                  reinterpret_cast<LPARAM>(&report)),
+          "activity: only the user presence report is taken");
+    const u64 armed = g.idle_check_at;
+    u32 wakes = 0;
+    for (u32 second = 0; second < 3'600; ++second) {
+        now += 1'000;
+        application_activity_tick(now);
+        wakes += application_activity_next_wake() != 0;
+    }
+    check(!wakes && g.idle_check_at == armed && g.idle.idle,
+          "activity: an hour away and idle asks for no wake and runs no check");
+    report.value = 0;
+    application_activity_window_message(WM_POWERBROADCAST, PBT_POWERSETTINGCHANGE, reinterpret_cast<LPARAM>(&report));
+    check(application_activity_next_wake() == armed, "activity: the user's return makes the idle check due");
+    application_activity_tick(now);
+    check(g.idle_check_at > now && application_activity_next_wake() > now,
+          "activity: the check runs at the return and arms the next one");
+    g = {};
+    g_app.preferences = old_preferences;
+    g_app.account.instance = old_instance;
+    g_account_fake.local_presence = old_presence;
+}
+#endif
 } // namespace
 
 void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
@@ -274,5 +322,8 @@ void test_activity_retry(void (*check)(bool, const char*) noexcept) noexcept {
     g_account_fake.self_status_complete = old_complete;
     detection(check);
     call_idle(check);
+#if defined(_WIN32)
+    away_idle(check);
+#endif
 }
 } // namespace maicord::app_detail

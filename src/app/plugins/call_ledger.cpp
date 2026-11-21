@@ -104,6 +104,12 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
         *reinterpret_cast<volatile u64*>(view + 24) = static_cast<u64>(ticket.started);
         view[21] = 0;
         view[20] = 1;
+        // The watchdog found no call and sleeps until this one (call_watchdog.cpp reads the flag after its own store
+        // and a process-wide barrier, so one of the two sides sees the other).
+        if (ledger->watchdog_parked) {
+            ledger->watchdog_parked = false;
+            event_set(ledger->watchdog_wake);
+        }
     }
     return ticket;
 }

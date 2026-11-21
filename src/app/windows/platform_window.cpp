@@ -3,6 +3,7 @@
 // and the tray, a second launch. The portable event chain is shell/window_dispatch.cpp, the bar the frame glue asks
 // about is shell/caption.cpp.
 #include "../notifications/taskbar_attention.hpp"
+#include "../account/activity.hpp"
 #include "../accessibility/accessibility.hpp"
 #include "../notifications/desktop.hpp"
 #include "../shell/state.hpp"
@@ -23,14 +24,19 @@ void application_platform_window_prepare() noexcept {}
 
 bool application_platform_window_create(Window* out, const char** failure) noexcept {
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
-    // The benchmark window never activates and has no taskbar button.
+    // The benchmark window never activates and has no taskbar button. It always has the default size.
     constexpr u32 extended_style = probe_window::kExtendedStyle;
+    const WindowPlacement* placement = nullptr;
 #else
     constexpr u32 extended_style = 0;
+    const WindowPlacement* placement = application_window_saved_placement();
 #endif
     // The window keeps the system frame's outer size; the caption moves into the client (WM_NCCALCSIZE).
-    return win32_window_create({utf8_literal("MaiCord"), {}, 1280, 800, false}, {extended_style, true},
-                               application_window_event, nullptr, out, failure);
+    if (!win32_window_create({utf8_literal("MaiCord"), {}, 1280, 800, false, placement}, {extended_style, true},
+                             application_window_event, nullptr, out, failure))
+        return false;
+    application_activity_watch_presence(win32_hwnd(*out));
+    return true;
 }
 
 void application_platform_window_show(ShowMode mode) noexcept {
@@ -55,16 +61,24 @@ bool win32_input_blocked() noexcept {
 
 // UI Automation (WM_GETOBJECT) and its deferred actions (it observes WM_DESTROY); tray icon callbacks, Explorer
 // restarts and launches forwarded by a second instance; the taskbar button's registered "created" message; the window
-// menu's appearance.
+// menu's appearance; the end of the session; the user's presence.
 bool win32_shell_message(HWND, UINT message, WPARAM wparam, LPARAM lparam, LRESULT* result) noexcept {
     // The window menu (Alt+Space, the caption's icon and a right click on it) takes the theme's appearance as it opens,
     // so a theme change or a system scheme change since the last one shows; the default procedure then shows it.
     if (message == WM_ENTERMENULOOP)
         win32_menu_appearance(application_theme().appearance != ThemeAppearance::light);
+    // A sign-out or shutdown ends the process without a close: a window kept open (or in the tray) saves its
+    // placement here.
+    if (message == WM_ENDSESSION && wparam)
+        application_window_save_placement();
     if (application_accessibility_window_message(message, wparam, lparam, result))
         return true;
     if (application_desktop_window_message(message, wparam, lparam, result))
         return true;
+    if (application_activity_window_message(message, wparam, lparam)) {
+        *result = TRUE;
+        return true;
+    }
     if (application_input_blocked())
         return false;
     // A press on the frame, or a touch or pen contact, hides keyboard focus as a click in the client does.

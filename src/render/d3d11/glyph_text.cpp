@@ -98,8 +98,15 @@ struct GlyphTextStorage {
     GlyphAtlasIndex atlas_index;
     u16 atlas_index_buckets[kRendererAtlasEntryCapacity * 2];
     GlyphQuad title_quads[kRendererGlyphCapacity];
+    // The keys of the glyphs the last idle trim evicted, one bit per hash bucket (trimmed_bucket).
+    u64 trimmed_keys[64];
     bool geometry_stale;
 };
+
+// The bucket of a glyph key in trimmed_keys: the top 12 bits of a Fibonacci hash.
+inline u32 trimmed_bucket(u64 key) noexcept {
+    return static_cast<u32>((key * 0x9E3779B97F4A7C15ull) >> 52);
+}
 
 // The owner header has a fixed size budget, so storage-resident state is
 // reached through the storage block that owns atlas_origins.
@@ -138,12 +145,19 @@ bool sync_surfaces(D3D11GlyphTextOwner* owner, GpuContext* context) noexcept {
 // Glyphs used within kRendererGlyphProtectMs count as shown and are kept.
 GlyphAtlasAllocation allocate_glyph(D3D11GlyphTextOwner* owner, GpuContext* context, u64 key, u16 width,
                                     u16 height) noexcept {
+    const bool armed = owner->allocator.trim_pending;
     GlyphAtlasAllocation allocation =
         glyph_atlas_allocate_unique_indexed(&owner->allocator, atlas_index(owner), key, width, height);
     if (allocation.ok() && !sync_surfaces(owner, context)) {
         glyph_atlas_release(&owner->allocator, allocation.handle);
         allocation.error = GlyphAtlasError::no_capacity;
     }
+    // A glyph the last idle trim evicted comes back because text on screen draws it, and the next trim would evict
+    // it again: it does not arm one. Else every trim evicted the visible glyphs again, and the client built its text
+    // and drew a frame every kRendererGlyphIdleTrimMs while idle.
+    const u32 bucket = trimmed_bucket(key);
+    if (allocation.ok() && (text_storage(owner)->trimmed_keys[bucket >> 6] >> (bucket & 63) & 1))
+        owner->allocator.trim_pending = armed;
     return allocation;
 }
 
@@ -1090,10 +1104,23 @@ bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, GpuContext* context, u64 
             }
         }
     }
+    // The entries held before the trim, to name the ones it evicts.
+    static_assert(kRendererAtlasEntryCapacity % 64 == 0);
+    u64 held[kRendererAtlasEntryCapacity / 64]{};
+    for (u32 slot = 0; slot < atlas.entry_capacity; ++slot)
+        held[slot >> 6] |= u64{atlas.entries[slot].occupied} << (slot & 63);
     const bool evicted = glyph_atlas_trim(&atlas) != 0;
     sync_surfaces(owner, context);
-    if (evicted)
-        text_storage(owner)->geometry_stale = true;
+    if (evicted) {
+        GlyphTextStorage& storage = *text_storage(owner);
+        storage.geometry_stale = true;
+        clear_bytes(storage.trimmed_keys, sizeof(storage.trimmed_keys));
+        for (u32 slot = 0; slot < atlas.entry_capacity; ++slot)
+            if ((held[slot >> 6] >> (slot & 63) & 1) && !atlas.entries[slot].occupied) {
+                const u32 bucket = trimmed_bucket(atlas.entries[slot].key);
+                storage.trimmed_keys[bucket >> 6] |= u64{1} << (bucket & 63);
+            }
+    }
     return evicted;
 }
 

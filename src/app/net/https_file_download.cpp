@@ -14,9 +14,12 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/os/path.hpp"
+#include <stddef.h>
 
 namespace maicord {
 namespace {
+// valid_path keeps this many units free after the path for the staged file's name.
+constexpr u32 kStageNameUnits = 64;
 struct Runtime {
     TlsStream tls;
     StagedFile staged;
@@ -36,11 +39,14 @@ struct Runtime {
     bool destination_exists, overwrite_authorized, tls_initialized;
     bool draining, stopping, published, plaintext_closed, response_failed;
     wchar_t host[254];
-    wchar_t path[kHttpsFileDownloadMaximumPathUnits + 1];
-    wchar_t stage[kHttpsFileDownloadMaximumPathUnits + 1];
     u8 head[kCdnMaximumTargetBytes + 512];
-    u8 encrypted[128 * 1024], handshake[256 * 1024], record[64 * 1024];
     u8 response_input[32 * 1024];
+    // The path, its terminator, then the staged file's name (the path's directory and at most kStageNameUnits
+    // more): destroy wipes only these written units.
+    wchar_t path[2 * (kHttpsFileDownloadMaximumPathUnits + 1)];
+    // Whole pages, which the stream decommits when it drains (release_pages) instead of writing them.
+    alignas(4096) u8 encrypted[128 * 1024];
+    u8 handshake[256 * 1024], record[64 * 1024];
 };
 void phase(HttpsFileDownload* owner, HttpsFileDownloadPhase value) noexcept {
     InterlockedExchange(&owner->phase, static_cast<LONG>(value));
@@ -70,11 +76,12 @@ void hex(wchar_t* output, u64 value, u32 digits) noexcept {
 }
 StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
     static volatile LONG serial = 0;
+    wchar_t* const stage = r->path + r->path_units + 1;
     for (u32 attempt = 0; attempt < 16; ++attempt) {
         u32 directory_units = r->path_units;
         while (directory_units && r->path[directory_units - 1] != L'\\' && r->path[directory_units - 1] != L'/') --directory_units;
-        copy_bytes(r->stage, r->path, directory_units * sizeof(wchar_t));
-        auto* suffix = r->stage + directory_units;
+        copy_bytes(stage, r->path, directory_units * sizeof(wchar_t));
+        auto* suffix = stage + directory_units;
         static constexpr wchar_t prefix[] = L".maicord-download-";
         copy_bytes(suffix, prefix, sizeof(prefix) - sizeof(wchar_t));
         suffix += sizeof(prefix) / sizeof(wchar_t) - 1;
@@ -82,9 +89,11 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
         hex(suffix, clock_monotonic_milliseconds(), 16); suffix += 16; *suffix++ = L'-';
         hex(suffix, static_cast<u32>(InterlockedIncrement(&serial)), 8); suffix += 8;
         static constexpr wchar_t ending[] = L".part";
+        static_assert(sizeof(prefix) / sizeof(wchar_t) - 1 + 8 + 1 + 16 + 1 + 8 + sizeof(ending) / sizeof(wchar_t) <=
+                      kStageNameUnits);
         copy_bytes(suffix, ending, sizeof(ending));
         const auto opened =
-            staged_file_begin(&r->staged, loop, r->path, r->stage, known_bytes(r), r->destination_exists,
+            staged_file_begin(&r->staged, loop, r->path, stage, known_bytes(r), r->destination_exists,
                               r->overwrite_authorized, r->destination);
         if (opened.ok()) return opened;
         if (opened.native_error != ERROR_FILE_EXISTS && opened.native_error != ERROR_ALREADY_EXISTS) return opened;
@@ -244,7 +253,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
                      !tls_stream_initialize(&r->tls, r->host,
                                             {{r->encrypted, sizeof(r->encrypted)},
                                              {r->handshake, sizeof(r->handshake)},
-                                             {r->record, sizeof(r->record)}}))
+                                             {r->record, sizeof(r->record)}, true}))
                 drain(owner, r, HttpsFileDownloadError::tls);
             else { r->tls_initialized = true; phase(owner, HttpsFileDownloadPhase::connecting); drive(owner, r, tls_stream_begin_connect(&r->tls, loop)); }
         }
@@ -280,15 +289,21 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
     const u64 now = clock_monotonic_milliseconds();
     return {now >= r->deadline ? 0u : static_cast<u32>(minimum<u64>(r->deadline - now, 1000)), false};
 }
+// The worker has exited, so a stream that started has drained and retired its buffers. The rest is wiped as far as
+// it can hold written bytes: a page that was never written is not made resident only to be cleared.
 void destroy(HttpsFileDownload* owner) noexcept {
     if (owner->notification) waitable_close(owner->notification);
-    if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); pages_release(owner->runtime); }
+    if (owner->runtime) {
+        const u32 path_units = static_cast<Runtime*>(owner->runtime)->path_units;
+        secure_clear_bytes(owner->runtime, offsetof(Runtime, path) + (2 * path_units + 1 + kStageNameUnits) * sizeof(wchar_t));
+        pages_release(owner->runtime);
+    }
     reset_value(owner);
 }
 bool valid_path(ConstSlice<wchar_t> path) noexcept {
     // Reserve room for a unique sibling filename; never accept a relative,
     // device namespace or alternate-data-stream destination.
-    if (!path.data || path.count < 3 || path.count > kHttpsFileDownloadMaximumPathUnits - 64) return false;
+    if (!path.data || path.count < 3 || path.count > kHttpsFileDownloadMaximumPathUnits - kStageNameUnits) return false;
     // The files seam's policy: a drive or UNC path on Windows, a rooted one on Linux.
     const PathRoot root = path_root(path, kPathRootUnc);
     if (root == PathRoot::none || (root == PathRoot::unc && path.count <= 5)) return false;

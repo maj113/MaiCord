@@ -799,6 +799,36 @@ bool probe_signout_glyph_atlas() noexcept {
                              "signout_glyph_quads_idle");
 }
 
+// The app shell's glyphs through two idle periods: the first trim evicts them (retained quads do not touch the atlas
+// clock), the content text built again from the stale flag draws them again, and that rebuild arms no trim, so the
+// second period evicts nothing. Each trim once evicted the same glyphs again: an idle client built its text and drew
+// a frame every kRendererGlyphIdleTrimMs.
+bool probe_idle_glyph_trim() noexcept {
+    auto& r = g_probe.renderer;
+    if (!add_message(1'270'000'000'000'000'200ull, utf8_literal("Sphinx of black quartz, judge my vow #atlas")) ||
+        !add_message(1'270'000'000'000'000'201ull, utf8_literal("The quick brown fox jumps over the lazy dog 42")) ||
+        !message_view_runtime_reindex(&g_probe.message_view, ui_extent_units(kUiBootstrapMessageRowHeight), 1, true)
+             .ok() ||
+        !synchronize_probe_shell_layout() || !rebuild_probe_content_text() || !probe_present(&r, kDefaultTheme))
+        return false;
+    // The first maintenance gives the atlas its clock (what was drawn counts as allocated now) and keeps every glyph.
+    const u64 period = kRendererGlyphIdleTrimMs + kRendererGlyphProtectMs, now = clock_monotonic_milliseconds();
+    const u32 before = r.glyph_text.allocator.evicted_entries;
+    renderer_media_maintain(&r, now);
+    renderer_media_maintain(&r, now + period);
+    const u32 first = r.glyph_text.allocator.evicted_entries - before;
+    log_u64(LogLevel::info, "probe", "idle_glyph_trim_first", first);
+    if (!first || !renderer_glyph_atlas_take_stale(&r) || !rebuild_probe_content_text() ||
+        !glyph_frame("idle_glyph_trim_atlas", "idle_glyph_trim_quads"))
+        return false;
+    const u64 deadline = d3d11_glyph_text_trim_deadline(r.glyph_text);
+    renderer_media_maintain(&r, now + 2 * period);
+    const u32 second = r.glyph_text.allocator.evicted_entries - before - first;
+    LogEvent("idle_glyph_trim").field("first", first).field("second", second).field("deadline", deadline)
+        .write(second || deadline ? LogLevel::error : LogLevel::info, "probe");
+    return !second && !deadline;
+}
+
 bool probe_long_embed_text() noexcept {
     constexpr u64 id = 1'270'000'000'000'000'000ull;
     const auto substitutions = g_probe.text.substitutions;

@@ -4,9 +4,28 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/os/wait.hpp"
+#if defined(_WIN32)
+#include "maicord/sys/process_info.hpp"
+#endif
 
 namespace maicord {
 namespace {
+#if defined(_WIN32)
+u32 page_faults() noexcept {
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    return GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)) ? counters.PageFaultCount : 0;
+}
+u32 resident_pages(const void* base, u32 pages) noexcept {
+    u32 resident = 0;
+    for (u32 page = 0; page < pages; ++page) {
+        PSAPI_WORKING_SET_EX_INFORMATION info{};
+        info.VirtualAddress = const_cast<u8*>(static_cast<const u8*>(base) + page * 4096ull);
+        resident += QueryWorkingSetEx(GetCurrentProcess(), &info, sizeof(info)) && info.VirtualAttributes.Valid;
+    }
+    return resident;
+}
+#endif
 bool await_local_failure(HttpsFileDownload* download) noexcept {
     const u32 done = wait_one(download->notification, 5000);
     const auto result = https_file_download_status(download);
@@ -90,8 +109,18 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
         "zero-byte attachment admission owns its request without requiring a body allocation");
     if (owner.runtime) {
         check(await_local_failure(&owner) && retained(path), "same-size destination modification fails before DNS and preserves selected bytes");
+#if defined(_WIN32)
+        // The release wipes the bytes the transfer wrote, not the whole runtime: most of it was never touched. Windows
+        // may map zero pages in 64 KiB clusters around a first touch, hence the bounds of a quarter and 16 faults.
+        const u32 pages = https_file_download_runtime_bytes() / 4096;
+        check(resident_pages(owner.runtime, pages) < pages / 4, "a finished download keeps its unwritten pages out of memory");
+        const u32 faults = page_faults();
+#endif
         check(https_file_download_release(&owner, 5000) && !owner.runtime && !owner.worker.thread,
             "local download failure drains and releases every worker handle");
+#if defined(_WIN32)
+        check(page_faults() - faults < 16, "a released download does not fault in its unwritten pages to wipe them");
+#endif
     }
     check(DeleteFileW(path) && https_file_download_start(&owner, request) == HttpsFileDownloadError::none,
         "selected existing destination removal is checked by the worker");

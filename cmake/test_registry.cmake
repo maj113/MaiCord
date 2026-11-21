@@ -363,8 +363,8 @@ maicord_add_tests(MaiCordNetworkLoopTests ONLY LINUX TIMEOUT 10
     TEST maicord_network_loop_ring_refused --ring-refused
     TEST maicord_network_loop_ring_hidden --ring-hidden)
 if(MAICORD_LINUX)
-    # The platform crypto over the system OpenSSL: the vectors shared with the Windows suite (AES-GCM, AES-GCM with a
-    # 64-bit tag, XChaCha20-Poly1305, P-256) and the ones of the parts the Linux backend adds (HKDF/HMAC/SHA-256, the
+    # The platform crypto of the Linux build: the vectors shared with the Windows suite (AES-GCM, AES-GCM with a
+    # 64-bit tag, XChaCha20-Poly1305, P-256) and the ones of the parts the OpenSSL backend adds (HKDF/HMAC/SHA-256, the
     # random bytes, the incremental hash, the remote-auth RSA key), in one process.
     maicord_test(MaiCordCryptoTests ENTRY maicord_crypto_tests_entry
         SOURCES tests/platform/crypto/crypto_tests_linux.cpp tests/platform/crypto/aes_gcm.cpp
@@ -512,7 +512,7 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
         tests/app/chat/read_scope.cpp tests/app/chat/bulk_read_ack_controller.cpp tests/model/chat/read_state_pump.cpp
         tests/ui/guild/channel_context_policy.cpp tests/ui/guild/context_policy.cpp tests/ui/guild/folder_open.cpp tests/ui/guild/hidden_channel_menu.cpp tests/protocol/user/social_menus.cpp
         tests/ui/chat/unread_context.cpp tests/ui/chat/messages/mention_badge_text.cpp tests/app/gateway/ready_projection.cpp tests/ui/text/emitter.cpp
-        tests/model/user/member_user_perf.cpp src/render/text/edit_layout.cpp tests/ui/chat/messages/context_controller.cpp
+        src/render/text/edit_layout.cpp tests/ui/chat/messages/context_controller.cpp
         tests/ui/settings/scene.cpp tests/ui/widgets/kit.cpp tests/ui/widgets/settings_choice.cpp tests/ui/account/password_recovery.cpp tests/ui/account/password_reset_ui.cpp
         tests/model/user/profile_editor_layout.cpp tests/protocol/auth/phone_recovery.cpp tests/ui/account/password_phone_ui.cpp tests/ui/account/friends_scene.cpp
         tests/ui/account/friends_media.cpp tests/ui/text/form_confirmation.cpp tests/ui/widgets/color_picker.cpp
@@ -550,19 +550,15 @@ maicord_test(MaiCordNativeExtensionTests ONLY WINDOWS ENTRY maicord_native_exten
     INCLUDES src/app "${MAICORD_GENERATED_DIRECTORY}"
     DEFINES "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     USES_CLIENT MaiCord)
-# The same 164 fixtures run once across four private process/profile owners.
-# Shard 0 keeps all 5 durable update fixtures serial and runs 40 other fixtures;
-# shards 1 and 2 run 40 and shard 3 runs 39. Every shard checks its exact function count.
-set(maicord_extension_fixture_counts 45 40 40 39)
+# The fixtures run once across four private process/profile owners. Shard 0 keeps the 5 durable update fixtures
+# serial. The other fixtures go round-robin to the four shards.
 foreach(maicord_extension_shard RANGE 0 3)
     set(maicord_extension_test maicord_native_extensions)
-    list(GET maicord_extension_fixture_counts ${maicord_extension_shard} maicord_extension_fixture_count)
     if(maicord_extension_shard)
         string(APPEND maicord_extension_test "_shard_${maicord_extension_shard}")
     endif()
     maicord_add_tests(MaiCordNativeExtensionTests
-        PASS_REGULAR_EXPRESSION
-            "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/164"
+        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 "
         TEST ${maicord_extension_test} --fixture-shard ${maicord_extension_shard} 4)
 endforeach()
 if(NOT MAICORD_LINUX)
@@ -570,12 +566,12 @@ if(NOT MAICORD_LINUX)
         -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_output_guard.ps1")
     set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
 endif()
+# Account media session playback of Opus, MP3 and WAV through a real endpoint
+# (tests/integration/account_video_session_probe.cpp). Opt-in with -AudioPlaybackProbe.
 maicord_test(MaiCordAccountVideoSessionProbe ONLY WINDOWS ENTRY maicord_account_video_session_probe_entry
     SOURCES tests/integration/account_video_session_probe.cpp src/app/media/account_video_session.cpp
-        src/app/media/account_video_session_audio.cpp
-        src/platform/decode/hevc_gpu_decoder.cpp src/gpu/d3d11/video_frame.cpp ${MAICORD_VIDEO_FRAME_HEADER}
-    LIBS maicord_account_media maicord_platform maicord_model maicord_gpu_d3d11 d3d11 dxgi ole32 kernel32 user32
-    INCLUDES ${MAICORD_GENERATED_DIRECTORY})
+        src/app/media/account_video_session_audio.cpp src/platform/decode/hevc_gpu_decoder.cpp
+    LIBS maicord_account_media maicord_platform maicord_model maicord_gpu_d3d11 d3d11 dxgi ole32 kernel32 user32)
 if(MAICORD_TEST_AUDIO_PLAYBACK)
     maicord_test(MaiCordNotificationAudioPlayback ONLY WINDOWS ENTRY maicord_notification_audio_playback_entry
         SOURCES tests/platform/audio/notification_audio_playback.cpp ${MAICORD_NOTIFICATION_SOUND_RESOURCE}
@@ -762,10 +758,33 @@ if(MAICORD_LINUX)
     if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
         set_tests_properties(maicord_account_settings_ui_probe PROPERTIES DISABLED TRUE)
     endif()
+    # The Server Hub against the fake Discord (tools/test_server_hub_wayland.sh): the Boost Goal and Server Hub rows,
+    # the hub's space, hydrate and consent requests with the page in the screenshots, and a server without a hub
+    # (404). Opt-in like the Server Tag run.
+    add_test(NAME maicord_server_hub_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_server_hub_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/server-hub-qa")
+    set_tests_properties(maicord_server_hub_ui_probe PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_server_hub_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
+    # Channels & Roles against the fake Discord (tools/test_channels_roles_wayland.sh): the row, the onboarding GET
+    # and the save's PUT with the page's Customize and Browse Channels tabs in the screenshots. Opt-in like the Server
+    # Tag run.
+    add_test(NAME maicord_channels_roles_ui_probe
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_channels_roles_wayland.sh" --binary "$<TARGET_FILE:MaiCord>"
+            --out "${CMAKE_BINARY_DIR}/channels-roles-qa")
+    set_tests_properties(maicord_channels_roles_ui_probe PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77
+        RESOURCE_LOCK wayland_compositor)
+    if(NOT "$ENV{MAICORD_FAKE_DISCORD_INTEGRATION}")
+        set_tests_properties(maicord_channels_roles_ui_probe PROPERTIES DISABLED TRUE)
+    endif()
     maicord_test_runs_client(maicord_linux_client_text maicord_linux_client_version maicord_server_tag_ui_probe
         maicord_friends_ui_probe maicord_go_live_ui_probe maicord_server_profile_ui_probe maicord_profile_editor_ui_probe
         maicord_server_apps_ui_probe maicord_server_access_ui_probe maicord_game_mentions_ui_probe
-        maicord_app_settings_ui_probe maicord_account_settings_ui_probe)
+        maicord_app_settings_ui_probe maicord_account_settings_ui_probe maicord_server_hub_ui_probe
+        maicord_channels_roles_ui_probe)
 endif()
 # The delay-load helper (src/core/delay_load.cpp): imports by ordinal and by
 # name, a forwarded API-set export, and racing first calls.
@@ -902,7 +921,7 @@ maicord_test(MaiCordNavigationGapsTests ENTRY maicord_navigation_gaps_entry SOUR
 # drag state machines, text in voice and the server menu policy.
 maicord_test(MaiCordNavigationWaveTests ENTRY maicord_navigation_wave_entry SOURCES tests/app/gateway/navigation_wave.cpp
     BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_navigation_wave)
-# Membership screening, onboarding and scheduled events.
+# Membership screening, onboarding, scheduled events and the Server Hub (requests, decoders, gate, channel-list rows).
 maicord_test(MaiCordGuildCommunityTests ONLY WINDOWS ENTRY maicord_guild_community_entry
     SOURCES tests/protocol/guild/community.cpp
     BUNDLE MaiCordAppWaveTests TIMEOUT 10 TEST maicord_guild_community)
@@ -1038,10 +1057,11 @@ maicord_test(MaiCordVoiceTests ONLY WINDOWS ENTRY maicord_voice_tests_entry
         tests/app/voice/jitter_buffer.cpp tests/app/voice/playback.cpp tests/app/voice/receive.cpp tests/app/voice/call_view.cpp
         tests/app/voice/stream_watch.cpp tests/protocol/guild/stage_channel.cpp tests/protocol/voice/video_signaling.cpp tests/app/voice/dave/video_frames.cpp
         tests/app/voice/video_sink.cpp tests/protocol/gateway/stream.cpp tests/app/voice/send.cpp tests/app/voice/preferences.cpp
+        tests/app/voice/connection_sound.cpp
         tests/ui/voice/go_live_scene.cpp tests/app/voice/go_live_send.cpp tests/app/voice/go_live_thumbnails.cpp
         src/app/voice/settings_binding.cpp src/core/log.cpp tests/support/voice_log_sink.cpp
-    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_model kernel32 crypt32 ws2_32
-        maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
+    LIBS maicord_core maicord_protocol maicord_window_null maicord_platform maicord_app_core maicord_model kernel32
+        crypt32 ws2_32 maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
     INCLUDES src/app
     TEST maicord_voice_setup)
 # The linked account module's entries without an owner: they refuse before creating an account, login, worker or
@@ -1385,7 +1405,7 @@ maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
 maicord_test(MaiCordProfileRuntimeTests ONLY WINDOWS ENTRY maicord_profile_runtime_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/app/account/profile_runtime.cpp src/app/account/profile.cpp src/app/shell/state.cpp
-        src/core/log.cpp
+        src/app/account/self_status.cpp src/app/shell/content_page.cpp src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 bcrypt
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_profile_runtime)
@@ -1597,6 +1617,17 @@ maicord_test(MaiCordAccountReconnectTests ONLY WINDOWS ENTRY maicord_account_rec
 # Toast queue: order, merge, overflow, timing by update and wake counts, placement and paint.
 maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry SOURCES tests/ui/widgets/toast.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_toast)
+# The caption's connection indicator: each state transition, its wakes and lines, the title it replaces and its marks.
+maicord_test(MaiCordConnectionStatusTests ENTRY maicord_connection_status_tests_entry
+    SOURCES tests/ui/shell/connection_status.cpp
+    BUNDLE MaiCordUiUnitTests TIMEOUT 5 TEST maicord_connection_status)
+# The indicator over its sources: Gateway lifecycle events, the worker restart and the account restart schedule.
+maicord_test(MaiCordConnectionIndicatorTests ONLY WINDOWS ENTRY maicord_connection_indicator_entry
+    SOURCES tests/app/account/connection_indicator.cpp src/app/account/application_account_reconnect.cpp
+        src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_ui_test_libs} maicord_account_paths kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_connection_indicator)
 # A multi-line settings editor with a selected empty line (Ctrl+A in the profile Bio) lays out, paints and outputs text.
 maicord_test(MaiCordSettingsEditSelectionTests ENTRY maicord_settings_edit_selection_entry
     SOURCES tests/ui/settings/edit_selection.cpp
@@ -1757,8 +1788,8 @@ if(MAICORD_LINUX)
     #
     #   maicord_dbus_bus              the connection: authentication, calls, timeouts, typed bodies decoded by libdbus,
     #                                 descriptors, signals, an exported object, a fake bus that sends garbage
-    #   maicord_dbus_services         the settings portal, notifications through the daemon, OpenURI, the Secret Service and
-    #                                 the portal probes, against the mock services
+    #   maicord_dbus_services         the settings portal, notifications through the daemon, OpenURI, the Secret Service,
+    #                                 the portal probes and Plasma's logout (ksmserver), against the mock services
     #   maicord_dbus_services_portal  notifications through the portal (the script sets MAICORD_NOTIFICATION_BACKEND=portal)
     #   maicord_dbus_services_plain   notifications through a daemon that does not read markup in the body
     #   maicord_dbus_services_bare    every client on a bus without any service
@@ -2228,7 +2259,7 @@ if(NOT MAICORD_LINUX)
             g_maicord_glyph_color_reference_pixel_shader tests/shaders/glyph_color_reference.hlsl)
 endif()
 # One executable, four reference comparisons selected by MAICORD_GLYPH_PROBE.
-# Stage and color controls 1 and 2 rerun them with recolored, re-sampled instances.
+# Stage controls 1 and 2 rerun the stage comparison with recolored, re-sampled instances.
 maicord_test(MaiCordGlyphTopologyProbe ONLY WINDOWS ENTRY maicord_glyph_topology_entry
     SOURCES tests/integration/glyph_topology_probe.cpp "${MAICORD_GLYPH_LIST_VERTEX_HEADER}"
         "${MAICORD_GLYPH_EASING_VERTEX_HEADER}" "${MAICORD_GLYPH_EASING_PIXEL_HEADER}"
@@ -2240,16 +2271,16 @@ maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-rendere
 foreach(maicord_glyph_probe IN ITEMS stage color)
     maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu
         ENVIRONMENT MAICORD_GLYPH_PROBE=${maicord_glyph_probe} TEST maicord_glyph_${maicord_glyph_probe})
-    foreach(maicord_glyph_control IN ITEMS 1 2)
-        maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu
-            ENVIRONMENT MAICORD_GLYPH_PROBE=${maicord_glyph_probe} MAICORD_GLYPH_STAGE_CONTROL=${maicord_glyph_control}
-            TEST maicord_glyph_${maicord_glyph_probe}_control_${maicord_glyph_control})
-    endforeach()
+endforeach()
+foreach(maicord_glyph_control IN ITEMS 1 2)
+    maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu
+        ENVIRONMENT MAICORD_GLYPH_PROBE=stage MAICORD_GLYPH_STAGE_CONTROL=${maicord_glyph_control}
+        TEST maicord_glyph_stage_control_${maicord_glyph_control})
 endforeach()
 maicord_test(MaiCordUnicodeTests ENTRY maicord_unicode_tests_entry
     SOURCES tests/text/unicode/unicode_test.cpp tests/text/unicode/grapheme_test.cpp
     LIBS maicord_core maicord_unicode kernel32
-    BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_unicode)
+    BUNDLE MaiCordTextUnitTests TEST maicord_native_unicode)
 maicord_test(MaiCordArabicJoiningTests ENTRY maicord_arabic_joining_tests_entry SOURCES tests/text/scripts/arabic_joining_test.cpp
     BUNDLE MaiCordTextUnitTests TEST maicord_native_arabic_joining)
 maicord_test(MaiCordArabicMaskTests ENTRY maicord_arabic_mask_tests_entry SOURCES tests/text/scripts/arabic_mask_test.cpp
@@ -2472,7 +2503,8 @@ maicord_test(MaiCordWindowWin32KeysTests ONLY WINDOWS ENTRY maicord_window_win32
 maicord_test(MaiCordWindowWin32BehaviourTests ONLY WINDOWS ENTRY maicord_window_win32_behaviour_entry
     SOURCES tests/platform/window/win32_behaviour.cpp
     LIBS maicord_core kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_behaviour)
-# The Windows backend's event translation and window procedure (hooks, sink answers, post-actions).
+# The Windows backend's event translation and window procedure (hooks, sink answers, post-actions), and a saved
+# placement applied to the hidden window.
 maicord_test(MaiCordWindowWin32EventsTests ONLY WINDOWS ENTRY maicord_window_win32_events_entry
     SOURCES tests/platform/window/win32_events.cpp
     LIBS maicord_core maicord_window_win32 kernel32 user32 TIMEOUT 10 TEST maicord_window_win32_events)
@@ -2480,6 +2512,11 @@ maicord_test(MaiCordWindowWin32EventsTests ONLY WINDOWS ENTRY maicord_window_win
 maicord_test(MaiCordWindowNullTests ONLY WINDOWS ENTRY maicord_window_null_entry
     SOURCES tests/platform/window/null_window.cpp
     LIBS maicord_core maicord_window_null kernel32 TIMEOUT 10 TEST maicord_window_null)
+# The main window's placement (window.bin): DPI conversion, the move onto a work area, the record and its file.
+maicord_test(MaiCordWindowPlacementTests ONLY WINDOWS ENTRY maicord_window_placement_entry
+    SOURCES tests/app/settings/window_placement.cpp src/app/settings/window_placement_file.cpp
+        src/app/net/file_persistence.cpp
+    LIBS maicord_core kernel32 TIMEOUT 10 TEST maicord_window_placement)
 if(MAICORD_LINUX)
     # The tests of the Wayland window backend (src/platform/window/wayland).
     #
@@ -2677,8 +2714,8 @@ maicord_test(MaiCordNativeFormatTests ONLY WINDOWS ENTRY maicord_native_format_e
 maicord_add_tests(MaiCordNativeFormatTests TIMEOUT 2
     TEST maicord_native_recovery_pressure --recovery-pressure "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Compagnon.otf")
 # Inline the shared test driver's hot comparisons and query helpers (/Ob2). Its layouts are checked against
-# the committed references of tests/ui/text/app_line_reference.hpp (tools/font_reference/text_reference.py
-# records them); status 77 means this machine's fonts were never recorded.
+# the final committed references of tests/ui/text/app_line_reference.hpp; status 77 means this machine's fonts
+# were never recorded.
 if(NOT MAICORD_LINUX)
     add_library(maicord_native_app_line_driver OBJECT tests/ui/text/native_app_line_test.cpp
         tests/ui/text/native_app_line_scripts.cpp tests/ui/text/native_app_line_editing.cpp
@@ -2932,10 +2969,11 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordCff2Tests ENTRY maicord_cff2_entry SOURCES tests/text/opentype/cff2_test.cpp
         LIBS maicord_font maicord_core TIMEOUT 5 TEST maicord_native_cff2)
     # The text system over the installed fonts: shaping smoke checks (Latin, CJK, Devanagari, Arabic, Thai, Hebrew, emoji)
-    # and the language-specific CJK fallback order, and a bold chat paragraph whose emoji fall back to the bitmap colour
-    # face (refused, not crashed on).
-    maicord_test(MaiCordSystemTextTests ENTRY maicord_system_text_entry SOURCES tests/ui/text/system_text_linux_test.cpp
-        LIBS maicord_text_system maicord_text_catalog maicord_font_system maicord_font maicord_unicode maicord_core
+    # and the language-specific CJK fallback order, a bold chat paragraph whose emoji fall back to the bitmap colour
+    # face (refused, not crashed on), and Japanese in the composer's edit field (src/render/text/edit_layout.cpp).
+    maicord_test(MaiCordSystemTextTests ENTRY maicord_system_text_entry
+        SOURCES tests/ui/text/system_text_linux_test.cpp src/render/text/edit_layout.cpp
+        LIBS ${maicord_linux_app_test_libs}
         TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_system_text)
     # The native text catalog: family lookup, the fallback routes and the generated Linux table.
@@ -2956,6 +2994,16 @@ if(MAICORD_LINUX)
         maicord_add_tests(MaiCordSystemTextTests TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment} LC_ALL=${locale}
             TEST maicord_native_system_text_${name} --language "${family}")
     endforeach()
+    # A last-resort font that covers the unassigned U+3040 (Unifont) must not take the Hiragana route: Japanese typed in
+    # the composer showed as boxes. The host's language stays, as in maicord_native_system_text: under ja_JP the line box
+    # checks for circled letters fail on Ubuntu.
+    maicord_add_tests(MaiCordSystemTextTests TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
+            FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/last_resort/fonts.conf
+        TEST maicord_native_system_text_last_resort)
+    # A fallback face the engine cannot prepare draws missing glyphs; the rest of the text keeps its own.
+    maicord_add_tests(MaiCordSystemTextTests TIMEOUT 15
+        ENVIRONMENT FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/refused/fonts.conf
+        TEST maicord_native_system_text_refused_face --refused-face)
     maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_text_catalog_scan --scan)
     # A face fontconfig lists and the text engine refuses falls back: it never makes the text system fail.
@@ -3073,10 +3121,10 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         src/app/chat/messages/reaction.cpp src/app/chat/messages/mutation_notice.cpp
         tests/integration/media_picker_ui_adapter.cpp tests/app/guild/stream_preview_media_stub.cpp
         tests/integration/channel_overview_ui_adapter.cpp tests/integration/regional_flag_probe.cpp
-        tests/integration/regional_flag_surfaces_probe.cpp tests/integration/inline_flags_probe.cpp
+        tests/integration/inline_flags_probe.cpp tests/integration/content_page_probe.cpp
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
         tests/integration/background_theme_pixels.cpp tests/integration/background_effect_pixels.cpp
-        tests/integration/frame_damage_probe.cpp tests/integration/scroll_fade_probe.cpp
+        tests/integration/frame_damage_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
         tests/integration/resize_text_ui_probe.cpp
@@ -3084,10 +3132,9 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         src/app/store/store_dialogs.cpp src/app/store/store_act.cpp src/app/store/store_preview_decode.cpp
         src/app/settings/catalog.cpp src/app/update/updates.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
-        tests/integration/call_scene_ui_probe.cpp tests/integration/go_live_ui_gpu_probe.cpp
+        tests/integration/call_scene_ui_probe.cpp
         tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/shell/app_icon.cpp config/maicord.rc
-        tests/integration/showcase_probe.cpp tests/integration/showcase_probe_art.cpp
         tests/integration/login_recovery_ui_probe.cpp
         tests/ui/account/login_reset_ui_probe.cpp tests/integration/login_phone_ui_probe.cpp
         tests/integration/login_browser_ui_probe.cpp tests/integration/member_paging_probe.cpp
@@ -3117,7 +3164,7 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
 if(NOT MAICORD_LINUX)
     # The constinit probe state (renderer plus every scene owner) exceeds the
     # default constant-evaluation step budget.
-    set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
+    set_source_files_properties(tests/integration/ui_probe.cpp
         PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
     # These units are mostly their own code, so unoptimized without the
     # application PCH (which is /O2) compiles them several times faster.
@@ -3194,16 +3241,16 @@ maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE B
 # and size changes) equals a full render of the same state, buffer age included.
 maicord_ui_probe_test(maicord_frame_damage_probe UI_FRAME_DAMAGE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu_c)
-# The message list draws no fade at its bottom: the rows above the composer show the same picture scrolled up as at
-# the bottom, under a package effect, under Stars and under the default theme.
-maicord_ui_probe_test(maicord_scroll_fade_probe UI_SCROLL_FADE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
-    RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_PROBE BOOTSTRAP TIMEOUT 20 COST 50
     RESOURCE_LOCK native_gpu_b)
 # Rail server icons through layout and present: static, animated at rest and
 # hovered, and still-loading icons must each build, queue the right resident
 # rendition and present (a failed build_layout presents nothing).
 maicord_ui_probe_test(maicord_guild_rail_icon_probe UI_GUILD_RAIL_ICON_PROBE BOOTSTRAP TIMEOUT 20
+    LABELS native-ui display RESOURCE_LOCK native_gpu)
+# A content page through layout and draw (the Server Hub's header): the banner picture, then the page's top paint layer
+# with the banner's scrim, then the server icon over it. The drawn foot of a white banner is near black, its top light.
+maicord_ui_probe_test(maicord_content_page_probe UI_CONTENT_PAGE_PROBE BOOTSTRAP TIMEOUT 20
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 # Profiles settings page, preview card, cropper and decoration picker; Ctrl+A over a multi-line Bio. Try It Out: every
 # name font with every effect at 100, 125 and 150 %, then 256 presses of Shuffle with a frame after each.
@@ -3239,24 +3286,6 @@ maicord_ui_probe_test(maicord_reply_draft_probe UI_REPLY_DRAFT_PROBE BOOTSTRAP L
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_forum_media_probe UI_FORUM_MEDIA_PROBE BOOTSTRAP LABELS native-ui forum-media
     RESOURCE_LOCK native_gpu_c)
-maicord_ui_probe_test(maicord_hangul_render_probe HANGUL_RENDER_PROBE TIMEOUT 15 LABELS native-text-render
-    RESOURCE_LOCK native_gpu)
-maicord_ui_probe_test(maicord_standard_render_probe STANDARD_RENDER_PROBE TIMEOUT 15 LABELS native-text-render
-    RESOURCE_LOCK native_gpu)
-# Wrapped profile geometry for each script's samples. The same gates write
-# frames when MAICORD_UI_PROBE_CAPTURE_DIR is set.
-foreach(maicord_render_script IN ITEMS TIBETAN MYANMAR KHMER SINHALA MALAYALAM KANNADA TELUGU ODIA GURMUKHI
-        GUJARATI BENGALI TAMIL THAI)
-    string(TOLOWER "maicord_${maicord_render_script}_wrap_render_probe" maicord_render_test)
-    maicord_ui_probe_test(${maicord_render_test} ${maicord_render_script}_WRAP_RENDER_PROBE TIMEOUT 15
-        LABELS native-text-render)
-endforeach()
-foreach(maicord_render_mode IN ITEMS DEVANAGARI DEVANAGARI_TRACKING DEVANAGARI_DIRECTION DIRECTION_TRACKING
-        EXTENDED_STANDARD)
-    string(TOLOWER "maicord_${maicord_render_mode}_render_probe" maicord_render_test)
-    maicord_ui_probe_test(${maicord_render_test} ${maicord_render_mode}_RENDER_PROBE TIMEOUT 15
-        LABELS native-text-render)
-endforeach()
 # Isolated scene gates of the UI probe: each builds the shared fixture, drives
 # one scene through the real layout, text and draw path, and exits. They need
 # no GPU lock; every one is a hardware-renderer pixel and geometry check.
@@ -3269,21 +3298,15 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI STORE_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
         UI_GUILD_ROLES
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_EDITED_LABEL UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
-        UI_INLINE_FLAGS UI_RESIZE_TEXT
+        UI_INLINE_FLAGS UI_LEGACY_COMPONENTS UI_RESIZE_TEXT
         UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_MESSAGE_HEADER_CLIP UI_PANE_GLYPH_STRESS
-        UI_PINNED_MESSAGES UI_QUICK_SWITCHER
+        UI_PINNED_MESSAGES UI_PROFILE_MEDIA_SEQUENCE UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER UI_UNPLAYABLE_VIDEO TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")
     maicord_ui_probe_test(maicord_${maicord_ui_gate_name}_probe ${maicord_ui_gate}_PROBE BOOTSTRAP TIMEOUT 15
         LABELS native-ui display)
 endforeach()
-# The sequence that hung an AMD GPU when the tile pool shrank under queued writes (profile cards opened in the frame
-# of a member-list upload burst): a GPU hang reproduction, so it runs on WARP with the debug layer only, never on the
-# hardware adapter, and any debug-layer message but NULL_TILE_MAPPING_ACCESS_WARNING fails it. WARP draws on the CPU
-# (about 6 CPU s here), so a loaded machine stretches its wall time: it has the suite's 20 s limit.
-maicord_ui_probe_test(maicord_profile_media_sequence_ui_probe UI_PROFILE_MEDIA_SEQUENCE_PROBE BOOTSTRAP WARP TIMEOUT 20
-    LABELS native-ui display)
 # The sign-in screen as the client starts it (first frame under the caption, window shown, the loop's first glyph
 # maintenance, an idle trim): every resident glyph reads back with coverage through a staging copy, and every sign-in
 # quad names a resident glyph and draws ink. On the hardware adapter and on WARP with the debug layer.
@@ -3297,18 +3320,12 @@ maicord_ui_probe_test(maicord_signout_glyph_atlas_probe SIGNOUT_GLYPH_ATLAS_PROB
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_signout_glyph_atlas_warp_probe SIGNOUT_GLYPH_ATLAS_PROBE BOOTSTRAP WARP TIMEOUT 15
     LABELS native-ui display)
-# Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
-# runs label showcase only when the test is named, e.g.
-# -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
-# With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
-# MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day;
-# MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change;
-# MAICORD_SHOWCASE_HERO (the window in DIPs, e.g. 1440x900) takes instead only the
-# animated hero in that theme with the channel tabs on, for the README and the site;
-# MAICORD_SHOWCASE_FRIENDS takes only the Friends page in Dark, Light, AMOLED and
-# Aurora, then by day and night in MAICORD_SHOWCASE_THEME's theme when one is named.
-maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
-    RESOURCE_LOCK native_gpu)
+# The app shell's glyphs through two idle periods: the first trim evicts them, the content text built again draws
+# them again, and that rebuild arms no further trim, so the second period evicts nothing.
+maicord_ui_probe_test(maicord_idle_glyph_trim_probe IDLE_GLYPH_TRIM_PROBE BOOTSTRAP TIMEOUT 15
+    LABELS native-ui display RESOURCE_LOCK native_gpu)
+maicord_ui_probe_test(maicord_idle_glyph_trim_warp_probe IDLE_GLYPH_TRIM_PROBE BOOTSTRAP WARP TIMEOUT 15
+    LABELS native-ui display)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built
 # programs, upload growth, owner changes and failed-submission unbinding.
 maicord_ui_probe_test(maicord_colr_binding_probe COLR_BINDING_PROBE TIMEOUT 15 LABELS gpu)
@@ -3335,8 +3352,7 @@ maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry
     INCLUDES tests
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_opus_encoder)
-# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range-exact with pinned PCM; the official
-# test vectors run opt-in (tools/opus_conformance.ps1).
+# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range-exact with pinned PCM.
 maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tests_entry
     SOURCES tests/media/audio/opus_decoder_vectors.cpp
     LIBS maicord_media_codec

@@ -11,6 +11,13 @@ namespace maicord::app_detail {
 void application_activity_tick(u64 now_ms) noexcept;
 u64 application_activity_next_wake() noexcept;
 void application_activity_clear() noexcept;
+#if defined(_WIN32)
+// Windows' report of the user's presence (GUID_SESSION_USER_PRESENCE) for the main window. While it reports the user
+// away and the presence is idle, the idle check runs no timer: the report of the user's return starts it again.
+void application_activity_watch_presence(HWND window) noexcept;
+// True for the presence report (WM_POWERBROADCAST).
+bool application_activity_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
+#endif
 // True while a streamer tool (OBS, XSplit, Streamlabs, Twitch Studio, Bebo) runs; scanned while game detection or
 // automatic Streamer Mode is on.
 bool application_activity_streamer_tool_running() noexcept;

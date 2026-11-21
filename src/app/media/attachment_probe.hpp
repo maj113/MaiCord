@@ -4,7 +4,7 @@
 namespace maicord::app_detail {
 // Video duration badges for composer upload tiles. Each MP4/MOV draft (a
 // local file, or pasted file contents retained for the probe) is probed once
-// on the system thread pool (movie header only); the UI pump collects results
+// on a thread of its own (movie header only); the UI pump collects results
 // and retires probes whose drafts were removed or sent.
 // Returns true when a new duration became available.
 bool application_attachment_probe_synchronize() noexcept;

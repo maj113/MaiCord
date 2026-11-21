@@ -17,6 +17,9 @@
 #include "catalog_fixture.hpp"
 #include "fake_transport.hpp"
 #include "fake_actions.hpp"
+#include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/win32_process.hpp"
+#include "maicord/sys/process_info.hpp"
 
 namespace maicord::catalog_service_tests {
 using namespace app_detail;
@@ -218,6 +221,38 @@ template <typename F> bool settle(F&& done) noexcept {
     }
     return false;
 }
+// The threads of this process, from the system's process list (0 when the list is not available).
+u32 own_threads() noexcept {
+    constexpr u32 kBytes = 4u << 20;
+    u8* list = static_cast<u8*>(commit_pages(kBytes));
+    ULONG bytes = 0;
+    u32 threads = 0;
+    if (list && NtQuerySystemInformation(SystemProcessInformation, list, kBytes, &bytes) >= 0 && bytes <= kBytes) {
+        // Each entry: the offset of the next (0 for the last), the thread count, and the process id at byte 80.
+        for (u32 at = 0; at + 88 <= bytes;) {
+            u64 id = 0;
+            copy_bytes(&id, list + at + 80, 8);
+            if (id == process_id()) {
+                copy_bytes(&threads, list + at + 4, 4);
+                break;
+            }
+            u32 next = 0;
+            copy_bytes(&next, list + at, 4);
+            if (!next) break;
+            at += next;
+        }
+    }
+    if (list) pages_release(list);
+    return threads;
+}
+// The catalog worker ends when its queue is empty: the thread count goes back to what it was.
+bool worker_ended(u32 threads) noexcept {
+    for (u32 i = 0; i < 400; ++i) {
+        if (own_threads() == threads) return true;
+        Sleep(5);
+    }
+    return false;
+}
 bool check_now() noexcept {
     const u64 before = application_catalog_view().revision;
     return application_catalog_check_now() &&
@@ -347,12 +382,14 @@ void run_flow(const wchar_t* base) noexcept {
     check(!application_catalog_runtime() && !application_catalog_notification() && g->server.requests == 0,
           "nothing installed: no runtime, no worker and no traffic");
 
-    // Browse fetches and verifies the signed index.
+    // Browse fetches and verifies the signed index. The worker thread runs for it and ends after it.
+    const u32 threads = own_threads();
     publish({100});
     application_catalog_browse();
     check(settle([] { return application_catalog_view().status == CatalogStatus::ok; }) && application_catalog_view().index &&
               application_catalog_view().index->item_count == 3 && application_catalog_view().installable,
           "browsing fetches the signed index");
+    check(threads && worker_ended(threads), "the worker thread ends when it has no job");
 
     // Install: download, verify, consent, enable.
     check(application_catalog_install(CatalogKind::plugin, kSlug) && settle(consent_or_finished) && phase() == CatalogPhase::consent,

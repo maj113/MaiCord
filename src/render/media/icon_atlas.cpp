@@ -69,8 +69,11 @@ inline void align_stems(const IconPack& pack, u32 index, IconPlacement* placemen
 bool icon_atlas_initialize(IconAtlas* atlas, GpuDevice* device) noexcept {
     if (atlas->ready)
         return false;
+    // An atlas zero-initialized and never set up (no entries pointer yet) holds zero slots and rows already: the first
+    // set-up leaves their 17 KiB alone, so only the slots that icons use become resident.
     if (!glyph_atlas_initialize(&atlas->allocator, kIconAtlasExtent, kIconAtlasExtent, kPadding,
-                                {atlas->entries, kIconAtlasEntries}, {atlas->rows, kIconAtlasRows}) ||
+                                {atlas->entries, kIconAtlasEntries}, {atlas->rows, kIconAtlasRows},
+                                !atlas->allocator.entries) ||
         !glyph_atlas_index_initialize(&atlas->index, {atlas->index_buckets, kIconAtlasEntries * 2}) ||
         !glyph_atlas_gpu_initialize(&atlas->gpu, device, kIconAtlasExtent, kIconAtlasExtent,
                                     kIconMaximumOutlineCommands)

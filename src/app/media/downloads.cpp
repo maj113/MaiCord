@@ -1243,29 +1243,20 @@ bool embed_context(float x, float y, UiRect anchor) noexcept {
 // Copy Image reads the largest decoded tier the renderer still holds; the
 // viewer's 2048 DIP decode bound caps it.
 bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noexcept {
-    constexpr u32 capacity = 2048u * 2048u * 4u;
-    auto* pixels =
-        static_cast<u8*>(commit_pages(capacity));
-    if (!pixels)
-        return false;
     static constexpr MediaResolutionTier tiers[]{MediaResolutionTier::original, MediaResolutionTier::px2048,
                                           MediaResolutionTier::px1024,   MediaResolutionTier::px512,
                                           MediaResolutionTier::px256,    MediaResolutionTier::px128,
                                           MediaResolutionTier::px64};
-    u32 width = 0, height = 0;
-    bool read = false;
-    for (u32 index = 0; !read && index < sizeof(tiers) / sizeof(tiers[0]); ++index)
-        read = renderer_read_media_rgba(&g_app.renderer,
-                                        media_asset_attachment(source.attachment, format, tiers[index]),
-                                        {pixels, capacity}, &width, &height);
-    const bool copied = read && clipboard_write_image(pixels, width, height, width * 4,
-                                                      {source.url, source.url_bytes});
-    pages_release(pixels);
-    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
-    if (!copied)
+    MediaAssetKey keys[sizeof(tiers) / sizeof(tiers[0])];
+    for (u32 index = 0; index < sizeof(tiers) / sizeof(tiers[0]); ++index)
+        keys[index] = media_asset_attachment(source.attachment, format, tiers[index]);
+    const ImageCopyResult copied =
+        application_image_copy({keys, sizeof(keys) / sizeof(keys[0])}, {source.url, source.url_bytes});
+    if (copied >= ImageCopyResult::not_resident)
         log_write(LogLevel::warning, "downloads",
-                  read ? "copy_image_clipboard_failed" : "copy_image_not_resident");
-    return copied;
+                  copied == ImageCopyResult::clipboard_failed ? "copy_image_clipboard_failed"
+                                                              : "copy_image_not_resident");
+    return copied == ImageCopyResult::copied;
 }
 void copy_link(const Utf8View& link) noexcept {
     if (!application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
@@ -1288,4 +1279,20 @@ void open_in_tab(const DownloadSource& source) noexcept {
 }
 
 } // namespace downloads_detail
+
+ImageCopyResult application_image_copy(ConstSlice<MediaAssetKey> keys, Utf8View url) noexcept {
+    // The decoded viewer texture is bounded by the 2048 DIP decode tier.
+    constexpr u32 capacity = 2048u * 2048u * 4u;
+    auto* pixels = static_cast<u8*>(commit_pages(capacity));
+    if (!pixels)
+        return ImageCopyResult::no_memory;
+    u32 width = 0, height = 0;
+    bool read = false;
+    for (u32 index = 0; !read && index < keys.count; ++index)
+        read = renderer_read_media_rgba(&g_app.renderer, keys[index], {pixels, capacity}, &width, &height);
+    const bool copied = read && clipboard_write_image(pixels, width, height, width * 4, url);
+    pages_release(pixels);
+    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
+    return copied ? ImageCopyResult::copied : read ? ImageCopyResult::clipboard_failed : ImageCopyResult::not_resident;
+}
 } // namespace maicord::app_detail

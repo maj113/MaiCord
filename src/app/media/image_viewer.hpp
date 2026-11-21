@@ -76,6 +76,4 @@ bool application_image_viewer_item_page_source(u64 message_id, u32 revision, boo
                                                MediaPageSource* out) noexcept;
 // The viewer's (and a media page's) name for a key code.
 UiImageViewerKey application_image_viewer_key(u32 code) noexcept;
-// Copies the resident picture (`key`, else `fallback`) to the clipboard with its link and toasts the result.
-bool application_image_copy(const MediaAssetKey& key, const MediaAssetKey& fallback, Utf8View url) noexcept;
 }

@@ -1999,6 +1999,9 @@ int run_probe() noexcept {
     if (probe_option_enabled(L"MAICORD_SIGNOUT_GLYPH_ATLAS_PROBE"))
         return finish_gate(initialize_fixture(true) && probe_signout_glyph_atlas(), "signout_glyph_atlas_passed",
                            "signout_glyph_atlas_failed", 248);
+    if (probe_option_enabled(L"MAICORD_IDLE_GLYPH_TRIM_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_idle_glyph_trim(), "idle_glyph_trim_passed",
+                           "idle_glyph_trim_failed", 321);
     if (probe_option_enabled(L"MAICORD_ACCOUNT_MENU_UI_PROBE"))
         return finish_gate(
             initialize_fixture(true) && account_menu_ui_probe(g_probe.renderer, probe_capture_frame),

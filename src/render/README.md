@@ -57,7 +57,9 @@ The glyph atlas runs on the clock its idle trim check is given; until that check
 allocated counts as allocated then. The trim evicts glyphs nothing used within `kRendererGlyphProtectMs` once
 `kRendererGlyphIdleTrimMs` passed without a new glyph, and content text built again from the stale flag replaces the quads of what
 it evicted. The title stream (the sign-in screen, the bootstrap title) is retained quads nothing rebuilds, so the trim pins its
-glyphs; the caption rebuilds its own when the atlas evicts.
+glyphs; the caption rebuilds its own when the atlas evicts. A glyph that the last trim evicted and that text draws again is
+visible: it is not a new glyph and arms no trim (`trimmed_keys`, one bit per key hash). Else each trim evicted the glyphs on
+screen again, and an idle client built its text and drew a frame every `kRendererGlyphIdleTrimMs`.
 
 ## Pills
 

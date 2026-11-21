@@ -1571,6 +1571,8 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         } else
             log_u64(LogLevel::warning, "friends", "list_decode_error", static_cast<u64>(decoded.error));
         if (structurals) pages_release(structurals, scratch_bytes);
+        // The list decoded into the candidate bank and the store copied it out. A later list commits it again.
+        stable_storage_shrink(&friends->storage.candidate, 0);
     } else if (ok && request.user_id && request.membership_epoch == friends->membership_epoch) {
         if (request.operation == RelationshipOperation::remove) ok = relationship_store_remove(&friends->store, request.user_id).ok();
         else {
@@ -1674,6 +1676,8 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
         const auto committed = valid && friends_relationship_storage_active(&friends->storage, friends->snapshot.count) ? relationship_store_replace(&friends->store,
             {friends->candidate, friends->snapshot.count}) : RelationshipStoreResult{RelationshipStoreError::invalid_input, false};
         friends->snapshot_active = false;
+        // The store holds its own copy now. The next snapshot commits the bank again, as the first one did.
+        stable_storage_shrink(&friends->storage.candidate, 0);
         invalidate_sources(*friends);
         if (committed.ok()) {
             friends->ready = true;friends->incomplete = false;++friends->membership_epoch;

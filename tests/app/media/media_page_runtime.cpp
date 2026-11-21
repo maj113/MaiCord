@@ -674,11 +674,11 @@ UiImageViewerKey application_image_viewer_key(u32 code) noexcept {
     return code == key::add ? UiImageViewerKey::plus : code == key::escape ? UiImageViewerKey::escape
                                                                              : UiImageViewerKey::other;
 }
-bool application_image_copy(const MediaAssetKey&, const MediaAssetKey&, Utf8View) noexcept {
+ImageCopyResult application_image_copy(ConstSlice<MediaAssetKey>, Utf8View) noexcept {
     // A copy confirms with a toast, as the real one does.
     if (copy_ok)
         g_app.toasts.count = 1;
-    return copy_ok;
+    return copy_ok ? ImageCopyResult::copied : ImageCopyResult::not_resident;
 }
 bool application_search_close_panel() noexcept {
     return true;

@@ -34,9 +34,11 @@ struct Worker {
     u64 (*clock_unix)() noexcept;
     bool (*validate_package)(CatalogKind, ConstSlice<u8>, Utf8View) noexcept;
     void (*library_changed)() noexcept;
-    HANDLE thread, wake, stop, notify;
+    HANDLE thread, notify;
     SrwLock lock;
-    // Guarded by lock.
+    // Guarded by lock. The thread runs only while it has jobs: it clears running as it ends, and submit sets it
+    // before it starts the next one.
+    bool running, stopping;
     CatalogJob jobs[kQueue];
     wchar_t copy_path[kCatalogCopyPathCharacters]; // the source of the one copy job in flight, terminated
     u32 job_first, job_count;
@@ -467,20 +469,15 @@ u32 worker_main(void* parameter) noexcept {
     auto& w = *static_cast<Worker*>(parameter);
     for (;;) {
         AcquireSRWLockExclusive(w.lock.native());
-        const bool have = w.job_count != 0;
-        CatalogJob job;
-        if (have) {
-            job = w.jobs[w.job_first];
-            w.job_first = (w.job_first + 1) % kQueue;
-            --w.job_count;
+        if (w.stopping || !w.job_count) {
+            w.running = false;
+            ReleaseSRWLockExclusive(w.lock.native());
+            return 0;
         }
+        const CatalogJob job = w.jobs[w.job_first];
+        w.job_first = (w.job_first + 1) % kQueue;
+        --w.job_count;
         ReleaseSRWLockExclusive(w.lock.native());
-        if (!have) {
-            Waitable handles[]{w.stop, w.wake};
-            if (wait_any(handles, 2, INFINITE) != WAIT_OBJECT_0 + 1) break;
-            continue;
-        }
-        if (wait_one(w.stop, 0) == WAIT_OBJECT_0) break;
         CatalogJobResult result{};
         result.kind = job.kind;
         result.serial = job.serial;
@@ -497,7 +494,6 @@ u32 worker_main(void* parameter) noexcept {
         ReleaseSRWLockExclusive(w.lock.native());
         event_set(w.notify);
     }
-    return 0;
 }
 } // namespace
 
@@ -537,14 +533,9 @@ bool catalog_worker_start(const CatalogWorkerOptions& options) noexcept {
     w->clock_unix = options.clock_unix;
     w->validate_package = options.validate_package;
     w->library_changed = options.library_changed;
-    w->wake = event_create(false, false);
-    w->stop = event_create(true, false);
+    // No thread runs until the first job (catalog_worker_submit).
     w->notify = event_create(false, false);
-    if (w->wake && w->stop && w->notify)
-        w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
-    if (!w->thread) {
-        const HANDLE events[]{w->wake, w->stop, w->notify};
-        for (HANDLE h : events) if (h) waitable_close(h);
+    if (!w->notify) {
         release(w);
         return false;
     }
@@ -556,14 +547,17 @@ void catalog_worker_stop() noexcept {
     Worker* w = g_worker;
     if (!w) return;
     g_worker = nullptr;
-    event_set(w->stop);
+    AcquireSRWLockExclusive(w->lock.native());
+    w->stopping = true;
+    ReleaseSRWLockExclusive(w->lock.native());
     if (UpdateHttpsTransport* https = w->https) update_https_cancel(https);
     // A worker that does not stop keeps its memory: it may still be writing to it.
-    if (!thread_wait(static_cast<Thread*>(w->thread), 5000)) return;
-    thread_close(static_cast<Thread*>(w->thread));
+    if (w->thread) {
+        if (!thread_wait(static_cast<Thread*>(w->thread), 5000)) return;
+        thread_close(static_cast<Thread*>(w->thread));
+    }
     for (u32 i = 0; i < w->result_count; ++i) free_result(w->results[(w->result_first + i) % kQueue]);
-    const HANDLE events[]{w->wake, w->stop, w->notify};
-    for (HANDLE h : events) waitable_close(h);
+    waitable_close(w->notify);
     release(w);
 }
 
@@ -573,17 +567,32 @@ bool catalog_worker_submit(const CatalogJob& job, ConstSlice<wchar_t> path) noex
     Worker* w = g_worker;
     if (!w || path.count >= kCatalogCopyPathCharacters) return false;
     AcquireSRWLockExclusive(w->lock.native());
-    const bool room = w->job_count < kQueue;
+    const bool room = w->job_count < kQueue && !w->stopping;
+    bool start = false;
     if (room) {
         w->jobs[(w->job_first + w->job_count++) % kQueue] = job;
         if (path.count) {
             copy_bytes(w->copy_path, path.data, path.count * 2);
             w->copy_path[path.count] = 0;
         }
+        start = !w->running;
+        w->running = true;
     }
     ReleaseSRWLockExclusive(w->lock.native());
-    if (room) event_set(w->wake);
-    return room;
+    if (!start) return room;
+    // The last run cleared running as its last step: it has returned or is returning.
+    if (w->thread) {
+        thread_wait(static_cast<Thread*>(w->thread), INFINITE);
+        thread_close(static_cast<Thread*>(w->thread));
+    }
+    w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
+    if (w->thread) return true;
+    // No thread: the job is taken back, and the caller sees it was not queued.
+    AcquireSRWLockExclusive(w->lock.native());
+    --w->job_count;
+    w->running = false;
+    ReleaseSRWLockExclusive(w->lock.native());
+    return false;
 }
 
 bool catalog_worker_take(CatalogJobResult* result) noexcept {

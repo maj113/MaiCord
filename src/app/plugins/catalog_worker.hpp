@@ -4,7 +4,8 @@
 
 // The catalog's one background thread (catalog_worker.cpp): network through the update fetch, the
 // signature and digest checks, and the catalog's file writes. Jobs go in and results come out through two
-// small queues; the UI thread takes results in application_catalog_poll.
+// small queues; the UI thread takes results in application_catalog_poll. The thread runs only while jobs wait:
+// a submit starts it, and it ends when the queue is empty.
 namespace maicord::app_detail {
 
 enum class CatalogJobKind : u8 {

@@ -95,6 +95,9 @@
 #define XBUTTON2 0x0002
 #define WM_ENTERMENULOOP 0x0211
 #define WM_CAPTURECHANGED 0x0215
+#define WM_POWERBROADCAST 0x0218
+#define PBT_POWERSETTINGCHANGE 0x8013
+#define DEVICE_NOTIFY_WINDOW_HANDLE 0x00000000
 #define WM_ENTERSIZEMOVE 0x0231
 #define WM_EXITSIZEMOVE 0x0232
 #define WM_DROPFILES 0x0233
@@ -424,6 +427,9 @@ extern "C" __declspec(dllimport) SHORT WINAPI GetAsyncKeyState(int vKey);
 extern "C" __declspec(dllimport) BOOL WINAPI GetKeyboardState(PBYTE lpKeyState);
 extern "C" __declspec(dllimport) BOOL WINAPI SetKeyboardState(LPBYTE lpKeyState);
 extern "C" __declspec(dllimport) BOOL WINAPI GetLastInputInfo(PLASTINPUTINFO plii);
+typedef PVOID HPOWERNOTIFY;
+extern "C" __declspec(dllimport) HPOWERNOTIFY WINAPI RegisterPowerSettingNotification(HANDLE hRecipient,
+    const struct _GUID* PowerSettingGuid, DWORD Flags);
 extern "C" __declspec(dllimport) UINT WINAPI MapVirtualKeyW(UINT uCode, UINT uMapType);
 extern "C" __declspec(dllimport) HWND WINAPI GetCapture();
 extern "C" __declspec(dllimport) HWND WINAPI SetCapture(HWND hWnd);

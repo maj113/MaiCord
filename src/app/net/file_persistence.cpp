@@ -64,14 +64,9 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters, const Co
         path_characters + 4 >= kAccountProfileMaximumPathCharacters || !bytes.data || bytes.count == 0) {
         return {ERROR_INVALID_PARAMETER, FilePersistenceWriteError::open};
     }
-    wchar_t temporary[kAccountProfileMaximumPathCharacters]{};
-    for (u32 index = 0; index < path_characters; ++index) {
-        temporary[index] = path[index];
-    }
-    temporary[path_characters] = L'.';
-    temporary[path_characters + 1] = L'n';
-    temporary[path_characters + 2] = L'e';
-    temporary[path_characters + 3] = L'w';
+    wchar_t temporary[kAccountProfileMaximumPathCharacters];
+    copy_bytes(temporary, path, path_characters * sizeof(wchar_t));
+    copy_bytes(temporary + path_characters, L".new", sizeof(L".new"));
 
     // No FILE_FLAG_WRITE_THROUGH: the flush below makes the data durable, and the flag made every
     // write wait on the device on its own.

@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "../chat/composer/attachments_state.hpp"
 #include "../shell/state.hpp"
 #include "maicord/app/media/attachment_media_probe.hpp"
@@ -18,10 +19,11 @@ struct Probe {
     FileSnapshot snapshot;
     // Clipboard file contents (no path); retained while the probe runs.
     UploadSource content;
-    wchar_t path[kNativeFilePickerMaximumPathUnits + 1];
     volatile LONG done;
     u32 duration_ms;
     bool occupied;
+    // Last, so that retire clears the fields above it and never touches the path's pages.
+    wchar_t path[kNativeFilePickerMaximumPathUnits + 1];
 };
 struct ProbeOwner {
     Probe probes[kProbeSlots];
@@ -78,13 +80,15 @@ bool probeable(Utf8View filename) noexcept {
     return utf8_equal(ext, utf8_literal("mp4")) || utf8_equal(ext, utf8_literal("m4v")) ||
            utf8_equal(ext, utf8_literal("mov"));
 }
+// The path stays: a new probe writes it before it reads it, and clearing it would make all of its 64 KiB
+// resident.
 void retire(Probe& probe) noexcept {
     if (probe.work) {
         thread_wait(probe.work, INFINITE);
         thread_close(probe.work);
     }
     upload_source_release(probe.content);
-    SecureZeroMemory(&probe, sizeof(probe));
+    SecureZeroMemory(&probe, offsetof(Probe, path));
 }
 } // namespace
 

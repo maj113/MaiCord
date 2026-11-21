@@ -209,6 +209,13 @@ void thread_boost_realtime() noexcept {
     sys_sched_setscheduler(0, kSchedRoundRobin, &parameter);
 }
 
+// MEMBARRIER_CMD_GLOBAL (1): every thread passes a full barrier before the call returns. It needs no registration and
+// waits for a scheduler grace period (milliseconds), which suits its rare callers. Linux 4.3 has it, inside the 6.1
+// floor.
+void thread_process_barrier() noexcept {
+    syscall3(kSysMembarrier, 1, 0, 0);
+}
+
 void thread_sleep(u32 milliseconds) noexcept {
     if (milliseconds == 0) {
         return;

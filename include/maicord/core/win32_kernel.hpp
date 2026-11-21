@@ -511,6 +511,7 @@ extern "C" __declspec(dllimport) HANDLE WINAPI GetCurrentProcess();
 extern "C" __declspec(dllimport) DWORD WINAPI GetCurrentProcessId();
 extern "C" __declspec(dllimport) __declspec(noreturn) void WINAPI ExitProcess(UINT uExitCode);
 extern "C" __declspec(dllimport) BOOL WINAPI SwitchToThread();
+extern "C" __declspec(dllimport) void WINAPI FlushProcessWriteBuffers();
 extern "C" __declspec(dllimport) HANDLE WINAPI CreateThread(LPSECURITY_ATTRIBUTES lpThreadAttributes,
     SIZE_T dwStackSize, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter, DWORD dwCreationFlags,
     LPDWORD lpThreadId);

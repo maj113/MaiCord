@@ -74,10 +74,10 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
                       Slice<u32> pixels) noexcept;
 
 #if defined(_WIN32)
-// Win32 executor around Shell_NotifyIconW (NOTIFYICON_VERSION_4).
+// Win32 executor around Shell_NotifyIconW (NOTIFYICON_VERSION_4). The shell copies each icon it is given, so no icon
+// outlives the call that hands it over.
 struct SystemTray {
     HWND window;
-    void* icon; // HICON
     u32 callback_message;
     u32 created_message; // TaskbarCreated
     TrayModel model;

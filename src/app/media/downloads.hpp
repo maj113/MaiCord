@@ -2,6 +2,7 @@
 #include "maicord/ui/core/input_router.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/media/core/asset_key.hpp"
 #include "maicord/platform/window/event.hpp"
 namespace maicord::app_detail {
 struct ApplicationSearchSourceTicket;
@@ -40,4 +41,8 @@ u64 application_downloads_next_wake() noexcept;
 void application_downloads_prepare_account_stop() noexcept;
 bool application_downloads_defer_close() noexcept;
 bool application_downloads_release() noexcept;
+// Copies the first resident picture of `keys` to the clipboard with its link and toasts the result (none when its
+// scratch could not be committed).
+enum class ImageCopyResult : u8 { copied, no_memory, not_resident, clipboard_failed };
+ImageCopyResult application_image_copy(ConstSlice<MediaAssetKey> keys, Utf8View url) noexcept;
 } // namespace maicord::app_detail

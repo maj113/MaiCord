@@ -273,7 +273,8 @@ Utf8View current_url() noexcept {
 }
 bool copy_image() noexcept {
     const auto& viewer = g_app.image_viewer;
-    if (current_video() || !application_image_copy(viewer.key, viewer.fallback, current_url()))
+    const MediaAssetKey keys[]{viewer.key, viewer.fallback};
+    if (current_video() || application_image_copy({keys, 2}, current_url()) != ImageCopyResult::copied)
         return false;
     auto& scene = g_app.image_viewer.scene;
     scene.copied = true;
@@ -501,20 +502,6 @@ UiImageViewerKey application_image_viewer_key(u32 code) noexcept {
     case 'C': return UiImageViewerKey::c;
     default: return UiImageViewerKey::other;
     }
-}
-bool application_image_copy(const MediaAssetKey& key, const MediaAssetKey& fallback, Utf8View url) noexcept {
-    // The decoded viewer texture is bounded by the 2048 DIP decode tier.
-    constexpr u32 capacity = 2048u * 2048u * 4u;
-    auto* pixels = static_cast<u8*>(commit_pages(capacity));
-    if (!pixels)
-        return false;
-    u32 width = 0, height = 0;
-    const bool read = renderer_read_media_rgba(&g_app.renderer, key, {pixels, capacity}, &width, &height) ||
-                      renderer_read_media_rgba(&g_app.renderer, fallback, {pixels, capacity}, &width, &height);
-    const bool copied = read && clipboard_write_image(pixels, width, height, width * 4, url);
-    pages_release(pixels);
-    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
-    return copied;
 }
 bool application_image_viewer_page_source(MediaPageSource* out) noexcept {
     const auto& viewer = g_app.image_viewer;

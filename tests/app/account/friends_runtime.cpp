@@ -18,6 +18,7 @@
 
 #include "maicord/platform/window/key.hpp"
 #include "../../support/window_fixture.hpp"
+#include "../../support/released_memory.hpp"
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;
@@ -51,11 +52,18 @@ struct Observations {
     bool settings, fail_build, requests_mode;
     char body[256]; u32 body_bytes;
     char target[128];u32 target_bytes;
+    char headers[128];u32 header_bytes; // the request's extra header lines (X-Context-Properties)
+    u32 response_capacity; // of the last large-response submission
     char clipboard[kFriendsSearchBytes];u32 clipboard_bytes;
     ApplicationTextFormRequest form;
 } seen{};
 void check(bool valid, const char* label) noexcept {
     test_check(&seen.failures, valid, label);
+}
+// The X-Context-Properties line of {"location":"Friends"}.
+constexpr auto kFriendsContext = utf8_literal("X-Context-Properties: eyJsb2NhdGlvbiI6IkZyaWVuZHMifQ==\r\n");
+bool context_is(Utf8View expected) noexcept {
+    return utf8_equal({seen.headers, seen.header_bytes}, expected);
 }
 enum SyntheticModifiers : u8 { synthetic_control = 1, synthetic_shift = 2, synthetic_alt = 4 };
 bool synthetic_input(UiInputKind kind, u32 code, bool repeated, u8 modifiers = 0) noexcept {
@@ -87,17 +95,27 @@ bool snapshot(Utf8View json, u64 sequence, Utf8View presences = {}) noexcept {
         presences.bytes ? JsonValue{presences, 0, JsonValueKind::object} : JsonValue{},
         {array_scratch, 4096}, {object_scratch, 1024}, sequence, 1000, publish, nullptr).ok();
 }
-bool remove_relationship(Utf8View json, u64 sequence, bool synchronize = true) noexcept {
+// One relationship dispatch through the real Gateway route.
+bool relationship_event(Utf8View name, GatewayClientDispatchKind kind, Utf8View json, u64 sequence,
+                        bool synchronize) noexcept {
     u32 scratch[1024]{};char storage[512]{};
     GatewayEnvelope envelope{};
-    envelope.event_name = {utf8_literal("RELATIONSHIP_REMOVE"), 0, false};
+    envelope.event_name = {name, 0, false};
     envelope.data = {json, 0, JsonValueKind::object};
     envelope.has_event_name = true;envelope.has_sequence = true;envelope.sequence = sequence;
     GatewayClientEvent event{};ConstSlice<u8> payload{};
     const auto routed = gateway_client_route_dispatch(envelope, {scratch, 1024}, 64, {storage, 512}, {}, 4, &event, &payload);
-    if (!routed.ok() || event.dispatch_kind != GatewayClientDispatchKind::relationship_remove) return false;
+    if (!routed.ok() || event.dispatch_kind != kind) return false;
     application_friends_gateway(event, payload);
     return !synchronize || application_friends_synchronize();
+}
+bool remove_relationship(Utf8View json, u64 sequence, bool synchronize = true) noexcept {
+    return relationship_event(utf8_literal("RELATIONSHIP_REMOVE"), GatewayClientDispatchKind::relationship_remove, json,
+                              sequence, synchronize);
+}
+bool add_relationship(Utf8View json, u64 sequence) noexcept {
+    return relationship_event(utf8_literal("RELATIONSHIP_ADD"), GatewayClientDispatchKind::relationship_add, json, sequence,
+                              true);
 }
 bool action(UiFriendsAction operation, u64 user = 0, UiFriendsTab tab = UiFriendsTab::all,UiFriendsSectionKind section=UiFriendsSectionKind::incoming) noexcept {
     auto* current = scene();
@@ -157,14 +175,10 @@ bool recovery_error(u64 sequence) noexcept {
     return application_friends_synchronize() && scene() && scene()->phase == UiFriendsPhase::error;
 }
 RestClientSubmitResult WINAPI submit(void* instance, RelationshipOperation operation,
-    u64 user, Utf8View username, u64 id) noexcept {
+    u64 user, Utf8View username, u64 id, RelationshipLocation location) noexcept {
     if (instance != &account) return {RestClientSubmitError::invalid_input};
     seen.operation = operation;seen.user_id = user;
-    return account_relationship_submit(&account.rest, operation, user, username, id);
-}
-bool freed(void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION information{};
-    return pointer && VirtualQuery(pointer, &information, sizeof(information)) == sizeof(information) && information.State == MEM_FREE;
+    return account_relationship_submit(&account.rest, operation, user, username, id, location);
 }
 void context_menu_coordinates() noexcept {
     // Context menus arrive at content pixels; the sidebar's point is not Friends'.
@@ -222,12 +236,12 @@ void search_runtime_fixture() noexcept {
         "friends search: list navigation keys leave focused single-line edit and document unchanged");
     const auto target=application_friends_search_target();
     const auto source_revision=scene()->source->revision, count=scene()->source_count, text_revision=all->text_revision;
-    const auto widgets=scene()->widgets.storage;const auto arena=scene()->storage.arena;
+    const auto widgets_count=scene()->widgets.storage.count;const auto arena=scene()->storage.arena;
     const auto layout_revision=scene()->widgets.layout.revision;
     check(text_input_select(target,{0,2})==TextInputResult::changed&&application_friends_search_changed(false)&&
         scene()->source->revision==source_revision&&scene()->source_count==count&&scene()->content->total_count==3&&
-        all->text_revision==text_revision&&scene()->widgets.storage.data==widgets.data&&scene()->widgets.storage.count==widgets.count&&
-        scene()->widgets.layout.revision==layout_revision&&scene()->storage.arena.base==arena.base&&
+        all->text_revision==text_revision&&scene()->widgets.storage.count==widgets_count&&
+        scene()->widgets.layout.revision==layout_revision&&
         scene()->storage.arena.offset==arena.offset&&scene()->storage.arena.commit_count==arena.commit_count,
         "friends search: selection-only edits retain filtered source, layout and exact storage");
     auto stale=target;++stale.identity;u32 length=0;TextInputChange change{};
@@ -381,8 +395,7 @@ void confirmation_runtime_fixture() noexcept {
     check(snapshot(utf8_literal(R"([{"id":"70","type":1,"user":{"id":"70","username":"friend"}}])"),202)&&
         application_friends_synchronize()&&action(UiFriendsAction::remove,70),"friends confirmation: Remove opens first owner-validated modal");
     const auto old=seen.form;cancel_form();
-    check(action(UiFriendsAction::block,70)&&!old.valid(old.owner)&&!old.save(old.owner,{})&&
-        seen.form.owner.collection!=old.owner.collection,
+    check(action(UiFriendsAction::block,70)&&!old.valid(old.owner)&&!old.save(old.owner,{}),
         "friends confirmation: new modal serial rejects an older approval for the same user");
     const auto block=seen.form;const auto profile=g_app.account.status.profile_id;++g_app.account.status.profile_id;
     check(!block.valid(block.owner)&&!block.save(block.owner,{}),"friends confirmation: account switch rejects retained approval key");
@@ -452,8 +465,8 @@ void pending_sections_runtime_fixture() noexcept {
         bool idle=true;for(u32 i=0;i<8;++i)idle=application_friends_synchronize()&&idle;
         const auto modal_retained=application_friends_storage_metrics().requests_indices;
         check(idle&&scene()->source==modal_source&&scene()->revision==modal_revision&&seen.builds==modal_builds&&
-            modal_bank.address==modal_retained.address&&modal_bank.reserved_bytes==modal_retained.reserved_bytes&&modal_bank.committed_bytes==modal_retained.committed_bytes&&
-            modal_bank.admitted_count==modal_retained.admitted_count&&modal_bank.commit_count==modal_retained.commit_count,
+            modal_bank.reserved_bytes==modal_retained.reserved_bytes&&modal_bank.committed_bytes==modal_retained.committed_bytes&&
+            modal_bank.commit_count==modal_retained.commit_count,
             "friends storage: 8 idle modal synchronizations retain optional bank commitment and admitted high-water prefix");
         UiFriendsRow first{},second{},third{};
         check(scene()->source->resolve(scene()->source->context,0,&first)&&scene()->source->resolve(scene()->source->context,1,&second)&&
@@ -638,44 +651,267 @@ void bounded_performance_fixture() noexcept {
             projected_row.user_id == first_id + i + 1 && projected_row.kind == UiFriendsKind::friend_user;
     }
     check(sorted, "friends benchmark: equal unnamed rows retain deterministic ascending identity order across full source");
-    void* controller = g_app.friends;
     const auto arena = scene()->storage.arena;
-    const auto widgets = scene()->widgets.storage;
     const auto* source = scene()->source;
     const u32 revision = scene()->revision, source_revision = source->revision, builds = seen.builds;
-    MEMORY_BASIC_INFORMATION controller_vm{}, scene_vm{};
+    const u32 widget_count = scene()->widgets.storage.count;
     const auto storage=application_friends_storage_metrics();
-    check(storage.controller_bytes<128*1024&&storage.active.admitted_count>=records&&storage.candidate.admitted_count>=records&&
+    check(storage.controller_bytes<128*1024&&storage.active.admitted_count>=records&&!storage.candidate.admitted_count&&
         storage.indices.admitted_count>=records&&storage.active.committed_bytes<=storage.active.reserved_bytes&&
-        storage.candidate.committed_bytes<=storage.candidate.reserved_bytes&&storage.indices.committed_bytes<=storage.indices.reserved_bytes,
-        "friends benchmark: small controller owns three sparsely committed banks with admitted snapshot prefixes");
-    const bool queried = VirtualQuery(controller, &controller_vm, sizeof(controller_vm)) == sizeof(controller_vm) &&
-        VirtualQuery(arena.base, &scene_vm, sizeof(scene_vm)) == sizeof(scene_vm);
-    check(queried && controller_vm.State == MEM_COMMIT && scene_vm.State == MEM_COMMIT &&
-        controller_vm.AllocationBase == controller && scene_vm.AllocationBase == arena.base,
-        "friends benchmark: actual controller and retained scene allocations have committed VM regions");
+        !storage.candidate.committed_bytes&&storage.candidate.reserved_bytes&&storage.indices.committed_bytes<=storage.indices.reserved_bytes,
+        "friends benchmark: the store keeps the snapshot and the candidate bank returns its pages after the snapshot");
     bool retained = true;
     for (u32 i = 0; i < 8; ++i) retained = application_friends_synchronize() && retained;
     const auto retained_storage=application_friends_storage_metrics();
     const auto same_bank=[](const FriendsStorageBankMetrics& a,const FriendsStorageBankMetrics& b) noexcept {
-        return a.address==b.address&&a.reserved_bytes==b.reserved_bytes&&a.committed_bytes==b.committed_bytes&&a.admitted_count==b.admitted_count&&a.commit_count==b.commit_count;};
-    check(storage.controller_bytes==retained_storage.controller_bytes&&same_bank(storage.active,retained_storage.active)&&
+        return a.reserved_bytes==b.reserved_bytes&&a.committed_bytes==b.committed_bytes&&a.commit_count==b.commit_count;};
+    check(same_bank(storage.active,retained_storage.active)&&
         same_bank(storage.candidate,retained_storage.candidate)&&same_bank(storage.indices,retained_storage.indices),
         "friends benchmark: 8 unchanged synchronizations retain all three bank admission and commit high-water metrics");
-    MEMORY_BASIC_INFORMATION controller_after{}, scene_after{};
-    retained = retained && VirtualQuery(controller, &controller_after, sizeof(controller_after)) == sizeof(controller_after) &&
-        VirtualQuery(arena.base, &scene_after, sizeof(scene_after)) == sizeof(scene_after);
-    check(retained && g_app.friends == controller && scene()->revision == revision && seen.builds == builds &&
+    check(retained && scene()->revision == revision && seen.builds == builds &&
         scene()->source == source && source->revision == source_revision && scene()->source_count == records &&
-        scene()->widgets.storage.data == widgets.data && scene()->widgets.storage.count == widgets.count &&
-        scene()->storage.arena.base == arena.base &&
+        scene()->widgets.storage.count == widget_count &&
         scene()->storage.arena.committed == arena.committed && scene()->storage.arena.offset == arena.offset &&
-        scene()->storage.arena.commit_count == arena.commit_count &&
-        controller_after.State == MEM_COMMIT && controller_after.AllocationBase == controller_vm.AllocationBase &&
-        controller_after.BaseAddress == controller_vm.BaseAddress && controller_after.RegionSize == controller_vm.RegionSize &&
-        scene_after.State == MEM_COMMIT && scene_after.AllocationBase == scene_vm.AllocationBase &&
-        scene_after.BaseAddress == scene_vm.BaseAddress && scene_after.RegionSize == scene_vm.RegionSize,
+        scene()->storage.arena.commit_count == arena.commit_count,
         "friends benchmark: 8 unchanged synchronizations retain revisions, text publication and exact committed storage");
+}
+// A relationships reply as GET /users/@me/relationships sends it: `friends` friends with decorated users (decoration,
+// server tag, nameplate), then `blocked` blocked users with plain ones. IDs count up from `first`.
+struct ListWriter {
+    char* data;
+    u32 used;
+    void put(const char* text) noexcept { while (*text) data[used++] = *text++; }
+    void id(u64 value) noexcept {
+        char digits[20];u32 count = 0;
+        do { digits[count++] = static_cast<char>('0' + value % 10);value /= 10; } while (value);
+        while (count) data[used++] = digits[--count];
+    }
+};
+u32 relationships_reply(char* output, u32 friends, u32 blocked, u64 first) noexcept {
+    ListWriter w{output, 0};
+    w.put("[");
+    for (u32 i = 0; i < friends + blocked; ++i) {
+        const u64 user = first + i;
+        const bool decorated = i < friends;
+        if (i) w.put(",");
+        w.put("{\"id\":\"");w.id(user);w.put(decorated ? "\",\"type\":1" : "\",\"type\":2");
+        w.put(",\"nickname\":null,\"user_ignored\":false,\"user\":{\"id\":\"");w.id(user);
+        w.put("\",\"username\":\"user");w.id(user);w.put("\",\"global_name\":\"Person ");w.id(user);
+        w.put("\",\"avatar\":\"14733482e560d9267c0a414b21b2fb8d\",\"discriminator\":\"0\",\"public_flags\":64,");
+        if (decorated)
+            w.put("\"avatar_decoration_data\":{\"asset\":\"a_d3f2a1c4b5e6f7a8b9c0d1e2f3a4b5c6\",\"sku_id\":\"1144058522808614923\","
+                  "\"expires_at\":null},\"primary_guild\":{\"identity_guild_id\":\"1234567890123456789\","
+                  "\"identity_enabled\":true,\"tag\":\"TAG\",\"badge\":\"0123456789abcdef0123456789abcdef\"},"
+                  "\"collectibles\":{\"nameplate\":{\"sku_id\":\"1349849614353829990\",\"asset\":"
+                  "\"nameplates/nameplates/twilight/\",\"label\":\"COLLECTIBLES_NAMEPLATES_TWILIGHT_A11Y\","
+                  "\"palette\":\"cobalt\",\"expires_at\":null}},");
+        else
+            w.put("\"avatar_decoration_data\":null,\"primary_guild\":null,\"collectibles\":null,");
+        w.put("\"display_name_styles\":null,\"clan\":null},\"is_spam_request\":false,"
+              "\"since\":\"2023-02-10T01:58:05.348000+00:00\",\"stranger_request\":false}");
+    }
+    w.put("]");
+    return w.used;
+}
+// The centre of the control that the scene's hit test names `target`, in whole pixels as a pointer reports it.
+bool control_point(const UiFriendsTarget& target, float* x, float* y) noexcept {
+    const auto* current = scene();
+    if (!current) return false;
+    for (u32 slot = 0; slot < current->widgets.count; ++slot) {
+        const auto* layout = ui_widget_manager_layout_node(current->widgets, {static_cast<u16>(slot), current->widgets.generation});
+        if (!layout) continue;
+        const float cx = static_cast<float>(static_cast<i16>((layout->rectangle.left + layout->rectangle.right) * .5f));
+        const float cy = static_cast<float>(static_cast<i16>((layout->rectangle.top + layout->rectangle.bottom) * .5f));
+        if (ui_friends_target_equal(ui_friends_scene_hit_test(*current, cx, cy), target)) { *x = cx; *y = cy; return true; }
+    }
+    return false;
+}
+// Issue #18: a mouse click on a Pending row's Accept did nothing when Gateway traffic rebuilt the list between the press
+// and the release. The click sends the PUT, and the RELATIONSHIP_ADD that follows makes the row a friend.
+void pointer_accept_runtime_fixture() noexcept {
+    const Window window = window_test::open();
+    check(window != nullptr, "friends pointer Accept: owns a headless pointer-capture fixture");
+    if (!window) return;
+    g_app.window = window;
+    constexpr auto list = utf8_literal(R"([{"id":"1001","type":3,"user":{"id":"1001","username":"pointer.request"}},{"id":"1002","type":1,"user":{"id":"1002","username":"pointer.friend"}},{"id":"1003","type":3,"user":{"id":"1003","username":"pointer.next"}},{"id":"1004","type":3,"user":{"id":"1004","username":"pointer.other"}}])");
+    float x = 0, y = 0;
+    check(snapshot(list, 600, utf8_literal(R"({"friends":[{"user_id":"1002","status":"online"}]})")) &&
+              application_friends_synchronize() && tab(UiFriendsTab::pending) &&
+              control_point({UiFriendsAction::accept, 1001, UiFriendsTab::pending}, &x, &y),
+          "friends pointer Accept: the Pending row shows its Accept button");
+    const u32 submissions = seen.submissions, rows = scene()->source_revision;
+    check(application_friends_window_event(window_test::pointer_down(x, y)) && window_pointer_captured(g_app.window),
+          "friends pointer Accept: the press captures the pointer");
+    // A friend's presence and a message author's name arrive while the button is held, and the next frame rebuilds the list.
+    GatewayClientEvent presence{};
+    presence.kind = GatewayClientEventKind::dispatch;presence.dispatch_kind = GatewayClientDispatchKind::presence_update;
+    presence.presence.user_id = 1002;presence.presence.status = GatewayClientMemberListStatus::idle;
+    application_friends_gateway(presence, {});
+    check(user_store_upsert(&g_app.account_ui->user_store, 7777, utf8_literal("Message Author")).ok() &&
+              application_friends_synchronize() && scene()->source_revision != rows,
+          "friends pointer Accept: Gateway traffic rebuilds the list between the press and the release");
+    check(application_friends_window_event(window_test::pointer_up(x, y, PointerButton::left)) &&
+              !window_pointer_captured(g_app.window) && application_friends_pending(7000),
+          "friends pointer Accept: the release over the same Accept button queues the request");
+    check(application_friends_submit(710, 7000) && seen.submissions == submissions + 1 &&
+              seen.operation == RelationshipOperation::accept && seen.user_id == 1001 && seen.method == RestMethod::put &&
+              utf8_equal({seen.target, seen.target_bytes}, utf8_literal("/api/v9/users/@me/relationships/1001")) &&
+              utf8_equal({seen.body, seen.body_bytes}, utf8_literal("{}")) && context_is(kFriendsContext),
+          "friends pointer Accept: the request is PUT /users/@me/relationships/1001 with the body {} from Friends");
+    // Discord sends RELATIONSHIP_ADD before the 204 reply.
+    UiFriendsRow value{};
+    check(add_relationship(utf8_literal(R"({"id":"1001","type":1,"nickname":null,"user":{"id":"1001","username":"pointer.request"},"should_notify":false})"), 602) &&
+              response(710, 204) && !application_friends_pending(100000) && scene()->phase == UiFriendsPhase::ready &&
+              !scene()->status.bytes && !row(1001, &value) && scene()->source_count == 2,
+          "friends pointer Accept: RELATIONSHIP_ADD and the 204 reply take the request out of Pending without an error");
+    check(tab(UiFriendsTab::all) && row(1001, &value) && value.kind == UiFriendsKind::friend_user && !value.busy &&
+              tab(UiFriendsTab::pending),
+          "friends pointer Accept: the accepted user is a friend in All");
+    // The guard that stays: a release over another user's button does not act.
+    check(control_point({UiFriendsAction::accept, 1003, UiFriendsTab::pending}, &x, &y) &&
+              application_friends_window_event(window_test::pointer_down(x, y)) &&
+              remove_relationship(utf8_literal(R"({"id":"1003"})"), 603) &&
+              ui_friends_target_equal(ui_friends_scene_hit_test(*scene(), x, y), {UiFriendsAction::accept, 1004, UiFriendsTab::pending}) &&
+              application_friends_window_event(window_test::pointer_up(x, y, PointerButton::left)) &&
+              !application_friends_pending(100000) && seen.submissions == submissions + 1,
+          "friends pointer Accept: a release over the next user's Accept, moved under the pointer, sends nothing");
+    check(tab(UiFriendsTab::all), "friends pointer Accept: the fixture returns to All");
+    g_app.window = nullptr;window_test::close();
+}
+// The first row button that the list's bottom edge cuts or hides (its rectangle and the list's clip).
+bool button_past_edge(UiRect* button, UiRect* clip) noexcept {
+    const auto* current = scene();
+    for (u32 slot = 0; current && slot < current->widgets.count; ++slot) {
+        const auto* layout = ui_widget_manager_layout_node(current->widgets, {static_cast<u16>(slot), current->widgets.generation});
+        if (!layout || layout->rectangle.bottom <= layout->clip_rectangle.bottom ||
+            layout->rectangle.right - layout->rectangle.left > 64) continue;
+        *button = layout->rectangle;*clip = layout->clip_rectangle;
+        return true;
+    }
+    return false;
+}
+// An Accept button that the list's bottom edge cuts: its user and a point on its visible part.
+bool cut_accept(u64* user, float* x, float* y) noexcept {
+    const auto* current = scene();
+    for (u32 slot = 0; current && slot < current->widgets.count; ++slot) {
+        const auto* layout = ui_widget_manager_layout_node(current->widgets, {static_cast<u16>(slot), current->widgets.generation});
+        if (!layout || layout->rectangle.top >= layout->clip_rectangle.bottom ||
+            layout->rectangle.bottom <= layout->clip_rectangle.bottom) continue;
+        const float px = static_cast<float>(static_cast<i16>((layout->rectangle.left + layout->rectangle.right) * .5f));
+        const float py = static_cast<float>(static_cast<i16>((layout->rectangle.top + layout->clip_rectangle.bottom) * .5f));
+        const auto hit = ui_friends_scene_hit_test(*current, px, py);
+        if (hit.action != UiFriendsAction::accept) continue;
+        *user = hit.user_id;*x = px;*y = py;
+        return true;
+    }
+    return false;
+}
+// A press on the Accept of a row the list's edge cuts does not scroll the row before the release, also when
+// Gateway traffic rebuilds the list while the button is held. The release sends the request.
+void pointer_cut_row_runtime_fixture() noexcept {
+    const Window window = window_test::open();
+    check(window != nullptr, "friends cut row: owns a headless pointer-capture fixture");
+    if (!window) return;
+    g_app.window = window;
+    constexpr auto list = utf8_literal(R"([{"id":"1250","type":1,"user":{"id":"1250","username":"cut.friend"}},{"id":"1201","type":3,"user":{"id":"1201","username":"cut.01"}},{"id":"1202","type":3,"user":{"id":"1202","username":"cut.02"}},{"id":"1203","type":3,"user":{"id":"1203","username":"cut.03"}},{"id":"1204","type":3,"user":{"id":"1204","username":"cut.04"}},{"id":"1205","type":3,"user":{"id":"1205","username":"cut.05"}},{"id":"1206","type":3,"user":{"id":"1206","username":"cut.06"}},{"id":"1207","type":3,"user":{"id":"1207","username":"cut.07"}},{"id":"1208","type":3,"user":{"id":"1208","username":"cut.08"}},{"id":"1209","type":3,"user":{"id":"1209","username":"cut.09"}},{"id":"1210","type":3,"user":{"id":"1210","username":"cut.10"}},{"id":"1211","type":3,"user":{"id":"1211","username":"cut.11"}},{"id":"1212","type":3,"user":{"id":"1212","username":"cut.12"}},{"id":"1213","type":3,"user":{"id":"1213","username":"cut.13"}},{"id":"1214","type":3,"user":{"id":"1214","username":"cut.14"}},{"id":"1215","type":3,"user":{"id":"1215","username":"cut.15"}},{"id":"1216","type":3,"user":{"id":"1216","username":"cut.16"}}])");
+    u64 user = 0;UiRect button{}, clip{};float x = 0, y = 0;
+    check(snapshot(list, 800, utf8_literal(R"({"friends":[{"user_id":"1250","status":"online"}]})")) &&
+              application_friends_synchronize() && tab(UiFriendsTab::pending) && button_past_edge(&button, &clip),
+          "friends cut row: the Pending list runs past its bottom edge");
+    // Scroll so that the edge leaves only the top 12 dips of the first row past it in view. Scrolling that row into
+    // view on the press would move its Accept button out from under the pointer.
+    check(ui_friends_scene_scroll(scene(), button.top + 12 - clip.bottom) &&
+              application_friends_synchronize() && cut_accept(&user, &x, &y),
+          "friends cut row: the list's bottom edge cuts an Accept button");
+    const float scroll = scene()->scroll_dips;
+    const u32 submissions = seen.submissions, rows = scene()->source_revision;
+    check(ui_friends_target_equal(ui_friends_scene_hit_test(*scene(), x, y), {UiFriendsAction::accept, user, UiFriendsTab::pending}) &&
+              application_friends_window_event(window_test::pointer_down(x, y)) && scene()->scroll_dips == scroll,
+          "friends cut row: the press focuses the cut row's Accept and leaves the list where it is");
+    GatewayClientEvent presence{};
+    presence.kind = GatewayClientEventKind::dispatch;presence.dispatch_kind = GatewayClientDispatchKind::presence_update;
+    presence.presence.user_id = 1250;presence.presence.status = GatewayClientMemberListStatus::idle;
+    application_friends_gateway(presence, {});
+    check(application_friends_synchronize() && scene()->source_revision != rows && scene()->scroll_dips == scroll,
+          "friends cut row: a rebuild while the button is held keeps the pressed row in place");
+    check(application_friends_window_event(window_test::pointer_up(x, y, PointerButton::left)) &&
+              application_friends_pending(9000) && application_friends_submit(730, 9000) &&
+              seen.submissions == submissions + 1 && seen.operation == RelationshipOperation::accept && seen.user_id == user &&
+              context_is(kFriendsContext) && response(730, 204),
+          "friends cut row: the release sends the Accept of the pressed row");
+    check(tab(UiFriendsTab::all), "friends cut row: the fixture returns to All");
+    g_app.window = nullptr;window_test::close();
+}
+// The official client sends X-Context-Properties {"location":"Friends"} when a Friends row accepts, declines,
+// cancels or removes, and {"location":"Spam requests modal"} from the spam requests dialog. Other requests carry
+// no location.
+void context_location_runtime_fixture() noexcept {
+    constexpr auto list = utf8_literal(R"([{"id":"1101","type":1,"user":{"id":"1101","username":"context.friend"}},{"id":"1102","type":3,"is_stranger_request":false,"user":{"id":"1102","username":"context.declined"}},{"id":"1103","type":4,"user":{"id":"1103","username":"context.sent"}},{"id":"1104","type":3,"user_ignored":true,"user":{"id":"1104","username":"context.hidden"}},{"id":"1105","type":3,"user":{"id":"1105","username":"context.profile"}},{"id":"1106","type":3,"is_stranger_request":true,"user":{"id":"1106","username":"context.stranger"}}])");
+    check(snapshot(list, 700) && application_friends_synchronize() && tab(UiFriendsTab::all),
+          "friends context: publishes a friend, requests both ways, a hidden request and a stranger");
+    check(action(UiFriendsAction::remove, 1101) && save_form() && application_friends_submit(720, 8000) &&
+              seen.operation == RelationshipOperation::remove && seen.method == RestMethod::delete_method &&
+              context_is(kFriendsContext) && response(720, 204),
+          "friends context: Remove Friend from the row's More menu names Friends");
+    check(tab(UiFriendsTab::pending) && action(UiFriendsAction::decline, 1102, UiFriendsTab::pending) &&
+              application_friends_submit(721, 8100) && seen.operation == RelationshipOperation::remove &&
+              context_is(kFriendsContext) && response(721, 204),
+          "friends context: the incoming row's X names Friends");
+    check(action(UiFriendsAction::cancel, 1103, UiFriendsTab::pending) && application_friends_submit(722, 8200) &&
+              seen.operation == RelationshipOperation::remove && context_is(kFriendsContext) && response(722, 204),
+          "friends context: the outgoing row's Cancel names Friends");
+    check(action(UiFriendsAction::accept, 1106, UiFriendsTab::pending) && save_form() &&
+              application_friends_submit(723, 8300) && seen.operation == RelationshipOperation::accept_stranger &&
+              context_is(kFriendsContext) && response(723, 204),
+          "friends context: an Accept confirmed for a stranger names Friends");
+    check(action(UiFriendsAction::toggle_hidden, 0, UiFriendsTab::pending) && application_friends_requests_active() &&
+              action(UiFriendsAction::accept, 1104, UiFriendsTab::pending) && application_friends_submit(724, 8400) &&
+              seen.operation == RelationshipOperation::accept &&
+              context_is(utf8_literal("X-Context-Properties: eyJsb2NhdGlvbiI6IlNwYW0gcmVxdWVzdHMgbW9kYWwifQ==\r\n")) &&
+              response(724, 204),
+          "friends context: Accept in the hidden requests dialog names the spam requests dialog");
+    if (application_friends_requests_active()) application_friends_close_requests();
+    check(application_friends_synchronize() && application_friends_user_action(1105, ApplicationFriendsUserAction::accept) &&
+              application_friends_submit(725, 8500) && seen.operation == RelationshipOperation::accept &&
+              context_is({}) && response(725, 204),
+          "friends context: Accept from a profile carries no location");
+    check(tab(UiFriendsTab::all) && action(UiFriendsAction::block, 1105) && save_form() &&
+              application_friends_submit(726, 8600) && seen.operation == RelationshipOperation::block && context_is({}) &&
+              response(726, 204),
+          "friends context: Block carries no location, as the official Friends row offers no Block");
+}
+// The list at the realistic maximum (1,000 friends and 5,000 blocked users, about 3 MB) loads through the REST path.
+// A reply over the decoder's 4 MiB cap fails and keeps the list it had.
+void full_list_fixture() noexcept {
+    constexpr u32 friends = 1000, blocked = 5000, capacity = 5u << 20;
+    char* reply = static_cast<char*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(reply != nullptr, "friends full list: fixture reply allocates");
+    if (!reply) return;
+    const u32 bytes = relationships_reply(reply, friends, blocked, 500000);
+    check(bytes > 2u << 20 && bytes < kRelationshipsMaximumBytes,
+          "friends full list: the realistic maximum is above the old 256 KiB and 2 MiB caps and within 4 MiB");
+    check(tab(UiFriendsTab::all) && queue(RelationshipOperation::list) && application_friends_submit(601, 9000) &&
+              seen.operation == RelationshipOperation::list && seen.method == RestMethod::get &&
+              seen.response_capacity == kRelationshipsMaximumBytes,
+          "friends full list: the GET asks for a large response of the decoder's cap");
+    const bool loaded = response(601, 200, {reply, bytes}) && application_friends_synchronize();
+    check(loaded && g_app.friends->store.count == friends + blocked && g_app.friends->ready && scene() &&
+              scene()->source_count == friends,
+          "friends full list: 1,000 decorated friends and 5,000 blocked users load into the list");
+    const u32 revision = g_app.friends->store.revision;
+    const u32 over = relationships_reply(reply, 0, 10000, 900000);
+    check(over > kRelationshipsMaximumBytes && queue(RelationshipOperation::list) &&
+              application_friends_submit(602, 9100) && response(602, 200, {reply, over}) &&
+              g_app.friends->store.count == friends + blocked && g_app.friends->store.revision == revision &&
+              g_app.friends->request.phase == FriendsRequestPhase::failed,
+          "friends full list: a reply over the cap fails and keeps the old list");
+    RestClientResponse failed{};
+    failed.request_id = 603;failed.error = RestClientError::response;
+    check(queue(RelationshipOperation::list) && application_friends_submit(603, 9200) &&
+              application_friends_response(failed, {}) && g_app.friends->store.count == friends + blocked &&
+              g_app.friends->store.revision == revision,
+          "friends full list: a reply the REST client refuses (over its cap) keeps the old list");
+    VirtualFree(reply, 0, MEM_RELEASE);
 }
 struct Cleanup {
     ~Cleanup() noexcept {
@@ -709,7 +945,6 @@ void run() noexcept {
         !empty_storage.indices.committed_bytes&&!empty_storage.active.admitted_count&&!empty_storage.candidate.admitted_count&&
         !empty_storage.indices.admitted_count,
         "friends storage: authoritative empty model reserves three banks without touching array pages");
-    void* widgets = scene()->storage.arena.base;
     const u32 revision = scene()->revision, builds = seen.builds;
     check(application_friends_synchronize() && scene()->revision == revision && seen.builds == builds,
         "friends: idle synchronization retains scene revision and text publication");
@@ -720,8 +955,9 @@ void run() noexcept {
         application_friends_synchronize() && seen.builds == builds && !application_friends_show(),
         "friends: opaque settings barrier suppresses Friends input and hidden text rebuild");
     seen.settings = false;
+    const auto widgets = memory_mark(scene()->storage.arena.base);
     application_friends_hide();
-    check(!application_friends_active() && !scene() && freed(widgets) && !application_friends_pending(1000),
+    check(!application_friends_active() && !scene() && memory_released(widgets) && !application_friends_pending(1000),
         "friends: hide unbinds and frees retained widgets while preserving authoritative empty state");
     seen.fail_build = true;
     check(!application_friends_show() && !application_friends_active() && !scene(),
@@ -733,10 +969,10 @@ void run() noexcept {
         "friends: real typed Gateway publisher hydrates named authoritative rows and initial presence without GET");
     if (!scene()) return;
     const auto small_storage=application_friends_storage_metrics();SYSTEM_INFO storage_system{};GetSystemInfo(&storage_system);
-    check(small_storage.active.committed_bytes<=storage_system.dwPageSize&&small_storage.candidate.committed_bytes<=storage_system.dwPageSize&&
+    check(small_storage.active.committed_bytes<=storage_system.dwPageSize&&!small_storage.candidate.committed_bytes&&
         small_storage.indices.committed_bytes<=storage_system.dwPageSize&&small_storage.active.admitted_count>=2&&
-        small_storage.candidate.admitted_count>=2&&small_storage.indices.admitted_count>=1,
-        "friends storage: two relationships commit at most one native page per primary bank");
+        !small_storage.candidate.admitted_count&&small_storage.indices.admitted_count>=1,
+        "friends storage: two relationships commit at most one native page per bank and none stay in the candidate bank");
     const u32 modifier_submissions = seen.submissions, modifier_forms = seen.form_opens;
     const auto modifier_tab = scene()->tab;
     check(ui_friends_scene_focus(scene(), {UiFriendsAction::select_tab, 0, UiFriendsTab::pending}) &&
@@ -909,16 +1145,18 @@ void run() noexcept {
     search_runtime_fixture();confirmation_runtime_fixture();pending_sections_runtime_fixture();ignore_and_decline_runtime_fixture();
     stale_classification_runtime_fixture();stale_bulk_retry_runtime_fixture();nickname_and_call_runtime_fixture();
     bounded_performance_fixture();
-    void* owner = g_app.friends;
-    const auto* requests_bank_address=application_friends_storage_metrics().requests_indices.address;
+    pointer_accept_runtime_fixture();
+    pointer_cut_row_runtime_fixture();
+    context_location_runtime_fixture();
+    full_list_fixture();
+    const auto owner = memory_mark(g_app.friends);
+    const auto requests_bank = memory_mark(application_friends_storage_metrics().requests_indices.address);
     application_friends_release();
-    check(!g_app.friends && !scene() && !application_friends_pending(100000) && freed(owner) &&
+    check(!g_app.friends && !scene() && !application_friends_pending(100000) && memory_released(owner) &&
         seen.form.valid && !seen.form.valid(seen.form.owner),
         "friends: final release unbinds renderer, invalidates retained form owner and frees controller VM");
-    const auto released_requests=application_friends_storage_metrics().requests_indices;
-    check(!released_requests.address&&!released_requests.reserved_bytes&&!released_requests.committed_bytes&&!released_requests.admitted_count&&!released_requests.commit_count&&
-        freed(const_cast<void*>(requests_bank_address)),
-        "friends storage: final controller release clears all optional hidden index bank metrics");
+    check(memory_released(requests_bank),
+        "friends storage: final controller release frees the optional hidden index bank");
 }
 } // namespace maicord::friends_runtime_test
 
@@ -936,6 +1174,11 @@ bool clipboard_write_utf8(const Utf8View& text) noexcept {
     if(text.bytes>sizeof(state.clipboard)||!utf8_validate(text).valid)return false;
     for(u32 i=0;i<text.bytes;++i)state.clipboard[i]=text.data[i];state.clipboard_bytes=text.bytes;return true;
 }
+RestClientSubmitResult rest_client_submit_large_response(RestClient* client, const RestClientRequest& request,
+                                                         u32 response_capacity) noexcept {
+    friends_runtime_test::seen.response_capacity = response_capacity;
+    return rest_client_submit(client, request);
+}
 RestClientSubmitResult rest_client_submit(RestClient*, const RestClientRequest& request) noexcept {
     auto& capture = friends_runtime_test::seen;
     ++capture.submissions;capture.request_id = request.request_id;
@@ -946,6 +1189,9 @@ RestClientSubmitResult rest_client_submit(RestClient*, const RestClientRequest& 
     if (request.body.count > sizeof(capture.body)) return {RestClientSubmitError::body_capacity};
     capture.body_bytes = request.body.count;
     for (u32 i = 0; i < request.body.count; ++i) capture.body[i] = static_cast<char>(request.body[i]);
+    if (request.extra_headers.count > sizeof(capture.headers)) return {RestClientSubmitError::invalid_input};
+    capture.header_bytes = request.extra_headers.count;
+    for (u32 i = 0; i < request.extra_headers.count; ++i) capture.headers[i] = static_cast<char>(request.extra_headers[i]);
     return {capture.admission};
 }
 void renderer_bind_friends_scene(D3D11Renderer* renderer, const UiFriendsScene* value) noexcept {

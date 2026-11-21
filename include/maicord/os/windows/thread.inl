@@ -47,6 +47,10 @@ __forceinline void thread_boost_realtime() noexcept {
     SetThreadPriority(current_thread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
 
+__forceinline void thread_process_barrier() noexcept {
+    FlushProcessWriteBuffers();
+}
+
 __forceinline void thread_sleep(u32 milliseconds) noexcept {
     Sleep(milliseconds);
 }

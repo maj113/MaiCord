@@ -180,28 +180,21 @@ void taskbar_attention_apply(TaskbarAttention* attention, Window owner, const Ta
         return;
     HICON icon = nullptr;
     if (plan.badge) {
-        if (attention->icon && attention->icon_badge == plan.badge) {
-            icon = static_cast<HICON>(attention->icon);
-        } else {
-            const int extent = GetSystemMetricsForDpi(SM_CXSMICON, dpi ? dpi : 96);
-            icon = create_icon(plan.badge, static_cast<u32>(extent < 8 ? 16 : extent > 64 ? 64 : extent));
-        }
+        const int extent = GetSystemMetricsForDpi(SM_CXSMICON, dpi ? dpi : 96);
+        icon = create_icon(plan.badge, static_cast<u32>(extent < 8 ? 16 : extent > 64 ? 64 : extent));
     }
     const wchar_t* label = !plan.badge ? L""
                            : plan.badge == kTaskbarBadgeDot ? L"Unread messages"
                                                             : L"Unread mentions";
-    if (FAILED(attention->list->SetOverlayIcon(window, icon, label))) {
+    const bool shown = SUCCEEDED(attention->list->SetOverlayIcon(window, icon, label));
+    // The taskbar keeps its own copy of the icon.
+    if (icon)
+        DestroyIcon(icon);
+    if (!shown) {
         // Retry once Explorer announces the button instead of every tick.
         attention->state.badge_applied = false;
         attention->button_ready = false;
-        if (icon && icon != attention->icon)
-            DestroyIcon(icon);
-        return;
     }
-    if (attention->icon && attention->icon != icon)
-        DestroyIcon(static_cast<HICON>(attention->icon));
-    attention->icon = icon;
-    attention->icon_badge = icon ? plan.badge : 0;
 }
 
 void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexcept {
@@ -215,8 +208,6 @@ void taskbar_attention_release(TaskbarAttention* attention, Window owner) noexce
     }
     if (window && attention->state.flashing)
         window_request_attention(owner, Attention::stop);
-    if (attention->icon)
-        DestroyIcon(static_cast<HICON>(attention->icon));
     if (attention->com_initialized)
         CoUninitialize();
     reset_value(attention);

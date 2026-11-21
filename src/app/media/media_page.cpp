@@ -222,13 +222,15 @@ void activate(u32 index) noexcept {
         else
             application_downloads_begin(page->message_id, page->key.id, snapshot);
         return;
-    case ui_image_viewer_copy:
-        if (application_image_copy(page->key, page->fallback, url_of(*page))) {
+    case ui_image_viewer_copy: {
+        const MediaAssetKey keys[]{page->key, page->fallback};
+        if (application_image_copy({keys, 2}, url_of(*page)) == ImageCopyResult::copied) {
             scene.copied = true;
             ++scene.revision;
             application_request_frame();
         }
         return;
+    }
     case ui_image_viewer_retry:
         retry(page);
         return;

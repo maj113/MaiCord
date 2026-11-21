@@ -929,8 +929,11 @@ void run() noexcept {
 
 namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { return true; }
-bool renderer_read_media_rgba(D3D11Renderer*, MediaAssetKey, Slice<u8>, u32*, u32*) noexcept { return false; }
 namespace app_detail {
+// Copy Image (downloads.cpp): nothing is resident in this fixture.
+ImageCopyResult application_image_copy(ConstSlice<MediaAssetKey>, Utf8View) noexcept {
+    return ImageCopyResult::not_resident;
+}
 // The zoom lens persists its wheel changes through the preferences.
 bool application_preferences_image_zoom(u8 factor, u8 size) noexcept {
     g_app.preferences.image_zoom_factor = factor;

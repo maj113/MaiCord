@@ -8,6 +8,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include <stddef.h>
 
 namespace maicord {
 namespace {
@@ -25,6 +26,7 @@ struct Runtime {
     u64 read_offset;
     u32 head_bytes;
     u32 read_bytes;
+    u32 path_units;
     FileIdentity expected_identity;
     bool has_expected_identity;
     bool tls_initialized;
@@ -34,14 +36,16 @@ struct Runtime {
     bool response_failed;
     bool com_initialized;
     wchar_t host[254];
-    wchar_t path[kHttpsFileUploadMaximumPathUnits + 1];
-    u8 head[kHttpsUploadMaximumUrlBytes + 512];
-    u8 encrypted[128 * 1024];
-    u8 handshake[256 * 1024];
-    u8 record[64 * 1024];
-    u8 chunk[kHttpsFileUploadChunkBytes];
     u8 response_input[32 * 1024];
     u8 response_body[16 * 1024];
+    // From the head to the last unit of the path, then the chunk as far as the reads fill it: wipe_written.
+    u8 head[kHttpsUploadMaximumUrlBytes + 512];
+    wchar_t path[kHttpsFileUploadMaximumPathUnits + 1];
+    u8 chunk[kHttpsFileUploadChunkBytes];
+    // Whole pages, which the stream decommits when it drains (release_pages) instead of writing them.
+    alignas(4096) u8 encrypted[128 * 1024];
+    u8 handshake[256 * 1024];
+    u8 record[64 * 1024];
 };
 void phase(HttpsFileUpload* upload, HttpsFileUploadPhase value) noexcept {
     InterlockedExchange(&upload->phase, static_cast<LONG>(value));
@@ -58,6 +62,12 @@ void drain(HttpsFileUpload* upload, Runtime* r, HttpsFileUploadError error, u32 
     network_file_close(&r->file);
     if (r->tls_initialized) tls_stream_close(&r->tls);
 }
+// Wipes the bytes the upload can have written, from `from` (an offset in Runtime) to the path's last unit, and the
+// chunk, which the reads fill from its start and never past the size of the source.
+void wipe_written(Runtime* r, usize from) noexcept {
+    SecureZeroMemory(reinterpret_cast<u8*>(r) + from, offsetof(Runtime, path) + r->path_units * sizeof(wchar_t) - from);
+    SecureZeroMemory(r->chunk, static_cast<usize>(minimum<u64>(r->expected_bytes, sizeof(r->chunk))));
+}
 NetworkWorkerStep finish(HttpsFileUpload* upload, Runtime* r) noexcept {
     // Each pending file or TLS operation ends with one completion, and the worker comes back here for it.
     if (r->file.pending || (r->tls_initialized && !tls_stream_drained(&r->tls))) return {INFINITE, false};
@@ -66,9 +76,7 @@ NetworkWorkerStep finish(HttpsFileUpload* upload, Runtime* r) noexcept {
         r->result.file_bytes = r->expected_bytes;
         r->result.committed_bytes = static_cast<u64>(read_acquire(&upload->committed_bytes));
         r->result.phase = HttpsFileUploadPhase::complete;
-        SecureZeroMemory(r->head, sizeof(r->head));
-        SecureZeroMemory(r->chunk, sizeof(r->chunk));
-        SecureZeroMemory(r->path, sizeof(r->path));
+        wipe_written(r, offsetof(Runtime, head));
         r->draining = false;
         phase(upload, HttpsFileUploadPhase::complete);
         event_set(upload->notification);
@@ -87,12 +95,6 @@ TlsStreamReadAction response(void* context, ConstSlice<u8> bytes, bool peer_clos
     if (!step.ok() || step.extra_bytes) { r->response_failed = true; return TlsStreamReadAction::reject; }
     return step.state == HttpResponseDecoderState::complete ? TlsStreamReadAction::complete : TlsStreamReadAction::continue_read;
 }
-void read_next(HttpsFileUpload* upload, Runtime* r) noexcept {
-    const u64 remaining = r->expected_bytes - r->read_offset;
-    r->read_bytes = static_cast<u32>(minimum<u64>(remaining, sizeof(r->chunk)));
-    const auto read = network_file_read(&r->file, r->read_offset, {r->chunk, r->read_bytes});
-    if (!read.ok()) drain(upload, r, HttpsFileUploadError::file_read, static_cast<u32>(read.native_error));
-}
 void drive(HttpsFileUpload* upload, Runtime* r, TlsStreamEvent event) noexcept {
     for (;;) {
         if (cancelled(upload)) { drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED); return; }
@@ -110,9 +112,14 @@ void drive(HttpsFileUpload* upload, Runtime* r, TlsStreamEvent event) noexcept {
         }
         if (event.kind == TlsStreamEventKind::write_complete) {
             if (r->read_offset < r->expected_bytes) {
-                if (!r->content.context) { read_next(upload, r); return; }
-                const auto span = r->content.ops->read(r->content.context, r->read_offset, {r->chunk, sizeof(r->chunk)});
-                if (!span.data || !span.count || span.count > sizeof(r->chunk) || span.count > r->expected_bytes - r->read_offset) {
+                r->read_bytes = static_cast<u32>(minimum<u64>(r->expected_bytes - r->read_offset, sizeof(r->chunk)));
+                if (!r->content.context) {
+                    const auto read = network_file_read(&r->file, r->read_offset, {r->chunk, r->read_bytes});
+                    if (!read.ok()) drain(upload, r, HttpsFileUploadError::file_read, static_cast<u32>(read.native_error));
+                    return;
+                }
+                const auto span = r->content.ops->read(r->content.context, r->read_offset, {r->chunk, r->read_bytes});
+                if (!span.data || !span.count || span.count > r->read_bytes) {
                     drain(upload, r, HttpsFileUploadError::file_read); return;
                 }
                 r->read_offset += span.count; r->sending_body = true;
@@ -160,7 +167,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
         else if (!http_response_decoder_initialize(&r->response,
             {r->response_input, sizeof(r->response_input)}, {}, {r->response_body, sizeof(r->response_body)}, 16 * 1024, 64) ||
             !tls_stream_initialize(&r->tls, r->host,
-                {{r->encrypted, sizeof(r->encrypted)}, {r->handshake, sizeof(r->handshake)}, {r->record, sizeof(r->record)}}))
+                {{r->encrypted, sizeof(r->encrypted)}, {r->handshake, sizeof(r->handshake)}, {r->record, sizeof(r->record)}, true}))
             drain(upload, r, HttpsFileUploadError::tls);
         else {
             r->tls_initialized = true;
@@ -208,11 +215,13 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
     const u64 now = clock_monotonic_milliseconds();
     return {now >= r->deadline ? 0u : static_cast<u32>(minimum<u64>(r->deadline - now, 1000)), false};
 }
+// The worker has exited, so a stream that started has drained and retired its buffers. The rest is wiped as far as
+// it can hold written bytes: a page that was never written is not made resident only to be cleared.
 void destroy(HttpsFileUpload* upload) noexcept {
     if (upload->notification) waitable_close(upload->notification);
     if (upload->runtime) {
         upload_source_release(static_cast<Runtime*>(upload->runtime)->content);
-        SecureZeroMemory(upload->runtime, sizeof(Runtime));
+        wipe_written(static_cast<Runtime*>(upload->runtime), 0);
         pages_release(upload->runtime);
     }
     reset_value(upload);
@@ -233,7 +242,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
     if (!upload->runtime) return HttpsFileUploadError::memory;
     auto* r = static_cast<Runtime*>(upload->runtime);
     r->content = content; upload_source_retain(content);
-    copy_bytes(r->path, path.data, path.count * sizeof(wchar_t));
+    copy_bytes(r->path, path.data, path.count * sizeof(wchar_t)); r->path_units = path.count;
     for (u32 i = 0; i < parsed.host.bytes; ++i) r->host[i] = static_cast<wchar_t>(parsed.host.data[i]);
     r->head_bytes = https_upload_write_head(url, expected_bytes, {r->head, sizeof(r->head)}, content_type);
     if (!r->head_bytes) { destroy(upload); return HttpsFileUploadError::invalid_input; }

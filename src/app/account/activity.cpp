@@ -14,7 +14,11 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/gateway/client.hpp"
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include "maicord/core/win32_process.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/com.hpp"
+#else
 #include "maicord/platform/window/wayland.hpp"
 #endif
 
@@ -44,20 +48,21 @@ struct ActivityState {
     bool game, game_custom, streamer_tool, in_call;
     GatewayLocalPresence published;
     bool published_valid;
-    // "Add it!" choices: programs owning a visible window that no game or added program names.
-    char choice_text[kChoiceMaximum * kRegisteredGameExecutableBytes];
-    char choice_names[kChoiceMaximum][kRegisteredGameNameBytes];
-    Utf8View choices[kChoiceMaximum];
-    Utf8View choice_executables[kChoiceMaximum];
     u32 choice_count;
     u64 choices_at;
-    // Added Games rows: "Last played ..." and "Remove <name>".
-    char played_text[kRegisteredGameMaximum][kPlayedTextBytes];
-    char remove_text[kRegisteredGameMaximum][kRemoveTextBytes];
     // Share my activity request lane (PRIMARY).
     u64 request_id, retry_at, profile_id, self_user_id;
     u8 attempts;
     bool desired_share, queued, failed;
+    // Text written before each read, so reset leaves its 15 KiB unwritten.
+    // "Add it!" choices (read below choice_count): programs owning a visible window that no game or added program names.
+    char choice_text[kChoiceMaximum * kRegisteredGameExecutableBytes];
+    char choice_names[kChoiceMaximum][kRegisteredGameNameBytes];
+    Utf8View choices[kChoiceMaximum];
+    Utf8View choice_executables[kChoiceMaximum];
+    // Added Games rows: "Last played ..." and "Remove <name>".
+    char played_text[kRegisteredGameMaximum][kPlayedTextBytes];
+    char remove_text[kRegisteredGameMaximum][kRemoveTextBytes];
 } g;
 // The registered games outlive account scopes; loaded once.
 RegisteredGames g_games;
@@ -93,7 +98,7 @@ const PluginActivity* plugin_activity() noexcept {
 }
 
 void reset() noexcept {
-    reset_value(&g);
+    clear_bytes(&g, static_cast<u32>(offsetof(ActivityState, choice_text)));
 }
 void scope() noexcept {
     if (g.account_scope == g_app.plugin_account_scope_serial)
@@ -125,6 +130,17 @@ u64 input_idle_ms() noexcept {
     const u32 idle = platform_settings_read().system_idle_ms;
     return idle == kSystemIdleUnknown ? 0 : idle;
 }
+#if defined(_WIN32)
+// GUID_SESSION_USER_PRESENCE: its value is PowerUserPresent (0) or PowerUserInactive (2). Windows reports it for the
+// whole process, so the report outlives account scopes.
+constexpr GUID kSessionUserPresence{0x3c0f4548, 0xc03f, 0x4c4d, {0xb9, 0xf2, 0x23, 0x7e, 0xde, 0x68, 0x63, 0x76}};
+bool g_user_away;
+// An idle presence while Windows reports the user away: nothing can end it but the user's return, which Windows
+// reports, so the check runs no timer.
+inline bool idle_until_return() noexcept {
+    return g.idle.idle && g_user_away;
+}
+#endif
 bool in_call() noexcept {
     const auto* ui = g_app.account_ui;
     return ui && ui->voice_session.channel_id && ui->voice_session.phase != VoiceSetupPhase::idle;
@@ -328,8 +344,9 @@ void application_activity_tick(u64 now_ms) noexcept {
     // A call holds the user online. The check runs where the call starts and where it ends, with no timer between.
     const bool call = in_call();
 #if defined(_WIN32)
-    // The system has no event for input in other programs: outside a call a timer asks.
-    const bool due = !call && (!g.idle_check_at || now_ms >= g.idle_check_at);
+    // The system has no event for input in other programs: outside a call a timer asks, but not while the presence is
+    // idle and Windows reports the user away (its report of the return makes the next check due).
+    const bool due = !call && !idle_until_return() && (!g.idle_check_at || now_ms >= g.idle_check_at);
 #else
     // The compositor says when input stops and when it comes back, and its word wakes the loop: no timer asks.
     const u32 word = window_wayland_idle_changes() + 1;
@@ -378,7 +395,11 @@ void application_activity_tick(u64 now_ms) noexcept {
 u64 application_activity_next_wake() noexcept {
     if (!module())
         return 0;
+#if defined(_WIN32)
+    u64 wake = idle_until_return() ? 0 : g.idle_check_at;
+#else
     u64 wake = g.idle_check_at;
+#endif
     if (g_app.preferences.game_detection || g_app.preferences.streamer_auto)
         wake = earliest_deadline(wake, g.scan_at ? g.scan_at : 1);
     if (g.queued && !g.request_id && g.retry_at &&
@@ -386,6 +407,27 @@ u64 application_activity_next_wake() noexcept {
         wake = earliest_deadline(wake, g.retry_at);
     return wake;
 }
+#if defined(_WIN32)
+// The registration lives as long as the window: the process ends with it.
+void application_activity_watch_presence(HWND window) noexcept {
+    if (!RegisterPowerSettingNotification(window, &kSessionUserPresence, DEVICE_NOTIFY_WINDOW_HANDLE))
+        log_u64(LogLevel::warning, "activity", "presence_watch_failed", thread_last_error());
+}
+bool application_activity_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    // POWERBROADCAST_SETTING: the setting's GUID, the data's size, then the data (a DWORD here).
+    struct Setting {
+        GUID setting;
+        DWORD bytes, value;
+    };
+    const auto* setting = reinterpret_cast<const Setting*>(lparam);
+    if (message != WM_POWERBROADCAST || wparam != PBT_POWERSETTINGCHANGE || !setting ||
+        !bytes_equal(&setting->setting, &kSessionUserPresence, sizeof(GUID)) || setting->bytes < sizeof(DWORD))
+        return false;
+    // The loop turn this message wakes runs the tick: a return makes the idle check due at once.
+    g_user_away = setting->value == 2;
+    return true;
+}
+#endif
 void application_activity_clear() noexcept {
     // Account stop and exit: the refresh worker joins and the scan buffers go.
     release_detectables();

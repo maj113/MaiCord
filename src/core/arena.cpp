@@ -17,9 +17,10 @@ struct AccountCounters {
 };
 AccountCounters g_accounts[static_cast<u32>(ArenaTag::count)];
 
+// Every tag is an ArenaTag enumerator below count: arena_initialize and arena_account_add take the enumerators, and
+// memory_summary asks for each one up to count.
 AccountCounters& account_of(ArenaTag tag) noexcept {
-    const u32 index = static_cast<u32>(tag);
-    return g_accounts[index < static_cast<u32>(ArenaTag::count) ? index : 0];
+    return g_accounts[static_cast<u32>(tag)];
 }
 
 AccountCounters& account_of(const Arena* arena) noexcept {
