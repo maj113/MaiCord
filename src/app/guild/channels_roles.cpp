@@ -198,7 +198,7 @@ void help(UiStoreBuilder& b, const GuildOnboardingPrompt& prompt) noexcept {
     }
     if (!roles.count && !channels.count) {
         if (!prompt.single_select)
-            plain(b, utf8_literal("Choose all that apply."));
+            b.text("Choose all that apply.", UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
         return;
     }
     b.open(UiStoreKind::flow).gap = 4;
@@ -251,7 +251,8 @@ void tile(UiStoreBuilder& b, u32 index, float height, bool can_be_new) noexcept 
     b.close();
 }
 
-// A question's card: its title (and the red mark of a required one), its answers in a grid and what they gave.
+// A question's card: its title (and the red mark of a required one), its answers in a grid and what they gave. The
+// title wraps to the card, as the official client's inline heading does; the mark stays beside its first line.
 void question(UiStoreBuilder& b, u32 index, u32 columns) noexcept {
     const auto& model = page->onboarding;
     const auto& prompt = model.prompts[index];
@@ -259,8 +260,8 @@ void question(UiStoreBuilder& b, u32 index, u32 columns) noexcept {
     card.pad_x = card.pad_y = card.gap = 16;
     if (!prompt.seen)
         new_badge(b);
-    row(b, 4);
-    b.text(guild_onboarding_text(model, prompt.title), UiStoreType::body_bold, UiStoreInk::strong);
+    row(b, 4).flags = 0;
+    b.text(guild_onboarding_text(model, prompt.title), UiStoreType::body_bold, UiStoreInk::strong, ui_store_wrap);
     if (prompt.required)
         b.text("*", UiStoreType::body_bold, UiStoreInk::critical);
     b.close();
@@ -290,7 +291,7 @@ void heading(UiStoreBuilder& b, u32 count, Utf8View noun) noexcept {
     bank.add(noun);
     if (count != 1)
         bank.add("s");
-    b.text(b.copy(bank.since(0)), UiStoreType::body_bold, UiStoreInk::strong);
+    b.text(b.copy(bank.since(0)), UiStoreType::body_bold, UiStoreInk::strong, ui_store_wrap);
 }
 
 // My Profile: the account's avatar and name in this server, and its roles as pills in their colours, highest first.
@@ -392,10 +393,11 @@ void empty(UiStoreBuilder& b) noexcept {
     disc.icon = static_cast<u8>(UiIcon::shield_check);
     disc.flags = ui_store_center;
     b.spacer(0, 12);
-    b.text("There are no customization options yet.", UiStoreType::body_bold, UiStoreInk::strong, ui_store_center);
+    b.text("There are no customization options yet.", UiStoreType::body_bold, UiStoreInk::strong,
+           ui_store_center | ui_store_wrap);
     auto& line = row(b, 4);
     line.flags = ui_store_center | ui_store_justify;
-    b.text("You can add and remove channels from", UiStoreType::label, UiStoreInk::normal);
+    b.text("You can add and remove channels from", UiStoreType::label, UiStoreInk::normal, ui_store_wrap);
     b.button("Browse Channels", UiStoreButton::link, action_browse);
     b.text(".", UiStoreType::label, UiStoreInk::normal);
     b.close();
@@ -457,7 +459,8 @@ void customize(UiStoreBuilder& b) noexcept {
     if (other_count) {
         b.open(UiStoreKind::column);
         heading(b, other_count, utf8_literal("Customization Question"));
-        b.text("Answer questions to get access to more channels and roles.", UiStoreType::small, UiStoreInk::subtle);
+        b.text("Answer questions to get access to more channels and roles.", UiStoreType::small, UiStoreInk::subtle,
+               ui_store_wrap);
         b.close();
         for (u32 i = 0; i < other_count; ++i)
             question(b, others[i], columns);
@@ -525,7 +528,7 @@ void browse(UiStoreBuilder& b) noexcept {
         auto& text = b.open(UiStoreKind::column);
         text.flags = ui_store_flex;
         text.gap = 8;
-        b.text("Choose Your Channels", UiStoreType::heading, UiStoreInk::strong);
+        b.text("Choose Your Channels", UiStoreType::heading, UiStoreInk::strong, ui_store_wrap);
         b.text("Customize what\xE2\x80\x99s on your channel list, so you see just the stuff you care about.",
                UiStoreType::body, UiStoreInk::normal, ui_store_wrap);
         b.open(UiStoreKind::flow).gap = 4;

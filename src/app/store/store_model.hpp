@@ -95,9 +95,11 @@ struct StoreConsent {
     bool reviewed;
 };
 
+enum class PackageError : u8; // src/app/packages/packages.hpp
 struct StoreLink {
     bool open;     // the install-from-link entry or the card
     u8 phase;      // 0 entry, 1 working, 2 card, 3 failed
+    PackageError error; // why it failed (phase 3)
     Utf8View host, name, authors, license, based_on, cost_text;
     CatalogKind kind;
     bool replaces, has_effect, effect_installed, cost_known, cost_refused, previewing;

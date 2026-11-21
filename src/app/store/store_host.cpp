@@ -743,8 +743,7 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
     l.open = status.phase != PackagePhase::idle;
     if (l.open) {
         l.phase = status.phase == PackagePhase::working ? 1 : status.phase == PackagePhase::ready ? 2 : 3;
-        if (status.phase == PackagePhase::failed)
-            m.error_text = utf8_literal("That link or file isn't a theme or effect MaiCord can use.");
+        l.error = status.error;
         if (const PackageCard* card = application_packages_card(); card && status.phase == PackagePhase::ready) {
             l.kind = card->kind == PackageLinkKind::effect ? CatalogKind::effect : CatalogKind::theme;
             l.host = {card->host, c_string_length(card->host)};

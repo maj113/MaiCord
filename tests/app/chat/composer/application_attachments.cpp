@@ -307,6 +307,10 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
     check(application_attachment_action(popup_action_attachment_retry) && !application_attachment_url_pending(600) &&
         message_attachment_drafts_get(&state->drafts, id)->failure == MessageAttachmentDraftFailure::source_changed && state->notice_bytes == 0,
         "changed source cannot retry against stale identity");
+    message_attachment_drafts_get(&state->drafts, id)->failure = MessageAttachmentDraftFailure::size_limit;
+    check(application_attachment_action(popup_action_attachment_retry) && !application_attachment_url_pending(600) &&
+        message_attachment_drafts_get(&state->drafts, id)->failure == MessageAttachmentDraftFailure::size_limit,
+        "a file Discord refused as too large does not retry from the menu");
     message_attachment_drafts_get(&state->drafts, id)->failure = MessageAttachmentDraftFailure::upload;
     check(application_attachment_action(popup_action_attachment_retry) && application_attachment_url_pending(600),
         "ordinary failed upload can request fresh URL");

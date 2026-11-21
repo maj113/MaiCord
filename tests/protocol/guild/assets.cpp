@@ -1,5 +1,7 @@
 #include "maicord/app/guild/account_guild_assets.hpp"
 #include "maicord/app/media/guild_image.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/crc32.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/platform/desktop/clipboard_image.hpp"
@@ -56,6 +58,37 @@ ConstSlice<u8> make_png(u32 width, u32 height) noexcept {
     const u64 written = clipboard_image_encode_png(rgba, width, height, width * 4, {png, static_cast<u32>(bytes)});
     VirtualFree(rgba, 0, MEM_RELEASE);
     return {png, static_cast<u32>(written)};
+}
+
+// The same PNG with its image data split over `chunks` IDAT chunks (more than the decoder's inline span
+// table).
+ConstSlice<u8> split_idat(ConstSlice<u8> png, u32 chunks) noexcept {
+    u8* data = scratch(u64{png.count} + u64{chunks} * 12);
+    u32 in = 8, out = 8, payload = 0, payload_bytes = 0;
+    copy_bytes(data, png.data, 8);
+    while (in + 12 <= png.count) {
+        const u32 length = byte_load_be32(png.data + in);
+        if (bytes_equal(png.data + in + 4, "IDAT", 4)) {
+            payload = in + 8;
+            payload_bytes = length;
+        } else {
+            if (bytes_equal(png.data + in + 4, "IEND", 4)) {
+                for (u32 i = 0, at = 0; i < chunks; ++i) {
+                    const u32 part = (payload_bytes - at) / (chunks - i);
+                    byte_store_be32(data + out, part);
+                    copy_bytes(data + out + 4, "IDAT", 4);
+                    copy_bytes(data + out + 8, png.data + payload + at, part);
+                    byte_store_be32(data + out + 8 + part, crc32_extend(0, data + out + 4, part + 4));
+                    out += 12 + part;
+                    at += part;
+                }
+            }
+            copy_bytes(data + out, png.data + in, length + 12);
+            out += length + 12;
+        }
+        in += length + 12;
+    }
+    return {data, out};
 }
 
 // Structurally valid GIF with `frames` images and `padding` bytes of data.
@@ -442,6 +475,22 @@ void test_images() noexcept {
           "image: an oversized emoji PNG is centre-cropped square, area-averaged to 128x128 and re-encoded");
     guild_image_release(&buffer);
     check(!buffer.data && !buffer.bytes, "image: the re-encoded buffer is erased and released");
+
+    // More IDAT chunks than the decoder's inline span table: the same pixels, so the same re-encoded file.
+    GuildImageBuffer whole{};
+    GuildPreparedImage whole_prepared{};
+    guild_image_prepare(GuildImageProfile::emoji, emoji_png, &whole, &whole_prepared);
+    const auto split_png = split_idat(emoji_png, kPngIdatSpanCapacity + 16);
+    PngImage split_parsed{};
+    info = guild_image_prepare(GuildImageProfile::emoji, split_png, &buffer, &prepared);
+    check(png_parse(split_png, &split_parsed).ok() && split_parsed.idat_span_count > kPngIdatSpanCapacity &&
+              info.error == GuildImageError::none && info.resized && info.width == 128 &&
+              info.height == 128 && whole_prepared.bytes.count &&
+              whole_prepared.bytes.count == prepared.bytes.count &&
+              bytes_equal(whole_prepared.bytes.data, prepared.bytes.data, prepared.bytes.count),
+          "image: a PNG with more IDAT chunks than the span table re-encodes like the one-chunk file");
+    guild_image_release(&whole);
+    guild_image_release(&buffer);
 
     const auto small_png = make_png(64, 64);
     info = guild_image_prepare(GuildImageProfile::emoji, small_png, &buffer, &prepared);

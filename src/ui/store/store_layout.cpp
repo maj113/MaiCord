@@ -137,11 +137,23 @@ float leaf_width(const UiStoreNode& n) noexcept {
     }
 }
 
+// A wrapped text at least as wide as its measured line is one line: the line estimate runs wider than the measure.
+bool one_line(const UiStoreNode& n, float width) noexcept {
+    if (width < leaf_width(n))
+        return false;
+    for (u32 i = 0; i < n.text.bytes; ++i)
+        if (n.text.data[i] == '\n')
+            return false;
+    return true;
+}
+
 float leaf_height(const UiStoreNode& n, float width) noexcept {
     switch (n.kind) {
     case UiStoreKind::text: {
         const auto& m = type_metrics(n.type);
-        u32 lines = (n.flags & ui_store_wrap) ? text_lines(n.type, n.text, width) : n.text.bytes ? 1 : 0;
+        u32 lines = (n.flags & ui_store_wrap) && !one_line(n, width) ? text_lines(n.type, n.text, width)
+                    : n.text.bytes                                   ? 1
+                                                                     : 0;
         if (n.count && lines > n.count)
             lines = n.count;
         if (n.value && lines < n.value)
@@ -255,31 +267,74 @@ float place_stack(const UiStoreScene& s, UiStoreNode& n, float x, float y, float
     }
     return any ? cy - y + n.pad_y : n.pad_y * 2;
 }
+// A row child that can be narrower than its own width: a text (wrapped, else ellipsized), a chip (ellipsized in its
+// pill) and a container without a width of its own (its children narrow in turn).
+bool narrows(const UiStoreNode& n) noexcept {
+    return !n.rw && (n.kind == UiStoreKind::text || n.kind == UiStoreKind::chip || n.kind == UiStoreKind::column ||
+                     n.kind == UiStoreKind::row || n.kind == UiStoreKind::flow || n.kind == UiStoreKind::card);
+}
 
 float place_row(const UiStoreScene& s, UiStoreNode& n, float x, float y, float width) noexcept {
     const float cx = x + n.pad_x, cw = maximum(1.f, width - n.pad_x * 2);
-    u32 shown = 0, flex = 0;
-    float fixed = 0;
+    u32 shown = 0, flex = 0, narrow = 0;
+    float fixed = 0, narrow_width = 0;
     for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
         const auto& child = at(s, c);
         if (hidden(child))
             continue;
         ++shown;
-        if (child.flags & ui_store_flex)
+        if (child.flags & ui_store_flex) {
             ++flex;
-        else
-            fixed += intrinsic(s, c);
+            continue;
+        }
+        const float w = intrinsic(s, c);
+        fixed += w;
+        if (narrows(child)) {
+            ++narrow;
+            narrow_width += w;
+        }
     }
     // A segmented track with a width of its own (`rw`) shares it equally; any other row's options take their own.
     const bool shared = n.variant == 1 && n.rw;
     const float gaps = shown > 1 ? n.gap * (shown - 1) : 0;
     const float free = maximum(0.f, cw - fixed - gaps);
+    // Children wider than the row: those that narrow give up the excess, the widest first. Each keeps at most `cap`,
+    // so a short child beside a long text (a required question's mark) keeps its width.
+    float cap = 1e30f;
+    const float excess = fixed + gaps - cw;
+    if (excess > 0 && narrow && !shared) {
+        const float room = maximum(0.f, narrow_width - excess);
+        cap = room / narrow;
+        for (u32 pass = 0; pass < narrow; ++pass) {
+            float kept = 0;
+            u32 under = 0;
+            for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
+                const auto& child = at(s, c);
+                if (hidden(child) || (child.flags & ui_store_flex) || !narrows(child))
+                    continue;
+                const float w = intrinsic(s, c);
+                if (w <= cap) {
+                    kept += w;
+                    ++under;
+                }
+            }
+            if (under == narrow)
+                break;
+            const float next = maximum(0.f, room - kept) / (narrow - under);
+            if (next <= cap)
+                break;
+            cap = next;
+        }
+    }
     float cursor = cx, height = 0;
     for (u16 c = n.first; c != kUiStoreNone; c = at(s, c).next) {
         auto& child = at(s, c);
         if (hidden(child))
             continue;
-        const float w = shared ? cw / shown : (child.flags & ui_store_flex) ? free / flex : intrinsic(s, c);
+        const float w = shared                         ? cw / shown
+                        : (child.flags & ui_store_flex) ? free / flex
+                        : narrows(child)                ? minimum(intrinsic(s, c), cap)
+                                                        : intrinsic(s, c);
         place(s, c, cursor, y + n.pad_y, w);
         cursor += child.w + n.gap;
         height = maximum(height, child.h);
@@ -307,7 +362,8 @@ float place_flow(const UiStoreScene& s, UiStoreNode& n, float x, float y, float 
         auto& child = at(s, c);
         if (hidden(child))
             continue;
-        const float w = intrinsic(s, c);
+        // A child never runs past the flow: a longer one wraps or ellipsizes on its own line.
+        const float w = minimum(intrinsic(s, c), cw);
         const bool divider = child.kind == UiStoreKind::rule;
         if (cursor > 0 && cursor + w > cw + .01f) {
             top += line + n.gap;
@@ -393,7 +449,8 @@ float place_preview(const UiStoreScene& s, UiStoreNode& n, float x, float y, flo
         auto& child = at(s, c);
         if (hidden(child))
             continue;
-        place(s, c, 0, 0, intrinsic(s, c));
+        // A child never runs past the plate's insets.
+        place(s, c, 0, 0, minimum(intrinsic(s, c), maximum(0.f, width - inset_x * 2)));
         float cx = x + inset_x, cy = y + inset_y;
         switch (static_cast<UiStoreAnchor>(child.anchor)) {
         case UiStoreAnchor::top_right:

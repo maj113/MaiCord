@@ -403,12 +403,11 @@ bool application_attachment_action(u32 action) noexcept {
         }
         if (!remove_draft(state, id)) return false;
     } else if (action == popup_action_attachment_retry) {
+        // The tiles' rule: a changed source or a file Discord refused as too large does not upload again.
         for (u32 i = 0; i < state->menu_count; ++i) {
             auto* record = message_attachment_drafts_get(&state->drafts, state->menu_ids[i]);
-            if (record && record->channel_id == g_app.account_ui->active_channel_id &&
-                record->phase == MessageAttachmentDraftPhase::failed && record->failure != MessageAttachmentDraftFailure::source_changed) {
+            if (record && record->channel_id == g_app.account_ui->active_channel_id && retryable(*record))
                 requeue(*record);
-            }
         }
     } else if (action == popup_action_attachment_cancel_selection) {
         if (preparing(state, g_app.account_ui->active_channel_id)) {

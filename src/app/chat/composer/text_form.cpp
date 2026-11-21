@@ -180,6 +180,7 @@ bool project(ApplicationTextForm* form) noexcept {
         content.swatch_rgba = form->swatch_rgba;
         content.picker = request.picker;
         content.qr = request.qr;
+        content.qr_caption = request.qr_caption;
         if (request.picker) {
             content.color = form->color;
             content.color.eyedropper = !g_eyedropper_unavailable;

@@ -1,4 +1,5 @@
 #include "../../../src/app/store/store_model.hpp"
+#include "../../../src/app/packages/packages.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/settings/scene.hpp"
@@ -338,6 +339,46 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
     g_model.console_count = kStoreConsoleLines;
     g_model.console_total = 40;
     check(console_page(&lines, &clears) && clears == 1 && lines >= kStoreConsoleLines, "store: a full console still lays out");
+    // A failed link or file install says why.
+    static constexpr struct {
+        PackageError error;
+        Utf8View text;
+        const char* name;
+    } kReasons[]{
+        {PackageError::too_large, utf8_literal("The file is too large. A theme can be up to 64 KB and an effect up to 1.5 MB."),
+         "store: a failed install says the file is too large"},
+        {PackageError::unreachable, utf8_literal("The site couldn't be reached, or it answered with an error."),
+         "store: a failed install says the site couldn't be reached"},
+        {PackageError::redirect, utf8_literal("The link sends you to another site. Use a direct link to the file."),
+         "store: a failed install says the link redirects to another site"},
+        {PackageError::refused_shader, utf8_literal("The effect's shader isn't valid, or your GPU can't run it."),
+         "store: a failed install says the shader was refused"},
+        {PackageError::too_heavy, utf8_literal("This effect is too heavy for your GPU."),
+         "store: a failed install says the effect is too heavy"},
+        {PackageError::invalid, utf8_literal("That link or file isn't a theme or effect MaiCord can use."),
+         "store: a failed install says the file isn't a theme or effect"},
+        {PackageError::unsupported, utf8_literal("MaiCord installs only themes and effects from a link or a file."),
+         "store: a failed install says plugins don't install from a link"},
+        {PackageError::bad_file, utf8_literal("The file couldn't be read."), "store: a failed install says the file couldn't be read"},
+        {PackageError::busy, utf8_literal("Another install is still running. Try again when it's done."),
+         "store: a failed install says another install is running"},
+        {PackageError::storage, utf8_literal("The file couldn't be saved."), "store: a failed install says the file couldn't be saved"},
+    };
+    g_model.developer_mode = false;
+    st.tab = StoreTab::browse;
+    g_model.link = {};
+    g_model.link.open = true;
+    g_model.link.phase = 3;
+    for (const auto& reason : kReasons) {
+        g_model.link.error = reason.error;
+        ui_store_scene_begin(&g_scene);
+        store_page_build(&g_scene, in);
+        bool shown = false;
+        for (u32 i = 0; i < g_scene.count; ++i)
+            shown = shown || same(g_scene.nodes[i].text, reason.text);
+        check(ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700}) && shown, reason.name);
+    }
+    g_model.link = {};
     ui_store_scene_release(&g_scene);
 }
 

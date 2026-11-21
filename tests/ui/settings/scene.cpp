@@ -1600,6 +1600,19 @@ void test_preview_row(Check check) noexcept {
               close_to(at12.toggle_label, at24.toggle_label) && at24.button > 0 &&
               close_to(at12.button, at24.button),
           "settings preview: Text size in chat leaves every other text on the page at the interface's size");
+    // Space Between Message Groups and Text size in chat change only the sample: the row after the card still starts
+    // where the card ends.
+    const auto row_follows = [&](float gap, float size) noexcept {
+        sample.group_gap = gap;
+        sample.text_size = size;
+        ++content.revision;
+        UiSettingsControlGeometry card{}, next{};
+        return ui_settings_scene_update(&scene, &registry, viewport) &&
+               ui_settings_scene_control_geometry(scene, target(1), &card) &&
+               ui_settings_scene_control_geometry(scene, target(2), &next) && close_to(next.control.top, card.control.bottom);
+    };
+    check(row_follows(0, 16) && row_follows(24, 16) && row_follows(0, 16) && row_follows(0, 24) && row_follows(0, 12),
+          "settings preview: a new group gap or text size moves the next row with the card's bottom");
     ui_settings_scene_release(&scene);
 }
 

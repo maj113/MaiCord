@@ -1,7 +1,35 @@
 #include "store_build.hpp"
+#include "../packages/packages.hpp"
+#include "maicord/app/settings/client_theme_storage.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord::app_detail::store_build {
 namespace {
+
+// Why a link or file install failed, by PackageError.
+constexpr char kLinkErrors[] =
+    "The link or file couldn't be used.\0"
+    "Another install is still running. Try again when it's done.\0"
+    "MaiCord installs only themes and effects from a link or a file.\0"
+    "The file couldn't be read.\0"
+    "The site couldn't be reached, or it answered with an error.\0"
+    "The link sends you to another site. Use a direct link to the file.\0"
+    "The file is too large. A theme can be up to 64 KB and an effect up to 1.5 MB.\0"
+    "That link or file isn't a theme or effect MaiCord can use.\0"
+    "The effect's shader isn't valid, or your GPU can't run it.\0"
+    "This effect is too heavy for your GPU.\0"
+    "Your effect library is full. Remove an effect first.\0"
+    "The catalog has an item with this name. Install it from there.\0"
+    "The file couldn't be saved.\0";
+static_assert(name_list_count(kLinkErrors) == static_cast<u32>(PackageError::storage) + 1 &&
+              static_cast<u32>(PackageError::too_large) == 6 && static_cast<u32>(PackageError::refused_shader) == 8);
+static_assert(kClientThemeImportMaximumBytes == 64u * 1024u && kMcfxMaximumBytes == 1536u * 1024u,
+              "the too_large text names these limits");
+
+Utf8View link_error_text(PackageError error) noexcept {
+    const u32 index = static_cast<u32>(error);
+    return name_at(kLinkErrors, index < name_list_count(kLinkErrors) ? index : 0);
+}
 
 // A footer rule sits above the band: the hairline flag draws below, so the body's last element carries it.
 UiStoreNode& dialog_footer(Ctx& c) noexcept {
@@ -194,7 +222,7 @@ void build_link(Ctx& c) noexcept {
     if (l.phase == 3) {
         dialog_body(c);
         title_row(c, utf8_literal("Can't install that"), {}, UiIcon::warning, false, false, false);
-        notice_card(c, UiIcon::warning, {}, c.m.error_text.bytes ? c.m.error_text : utf8_literal("The link or file couldn't be used."), UiStoreFill::critical_tint, UiStoreInk::critical);
+        notice_card(c, UiIcon::warning, {}, link_error_text(l.error), UiStoreFill::critical_tint, UiStoreInk::critical);
         c.b.close();
         dialog_footer(c);
         c.b.spacer(0, 0, true);

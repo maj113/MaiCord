@@ -401,7 +401,9 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
         height = max_height;
         width = maximum(1u, static_cast<u32>((static_cast<u64>(cw) * height + ch / 2) / ch));
     }
-    u8* scanlines = allocate(image.inflated_bytes);
+    // Interlaced files and files with many IDAT chunks need room past the rows.
+    const u32 scanline_bytes = png_decode_buffer_bytes(image);
+    u8* scanlines = allocate(scanline_bytes);
     u8* rgba = allocate(static_cast<u64>(width) * height * 4);
     const u64 png_bytes = clipboard_image_png_bytes(width, height);
     u8* output = png_bytes <= limit ? allocate(png_bytes) : nullptr;
@@ -413,7 +415,7 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
         deflate_workspace_free(workspace);
         return fail(info, png_bytes > limit ? GuildImageError::too_large : GuildImageError::memory);
     }
-    const auto decoded = png_decode_parsed_scanlines(&image, workspace, {scanlines, image.inflated_bytes});
+    const auto decoded = png_decode_parsed_scanlines(&image, workspace, {scanlines, scanline_bytes});
     deflate_workspace_free(workspace);
     if (decoded.ok())
         resample(image, scanlines, cx, cy, cw, ch, width, height, rgba);
