@@ -614,6 +614,7 @@ bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_
     sorted_erase_gap(store->roles, store->role_count, index);
     --store->role_count;
     reset_value<RoleRecord>(&store->roles[store->role_count]);
+    ++store->role_style_mutations;
     return true;
 }
 

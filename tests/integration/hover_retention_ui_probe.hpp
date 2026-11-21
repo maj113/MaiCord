@@ -8,7 +8,8 @@
 
 namespace maicord {
 inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime& view, MessageScene& scene,
-                                     UserStore& users, bool (*rebuild_model)() noexcept) noexcept {
+                                     ChatStateStore& state, UserStore& users,
+                                     bool (*rebuild_model)() noexcept) noexcept {
     using namespace surface_motion_probe_detail;
     u32 stage = 1;
     struct Failure {
@@ -47,10 +48,13 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
         renderer_presentation_stamp_equal(baseline_stamp, themed_stamp) ||
         baseline_stamp.count != resized_stamp.count || baseline_stamp.count != themed_stamp.count)
         return false;
-    constexpr u64 base = 1'270'000'000'100'000'000ull;
+    // Display-name effects show only in DMs and group DMs (message_author_layout), so the rows live in a DM.
+    constexpr u64 base = 1'270'000'000'100'000'000ull, dm = 130;
+    if (!chat_state_store_upsert_channel(&state, ChannelInput{dm, 0, 0, utf8_literal("dm"), 0, 0, 1}).ok())
+        return false;
     for (u32 i = 0; i < 12; ++i)
         if (!message_store_upsert(&view.store,
-                                  {base + i, 111, base + i + 10000, snowflake_timestamp_ms(base + i), 0,
+                                  {base + i, dm, base + i + 10000, snowflake_timestamp_ms(base + i), 0,
                                    utf8_literal("Original native row for controlled hover retention."), 0})
                  .ok() ||
             !user_store_upsert(&users, base + i + 10000, utf8_literal("Native Author")).ok())

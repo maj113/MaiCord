@@ -19,7 +19,7 @@ inline bool guild_equal(const GuildRecord& a, const GuildRecord& b) noexcept {
         a.icon_variant == b.icon_variant && bytes_equal(a.icon_hash, b.icon_hash, sizeof(a.icon_hash)) &&
         a.icon_hash_bytes == b.icon_hash_bytes && a.occupied == b.occupied && a.unavailable == b.unavailable &&
         a.permissions_resolved == b.permissions_resolved && a.member_roles_known == b.member_roles_known &&
-        a.upload_features == b.upload_features;
+        a.upload_features == b.upload_features && a.enhanced_role_colors == b.enhanced_role_colors;
 }
 inline bool channel_equal(const ChannelRecord& a, const ChannelRecord& b) noexcept {
     return a.id == b.id && a.guild_id == b.guild_id && a.parent_id == b.parent_id &&

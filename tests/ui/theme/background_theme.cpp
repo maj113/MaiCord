@@ -179,20 +179,41 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     Theme light_gradient = kLightTheme;
     light_gradient.background = original_gradient.background;
     const Theme role_themes[]{kDefaultTheme, kLightTheme, original_gradient, light_gradient};
+    // Enhanced role styles need the server's ENHANCED_ROLE_COLORS (guild 70); guild 71 lost it and keeps the colours.
+    ChatStateStore role_state{};
+    GuildRecord role_guilds[2]{};
+    u16 role_guild_order[2]{};
+    ChannelRecord role_channels[1]{};
+    u16 role_channel_order[1]{};
+    u8 role_names[64]{};
+    GuildInput enhanced{70, utf8_literal("Enhanced"), GuildMutationKind::create, 1};
+    enhanced.upload_features_known = enhanced.enhanced_role_colors = true;
+    GuildInput lapsed = enhanced;
+    lapsed.id = 71;
+    lapsed.enhanced_role_colors = false;
+    const bool role_state_ready =
+        chat_state_store_initialize(&role_state, {role_guilds, 2}, {role_guild_order, 2}, {role_channels, 1},
+                                    {role_channel_order, 1}, {role_names, sizeof(role_names)}) &&
+        chat_state_store_upsert_guild(&role_state, enhanced).ok() &&
+        chat_state_store_upsert_guild(&role_state, lapsed).ok();
     RoleRecord flat_role{};
+    flat_role.guild_id = 70;
     flat_role.color = 0x9B59B6u;
     RoleRecord gradient_role = flat_role;
     gradient_role.secondary_color = 0x1ABC9Cu | kRoleColorPresent;
     RoleRecord holographic_role = gradient_role;
     holographic_role.tertiary_color = 0x000000u | kRoleColorPresent;
+    RoleRecord lapsed_role = holographic_role;
+    lapsed_role.guild_id = 71;
     const auto exact = ui_role_color(0x9B59B6u);
-    bool role_data = exact.red == 0x9B / 255.f && exact.green == 0x59 / 255.f && exact.blue == 0xB6 / 255.f &&
-                     exact.alpha == 1;
+    bool role_data = role_state_ready && exact.red == 0x9B / 255.f && exact.green == 0x59 / 255.f &&
+                     exact.blue == 0xB6 / 255.f && exact.alpha == 1;
     for (const auto& theme : role_themes) {
         const bool light_theme = theme.appearance == ThemeAppearance::light;
-        const auto flat = ui_role_gradient_effect(theme, flat_role);
-        const auto two = ui_role_gradient_effect(theme, gradient_role);
-        const auto three = ui_role_gradient_effect(theme, holographic_role);
+        const auto flat = ui_role_gradient_effect(theme, role_state, flat_role);
+        const auto two = ui_role_gradient_effect(theme, role_state, gradient_role);
+        const auto three = ui_role_gradient_effect(theme, role_state, holographic_role);
+        role_data = role_data && !ui_role_gradient_effect(theme, role_state, lapsed_role).kind;
         const u32 primary = light_theme ? (0x9Bu * 85 / 100 << 16 | 0x59u * 85 / 100 << 8 | 0xB6u * 85 / 100)
                                         : 0x9B59B6u;
         const u32 secondary = light_theme ? (0x1Au * 85 / 100 << 16 | 0xBCu * 85 / 100 << 8 | 0x9Cu * 85 / 100)
@@ -202,7 +223,8 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
                     three.count == 3 && three.colors[2] == 0 && three.colors[1] == secondary;
     }
     check(role_data, "role colours: flat, gradient and holographic role colours pass through every theme type "
-                     "unchanged (light themes dim only enhanced gradients by .85)");
+                     "unchanged (light themes dim only enhanced gradients by .85); a server without "
+                     "ENHANCED_ROLE_COLORS shows no gradient");
     auto contrast_preferences = client_preferences_defaults();
     contrast_preferences.theme = ClientTheme::custom_gradient;
     const auto dark_foreground = client_theme_projection(contrast_preferences);

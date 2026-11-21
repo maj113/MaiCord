@@ -4,6 +4,7 @@
 #include "../text/picker_glyph_cache.hpp"
 #include "../text/shaped_text_cache.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "maicord/ui/theme/role_color.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/render/media/inline_media.hpp"
@@ -98,6 +99,79 @@ bool resolve_mention_color(const D3D11Renderer* renderer, u64 message_id, Messag
 bool resolve_mention_color_callback(void* context, u64 message_id, MessageMarkdownSemanticKind kind, u64 target,
                                     Color* color) noexcept {
     return resolve_mention_color(static_cast<const D3D11Renderer*>(context), message_id, kind, target, color);
+}
+
+// A still role-gradient material for part of a command (a role mention, a reply's author) from `left`: its slot
+// plus one, or 0 when the gradient is not drawn or the table is full.
+u32 role_gradient_material(D3D11Renderer* renderer, const UiTextEffect& effect, float left, float top) noexcept {
+    if (effect.kind != kUiTextEffectRoleGradient || !effect.count || renderer->text_effect_count >= kTextEffectCapacity)
+        return 0;
+    const u32 slot = renderer->text_effect_count++;
+    auto& material = renderer->text_effects.materials[slot];
+    renderer->text_effect_uploaded_count = 0;
+    reset_value(&material);
+    material.left = left;
+    material.width = 1;
+    material.kind = effect.kind;
+    material.count = effect.count;
+    material.reserved[2] = top;
+    renderer->text_effect_bounds[slot] = {left, top, left, top};
+    for (u32 i = 0; i < effect.count; ++i)
+        material.colors[i] = color_from_rgb24(effect.colors[i]);
+    return slot + 1;
+}
+
+// The guild of the message's channel when its names take role colours ("In names") in the timeline; 0 otherwise.
+u64 role_gradient_guild(const D3D11Renderer& renderer, u64 message_id, const MessageRecord** message) noexcept {
+    const auto* scene = renderer.message_scene;
+    if (!renderer.chat_state || !scene || !scene->timeline || !scene->timeline->store || !message_id ||
+        scene->display.role_style != kMessageRoleColorsOnNames)
+        return 0;
+    const MessageStoreResult found = message_store_find(*scene->timeline->store, message_id);
+    *message = found.ok() ? message_store_resolve(*scene->timeline->store, found.handle) : nullptr;
+    const auto* channel = *message ? chat_state_store_find_channel(*renderer.chat_state, (*message)->channel_id)
+                                   : nullptr;
+    return channel ? channel->guild_id : 0;
+}
+
+u32 resolve_role_effect_callback(void* context, u64 message_id, u64 role_id, float left) noexcept {
+    auto& target = *static_cast<RoleEffectContext*>(context);
+    const MessageRecord* message = nullptr;
+    const u64 guild_id = role_gradient_guild(*target.renderer, message_id, &message);
+    const auto* role = guild_id ? chat_state_store_find_role(*target.renderer->chat_state, guild_id, role_id) : nullptr;
+    return role ? role_gradient_material(target.renderer,
+                                         ui_role_gradient_effect(*target.theme, *target.renderer->chat_state, *role),
+                                         left, target.top)
+                : 0;
+}
+
+u32 reply_author_role_effect(D3D11Renderer* renderer, const Theme& theme, const MessageTextCommand& command) noexcept {
+    const MessageRecord* message = nullptr;
+    const u64 guild_id =
+        command.inline_role_color.alpha > 0 ? role_gradient_guild(*renderer, command.message_id, &message) : 0;
+    const auto& scene = *renderer->message_scene;
+    const auto* row = guild_id && command.owner.manager == &scene.widgets
+                          ? message_scene_resolve(scene, command.owner.handle)
+                          : nullptr;
+    if (!row || !renderer->message_text || !renderer->message_text->guild_members)
+        return 0;
+    // The inline role-coloured name of a reply line is the quoted author's; a compact row's is its own author's.
+    u64 author = 0;
+    if (ui_widget_handle_equal(row->reply, command.owner.handle) && scene.timeline->rich_store) {
+        const auto* rich = message_rich_store_find(*scene.timeline->rich_store, message->id);
+        author = rich && rich->message_revision == message->revision ? message_rich_header_user(*rich) : 0;
+    } else if (scene.display.compact && ui_widget_handle_equal(row->content, command.owner.handle)) {
+        author = message->author_id;
+    }
+    const auto* member =
+        author ? guild_member_store_find(*renderer->message_text->guild_members, guild_id, author) : nullptr;
+    const auto* role = member && member->color_role_id
+                           ? chat_state_store_find_role(*renderer->chat_state, guild_id, member->color_role_id)
+                           : nullptr;
+    return role && role->color == member->role_color
+               ? role_gradient_material(renderer, ui_role_gradient_effect(theme, *renderer->chat_state, *role),
+                                        command.rectangle.left, command.rectangle.top)
+               : 0;
 }
 
 float aligned_text_origin(UiTextAlignment alignment, float start, float available, float used) noexcept {
@@ -273,12 +347,13 @@ constexpr u32 kSystemFaces = 6;
 constexpr wchar_t kFontFamilies[] =
     L"Segoe UI\0Bahnschrift\0Georgia\0Arial Rounded MT Bold\0Consolas\0Segoe Print\0Orbitron\0Bangers\0"
     L"MaiCord BioRhyme\0Cherry Bomb One\0Chicle\0Compagnon\0MaiCord MuseoModerno\0MaiCord Medieval\0"
-    L"MaiCord Pixelify\0Ribes\0Sinistre\0Zilla Slab\0MaiCord Playpen\0New Rocker\0Kalam\0";
+    L"MaiCord Pixelify\0Ribes\0Sinistre\0Zilla Slab\0MaiCord Playpen\0New Rocker\0Kalam\0MaiCord Teko\0";
 constexpr char kFontFiles[] =
     "Orbitron.ttf\0Bangers.ttf\0BioRhyme.ttf\0CherryBomb.ttf\0Chicle.ttf\0Compagnon.otf\0MuseoModerno.ttf\0"
-    "NeoCastel.otf\0Pixelify.ttf\0Ribes.otf\0Sinistre.otf\0ZillaSlab.ttf\0Playpen.ttf\0NewRocker.ttf\0Kalam.ttf\0";
+    "NeoCastel.otf\0Pixelify.ttf\0Ribes.otf\0Sinistre.otf\0ZillaSlab.ttf\0Playpen.ttf\0NewRocker.ttf\0Kalam.ttf\0"
+    "Teko.ttf\0";
 constexpr float kFontTracking[]{0,    0,    0,    0,    0,   0,   .03f, 0,    0,   .04f, 0,
-                                0,    .01f, .02f, .02f, 0,   .01f, .03f, 0,   0,    0};
+                                0,    .01f, .02f, .02f, 0,   .01f, .03f, 0,   0,    0,   0};
 // The index-th name of a list of NUL-terminated names; the list's own terminator past its last.
 template <typename Char> constexpr const Char* font_name_at(const Char* list, u32 index) noexcept {
     for (; index; --index)

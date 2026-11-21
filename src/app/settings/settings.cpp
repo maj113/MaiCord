@@ -10,6 +10,7 @@
 #include "../shell/scrolling.hpp"
 #include "../shell/overlay_input.hpp"
 #include "maicord/ui/layout/splitter.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
 #include "../media/image_zoom.hpp"
 #include "../chat/composer/attachments.hpp"
 #include "../account/friends.hpp"
@@ -169,9 +170,13 @@ void application_animation_window_active(bool active) noexcept {
         return;
     g_window_inactive = !active;
     application_animation_activity_synchronize();
+    // A hovered role gradient moves only while the window is in focus; the retained text keys on it while such a
+    // name is hovered (retention_shell_inputs).
+    g_app.renderer.window_inactive = !active;
 }
 void application_preferences_apply() noexcept {
     g_app.member_pane_visible = g_app.preferences.member_pane_visible;
+    g_ui_display_name_styles_off = !g_app.preferences.display_name_styles;
     application_user_settings_apply_display();
     if (g_app.renderer.reduced_motion != g_app.preferences.reduced_motion)
         content_text_retention_invalidate(&g_app.renderer.content_text_retention);

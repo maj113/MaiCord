@@ -95,6 +95,9 @@ struct D3D11GlyphTextInitializeResult {
 // the mentioned member's role colour. False leaves the mention's own colour.
 using D3D11GlyphTextResolveRoleColor = bool (*)(void* context, u64 message_id, MessageMarkdownSemanticKind kind,
                                                 u64 target, Color* color) noexcept;
+// Resolves a role mention's enhanced role gradient: the text effect material slot plus one (0: none) for the role
+// `role_id`, its gradient starting at `left` (DIPs).
+using D3D11GlyphTextResolveRoleEffect = u32 (*)(void* context, u64 message_id, u64 role_id, float left) noexcept;
 
 struct D3D11GlyphTextAppendRequest {
     const ShapedText* text;
@@ -120,6 +123,11 @@ struct D3D11GlyphTextAppendRequest {
     // The shaped styles; ```ansi colours ride in TextStyleSpan::reserved and
     // need the shaped cluster map (an uncached shape).
     ConstSlice<TextStyleSpan> styles = {};
+    // Enhanced role gradients: role mentions resolve theirs through resolve_role_effect (with role_effect_context);
+    // the inline role-coloured run (a reply's author) takes inline_role_effect (a material slot plus one; 0: none).
+    D3D11GlyphTextResolveRoleEffect resolve_role_effect = nullptr;
+    void* role_effect_context = nullptr;
+    u32 inline_role_effect = 0;
 };
 
 // Initializes reusable resources; the standalone title is shaped on its first rebuild.

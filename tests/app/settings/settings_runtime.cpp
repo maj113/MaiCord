@@ -3,6 +3,7 @@
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/window_fixture.hpp"
 #include "maicord/ui/core/cursor.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
 #include "../../support/settings_schema_validation.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "settings/settings.hpp"
@@ -1424,6 +1425,14 @@ void test_controller() noexcept {
               activate_control(kAccessibilityPage, cid("accessibility.underline_links")) &&
               g_app.message_scene.display.underline_links && await_save(),
           "settings: Role Colors, user colour saturation and link underlines reach the message display");
+    // Display Name Styles (Text Readability, on by default) turns style fonts and effects off and on.
+    check(g_app.preferences.display_name_styles && !g_ui_display_name_styles_off &&
+              activate_control(kAccessibilityPage, cid("accessibility.display_name_styles")) &&
+              !g_app.preferences.display_name_styles && g_ui_display_name_styles_off &&
+              profile_name_face(8) == UiTextFace::normal &&
+              activate_control(kAccessibilityPage, cid("accessibility.display_name_styles")) &&
+              g_app.preferences.display_name_styles && !g_ui_display_name_styles_off && await_save(),
+          "settings: Display Name Styles turns name fonts and effects off and on");
     const u32 speeches = observed.speeches;
     check(activate_control(kAccessibilityPage, cid("accessibility.speech_rate"), key::right) &&
               g_app.preferences.speech_rate == 5 && client_preferences_speech_rate(5) == 2 &&

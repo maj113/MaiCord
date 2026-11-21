@@ -78,7 +78,8 @@ constexpr u8 kVersion10Defaults[16]{0, 0, 100, kClientPreferencesSpeechRateDefau
 constexpr ClientPreferences kDefaults = client_preferences_defaults();
 static_assert(!kDefaults.chat_font_size && !kDefaults.desaturation && kDefaults.zoom == 100 &&
               kDefaults.reduced_motion_sync && !kDefaults.desaturate_user_colors && !kDefaults.underline_links &&
-              !kDefaults.role_style && !kDefaults.streamer_mode && !kDefaults.streamer_auto &&
+              !kDefaults.role_style && kDefaults.display_name_styles && !kDefaults.streamer_mode &&
+              !kDefaults.streamer_auto &&
               kDefaults.streamer_hide_personal && kDefaults.streamer_hide_invites && kDefaults.streamer_disable_sounds &&
               kDefaults.streamer_disable_notifications && !kDefaults.streamer_hide_window && !kDefaults.speak_messages &&
               !kDefaults.tabs_enabled && !kDefaults.test_mode_application);
@@ -128,7 +129,8 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     byte_store_le16(out + 68, preferences.channel_pane_width);
     byte_store_le16(out + 70, preferences.member_pane_width);
     copy_bytes(out + 72, &preferences.chat_font_size, 4);
-    out[76] = static_cast<u8>(gather_switches(preferences, AT(reduced_motion_sync), 3) | preferences.role_style << 3);
+    out[76] = static_cast<u8>(gather_switches(preferences, AT(reduced_motion_sync), 3) | preferences.role_style << 3 |
+                              !preferences.display_name_styles << 5);
     out[77] = gather_switches(preferences, AT(streamer_mode), 7);
     out[78] = preferences.speak_messages;
     out[79] = preferences.tabs_enabled;
@@ -166,7 +168,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         data[18] > 200 || (data[66] & ~127u) || (data[65] & ~kBuiltInFlags) ||
         data[67] >= kClientPreferencesGroupSpacingCount || (data[60] & ~3u) ||
         (data[61] && (data[61] < 2 || data[61] > 100)) || (data[62] && (data[62] < 5 || data[62] > 100)) ||
-        (data[76] & ~31u) || (data[77] & ~127u) || data[78] > client_speak_messages_all || (data[79] & ~1u))
+        (data[76] & ~63u) || (data[77] & ~127u) || data[78] > client_speak_messages_all || (data[79] & ~1u))
         return failure(ClientPreferencesError::format);
     if (byte_load_le64(record.data + checksum) != hash64_bytes(kHash64Seed, record.data, checksum))
         return failure(ClientPreferencesError::checksum);
@@ -190,7 +192,8 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
                                 : decoded.theme;
     copy_bytes(&decoded.chat_font_size, data + 72, 4);
     spread_switches(decoded, AT(reduced_motion_sync), data[76]);
-    decoded.role_style = static_cast<u8>(data[76] >> 3);
+    decoded.role_style = static_cast<u8>(data[76] >> 3 & 3);
+    decoded.display_name_styles = !(data[76] & 32);
     spread_switches(decoded, AT(streamer_mode), data[77]);
     decoded.speak_messages = data[78];
     decoded.tabs_enabled = data[79] != 0;

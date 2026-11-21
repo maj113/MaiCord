@@ -58,14 +58,10 @@ namespace {
 const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
     return ui_scene_node(g_app.shell_scene, semantic);
 }
-// The caller's own status for private member rows; unknown until the session
-// reports it for this account.
+// The caller's own status for its member rows (application_self_presence);
+// the member and presence numberings match.
 inline GuildMemberStatus self_member_status(const AccountUiRuntime& ui) noexcept {
-    const auto status = application_self_status_snapshot();
-    return status.authoritative && status.profile_id == g_app.account.status.profile_id &&
-                   status.self_user_id == ui.chat_state.self_user_id && status.status <= GatewayUserStatus::invisible
-               ? static_cast<GuildMemberStatus>(static_cast<u8>(status.status) + 1)
-               : GuildMemberStatus::unknown;
+    return static_cast<GuildMemberStatus>(application_self_presence(ui.chat_state.self_user_id));
 }
 } // namespace
 
@@ -358,6 +354,9 @@ bool synchronize_shell_widget_scenes() noexcept {
         g_app.member_list_scene.media_cache =
             g_app.account_ui ? &g_app.account_ui->member_media_cache : nullptr;
         g_app.member_list_scene.media_dpi = static_cast<u16>(g_app.renderer.dpi);
+        g_app.member_list_scene.role_style = g_app.preferences.role_style;
+        g_app.member_list_scene.self_status =
+            g_app.account_ui ? self_member_status(*g_app.account_ui) : GuildMemberStatus::unknown;
         UiRect member_viewport = !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{};
         UiPluginSlotNode member_header;
         if (ui_rect_has_area(member_viewport) && ui_plugin_member_list_header(&member_header))
@@ -591,6 +590,30 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
             },
             &g_app.renderer, clock_unix_milliseconds() / 1'000,
             renderer_text_measure_revision(g_app.renderer), &trace, scroll_refresh, scroll_moving});
+    MessageTextPresentation& text = ui.message_text;
+    // A text that failed to measure logs once while it keeps failing. A build that measured every text ends that run.
+    if (coordinated.ok() && text.measure_failures == 0)
+        renderer_text_measure_failures_settled();
+    // A message whose text failed to lay out draws without the failing part, and the build succeeds. The build queues
+    // each message revision once, so the log names it once.
+    for (u32 index = 0; index < text.degradation_count; ++index) {
+        const MessageTextDegradation& degraded = text.degradations[index];
+        const u64 values[] = {degraded.message_id,
+                              degraded.message_revision,
+                              static_cast<u64>(degraded.error),
+                              static_cast<u64>(degraded.stage),
+                              static_cast<u64>(degraded.operation),
+                              degraded.item_index,
+                              static_cast<u64>(degraded.flow_error),
+                              degraded.text_dropped ? 1u : 0u,
+                              text.degraded_rows};
+        LogEvent("message_text_row_degraded")
+            .fields("message_id\0revision\0error\0stage\0operation\0item_index\0flow_error\0text_dropped\0"
+                    "degraded_rows",
+                    values)
+            .write(LogLevel::warning, "ui");
+    }
+    text.degradation_count = 0;
     // The caller counts this failure after the return. A build that keeps failing writes its diagnostics at the 1st,
     // 2nd, 4th, 8th... failure in a row. It builds the shell text every time.
     if (!coordinated.ok() && !failure_log_due(ui.text_rebuild_failures + 1u)) {

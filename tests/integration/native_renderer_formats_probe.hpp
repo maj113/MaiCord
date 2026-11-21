@@ -3,8 +3,8 @@ namespace maicord {
 // Prove that a native profile run resolves to the shipped private file, without
 // requiring the production renderer to manufacture a Windows font collection.
 inline bool probe_native_profile_asset(TextSystem system,u16 id) noexcept {
-    const wchar_t* files[]{L"Bangers.ttf",L"BioRhyme.ttf",L"CherryBomb.ttf",L"Chicle.ttf",L"Compagnon.otf",L"MuseoModerno.ttf",L"NeoCastel.otf",L"Pixelify.ttf",L"Ribes.otf",L"Sinistre.otf",nullptr,L"ZillaSlab.ttf",L"Playpen.ttf",L"Orbitron.ttf",L"NewRocker.ttf",L"Kalam.ttf"};
-    if(!id||id>16||!files[id-1]||!system.native_format||!system.native_fonts)return false;
+    const wchar_t* files[]{L"Bangers.ttf",L"BioRhyme.ttf",L"CherryBomb.ttf",L"Chicle.ttf",L"Compagnon.otf",L"MuseoModerno.ttf",L"NeoCastel.otf",L"Pixelify.ttf",L"Ribes.otf",L"Sinistre.otf",nullptr,L"ZillaSlab.ttf",L"Playpen.ttf",L"Orbitron.ttf",L"NewRocker.ttf",L"Kalam.ttf",L"Teko.ttf"};
+    if(!id||id>17||!files[id-1]||!system.native_format||!system.native_fonts)return false;
     wchar_t path[1024]{};const DWORD length=GetModuleFileNameW(nullptr,path,1024);if(!length||length>=900)return false;
     u32 at=length;while(at&&path[at-1]!=L'\\')--at;const wchar_t prefix[]=L"fonts\\";
     for(u32 i=0;i<6;++i)path[at++]=prefix[i];for(u32 i=0;files[id-1][i];++i)path[at++]=files[id-1][i];path[at]=0;

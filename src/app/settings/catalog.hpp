@@ -183,6 +183,7 @@ enum class SettingBinding : u16 {
     // Audio & Screen Reader rows.
     chat_font_size,
     underline_links,
+    display_name_styles,
     zoom,
     saturation,
     desaturate_user_colors,

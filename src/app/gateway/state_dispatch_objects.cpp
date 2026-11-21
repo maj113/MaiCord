@@ -828,7 +828,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
         if (!json_visit_value_array(
                  context.features, {scratch.data, features_scan.count}, maximum_depth,
                  +[](void* opaque, u32, JsonValue value) noexcept {
-                     auto* flags = static_cast<u8*>(opaque);
+                     auto* guild = static_cast<GatewayClientStateMutation*>(opaque);
                      JsonString name{};
                      // Unknown feature shapes are ignored like unknown names.
                      if (!json_value_as_string(value, &name))
@@ -839,12 +839,14 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
                      const u32 index = member_index<"MAX_FILE_SIZE_50_MB", "MAX_FILE_SIZE_100_MB",
                                                     "MAX_FILE_SIZE_250_MB", "COMMUNITY", "GUILD_ONBOARDING",
                                                     "MEMBER_VERIFICATION_GATE_ENABLED",
-                                                    "GUILD_ONBOARDING_HAS_PROMPTS", "ANIMATED_BANNER">(name);
+                                                    "GUILD_ONBOARDING_HAS_PROMPTS", "ANIMATED_BANNER",
+                                                    "ENHANCED_ROLE_COLORS">(name);
                      if (index < 8)
-                         *flags |= bits[index];
+                         guild->upload_features |= bits[index];
+                     guild->enhanced_role_colors |= index == 8;
                      return true;
                  },
-                 &context.mutation.upload_features)
+                 &context.mutation)
                  .ok())
             return decode_failure(GatewayEventDecodeError::invalid_data);
         context.mutation.upload_features_known = true;
@@ -862,6 +864,7 @@ bool merge_guild_properties(StateObjectContext* object, const StateObjectContext
         if (object->mutation.upload_features_known)
             return false;
         object->mutation.upload_features = properties.mutation.upload_features;
+        object->mutation.enhanced_role_colors = properties.mutation.enhanced_role_colors;
         object->mutation.upload_features_known = true;
     }
     const u16 id = gateway_client_state_field_id;

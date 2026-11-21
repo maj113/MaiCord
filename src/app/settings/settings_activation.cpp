@@ -447,11 +447,12 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
         application_zoom_apply();
     if (binding >= SettingBinding::streamer_mode && binding <= SettingBinding::streamer_hide_window)
         application_streamer_mode_synchronize();
-    // Hidden channels, role colours and link underlines change what the channel list and messages show.
+    // Hidden channels, role colours, link underlines and name styles change what the channel list and messages show.
     if (g_app.account_ui && g_app.renderer_ready &&
         (binding == SettingBinding::show_hidden_channels || binding == SettingBinding::role_colors_everywhere ||
          binding == SettingBinding::role_style || binding == SettingBinding::desaturate_user_colors ||
-         binding == SettingBinding::saturation || binding == SettingBinding::underline_links))
+         binding == SettingBinding::saturation || binding == SettingBinding::underline_links ||
+         binding == SettingBinding::display_name_styles))
         (void)(synchronize_navigation_view() && refresh_account_text(true));
     if (save)
         persist();

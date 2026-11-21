@@ -9,6 +9,10 @@
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "../../../support/model_store_fixtures.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/ui/theme/role_color.hpp"
 #include "maicord/ui/chat/messages/system_text.hpp"
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/core/memory.hpp"
@@ -1411,6 +1415,218 @@ void test_compact_display(Check check) noexcept {
           "compact_display_cozy_restores_avatar_column_and_hides_inline_names");
     message_scene_release(&f.scene);
 }
+
+// One message whose text the text system cannot measure: the other messages lay out and draw, and the text clock
+// measures the failed message again.
+struct FailingMeasure {
+    u64 message_id;
+    bool failing;
+    u32 other_calls;
+};
+bool measure_unless(void* opaque, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
+    auto& state = *static_cast<FailingMeasure*>(opaque);
+    if (request.key.source_id != state.message_id)
+        ++state.other_calls;
+    else if (state.failing)
+        return false;
+    return measure(nullptr, request, output);
+}
+bool count_finish(void* opaque, const Theme&) noexcept {
+    ++*static_cast<u32*>(opaque);
+    return true;
+}
+void test_measure_isolation(Check check) noexcept {
+    auto& f = scene_fixture;
+    f = {};
+    MessageInput first{};
+    first.id = 31ull << 22;
+    first.channel_id = 7;
+    first.author_id = 11;
+    first.timestamp_ms = 1'500'000'000'000ull;
+    first.content = utf8_literal("first line");
+    MessageInput second = first;
+    second.id += 1;
+    second.author_id = 9;
+    second.timestamp_ms += 1'000;
+    second.content = utf8_literal("second line");
+    MessageInput third = second;
+    third.id += 1;
+    third.author_id = 11;
+    third.timestamp_ms += 1'000;
+    third.content = utf8_literal("third line");
+    FailingMeasure failing{second.id, true, 0};
+    bool ok = initialize_stores(f) && message_store_upsert(&f.store, first).ok() &&
+              message_store_upsert(&f.store, second).ok() && message_store_upsert(&f.store, third).ok() &&
+              initialize_scene(f, 3) &&
+              ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure_unless, &failing);
+    ChatStateStore state{};
+    NavigationView navigation{};
+    u32 finalizations = 0;
+    const auto converge = [&](u64 now) noexcept {
+        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+                                                    &navigation, &kDefaultTheme, count_finish, &finalizations, now, 1};
+        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
+               message_text_coordinator_converge(request).ok();
+    };
+    const auto content_height = [&](u32 source_index) noexcept {
+        const auto* row = message_scene_find_row(f.scene, source_index);
+        return row ? row->measured_content_height : 0.0f;
+    };
+    constexpr u64 kNow = 1'500'000'100ull;
+    ok = ok && converge(kNow);
+    bool second_blank = true;
+    for (u32 i = 0; i < f.presentation.command_count; ++i)
+        if (f.commands[i].message_id == second.id)
+            second_blank = second_blank && f.commands[i].text.bytes == 0 && f.commands[i].semantics.count == 0;
+    check(ok && finalizations == 1 && f.presentation.measure_failures != 0 && second_blank &&
+              command_text(f, first.id, utf8_literal("first line")) &&
+              command_text(f, third.id, utf8_literal("third line")) && content_height(0) > 0 &&
+              content_height(2) > 0,
+          "measure_failure_of_one_message_draws_the_others");
+    const u64 retry_at = f.presentation.next_timestamp_update_unix_seconds;
+    check(retry_at == kNow + 1, "measure_failure_retries_on_the_text_clock_after_one_second");
+    const u32 other_calls = failing.other_calls;
+    failing.failing = false;
+    ok = ok && converge(retry_at);
+    check(ok && finalizations == 2 && f.presentation.measure_failures == 0 &&
+              command_text(f, second.id, utf8_literal("second line")) && content_height(1) > 0 &&
+              failing.other_calls == other_calls,
+          "measure_failure_recovers_alone_when_the_text_measures");
+    message_scene_release(&f.scene);
+}
+
+// Author names as the official client draws them (all.js, the message username): in a server the role colour, or
+// the role's gradient when the server has ENHANCED_ROLE_COLORS and the role a secondary colour; the display-name
+// effect only in DMs and group DMs, animated while the message is hovered. A server name keeps the style's font.
+void test_author_name_styles(Check check) noexcept {
+    auto& f = scene_fixture;
+    f = {};
+    render_users = {};
+    g_ui_plugin_render_query = nullptr;
+    bool ok = initialize_stores(f) &&
+              user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
+                                    {render_users.names, sizeof(render_users.names)}) &&
+              user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
+              user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
+    // Both authors have a Pixelify gradient display-name style.
+    const u64 authors[]{11, 9};
+    for (const u64 author : authors) {
+        UserAppearance style{};
+        style.user_id = author;
+        style.fields = appearance_name;
+        style.name.font_id = 8;
+        style.name.effect_id = 2;
+        style.name.color_count = 2;
+        style.name.colors[0] = 0x00EAFF;
+        style.name.colors[1] = 0x9058FF;
+        ok = ok && user_appearance_upsert(&render_users.store.appearance, style);
+    }
+    MessageInput server{};
+    server.id = 31ull << 22;
+    server.channel_id = 7;
+    server.author_id = 11;
+    server.timestamp_ms = 1'500'000'000'000ull;
+    server.content = utf8_literal("in a server");
+    MessageInput direct = server;
+    direct.id += 1;
+    direct.channel_id = 8;
+    direct.author_id = 9;
+    direct.timestamp_ms += 1'000;
+    direct.content = utf8_literal("in a DM");
+    ok = ok && message_store_upsert(&f.store, server).ok() && message_store_upsert(&f.store, direct).ok() &&
+         initialize_scene(f, 2);
+    // Guild 70's role 777 has a secondary colour; the guild's features first lack ENHANCED_ROLE_COLORS.
+    constexpr u32 kPrimary = 0x2ECC71u, kSecondary = 0x1ABC9Cu;
+    ChatStateStore state{};
+    GuildRecord guilds[1]{};
+    u16 guild_order[1]{};
+    ChannelRecord channels[2]{};
+    u16 channel_order[2]{};
+    RoleRecord roles[1]{};
+    PermissionOverwriteRecord overwrites[1]{};
+    u8 names[128]{};
+    GuildInput guild{70, utf8_literal("Guild"), GuildMutationKind::create, 1};
+    guild.upload_features_known = true;
+    ok = ok &&
+         chat_state_store_initialize(&state, {guilds, 1}, {guild_order, 1}, {channels, 2}, {channel_order, 2},
+                                     {names, sizeof(names)}) &&
+         chat_state_store_bind_permissions(&state, {roles, 1}, {overwrites, 1}) &&
+         chat_state_store_upsert_guild(&state, guild).ok() &&
+         chat_state_store_upsert_channel(&state, ChannelInput{7, 70, 0, utf8_literal("general"), 0, 0, 0}).ok() &&
+         chat_state_store_upsert_channel(&state, ChannelInput{8, 0, 0, utf8_literal("dm"), 0, 0, 1}).ok() &&
+         chat_state_store_upsert_role(&state, RoleInput{777, 70, 0, utf8_literal("Gradient"), 4, kPrimary, false,
+                                                        false, false, false, false, kSecondary | kRoleColorPresent});
+    GuildMemberRecord member_records[1]{};
+    u32 member_order[1]{};
+    GuildMemberStore members{};
+    ok = ok && guild_member_store_initialize(&members, {member_records, 1}, {member_order, 1});
+    member_records[0].guild_id = 70;
+    member_records[0].user_id = 11;
+    member_records[0].color_role_id = 777;
+    member_records[0].role_color = kPrimary;
+    member_records[0].occupied = true;
+    member_order[0] = 0;
+    members.count = 1;
+    members.revision = 1;
+    ok = ok && message_text_presentation_bind_guild_members(&f.presentation, &members);
+    NavigationView navigation{};
+    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, &render_users.store,
+                                                &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+    const auto converge = [&]() noexcept {
+        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
+               message_text_coordinator_converge(request).ok();
+    };
+    ok = ok && converge();
+    check(ok, "author_name_styles_converge");
+    if (!ok) {
+        message_scene_release(&f.scene);
+        user_appearance_release(&render_users.store.appearance);
+        return;
+    }
+    const auto header = [&](u32 index, MessageAuthorLayout* out) noexcept {
+        const auto* row = message_scene_find_row(f.scene, index);
+        for (u32 i = 0; row && i < f.presentation.command_count; ++i)
+            if (f.commands[i].owner.handle.slot == row->author.slot &&
+                f.commands[i].owner.handle.generation == row->author.generation &&
+                message_author_layout(f.scene, f.commands[i], state, render_users.store, &f.cache, kDefaultTheme,
+                                      out, &members))
+                return true;
+        return false;
+    };
+    const auto pixelify = ui_text_face_chat(profile_name_face(8));
+    const Color flat = message_user_color(color_from_rgb24(kPrimary), f.scene.display.user_color_desaturation);
+    MessageAuthorLayout name{};
+    check(header(0, &name) && !name.name.effect.kind && bytes_equal(&name.name.color, &flat, sizeof(Color)) &&
+              name.name.face == pixelify,
+          "author_name_role_colour_is_flat_without_enhanced_role_colors");
+    guild.kind = GuildMutationKind::update;
+    guild.enhanced_role_colors = true;
+    name = {};
+    check(chat_state_store_upsert_guild(&state, guild).ok() && header(0, &name) &&
+              name.name.effect.kind == kUiTextEffectRoleGradient && name.name.effect.count == 2 &&
+              name.name.effect.colors[0] == kPrimary && name.name.effect.colors[1] == kSecondary &&
+              !name.name.effect.animate && name.name.face == pixelify,
+          "author_name_role_gradient_with_enhanced_role_colors");
+    const auto* server_row = message_scene_find_row(f.scene, 0);
+    name = {};
+    // A hovered server author keeps the role gradient, now moving (the official 1.5 s loop), and takes no
+    // display-name effect.
+    check(server_row && ui_widget_manager_hover(&f.scene.widgets, server_row->widget) && header(0, &name) &&
+              name.name.effect.kind == kUiTextEffectRoleGradient && name.name.effect.animate &&
+              name.name.effect.started_ms == f.scene.widgets.hover_started_ms,
+          "author_name_in_a_server_moves_its_role_gradient_while_hovered_and_takes_no_display_name_effect");
+    name = {};
+    check(ui_widget_manager_hover(&f.scene.widgets, ui_widget_invalid_handle()) && header(1, &name) &&
+              !name.name.effect.kind && name.name.face == pixelify,
+          "author_name_in_a_dm_is_plain_until_hovered");
+    const auto* direct_row = message_scene_find_row(f.scene, 1);
+    name = {};
+    check(direct_row && ui_widget_manager_hover(&f.scene.widgets, direct_row->widget) && header(1, &name) &&
+              name.name.effect.kind == 2 && name.name.effect.animate && name.name.effect.colors[1] == 0x9058FF,
+          "author_name_in_a_dm_animates_its_display_name_effect_while_hovered");
+    message_scene_release(&f.scene);
+    user_appearance_release(&render_users.store.appearance);
+}
 } // namespace
 
 void test_message_content_wave(Check check) noexcept {
@@ -1425,6 +1641,8 @@ void test_message_content_wave(Check check) noexcept {
     test_plugin_card_collapse(check);
     test_plugin_card_embed_geometry(check);
     test_compact_display(check);
+    test_measure_isolation(check);
+    test_author_name_styles(check);
 }
 
 } // namespace maicord

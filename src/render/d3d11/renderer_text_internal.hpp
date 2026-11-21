@@ -9,6 +9,7 @@
 #include <stddef.h>
 
 namespace maicord {
+struct MessageTextCommand;
 namespace renderer_text_detail {
 
 // Everything append_content_text shapes and places for one text run.
@@ -30,6 +31,9 @@ struct ContentTextRequest {
     TextOverflow overflow;
     UiTextFace face;
     bool force_new_batch, selection_active, cluster_effect, plain_flags, publish_semantics;
+    // Message text: the theme role gradients take (null: none) and the inline role-coloured name's material.
+    const Theme* role_theme = nullptr;
+    u32 inline_role_effect = 0;
 };
 
 // Boundary ordinals within the overlay text stream. The search message
@@ -108,6 +112,17 @@ struct TextRasterConsumer {
 
 bool resolve_mention_color_callback(void* context, u64 message_id, MessageMarkdownSemanticKind kind, u64 target,
                                     Color* color) noexcept;
+// Enhanced role gradients on part of a message command (official: the role mention and the username of a reply or a
+// compact row take the role's gradient with Role Colors "In names" in a server that has ENHANCED_ROLE_COLORS).
+struct RoleEffectContext {
+    D3D11Renderer* renderer;
+    const Theme* theme;
+    float top;
+};
+// D3D11GlyphTextResolveRoleEffect for a role mention: context is a RoleEffectContext.
+u32 resolve_role_effect_callback(void* context, u64 message_id, u64 role_id, float left) noexcept;
+// The material (slot plus one, 0: none) for the inline role-coloured name of a reply line or a compact row.
+u32 reply_author_role_effect(D3D11Renderer* renderer, const Theme& theme, const MessageTextCommand& command) noexcept;
 float aligned_text_origin(UiTextAlignment alignment, float start, float available, float used) noexcept;
 bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 first_quad,
                        bool force_new_batch, const UiRect* batch_clip) noexcept;

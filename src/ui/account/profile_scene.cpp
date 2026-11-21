@@ -937,10 +937,13 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        p.wrap ? UiTextAlignment::start : UiTextAlignment::center,
                        p.wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
                        TextOverflow::ellipsis,
-                       style ? profile_name_face(style->font_id) : UiTextFace::normal,
+                       // The editor's preview shows the drafted style even with Display Name Styles off.
+                       style ? profile_name_face(style->font_id, s.presentation == ProfilePresentation::preview)
+                             : UiTextFace::normal,
                        // The always-shown panel animates its name only under the pointer.
                        style ? profile_name_effect(*style, !panel(s) || s.hovered,
-                                                   panel(s) ? s.hover_changed_ms : s.name_started_ms)
+                                                   panel(s) ? s.hover_changed_ms : s.name_started_ms,
+                                                   s.presentation == ProfilePresentation::preview)
                              : UiTextEffect{},
                        bio ? ConstSlice<TextStyleSpan>{s.bio_styles, s.bio_style_count} : ConstSlice<TextStyleSpan>{}}))
             return false;

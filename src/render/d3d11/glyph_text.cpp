@@ -377,6 +377,25 @@ bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRu
     return false;
 }
 
+// The role mention semantic the mention run belongs to; null for other runs.
+const MessageMarkdownSemantic* role_mention_for_run(const D3D11GlyphTextAppendRequest& request,
+                                                    const TextRun& run) noexcept {
+    if ((run.style_flags & text_style_mention) == 0)
+        return nullptr;
+    const u32 run_end = run.text_position + run.text_length;
+    for (u32 index = 0; index < request.semantics.count; ++index) {
+        const MessageMarkdownSemantic& semantic = request.semantics[index];
+        if (semantic.kind != MessageMarkdownSemanticKind::role_mention || semantic.byte_count == 0 || !semantic.target)
+            continue;
+        u32 first = 0, last = 0;
+        if (utf8_utf16_position_for_byte_offset(request.source, semantic.byte_offset, &first) &&
+            utf8_utf16_position_for_byte_offset(request.source, semantic.byte_offset + semantic.byte_count, &last) &&
+            first < run_end && last > run.text_position)
+            return &semantic;
+    }
+    return nullptr;
+}
+
 bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const TextDecoration& decoration,
                                Color* color) noexcept {
     if ((decoration.style_flags & text_style_mention) == 0) {
@@ -762,6 +781,11 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
         if (role_color_for_run(request, run, &role_color)) {
             foreground = role_color;
         }
+        // An enhanced role gradient: the inline role-coloured run takes the command's, a role mention resolves its
+        // own at its first glyph (where the gradient starts).
+        u32 role_effect = (run.style_flags & text_style_inline_role_color) ? request.inline_role_effect : 0u;
+        const MessageMarkdownSemantic* role_mention =
+            role_effect || !request.resolve_role_effect ? nullptr : role_mention_for_run(request, run);
         if (retained_font_face_is_color(owner, face_id)) {
             if (!raster.finish())
                 return append_fail(5);
@@ -878,6 +902,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                 }
                 quad.color = Color{ansi_color.red, ansi_color.green, ansi_color.blue, foreground.alpha};
             }
+            if (role_mention) {
+                role_effect = request.resolve_role_effect(request.role_effect_context, request.message_id,
+                                                          role_mention->target, quad.left);
+                role_mention = nullptr;
+            }
+            if (role_effect)
+                quad.color = Color{-static_cast<float>(role_effect), 0, 0, foreground.alpha};
             // Filled with the final ordinal after all glyphs/fonts are ready.
             if (request.cluster_effect) {
                 copy_bytes(&quad.color.green, &glyph_index, sizeof(glyph_index));

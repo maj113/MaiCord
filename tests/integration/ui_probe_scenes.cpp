@@ -18,6 +18,7 @@
 #include "maicord/ui/widgets/settings_choice.hpp"
 #include "maicord/app/settings/client_theme.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
+#include "maicord/ui/theme/role_color.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "../support/glyph_atlas_pins.hpp"
@@ -4282,15 +4283,84 @@ bool probe_chat_name_styles() noexcept {
                  ui_widget_manager_hover(&g_probe.message_scene.widgets, ui_widget_invalid_handle()) &&
                  rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
                  probe_capture_frame(L"chat-name-static.bmp");
+    // The probe's rows are in a server channel: as in the official client, the name keeps the style's font and a
+    // hover adds no display-name effect (message_author_layout draws effects in DMs and group DMs only).
     valid = valid && ui_widget_manager_hover(&g_probe.message_scene.widgets, row->widget) &&
             rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            g_probe.renderer.text_effect_animated && probe_capture_frame(L"chat-name-hover.bmp");
+            !g_probe.renderer.text_effect_animated && probe_capture_frame(L"chat-name-hover.bmp");
     const auto rebuilt = g_probe.renderer.content_text->rebuilds,
                uploaded = g_probe.renderer.text_instance_uploads;
     Sleep(50);
     valid = valid && probe_present(&g_probe.renderer, kDefaultTheme) &&
             g_probe.renderer.content_text->rebuilds == rebuilt &&
             g_probe.renderer.text_instance_uploads == uploaded;
+    // No projection carries a role gradient, so the retained text keys on the role style revision: turning the
+    // server's ENHANCED_ROLE_COLORS on and off rebuilds it, and a rebuild with nothing changed does not.
+    const auto* name_channel = chat_state_store_find_channel(g_probe.chat_state, record->channel_id);
+    const auto* name_guild =
+        name_channel ? chat_state_store_find_guild(g_probe.chat_state, name_channel->guild_id) : nullptr;
+    GuildInput features{name_guild ? name_guild->id : 0, {}, GuildMutationKind::update};
+    features.upload_features = name_guild ? name_guild->upload_features : 0;
+    features.upload_features_known = features.enhanced_role_colors = true;
+    const auto rebuilds = [] noexcept { return g_probe.renderer.content_text->rebuilds; };
+    valid = valid && name_guild && rebuild_probe_content_text();
+    const u32 retained = valid ? rebuilds() : 0;
+    valid = valid && rebuild_probe_content_text() && rebuilds() == retained &&
+            chat_state_store_upsert_guild(&g_probe.chat_state, features).ok() && rebuild_probe_content_text() &&
+            rebuilds() == retained + 1;
+    features.enhanced_role_colors = false;
+    valid = valid && chat_state_store_upsert_guild(&g_probe.chat_state, features).ok() &&
+            rebuild_probe_content_text() && rebuilds() == retained + 2;
+    if (!valid)
+        log_write(LogLevel::error, "probe", "chat_name_role_style_retention_failed");
+    // Role mentions and reply headers take the role gradient too: the visible @Performance mention once the server
+    // has the feature and the role a secondary colour, and the reply line's author once that author's colour role
+    // has it.
+    const auto role_gradients = [] noexcept {
+        u32 found = 0;
+        for (u32 i = 0; i < g_probe.renderer.text_effect_count; ++i)
+            found += g_probe.renderer.text_effects.materials[i].kind == kUiTextEffectRoleGradient;
+        return found;
+    };
+    const RoleInput performance{55, name_guild ? name_guild->id : 0, 0, utf8_literal("Performance"), 1, 0xC46BEFu};
+    RoleInput gradient = performance;
+    gradient.secondary_color = 0x1ABC9Cu | kRoleColorPresent;
+    features.enhanced_role_colors = true;
+    valid = valid && chat_state_store_upsert_role(&g_probe.chat_state, gradient) &&
+            chat_state_store_upsert_guild(&g_probe.chat_state, features).ok() && rebuild_probe_content_text();
+    const u32 mention_gradients = valid ? role_gradients() : 0;
+    u64 quoted = 0;
+    const auto* rich_store = scene.timeline ? scene.timeline->rich_store : nullptr;
+    for (u32 i = 0; rich_store && !quoted && i < scene.count; ++i) {
+        const auto* reply_record = message_store_resolve(g_probe.message_view.store, scene.rows[i].message);
+        const auto* rich = reply_record && scene.rows[i].reply.generation
+                               ? message_rich_store_find(*rich_store, reply_record->id)
+                               : nullptr;
+        quoted = rich ? message_rich_header_user(*rich) : 0;
+    }
+    static GuildMemberRecord member_records[1];
+    static u32 member_order[1];
+    static GuildMemberStore members;
+    valid = valid && quoted && guild_member_store_initialize(&members, {member_records, 1}, {member_order, 1});
+    if (valid) {
+        member_records[0] = {};
+        member_records[0].guild_id = name_guild->id;
+        member_records[0].user_id = quoted;
+        member_records[0].color_role_id = 55;
+        member_records[0].role_color = 0xC46BEFu;
+        member_records[0].occupied = true;
+        member_order[0] = 0;
+        members.count = members.revision = 1;
+    }
+    valid = valid && message_text_presentation_bind_guild_members(&g_probe.message_text, &members) &&
+            rebuild_probe_content_text() && mention_gradients >= 1 && role_gradients() > mention_gradients;
+    features.enhanced_role_colors = false;
+    valid = message_text_presentation_bind_guild_members(&g_probe.message_text, nullptr) &&
+            chat_state_store_upsert_role(&g_probe.chat_state, performance) &&
+            chat_state_store_upsert_guild(&g_probe.chat_state, features).ok() && rebuild_probe_content_text() &&
+            !role_gradients() && valid;
+    if (!valid)
+        log_write(LogLevel::error, "probe", "chat_mention_reply_role_gradient_failed");
     auto restore = original;
     restore.fields |= appearance_name;
     valid = user_appearance_upsert(&g_probe.users.appearance, restore) &&
@@ -5228,8 +5298,9 @@ bool probe_profile_card() noexcept {
     const wchar_t* font_captures[] = {L"font-01.bmp", L"font-02.bmp", L"font-03.bmp", L"font-04.bmp",
                                       L"font-05.bmp", L"font-06.bmp", L"font-07.bmp", L"font-08.bmp",
                                       L"font-09.bmp", L"font-10.bmp", L"font-11.bmp", L"font-12.bmp",
-                                      L"font-13.bmp", L"font-14.bmp", L"font-15.bmp", L"font-16.bmp"};
-    for (u16 id = 1; valid && id <= 16; ++id) {
+                                      L"font-13.bmp", L"font-14.bmp", L"font-15.bmp", L"font-16.bmp",
+                                      L"font-17.bmp"};
+    for (u16 id = 1; valid && id <= 17; ++id) {
         g_probe.failure_stage = 170 + id;
         data->user_appearance.name.font_id = id;
         data->user_appearance.name.effect_id = 1;
@@ -5240,7 +5311,8 @@ bool probe_profile_card() noexcept {
             g_probe.failure_stage = 190 + id;
         const auto face = profile_name_face(id);
         const auto system = renderer_text_system(&g_probe.renderer, face);
-        if (id != 11)
+        // The retired ids and the default draw in the system face; every other id loads its shipped file.
+        if (face != UiTextFace::normal)
             valid = valid && probe_native_profile_asset(system, id);
         valid = valid && probe_capture_frame(font_captures[id - 1]);
         if (!valid)
@@ -5476,15 +5548,54 @@ bool probe_profile_card() noexcept {
     valid = valid &&
             ui_text_measure_cache_measure(&g_probe.text_measure_cache, measured_name, &cached_width).ok() &&
             cached_width.size.width == normal_width.size.width;
+    // This list has no server (a group DM's): as in the official client, the name shows its style's effect, still
+    // until the row is hovered.
+    const auto* robin = user_appearance_find(g_probe.users.appearance, 4242);
+    const u8 robin_effect = robin ? profile_name_effect(robin->name, false).kind : 0;
     bool member_plain = false;
     for (u32 i = 0; i < member_text.count; ++i)
         if (utf8_equal(member_commands[i].text, utf8_literal("Robin-san"))) {
             const auto& c = member_commands[i];
             const auto badge = member_list_badge(members_scene, 0);
-            member_plain = c.face == UiTextFace::techno && !c.effect.kind && c.color.red > 0.71f &&
+            member_plain = c.face == UiTextFace::techno && robin_effect && c.effect.kind == robin_effect &&
+                           !c.effect.animate &&
+                           c.color.red > 0.71f &&
                            c.color.red < .73f && badge.rectangle.left > c.rectangle.left + 70 &&
                            badge.rectangle.right < viewport.right - 40;
         }
+    // Accessibility's Role Colors in the member list, as in the official client: "Next to names" draws a dot in the
+    // role colour before a default-coloured name; "Hidden" draws neither. The badge keeps clear of the dot.
+    const auto member_role_look = [&](u8 role_style, bool expect_dot) noexcept {
+        members_scene.role_style = role_style;
+        if (!ui_text_command_stream_initialize(&member_text, {member_commands, kMaximumShellChromeTextCommands},
+                                               {member_text_bytes, 4096}) ||
+            !shell_text_presentation_build(g_probe.shell_scene, g_probe.chat_state, g_probe.navigation, kDefaultTheme,
+                                           g_probe.shell_navigation_scene, &g_probe.message_composer_scene,
+                                           &members_scene, nullptr, &member_text))
+            return false;
+        const UiTextCommand *dot = nullptr, *name = nullptr;
+        for (u32 i = 0; i < member_text.count; ++i) {
+            if (utf8_equal(member_commands[i].text, utf8_literal("\xE2\x97\x8F")))
+                dot = &member_commands[i];
+            if (utf8_equal(member_commands[i].text, utf8_literal("Robin-san")))
+                name = &member_commands[i];
+        }
+        const auto badge = member_list_badge(members_scene, 0);
+        return name && name->effect.kind == robin_effect && name->color.red == kDefaultTheme.text_primary.red &&
+               (expect_dot ? dot && dot->color.red > .71f && dot->color.red < .73f &&
+                                 dot->rectangle.right <= name->rectangle.left &&
+                                 badge.rectangle.left > name->rectangle.left + 70
+                           : !dot);
+    };
+    valid = valid && member_role_look(kMessageRoleColorsDot, true) && member_role_look(kMessageRoleColorsHidden, false);
+    members_scene.role_style = kMessageRoleColorsOnNames;
+    valid = valid && ui_text_command_stream_initialize(&member_text, {member_commands, kMaximumShellChromeTextCommands},
+                                                       {member_text_bytes, 4096}) &&
+            shell_text_presentation_build(g_probe.shell_scene, g_probe.chat_state, g_probe.navigation, kDefaultTheme,
+                                          g_probe.shell_navigation_scene, &g_probe.message_composer_scene,
+                                          &members_scene, nullptr, &member_text);
+    if (!valid)
+        log_write(LogLevel::error, "probe", "member_role_style_failed");
     if (valid)
         g_probe.failure_stage = 230;
     g_probe.renderer.member_list_scene = &members_scene;

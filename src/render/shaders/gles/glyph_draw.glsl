@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_draw.hlsl a85a89f64d12838e
+// twin: src/render/shaders/glyph_draw.hlsl a7a7cc4463699af4
 // Text quads and text effects: glyph_vertex (STAGE_VS) and glyph_pixel (STAGE_PS). The atlases are paged surfaces
 // (see media_draw.glsl): each draw binds the page its quads sample, and their v is in that page's rows.
 
@@ -89,9 +89,11 @@ void main() {
     vec3 glyph = vec3(0.0);
     uint index = min(127u, uint(-color.r - 1.0));
     if (color.r < 0.0 && uv_rect.x >= 0.0 && !color_glyph) {
-        if (text_fx.effects[index].kind == 3.0) {
+        // Neon and a moving role gradient draw a halo past the glyph: the quad grows by its radius.
+        float kind = text_fx.effects[index].kind;
+        if (kind == 3.0 || (kind == 9.0 && text_fx.effects[index].animate > 0.0)) {
             glyph.xy = (uv.zw - uv.xy) / max(rectangle.zw - rectangle.xy, vec2(0.001));
-            float radius = 4.0 + 0.12 * text_fx.effects[index].reserved_y;
+            float radius = kind == 3.0 ? 4.0 + 0.12 * text_fx.effects[index].reserved_y : 4.0 * text_fx.effect_scale;
             rectangle += vec4(-radius, -radius, radius, radius);
             uv += vec4(-glyph.xy, glyph.xy) * radius;
         }
@@ -224,10 +226,23 @@ vec4 shade() {
         else if (v_color.b >= 0.0 && kind == 8.0)
             color = text_fx.effects[index].colors[uint(v_color.g) % uint(count)].rgb;
         else if (v_color.b >= 0.0 && kind == 9.0) {
-            // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs.
-            float segment = fract((gl_FragCoord.x / text_fx.effect_scale - left) / 100.0) * count;
+            // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs; a hovered name's moves 100 DIPs right every
+            // 1.5 s.
+            float shift = text_fx.effects[index].animate * (text_fx.effect_seconds - text_fx.effects[index].reserved_x + 60.0) / 1.5;
+            float segment = fract((gl_FragCoord.x / text_fx.effect_scale - left) / 100.0 - shift) * count;
             uint a = min(uint(segment), 7u), b = a + 1u < uint(count) ? a + 1u : 0u;
             color = mix(text_fx.effects[index].colors[a].rgb, text_fx.effects[index].colors[b].rgb, fract(segment));
+            if (text_fx.effects[index].animate > 0.0 && v_bounds.x >= 0.0) {
+                // The 4-DIP glow of the gradient at 70% around the moving name.
+                float glow = 0.0, radius = 4.0 * text_fx.effect_scale;
+                for (uint d = 0u; d < 8u; d++) {
+                    vec2 delta = kDirections[d] * v_glyph.xy * radius;
+                    glow += glyph_mask(v_uv + delta * 0.5, v_bounds) * 0.6;
+                    glow += glyph_mask(v_uv + delta, v_bounds) * 0.4;
+                }
+                float alpha = coverage + (1.0 - coverage) * clamp(glow * 0.25, 0.0, 1.0) * 0.7;
+                return vec4(color, 1.0) * alpha * v_color.a;
+            }
         } else {
             float y = clamp((gl_FragCoord.y / text_fx.effect_scale - reserved_z) / max(reserved_y, 1.0), 0.0, 1.0);
             if (v_color.b >= 0.0 && kind == 4.0) {

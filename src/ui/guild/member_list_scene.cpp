@@ -11,6 +11,7 @@
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/widgets/activity_status.hpp"
+#include "maicord/ui/chat/messages/scene.hpp"
 
 namespace maicord {
 namespace {
@@ -430,6 +431,9 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
         member_list_row_label(row.source_row, *s.members, *s.users, *s.state);
     const auto* name_style = guild && guild->name.font_id ? guild : a;
     UiTextMeasureValue measured{};
+    // "Next to names": the role dot's 12-DIP slot leads the name (shell_text_presentation_member_output).
+    if (row.source_row.role_color && s.role_style == kMessageRoleColorsDot)
+        line.left += 12;
     const float maximum_name = maximum(1.f, ui_rect_width(line) - width - 6);
     float name_width = minimum(maximum_name, name.bytes * 8.f);
     if (s.measure && ui_text_measure_cache_measure(
@@ -505,8 +509,10 @@ u64 member_media_stamp(const MemberListScene& s) noexcept {
     h = hash64_mix(h, (static_cast<u64>(s.users->compactions) << 32) | s.users->evictions);
     // An activity status line moves the badge onto the name line.
     h = hash64_mix(h, (static_cast<u64>(s.users->activities.revision) << 32) | (s.members ? s.members->revision : 0));
-    // The requested ornament size follows the DPI.
-    h = hash64_mix(h, (static_cast<u64>(s.measure ? s.measure->generation : 0) << 32) | s.media_dpi);
+    // The requested ornament size follows the DPI. A role dot moves the badge after the name, and Display Name
+    // Styles changes the face the name is measured in.
+    h = hash64_mix(h, (static_cast<u64>(s.measure ? s.measure->generation : 0) << 32) | s.media_dpi << 3 |
+                          s.role_style << 1 | g_ui_display_name_styles_off);
     return h | 1;
 }
 

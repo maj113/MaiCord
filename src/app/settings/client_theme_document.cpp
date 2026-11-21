@@ -42,7 +42,7 @@ constexpr char kEffects[] = "none\0stars\0comets\0stars_and_comets\0";
 static_assert(name_list_count(kEffects) == kBackgroundEffectCount);
 constexpr char kFaces[] =
     "normal\0display\0serif\0rounded\0mono\0hand\0techno\0bangers\0biorhyme\0cherry_bomb\0chicle\0compagnon\0"
-    "museo\0medieval\0pixelify\0ribes\0sinistre\0zilla\0playpen\0new_rocker\0kalam\0";
+    "museo\0medieval\0pixelify\0ribes\0sinistre\0zilla\0playpen\0new_rocker\0kalam\0teko\0";
 static_assert(name_list_count(kFaces) == static_cast<u32>(UiTextFace::count));
 constexpr char kTypographyNames[] = "body_size\0heading_1_ratio\0heading_2_ratio\0heading_3_ratio\0"
                                     "subtext_ratio\0mono_ratio\0body_face\0code_face\0";

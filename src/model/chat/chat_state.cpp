@@ -651,8 +651,11 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
     record.unavailable = input.kind == GuildMutationKind::unavailable;
     if (record.unavailable)
         chat_state_store_recompute_guild_permissions(store, input.id);
-    if (input.upload_features_known)
+    if (input.upload_features_known) {
         record.upload_features = input.upload_features;
+        store->role_style_mutations += record.enhanced_role_colors != input.enhanced_role_colors;
+        record.enhanced_role_colors = input.enhanced_role_colors;
+    }
     if (input.nsfw_level_known) {
         record.nsfw_level = input.nsfw_level;
         record.nsfw_level_known = true;
@@ -1268,7 +1271,12 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
         role.name_offset = name_offset;
         role.name_bytes = static_cast<u16>(input.name.bytes);
     }
-    set_role(store->roles[index], input);
+    RoleRecord& role = store->roles[index];
+    // A new role, or new colours, change what names its members draw (role_color.hpp).
+    store->role_style_mutations += !found || role.color != input.color ||
+                                   role.secondary_color != input.secondary_color ||
+                                   role.tertiary_color != input.tertiary_color;
+    set_role(role, input);
     return true;
 }
 
@@ -1313,6 +1321,8 @@ bool chat_state_store_insert_guild_roles(ChatStateStore* store, u64 guild_id, u3
     copy_bytes(run_start + role_count, run_start,
                (store->role_count - run.first) * static_cast<u32>(sizeof(RoleRecord)));
     store->role_count += role_count;
+    // As role_count upserts of new roles would.
+    store->role_style_mutations += role_count;
     for (u32 index = 0; index < role_count; ++index) {
         RoleInput input{};
         read_role(context, index, &input);

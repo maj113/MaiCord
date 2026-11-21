@@ -125,6 +125,8 @@ struct GuildInput {
     bool icon_known;
     u8 upload_features;
     bool upload_features_known;
+    // ENHANCED_ROLE_COLORS; replaces the stored flag with upload_features.
+    bool enhanced_role_colors;
     u8 nsfw_level;
     bool nsfw_level_known;
     const GuildSettings* settings;
@@ -215,6 +217,9 @@ struct GuildRecord {
     // Guild banner hash (cdn /banners/{guild}/{hash}); a_ marks an animated one.
     char banner_hash[kGuildIconHashMaximumBytes];
     u8 banner_hash_bytes;
+    // The server has ENHANCED_ROLE_COLORS: its roles' secondary and tertiary colours paint gradient names. A role keeps
+    // its colours when the server loses the feature; the official client then shows the primary colour only.
+    bool enhanced_role_colors;
     // The guild's channels. The store keeps the list for each mutation, so a reader of one guild does not read
     // every channel record.
     ChannelList channel_list;
@@ -505,6 +510,9 @@ struct ChatStateStore {
     u32 activity_mutations;
     u32 emoji_mutations;
     u32 compactions;
+    // Advances when a role's colours or a guild's ENHANCED_ROLE_COLORS change: what role gradients draw. It fills
+    // the alignment gap before selected_guild_id.
+    u32 role_style_mutations;
     u64 selected_guild_id;
     u64 selected_channel_id;
     u64 self_user_id;

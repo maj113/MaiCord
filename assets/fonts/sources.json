@@ -178,5 +178,17 @@
     "license_file": "OFL-Kalam.txt",
     "retrieved": "2026-09-06",
     "transformation": "Unmodified upstream face."
+  },
+  {
+    "name": "Teko",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/teko/Teko%5Bwght%5D.ttf",
+    "license": "https://raw.githubusercontent.com/google/fonts/main/ofl/teko/OFL.txt",
+    "bytes": 25140,
+    "file": "Teko.ttf",
+    "font_id": 17,
+    "sha256": "800a380de4d36f8a141a5a69d1eccc0c296e2b717a66165b8f9248e08dfb2310",
+    "license_file": "OFL-Teko.txt",
+    "retrieved": "2026-11-19",
+    "transformation": "Instanced at weight 700 with fontTools 4.63.0; subset to Latin, Latin-1, Latin Extended-A/B, Vietnamese, Greek and Cyrillic code points (the font has Latin only there), Devanagari dropped; STAT dropped. Renamed family with MaiCord prefix, Regular style flags and weight 400; see README."
   }
 ]

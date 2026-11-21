@@ -248,8 +248,10 @@ float nameplate_row(ProfileScene* s, UiWidgetHandle owner, float left, float top
     blank(s, owner, {left + 8, row + 5, left + 40, row + 37})->media = ProfileMediaKind::avatar;
     const auto display = p.nickname.bytes ? p.nickname.view() : p.display_name.view();
     const auto* style = name_style(*s);
-    const float name_width = text_width(s, display, width - 60, kMd, style ? profile_name_face(style->font_id)
-                                                                            : UiTextFace::normal);
+    const float name_width =
+        text_width(s, display, width - 60, kMd,
+                   style ? profile_name_face(style->font_id, s->presentation == ProfilePresentation::preview)
+                         : UiTextFace::normal);
     s->row_name_widget = caption(s, owner, {left + 52, row + 11, left + 52 + name_width, row + 31}, display, kMd)->widget;
     return 24 + 42;
 }
@@ -515,7 +517,8 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     }
     // Measured in the face it is drawn in: a custom name font is wider than the default one.
     const auto* style = name_style(*s);
-    const UiTextFace name_face = style ? profile_name_face(style->font_id) : UiTextFace::normal;
+    const UiTextFace name_face =
+        style ? profile_name_face(style->font_id, s->presentation == ProfilePresentation::preview) : UiTextFace::normal;
     const float name_width =
         maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags, name_face));
     auto* name = add(s, owner, {left, top, left + name_width, top + line}, display,

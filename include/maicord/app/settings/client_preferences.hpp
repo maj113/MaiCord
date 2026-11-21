@@ -92,6 +92,9 @@ struct ClientPreferences {
     bool desaturate_user_colors = false;
     bool underline_links = false;
     u8 role_style = 0;
+    // Accessibility > Text Readability > Display Name Styles: names show their style's font and effect (the
+    // official client's displayNameStylesEnabled). On by default (client_preferences_defaults).
+    bool display_name_styles;
     // Streamer Mode: on, turned on while a streaming tool runs (opt-in: it scans running programs every 20 seconds,
     // like game detection), and what it hides or silences.
     bool streamer_mode = false;
@@ -105,11 +108,13 @@ struct ClientPreferences {
     u8 speak_messages = 0;
     // Appearance > Layout: channel tabs in the title bar (opt-in).
     bool tabs_enabled = false;
+    // Zero. With them every byte is a member.
+    u8 reserved[7] = {};
     // Developer > Application Test Mode: the application in test mode (0 for none), kept across restarts.
     u64 test_mode_application = 0;
 };
 // Every byte is a member (no padding), so two preferences are equal exactly when their bytes are.
-static_assert(sizeof(ClientPreferences) == 96 && __has_unique_object_representations(ClientPreferences));
+static_assert(sizeof(ClientPreferences) == 104 && __has_unique_object_representations(ClientPreferences));
 inline bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept {
     return bytes_equal(&a, &b, sizeof(ClientPreferences));
 }
@@ -182,7 +187,7 @@ constexpr ClientPreferences client_preferences_defaults() noexcept {
     preferences.image_zoom_size = kClientPreferencesDefaultZoomSize;
     preferences.zoom = 100;
     preferences.speech_rate = kClientPreferencesSpeechRateDefault;
-    preferences.reduced_motion_sync = true;
+    preferences.reduced_motion_sync = preferences.display_name_styles = true;
     preferences.streamer_hide_personal = preferences.streamer_hide_invites = true;
     preferences.streamer_disable_sounds = preferences.streamer_disable_notifications = true;
     return preferences;
@@ -207,7 +212,7 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
 // records written before they existed, which restores the theme defaults).
 // Bytes 72..77: chat text size, desaturation, zoom, speech rate, then flags:
 // byte 76 bits 0 reduced motion follows the system, 1 saturation applies to user
-// colours, 2 links underlined, 3..4 role style; byte 77 bits 0 Streamer Mode, 1
+// colours, 2 links underlined, 3..4 role style, 5 display name styles off; byte 77 bits 0 Streamer Mode, 1
 // automatic, 2 hide personal information, 3 hide invite links, 4 disable sounds,
 // 5 disable notifications, 6 hide the window from capture. Byte 78 is Speak all messages out loud
 // (ClientSpeakMessages), 79 bit 0 shows the title bar's channel tabs (other bits must be zero), and 80..87 hold

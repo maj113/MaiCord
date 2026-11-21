@@ -4,18 +4,27 @@
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/theme/background_color_math.hpp"
 namespace maicord {
-inline UiTextFace profile_name_face(u16 id) noexcept {
+// Accessibility's Display Name Styles turned off (the official client's displayNameStylesEnabled false): names show no
+// style font or effect, except in the profile editor's preview (`preview`), which shows the drafted style. The
+// application sets it from its preferences.
+inline bool g_ui_display_name_styles_off = false;
+// The face of display-name font `id`. As in the official client, the retired ids 1, 2, 5 and 9 (Bangers, BioRhyme,
+// Compagnon, Ribes) and the default id 11 draw in the normal face; their files stay for theme typography.
+inline UiTextFace profile_name_face(u16 id, bool preview = false) noexcept {
     static constexpr UiTextFace faces[] = {
-        UiTextFace::normal,     UiTextFace::bangers,  UiTextFace::biorhyme, UiTextFace::cherry_bomb,
-        UiTextFace::chicle,     UiTextFace::compagnon, UiTextFace::museo,    UiTextFace::medieval,
-        UiTextFace::pixelify,   UiTextFace::ribes,    UiTextFace::sinistre, UiTextFace::normal,
+        UiTextFace::normal,     UiTextFace::normal,   UiTextFace::normal,   UiTextFace::cherry_bomb,
+        UiTextFace::chicle,     UiTextFace::normal,   UiTextFace::museo,    UiTextFace::medieval,
+        UiTextFace::pixelify,   UiTextFace::normal,   UiTextFace::sinistre, UiTextFace::normal,
         UiTextFace::zilla,      UiTextFace::playpen,  UiTextFace::techno,   UiTextFace::new_rocker,
-        UiTextFace::kalam};
-    return id < sizeof(faces) / sizeof(faces[0]) ? faces[id] : UiTextFace::normal;
+        UiTextFace::kalam,      UiTextFace::teko};
+    return id < sizeof(faces) / sizeof(faces[0]) && (preview || !g_ui_display_name_styles_off) ? faces[id]
+                                                                                               : UiTextFace::normal;
 }
-inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
-                                        u64 started_ms = 0) noexcept {
+inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate, u64 started_ms = 0,
+                                        bool preview = false) noexcept {
     UiTextEffect result{};
+    if (g_ui_display_name_styles_off && !preview)
+        return result;
     result.kind = static_cast<u8>(style.effect_id <= 8 ? style.effect_id : 0);
     result.count = minimum<u8>(style.color_count, 8);
     if (result.kind && !result.count) {

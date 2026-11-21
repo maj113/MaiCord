@@ -109,6 +109,9 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     bounds.right =
         bounds.left + minimum(name_limit, have_measure ? measured.size.width + 2 : name.bytes * 8.f);
     const auto* hovered = message_scene_resolve(scene, scene.widgets.hovered);
+    // The official client draws the display-name effect only in DMs and group DMs, animated while the message is
+    // hovered; in a server the name keeps the style's font and takes its role colour.
+    const bool private_channel = !channel || !channel->guild_id;
     out->name = {name,
                  command.owner,
                  bounds,
@@ -120,20 +123,21 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
                  TextWrapping::no_wrap,
                  TextOverflow::ellipsis,
                  face,
-                 styled && hovered && hovered->message_id == record->id
+                 private_channel && styled && hovered && hovered->message_id == record->id
                      ? profile_name_effect(styled->name, true, scene.widgets.hover_started_ms)
                      : UiTextEffect{}};
-    // Enhanced role styles paint the author's gradient or holographic name
-    // unless a hovered display-name effect already owns it.
-    if (!out->name.effect.kind && members && channel && channel->guild_id &&
-        scene.display.role_style == kMessageRoleColorsOnNames &&
+    // Enhanced role styles paint the author's gradient or holographic name in a server, moving while the message is
+    // hovered.
+    if (!private_channel && members && scene.display.role_style == kMessageRoleColorsOnNames &&
         record->delivery == MessageDeliveryState::authoritative) {
         const auto* member = guild_member_store_find(*members, channel->guild_id, record->author_id);
         const auto* role = member && member->color_role_id
                                ? chat_state_store_find_role(state, channel->guild_id, member->color_role_id)
                                : nullptr;
         if (role && role->color == member->role_color)
-            out->name.effect = ui_role_gradient_effect(theme, *role);
+            out->name.effect = ui_role_gradient_effect(theme, state, *role,
+                                                       hovered && hovered->message_id == record->id,
+                                                       scene.widgets.hover_started_ms);
     }
     float tail_left = bounds.right + 8;
     if (suffix_width) {

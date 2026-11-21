@@ -22,8 +22,12 @@ uses the system font. No font parsing or conversion library is shipped.
 | 14 | [Orbitron.ttf](Orbitron.ttf) | Orbitron / Bold (Mainframe) | 37,648 | [OFL-Orbitron.txt](OFL-Orbitron.txt) |
 | 15 | [NewRocker.ttf](NewRocker.ttf) | NewRocker | 173,224 | [OFL-NewRocker.txt](OFL-NewRocker.txt) |
 | 16 | [Kalam.ttf](Kalam.ttf) | Kalam | 427,360 | [OFL-Kalam.txt](OFL-Kalam.txt) |
+| 17 | [Teko.ttf](Teko.ttf) | MaiCord Teko / Regular | 25,140 | [OFL-Teko.txt](OFL-Teko.txt) |
 
-ID 11 selects the normal system face. The fifteen files total **2,452,500 bytes**.
+ID 11 selects the normal system face. The sixteen files total **2,477,640 bytes**.
+IDs 1, 2, 5 and 9 are retired: the official client draws them in its default font, and
+so does MaiCord. Their files stay because custom themes can pick them as the body or
+code face, and the text tests load BioRhyme and Compagnon.
 Each ships with its complete SIL Open Font License 1.1 text (Neo Castel's is the
 French translation); original notices stay in the files. Sources, retrieval dates,
 transformations and final SHA-256 digests are in [sources.json](sources.json).
@@ -42,6 +46,11 @@ transformations and final SHA-256 digests are in [sources.json](sources.json).
 - **Orbitron Bold and the other static faces:** unmodified. Compagnon is from
   Velvetyne; Ribes and Sinistre are from Collletttivo; the rest are from the Google
   Fonts upstream repository.
+- **Teko (ID 17):** the official client draws ID 17 (HEXAGON) in a Pricedown face that
+  Typodermic licenses to Discord. Teko is the open stand-in the owner chose: instanced
+  at weight 700, subset to the Latin code points the other name fonts cover (its
+  Devanagari is dropped) and renamed `MaiCord Teko` with Regular style flags and
+  weight 400, so the formats find it as the other single-face families.
 
 CMake copies this directory beside the application and the native UI probe. Keep it
 next to the executable and its matching account module.

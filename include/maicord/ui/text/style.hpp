@@ -25,6 +25,7 @@ enum class UiTextFace : u8 {
     playpen,
     new_rocker,
     kalam,
+    teko,
     count
 };
 

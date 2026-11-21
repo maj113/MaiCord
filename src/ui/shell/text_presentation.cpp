@@ -29,6 +29,7 @@
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "maicord/ui/chat/messages/scene.hpp"
 
 namespace maicord {
 namespace {
@@ -56,6 +57,7 @@ constexpr TextLook kLookCenteredBold{.style_flags = kUiNoticeActionStyle,
                                     .horizontal = UiTextAlignment::center,
                                     .overflow = TextOverflow::clip};
 constexpr TextLook kLookSub{.style_flags = text_style_subtext};
+constexpr TextLook kLookSubClipped{.style_flags = text_style_subtext, .overflow = TextOverflow::clip};
 constexpr TextLook kLookSubOwned{.style_flags = text_style_subtext, .owned = true};
 constexpr TextLook kLookBold{.style_flags = text_style_bold};
 constexpr TextLook kLookCode{.style_flags = kTextStyleSizeCodeSm, .owned = true};
@@ -113,16 +115,18 @@ Color packed_role_color(u32 packed, const Theme& theme) noexcept {
 }
 
 // The member's enhanced role style (gradient or holographic name), when its
-// colour role has one and still matches the row's published colour.
-UiTextEffect member_role_effect(const MemberListScene& scene, const MemberListRow& row,
-                                const Theme& theme) noexcept {
+// colour role has one and still matches the row's published colour; it moves while the row is hovered.
+UiTextEffect member_role_effect(const MemberListScene& scene, const MemberListRow& row, const Theme& theme,
+                                bool hovered) noexcept {
     if (!row.role_color || !scene.members || !scene.state || !scene.source)
         return {};
     const auto* member = guild_member_store_find(*scene.members, scene.source->guild_id, row.user_id);
     const auto* role = member && member->color_role_id
                            ? chat_state_store_find_role(*scene.state, scene.source->guild_id, member->color_role_id)
                            : nullptr;
-    return role && role->color == row.role_color ? ui_role_gradient_effect(theme, *role) : UiTextEffect{};
+    return role && role->color == row.role_color
+               ? ui_role_gradient_effect(theme, *scene.state, *role, hovered, scene.widgets.hover_started_ms)
+               : UiTextEffect{};
 }
 
 } // namespace
@@ -938,8 +942,11 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         const auto name = group ? member_list_group_label(*member_scene, index, {group_storage, sizeof(group_storage)})
                                 : member_list_row_label(row.source_row, *member_scene->members,
                                                         *member_scene->users, *member_scene->state);
-        auto color =
-            group ? ui_background_muted_text_color(theme) : packed_role_color(row.source_row.role_color, theme);
+        // Accessibility's Role Colors, as in the official member list: the name takes the role colour (and the
+        // enhanced gradient) only "In names"; "Next to names" puts a role-coloured dot before a default-coloured name.
+        const u32 role_rgb = group ? 0u : row.source_row.role_color;
+        const bool role_names = member_scene->role_style == kMessageRoleColorsOnNames;
+        auto color = group ? ui_background_muted_text_color(theme) : packed_role_color(role_names ? role_rgb : 0, theme);
         const bool offline = !group && row.source_row.status == GuildMemberStatus::offline;
         const bool hovered = hovered_row == &row;
         if (offline && !hovered)
@@ -963,14 +970,15 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         if (plugin.badge.label.bytes)
             r.right = minimum(r.right, plugin.badge.rectangle.left - 5);
         const auto* name_style = guild && guild->name.font_id ? guild : global;
-        // A hovered display-name effect wins; otherwise an enhanced role
-        // style paints its gradient over the role colour.
+        // As in the official client, a group DM's member list draws the display-name effect, animated while the row
+        // is hovered. A server's keeps the style's font, and an enhanced role style paints its gradient over the
+        // role colour.
         auto name_effect =
-            !group && name_style && hovered
-                ? profile_name_effect(name_style->name, true, member_scene->widgets.hover_started_ms)
+            !group && name_style && !member_scene->source->guild_id
+                ? profile_name_effect(name_style->name, hovered, member_scene->widgets.hover_started_ms)
                 : UiTextEffect{};
-        if (!group && !name_effect.kind)
-            name_effect = member_role_effect(*member_scene, row.source_row, theme);
+        if (!group && !name_effect.kind && role_names)
+            name_effect = member_role_effect(*member_scene, row.source_row, theme, hovered);
         TextLook look = group ? kLookGroup : kLookLine;
         look.owned = group; // the heading is formatted into a local buffer
         if (!group && name_style)
@@ -997,6 +1005,16 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
             put(affix[1].text, true);
             shown = {joined, used};
             look.owned = true;
+        }
+        if (role_rgb && member_scene->role_style == kMessageRoleColorsDot) {
+            // The official RoleDot: 8 DIPs in a 12-DIP slot before the name (the author line's dot glyph).
+            Color dot = ui_role_color(role_rgb);
+            dot.alpha = color.alpha;
+            if (!append_command(member_scene->widgets, row.label, utf8_literal("\xE2\x97\x8F"),
+                                {r.left, r.top, r.left + 10, r.bottom}, label->clip_rectangle, dot, stream,
+                                kLookSubClipped))
+                return false;
+            r.left += 12;
         }
         if (!append_command(member_scene->widgets, row.label, shown, r, label->clip_rectangle, color, stream, look))
             return false;

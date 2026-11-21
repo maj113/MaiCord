@@ -342,6 +342,7 @@ constexpr LocalToggle toggles[]{
     {SettingBinding::image_zoom_square, &ClientPreferences::image_zoom_square},
     {SettingBinding::game_detection, &ClientPreferences::game_detection},
     {SettingBinding::underline_links, &ClientPreferences::underline_links},
+    {SettingBinding::display_name_styles, &ClientPreferences::display_name_styles},
     {SettingBinding::desaturate_user_colors, &ClientPreferences::desaturate_user_colors},
     {SettingBinding::reduced_motion_sync, &ClientPreferences::reduced_motion_sync},
     {SettingBinding::streamer_mode, &ClientPreferences::streamer_mode},
@@ -402,6 +403,7 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::game_detection:
     case SettingBinding::chat_font_size:
     case SettingBinding::underline_links:
+    case SettingBinding::display_name_styles:
     case SettingBinding::zoom:
     case SettingBinding::saturation:
     case SettingBinding::desaturate_user_colors:

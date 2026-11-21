@@ -1059,6 +1059,45 @@ void test_gateway() noexcept {
     check(released.ok() && chat_state_apply_gateway_event(&store, event, payload, {ids, 4}).ok() &&
               !guild_self_quarantined(g->settings),
           "gateway: own member flags clear previously stored quarantine through the state consumer");
+    // ENHANCED_ROLE_COLORS comes and goes with the features array, top level or in "properties": a server that loses
+    // the perk keeps its role colours but shows no gradient names.
+    const bool created_flat = g && !g->enhanced_role_colors;
+    const auto enhanced = route(
+        utf8_literal("GUILD_UPDATE"),
+        utf8_literal(R"({"id":"10","name":"G","owner_id":"1","features":["COMMUNITY","ENHANCED_ROLE_COLORS"],)"
+                     R"("roles":[{"id":"10","name":"@everyone","permissions":"0"}]})"));
+    const bool enhanced_event = enhanced.ok() && event.state.upload_features_known && event.state.enhanced_role_colors &&
+                                event.state.upload_features == guild_record_community;
+    const bool enhanced_stored = enhanced_event && chat_state_apply_gateway_event(&store, event, payload, {ids, 4}).ok() &&
+                                 (g = chat_state_store_find_guild(store, 10)) != nullptr && g->enhanced_role_colors;
+    const auto lapsed = route(
+        utf8_literal("GUILD_UPDATE"),
+        utf8_literal(R"({"id":"10","name":"G","owner_id":"1","properties":{"features":["COMMUNITY"]},)"
+                     R"("roles":[{"id":"10","name":"@everyone","permissions":"0"}]})"));
+    const bool lapsed_event = lapsed.ok() && event.state.upload_features_known && !event.state.enhanced_role_colors;
+    check(created_flat && enhanced_stored && lapsed_event &&
+              chat_state_apply_gateway_event(&store, event, payload, {ids, 4}).ok() &&
+              (g = chat_state_store_find_guild(store, 10)) != nullptr && !g->enhanced_role_colors &&
+              (g->upload_features & guild_record_community),
+          "gateway: ENHANCED_ROLE_COLORS in a guild's features sets and clears the stored flag");
+    // The renderer keys its retained text on role_style_mutations (no projection carries a role gradient): a role's
+    // new colours and a change of ENHANCED_ROLE_COLORS advance it; the same values do not.
+    const u32 before = store.role_style_mutations;
+    RoleInput role{10, 10, 0, utf8_literal("@everyone")};
+    const bool same_role = chat_state_store_upsert_role(&store, role) && store.role_style_mutations == before;
+    role.color = 0x2ECC71u;
+    role.secondary_color = 0x1ABC9Cu | kRoleColorPresent;
+    const bool gradient_role = chat_state_store_upsert_role(&store, role) && store.role_style_mutations == before + 1;
+    role.secondary_color = 0x112233u | kRoleColorPresent;
+    const bool secondary_only = chat_state_store_upsert_role(&store, role) && store.role_style_mutations == before + 2;
+    GuildInput features{10, {}, GuildMutationKind::update};
+    features.upload_features = guild_record_community;
+    features.upload_features_known = features.enhanced_role_colors = true;
+    const bool feature = chat_state_store_upsert_guild(&store, features).ok() &&
+                         store.role_style_mutations == before + 3 &&
+                         chat_state_store_upsert_guild(&store, features).ok() && store.role_style_mutations == before + 3;
+    check(same_role && gradient_role && secondary_only && feature,
+          "gateway: role colour and ENHANCED_ROLE_COLORS changes advance the role style revision, repeats do not");
 
     // A server joined from another client while running: its GUILD_CREATE may
     // lack the member list, list members without roles, or (a preview) leave

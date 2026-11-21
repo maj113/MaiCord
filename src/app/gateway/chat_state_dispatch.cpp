@@ -128,7 +128,7 @@ GuildInput guild_input(const GatewayClientEvent& event, ConstSlice<u8> payload, 
                              state.owner_id,
                              icon_hash,
                              (state.fields & gateway_client_state_field_icon) != 0,
-                             state.upload_features, state.upload_features_known,
+                             state.upload_features, state.upload_features_known, state.enhanced_role_colors,
                              static_cast<u8>((state.content_policy & kGatewayStateContentGuildLevelMarker) ?
                                  state.content_policy & ~kGatewayStateContentGuildLevelMarker : 0u),
                              state.content_policy_known && (state.content_policy & kGatewayStateContentGuildLevelMarker) != 0,

@@ -566,7 +566,7 @@ bool channel_state_equal(const GatewayClientStateMutation& a, const GatewayClien
         SAME(record_count) && SAME(role_count) && SAME(member_role_count) && SAME(overwrite_count) &&
         SAME(emoji_count) && SAME(emoji_role_count) && SAME(name_bytes) && SAME(fields) && SAME(type) &&
         SAME(unavailable) && SAME(hoist) && SAME(managed) && SAME(icon_bytes) && SAME(emojis_known) &&
-        SAME(member_list_id_known) && SAME(recipient_count) && SAME(recipients_known) &&
+        SAME(member_list_id_known) && SAME(enhanced_role_colors) && SAME(recipient_count) && SAME(recipients_known) &&
         SAME(private_nicknames_known) && SAME(upload_policy.floor_bytes) && SAME(upload_policy.nitro_bytes) &&
         SAME(upload_policy.guild_250_disabled) && SAME(upload_policy_known) && SAME(upload_features) &&
         SAME(upload_features_known) && SAME(thread_archived) && SAME(thread_archived_known) &&

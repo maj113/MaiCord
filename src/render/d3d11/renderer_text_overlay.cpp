@@ -1,6 +1,8 @@
 #include "maicord/ui/store/store_scene.hpp"
 #include "renderer_text_internal.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/ui/theme/role_color.hpp"
+#include "maicord/model/guild/member_store.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/ui/media/picker_presentation.hpp"
@@ -28,8 +30,12 @@ __declspec(noinline) u64 retention_shell_inputs(const D3D11Renderer& renderer, u
     const bool browser_active = (shown & d3d11_surfaces_content_panel) != 0;
     const auto* composer =
         settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;
+    // Display Name Styles changes the face and effect of every styled name; a role's colours or a server's
+    // ENHANCED_ROLE_COLORS change the gradient names, which no projection carries.
     if (!settings_active && renderer.user_store)
-        inputs = hash64_mix(inputs, renderer.user_store->appearance.revision);
+        inputs = hash64_mix(inputs, u64{renderer.user_store->appearance.revision} << 1 | g_ui_display_name_styles_off);
+    if (!settings_active && renderer.chat_state)
+        inputs = hash64_mix(inputs, renderer.chat_state->role_style_mutations);
     if (!settings_active && !friends_active && !browser_active && renderer.thread_header)
         inputs = hash64_mix(inputs, renderer.thread_header->revision);
     if (!settings_active && !friends_active && !browser_active && renderer.message_scene &&
@@ -43,18 +49,25 @@ __declspec(noinline) u64 retention_shell_inputs(const D3D11Renderer& renderer, u
                                  ? message_store_resolve(*scene.timeline->store, hovered->message)
                                  : nullptr;
         if (record) {
+            const auto* channel = chat_state_store_find_channel(*renderer.chat_state, record->channel_id);
+            // Match message_author_layout: only a DM or group DM author shows a display-name effect, and a server
+            // author's enhanced role gradient moves while hovered.
             const auto& users = *renderer.user_store;
-            const auto* global = user_appearance_find(users.appearance, record->author_id);
-            const auto* channel =
-                chat_state_store_find_channel(*renderer.chat_state, record->channel_id);
-            const auto* guild =
-                channel ? user_appearance_find(users.appearance, record->author_id, channel->guild_id)
+            const auto* styled =
+                !channel || !channel->guild_id ? user_appearance_find(users.appearance, record->author_id) : nullptr;
+            bool moves = styled && profile_name_effect(styled->name, true).kind;
+            const auto* members = renderer.message_text ? renderer.message_text->guild_members : nullptr;
+            if (!moves && channel && channel->guild_id && members) {
+                const auto* member = guild_member_store_find(*members, channel->guild_id, record->author_id);
+                const auto* role =
+                    member && member->color_role_id
+                        ? chat_state_store_find_role(*renderer.chat_state, channel->guild_id, member->color_role_id)
                         : nullptr;
-            // Match message_author_layout's guild/global style source.
-            const auto* styled = guild && (guild->name.font_id || guild->name.effect_id) ? guild : global;
-            if (styled && profile_name_effect(styled->name, true).kind) {
+                moves = role && ui_role_gradient(*renderer.chat_state, *role);
+            }
+            if (moves) {
                 inputs = hash64_mix(inputs, record->id);
-                inputs = hash64_mix(inputs, scene.widgets.hover_started_ms);
+                inputs = hash64_mix(inputs, scene.widgets.hover_started_ms << 1 | renderer.window_inactive);
             }
         }
     }

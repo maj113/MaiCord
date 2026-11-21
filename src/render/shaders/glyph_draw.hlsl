@@ -114,9 +114,10 @@ GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_Verte
     output.glyph_parameters=0;
     if(input.color.r<0 && input.texture_rectangle.x>=0 && !color_glyph) {
         const TextEffectMaterial effect=TEXT_EFFECT(min(127u,(uint)(-input.color.r-1)));
-        if(effect.kind==3) {
+        // Neon and a moving role gradient draw a halo past the glyph: the quad grows by its radius.
+        if(effect.kind==3 || (effect.kind==9 && effect.animate>0)) {
             output.glyph_parameters.xy=(uv.zw-uv.xy)/max(rectangle.zw-rectangle.xy,float2(.001,.001));
-            float radius=4+.12*effect.reserved.y;
+            float radius=effect.kind==3?4+.12*effect.reserved.y:4*effect_scale;
             rectangle+=float4(-radius,-radius,radius,radius);
             uv+=float4(-output.glyph_parameters.xy,output.glyph_parameters.xy)*radius;
         }
@@ -220,10 +221,25 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
         else if(input.color.b>=0 && effect.kind==8)
             color=effect.colors[(uint)input.color.g%(uint)effect.count].rgb;
         else if(input.color.b>=0 && effect.kind==9) {
-            // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs.
-            float segment=frac((input.position.x/effect_scale-effect.left)/100)*effect.count;
+            // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs; a hovered name's moves 100 DIPs right
+            // every 1.5 s.
+            float shift=effect.animate*(effect_seconds-effect.reserved.x+60)/1.5;
+            float segment=frac((input.position.x/effect_scale-effect.left)/100-shift)*effect.count;
             uint a=min((uint)segment,7u),b=a+1u<(uint)effect.count?a+1u:0u;
             color=lerp(effect.colors[a].rgb,effect.colors[b].rgb,frac(segment));
+            if(effect.animate>0 && input.texture_bounds.x>=0) {
+                // The 4-DIP glow of the gradient at 70% around the moving name.
+                const float2 directions[8]={float2(1,0),float2(-1,0),float2(0,1),float2(0,-1),
+                    float2(.707,.707),float2(-.707,.707),float2(.707,-.707),float2(-.707,-.707)};
+                float glow=0,radius=4*effect_scale;
+                [unroll]for(uint d=0;d<8;d++) {
+                    float2 delta=directions[d]*input.glyph_parameters.xy*radius;
+                    glow+=glyph_mask(input.texture_coordinate+delta*.5,input.texture_bounds)*.6;
+                    glow+=glyph_mask(input.texture_coordinate+delta,input.texture_bounds)*.4;
+                }
+                float alpha=coverage+(1-coverage)*saturate(glow*.25)*.7;
+                return float4(color,1)*alpha*input.color.a;
+            }
         }
         else {
             float y=saturate((input.position.y/effect_scale-effect.reserved.z)/max(effect.reserved.y,1));

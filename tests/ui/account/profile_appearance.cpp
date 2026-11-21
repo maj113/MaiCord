@@ -648,14 +648,35 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                   effect.count == 1 && effect.animate,
               "profile_geometric_font_and_default_outline_effect_palette");
     }
+    // The official client styles ids 3, 4, 6-8, 10 and 12-17; ids 1, 2, 5 and 9 are retired and 11 is the default,
+    // so those five draw in the normal face.
     bool complete_fonts = true;
-    for (u16 id = 1; id <= 16; ++id) {
+    for (u16 id = 1; id <= 17; ++id) {
         const auto face = profile_name_face(id);
-        complete_fonts &= (face == UiTextFace::normal) == (id == 11);
-        for (u16 other = 1; other < id; ++other)
+        const bool plain = id == 1 || id == 2 || id == 5 || id == 9 || id == 11;
+        complete_fonts &= (face == UiTextFace::normal) == plain;
+        for (u16 other = 1; other < id && !plain; ++other)
             complete_fonts &= face != profile_name_face(other);
     }
-    check(complete_fonts, "profile_all_sixteen_font_ids_have_distinct_native_families");
+    // ID 17 (HEXAGON, the official client's Pricedown) draws in the open stand-in MaiCord Teko.
+    check(complete_fonts && profile_name_face(17) == UiTextFace::teko && profile_name_face(18) == UiTextFace::normal,
+          "profile_styled_font_ids_have_distinct_native_families_and_retired_ids_draw_plain");
+    {
+        // Accessibility's Display Name Styles off: no style font or effect anywhere but the editor's preview.
+        NameStyle style{};
+        style.font_id = 8;
+        style.effect_id = 2;
+        style.color_count = 2;
+        style.colors[0] = 0x00EAFF;
+        style.colors[1] = 0x9058FF;
+        g_ui_display_name_styles_off = true;
+        const bool off = profile_name_face(8) == UiTextFace::normal && !profile_name_effect(style, true).kind &&
+                         profile_name_face(8, true) == UiTextFace::pixelify &&
+                         profile_name_effect(style, true, 0, true).kind == 2;
+        g_ui_display_name_styles_off = false;
+        check(off && profile_name_face(8) == UiTextFace::pixelify && profile_name_effect(style, true).kind == 2,
+              "profile_display_name_styles_off_hides_fonts_and_effects_except_in_the_editor_preview");
+    }
     bool complete_effects = true;
     for (u16 id = 1; id <= 8; ++id) {
         NameStyle style{};

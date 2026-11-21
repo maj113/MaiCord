@@ -1,6 +1,7 @@
 #include "renderer_text_internal.hpp"
 #include "maicord/ui/text/ansi_text.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/ui/theme/role_color.hpp"
 #include "../text/picker_glyph_cache.hpp"
 #include "../text/shaped_text_cache.hpp"
 #include "maicord/core/log.hpp"
@@ -256,6 +257,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     origin_x = aligned_text_origin(horizontal_alignment, origin_x, maximum_width, layout.width);
     origin_y = aligned_text_origin(vertical_alignment, origin_y, maximum_height, layout.height);
     const u32 first_quad = storage->quad_count;
+    RoleEffectContext role_effects{renderer, request.role_theme, origin_y};
     const D3D11GlyphTextAppendRequest glyph_request{
         &layout,
         storage->quads,
@@ -278,6 +280,9 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         selection_active,
         cluster_effect,
         styles,
+        request.role_theme ? resolve_role_effect_callback : nullptr,
+        &role_effects,
+        request.inline_role_effect,
     };
     const bool appended =
         d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, glyph_request);
@@ -567,9 +572,11 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         material.kind = command.effect.kind;
         material.count = minimum<u8>(command.effect.count, 8);
         // Static effects keep the zero initialized above; only motion needs
-        // the Windows animation preference the app caches.
+        // the Windows animation preference the app caches. A role gradient
+        // also holds still while the window is not in focus.
         if (!renderer->reduced_motion && !renderer->system_animation_off && command.effect.animate &&
-            command.effect.kind != 1 && command.effect.kind != 2 && command.effect.kind != 6)
+            command.effect.kind != 1 && command.effect.kind != 2 && command.effect.kind != 6 &&
+            (command.effect.kind != kUiTextEffectRoleGradient || !renderer->window_inactive))
             material.animate = 1.f;
         material.reserved[0] = static_cast<float>(command.effect.started_ms % 60000) / 1000.f;
         material.reserved[1] = text_system_font_size(command_text_system(renderer, face), command.style_flags);
@@ -757,6 +764,8 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     const bool selected = selection_last > selection_first;
     const u32 first_semantic = renderer->content_text->content_semantic_count;
     const u32 first_region = renderer->content_text->content_hit_region_count;
+    // Role gradient materials this command takes are dropped with it when it fails (and the build retries).
+    const u32 first_effect = renderer->text_effect_count;
     const ContentTextRequest request{
         command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
         command.rectangle.left, command.rectangle.top, &command.clip, batch_clip, &command.color,
@@ -764,8 +773,10 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         command.semantics, command.owner, command.message_id, command.message_revision,
         selection_first, selection_last,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
-        message_text_command_face(command), force_new_batch, selected, false, false, true};
+        message_text_command_face(command), force_new_batch, selected, false, false, true, &theme,
+        reply_author_role_effect(renderer, theme, command)};
     if (!append_content_text(renderer, request, &shaped_height, atlas_invalidated)) {
+        renderer->text_effect_count = first_effect;
         return false;
     }
     {

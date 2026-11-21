@@ -620,6 +620,8 @@ struct GatewayClientStateMutation {
     u8 icon_bytes;
     bool emojis_known;
     bool member_list_id_known;
+    // Guild: the features array names ENHANCED_ROLE_COLORS; set with upload_features_known.
+    bool enhanced_role_colors;
     u16 recipient_count;
     bool recipients_known;
     bool private_nicknames_known;

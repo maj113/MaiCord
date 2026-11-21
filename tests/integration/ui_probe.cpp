@@ -1884,7 +1884,7 @@ int run_probe() noexcept {
         return finish_gate(
             initialize_fixture(true) &&
             hover_retention_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.message_scene,
-                                     g_probe.users, rebuild_probe_content_text),
+                                     g_probe.chat_state, g_probe.users, rebuild_probe_content_text),
             "hover_retention_native_ui_passed", "hover_retention_native_ui_failed", 267);
     if (probe_option_enabled(L"MAICORD_UI_MESSAGE_COMPONENTS_PROBE"))
         return finish_gate(initialize_fixture(true) &&

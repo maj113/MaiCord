@@ -691,6 +691,9 @@ struct D3D11Renderer {
     bool login_qr_ready;
     bool login_caret_visible;
     bool begin_frame_permit;
+    // The main window is not in focus, published by the app: as in the official client (all.css .app-focused), a
+    // hovered role gradient holds still.
+    bool window_inactive;
     u32 interaction_text_active_mask;
     LoginStatus login_status;
     // A removal or reset was seen; recovery clears it and counts a new device.

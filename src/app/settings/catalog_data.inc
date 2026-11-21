@@ -257,6 +257,10 @@ constexpr UiSettingsSchemaNode accessibility[]{
     node(utf8_literal("accessibility.underline_links"), K::toggle, utf8_literal("Always underline links"),
          utf8_literal("Make links stand out more."), utf8_literal("links underline decoration"),
          SettingBinding::underline_links),
+    node(utf8_literal("accessibility.display_name_styles"), K::toggle, utf8_literal("Display Name Styles"),
+         utf8_literal("Enable display name styles \xE2\x80\x94 including font, effect, and color \xE2\x80\x94 across "
+                      "MaiCord."),
+         utf8_literal("display name styles font effect nameplate"), SettingBinding::display_name_styles),
     node(utf8_literal("accessibility.density"), K::category, utf8_literal("Visual Density"), {}, {}),
     node(utf8_literal("accessibility.ui_density"), K::segments, utf8_literal("UI Density"),
          utf8_literal("Adjust the space between server, channel and member lists."),
