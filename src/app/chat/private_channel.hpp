@@ -24,6 +24,17 @@ u32 application_private_channel_member_items(u64 user_id, Slice<PopupItem> outpu
 // True when the action belonged to these menus (applied or not).
 bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shift, bool* applied) noexcept;
 bool application_private_channel_present_error() noexcept;
+// The incoming call prompt's rows, as on the official client's incoming call card: the conversation's title over
+// "Incoming call", then Join call with the phone icon and Decline with the X icon.
+inline void application_private_call_prompt_items(Utf8View title, u32 join_action, u32 decline_action,
+                                                  PopupItem (&items)[3]) noexcept {
+    items[0] = {title, 0, 0, 0};
+    items[0].detail = utf8_literal("Incoming call");
+    items[1] = {utf8_literal("Join call"), join_action, popup_item_enabled, 0};
+    items[1].presentation = ui_menu_row_presentation(UiIcon::phone);
+    items[2] = {utf8_literal("Decline"), decline_action, static_cast<u16>(popup_item_enabled | popup_item_danger), 0};
+    items[2].presentation = ui_menu_row_presentation(UiIcon::close);
+}
 // CALL_CREATE/UPDATE/DELETE: an incoming DM or group call prompts Join or Decline.
 void application_private_channel_gateway(const GatewayClientEvent& event) noexcept;
 // Borrowed presence/typing source for conversation rows; null without an account.

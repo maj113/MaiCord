@@ -164,6 +164,8 @@ struct ChannelInput {
     u32 thread_join_seconds;
     // Text/announcement/forum default thread archive (channel_archive_code); zero keeps the stored one.
     u8 default_archive_code;
+    // Voice and stage channels: user_limit plus one (1 is no limit); zero keeps the stored one. Other types store 0.
+    u16 user_limit;
 };
 // default_auto_archive_duration minutes as a code: 1 hour, 1 day, 3 days, 1 week
 // are 1..4; any other value is 0 (unknown).
@@ -293,8 +295,10 @@ struct ChannelRecord {
     u8 slowmode_code;
     u32 read_last_viewed;
     u32 read_flags;
+    // Voice and stage channels: user_limit, 0 for no limit (and for every other type).
+    u16 user_limit;
 };
-static_assert(sizeof(ChannelRecord) == 104);
+static_assert(sizeof(ChannelRecord) == 112);
 // The thread archive a new thread in the channel takes by default (minutes).
 constexpr u16 channel_default_archive_minutes(const ChannelRecord& channel) noexcept {
     return channel.default_archive == 1 ? 60 : channel.default_archive == 2 ? 1440
@@ -690,6 +694,11 @@ bool channel_is_message_capable(u8 type) noexcept;
 // Text chat of a guild voice or stage channel ("text in voice").
 constexpr bool channel_is_voice_chat(u8 type) noexcept {
     return type == 2 || type == 13;
+}
+// The official client refuses to join a voice or stage channel whose user_limit `users` have reached. Move Members
+// (with Connect, which channel_action_move_members implies) bypasses the limit.
+constexpr bool channel_voice_full(const ChannelRecord& channel, u32 users) noexcept {
+    return channel.user_limit && users >= channel.user_limit && !(channel.actions & channel_action_move_members);
 }
 constexpr bool channel_is_private(u8 type) noexcept {
     return type == 1 || type == 3;

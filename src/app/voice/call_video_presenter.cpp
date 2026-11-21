@@ -58,7 +58,7 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
             if (presenter->count == kCallVideoStreams)
                 continue;
             stream = &presenter->streams[presenter->count++];
-            *stream = {target.user_id, target.ssrc, 0, 0, 0, 0, CallVideoWant::unknown, false};
+            *stream = {target.user_id, target.ssrc, 0, 0, 0, 0, CallVideoWant::unknown, false, false};
         }
         const auto want = target.visible ? CallVideoWant::wanted : CallVideoWant::unwanted;
         if (stream->want != want) {
@@ -73,7 +73,12 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
         if (!poll || !host.frame)
             continue;
         VideoStreamFrame frame{};
-        if (!host.frame(host.context, target.ssrc, &frame))
+        const bool pictured = host.frame(host.context, target.ssrc, &frame);
+        if (const bool undecodable = !pictured && frame.undecodable; undecodable != stream->undecodable) {
+            stream->undecodable = undecodable;
+            result.changed = true;
+        }
+        if (!pictured)
             continue;
         if (frame.gpu.texture)
             ++presenter->acquired;

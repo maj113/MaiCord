@@ -157,7 +157,9 @@ ChannelInput channel_input(const GatewayClientStateMutation& state, const Utf8Vi
                                state.thread_self_joined && channel_is_thread(state.type)
                                    ? state.thread_join_seconds
                                    : 0u,
-                               state.default_archive_code};
+                               state.default_archive_code,
+                               // Shares a thread's join time; the store keeps it for voice and stage channels only.
+                               static_cast<u16>(state.user_limit)};
 }
 
 bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_new_thread = false) noexcept {

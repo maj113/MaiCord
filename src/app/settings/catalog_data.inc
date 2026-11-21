@@ -407,6 +407,15 @@ static constexpr UiSettingsSchemaNode voice_nodes[]{
     node(utf8_literal("voice.soundboard_muted"), K::toggle, utf8_literal("Mute soundboard"),
          utf8_literal("Don't play sounds other people send. You can still use the soundboard."),
          utf8_literal("soundboard sounds silence mute"), SettingBinding::voice_soundboard_muted),
+    node(utf8_literal("voice.sounds_category"), K::category, utf8_literal("Sounds"), {}, {}),
+    node(utf8_literal("voice.connection_sounds"), K::toggle, utf8_literal("Play connection sounds"),
+         utf8_literal("Play a sound when you join or leave a voice channel, and a different one when the connection "
+                      "drops."),
+         utf8_literal("join leave disconnect connection lost interrupted sounds"),
+         SettingBinding::voice_connection_sounds),
+    node(utf8_literal("voice.connection_sound_volume"), K::slider, utf8_literal("Connection Sound Volume"),
+         utf8_literal("Notifications' sound volume applies too."), utf8_literal("join leave sounds loudness"),
+         SettingBinding::voice_connection_sound_volume, {percent_labels.values, 101}, 100),
 };
 
 static constexpr UiSettingsSchemaNode account_nodes[]{

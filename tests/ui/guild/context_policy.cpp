@@ -1,4 +1,5 @@
 #include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/ui/guild/member_context_policy.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
@@ -101,6 +102,28 @@ void test_guild_header_menu(void (*check)(bool, const char*) noexcept) noexcept 
           "header popout: community opt-in adds Show all channels before Notification settings, checked while "
           "every channel shows; Privacy settings carries the shield");
 }
+
+// A voice row's Disconnect leads the moderation section, red and enabled, also when the role order disables the
+// rows below it.
+void test_member_moderation_menu(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr MemberModerationMenuActions actions{1, 2, 3, 4, 5, 6, 100};
+    ModerationCapabilities voice{};
+    voice.visible = static_cast<u8>(moderation_action_kick | moderation_action_disconnect);
+    voice.allowed = moderation_action_disconnect;
+    voice.block = ModerationBlock::hierarchy;
+    PopupItem rows[6]{};
+    check(member_context_moderation_build(voice, actions, {rows, 6}) == 2 && rows[0].action == 6 &&
+              utf8_equal(rows[0].label, utf8_literal("Disconnect")) &&
+              rows[0].flags == (popup_item_enabled | popup_item_danger | popup_item_separator_before) &&
+              !rows[0].detail.bytes && rows[1].action == 4 && rows[1].flags == 0 && rows[1].detail.bytes,
+          "member moderation menu: Disconnect comes first and stays enabled under a role order block");
+    ModerationCapabilities member_list = voice;
+    member_list.visible = moderation_action_kick;
+    member_list.allowed = 0;
+    check(member_context_moderation_build(member_list, actions, {rows, 6}) == 1 && rows[0].action == 4 &&
+              (rows[0].flags & popup_item_separator_before),
+          "member moderation menu: without the disconnect bit there is no Disconnect row");
+}
 } // namespace
 
 void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexcept {
@@ -187,5 +210,6 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
               guild_context_policy_build(state, 1, copy, {}, scoped) == 0,
           "Home unknown guild invalid copy ID and absent storage reject server menu admission");
     test_guild_header_menu(check);
+    test_member_moderation_menu(check);
 }
 } // namespace maicord

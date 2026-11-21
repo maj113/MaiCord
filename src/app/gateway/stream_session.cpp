@@ -21,6 +21,16 @@ void end_tagged(void* context, u32 ssrc) noexcept {
     if (!(ssrc & kGatewayStreamVideoSsrcTag) && session.target.end_stream)
         session.target.end_stream(session.target.context, ssrc | kGatewayStreamVideoSsrcTag);
 }
+bool decoded_tagged(void* context, u32 ssrc) noexcept {
+    const auto& target = static_cast<GatewayStreamSession*>(context)->target;
+    return !(ssrc & kGatewayStreamVideoSsrcTag) && target.decoded &&
+           target.decoded(target.context, ssrc | kGatewayStreamVideoSsrcTag);
+}
+void stalled_tagged(void* context, u32 ssrc) noexcept {
+    const auto& target = static_cast<GatewayStreamSession*>(context)->target;
+    if (!(ssrc & kGatewayStreamVideoSsrcTag) && target.stalled)
+        target.stalled(target.context, ssrc | kGatewayStreamVideoSsrcTag);
+}
 u32 volume(const GatewayStreamSession& session) noexcept {
     return session.volume_set ? session.volume_percent : kGatewayStreamVolumeDefault;
 }
@@ -53,7 +63,7 @@ VoiceAudioSettings gateway_stream_bus_settings(const VoiceAudioSettings& output,
 }
 
 VideoFrameSink gateway_stream_session_frames(GatewayStreamSession* session) noexcept {
-    return {session, push_tagged, end_tagged, decodable_target};
+    return {session, push_tagged, end_tagged, decodable_target, decoded_tagged, stalled_tagged};
 }
 
 bool gateway_stream_session_busy(const GatewayStreamSession& session) noexcept {

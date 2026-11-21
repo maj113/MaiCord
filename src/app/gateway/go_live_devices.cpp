@@ -14,7 +14,11 @@ GoLiveDevices& of(void* context) noexcept {
 // Capture thread.
 void frame(void* context, const CaptureFrame& picture) noexcept {
     auto& d = of(context);
-    ++d.frames;
+    // The first picture shows that the capture runs, before any viewer can say so.
+    if (!d.frames++) {
+        log_u64(LogLevel::info, "go_live", "first_capture_width", picture.width);
+        log_u64(LogLevel::info, "go_live", "first_capture_height", picture.height);
+    }
     if (picture.width != d.width || picture.height != d.height) {
         d.width = picture.width;
         d.height = picture.height;
@@ -49,7 +53,13 @@ void minimized(void* context, bool value) noexcept {
 }
 // Encoder thread.
 void unit(void* context, const GpuStreamAccessUnit& encoded) noexcept {
-    go_live_media_unit(of(context).media, encoded);
+    auto& d = of(context);
+    // The first unit shows that the encoder makes output. Its bytes, not its content.
+    if (!d.units++) {
+        log_u64(LogLevel::info, "go_live", "first_unit_bytes", encoded.data.count);
+        log_u64(LogLevel::info, "go_live", "first_unit_keyframe", encoded.keyframe);
+    }
+    go_live_media_unit(d.media, encoded);
 }
 void encoder_ended(void* context, GpuStreamEncoderEnd) noexcept {
     go_live_media_ended(of(context).media, GoLiveEnd::encoder_failed);
@@ -193,6 +203,7 @@ void go_live_producer_encoder_stop(void* context) noexcept {
         log_u64(LogLevel::info, "go_live", "encoder_keyframes", stats.keyframes);
     }
     gpu_stream_encoder_destroy(encoder);
+    d.units = 0; // The encoder thread is joined: the next encoder logs its first unit again.
 }
 #pragma clang attribute pop
 bool go_live_producer_preview(void* context, GpuVideoFrame* output, u32* sequence) noexcept {

@@ -7,9 +7,9 @@ namespace maicord {
 // settings, self mute/deafen and per-user playback volume. Separate from
 // preferences.bin so device IDs and the user table can grow independently.
 inline constexpr u32 kVoicePreferenceUsers = 256;
-// v2 adds the soundboard volume and mute; v3 the Go Live stream settings (a v2 record loads with their defaults);
-// v1, which no release wrote, is refused.
-inline constexpr u32 kVoicePreferencesVersion = 3;
+// v2 adds the soundboard volume and mute; v3 the Go Live stream settings; v4 the connection sounds (an older record
+// loads with the defaults of the fields it lacks). v1, which no release wrote, is refused.
+inline constexpr u32 kVoicePreferencesVersion = 4;
 struct VoiceUserVolume {
     u64 user_id;
     u16 gain_percent; // 0..200.
@@ -28,6 +28,9 @@ struct VoicePreferences {
     bool stream_muted;     // "Mute stream audio".
     bool stream_hide_preview;
     bool stream_unlocked; // Every quality without Nitro or the server's boosts, which only clients check.
+    // Join, leave and interrupted connection sounds (VoiceConnectionSound) and their volume (0..100 %).
+    bool connection_sounds;
+    u8 connection_sound_volume;
     u32 user_count;
     VoiceUserVolume users[kVoicePreferenceUsers];
 };

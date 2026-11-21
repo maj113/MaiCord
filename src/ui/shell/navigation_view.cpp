@@ -667,6 +667,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
                             (channel_controls_can_edit(channel) ? channel_row_settings : 0u) |
                             (channel_controls_can_create_in(channel) ? channel_row_create : 0u)),
             locked,
+            channel.user_limit,
         };
         channel_changed = channel_changed || row_changed(view->channel_rows[order + lead], row);
         view->channel_rows[order + lead] = row;

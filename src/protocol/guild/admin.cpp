@@ -547,6 +547,8 @@ void write_member(JsonBody& b, const MemberPatch& p, bool self) noexcept {
         } else
             b.put("null");
     }
+    if (p.fields & member_patch_disconnect)
+        b.member("channel_id", "null");
     b.end_object();
 }
 

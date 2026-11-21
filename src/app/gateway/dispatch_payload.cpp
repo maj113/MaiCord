@@ -404,17 +404,18 @@ bool skip_rich_descriptors(Reader& reader, const GatewayClientMessageRichHeader&
     return !(fields & gateway_message_field_poll) || read_poll_metadata(reader);
 }
 
-bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                                                   u64* user_id) noexcept {
+// The copied scalar rich header and its reference texts (author name, author avatar hash, content). A valid message
+// without rich data gives a zeroed header and empty texts.
+static bool message_rich_header(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                GatewayClientMessageRichHeader* header, Utf8View (&reference)[3]) noexcept {
     GatewayMessageEvent message;
     if (!gateway_client_event_as_message(event, payload, &message))
         return false;
     const u32 rich_fields = event.message.fields & kGatewayMessageRichFieldMask;
     if (!event.message.rich_payload_bytes) {
-        if (rich_fields)
-            return false;
-        *user_id = 0;
-        return true;
+        reset_value(header);
+        reference[0] = reference[1] = reference[2] = Utf8View{};
+        return rich_fields == 0;
     }
     if (!rich_fields)
         return false;
@@ -422,17 +423,34 @@ bool gateway_client_event_message_interaction_user(const GatewayClientEvent& eve
     if (!message_payload_offsets(event, payload, &text_limit, &user_offset, &cursor))
         return false;
     Reader reader{payload.data, payload.count, text_limit, payload.count, cursor};
-    GatewayClientMessageRichHeader header;
     // Descriptor lengths are checked without decoding unrelated arrays. Only
-    // validated scalar/header text can affect the activity notification gate.
-    if (!read_packed(reader, &header) || !rich_header_valid(header, rich_fields) ||
-        !skip_rich_descriptors(reader, header, rich_fields) || reader.at != reader.end)
+    // validated scalar/header text can affect the notification gates and speech.
+    if (!read_packed(reader, header) || !rich_header_valid(*header, rich_fields) ||
+        !skip_rich_descriptors(reader, *header, rich_fields) || reader.at != reader.end)
         return false;
-    Utf8View text[3];
-    if (!unpack_texts(reader, &header.reference_author_name, text, 3) ||
-        !unpack_texts(reader, &header.interaction_user_name, text, 3))
+    Utf8View interaction[3];
+    return unpack_texts(reader, &header->reference_author_name, reference, 3) &&
+           unpack_texts(reader, &header->interaction_user_name, interaction, 3);
+}
+
+bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                                   u64* user_id) noexcept {
+    GatewayClientMessageRichHeader header;
+    Utf8View reference[3];
+    if (!message_rich_header(event, payload, &header, reference))
         return false;
     *user_id = header.interaction_user_id;
+    return true;
+}
+
+bool gateway_client_event_message_reference_author(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                                   u64* user_id, Utf8View* name) noexcept {
+    GatewayClientMessageRichHeader header;
+    Utf8View reference[3];
+    if (!message_rich_header(event, payload, &header, reference))
+        return false;
+    *user_id = header.reference_author_id;
+    *name = reference[0];
     return true;
 }
 

@@ -19,6 +19,14 @@ openSUSE and Arch. No software HEVC; the live software tier refuses B slices (Op
 `video_capability.hpp` turns the probes into what Discord is offered. Movies play on both tiers in presentation order
 (libopenh264 is the reorderer); HEVC movies need a VA-API driver.
 
+A live stream that no tier decodes (the hardware gave up and no software tier exists, as for HEVC) keeps `unsupported` in
+its published stats. A verdict that the software tier takes over is never published. The call decoders
+(`app/voice/video_stream_decoders.cpp`) then log `video_decode_unsupported` and report the stream as undecodable, as
+they do for a stream that receives packets for 5 s without a picture (`video_stalled`, `app/voice/video_sink.cpp`). The
+call view shows "This video can't be played on this computer" in place of the spinner. After an H.265 decoder gives up,
+the call decoders stop offering H.265, so the next connection asks senders for another codec. A new renderer device
+probes again.
+
 A movie that no tier can decode because the computer has no decoder for its codec (no VA-API profile and no
 libopenh264 for H.264, no VA-API HEVC profile for HEVC) fails with `kVideoDecoderMissing` (`h264_gpu_decoder.hpp`; on
 Windows, a GPU without the DXVA profile). The client does not try that movie again in the session, and its media box

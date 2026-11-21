@@ -15,6 +15,10 @@ inline constexpr u32 kVoiceVideoMaximumUsers = 16;
 inline constexpr u32 kVoiceVideoUnwantedUsers = 32;
 // Units DAVE-opened inside a start wait and held for their turn. A unit past this count is opened at its turn.
 inline constexpr u32 kVoiceVideoHeldUnits = 4;
+// A stream that receives packets this long without a decoded picture cannot be played here: the sink logs it once
+// (video_stalled) and reports it to the decoder side (VideoFrameSink::stalled). A pause in its packets of more than
+// kVoiceVideoReceivingUs starts the wait again.
+inline constexpr u64 kVoiceVideoStallUs = 5'000'000, kVoiceVideoReceivingUs = 1'000'000;
 // DAVE stage for one assembled frame from a currently mapped video SSRC.
 // Production binds voice_connection_dave_decrypt_frame; tests substitute.
 using VoiceVideoDecrypt = DaveMediaResult (*)(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
@@ -45,7 +49,9 @@ struct VoiceVideoSink {
     u64 unwanted[kVoiceVideoUnwantedUsers]; // Users whose video is stopped (op 15 quality 0).
     u64 deadline_ms;
     u32 ended_count, unwanted_count, feedback_bytes;
-    u32 offer; // Bound Select Protocol video offer (voice_video_codec_bit set).
+    // The bound Select Protocol codec list (media.video_codecs) in its order: codec i is payload type 101 + 2i.
+    u32 codec_count;
+    u8 codecs[kVoiceVideoMaximumCodecs];
     u64 keyframe_requests; // Decoder-requested keyframes applied, for the attachment summary.
     // Units DAVE-opened while their stream still waits out its start (VideoRtpFrame::early), in arrival order: the
     // plaintexts lie one after another in `held` (a reservation, committed only for the pages in use while any unit is
@@ -55,6 +61,13 @@ struct VoiceVideoSink {
     struct {
         u32 ssrc, timestamp, sealed_bytes, offset, bytes;
     } settled[kVoiceVideoHeldUnits];
+    // Per RTP core stream slot: since when the stream receives without a decoded picture (zero: not receiving), and
+    // whether its check is over (a picture came, or the stall was reported).
+    struct {
+        u32 ssrc;
+        u64 since_us;
+        bool done;
+    } stall[kVideoRtpMaxStreams];
     VoiceVideoSummary summary;
     u8 feedback[kVoiceVideoFeedbackBytes]; // Built RTCP waiting for the transport.
     bool rtp_ready;
@@ -69,7 +82,7 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
 // Transport-opened RTCP (sender reports for receiver-report timing).
 void voice_video_sink_rtcp(VoiceVideoSink* sink, ConstSlice<u8> plaintext, u64 now_us) noexcept;
 // After voice_connection_drive while media is attached (media_current): binds
-// every offered codec's payload types, applies keyframe requests, ends streams whose SSRC no
+// the payload types of the announced codec order, applies keyframe requests, ends streams whose SSRC no
 // longer maps to a video source, sends due RTCP feedback (receiver reports,
 // NACK, PLI, transport-wide feedback) and updates the op 15 sink wants.
 // now_us uses the same clock as packet delivery.

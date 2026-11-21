@@ -17,7 +17,7 @@ inline constexpr u32 kCallVideoMaximumExtent = 2560;
 
 struct CallVideoHost {
     void* context;
-    // Latest picture of a stream; true transfers one texture reference.
+    // Latest picture of a stream. True transfers one texture reference. False may set output->undecodable.
     bool (*frame)(void* context, u32 ssrc, VideoStreamFrame* output) noexcept;
     // Copies the picture for user/ssrc, reduced so its longer side fits extent (0: native).
     bool (*present)(void* context, u64 user_id, u32 ssrc, const VideoStreamFrame& frame, u32 extent) noexcept;
@@ -44,6 +44,8 @@ struct CallVideoStream {
     u16 display_width, display_height; // Zero until a picture was presented.
     CallVideoWant want;
     bool ready;
+    // No picture, and the frame source cannot play the stream (VideoStreamFrame::undecodable).
+    bool undecodable;
 };
 struct CallVideoPresenter {
     CallVideoStream streams[kCallVideoStreams];
@@ -52,7 +54,7 @@ struct CallVideoPresenter {
 };
 struct CallVideoPumpResult {
     bool presented;    // A new picture went to the renderer.
-    bool changed;      // Stream readiness or extents changed (relayout tiles).
+    bool changed;      // Stream readiness, undecodable state or extents changed (relayout tiles).
     bool visible;      // Some visible stream exists: keep polling.
     bool want_pending; // A want could not be sent; retry on the next pump.
 };

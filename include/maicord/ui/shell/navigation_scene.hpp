@@ -135,6 +135,19 @@ u8 shell_navigation_row_controls(const ChannelViewRow& row, bool hovered, bool s
 UiRect shell_navigation_control_rectangle(const UiRect& row, const ChannelViewRow& view, ChannelRowControl control) noexcept;
 // Where a row's name must end: before its leftmost shown control, else `right`.
 float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& view, u8 shown, float right) noexcept;
+// The user limit pill of a voice or stage channel row, as the official client draws it: a 20-DIP box (1-DIP border)
+// with the users in the channel in a 28-DIP part, then the limit on a darker 20-DIP part with a slanted left edge. The
+// row shows it when the channel has a limit and the account can connect, but not while the row is selected, is
+// hovered (it then shows its controls) or shows a mention badge. A stage's 10,000 is its maximum, not a limit. A limit
+// from 100 up widens its part by 7 DIPs for each digit after two. The row counts at most 99 users.
+struct ShellLimitPill {
+    UiRect box;
+    float split; // where the limit part starts
+};
+bool shell_navigation_limit_pill(const UiRect& row, const ChannelViewRow& view, bool hovered, bool selected,
+                                 ShellLimitPill* out) noexcept;
+// A pill count below 10,000 with at least two digits ("00", "02", "150"): writes up to 4 bytes, returns the count.
+u32 shell_navigation_limit_digits(u32 value, char* out) noexcept;
 // The banner state for the selected server: inset 0 (no banner) or
 // kUiGuildBannerListInset. A changed inset rebuilds the list on the next update.
 bool shell_navigation_scene_set_banner(ShellNavigationScene* scene, float inset, bool header_hovered,

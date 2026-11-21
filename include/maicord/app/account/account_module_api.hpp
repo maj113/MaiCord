@@ -519,6 +519,8 @@ bool account_module_voice_video_device(void*, GpuDevice*) noexcept;
 // On success the texture and each non-null shader view hold one reference.
 // The picture is a decoder slice kept intact until the next call for this
 // SSRC: submit the GPU read before that, then release these references.
+// Without a picture it returns false, and output->undecodable is set when
+// this computer cannot decode the stream.
 bool account_module_voice_video_frame(void*, u32 ssrc, VideoStreamFrame* output) noexcept;
 // Go Live watch: one stream at a time, only while the call is in the
 // key's channel (gateway_stream_key_for(guild, channel, owner)). A null

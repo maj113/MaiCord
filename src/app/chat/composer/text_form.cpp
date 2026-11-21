@@ -771,6 +771,20 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     return true;
 }
 
+bool application_text_form_notice(Utf8View title, Utf8View context) noexcept {
+    ApplicationTextFormRequest request{};
+    request.title = title;
+    request.context = context;
+    request.accept = utf8_literal("Okay");
+    request.owner = {g_app.plugin_account_scope_serial, 0, 0};
+    request.valid = [](TextFormOwnerKey) noexcept { return true; };
+    request.save = [](TextFormOwnerKey, Utf8View) noexcept { return true; };
+    request.confirmation_only = true;
+    request.single_action = true;
+    request.accept_focused = true;
+    return application_text_form_open(request);
+}
+
 namespace {
 // A colour picker's Apply: the field's colour to the owner's save.
 bool save_color(TextFormOwnerKey key, Utf8View text) noexcept {

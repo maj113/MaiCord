@@ -100,6 +100,61 @@ void trailing_cases(Check check) noexcept {
     check(named, "the channel name ends before the leftmost control");
 }
 
+// The user limit pill (the official "00 | 02") and the full channel rule.
+void limit_cases(Check check) noexcept {
+    const auto reads = [](u32 value, const char* expected) noexcept {
+        char text[4];
+        const u32 bytes = shell_navigation_limit_digits(value, text);
+        return bytes == c_string_length(expected) && bytes_equal(text, expected, bytes);
+    };
+    check(reads(0, "00") && reads(2, "02") && reads(99, "99") && reads(150, "150") && reads(9'999, "9999"),
+          "a pill count has at least two digits");
+    ChannelViewRow row{};
+    row.id = 7;
+    row.type = 2;
+    row.user_limit = 2;
+    row.actions = channel_action_connect;
+    const UiRect box{0, 100, 240, 100 + shell_navigation_row_height(row)};
+    const float badge_right = box.right - kShellChannelHighlightRight - kShellChannelHighlightLeft;
+    ShellLimitPill pill{};
+    // Inside the 1-DIP border: a 28-DIP users part, then a 20-DIP limit part.
+    check(shell_navigation_limit_pill(box, row, false, false, &pill) && pill.box.right == badge_right &&
+              ui_rect_width(pill.box) == 50 && ui_rect_height(pill.box) == 20 && pill.split - pill.box.left == 29 &&
+              pill.box.top - box.top == box.top + shell_navigation_head_height() - pill.box.bottom,
+          "an empty channel with a limit of 2 shows a 50 x 20 pill where a mention badge ends, centred on the head");
+    check(!shell_navigation_limit_pill(box, row, true, false, &pill) &&
+              !shell_navigation_limit_pill(box, row, false, true, &pill),
+          "a hovered or selected row shows its controls instead");
+    row.mention_count = 1;
+    check(!shell_navigation_limit_pill(box, row, false, false, &pill), "a mention badge takes its place");
+    row.mention_count = 0;
+    row.actions = 0;
+    check(!shell_navigation_limit_pill(box, row, false, false, &pill), "no pill without Connect");
+    row.actions = channel_action_connect;
+    row.user_limit = 0;
+    check(!shell_navigation_limit_pill(box, row, false, false, &pill), "no pill without a limit");
+    row.type = 13;
+    row.user_limit = 10'000;
+    check(!shell_navigation_limit_pill(box, row, false, false, &pill), "a stage's maximum is not a limit");
+    row.user_limit = 500;
+    row.voice_count = 99;
+    check(shell_navigation_limit_pill(box, row, false, false, &pill) && pill.box.right - 1 - pill.split == 27 &&
+              pill.split - pill.box.left == 29 && pill.box.right == badge_right,
+          "a stage limit of 500 widens only its own part");
+
+    ChannelRecord channel{};
+    channel.type = 2;
+    channel.user_limit = 2;
+    channel.actions = channel_action_connect;
+    check(!channel_voice_full(channel, 1) && channel_voice_full(channel, 2) && channel_voice_full(channel, 3),
+          "a channel is full when its users reach the limit");
+    channel.actions |= channel_action_move_members;
+    check(!channel_voice_full(channel, 2), "Move Members joins a full channel");
+    channel.actions = channel_action_connect;
+    channel.user_limit = 0;
+    check(!channel_voice_full(channel, 50), "a channel without a limit is never full");
+}
+
 void duration_cases(Check check) noexcept {
     const auto says = [](u64 seconds, const char* expected) noexcept {
         char text[kUiVoiceDurationBytes];
@@ -120,6 +175,7 @@ void test_voice_channel_rows(Check check) noexcept {
     invite_cases(check);
     layout_cases(check);
     trailing_cases(check);
+    limit_cases(check);
     duration_cases(check);
 }
 } // namespace maicord

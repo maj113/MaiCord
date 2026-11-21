@@ -194,11 +194,18 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
         connection->media_error = voice_connection_description(connection, value.envelope.data, scratch, 64,
                                                                connection->socket.now_ms);
         if (connection->media_error == VoiceMediaSetupError::none) {
+            // The announced codec order, one VoiceVideoCodec per decimal digit (215: H265, H264, AV1): codec i is
+            // payload type 101 + 2i in both directions.
+            u64 order = 0;
+            for (u32 i = 0; i != connection->media.video_codec_count; ++i)
+                order = order * 10 + connection->media.video_codecs[i];
             const VoiceLogField fields[]{{"mode", connection->media.selected_mode},
                                          {"dave_version", connection->media.dave_protocol_version},
                                          {"video_offer", connection->media.video_offer},
-                                         {"video_codec", static_cast<u64>(connection->media.video_codec)}};
-            voice_log_fields(kInfo, "session_description", {fields, 4});
+                                         {"video_codecs", order},
+                                         {"video_codec", static_cast<u64>(connection->media.video_codec)},
+                                         {"stream", connection->stream_context}};
+            voice_log_fields(kInfo, "session_description", {fields, sizeof(fields) / sizeof(fields[0])});
             if (!voice_connection_dave_description(connection)) {
                 fail(connection, VoiceConnectionError::protocol, "dave_session_failed");
                 voice_media_clear(&connection->media);
@@ -608,7 +615,8 @@ void log_progress(VoiceConnection* connection, u64 now_ms) noexcept {
     if (rejected != connection->logged_rejected_packets &&
         voice_log_limit(&connection->rejected_log, now_ms, &suppressed)) {
         voice_log(kWarning, "udp_packets_rejected", "count", rejected - connection->logged_rejected_packets,
-                  "packet_error", static_cast<u64>(connection->media_io.packet_error));
+                  "packet_error", static_cast<u64>(connection->media_io.packet_error), "stream",
+                  connection->stream_context);
         connection->logged_rejected_packets = rejected;
     }
 }

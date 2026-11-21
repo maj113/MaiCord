@@ -5,10 +5,13 @@
 
 namespace maicord {
 inline constexpr u32 kNotificationMessageAlertResource=20481;
-inline constexpr u32 kNotificationSoundAssetCount=2;
+// Clips 1 and 2 are resources. Clips 3 to 5 are the voice connection sounds (VoiceConnectionSound): join, leave
+// and interrupted. MaiCord synthesizes them from a table of notes at the first resolve, so the image holds no PCM
+// for them.
+inline constexpr u32 kNotificationSoundAssetCount=2,kNotificationSoundClipCount=5;
 struct NotificationSoundAssetBank {
-    HMODULE module{};void* pcm[kNotificationSoundAssetCount]{};u32 frames[kNotificationSoundAssetCount]{};
-    u32 rates[kNotificationSoundAssetCount]{};u32 failed_mask{};
+    HMODULE module{};void* pcm[kNotificationSoundClipCount]{};u32 frames[kNotificationSoundClipCount]{};
+    u32 rates[kNotificationSoundClipCount]{};u32 failed_mask{};
     volatile LONG output_percent{100};
 };
 // One bank per audio worker. The message/focused-message tones are IDs 1/2.

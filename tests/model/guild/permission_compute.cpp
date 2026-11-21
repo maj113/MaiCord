@@ -322,6 +322,32 @@ void test_moderation() noexcept {
     check(self.self_target && self.allowed == moderation_action_nickname && self.nickname_self,
           "moderation: only the own nickname is offered for ourselves");
 
+    // Disconnect reads the voice channel's own permissions: the moderator role gets Move Members there by an
+    // overwrite, and a View Channel deny takes it away again. The own row never offers it.
+    constexpr u64 kVoice = 502, kHiddenVoice = 503;
+    const PermissionOverwriteInput move{kRoleModerator, kPermissionMoveMembers, 0, 0};
+    const PermissionOverwriteInput hidden{kRoleModerator, kPermissionMoveMembers, kPermissionViewChannel, 0};
+    const bool voice_built =
+        chat_state_store_upsert_channel(&state, {kVoice, kGuild, 0, utf8_literal("v"), 0, 0, 2}).ok() &&
+        chat_state_store_upsert_channel(&state, {kHiddenVoice, kGuild, 0, utf8_literal("h"), 0, 0, 13}).ok();
+    chat_state_store_recompute_guild_permissions(&state, kGuild);
+    const bool without_move = !moderation_can_disconnect(state, kGuild, kVoice, kOther);
+    const bool overwrites_added = chat_state_store_append_channel_overwrite(&state, kVoice, move) &&
+                                  chat_state_store_append_channel_overwrite(&state, kHiddenVoice, hidden);
+    chat_state_store_recompute_guild_permissions(&state, kGuild);
+    check(voice_built && without_move && overwrites_added &&
+              moderation_can_disconnect(state, kGuild, kVoice, kOther) &&
+              moderation_can_disconnect(state, kGuild, kVoice, kOwner) &&
+              !moderation_can_disconnect(state, kGuild, kHiddenVoice, kOther) &&
+              !moderation_can_disconnect(state, kGuild, kChannel, kOther) &&
+              !moderation_can_disconnect(state, 999, kVoice, kOther) &&
+              !moderation_can_disconnect(state, kGuild, 0, kOther),
+          "moderation: Disconnect needs View Channel and Move Members in the member's guild voice channel, and "
+          "the role order does not apply");
+    check(!moderation_can_disconnect(state, kGuild, kVoice, kSelf) &&
+              !moderation_can_disconnect(state, kGuild, kVoice, 0),
+          "moderation: the own row has no Disconnect, as in the official client");
+
     GuildSettings strict{};
     strict.known = guild_settings_mfa_level;
     strict.mfa_level = 1;

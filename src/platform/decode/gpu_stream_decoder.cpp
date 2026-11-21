@@ -80,13 +80,14 @@ inline bool release_idle(GpuStream* stream) noexcept {
 
 void run_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact, bool resynchronize) noexcept {
     stream->backend->decode(stream, bytes, rtp_timestamp, intact, resynchronize);
-    publish_stats(stream);
 #if !defined(_WIN32)
-    if (stream->backend->hardware && stream->stats.unsupported && software_codec_available(stream->options.codec)) {
+    // Readers take a published `unsupported` as final (video_decode_unsupported): a hardware verdict that the
+    // software tier takes over is never published.
+    stream->backend->stats(*stream, &stream->stats);
+    if (stream->backend->hardware && stream->stats.unsupported && software_codec_available(stream->options.codec))
         stream_fall_back_to_software(stream);
-        publish_stats(stream);
-    }
 #endif
+    publish_stats(stream);
 }
 
 u32 decode_main(void* parameter) noexcept {

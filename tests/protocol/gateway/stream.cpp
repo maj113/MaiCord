@@ -286,7 +286,7 @@ void test_control(Check check) noexcept {
 }
 
 struct FrameCapture {
-    u32 ssrc, ended, calls;
+    u32 ssrc, ended, calls, asked, stalled;
     VoiceVideoCodec codec;
     bool intact;
 };
@@ -304,6 +304,13 @@ bool capture_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8
 void capture_end(void* context, u32 ssrc) noexcept {
     static_cast<FrameCapture*>(context)->ended = ssrc;
 }
+bool capture_decoded(void* context, u32 ssrc) noexcept {
+    static_cast<FrameCapture*>(context)->asked = ssrc;
+    return true;
+}
+void capture_stalled(void* context, u32 ssrc) noexcept {
+    static_cast<FrameCapture*>(context)->stalled = ssrc;
+}
 bool pending(const VoiceVideoSink& sink, u32 ssrc) noexcept {
     for (const auto value : sink.pending_keyframes)
         if (static_cast<u32>(value) == ssrc)
@@ -315,7 +322,8 @@ void test_session(Check check) noexcept {
     static GatewayStreamSession session;
     static VoiceVideoSink call;
     FrameCapture capture{};
-    gateway_stream_session_set_target(&session, {&capture, capture_frame, capture_end, capture_decodable});
+    gateway_stream_session_set_target(
+        &session, {&capture, capture_frame, capture_end, capture_decodable, capture_decoded, capture_stalled});
     const auto frames = gateway_stream_session_frames(&session);
     const u8 frame[4]{0, 0, 0, 1};
     check(frames.push_frame(frames.context, 0x1234, VoiceVideoCodec::h265, {frame, 4}, 90000, true, true) &&
@@ -341,6 +349,10 @@ void test_session(Check check) noexcept {
           "stream tile IDs tag the owner without colliding with snowflakes");
     frames.end_stream(frames.context, 0x1234);
     check(capture.ended == (0x1234u | kGatewayStreamVideoSsrcTag), "stream end reaches the decoder by tagged SSRC");
+    check(frames.decoded(frames.context, 0x1234) && capture.asked == (0x1234u | kGatewayStreamVideoSsrcTag),
+          "the stall check asks the decoders by tagged SSRC");
+    frames.stalled(frames.context, 0x1234);
+    check(capture.stalled == (0x1234u | kGatewayStreamVideoSsrcTag), "a stall reaches the decoders by tagged SSRC");
     gateway_stream_session_keyframe(&call, &session, 0x1234u | kGatewayStreamVideoSsrcTag);
     gateway_stream_session_keyframe(&call, &session, 0x55);
     check(pending(session.receive.video, 0x1234) && !pending(call, 0x1234) && pending(call, 0x55) &&

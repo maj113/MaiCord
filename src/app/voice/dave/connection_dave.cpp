@@ -365,12 +365,17 @@ void log_decrypt_failure(VoiceConnection& connection, const DaveMediaResult& res
         return;
     u64 suppressed = 0;
     if (voice_log_limit(&connection.decrypt_log, now_ms, &suppressed)) {
+        // Counts and error codes only: no key, nonce or frame byte.
         const VoiceLogField fields[]{{"error", static_cast<u64>(result.error)},
                                      {"sender_error", static_cast<u64>(result.sender.error)},
                                      {"video", video},
                                      {"version", connection.dave_session.protocol_version},
+                                     {"stream", connection.stream_context},
+                                     {"epochs_tried", result.sender.epochs_tried},
+                                     {"epoch_error", static_cast<u64>(result.sender.epoch)},
+                                     {"crypto_attempts", result.sender.crypto_attempts},
                                      {"suppressed", suppressed}};
-        voice_log_fields(kWarning, "dave_decrypt_failed", {fields, 5});
+        voice_log_fields(kWarning, "dave_decrypt_failed", {fields, sizeof(fields) / sizeof(fields[0])});
     }
 }
 } // namespace

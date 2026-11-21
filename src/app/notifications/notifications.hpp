@@ -1,6 +1,7 @@
 #pragma once
 namespace maicord { struct GatewayClientEvent; }
 #include "maicord/model/notifications/message_notifications.hpp"
+namespace maicord { enum class VoiceConnectionSound : u8; }
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
 #include "maicord/platform/desktop/notifications.hpp"
 #include "maicord/platform/audio/notification_audio.hpp"
@@ -32,6 +33,12 @@ void application_notifications_account_stop(Application*) noexcept;
 void application_notifications_release(Application*) noexcept;
 void application_notifications_prepare_shutdown(Application*) noexcept;
 void application_notifications_settings_refresh(Application*) noexcept;
+// Voice connection sounds go through the notification sound worker. While they are on, the worker stays on with
+// message sounds off. The voice pump sets the switch on each turn.
+void application_notifications_voice_sounds(Application*, bool enabled) noexcept;
+// Plays a voice connection sound at volume_percent (1..100) of the message alerts' gain. Nothing plays while voice
+// sounds are off, while Streamer Mode silences sounds or while the worker is full.
+void application_notifications_voice_sound(Application*, VoiceConnectionSound, u32 volume_percent) noexcept;
 bool application_notifications_setup(Application*) noexcept;
 Utf8View application_notifications_status(const Application*) noexcept;
 // Server-confirmed notification settings; null before the first READY.
@@ -46,7 +53,7 @@ struct ApplicationNotificationFixtureMetrics {
     u32 guilds,overrides,threads; bool ready,live;
     u64 audio_epoch, audio_backend_epoch, sound_deadline;
     u32 audio_output_percent;
-    bool audio_failed, audio_worker_started;
+    bool audio_failed, audio_worker_started, audio_enabled;
     u32 display_outstanding;
     u64 retention_tickets;
     u32 retention_channels, retention_capacity_channels;

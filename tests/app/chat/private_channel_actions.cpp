@@ -6,6 +6,7 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/store.hpp"
+#include "chat/private_channel.hpp"
 
 namespace maicord {
 void test_private_channel_actions(void (*check)(bool, const char*) noexcept) noexcept {
@@ -187,6 +188,15 @@ void test_private_channel_actions(void (*check)(bool, const char*) noexcept) noe
     check(call(utf8_literal(R"({"op":0,"t":"CALL_CREATE","s":13,"d":{"channel_id":"55","ringing":["1"]}})"), 0) &&
               !prompt.channel_id,
           "calls in unknown channels are ignored");
+    PopupItem rows[3]{};
+    app_detail::application_private_call_prompt_items(utf8_literal("Ana"), 41, 42, rows);
+    check(utf8_equal(rows[0].label, utf8_literal("Ana")) && utf8_equal(rows[0].detail, utf8_literal("Incoming call")) &&
+              !rows[0].action && !popup_item_menu_presentation(rows[0]).icon_plus_one && rows[1].action == 41 &&
+              rows[1].flags == popup_item_enabled &&
+              ui_menu_row_icon(popup_item_menu_presentation(rows[1])) == UiIcon::phone && rows[2].action == 42 &&
+              rows[2].flags == (popup_item_enabled | popup_item_danger) &&
+              ui_menu_row_icon(popup_item_menu_presentation(rows[2])) == UiIcon::close,
+          "the incoming call prompt shows Join call with the phone icon and Decline with the X icon");
     private_channel_store_release(&metadata);
 }
 } // namespace maicord

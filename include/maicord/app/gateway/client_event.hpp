@@ -604,6 +604,8 @@ struct GatewayClientStateMutation {
         // Thread channel records: the current member's join time in Unix
         // seconds; zero when unknown.
         u32 thread_join_seconds;
+        // Voice and stage channel records: user_limit plus one (1 is no limit); zero means absent.
+        u32 user_limit;
     };
     u32 record_count;
     u32 role_count;

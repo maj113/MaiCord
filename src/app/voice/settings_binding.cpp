@@ -37,6 +37,12 @@ bool voice_settings_read(const VoicePreferences& p, SettingBinding binding, Sett
     case SettingBinding::voice_soundboard_muted:
         value->checked = p.soundboard_muted;
         return true;
+    case SettingBinding::voice_connection_sounds:
+        value->checked = p.connection_sounds;
+        return true;
+    case SettingBinding::voice_connection_sound_volume:
+        value->choice = p.connection_sound_volume;
+        return true;
     default:
         return false;
     }
@@ -85,6 +91,14 @@ bool voice_settings_write(VoicePreferences* p, SettingBinding binding, SettingVa
         return true;
     case SettingBinding::voice_soundboard_muted:
         p->soundboard_muted = value.checked;
+        return true;
+    case SettingBinding::voice_connection_sounds:
+        p->connection_sounds = value.checked;
+        return true;
+    case SettingBinding::voice_connection_sound_volume:
+        if (value.choice > 100)
+            return false;
+        p->connection_sound_volume = static_cast<u8>(value.choice);
         return true;
     default:
         return false;

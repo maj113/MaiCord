@@ -25,14 +25,13 @@ inline VoiceVideoCodec voice_codec(VideoRtpCodec codec) noexcept {
            : codec == VideoRtpCodec::av1  ? VoiceVideoCodec::av1
                                           : VoiceVideoCodec::none;
 }
-// Senders may use any offered codec: offer i is payload type 101 + 2i, RTX the next.
+// Senders may use any codec of the announcement, which Select Protocol ordered (on Linux hardware decoders first):
+// codec i is payload type 101 + 2i, RTX the next.
 bool bind_codecs(VoiceVideoSink& sink) noexcept {
-    VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
-    const u32 count = sink.offer ? voice_video_decode_offers(sink.offer, {offers, kVoiceVideoMaximumCodecs}) : 0;
     VideoRtpCodecBinding bindings[kVoiceVideoMaximumCodecs];
     u32 bound = 0;
-    for (u32 i = 0; i != count; ++i)
-        if (const auto codec = rtp_codec(offers[i].codec); codec != VideoRtpCodec::none) {
+    for (u32 i = 0; i != sink.codec_count; ++i)
+        if (const auto codec = rtp_codec(static_cast<VoiceVideoCodec>(sink.codecs[i])); codec != VideoRtpCodec::none) {
             const auto payload = static_cast<u8>(kVoiceVideoPayloadTypeBase + 2 * i);
             bindings[bound++] = {payload, static_cast<u8>(payload + 1), codec};
         }
@@ -178,7 +177,7 @@ inline void log_summary(VoiceVideoSink& sink) noexcept {
 inline bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)
         return true;
-    if (!sink.offer || !video_rtp_initialize(&sink.rtp, local_ssrc, deliver, &sink))
+    if (!sink.codec_count || !video_rtp_initialize(&sink.rtp, local_ssrc, deliver, &sink))
         return false;
     if (!bind_codecs(sink)) {
         video_rtp_release(&sink.rtp);
@@ -207,6 +206,39 @@ void update_wants(VoiceVideoSink& sink, VoiceConnection& connection) noexcept {
             }
     }
     voice_connection_set_sink_wants(&connection, kVoiceSinkWantsDefaultQuality, {wants, count});
+}
+// Returns when the stream's stall check is due (zero: no time).
+u64 watch_stall(VoiceVideoSink& sink, const VoiceConnection& connection, u32 index, u64 now_us) noexcept {
+    const auto& stream = sink.rtp.streams[index];
+    auto& watch = sink.stall[index];
+    if (!stream.slots || watch.ssrc != stream.ssrc)
+        watch = {stream.slots ? stream.ssrc : 0, 0, false};
+    if (!stream.slots || watch.done || !sink.frames.decoded)
+        return 0;
+    if (sink.frames.decoded(sink.frames.context, stream.ssrc)) {
+        watch.done = true;
+        return 0;
+    }
+    if (stream.last_packet_us + kVoiceVideoReceivingUs < now_us) {
+        watch.since_us = 0;
+        return 0;
+    }
+    if (!watch.since_us)
+        watch.since_us = now_us;
+    if (now_us - watch.since_us < kVoiceVideoStallUs)
+        return watch.since_us + kVoiceVideoStallUs;
+    watch.done = true;
+    // Counts only. frames=0 means that no unit was assembled (for example, a payload type bound to the wrong codec).
+    // Otherwise units went on to DAVE and the decoder side, and no picture came.
+    const VoiceLogField fields[]{{"stream", connection.stream_context},
+                                 {"packets", stream.received},
+                                 {"frames", stream.stats.frames},
+                                 {"keyframe_requests", sink.keyframe_requests},
+                                 {"seconds", (now_us - watch.since_us) / 1'000'000}};
+    voice_log_fields(VoiceLogLevel::warning, "video_stalled", {fields, sizeof(fields) / sizeof(fields[0])});
+    if (sink.frames.stalled)
+        sink.frames.stalled(sink.frames.context, stream.ssrc);
+    return 0;
 }
 } // namespace
 
@@ -242,9 +274,12 @@ void voice_video_sink_rtcp(VoiceVideoSink* sink, ConstSlice<u8> plaintext, u64 n
 void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, bool media_current, u64 now_ms,
                             u64 now_us) noexcept {
     sink->deadline_ms = 0;
-    const u32 offer = connection->media.has_description ? connection->media.video_offer : 0;
-    if (offer != sink->offer) {
-        sink->offer = offer;
+    const auto& media = connection->media;
+    static_assert(sizeof(media.video_codecs) == sizeof(sink->codecs));
+    const u32 count = media.has_description ? media.video_codec_count : 0;
+    if (count != sink->codec_count || !bytes_equal(sink->codecs, media.video_codecs, count)) {
+        sink->codec_count = count;
+        copy_bytes(sink->codecs, media.video_codecs, count);
         if (sink->rtp_ready)
             bind_codecs(*sink);
     }
@@ -271,6 +306,9 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
             end_stream(*sink, i);
         else
             ++i;
+    u64 stall_due = 0;
+    for (u32 i = 0; i != kVideoRtpMaxStreams; ++i)
+        stall_due = earliest_deadline(stall_due, watch_stall(*sink, *connection, i, now_us));
     video_rtp_tick(&sink->rtp, now_us);
     if (!media_current) {
         sink->feedback_bytes = 0;
@@ -284,9 +322,9 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
                 sink->feedback_bytes = 0;
         }
     }
-    // Busy feedback retries shortly; otherwise wake for the RTP core's timers.
+    // Busy feedback retries shortly. Otherwise the sink wakes for the RTP core's timers and the stall checks.
     const u64 due = earliest_deadline(
-        video_rtp_deadline(sink->rtp),
+        earliest_deadline(video_rtp_deadline(sink->rtp), stall_due),
         media_current && sink->rtp.local_ssrc ? rtcp_transport_feedback_deadline(connection->transport_feedback) : 0);
     if (sink->feedback_bytes)
         sink->deadline_ms = now_ms + 2;
@@ -326,7 +364,8 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
     for (auto& pending : sink->pending_keyframes)
         InterlockedExchange(&pending, 0);
     sink->rtp_ready = false;
-    sink->offer = 0;
+    sink->codec_count = 0;
+    clear_bytes(sink->stall, static_cast<u32>(sizeof(sink->stall)));
     sink->feedback_bytes = 0;
     sink->deadline_ms = 0;
 }

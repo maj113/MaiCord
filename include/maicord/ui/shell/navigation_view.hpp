@@ -97,6 +97,7 @@ struct ChannelViewRow {
     // "Show hidden channels": a channel the account cannot view, listed read-only
     // with a lock. It is never selected, fetched or joined.
     bool locked;
+    u16 user_limit; // A voice or stage channel's user_limit (0: none); see shell_navigation_limit_pill.
 };
 
 struct ChannelSortKey {

@@ -1,4 +1,5 @@
 #include "maicord/app/gateway/go_live_stream.hpp"
+#include "maicord/app/voice/log.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -213,6 +214,9 @@ bool ensure_encoder(GatewayGoLive& live) noexcept {
     live.sender.streams.video_payload_type = payload;
     live.sender.streams.rtx_payload_type = static_cast<u8>(payload + 1);
     live.awaiting_keyframe = true;
+    // As VoiceVideoCodec, the numbers of session_description: the codec the encoder makes and its payload type.
+    voice_log(VoiceLogLevel::info, "go_live_encoder", "codec", static_cast<u64>(voice_codec(codec)), "payload_type",
+              payload);
     return payload != 0;
 }
 bool attach(GatewayGoLive& live, u64 now_us) noexcept {

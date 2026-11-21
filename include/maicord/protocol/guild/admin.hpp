@@ -244,7 +244,8 @@ enum MemberPatchField : u8 {
     member_patch_nickname = 1u << 0,
     member_patch_roles = 1u << 1,
     member_patch_timeout = 1u << 2,
-    member_patch_all = (1u << 3) - 1,
+    member_patch_disconnect = 1u << 3,
+    member_patch_all = (1u << 4) - 1,
 };
 
 // Empty nickname resets it (null for another member, "" for oneself). A zero
@@ -252,6 +253,7 @@ enum MemberPatchField : u8 {
 // milliseconds, sent as YYYY-MM-DDTHH:MM:SS.mmmZ. Roles replace the member's
 // whole list (guild_admin_member_roles_toggle). member_role_add/remove instead
 // require only member_patch_roles and exactly one role ID, carried in the URL.
+// Disconnect sends "channel_id":null, which removes the member from voice (Move Members).
 struct MemberPatch {
     Utf8View nickname;
     ConstSlice<u64> role_ids;

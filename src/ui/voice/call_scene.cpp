@@ -181,10 +181,14 @@ UiRect viewer_pill(const UiCallTile& tile, const UiCallParticipant& p) noexcept 
     const float width = 6 + 14 + 4 + static_cast<float>(decimal_digits(p.viewers)) * 7.5f + 8;
     return {live.right + 4, live.top, live.right + 4 + width, live.top + kViewerHeight};
 }
+// A watched live stream without a picture that this computer cannot decode: a notice replaces the spinner.
+inline bool stream_failed(const UiCallParticipant& p) noexcept {
+    return p.stream == UiCallStream::live && !p.paused && p.video_failed && !video_ready(p);
+}
 // A spinner while a watched stream has no picture to show yet (or reconnects).
 inline bool stream_spinner(const UiCallParticipant& p) noexcept {
     return p.stream == UiCallStream::connecting || p.stream == UiCallStream::reconnecting ||
-           (p.stream == UiCallStream::live && !p.paused && !video_ready(p));
+           (p.stream == UiCallStream::live && !p.paused && !video_ready(p) && !p.video_failed);
 }
 // Copy under the state glyph; empty when the state needs none.
 Utf8View stream_status(const UiCallParticipant& p) noexcept {
@@ -192,9 +196,10 @@ Utf8View stream_status(const UiCallParticipant& p) noexcept {
     case UiCallStream::reconnecting:
         return utf8_literal("Reconnecting\xE2\x80\xA6");
     case UiCallStream::live:
-        return !p.paused ? Utf8View{}
-               : p.self  ? utf8_literal("Stream paused. Swap to your application to resume.")
-                         : utf8_literal("Stream paused");
+        if (p.paused)
+            return p.self ? utf8_literal("Stream paused. Swap to your application to resume.")
+                          : utf8_literal("Stream paused");
+        return stream_failed(p) ? ui_call_video_failed_text() : Utf8View{};
     case UiCallStream::ended:
         return ui_call_stream_notice_text(p.notice);
     default:
@@ -219,14 +224,14 @@ UiRect status_line(const UiCallTile& tile) noexcept {
     const float top = state_glyph(tile, true).bottom + 6;
     return {r.left + 12, top, r.right - 12, top + 20};
 }
-// The glyph drawn with the state copy: pause for a paused stream, a muted
-// screen-share-off for an ended one; spinners are drawn separately.
+// The glyph drawn with the state copy: pause for a paused stream, a muted screen-share-off for an ended one or one
+// this computer cannot decode. Spinners are drawn separately.
 inline bool status_glyph(const UiCallParticipant& p, UiIcon* icon) noexcept {
     if (p.stream == UiCallStream::live && p.paused) {
         *icon = UiIcon::pause;
         return true;
     }
-    if (p.stream == UiCallStream::ended) {
+    if (p.stream == UiCallStream::ended || stream_failed(p)) {
         *icon = UiIcon::screen_share_off;
         return true;
     }
@@ -572,6 +577,7 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
         hash = hash64_mix(hash, (u64{p.video_ssrc} << 32) | (u64{p.video_width} << 16) | p.video_height);
         hash = hash64_mix(hash, (u64{p.speaking} << 0) | (u64{p.muted} << 1) | (u64{p.deafened} << 2) |
                                     (u64{p.live} << 3) | (u64{p.self} << 4) | (u64{p.paused} << 5) |
+                                    (u64{p.video_failed} << 6) |
                                     (u64{static_cast<u8>(p.stream)} << 8) | (u64{static_cast<u8>(p.notice)} << 16) |
                                     (u64{p.viewers} << 32));
         hash = hash64_words(hash, &p.preview, sizeof(p.preview));
@@ -850,6 +856,10 @@ Utf8View ui_call_stream_notice_text(UiCallStreamNotice notice) noexcept {
     }
 }
 
+Utf8View ui_call_video_failed_text() noexcept {
+    return utf8_literal("This video can't be played on this computer");
+}
+
 UiRect ui_call_scene_tile_control(const UiCallScene& s, u64 user_id, UiCallControl control) noexcept {
     const auto* tile = ui_call_scene_find_tile(s, user_id);
     const auto* p = tile ? participant_of(s, *tile) : nullptr;
@@ -979,7 +989,7 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
             // preview or picture covers it.
             p.rounded(r, black, kTileRadius);
             const bool glyph = !video_ready(*who) && !stream_spinner(*who) && who->stream != UiCallStream::ended &&
-                               !(who->stream == UiCallStream::live && who->paused);
+                               !(who->stream == UiCallStream::live && who->paused) && !stream_failed(*who);
             const float extent = ui_rect_height(r) >= 120 ? 40.f : 24.f;
             Color ink = kDefaultTheme.text_secondary;
             ink.alpha *= .6f;

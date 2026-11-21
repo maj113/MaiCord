@@ -451,7 +451,11 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     if (count)
         items[count].flags |= popup_item_separator_before;
     count += builtins;
-    u32 extra = guild ? application_member_moderation_menu_items(guild, user_id, {items + count, kModerationCapacity})
+    const VoiceState* voice = source == UserMenuSource::voice && guild
+                                  ? voice_state_store_find(g_app.account_ui->voice_states, guild, user_id)
+                                  : nullptr;
+    u32 extra = guild ? application_member_moderation_menu_items(guild, user_id, voice ? voice->channel_id : 0,
+                                                                 {items + count, kModerationCapacity})
                       : 0;
     if (!extra && !guild)
         extra = application_private_channel_member_items(user_id, {items + count, kPrivateMemberCapacity});

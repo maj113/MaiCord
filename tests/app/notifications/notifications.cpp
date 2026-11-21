@@ -10,6 +10,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "../../support/gateway_message_scratch.hpp"
 #include "voice/voice.hpp"
+#include "maicord/app/voice/connection_sound.hpp"
 
 #if !defined(MAICORD_NOTIFICATION_FIXTURE)
 #error This integration fixture requires the nonemitting notification sink.
@@ -409,6 +410,50 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "notification audio: account stop cancels sound epoch without creating or releasing fixture PCM worker");
     application_notifications_release(&g_app);
 }
+void voice_sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
+    auto& f=fixture;
+    using S=VoiceConnectionSound;
+    check(initialize() && enable_sound() && hydrate(),"voice connection sounds: fake sink and READY initialize");
+    f.auto_drain=false;
+    g_app.preferences.message_sounds_enabled=false; application_notifications_settings_refresh(&g_app);
+    application_notifications_voice_sound(&g_app,S::join,100);
+    check(!application_notifications_fixture_metrics(&g_app).audio_enabled && !f.sound_count,
+        "voice connection sounds: with message and voice sounds off the worker is off and a join plays nothing");
+    application_notifications_voice_sounds(&g_app,true);
+    const auto on=application_notifications_fixture_metrics(&g_app);
+    application_notifications_voice_sound(&g_app,S::join,100);
+    application_notifications_voice_sound(&g_app,S::leave,100);
+    application_notifications_voice_sound(&g_app,S::interrupted,50);
+    check(on.audio_enabled && f.sound_count==3 && f.sounds[0].clip_id==3 && f.sounds[1].clip_id==4 &&
+        f.sounds[2].clip_id==5 && f.sounds[0].gain==.4f && f.sounds[1].gain==.4f && f.sounds[2].gain==.2f &&
+        f.sounds[0].epoch==on.audio_epoch,
+        "voice connection sounds: they keep the worker on and play clips 3 to 5 at the connection sound volume");
+    check(message(2000,2) && f.sound_count==3,"voice connection sounds: message sounds stay off while voice sounds play");
+    application_notifications_voice_sound(&g_app,S::leave,0);
+    application_notifications_voice_sound(&g_app,S::none,100);
+    g_app.preferences.streamer_mode=true;
+    application_notifications_voice_sound(&g_app,S::leave,100);
+    g_app.preferences.streamer_mode=false;
+    f.sound_status.queued=kNotificationAudioQueueCapacity;
+    application_notifications_voice_sound(&g_app,S::leave,100);
+    f.sound_status.queued=0;
+    check(f.sound_count==3 && !application_notifications_fixture_metrics(&g_app).audio_failed,
+        "voice connection sounds: volume zero, Streamer Mode and a full worker play nothing and keep audio on");
+    check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).audio_enabled,
+        "voice connection sounds: READY keeps the worker on for them while message sounds are off");
+    application_notifications_voice_sounds(&g_app,false);
+    application_notifications_voice_sound(&g_app,S::join,100);
+    check(!application_notifications_fixture_metrics(&g_app).audio_enabled && f.sound_count==3,
+        "voice connection sounds: when they are off the worker is off and nothing plays");
+    g_app.preferences.message_sounds_enabled=true; application_notifications_settings_refresh(&g_app);
+    const u64 epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
+    application_notifications_voice_sounds(&g_app,true);
+    application_notifications_voice_sound(&g_app,S::join,100);
+    check(application_notifications_fixture_metrics(&g_app).audio_epoch==epoch && f.sound_count==4 &&
+        f.sounds[3].epoch==epoch && f.sounds[3].clip_id==3,
+        "voice connection sounds: the switch does not cancel message sounds while those keep the worker on");
+    application_notifications_release(&g_app);
+}
 
 // Retention allocation failure is visible to the user through the status line.
 bool notification_unavailable() noexcept {
@@ -753,14 +798,29 @@ void speech_regressions(void(*check)(bool,const char*) noexcept) noexcept {
               message(4012,42,20,{words,used})&&speech_count==5&&spoken_bytes==199&&spoken[198]=='i',
           "speech: as Discord, a spoiler is read as \"Spoiler\", a link as its domain, and the line stops by 200 "
           "characters at a space");
+    // A reply, as Discord reads it: the replied-to author by their server nickname, else by their name.
+    constexpr auto reply=utf8_literal(R"(,"message_reference":{"message_id":"3990","channel_id":"20"},"referenced_message":{"id":"3990","channel_id":"20","author":{"id":"7","username":"other","global_name":"Ola"},"content":"x","timestamp":"2026-10-02T00:00:00Z","type":0})");
+    check(message(4013,43,20,utf8_literal("\"sure\""),2,reply,utf8_literal("Peer"),0,19)&&speech_count==6&&
+              last(utf8_literal("Peer replied to Ola sure")),
+          "speech: a reply is read as \"{name} replied to {name} {text}\" with the replied-to author's name");
+    static GuildMemberRecord reply_members[2];
+    static u32 reply_order[2];
+    check(guild_member_store_initialize(&f.ui.guild_member_store,{reply_members,2},{reply_order,2})&&
+              guild_member_store_upsert(&f.ui.guild_member_store,f.ui.chat_state,10,7,utf8_literal("Oli"),{},false,
+                                        GuildMemberStatus::online).ok()&&
+              message(4014,44,20,utf8_literal("\"again\""),2,reply,utf8_literal("Peer"),0,19)&&speech_count==7&&
+              last(utf8_literal("Peer replied to Oli again")),
+          "speech: a reply names the replied-to author by their server nickname");
+    reset_value(&f.ui.guild_member_store);
+    // Each later message has a newer sequence than the replies: an older one never reaches the speech checks.
     deafened=true;
-    check(message(4008,38,20)&&speech_count==5,"speech: nothing is read while deafened");
+    check(message(4008,45,20)&&speech_count==7,"speech: nothing is read while deafened");
     deafened=false;
     f.relationship_flags=notification_gate_blocked;
-    check(message(4009,39,20)&&speech_count==5,"speech: a blocked user's messages are never read");
+    check(message(4009,46,20)&&speech_count==7,"speech: a blocked user's messages are never read");
     f.relationship_flags=0;
     check(settings(utf8_literal(R"({"guild_id":"10","channel_overrides":[{"channel_id":"20","muted":true}]})"))&&
-              message(4010,40,20)&&speech_count==5,
+              message(4010,47,20)&&speech_count==7,
           "speech: a muted channel is never read");
     g_app.preferences.speak_messages=client_speak_messages_never;
     application_notifications_release(&g_app);
@@ -1053,6 +1113,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     dm_regressions(check);
     speech_regressions(check);
     sound_regressions(check);
+    voice_sound_regressions(check);
     controls_regressions(check);
     retention_regressions(check);
     check(initialize()&&hydrate(),"read badge host: production settings and relationship owner initialize");

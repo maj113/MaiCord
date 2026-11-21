@@ -11,6 +11,8 @@ namespace maicord {
 namespace {
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'V', 'O', 'I', 'C', 'E'};
 constexpr u32 kHeaderBytes = 40, kChecksumOffset = 32, kUserBytes = 11;
+// v4 ends with the connection sounds switch (0 or 1) and their volume, after the user table.
+constexpr u32 kSoundBytes = 2;
 constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16, kStreamMuted = 32,
              kStreamHidePreview = 64, kStreamUnlocked = 128;
 constexpr u8 kKnownFlags = 255, kVersion2Flags = 31;
@@ -42,6 +44,8 @@ VoicePreferences voice_preferences_defaults() noexcept {
     VoicePreferences preferences{};
     preferences.audio = voice_audio_settings_defaults();
     preferences.soundboard_volume = 100;
+    preferences.connection_sounds = true;
+    preferences.connection_sound_volume = 100;
     preferences.stream_preset = 1;
     preferences.stream_fps = 30;
     preferences.stream_resolution = 720;
@@ -53,8 +57,8 @@ bool voice_preferences_valid(const VoicePreferences& p) noexcept {
     if (a.input_gain_percent > 200 || a.output_gain_percent > 200 ||
         a.push_to_talk_release_ms > kVoiceMaximumPushToTalkReleaseMs ||
         static_cast<u8>(a.mode) > static_cast<u8>(VoiceInputMode::push_to_talk) || a.sensitivity > kVoiceLevelMaximum ||
-        p.user_count > kVoicePreferenceUsers || p.soundboard_volume > 100 || p.stream_preset < 1 ||
-        p.stream_preset > 3 || index_of(kStreamResolutions, p.stream_resolution) == 5 ||
+        p.user_count > kVoicePreferenceUsers || p.soundboard_volume > 100 || p.connection_sound_volume > 100 ||
+        p.stream_preset < 1 || p.stream_preset > 3 || index_of(kStreamResolutions, p.stream_resolution) == 5 ||
         index_of(kStreamFrameRates, p.stream_fps) == 3 ||
         a.input_device[kVoiceDeviceIdCharacters - 1] ||
         a.output_device[kVoiceDeviceIdCharacters - 1])
@@ -100,7 +104,7 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
         return 0;
     const auto& a = p.audio;
     const u32 input = id_length(a.input_device), speaker = id_length(a.output_device);
-    const u32 bytes = kHeaderBytes + (input + speaker) * 2 + 2 + p.user_count * kUserBytes;
+    const u32 bytes = kHeaderBytes + (input + speaker) * 2 + 2 + p.user_count * kUserBytes + kSoundBytes;
     if (output.count < bytes)
         return 0;
     clear_bytes(output.data, bytes);
@@ -136,6 +140,8 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
         byte_store_le16(r + at + 8, p.users[i].gain_percent);
         r[at + 10] = p.users[i].muted ? 1 : 0;
     }
+    r[at] = p.connection_sounds ? 1 : 0;
+    r[at + 1] = p.connection_sound_volume;
     byte_store_le64(r + kChecksumOffset, checksum({r, bytes}));
     return bytes;
 }
@@ -145,7 +151,7 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
     if (!preferences || !r || record.count < kHeaderBytes + 2 || !bytes_equal(r, kMagic, 8))
         return false;
     const u32 version = byte_load_le32(r + 8);
-    if ((version != 2 && version != kVoicePreferencesVersion) || byte_load_le32(r + 12) != record.count ||
+    if (version < 2 || version > kVoicePreferencesVersion || byte_load_le32(r + 12) != record.count ||
         byte_load_le64(r + kChecksumOffset) != checksum(record) ||
         (r[25] & ~(version == 2 ? kVersion2Flags : kKnownFlags)) || (version == 2 && r[27]) || r[26] > 100 ||
         (r[27] & 0x80))
@@ -186,12 +192,19 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
         a.output_device[i] = static_cast<wchar_t>(byte_load_le16(r + at));
     decoded.user_count = byte_load_le16(r + at);
     at += 2;
-    if (decoded.user_count > kVoicePreferenceUsers || at + decoded.user_count * kUserBytes != record.count)
+    const u32 sounds = version == kVoicePreferencesVersion ? kSoundBytes : 0;
+    if (decoded.user_count > kVoicePreferenceUsers || at + decoded.user_count * kUserBytes + sounds != record.count)
         return false;
     for (u32 i = 0; i < decoded.user_count; ++i, at += kUserBytes) {
         if (r[at + 10] > 1)
             return false;
         decoded.users[i] = {byte_load_le64(r + at), byte_load_le16(r + at + 8), r[at + 10] != 0};
+    }
+    if (sounds) {
+        if (r[at] > 1)
+            return false;
+        decoded.connection_sounds = r[at] != 0;
+        decoded.connection_sound_volume = r[at + 1];
     }
     if (!voice_preferences_valid(decoded))
         return false;

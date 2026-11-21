@@ -6,7 +6,7 @@ struct PopupItem;
 
 // Popup action identities owned by member moderation; choices are indexed.
 struct MemberModerationMenuActions {
-    u32 nickname, timeout, end_timeout, kick, ban, choice_first;
+    u32 nickname, timeout, end_timeout, kick, ban, disconnect, choice_first;
 };
 
 // Appends the moderation section (nothing when no action is visible).

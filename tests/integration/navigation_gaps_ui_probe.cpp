@@ -72,6 +72,28 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
     if (!drawn || !captured)
         return fail(6);
 
+    // The user limit pill: "00 | 02" on an empty voice channel the account can join.
+    ChannelViewRow* limited = nullptr;
+    for (u32 i = 0; i < view->channel_count && !limited; ++i)
+        if (view->channel_rows[i].id == voice)
+            limited = &view->channel_rows[i];
+    if (!limited)
+        return fail(7);
+    const ChannelViewRow before = *limited;
+    limited->user_limit = 2;
+    limited->actions |= channel_action_connect;
+    limited->voice_count = 0;
+    ++view->channel_revision;
+    ++view->revision;
+    const bool pill_drawn = present(renderer, sync);
+    log_u64(LogLevel::info, "probe", "navigation_voice_limit_drawn", pill_drawn);
+    const bool pill_captured = !capture || capture(L"navigation-voice-limit.bmp");
+    *limited = before;
+    ++view->channel_revision;
+    ++view->revision;
+    if (!pill_drawn || !pill_captured || !present(renderer, sync))
+        return fail(7);
+
     // "Show hidden channels": a channel the account cannot view lists locked under its category, then goes again.
     u64 hidden_id = 0;
     for (u32 i = 0; i < state.channel_count && !hidden_id; ++i) {

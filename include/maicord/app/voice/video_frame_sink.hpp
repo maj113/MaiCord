@@ -24,6 +24,11 @@ struct VideoFrameSink {
     // Optional, any thread: voice_video_codec_bit set of the codecs the decoder
     // side decodes in hardware (Select Protocol offers them). Null: H.264 only.
     u32 (*decodable)(void* context) noexcept;
+    // Optional, any thread: the SSRC has a decoded picture. The transport watches a stream without one for a stall.
+    bool (*decoded)(void* context, u32 ssrc) noexcept;
+    // Optional: the SSRC received packets for kVoiceVideoStallUs and has no decoded picture (video_stalled). The
+    // decoder side reports the stream as undecodable until a picture comes or the stream ends.
+    void (*stalled)(void* context, u32 ssrc) noexcept;
 };
 // Decoder -> transport: request a keyframe (RTCP PLI) for a media SSRC. Safe to
 // call from any thread (e.g. a decode thread); the worker sends it on its next

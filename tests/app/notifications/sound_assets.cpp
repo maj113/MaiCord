@@ -56,7 +56,7 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     i16 sentinel_sample{};NotificationAudioClip untouched{{&sentinel_sample,1}};
     check(!notification_sound_asset_resolve(nullptr,1,&untouched)&&
         !notification_sound_asset_resolve(&bank,0,&untouched)&&
-        !notification_sound_asset_resolve(&bank,kNotificationSoundAssetCount+1,&untouched)&&
+        !notification_sound_asset_resolve(&bank,kNotificationSoundClipCount+1,&untouched)&&
         !notification_sound_asset_resolve(&bank,~0u,&untouched)&&
         !notification_sound_asset_resolve(&bank,1,nullptr)&&
         untouched.samples.data==&sentinel_sample&&untouched.samples.count==1&&!bank.failed_mask&&!bank.pcm[0]&&!bank.pcm[1],
@@ -116,15 +116,45 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     invalid_percent=invalid_percent&&!notification_sound_asset_gain(&bank,.5f,&gain)&&gain==9;
     check(invalid_percent,"sound assets: corrupt sampled volume fails without publishing gain");
     notification_sound_assets_volume(&bank,100);
-    MemoryMark addresses[kNotificationSoundAssetCount]{};
-    for(u32 i=0;i<kNotificationSoundAssetCount;++i)addresses[i]=memory_mark(bank.pcm[i]);
+    // The voice connection sounds: no resource, synthesized at the first resolve into the same readonly bank.
+    NotificationAudioClip voice[3]{};bool shaped=true;
+    const u32 voice_frames[]{11520,11520,13920};
+    for(u32 i=0;i<3;++i){
+        shaped=shaped&&notification_sound_asset_resolve(&bank,3+i,&voice[i])&&voice[i].sample_rate==48000&&
+            voice[i].silence_frames==4800&&voice[i].samples.count==voice_frames[i]*2&&
+            readonly_pcm(voice[i].samples.data,voice_frames[i]*4);
+        if(!shaped)break;
+        const i16* pcm=voice[i].samples.data;i32 peak=0;
+        for(u32 f=0;f<voice_frames[i];++f){
+            const i32 v=pcm[2*f]<0?-pcm[2*f]:pcm[2*f];peak=v>peak?v:peak;
+            shaped=shaped&&pcm[2*f]==pcm[2*f+1];
+        }
+        shaped=shaped&&!pcm[0]&&pcm[voice[i].samples.count-1]>-64&&pcm[voice[i].samples.count-1]<64&&
+            peak>4000&&peak<30000;
+    }
+    check(shaped,"sound assets: join, leave and interrupted resolve as quiet-edged 48 kHz stereo clips in readonly VM");
+    // Zero crossings count the pitch: 80 ms of E5 (659 Hz) is about 105, of A5 (880 Hz) about 141.
+    const auto crossings=[](const NotificationAudioClip& clip,u32 first,u32 last) noexcept {
+        u32 count=0;
+        for(u32 f=first+1;f<last;++f)count+=(clip.samples.data[2*f-2]<0)!=(clip.samples.data[2*f]<0);
+        return count;
+    };
+    const auto close_to=[](u32 value,u32 expected) noexcept {return value+4>=expected&&value<=expected+4;};
+    check(shaped&&close_to(crossings(voice[0],0,3840),105)&&close_to(crossings(voice[0],7680,11520),141)&&
+        close_to(crossings(voice[1],0,3840),141)&&close_to(crossings(voice[1],7680,11520),105)&&
+        voice[2].samples.data!=voice[0].samples.data,
+        "sound assets: join rises from E5 to A5 and leave falls from A5 to E5");
+    MemoryMark addresses[kNotificationSoundClipCount]{};
+    for(u32 i=0;i<kNotificationSoundClipCount;++i)addresses[i]=memory_mark(bank.pcm[i]);
     notification_sound_assets_release(&bank);
     bool all_freed=true;
-    for(u32 i=0;i<kNotificationSoundAssetCount;++i)all_freed=all_freed&&!bank.pcm[i]&&memory_released(addresses[i]);
-    check(first_ok&&third_ok&&all_freed&&!bank.failed_mask,
-        "sound assets: isolated owner release frees both original PCM allocations after no worker lifetime exists");
+    for(u32 i=0;i<kNotificationSoundClipCount;++i)all_freed=all_freed&&!bank.pcm[i]&&memory_released(addresses[i]);
+    check(first_ok&&third_ok&&shaped&&all_freed&&!bank.failed_mask,
+        "sound assets: isolated owner release frees every PCM allocation after no worker lifetime exists");
     notification_sound_assets_release(&bank);notification_sound_assets_release(nullptr);
-    check(!bank.pcm[0]&&!bank.pcm[1],"sound assets: empty and null release are idempotent");
+    bool empty=true;
+    for(const void* pcm:bank.pcm)empty=empty&&!pcm;
+    check(empty,"sound assets: empty and null release are idempotent");
 }
 }
 

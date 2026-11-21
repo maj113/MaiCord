@@ -8,6 +8,14 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
+// Writes a record's version, size and checksum as a writer of that version would have.
+void reseal(u8* record, u32 bytes, u32 version) noexcept {
+    byte_store_le32(record + 8, version);
+    byte_store_le32(record + 12, bytes);
+    u64 hash = hash64_bytes(kHash64Seed, record, 32);
+    hash = hash64_bytes(hash, record + 40, bytes - 40);
+    byte_store_le64(record + 32, hash);
+}
 
 void test_record(Check check) noexcept {
     static VoicePreferences original, decoded;
@@ -76,23 +84,56 @@ void test_record(Check check) noexcept {
         stream.stream_preset = 4;
         check(five && odd && !voice_preferences_valid(stream),
               "Voice preferences: stream settings outside the offered presets, resolutions and frame rates are refused");
-        // The v2 form of a default record: version 2, no stream byte or flags; it must still load.
+        // The v2 form of a default record: version 2, no stream byte, flags or connection sound bytes; it must still
+        // load.
         static VoicePreferences plain, old;
         static u8 old_record[kVoicePreferencesMaximumBytes];
         plain = voice_preferences_defaults();
         plain.soundboard_volume = 40;
-        const u32 m = voice_preferences_encode(plain, {old_record, sizeof(old_record)});
-        old_record[8] = 2;
+        const u32 encoded = voice_preferences_encode(plain, {old_record, sizeof(old_record)});
+        const u32 m = encoded ? encoded - 2 : 0;
         old_record[27] = 0;
         // The checksum covers the version and the stream byte: recompute it as a v2 writer would have.
-        u64 hash = hash64_bytes(kHash64Seed, old_record, 32);
-        hash = hash64_bytes(hash, old_record + 40, m - 40);
-        byte_store_le64(old_record + 32, hash);
+        reseal(old_record, m, 2);
         old = voice_preferences_defaults();
         old.stream_preset = 2;
         const bool loaded = m && voice_preferences_decode({old_record, m}, &old) && old.soundboard_volume == 40 &&
                             old.stream_preset == 1 && old.stream_resolution == 720 && old.stream_fps == 30;
         check(loaded, "Voice preferences: a v2 record loads with the default stream settings");
+    }
+    {
+        // v4: the connection sounds switch and volume; a v3 record (without them) loads with them on at 100 %.
+        static VoicePreferences sounds, back;
+        static u8 sounds_record[kVoicePreferencesMaximumBytes];
+        sounds = voice_preferences_defaults();
+        const bool defaults = sounds.connection_sounds && sounds.connection_sound_volume == 100;
+        sounds.connection_sounds = false;
+        sounds.connection_sound_volume = 35;
+        const u32 n = voice_preferences_encode(sounds, {sounds_record, sizeof(sounds_record)});
+        back = voice_preferences_defaults();
+        const bool kept = n && voice_preferences_decode({sounds_record, n}, &back) && !back.connection_sounds &&
+                          back.connection_sound_volume == 35;
+        check(defaults && kept, "Voice preferences: the connection sounds switch and volume survive a round trip (v4)");
+        sounds_record[n - 2] = 2;
+        reseal(sounds_record, n, kVoicePreferencesVersion);
+        const bool bad_switch = !voice_preferences_decode({sounds_record, n}, &back);
+        sounds_record[n - 2] = 1;
+        sounds_record[n - 1] = 101;
+        reseal(sounds_record, n, kVoicePreferencesVersion);
+        const bool bad_volume = !voice_preferences_decode({sounds_record, n}, &back);
+        sounds.connection_sound_volume = 101;
+        check(bad_switch && bad_volume && !voice_preferences_valid(sounds) && !back.connection_sounds &&
+                  back.connection_sound_volume == 35,
+              "Voice preferences: a connection sound switch above 1 or a volume above 100 % is refused");
+        sounds.connection_sounds = false;
+        sounds.connection_sound_volume = 35;
+        const u32 v3 = voice_preferences_encode(sounds, {sounds_record, sizeof(sounds_record)}) - 2;
+        reseal(sounds_record, v3, 3);
+        back = voice_preferences_defaults();
+        back.connection_sounds = false;
+        const bool old = voice_preferences_decode({sounds_record, v3}, &back) && back.connection_sounds &&
+                         back.connection_sound_volume == 100;
+        check(old, "Voice preferences: a v3 record loads with the connection sounds on at 100 %");
     }
     record[bytes - 1] ^= 1;
     decoded.audio.sensitivity = 99;
@@ -127,11 +168,19 @@ void test_binding(Check check) noexcept {
          voice_settings_read(p, SettingBinding::voice_input_mode, &mode) && mode.checked;
     check(ok, "Voice settings binding: mode, release delay, sensitivity, volume, automatic and key write "
               "through and read back");
+    SettingValue sounds{}, volume{};
+    ok = voice_settings_write(&p, SettingBinding::voice_connection_sounds, {false, 0}) && !p.connection_sounds &&
+         voice_settings_write(&p, SettingBinding::voice_connection_sound_volume, {false, 60}) &&
+         p.connection_sound_volume == 60 && voice_settings_read(p, SettingBinding::voice_connection_sounds, &sounds) &&
+         !sounds.checked && voice_settings_read(p, SettingBinding::voice_connection_sound_volume, &volume) &&
+         volume.choice == 60;
+    check(ok, "Voice settings binding: the connection sounds switch and volume write through and read back");
     const auto before = p;
     ok = !voice_settings_write(&p, SettingBinding::voice_input_volume, {false, 201}) &&
          !voice_settings_write(&p, SettingBinding::voice_sensitivity, {false, 101}) &&
          !voice_settings_write(&p, SettingBinding::voice_input_mode, {false, 2}) &&
          !voice_settings_write(&p, SettingBinding::voice_push_to_talk_release, {false, 201}) &&
+         !voice_settings_write(&p, SettingBinding::voice_connection_sound_volume, {false, 101}) &&
          !voice_settings_write(&p, SettingBinding::theme_base, {false, 0}) &&
          bytes_equal(&before, &p, sizeof(p));
     check(ok, "Voice settings binding: out-of-range values and foreign bindings are refused untouched");

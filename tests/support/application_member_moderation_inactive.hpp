@@ -7,7 +7,7 @@ namespace maicord::app_detail {
 bool application_member_moderation_action(u32) noexcept {
     return false;
 }
-u32 application_member_moderation_menu_items(u64, u64, Slice<PopupItem>) noexcept {
+u32 application_member_moderation_menu_items(u64, u64, u64, Slice<PopupItem>) noexcept {
     return 0;
 }
 bool application_member_moderation_activate(u32) noexcept {

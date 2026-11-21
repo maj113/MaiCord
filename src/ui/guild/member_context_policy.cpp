@@ -25,7 +25,9 @@ u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
         u32 action;
         bool danger;
     };
+    // Disconnect comes first: it acts on the voice session, and the rows below act on the membership.
     const Entry entries[] = {
+        {moderation_action_disconnect, utf8_literal("Disconnect"), actions.disconnect, true},
         {moderation_action_nickname, utf8_literal("Edit nickname"), actions.nickname, false},
         {moderation_action_timeout, utf8_literal("Time out"), actions.timeout, false},
         {moderation_action_end_timeout, utf8_literal("End timeout"), actions.end_timeout, false},

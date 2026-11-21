@@ -27,6 +27,7 @@
 #include "maicord/model/notifications/retention.hpp"
 #include "maicord/model/notifications/sound_admission.hpp"
 #include "maicord/app/notifications/sound_assets.hpp"
+#include "maicord/app/voice/connection_sound.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "maicord/model/chat/game_store.hpp"
 #include "../account/account_ui_runtime.hpp"
@@ -125,8 +126,10 @@ struct ApplicationNotifications {
     u64 deferred_removals[4];
     u32 deferred_removal_count;
     u32 seen_next, guild_scope_count, channel_scope_count, os_setting, global_known_gates, global_gates;
+    // audio_preference: message sounds are on. voice_sounds: voice connection sounds are on. The audio worker is on
+    // while either one is.
     bool live, ready, snapshot, snapshot_failed, enrolled, focused, has_create_sequence, snapshot_partial, work_pending,
-        backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, mention_on_all;
+        backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, voice_sounds, mention_on_all;
     Utf8View status;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     void(*fixture_sink)(void*,const DesktopNotificationPayload&) noexcept;
@@ -227,8 +230,15 @@ void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     notification_sound_assets_volume(&n.sound_assets,a.preferences.output_volume);
     if(n.audio_preference!=a.preferences.message_sounds_enabled) {
         n.audio_preference=a.preferences.message_sounds_enabled;
-        audio_reset(n,n.audio_preference && n.profile!=0);
+        audio_reset(n,(n.audio_preference || n.voice_sounds) && n.profile!=0);
     }
+}
+NotificationAudioResult audio_submit(ApplicationNotifications& n,const NotificationAudioRequest& request) noexcept {
+#if defined(MAICORD_NOTIFICATION_FIXTURE)
+    return n.fixture_audio_sink(n.fixture_audio_context,request);
+#else
+    return notification_audio_submit(&n.audio,request);
+#endif
 }
 void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     // Streamer Mode's "Disable all sound effects".
@@ -236,11 +246,7 @@ void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     if(id!=1 && id!=2) return;
     // The id is the sound bank's clip: 1 the ordinary alert, 2 the alert for the selected channel.
     const NotificationAudioRequest request{epoch,id,.4f,{}};
-#if defined(MAICORD_NOTIFICATION_FIXTURE)
-    const auto result=n.fixture_audio_sink(n.fixture_audio_context,request);
-#else
-    const auto result=notification_audio_submit(&n.audio,request);
-#endif
+    const auto result=audio_submit(n,request);
     if(!result.ok()) audio_error(n,result);
 }
 void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
@@ -460,7 +466,9 @@ Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexc
 // /tts command" is on, and with "Speak all messages out loud" others' messages there or everywhere; never while
 // deafened, from a blocked or ignored user, or in a muted channel. Reads "{name} said {text}" (a reply:
 // "{name} replied to {name} {text}") as the official client does: mentions, channels and emoji as their names, each
-// spoiler as the word "Spoiler", a link as its domain, and the line cut to 200 characters at the last space.
+// spoiler as the word "Spoiler", a link as its domain, and the line cut to 200 characters at the last space. The
+// replied-to author is named by their server nickname, else by their name, and only when the reply carries the
+// referenced message.
 constexpr u32 kSpeechCharacters = 200;
 // A link's spoken form: its host without "www.", empty when it has none.
 inline Utf8View link_domain(Utf8View text,u32 at,u32* end) noexcept {
@@ -478,8 +486,8 @@ inline bool link_at(Utf8View text,u32 at) noexcept {
     return (at==0||text.data[at-1]==' '||text.data[at-1]=='\n')&&
            ((left>7&&bytes_equal(text.data+at,"http://",7))||(left>8&&bytes_equal(text.data+at,"https://",8)));
 }
-void speak(Application& a,const ApplicationNotifications& n,const GatewayMessageEvent& message,const ChannelRecord& channel,
-           Utf8View author,u32 relationship_gates) noexcept {
+void speak(Application& a,const ApplicationNotifications& n,const GatewayClientEvent& event,ConstSlice<u8> payload,
+           const GatewayMessageEvent& message,const ChannelRecord& channel,Utf8View author,u32 relationship_gates) noexcept {
     const auto& state=a.account_ui->chat_state;
     const bool selected=channel.id==state.selected_channel_id;
     const u8 everything=a.preferences.speak_messages;
@@ -498,7 +506,15 @@ void speak(Application& a,const ApplicationNotifications& n,const GatewayMessage
     MessageMarkdownOptions options{}; options.context=&a; options.resolve_entity=entity;
     const auto parsed=message_markdown_parse(source,{text,1024},{styles,1024},{spans,64},options,{});
     const Utf8View body=parsed.ok()?parsed.text:source;
-    const Utf8View replied=message.type==19?message.reference.author_name:Utf8View{};
+    // The plain message decode has no referenced message: the rich header carries its author.
+    Utf8View replied{};
+    u64 replied_id=0;
+    if(message.type==19&&gateway_client_event_message_reference_author(event,payload,&replied_id,&replied)&&replied_id) {
+        const auto* member=guild_member_store_find(a.account_ui->guild_member_store,channel.guild_id,replied_id);
+        const Utf8View nickname=member?guild_member_store_nickname(*member):Utf8View{};
+        if(nickname.bytes) replied=nickname;
+    }
+    if(contains_nul(replied)) reset_value(&replied);
     char line[1536];
     TextWriter writer{{line,sizeof(line)}};
     writer.add(author.bytes?author:utf8_literal("Someone"));
@@ -581,6 +597,24 @@ void application_notifications_attach_window(Application* a) noexcept {
     if(!n.audio.runtime) {
         n.audio.config.wake=wake_target(*a);
     }
+}
+void application_notifications_voice_sounds(Application* a,bool enabled) noexcept {
+    auto* n=a?a->notifications:nullptr;
+    if(!n || n->voice_sounds==enabled) return;
+    n->voice_sounds=enabled;
+    // The worker turns on or off only while message sounds are off.
+    if(!n->audio_preference) audio_reset(*n,enabled && n->profile!=0);
+}
+void application_notifications_voice_sound(Application* a,VoiceConnectionSound sound,u32 volume_percent) noexcept {
+    auto* n=a?a->notifications:nullptr;
+    // Streamer Mode's "Disable all sound effects". A full worker skips the sound: a refused submit turns audio off.
+    if(!n || sound==VoiceConnectionSound::none || !n->voice_sounds || !volume_percent || volume_percent>100 ||
+        application_streamer_disable_sounds() || !audio_capacity(*n,1)) return;
+    // The message alerts' nominal gain, scaled by the connection sound volume.
+    const NotificationAudioRequest request{n->audio_epoch,static_cast<u32>(sound),
+        .4f*static_cast<float>(volume_percent)/100.0f,{}};
+    const auto result=audio_submit(*n,request);
+    if(!result.ok()) audio_error(*n,result);
 }
 void application_notifications_settings_refresh(Application* a) noexcept {
     auto* n=ensure(a); if(!n) return;
@@ -958,6 +992,7 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
     metrics.audio_failed=n.audio_failed;
     metrics.audio_worker_started=n.audio.runtime!=nullptr;
+    metrics.audio_enabled=n.audio.enabled;
     metrics.audio_output_percent=static_cast<u32>(ReadAcquire(&n.sound_assets.output_percent));
     metrics.retention_channels=n.retention.count;
     metrics.retention_capacity_channels=n.retention.rows.count;
@@ -1058,7 +1093,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         n->settings.thread_count=0; ++n->settings.revision;
         reset_value(&n->global); n->global_known_gates=n->global_gates=0; n->mention_on_all=false;
         n->profile=a->account.status.profile_id; n->live=true; n->ready=n->snapshot=false;
-        audio_preferences(*a,*n); audio_reset(*n,n->audio_preference);
+        audio_preferences(*a,*n); audio_reset(*n,n->audio_preference || n->voice_sounds);
         if(++n->generation==0) ++n->generation;
         if(n->display) desktop_notification_queue_reset(&n->display->queue,n->profile,n->generation);
         reset_ingress(*n); return;
@@ -1289,7 +1324,8 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
         Utf8View speaker=message.member_nick;
         if(!speaker.bytes&&!gateway_client_event_message_author_name(event,payload,&speaker)) reset_value(&speaker);
         if(contains_nul(speaker)||speaker.bytes>256) reset_value(&speaker);
-        speak(*a,n,message,*channel,speaker,relationship_gates&(notification_gate_blocked|notification_gate_ignored));
+        speak(*a,n,event,payload,message,*channel,speaker,
+              relationship_gates&(notification_gate_blocked|notification_gate_ignored));
     }
     if(event.message.fields&gateway_message_field_author_policy) {
         input.known_gates|=notification_gate_spammer;

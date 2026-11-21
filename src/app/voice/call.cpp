@@ -112,13 +112,16 @@ inline const GatewayVoiceVideoUser* video_user(u64 user_id) noexcept {
             return &view.snapshot.users[i];
     return nullptr;
 }
-// The decoded picture size of a tile whose stream still carries `ssrc`.
+// The decoded picture size of a tile whose stream still carries `ssrc`, or that its video cannot be decoded here.
 void attach_picture(UiCallParticipant& p, u32 ssrc) noexcept {
-    if (const auto* picture = call_video_presenter_find(view.video, p.user_id);
-        picture && picture->ready && picture->ssrc == ssrc) {
+    const auto* picture = call_video_presenter_find(view.video, p.user_id);
+    if (!picture || picture->ssrc != ssrc)
+        return;
+    if (picture->ready) {
         p.video_width = picture->display_width;
         p.video_height = picture->display_height;
     }
+    p.video_failed = picture->undecodable;
 }
 void add_participant(u32* count, u64 user_id, u32 flags, bool self) noexcept {
     if (*count >= kUiCallMaximumTiles || !user_id)

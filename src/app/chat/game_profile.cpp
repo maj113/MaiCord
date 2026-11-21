@@ -367,26 +367,10 @@ constexpr SettingsLayerHooks kHooks{settings_hook_editor_none,
                                     nullptr,
                                     settings_hook_not_editable};
 
-bool not_found_valid(TextFormOwnerKey) noexcept {
-    return true;
-}
-bool not_found_save(TextFormOwnerKey, Utf8View) noexcept {
-    return true;
-}
-
 // The official client's dialog for a mention of a game it cannot show.
 bool open_not_found() noexcept {
-    ApplicationTextFormRequest request{};
-    request.title = utf8_literal("Game could not be found");
-    request.context = utf8_literal("The game is either missing or has been removed.");
-    request.accept = utf8_literal("Okay");
-    request.owner = {g_app.plugin_account_scope_serial, 0, 0};
-    request.valid = not_found_valid;
-    request.save = not_found_save;
-    request.confirmation_only = true;
-    request.single_action = true;
-    request.accept_focused = true;
-    return application_text_form_open(request);
+    return application_text_form_notice(utf8_literal("Game could not be found"),
+                                        utf8_literal("The game is either missing or has been removed."));
 }
 
 } // namespace

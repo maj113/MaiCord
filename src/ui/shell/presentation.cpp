@@ -268,6 +268,17 @@ bool paint_voice_extras(PaintStream* stream, const ShellNavigationRowWidget& row
                          extras.invite_close_hovered ? theme.text_primary : ui_icon_role_color(theme, UiIconRole::muted));
 }
 
+// The user limit pill. Officially the box is background-base-low with a border-normal edge, and the limit part takes
+// background-mod-strong. Both official colours are hsla(240, 4%, 61%) at about 20%, the value of row_selected. The
+// whole pill takes that colour, and a background.primary strip 1 DIP inside it is the users part. The split is
+// straight: the official slant needs a clip for each pill.
+bool paint_limit_pill(PaintStream* stream, const ShellLimitPill& pill, const Theme& theme) noexcept {
+    const float radius = theme.scale.radius_md;
+    return paint_stream_push_rounded(stream, pill.box, theme.tokens.state.row_selected, radius) &&
+           paint_stream_push_edge_strip(stream, ui_rect_shrink(pill.box, 1.0f), pill.split - pill.box.left - 1.0f,
+                                        theme.tokens.background.primary, maximum(radius - 1.0f, 0.0f));
+}
+
 Color folder_color(const Theme& theme, const GuildViewRow& row, float alpha) noexcept {
     Color color = row.folder_color == kGuildFolderNoColor
                       ? theme.tokens.emphasis.outline
@@ -775,6 +786,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                    theme.scale.radius_md)) {
                         return false;
                     }
+                    if (ShellLimitPill pill{};
+                        shell_navigation_limit_pill(row_rectangle, row, row_hovered, row_selected, &pill) &&
+                        !paint_limit_pill(stream, pill, theme))
+                        return false;
                     UiPluginSlotBadge plugin{};
                     if (shell_navigation_plugin_badge(*channel_scene, index, &plugin) &&
                         !ui_plugin_slot_badge_paint(plugin, channel_scene->widgets, theme, stream))

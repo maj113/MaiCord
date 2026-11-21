@@ -49,6 +49,9 @@ enum class SettingBinding : u16 {
     voice_processing,
     voice_soundboard_volume,
     voice_soundboard_muted,
+    // Voice & Video's connection sounds: the switch and their volume (voice.bin).
+    voice_connection_sounds,
+    voice_connection_sound_volume,
     // Synced account settings (settings-proto/1, application_user_settings).
     dm_from_members,
     message_requests,

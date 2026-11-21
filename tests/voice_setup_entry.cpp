@@ -60,6 +60,7 @@
     X(test_gateway_stream) \
     X(test_voice_send) \
     X(test_voice_preferences) \
+    X(test_voice_connection_sound) \
     X(test_call_view) \
     X(test_stream_watch) \
     X(test_stage_channel) \

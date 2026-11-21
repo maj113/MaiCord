@@ -71,6 +71,7 @@ constexpr TextLook kLookDraft{.vertical = UiTextAlignment::start,
                               .overflow = TextOverflow::clip};
 constexpr TextLook kLookTop{.vertical = UiTextAlignment::start};
 constexpr TextLook kLookGroup{.style_flags = text_style_subtext | text_style_bold};
+constexpr TextLook kLookCount{.style_flags = kTextStyleSizeCodeXs, .overflow = TextOverflow::clip, .owned = true};
 
 bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, const Utf8View& text,
                     const UiRect& rectangle, const UiRect& clip, const Color& color, UiTextOutput* stream,
@@ -652,6 +653,24 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                         visible_clip, ui_background_muted_text_color(theme), stream, kLookSub))
                         return reject(stream);
                 }
+                ShellLimitPill pill{};
+                const bool limit_pill =
+                    shell_navigation_limit_pill(layout->rectangle, row, hovered, row_selected, &pill);
+                if (limit_pill) {
+                    // The official counts: text-xs in text-subtle, 4 DIPs into the users part and 2 into the limit.
+                    const u32 counts[]{row.voice_count, row.user_limit};
+                    const float lefts[]{pill.box.left + 5.0f, pill.split + 2.0f};
+                    const float rights[]{pill.split, pill.box.right};
+                    for (u32 i = 0; i < 2; ++i) {
+                        char digits[4];
+                        if (!append_visible(channel_scene.widgets, row_widget.widget,
+                                            Utf8View{digits, shell_navigation_limit_digits(counts[i], digits)},
+                                            {lefts[i], pill.box.top, rights[i], pill.box.bottom},
+                                            channel_navigation->rectangle, ui_background_muted_text_color(theme),
+                                            stream, kLookCount))
+                            return reject(stream);
+                    }
+                }
                 if (name.bytes != 0) {
                     const bool private_row = channel && channel_is_private(channel->type);
                     TextLook look = private_row ? kLookLineOwned : kLookTop;
@@ -679,6 +698,9 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         name_rectangle.right = shell_navigation_controls_left(
                             layout->rectangle, row, shell_navigation_row_controls(row, hovered, row_selected),
                             name_rectangle.right);
+                        // The pill keeps 12 DIPs from the name.
+                        if (limit_pill)
+                            name_rectangle.right = minimum(name_rectangle.right, pill.box.left - 12.0f);
                     }
                     // A hovered channel's name (and a category's) brightens.
                     if (hovered && !private_row)

@@ -11,6 +11,8 @@ enum ModerationAction : u8 {
     moderation_action_end_timeout = 1u << 2,
     moderation_action_kick = 1u << 3,
     moderation_action_ban = 1u << 4,
+    // Set by the caller from moderation_can_disconnect: it depends on the member's voice channel.
+    moderation_action_disconnect = 1u << 5,
 };
 
 // Why a held permission cannot be used against this target.
@@ -39,6 +41,11 @@ struct ModerationCapabilities {
 ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
                                                const GuildMemberStore& members, u64 guild_id,
                                                u64 target_user_id, u64 now_seconds) noexcept;
+// Disconnect from voice (a member PATCH with a null channel_id) needs View Channel and Move Members in the
+// guild voice or stage channel that the member is in. The role order does not apply to it. As in the
+// official client, the menu never offers it on the own row.
+bool moderation_can_disconnect(const ChatStateStore& state, u64 guild_id, u64 channel_id,
+                               u64 target_user_id) noexcept;
 
 inline constexpr u32 kModerationTimeoutChoices[] = {60, 300, 600, 3'600, 86'400, 604'800};
 inline constexpr u32 kModerationBanDeleteChoices[] = {0, 3'600, 21'600, 43'200, 86'400, 259'200, 604'800};

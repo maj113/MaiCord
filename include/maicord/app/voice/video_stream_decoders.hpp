@@ -26,7 +26,10 @@ struct VideoStreamFrame {
     u32 sequence; // Pictures presented on this stream; changes when the content does.
     u16 display_width, display_height; // Aspect-corrected layout extent.
     bool keyframe;
-    u8 reserved[7];
+    // Set only when the call returns no picture: the decoders cannot play this SSRC. A decoder gave it up (no software
+    // tier took it over), no decoder handles its codec, or the transport reported a stall. A picture clears it.
+    bool undecodable;
+    u8 reserved[6];
 };
 static_assert(sizeof(VideoStreamFrame) == 72);
 
@@ -38,11 +41,13 @@ struct VideoStreamDecoders {
         u16 display_width, display_height;
         VoiceVideoCodec codec;
         bool keyframe;
+        bool gave_up; // Its decoder reported the stream unsupported (logged once: video_decode_unsupported).
     };
     SrwLock lock;
     GpuDevice* device; // Referenced; null until the renderer provides one.
     VideoKeyframeRequester keyframes;
-    volatile LONG decodable; // voice_video_codec_bit set of the device's hardware decoders.
+    // voice_video_codec_bit set of the device's hardware decoders, without H.265 after an H.265 decoder gave up.
+    volatile LONG decodable;
     // Auto-reset event set after any stream publishes a new picture, so the UI
     // waits for pictures instead of polling. Null if creation failed.
     HANDLE frame_event;
@@ -50,6 +55,8 @@ struct VideoStreamDecoders {
     // Worker-only: SSRCs waiting for their first keyframe, for request throttling.
     u32 waiting_ssrc[kVideoStreamDecoderStreams];
     u64 waiting_ms[kVideoStreamDecoderStreams];
+    // SSRCs reported undecodable (VideoStreamFrame::undecodable), zero for a free entry. Under the lock.
+    u32 undecodable[kVideoStreamDecoderStreams];
 };
 
 // Creates frame_event; release closes it.
@@ -59,10 +66,10 @@ void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept;
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, GpuDevice* device) noexcept;
 // Any thread. Decode threads forward keyframe requests here; {} disables.
 void video_stream_decoders_set_requester(VideoStreamDecoders* decoders, VideoKeyframeRequester requester) noexcept;
-// push_frame/end_stream run on the voice worker; decodable on any thread.
+// push_frame, end_stream and stalled run on the voice worker. decodable and decoded run on any thread.
 VideoFrameSink video_stream_decoders_sink(VideoStreamDecoders* decoders) noexcept;
-// Any thread (UI). False when the SSRC has no decoded picture yet. The
-// returned slice stays intact until this stream's next call.
+// Any thread (UI). False when the SSRC has no decoded picture yet: then output->undecodable tells whether the
+// decoders gave up on it. The returned slice stays intact until this stream's next call.
 bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoStreamFrame* output) noexcept;
 // Joins every decode thread and releases all GPU references.
 void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept;

@@ -341,15 +341,55 @@ void own_stream_cases(Check check) noexcept {
     ui_call_scene_release(&scene);
 }
 
+// A watched stream without a picture spins. When this computer cannot decode its video, a notice replaces the spinner.
+void failed_stream_cases(Check check) noexcept {
+    static UiCallScene scene;
+    UiCallParticipant watched = person(0x8000'0000'0000'0002ull, "Bo", 0x8000'0014u);
+    watched.stream = UiCallStream::live;
+    UiCallContent content{};
+    content.title = utf8_literal("Call");
+    content.participants = {&watched, 1};
+    const UiRect viewport{0, 0, 1000, 700};
+    static UiTextCommand commands[256];
+    static char owned[8192];
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream};
+    const auto shows_notice = [&]() noexcept {
+        const Utf8View text = ui_call_video_failed_text();
+        bool found = false;
+        if (ui_text_command_stream_initialize(&stream, {commands, 256}, {owned, sizeof(owned)}) &&
+            ui_call_scene_text_output(scene, kDefaultTheme, &output))
+            for (u32 i = 0; i < stream.count; ++i)
+                found = found || (stream.storage[i].text.bytes == text.bytes &&
+                                  bytes_equal(stream.storage[i].text.data, text.data, text.bytes));
+        return found;
+    };
+    check(ui_call_scene_update(&scene, content, viewport, 0, true) && ui_call_scene_spinner_visible(scene) &&
+              !shows_notice(),
+          "failed stream: a watched stream waits for its first picture with a spinner");
+    const u32 revision = scene.revision;
+    watched.video_failed = true;
+    check(ui_call_scene_update(&scene, content, viewport, 0, true) && scene.revision != revision &&
+              !ui_call_scene_spinner_visible(scene) && shows_notice(),
+          "failed stream: a stream this computer cannot decode shows a notice instead of the spinner");
+    watched.video_width = 1920;
+    watched.video_height = 1080;
+    check(ui_call_scene_update(&scene, content, viewport, 0, true) && !ui_call_scene_spinner_visible(scene) &&
+              !shows_notice(),
+          "failed stream: a picture replaces the notice");
+    ui_call_scene_release(&scene);
+}
+
 // Fake frame source: counts outstanding texture references.
 struct FakeHost {
-    u32 sequence[4]{};
+    u32 sequence[5]{};
     i32 outstanding;
     u32 presents, frames, last_extent;
     u64 wanted_user[16];
     bool wanted_value[16];
     u32 wanted_count;
     bool refuse_wants, evicted;
+    bool undecodable, playable; // SSRC 104: no picture, marked undecodable, until playable.
 };
 int texture_token;
 CallVideoHost fake_host(FakeHost* fake) noexcept {
@@ -357,7 +397,11 @@ CallVideoHost fake_host(FakeHost* fake) noexcept {
     host.context = fake;
     host.frame = +[](void* context, u32 ssrc, VideoStreamFrame* output) noexcept {
         auto& f = *static_cast<FakeHost*>(context);
-        if (ssrc < 100 || ssrc >= 104)
+        if (ssrc == 104 && !f.playable) {
+            output->undecodable = f.undecodable;
+            return false;
+        }
+        if (ssrc < 100 || ssrc > 104)
             return false;
         *output = {};
         output->gpu.texture = reinterpret_cast<ID3D11Texture2D*>(&texture_token);
@@ -457,6 +501,29 @@ void presenter_cases(Check check) noexcept {
               call_video_reduction_extent(3440, 1440, 3000) == 1720,
           "call video: 1440p streams present natively in tiles wider than half the picture");
 }
+
+// A stream the frame source cannot play has no picture and is marked undecodable once. A picture clears the mark.
+void undecodable_cases(Check check) noexcept {
+    static CallVideoPresenter presenter;
+    call_video_presenter_reset(&presenter);
+    FakeHost fake{};
+    const auto host = fake_host(&fake);
+    const CallVideoTarget target{5, 104, 640, true};
+    auto result = call_video_presenter_pump(&presenter, host, {&target, 1}, true);
+    const auto* stream = call_video_presenter_find(presenter, 5);
+    check(stream && !stream->ready && !stream->undecodable && !result.changed,
+          "call video: a stream without a picture yet waits");
+    fake.undecodable = true;
+    result = call_video_presenter_pump(&presenter, host, {&target, 1}, true);
+    check(result.changed && stream->undecodable && !stream->ready,
+          "call video: a stream the decoders cannot play is marked undecodable and relays out the tiles");
+    result = call_video_presenter_pump(&presenter, host, {&target, 1}, true);
+    check(!result.changed && stream->undecodable, "call video: an unchanged mark is not reported again");
+    fake.playable = true;
+    result = call_video_presenter_pump(&presenter, host, {&target, 1}, true);
+    check(result.changed && result.presented && stream->ready && !stream->undecodable && !fake.outstanding,
+          "call video: the first picture clears the mark");
+}
 } // namespace
 
 // Departures: the voice states decide the tiles once known, so a camera the
@@ -547,7 +614,9 @@ void test_call_view(Check check) noexcept {
     scene_cases(check);
     control_cases(check);
     own_stream_cases(check);
+    failed_stream_cases(check);
     presenter_cases(check);
+    undecodable_cases(check);
     roster_cases(check);
     lifecycle_cases(check);
     poll_cases(check);

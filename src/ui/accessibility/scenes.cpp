@@ -1348,6 +1348,8 @@ void call_tile_name(const UiCallParticipant& p, UiAccessNameBuilder* name) noexc
             name->part(p.self ? utf8_literal("live") : utf8_literal("watching"));
             if (p.paused)
                 name->part(utf8_literal("paused"));
+            else if (p.video_failed && !(p.video_width && p.video_height))
+                name->part(ui_call_video_failed_text());
             break;
         case UiCallStream::reconnecting: name->part(utf8_literal("reconnecting")); break;
         case UiCallStream::ended:

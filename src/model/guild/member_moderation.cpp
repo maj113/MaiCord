@@ -95,6 +95,15 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
     return result;
 }
 
+bool moderation_can_disconnect(const ChatStateStore& state, u64 guild_id, u64 channel_id,
+                               u64 target_user_id) noexcept {
+    const auto* channel = guild_id && channel_id ? chat_state_store_find_channel(state, channel_id) : nullptr;
+    constexpr PermissionSet needed = kPermissionViewChannel | kPermissionMoveMembers;
+    return target_user_id && target_user_id != state.self_user_id && channel && channel->guild_id == guild_id &&
+           channel_is_voice_chat(channel->type) && channel->permissions_resolved &&
+           (channel->effective_permissions & needed) == needed;
+}
+
 static_assert(name_list_count(kModerationBanReasons) == kModerationBanReasonCount);
 static_assert(name_list_count(kModerationBanDeleteLabels) == sizeof(kModerationBanDeleteChoices) / sizeof(u32));
 

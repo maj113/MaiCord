@@ -66,6 +66,25 @@ void test_channel_content_policy(void (*check)(bool, const char*) noexcept) noex
         f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"default_auto_archive_duration":4320}})")) &&
         channel_default_archive_minutes(*parent) == 4320,
         "a channel's default thread archive is stored from channel updates and kept when omitted");
+    const auto limit = [&]() noexcept {
+        const auto* voice = chat_state_store_find_channel(f.state, 85);
+        return voice ? u32{voice->user_limit} : ~0u;
+    };
+    check(f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_CREATE","d":{"id":"85","guild_id":"7","type":2,"name":"Tiny voice","bitrate":64000,"user_limit":2,"permission_overwrites":[]}})")) &&
+        limit() == 2 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":2,"name":"Tiny"}})")) &&
+        limit() == 2 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":2,"user_limit":"x"}})")) &&
+        limit() == 2 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":13,"user_limit":10000}})")) &&
+        limit() == 10'000 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":2,"user_limit":0}})")) &&
+        limit() == 0 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":2,"user_limit":5}})")) &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"85","guild_id":"7","type":0,"user_limit":5}})")) &&
+        limit() == 0,
+        "a voice or stage channel's user limit is stored from channel events, kept when omitted or malformed, "
+        "and dropped when the channel is not a voice channel");
     check(f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"nsfw":false}})")) &&
         !chat_state_store_channel_age_restricted(f.state, *thread), "explicit false removes parent age restriction without mutating every thread");
     const Utf8View malformed[] = {

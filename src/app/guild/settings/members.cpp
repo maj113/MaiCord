@@ -16,7 +16,8 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr MemberModerationMenuActions kModerationActions{11, 12, 13, 14, 15, 100};
+// The members table never offers Disconnect: moderation_capabilities does not set it.
+constexpr MemberModerationMenuActions kModerationActions{11, 12, 13, 14, 15, 16, 100};
 // The search box applies 300 ms after typing stops.
 constexpr u64 kSearchDebounceMs = 300;
 constexpr u64 kHourMs = 3'600'000ull, kDayMs = 86'400'000ull;

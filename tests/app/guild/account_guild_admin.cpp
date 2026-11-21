@@ -235,6 +235,22 @@ void test_transport() noexcept {
                        utf8_literal("/api/v9/guilds/10/members/20"),
                        utf8_literal(R"({"communication_disabled_until":null})")),
           "guild admin account: an empty timeout reason sends an empty header; removing it sends none");
+    MemberPatch leave{};
+    leave.fields = member_patch_disconnect;
+    request = guild_request(GuildAdminOperation::member_update, 20);
+    request.member = &leave;
+    const bool disconnect =
+        account_guild_admin_submit(&details, &request, 120).ok() &&
+        captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                 utf8_literal("/api/v9/guilds/10/members/20"), utf8_literal(R"({"channel_id":null})"));
+    const u32 before_self_disconnect = capture.submissions;
+    request = guild_request(GuildAdminOperation::member_update_self);
+    request.member = &leave;
+    check(disconnect &&
+              account_guild_admin_submit(&details, &request, 121).error == RestClientSubmitError::invalid_input &&
+              capture.submissions == before_self_disconnect,
+          "guild admin account: a voice disconnect PATCHes a null channel_id with no audit header; the self route "
+          "refuses it");
     request = guild_request(GuildAdminOperation::member_kick, 20);
     request.reason = utf8_literal("spam & ads (again)!");
     check(account_guild_admin_submit(&details, &request, 107).ok() &&

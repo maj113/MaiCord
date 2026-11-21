@@ -147,6 +147,8 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)
 - Push-to-talk, per-user volume, soundboard and stage channels
+- Sounds when you join or leave a voice channel, and a different one when the connection drops (Settings > Voice &
+  Video > Sounds: on or off, and their volume)
 - Watch Go Live streams and cameras, decoded on the GPU
 - Go Live: share a screen or window (with its sound), encoded on the GPU and end-to-end encrypted, at Discord's
   resolutions and frame rates up to your Nitro's or the server's boost tier, or at any of them with "Unlock all

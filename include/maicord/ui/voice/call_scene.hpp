@@ -105,6 +105,8 @@ enum class UiCallStreamNotice : u8 {
 };
 // Copy for a notice ("The stream has ended", ...); empty for none.
 Utf8View ui_call_stream_notice_text(UiCallStreamNotice) noexcept;
+// Copy for a watched stream whose video this computer cannot decode (UiCallParticipant::video_failed).
+Utf8View ui_call_video_failed_text() noexcept;
 inline constexpr u32 kUiCallControlCount = static_cast<u32>(UiCallControl::count);
 
 struct UiCallParticipant {
@@ -119,6 +121,8 @@ struct UiCallParticipant {
     UiCallStream stream;
     UiCallStreamNotice notice; // Ended tiles.
     bool paused;               // The streamer paused (live tiles).
+    // No picture, and this computer cannot decode the video: a live stream tile shows a notice, not the spinner.
+    bool video_failed;
     u32 viewers;               // Shown with the LIVE badge when nonzero.
     MediaAssetKey preview;     // Preview thumbnail while no picture is drawn.
     // The user has a custom avatar (drawn by the host over the placeholder);

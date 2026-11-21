@@ -23,6 +23,8 @@
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/app/voice/push_to_talk_binding.hpp"
 #include "maicord/app/voice/save_wait.hpp"
+#include "maicord/app/voice/connection_sound.hpp"
+#include "../notifications/notifications.hpp"
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/app/voice/account_soundboard.hpp"
@@ -42,6 +44,7 @@ struct VoiceUi {
     u64 menu_user;
     bool loaded, dirty, monitor, mute_before_deafen, menu_dragging;
     VoiceSaveWait save_wait;
+    VoiceConnectionSoundTracker sound;
     char menu_label[48];
     u32 menu_label_bytes;
 };
@@ -150,6 +153,19 @@ void refresh_view() noexcept {
         (next.hovered == UiVoiceControl::disconnect || next.hovered == UiVoiceControl::channel ||
          next.hovered == UiVoiceControl::screen_share))
         next.hovered = UiVoiceControl::none;
+    // Stage channels play no connection sound, as in the official client. A sound needs a new state or channel, so
+    // only then does the channel kind need a look.
+    bool stage = voice.sound.stage;
+    if (next.state != voice.view.state || next.channel_id != voice.view.channel_id) {
+        const auto* channel = joined && g_app.account_ui
+                                  ? chat_state_store_find_channel(g_app.account_ui->chat_state, s->channel_id)
+                                  : nullptr;
+        stage = channel && channel->guild_id && channel->type == 13;
+    }
+    const auto sound = voice_connection_sound_step(&voice.sound, next.channel_id, joined ? s->generation : 0, stage,
+                                                   next.state);
+    if (sound != VoiceConnectionSound::none)
+        application_notifications_voice_sound(&g_app, sound, voice.preferences.connection_sound_volume);
     if (next.state != voice.view.state) {
         // The panel's "Couldn't connect" state, with the worker's reasons.
         LogEvent line("panel_state");
@@ -210,6 +226,7 @@ void application_voice_pump() noexcept {
     if (g_app.account_ui)
         g_app.account_ui->navigation_view.voice_panel = &voice.view;
     push();
+    application_notifications_voice_sounds(&g_app, voice.preferences.connection_sounds);
     auto& h = g_app.account;
     const bool call = application_voice_call() != nullptr;
     const u64 now = clock_monotonic_milliseconds();

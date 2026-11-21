@@ -130,6 +130,8 @@ bool application_form_take_input() noexcept;
 void application_form_restore_focus(const UiWidgetReference& previous, bool composer) noexcept;
 bool application_text_form_forum_child(const ApplicationForumPostTicket&) noexcept;
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept;
+// The official client's notice dialog: a title, a sentence and one "Okay" button that closes it.
+bool application_text_form_notice(Utf8View title, Utf8View context) noexcept;
 void application_text_form_close(bool restore_focus = true, bool redraw = true) noexcept;
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept;
 bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noexcept;

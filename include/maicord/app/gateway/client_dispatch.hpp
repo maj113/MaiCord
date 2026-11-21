@@ -338,6 +338,10 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
 // storage are materialized. A valid message without an interaction returns 0.
 bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                    u64* user_id) noexcept;
+// The author of the referenced message, read the same way: its ID and its name (global name, else username). A
+// message without a loaded referenced message gives 0 and an empty name.
+bool gateway_client_event_message_reference_author(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                                   u64* user_id, Utf8View* name) noexcept;
 // Mention roles remain little-endian packed after message.content_bytes; the
 // reconstructed GatewayMessageEvent carries no unaligned u64 view.
 bool gateway_client_event_message_mention_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload,

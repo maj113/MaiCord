@@ -6,6 +6,7 @@
 #include "../shell/state.hpp"
 #include "../account/account_access.hpp"
 #include "../chat/composer/text_form.hpp"
+#include "../shell/toast.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
@@ -19,12 +20,13 @@
 namespace maicord::app_detail {
 namespace {
 
-enum class Kind : u8 { none, nickname, timeout, end_timeout, kick, ban, bulk_ban };
+enum class Kind : u8 { none, nickname, timeout, end_timeout, kick, ban, bulk_ban, disconnect };
 enum class Step : u8 { idle, choosing, editing, queued, sending, failed, done };
 
 constexpr MemberModerationMenuActions kActions{
     kMemberModerationActionBase + 1, kMemberModerationActionBase + 2, kMemberModerationActionBase + 3,
-    kMemberModerationActionBase + 4, kMemberModerationActionBase + 5, kMemberModerationActionBase + 0x100};
+    kMemberModerationActionBase + 4, kMemberModerationActionBase + 5, kMemberModerationActionBase + 6,
+    kMemberModerationActionBase + 0x100};
 constexpr u32 kChoiceCount = sizeof(kModerationBanDeleteChoices) / sizeof(u32);
 constexpr u32 kNicknameCodepoints = kGuildAdminNicknameCodepoints;
 
@@ -36,8 +38,10 @@ struct Actor {
 struct Moderation {
     Actor actor;
     u64 guild_id, user_id, serial, request_id, retry_at;
-    // Menu target captured when the member context menu was built.
-    u64 menu_guild_id, menu_user_id;
+    // Disconnect: the voice channel the member was in.
+    u64 channel_id;
+    // Menu target captured when the member context menu was built (the channel for a voice row).
+    u64 menu_guild_id, menu_user_id, menu_channel_id;
     u32 choice, revision, text_bytes;
     u16 http_status;
     Kind kind;
@@ -99,19 +103,37 @@ bool bulk_allowed(u64 guild_id) noexcept {
     return guild_settings_can_manage_guild(access) && permission_has(access.permissions, kPermissionBanMembers);
 }
 
+// The member's voice session is in channel_id now.
+bool in_voice(u64 guild_id, u64 channel_id, u64 user_id) noexcept {
+    const auto* state = g_app.account_ui && channel_id
+                            ? voice_state_store_find(g_app.account_ui->voice_states, guild_id, user_id)
+                            : nullptr;
+    return state && state->channel_id == channel_id;
+}
+
+// Whether the current account may apply kind to this member now.
+bool permitted(Kind kind, u64 guild_id, u64 user_id, u64 channel_id) noexcept {
+    if (kind == Kind::disconnect)
+        return in_voice(guild_id, channel_id, user_id) &&
+               moderation_can_disconnect(g_app.account_ui->chat_state, guild_id, channel_id, user_id);
+    return (capabilities(guild_id, user_id).allowed & kind_bit(kind)) != 0;
+}
+
 bool still_allowed() noexcept {
     if (moderation.kind == Kind::bulk_ban)
         return actor_current(moderation.actor) && bulk_allowed(moderation.guild_id);
     return actor_current(moderation.actor) &&
-           (capabilities(moderation.guild_id, moderation.user_id).allowed & kind_bit(moderation.kind)) != 0;
+           permitted(moderation.kind, moderation.guild_id, moderation.user_id, moderation.channel_id);
 }
 
 void reset() noexcept {
     secure_clear_bytes(moderation.text, sizeof(moderation.text));
-    const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id;
+    const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id,
+              menu_channel = moderation.menu_channel_id;
     reset_value(&moderation);
     moderation.menu_guild_id = menu_guild;
     moderation.menu_user_id = menu_user;
+    moderation.menu_channel_id = menu_channel;
 }
 
 void changed() noexcept {
@@ -122,6 +144,16 @@ void changed() noexcept {
 bool reject(Utf8View status) noexcept {
     moderation.status = status;
     moderation.step = Step::failed;
+    changed();
+    return false;
+}
+
+// A disconnect has no dialog: a toast shows its failure, and the flow ends. The other kinds show it in the dialog.
+bool fail(Utf8View status) noexcept {
+    if (moderation.kind != Kind::disconnect)
+        return reject(status);
+    application_toast_show(UiToastKind::failure, status);
+    reset();
     changed();
     return false;
 }
@@ -375,18 +407,18 @@ bool open_form() noexcept {
     return false;
 }
 
-bool begin(Kind kind, u64 guild_id, u64 user_id) noexcept {
-    if (moderation.step == Step::queued || moderation.step == Step::sending || g_app.text_form)
-        return false;
-    const auto allowed = capabilities(guild_id, user_id);
-    if (!(allowed.allowed & kind_bit(kind)))
+// channel_id is the member's voice channel for a disconnect, else zero.
+bool begin(Kind kind, u64 guild_id, u64 user_id, u64 channel_id = 0) noexcept {
+    if (moderation.step == Step::queued || moderation.step == Step::sending || g_app.text_form ||
+        !permitted(kind, guild_id, user_id, channel_id))
         return false;
     reset();
     moderation.actor = current_actor();
     moderation.guild_id = guild_id;
     moderation.user_id = user_id;
+    moderation.channel_id = channel_id;
     moderation.kind = kind;
-    moderation.self_nickname = kind == Kind::nickname && allowed.nickname_self;
+    moderation.self_nickname = kind == Kind::nickname && capabilities(guild_id, user_id).nickname_self;
     moderation.serial = ++moderation_serial;
     return true;
 }
@@ -415,8 +447,9 @@ GuildAdminRequest build_request(MemberPatch* patch, u64 now_ms) noexcept {
     request.target_id = moderation.user_id;
     // As the official dialogs send it: kick, ban and timeout always carry the
     // reason box, empty when untouched ("" sends an empty header or
-    // "?reason="); nicknames and ending a timeout send none (null).
-    request.reason = moderation.kind == Kind::nickname || moderation.kind == Kind::end_timeout
+    // "?reason="); nicknames, ending a timeout and a disconnect send none (null).
+    request.reason = moderation.kind == Kind::nickname || moderation.kind == Kind::end_timeout ||
+                             moderation.kind == Kind::disconnect
                          ? Utf8View{}
                          : Utf8View{moderation.text, moderation.text_bytes};
     switch (moderation.kind) {
@@ -445,6 +478,11 @@ GuildAdminRequest build_request(MemberPatch* patch, u64 now_ms) noexcept {
         request.operation = GuildAdminOperation::ban_add;
         request.delete_message_seconds = moderation.choice;
         break;
+    case Kind::disconnect:
+        request.operation = GuildAdminOperation::member_update;
+        patch->fields = member_patch_disconnect;
+        request.member = patch;
+        break;
     default:
         break;
     }
@@ -457,12 +495,19 @@ bool application_member_moderation_action(u32 action) noexcept {
     return action > kMemberModerationActionBase && action < kActions.choice_first + kChoiceCount;
 }
 
-u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, Slice<PopupItem> output) noexcept {
+u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, u64 voice_channel_id,
+                                              Slice<PopupItem> output) noexcept {
     if (!g_app.account_ui || !guild_id || !user_id)
         return 0;
     moderation.menu_guild_id = guild_id;
     moderation.menu_user_id = user_id;
-    return member_context_moderation_build(capabilities(guild_id, user_id), kActions, output);
+    moderation.menu_channel_id = voice_channel_id;
+    auto shown = capabilities(guild_id, user_id);
+    if (permitted(Kind::disconnect, guild_id, user_id, voice_channel_id)) {
+        shown.visible |= moderation_action_disconnect;
+        shown.allowed |= moderation_action_disconnect;
+    }
+    return member_context_moderation_build(shown, kActions, output);
 }
 
 bool application_member_moderation_activate(u32 action) noexcept {
@@ -495,7 +540,17 @@ bool application_member_moderation_activate(u32 action) noexcept {
                       : action == kActions.end_timeout ? Kind::end_timeout
                       : action == kActions.kick        ? Kind::kick
                       : action == kActions.ban         ? Kind::ban
+                      : action == kActions.disconnect  ? Kind::disconnect
                                                        : Kind::none;
+    // Disconnect sends at once, with no dialog, as in the official client.
+    if (kind == Kind::disconnect) {
+        const u64 channel = moderation.menu_channel_id;
+        if (!dismiss_popup())
+            return false;
+        if (begin(kind, guild, user, channel))
+            queue_request();
+        return true;
+    }
     if (kind == Kind::none || !begin(kind, guild, user))
         return dismiss_popup();
     if (kind == Kind::timeout)
@@ -545,7 +600,7 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
     if (!request_id || !application_member_moderation_pending(now_ms))
         return false;
     if (!still_allowed())
-        return reject(utf8_literal("You can't do this to this member anymore."));
+        return fail(utf8_literal("You can't do this to this member anymore."));
     MemberPatch patch{};
     const GuildAdminRequest request = build_request(&patch, clock_unix_milliseconds());
     GuildModerationRequest bulk{};
@@ -567,7 +622,7 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
             reset();
             return false;
         }
-        return reject(utf8_literal("This change couldn't be sent."));
+        return fail(utf8_literal("This change couldn't be sent."));
     }
     moderation.step = Step::sending;
     moderation.request_id = request_id;
@@ -581,6 +636,14 @@ bool application_member_moderation_response(const RestClientResponse& response, 
     moderation.request_id = 0;
     moderation.http_status = response.status_code;
     const bool ok = response.succeeded();
+    if (moderation.kind == Kind::disconnect) {
+        if (ok) {
+            reset();
+            changed();
+        } else
+            fail(failure_text(response));
+        return true;
+    }
     // A ban's dialog closed as it sent; only a failed bulk ban is reported.
     if (moderation.kind == Kind::ban || moderation.kind == Kind::bulk_ban) {
         if (!ok && moderation.kind == Kind::bulk_ban)
@@ -612,7 +675,7 @@ void application_member_moderation_release() noexcept {
     if (moderation.serial)
         application_text_form_cancel_owner(owner_current);
     reset();
-    moderation.menu_guild_id = moderation.menu_user_id = 0;
+    moderation.menu_guild_id = moderation.menu_user_id = moderation.menu_channel_id = 0;
 }
 
 } // namespace maicord::app_detail

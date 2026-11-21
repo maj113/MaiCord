@@ -176,8 +176,13 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
     const Utf8View kind = channel_kind(view.type);
     if (kind.bytes)
         g_name.add(", ").add(kind);
-    if (view.voice_count)
-        g_name.add(", ").number(view.voice_count).add(" connected");
+    // As in the official client's label, a channel with a limit reads "1 of 2".
+    if (view.voice_count) {
+        g_name.add(", ").number(view.voice_count);
+        if (view.user_limit)
+            g_name.add(" of ").number(view.user_limit);
+        g_name.add(" connected");
+    }
     // A voice channel with a session reads how long it has run, as the official client's row does.
     if (view.type == 2) {
         const auto& extras = application_voice_channels_extras();

@@ -7,8 +7,10 @@ namespace maicord::app_detail {
 // Popup action range owned by member moderation (outside every other range).
 inline constexpr u32 kMemberModerationActionBase = 0x4D440000u;
 bool application_member_moderation_action(u32 action) noexcept;
-// Appends the moderation section for this member to a context menu.
-u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, Slice<PopupItem> output) noexcept;
+// Appends the moderation section for this member to a context menu. voice_channel_id is the voice channel of
+// a voice row (zero elsewhere): it adds Disconnect.
+u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, u64 voice_channel_id,
+                                              Slice<PopupItem> output) noexcept;
 // Handles moderation popup actions; the caller has not dismissed the popup.
 bool application_member_moderation_activate(u32 action) noexcept;
 // Starts one moderation action outside the context menu (Server Settings).

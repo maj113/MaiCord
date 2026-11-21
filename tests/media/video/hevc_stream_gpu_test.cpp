@@ -367,7 +367,9 @@ bool wait_frame(VideoStreamDecoders* decoders, u32 sequence, VideoStreamFrame* f
 }
 
 // The call decoders advertise H.265 and decode it on their thread; a stream
-// switching codec at a keyframe gets a new decoder.
+// switching codec at a keyframe gets a new decoder. A stream whose decoder
+// refuses its SPS (Main10) is undecodable: no picture, and the frame call says so.
+// The decoders then stop advertising H.265 and keep the other codecs.
 int call_decoders(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits, Output* out,
                   h264_fixture::Bits h264_bits, h264_fixture::Output h264_out) noexcept {
     VideoStreamDecoders decoders{};
@@ -377,6 +379,7 @@ int call_decoders(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
     int status = 0;
     if (!sink.decodable || !(sink.decodable(sink.context) & voice_video_codec_bit(VoiceVideoCodec::h265)))
         status = 70;
+    const u32 advertised = sink.decodable ? sink.decodable(sink.context) : 0;
     const Sps sps{0, 64, 48, 0, 4, 8, 2};
     const Pps pps{0, 0};
     VideoStreamFrame first{}, second{}, switched{};
@@ -409,6 +412,26 @@ int call_decoders(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
             switched.gpu.width != 64)
             status = 73;
     }
+    if (!status) {
+        Sps ten = sps;
+        ten.bit_depth = 10;
+        VideoStreamFrame none{};
+        bool marked = false;
+        // The decode thread publishes the verdict. A later push of the stream reads it.
+        const u64 deadline = GetTickCount64() + 2'500;
+        do {
+            write_idr(out, bits, ten, pps, 6);
+            sink.push_frame(sink.context, 0x2651, VoiceVideoCodec::h265, {out->data, out->count}, 20, true, true);
+            out->count = 0;
+            marked = !video_stream_decoders_frame(&decoders, 0x2651, &none) && none.undecodable;
+            if (!marked)
+                Sleep(1);
+        } while (!marked && GetTickCount64() < deadline);
+        if (!marked || video_stream_decoders_frame(&decoders, 0x2652, &none) || none.undecodable)
+            status = 74;
+    }
+    if (!status && sink.decodable(sink.context) != (advertised & ~voice_video_codec_bit(VoiceVideoCodec::h265)))
+        status = 75;
     release_frame(&first);
     release_frame(&second);
     release_frame(&switched);

@@ -527,6 +527,8 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::voice_processing:
     case SettingBinding::voice_soundboard_volume:
     case SettingBinding::voice_soundboard_muted:
+    case SettingBinding::voice_connection_sounds:
+    case SettingBinding::voice_connection_sound_volume:
         return SettingBackend::voice;
     case SettingBinding::keybinds_custom:
     case SettingBinding::keybinds_add:

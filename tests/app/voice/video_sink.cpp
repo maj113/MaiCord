@@ -1,6 +1,7 @@
 #include "maicord/app/voice/receive.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "../../support/voice_log_sink.hpp"
 
 // Call-video integration: video SSRC routing from voice receive into the RTP
 // core, per-frame DAVE, the decoder boundary, keyframe requests, op 15 wants,
@@ -12,9 +13,10 @@ constexpr u64 kUser = 2, kSelf = 9;
 constexpr u32 kAudio = 10, kVideo = 20, kRtx = 21;
 struct Decoder {
     u8 frame[512];
-    u32 bytes, frames, ssrc, timestamp, ended, ended_ssrc;
+    u32 bytes, frames, ssrc, timestamp, ended, ended_ssrc, stalls, stalled_ssrc;
     VoiceVideoCodec codec;
     bool keyframe, intact;
+    bool decoded; // What the decoded callback answers.
 };
 bool push(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 timestamp, bool keyframe,
           bool intact) noexcept {
@@ -33,6 +35,14 @@ void end(void* context, u32 ssrc) noexcept {
     auto& decoder = *static_cast<Decoder*>(context);
     ++decoder.ended;
     decoder.ended_ssrc = ssrc;
+}
+bool decoded(void* context, u32) noexcept {
+    return static_cast<Decoder*>(context)->decoded;
+}
+void stalled(void* context, u32 ssrc) noexcept {
+    auto& decoder = *static_cast<Decoder*>(context);
+    ++decoder.stalls;
+    decoder.stalled_ssrc = ssrc;
 }
 struct Dave {
     u64 user_id;
@@ -114,6 +124,20 @@ VoiceReceiveResult send_keyframe(VoiceReceive& receive, const VoiceConnection& c
 }
 constexpr u8 kAnnexB[]{0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1f, 0xda, 0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80,
                        0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21, 0xa0};
+// Session Description after a Select Protocol that announced these codecs in this order (payload types 101, 103, 105).
+void describe(VoiceConnection& connection, VoiceVideoCodec first, VoiceVideoCodec second = VoiceVideoCodec::none,
+              VoiceVideoCodec third = VoiceVideoCodec::none) noexcept {
+    const VoiceVideoCodec order[]{first, second, third};
+    auto& media = connection.media;
+    media.has_description = true;
+    media.video_offer = 0;
+    media.video_codec_count = 0;
+    for (const auto codec : order)
+        if (codec != VoiceVideoCodec::none) {
+            media.video_offer |= voice_video_codec_bit(codec);
+            media.video_codecs[media.video_codec_count++] = static_cast<u8>(codec);
+        }
+}
 
 struct Rig {
     VoiceConnection connection;
@@ -152,8 +176,7 @@ void routing(Check check) noexcept {
     check(send_keyframe(receive, connection, 100, 9000, 1'000'000) == VoiceReceiveResult::ignored &&
               !receive.video.rtp_ready && !receive.video.buffer && !dave.calls,
           "Video sink: video RTP before a negotiated codec is ignored without allocating buffers");
-    connection.media.has_description = true;
-    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
+    describe(connection, VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     check(send_keyframe(receive, connection, 100, 9000, 1'000'000) == VoiceReceiveResult::video &&
@@ -280,9 +303,7 @@ void codec_binding(Check check) noexcept {
     receive.video.decrypt = open;
     receive.video.decrypt_context = &dave;
     receive.video.frames = {&decoder, push, end};
-    connection.media.has_description = true;
-    connection.media.video_offer =
-        voice_video_codec_bit(VoiceVideoCodec::h265) | voice_video_codec_bit(VoiceVideoCodec::h264);
+    describe(connection, VoiceVideoCodec::h265, VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     // VPS, SPS, PPS and an IDR_N_LP first slice segment as single NAL packets.
@@ -315,9 +336,7 @@ void av1_binding(Check check) noexcept {
     receive.video.decrypt = open;
     receive.video.decrypt_context = &dave;
     receive.video.frames = {&decoder, push, end};
-    connection.media.has_description = true;
-    connection.media.video_offer =
-        voice_video_codec_bit(VoiceVideoCodec::av1) | voice_video_codec_bit(VoiceVideoCodec::h264);
+    describe(connection, VoiceVideoCodec::av1, VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     // N=1, W=2: a sequence header element, then a frame OBU to the end.
@@ -337,6 +356,115 @@ void av1_binding(Check check) noexcept {
           "Video sink: H264 stays bound at payload type 103 behind AV1");
     voice_receive_stop(&receive);
     voice_participants_release(&connection.participants);
+}
+
+// Linux announces hardware decoders first: with H.264 and H.265 on the GPU and AV1 only in dav1d, the order is H265,
+// H264, AV1. The receiver binds that order, not the codec bits' order (AV1, H265, H264), which would decode every
+// payload type as the wrong codec (issue 16).
+void announced_order(Check check) noexcept {
+    auto& [connection, receive, decoder, dave] = fresh_rig();
+    check(announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+              {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "Announced codec order fixture: camera announced");
+    receive.video.decrypt = open;
+    receive.video.decrypt_context = &dave;
+    receive.video.frames = {&decoder, push, end};
+    describe(connection, VoiceVideoCodec::h265, VoiceVideoCodec::h264, VoiceVideoCodec::av1);
+    connection.media.ssrc = 7;
+    voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
+    const u8 vps[]{0x40, 0x01, 0x0c}, sps[]{0x42, 0x01, 0x01}, pps[]{0x44, 0x01, 0xc1}, idr[]{0x28, 0x01, 0xaf, 0x10};
+    const ConstSlice<u8> nals[]{{vps, 3}, {sps, 3}, {pps, 3}, {idr, 4}};
+    u8 plain[64];
+    for (u32 i = 0; i != 4; ++i) {
+        const u32 bytes = rtp(plain, 101, kVideo, static_cast<u16>(10 + i), 3000, i == 3, nals[i]);
+        voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused, nullptr,
+                             1'000'000);
+    }
+    voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
+    check(decoder.frames == 1 && decoder.codec == VoiceVideoCodec::h265 && decoder.keyframe,
+          "Video sink: payload type 101 of an H265, H264, AV1 announcement reaches the decoder as H.265");
+    send_keyframe(receive, connection, 14, 6000, 1'040'000, kVideo, 103);
+    voice_video_sink_drive(&receive.video, &connection, false, 1070, 1'070'000);
+    check(decoder.frames == 2 && decoder.codec == VoiceVideoCodec::h264 && decoder.keyframe,
+          "Video sink: payload type 103 of an H265, H264, AV1 announcement reaches the decoder as H.264");
+    const u8 unit[]{0x28, 0x03, 0x08, 0x00, 0x00, 0x30, 0x10, 0x20};
+    const u32 bytes = rtp(plain, 105, kVideo, 17, 9000, true, {unit, sizeof(unit)});
+    voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused, nullptr,
+                         1'080'000);
+    voice_video_sink_drive(&receive.video, &connection, false, 1110, 1'110'000);
+    check(decoder.frames == 3 && decoder.codec == VoiceVideoCodec::av1 && decoder.keyframe,
+          "Video sink: payload type 105 of an H265, H264, AV1 announcement reaches the decoder as AV1");
+    voice_receive_stop(&receive);
+    voice_participants_release(&connection.participants);
+}
+
+// The stall check reads the voice log: video_stalled records and the connection kind of the last one.
+u32 stall_records;
+u64 stall_stream;
+bool same_text(const char* text, const char* expected) noexcept {
+    while (*text && *text == *expected) {
+        ++text;
+        ++expected;
+    }
+    return *text == *expected;
+}
+void count_stalls(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
+    if (level == VoiceLogLevel::warning && same_text(event, "video_stalled")) {
+        ++stall_records;
+        stall_stream = fields.count && same_text(fields[0].key, "stream") ? fields[0].value : ~u64{0};
+    }
+}
+// A keyframe every half second from from_us through to_us, each followed by a drive. Returns the next sequence.
+u16 keyframes_until(Rig& rig, u16 sequence, u64 from_us, u64 to_us) noexcept {
+    for (u64 t = from_us; t <= to_us; t += 500'000) {
+        send_keyframe(rig.receive, rig.connection, sequence, static_cast<u32>(t / 1000 * 90), t);
+        sequence = static_cast<u16>(sequence + 3);
+        voice_video_sink_drive(&rig.receive.video, &rig.connection, false, t / 1000, t);
+    }
+    return sequence;
+}
+Rig& stall_rig(Check check, bool picture) noexcept {
+    auto& rig = fresh_rig();
+    check(announce(rig.connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+              {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "Video stall fixture: camera announced");
+    rig.receive.video.decrypt = open;
+    rig.receive.video.decrypt_context = &rig.dave;
+    rig.receive.video.frames = {&rig.decoder, push, end, nullptr, decoded, stalled};
+    rig.decoder.decoded = picture;
+    describe(rig.connection, VoiceVideoCodec::h264);
+    rig.connection.media.ssrc = 7;
+    voice_video_sink_drive(&rig.receive.video, &rig.connection, false, 1000, 1'000'000);
+    return rig;
+}
+// A stream that receives packets for five seconds and shows no picture cannot be played: the sink logs it once and
+// reports it to the decoder side. A pause in the packets starts the wait again. A decoded picture ends the check.
+void stall(Check check) noexcept {
+    const VoiceLogSink previous = g_voice_log_sink;
+    g_voice_log_sink = count_stalls;
+    stall_records = 0;
+    auto& rig = stall_rig(check, false);
+    u16 sequence = keyframes_until(rig, 100, 1'000'000, 3'000'000);
+    voice_video_sink_drive(&rig.receive.video, &rig.connection, false, 4500, 4'500'000); // No packet since 3 s.
+    sequence = keyframes_until(rig, sequence, 6'000'000, 10'500'000);
+    check(!rig.decoder.stalls && !stall_records && rig.decoder.frames &&
+              voice_video_sink_deadline(rig.receive.video) <= 11'000,
+          "Video stall: a pause in the packets starts the wait again, and the sink wakes when the wait ends");
+    sequence = keyframes_until(rig, sequence, 11'000'000, 11'000'000);
+    check(rig.decoder.stalls == 1 && rig.decoder.stalled_ssrc == kVideo && stall_records == 1 && !stall_stream,
+          "Video stall: five seconds of packets without a picture are reported and logged once");
+    keyframes_until(rig, sequence, 11'500'000, 13'000'000);
+    check(rig.decoder.stalls == 1 && stall_records == 1, "Video stall: a stream is reported only once");
+    voice_receive_stop(&rig.receive);
+    voice_participants_release(&rig.connection.participants);
+
+    auto& shown = stall_rig(check, true);
+    keyframes_until(shown, 100, 1'000'000, 8'000'000);
+    check(!shown.decoder.stalls && stall_records == 1 && shown.decoder.frames,
+          "Video stall: a stream with a decoded picture is never reported");
+    voice_receive_stop(&shown.receive);
+    voice_participants_release(&shown.connection.participants);
+    g_voice_log_sink = previous;
 }
 
 void dave_frames(Check check) noexcept {
@@ -379,8 +507,7 @@ void start_with_audio(Check check) noexcept {
     receive.video.decrypt_context = &dave;
     receive.video.frames = {&decoder, push, end};
     receive.video.wake = wake;
-    connection.media.has_description = true;
-    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
+    describe(connection, VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     const u64 buffers = 2 * u64{kVideoRtpFrameBytes};
@@ -452,8 +579,7 @@ void start_with_two_units(Check check) noexcept {
     receive.video.decrypt_context = &counted;
     receive.video.frames = {&decoder, push, end};
     receive.video.wake = wake;
-    connection.media.has_description = true;
-    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
+    describe(connection, VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     send_keyframe(receive, connection, 100, 9000, 1'000'000);
@@ -484,6 +610,8 @@ void test_voice_video_sink(Check check) noexcept {
     start_with_two_units(check);
     codec_binding(check);
     av1_binding(check);
+    announced_order(check);
+    stall(check);
     dave_frames(check);
 }
 } // namespace maicord
