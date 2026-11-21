@@ -468,7 +468,7 @@ MlsStatus mls_parent_hash(KdfSha256Workspace& kdf, const u8* public_key, const u
 }
 namespace {
 // Tree hashes of disjoint subtrees in one walk: hashes[i] belongs to roots[i].
-MlsStatus subtree_hashes(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const u32* roots, u32 count,
+inline MlsStatus subtree_hashes(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const u32* roots, u32 count,
                          u8 (*hashes)[kMlsHashBytes]) noexcept {
     struct Pending {
         ConstSlice<u8> parent;

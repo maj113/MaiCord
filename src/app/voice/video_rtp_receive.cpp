@@ -45,7 +45,7 @@ const VideoRtpCodecBinding* rtx_codec(const VideoRtpReceiver& receiver, u8 type)
             return &receiver.codecs[i];
     return nullptr;
 }
-bool starts_access_unit(VideoRtpCodec codec, ConstSlice<u8> payload) noexcept {
+inline bool starts_access_unit(VideoRtpCodec codec, ConstSlice<u8> payload) noexcept {
     return codec == VideoRtpCodec::h264   ? rtp_h264_starts_access_unit(payload)
            : codec == VideoRtpCodec::h265 ? rtp_h265_starts_access_unit(payload)
            : codec == VideoRtpCodec::av1  ? rtp_av1_starts_temporal_unit(payload)
@@ -100,7 +100,7 @@ void restart(VideoRtpStream& stream, u16 sequence, u64 now_us) noexcept {
     stream.keyframe_seen = seen;
     lose(stream);
 }
-u64 unwrap(const VideoRtpStream& stream, u16 sequence) noexcept {
+inline u64 unwrap(const VideoRtpStream& stream, u16 sequence) noexcept {
     const i16 distance = static_cast<i16>(static_cast<u16>(sequence - static_cast<u16>(stream.highest)));
     return stream.highest + static_cast<i64>(distance);
 }
@@ -128,7 +128,7 @@ bool expired(const VideoRtpConfig& config, const VideoRtpSlot& slot, u64 now_us)
 bool starting(const VideoRtpStream& stream) noexcept {
     return stream.started && !stream.prev_known && stream.base == stream.first && stream.base <= stream.highest;
 }
-void update_jitter(VideoRtpStream& stream, u32 timestamp, u64 now_us) noexcept {
+inline void update_jitter(VideoRtpStream& stream, u32 timestamp, u64 now_us) noexcept {
     // RFC 3550 A.8 in 90 kHz units, kept in Q4 like libwebrtc.
     const u32 transit = static_cast<u32>(now_us * 90 / 1000) - timestamp;
     if (stream.has_transit && timestamp != stream.jitter_timestamp) {
@@ -393,10 +393,10 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
             return nullptr;
         release_window(chosen);
     }
+    // A stream without a window is all zero: initialize and release_window clear it.
     void* block = commit_pages(window_bytes(kInitialSlots));
     if (!block)
         return nullptr;
-    reset_value(chosen);
     chosen->slots = static_cast<VideoRtpSlot*>(block);
     chosen->payloads = static_cast<u8*>(block) + sizeof(VideoRtpSlot) * usize{kInitialSlots};
     chosen->capacity = kInitialSlots;
@@ -500,7 +500,7 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
     return rtx ? VideoRtpPush::recovered : VideoRtpPush::stored;
 }
 // Feedback items only count once RTCP can be sent (a local SSRC is known).
-u64 stream_deadline(const VideoRtpConfig& config, const VideoRtpStream& stream, bool feedback) noexcept {
+inline u64 stream_deadline(const VideoRtpConfig& config, const VideoRtpStream& stream, bool feedback) noexcept {
     u64 deadline = 0;
     if (stream.missing)
         deadline = earliest_deadline(feedback ? stream.next_nack_us : 0,
@@ -552,8 +552,7 @@ void video_rtp_release(VideoRtpReceiver* receiver) noexcept {
 }
 
 void video_rtp_set_local_ssrc(VideoRtpReceiver* receiver, u32 local_ssrc) noexcept {
-    if (receiver)
-        receiver->local_ssrc = local_ssrc;
+    receiver->local_ssrc = local_ssrc;
 }
 
 bool video_rtp_set_codecs(VideoRtpReceiver* receiver, ConstSlice<VideoRtpCodecBinding> codecs) noexcept {
@@ -585,7 +584,7 @@ bool video_rtp_set_codecs(VideoRtpReceiver* receiver, ConstSlice<VideoRtpCodecBi
 #pragma clang attribute pop
 VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource& source,
                                const MediaPacketLayout& layout, ConstSlice<u8> plaintext, u64 now_us) noexcept {
-    if (!receiver || !receiver->frame || layout.kind != MediaPacketKind::rtp || !source.media_ssrc ||
+    if (!receiver->frame || layout.kind != MediaPacketKind::rtp || !source.media_ssrc ||
         !byte_range_valid(plaintext) || layout.payload_offset > plaintext.count ||
         layout.payload_bytes > plaintext.count - layout.payload_offset)
         return VideoRtpPush::invalid;
@@ -751,7 +750,7 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
 }
 
 bool video_rtp_request_keyframe(VideoRtpReceiver* receiver, u32 media_ssrc) noexcept {
-    auto* stream = receiver ? find(*receiver, media_ssrc) : nullptr;
+    auto* stream = find(*receiver, media_ssrc);
     if (!stream)
         return false;
     stream->keyframe_needed = true;
@@ -760,7 +759,7 @@ bool video_rtp_request_keyframe(VideoRtpReceiver* receiver, u32 media_ssrc) noex
 }
 
 void video_rtp_remove_stream(VideoRtpReceiver* receiver, u32 media_ssrc) noexcept {
-    if (auto* stream = receiver ? find(*receiver, media_ssrc) : nullptr)
+    if (auto* stream = find(*receiver, media_ssrc))
         release_window(stream);
 }
 

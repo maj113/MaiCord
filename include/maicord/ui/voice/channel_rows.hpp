@@ -13,11 +13,16 @@ struct UiVoiceParticipantRow {
     bool speaking;          // Draw the speaking ring around the avatar.
 };
 inline constexpr float kUiVoiceLiveBadgeWidth = 34, kUiVoiceLiveBadgeHeight = 16;
-// The index-th connected user drawn inside a voice channel row; row_rectangle is
-// the channel row's layout rectangle. False past the last drawn user.
+// The connected users drawn inside a voice channel row: its first VoiceState and how many follow (at most
+// row.voice_count). The store keeps a channel's states together, so a caller looks them up once for a row.
+struct UiVoiceParticipants {
+    const VoiceState* first;
+    u32 count;
+};
+UiVoiceParticipants ui_voice_participants(const ChannelViewRow& row, const VoiceStateStore& store) noexcept;
+// The index-th of those users; row_rectangle is the channel row's layout rectangle. False past the last one.
 bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_rectangle,
-                              const VoiceStateStore& store, u32 index,
-                              UiVoiceParticipantRow* output) noexcept;
+                              const UiVoiceParticipants& users, u32 index, UiVoiceParticipantRow* output) noexcept;
 // Disconnect control of the voice connection card above the account panel.
 UiRect ui_voice_disconnect_rectangle(UiRect footer) noexcept;
 

@@ -21,9 +21,6 @@ enum class VoiceReceiveResult : u8 {
 using VoiceReceiveDecrypt = DaveMediaResult (*)(void* context, const VoiceReceivedPacket& packet,
                                                 ConstSlice<u8> frame, Slice<u8> scratch,
                                                 Slice<u8> output) noexcept;
-struct VoiceReceiveStats {
-    u64 lost, queued;
-};
 // Worker-owned receive path: transport plaintext -> RTP payload -> DAVE ->
 // per-SSRC jitter buffer; an audio thread renders the mix to WASAPI. The UDP
 // buffers are lent to the connection's media transport until it drains, so
@@ -32,7 +29,6 @@ struct VoiceReceive {
     VoicePlayback playback;
     VoiceVideoSink video; // Camera/screen sources; frames go to video.frames.
     VoiceAudioOutput output;
-    VoiceReceiveStats stats;
     VoiceConnection* connection;
     u64 media_revision, speaking_deadline_ms;
     wchar_t output_device[kVoiceDeviceIdCharacters]; // Endpoint the running output opened.

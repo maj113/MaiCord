@@ -109,7 +109,7 @@ void decode(VoiceChannelInfoEvent kind, const ConstSlice<u8>& payload) noexcept 
 
 // Asks for the selected guild's statuses and start times once per session;
 // the worker drops repeats within a session.
-void request_selected_guild() noexcept {
+inline void request_selected_guild() noexcept {
     const auto* state = chat();
     const u64 guild = state && !state->home_selected ? state->selected_guild_id : 0;
     if (!guild || (guild == vc.asked_guild && vc.asked_session == vc.session))
@@ -137,7 +137,7 @@ void request_selected_guild() noexcept {
     vc.asked_session = vc.session;
 }
 
-void follow_connection() noexcept {
+inline void follow_connection() noexcept {
     const auto view = application_voice_view();
     const auto* joined = view.guild_id ? voice_channel(view.channel_id) : nullptr;
     const bool connected = joined && view.state == UiVoicePanelState::connected;
@@ -254,7 +254,6 @@ void open_status_form(u64 channel_id) noexcept {
 } // namespace
 
 void application_voice_channels_gateway(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
-    vc.extras.info = &vc.info;
     if (event.kind == GatewayClientEventKind::ready || event.kind == GatewayClientEventKind::resumed) {
         ++vc.session; // The worker may ask every guild again.
         return;
@@ -290,7 +289,6 @@ void application_voice_channels_gateway(const GatewayClientEvent& event, ConstSl
 }
 
 void application_voice_channels_pump() noexcept {
-    vc.extras.info = &vc.info;
     if (!g_app.account_ui)
         return;
     request_selected_guild();
@@ -299,7 +297,7 @@ void application_voice_channels_pump() noexcept {
 }
 
 const UiVoiceChannelExtras& application_voice_channels_extras() noexcept {
-    vc.extras.info = &vc.info;
+    vc.extras.info = &vc.info; // Every reader gets the extras from here (release sets it too).
     return vc.extras;
 }
 
@@ -361,7 +359,6 @@ u64 application_voice_invite_next_wake() noexcept {
 }
 
 void application_voice_invite_tick(u64 now_ms) noexcept {
-    vc.extras.info = &vc.info;
     // Runs every loop turn: without an invite row nothing can show.
     if (!ui_voice_invite_channel(vc.invite))
         return;

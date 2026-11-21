@@ -61,11 +61,8 @@ VoiceReceiveResult voice_receive_packet(VoiceReceive* receive, const VoiceReceiv
                                 {receive->dave_output, sizeof(receive->dave_output)});
     if (!opened.ok() || !opened.bytes || opened.bytes > sizeof(receive->dave_output) ||
         !voice_playback_push(&receive->playback, layout.ssrc, packet.member.user_id, packet.member.speaking,
-                             layout.sequence, layout.timestamp, {receive->dave_output, opened.bytes}, now_us)) {
-        ++receive->stats.lost;
+                             layout.sequence, layout.timestamp, {receive->dave_output, opened.bytes}, now_us))
         return VoiceReceiveResult::lost;
-    }
-    ++receive->stats.queued;
     return VoiceReceiveResult::queued;
 }
 

@@ -99,7 +99,7 @@ MlsStatus verify_state(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state, 
     }
     return MlsStatus::ok;
 }
-bool is_joiner(ConstSlice<u32> joiners, u32 node) noexcept {
+inline bool is_joiner(ConstSlice<u32> joiners, u32 node) noexcept {
     if (!mls_tree_is_leaf(node))
         return false;
     for (u32 i = 0; i != joiners.count; ++i)

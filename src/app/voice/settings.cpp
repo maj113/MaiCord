@@ -56,7 +56,7 @@ u32 selected_device(const DeviceList& list, const wchar_t* id) noexcept {
             return i + 1;
     return 0;
 }
-Utf8View key_name(u8 key) noexcept {
+inline Utf8View key_name(u8 key) noexcept {
     return {page.key_name, shortcut_key_label(key, {page.key_name, sizeof(page.key_name)})};
 }
 SettingBinding binding_of(u64 control_id) noexcept {

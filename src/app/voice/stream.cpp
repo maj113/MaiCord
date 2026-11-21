@@ -74,7 +74,7 @@ bool watching(const StreamWatchView& view) noexcept {
     return view.state == StreamWatchState::connecting || view.state == StreamWatchState::live ||
            view.state == StreamWatchState::reconnecting;
 }
-bool same_view(const StreamWatchView& a, const StreamWatchView& b) noexcept {
+inline bool same_view(const StreamWatchView& a, const StreamWatchView& b) noexcept {
     return a.key == b.key && a.state == b.state && a.notice == b.notice && a.viewers == b.viewers &&
            a.video_ssrc == b.video_ssrc && a.volume_percent == b.volume_percent && a.paused == b.paused;
 }
@@ -120,7 +120,7 @@ const VoiceState* live_state(const GatewayStreamKey& key) noexcept {
 }
 // The watched stream's owner left the channel or stopped streaming, as the
 // channel's known voice states say; STREAM_DELETE can lag behind or be lost.
-bool owner_gone(const GatewayStreamKey& key) noexcept {
+inline bool owner_gone(const GatewayStreamKey& key) noexcept {
     return valid(key) && g_app.account_ui &&
            voice_state_store_channel(g_app.account_ui->voice_states, key.channel_id).count && !live_state(key);
 }
@@ -189,7 +189,7 @@ void release_press() noexcept {
     }
 }
 // The live badge (or row) of a streaming participant under (x, y); *row and *badge are meaningful only when true.
-bool live_at(float x, float y, GatewayStreamKey* key, UiRect* row, UiRect* badge) noexcept {
+inline bool live_at(float x, float y, GatewayStreamKey* key, UiRect* row, UiRect* badge) noexcept {
     if (const auto* call = g_app.renderer.call_scene; call && ui_call_scene_contains(*call, x, y))
         return false; // The call view covers the channel list (fullscreen).
     const auto* state = application_voice_participant_at(x, y, row, badge);

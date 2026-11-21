@@ -27,7 +27,7 @@ KdfResult expand(KdfSha256Workspace& workspace, const ConstSlice<u8>& suite, con
     return hkdf_sha256_expand(workspace, secret, {parts, 6}, output);
 }
 // The 32-byte shared secret of a KEM exchange.
-HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, const ConstSlice<u8>& dh,
+inline HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, const ConstSlice<u8>& dh,
                                 const ConstSlice<u8>& enc, const ConstSlice<u8>& recipient,
                                 const Slice<u8>& output) noexcept {
     u8 prk[32];

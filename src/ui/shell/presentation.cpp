@@ -204,7 +204,8 @@ bool paint_voice_participants(PaintStream* stream, const ShellNavigationRowWidge
                               UiRect row_rectangle, const VoiceStateStore& voice_states, UiRect viewport,
                               const Theme& theme) noexcept {
     UiVoiceParticipantRow user{};
-    for (u32 i = 0; ui_voice_participant_row(row_widget.view, row_rectangle, voice_states, i, &user); ++i) {
+    const UiVoiceParticipants users = ui_voice_participants(row_widget.view, voice_states);
+    for (u32 i = 0; ui_voice_participant_row(row_widget.view, row_rectangle, users, i, &user); ++i) {
         if (user.row.bottom <= viewport.top || user.row.top >= viewport.bottom)
             continue;
         // Speaking ring: a success-coloured disc 2 DIP larger than the avatar, drawn beneath it.

@@ -1444,8 +1444,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto& row = scene.rows[i];
             const auto* layout = row.view.voice_count ? shell_navigation_scene_layout_node(scene, row) : nullptr;
             UiVoiceParticipantRow voice{};
+            const UiVoiceParticipants users = ui_voice_participants(row.view, *voice_states);
             for (u32 j = 0; layout && renderer->media_quad_count < kRendererMediaQuadCapacity &&
-                            ui_voice_participant_row(row.view, layout->rectangle, *voice_states, j, &voice);
+                            ui_voice_participant_row(row.view, layout->rectangle, users, j, &voice);
                  ++j) {
                 if (ui_rect_intersects(voice.avatar, scene.viewport) &&
                     !queue_user_avatar(renderer, voice.state->user_id, voice.avatar, scene.viewport,

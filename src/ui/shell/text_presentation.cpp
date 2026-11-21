@@ -715,9 +715,10 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         return reject(stream);
                 }
                 UiVoiceParticipantRow voice{};
-                for (u32 i = 0; navigation.voice_states && users &&
-                                ui_voice_participant_row(row, layout->rectangle, *navigation.voice_states, i, &voice);
-                     ++i) {
+                const UiVoiceParticipants voices = navigation.voice_states && users
+                                                       ? ui_voice_participants(row, *navigation.voice_states)
+                                                       : UiVoiceParticipants{};
+                for (u32 i = 0; ui_voice_participant_row(row, layout->rectangle, voices, i, &voice); ++i) {
                     const auto* user = user_store_find(*users, voice.state->user_id);
                     // Voice members are named by their server nickname first. A
                     // member absent from the caches still occupies its row while

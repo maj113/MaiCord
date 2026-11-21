@@ -53,7 +53,6 @@ struct VoiceSend {
     u64 session;
     u32 timestamp_base;
     u16 sequence;
-    u64 dropped_packets;
     NetworkLoop* loop;
     NetworkSignal* signal;
     u8 datagram[kVoiceSendDatagramBytes];

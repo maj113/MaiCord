@@ -128,7 +128,7 @@ void render_preview(void* context, Slice<i16> pcm, u64 now_us) noexcept {
     }
 }
 
-bool start_cdn(AccountSoundboard* s) noexcept {
+inline bool start_cdn(AccountSoundboard* s) noexcept {
     if (s->cdn_started)
         return true;
     if (!cdn_client_start(&s->cdn, kSoundboardCdnResponseBytes).ok())
@@ -137,7 +137,7 @@ bool start_cdn(AccountSoundboard* s) noexcept {
     return true;
 }
 
-bool fetch(AccountSoundboard* s, u64 sound_id) noexcept {
+inline bool fetch(AccountSoundboard* s, u64 sound_id) noexcept {
     if (!start_cdn(s))
         return false;
     u8 target[kSoundboardCdnTargetBytes];
@@ -176,7 +176,7 @@ void drop_pending(AccountSoundboard* s, u32 index) noexcept {
     reset_value(&s->pending[s->pending_count]);
 }
 
-bool ensure_preview(AccountSoundboard* s, u64 now_ms) noexcept {
+inline bool ensure_preview(AccountSoundboard* s, u64 now_ms) noexcept {
     s->preview_idle_since_ms = now_ms;
     return s->call_audio || voice_audio_output_running(s->preview) ||
            voice_audio_output_start_device(&s->preview, s->output_device, render_preview, s);
@@ -271,8 +271,9 @@ void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 n
     if (!s->initialized)
         return;
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
-    if (s->cdn_started && s->fetch_request_id &&
-        cdn_client_status(&s->cdn).phase == CdnClientPhase::response_ready) {
+    const auto phase =
+        s->cdn_started && s->fetch_request_id ? cdn_client_status(&s->cdn).phase : CdnClientPhase::empty;
+    if (phase == CdnClientPhase::response_ready) {
         Consumed consumed{s, nullptr};
         cdn_client_consume_response(&s->cdn, consume, &consumed);
         if (consumed.clip)
@@ -283,8 +284,7 @@ void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 n
         }
         s->fetch_request_id = 0;
         s->fetch_sound_id = 0;
-    } else if (s->cdn_started && s->fetch_request_id &&
-               cdn_client_status(&s->cdn).phase == CdnClientPhase::failed) {
+    } else if (phase == CdnClientPhase::failed) {
         // A failed worker cannot recover; restart it on the next fetch.
         cdn_client_stop(&s->cdn, 1'000);
         s->cdn_started = s->cdn.worker.thread != nullptr;

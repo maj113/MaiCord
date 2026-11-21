@@ -167,9 +167,7 @@ bool voice_playback_push(VoicePlayback* playback, u32 ssrc, u64 user_id, u32 spe
     AcquireSRWLockExclusive(playback->lock.native());
     auto* stream = playback->streams ? stream_for(*playback, ssrc, user_id, arrival_us) : nullptr;
     bool queued = false;
-    if (!stream)
-        ++playback->stats.dropped;
-    else {
+    if (stream) {
         stream->last_packet_us = arrival_us;
         stream->speaking_flags = speaking_flags;
         if (!silence(opus))

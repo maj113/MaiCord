@@ -36,7 +36,7 @@ bool grow(DaveReceiveEpoch& epoch, u32 required) noexcept {
     epoch.capacity = capacity;
     return true;
 }
-void cleanup(DaveReceiveEpoch& epoch, u64 now) noexcept {
+inline void cleanup(DaveReceiveEpoch& epoch, u64 now) noexcept {
     if (!epoch.cleanup_pending && now <= epoch.next_key_expiry_ms)
         return;
     auto* data = entries(epoch);

@@ -31,7 +31,7 @@ MlsStatus next_epoch(KdfSha256Workspace& kdf, const MlsEpochSecrets& current, co
                                      {commit_secret, kMlsHashBytes}, {kZeroSecret, kMlsHashBytes},
                                      {confirmed, kMlsHashBytes}, context, next));
 }
-MlsStatus validate_authored_proposals(const MlsGroupContext& context, u32 sender_leaf,
+inline MlsStatus validate_authored_proposals(const MlsGroupContext& context, u32 sender_leaf,
                                       ConstSlice<MlsProposal> proposals, bool* path_required) noexcept {
     *path_required = proposals.count == 0;
     for (u32 i = 0; i != proposals.count; ++i) {
@@ -320,11 +320,9 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
     if (has_path && !leaf_secret)
         return MlsStatus::invalid_argument;
     auto& next = local->successor;
-    auto status = MlsStatus::ok;
     u32 joiner_count = 0, proposal_tree_bytes = 0, merged_tree_bytes = 0, stub_bytes = 0, path_bytes = 0;
-    if (status == MlsStatus::ok)
-        status = mls_tree_apply_proposals(current.tree, proposals, scratch, buffers.joiners, &joiner_count,
-                                          buffers.proposal_tree, &proposal_tree_bytes);
+    auto status = mls_tree_apply_proposals(current.tree, proposals, scratch, buffers.joiners, &joiner_count,
+                                           buffers.proposal_tree, &proposal_tree_bytes);
     MlsRatchetTree proposal_tree{}, merged{};
     // Every leaf in the adjusted tree was verified in the current tree or in
     // an authenticated proposal.

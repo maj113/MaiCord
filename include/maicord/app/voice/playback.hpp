@@ -27,7 +27,7 @@ struct VoicePlaybackStream {
     i16 pcm[kOpusDecoderMaximumFrames * 2];
 };
 struct VoicePlaybackStats {
-    u64 decoded, concealed, recovered, dropped;
+    u64 decoded, concealed, recovered;
 };
 // Shared by the network worker (push, settings) and the audio thread (render); every entry point takes the one short
 // lock. The UI thread never takes it: user volumes reach the worker first (gateway_client_voice_user_audio). Streams

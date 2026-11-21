@@ -219,13 +219,15 @@ bool channel_users(const VoiceStateStore& store, u64 channel, ConstSlice<u64> us
     row.voice_count = static_cast<u16>(voice_state_store_channel(store, channel).count);
     if (row.voice_count != users.count)
         return false;
+    const UiVoiceParticipants drawn_users = ui_voice_participants(row, store);
     for (u32 i = 0; i < users.count; ++i) {
         UiVoiceParticipantRow drawn{};
-        if (!ui_voice_participant_row(row, {0, 0, 240, 200}, store, i, &drawn) || drawn.state->user_id != users[i])
+        if (!ui_voice_participant_row(row, {0, 0, 240, 200}, drawn_users, i, &drawn) ||
+            drawn.state->user_id != users[i])
             return false;
     }
     UiVoiceParticipantRow past{};
-    return !ui_voice_participant_row(row, {0, 0, 240, 200}, store, users.count, &past);
+    return !ui_voice_participant_row(row, {0, 0, 240, 200}, drawn_users, users.count, &past);
 }
 
 // Every Gateway shape that carries other members' voice states reaches the

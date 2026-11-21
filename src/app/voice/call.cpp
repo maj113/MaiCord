@@ -64,7 +64,7 @@ struct CallView {
 // scope before it can tick, so its stored style is never read before that.
 CallView view{.scene = {.morph = {.style = {0, UiMotionCurve::linear}}}};
 
-bool modal_open() noexcept {
+inline bool modal_open() noexcept {
     return g_app.login.visible || g_app.popup_scene.active || g_app.text_form || g_app.reaction_viewer.active ||
            g_app.image_viewer.scene.active ||
            (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active) ||
@@ -94,7 +94,7 @@ void release_pointer() noexcept {
         application_release_capture();
     }
 }
-Utf8View call_title(u64 channel_id) noexcept {
+inline Utf8View call_title(u64 channel_id) noexcept {
     auto& ui = *g_app.account_ui;
     const auto* channel = chat_state_store_find_channel(ui.chat_state, channel_id);
     if (!channel)
@@ -105,7 +105,7 @@ Utf8View call_title(u64 channel_id) noexcept {
     }
     return chat_state_store_channel_name(ui.chat_state, *channel);
 }
-const GatewayVoiceVideoUser* video_user(u64 user_id) noexcept {
+inline const GatewayVoiceVideoUser* video_user(u64 user_id) noexcept {
     for (u32 i = 0; view.snapshot_valid && i < view.snapshot.count && i < kGatewayVoiceVideoUsers; ++i)
         if (view.snapshot.users[i].user_id == user_id && view.snapshot.users[i].ssrc)
             return &view.snapshot.users[i];
@@ -147,7 +147,7 @@ void add_participant(u32* count, u64 user_id, u32 flags, bool self) noexcept {
     }
     view.participants[(*count)++] = p;
 }
-UiCallStream tile_stream(StreamWatchState state) noexcept {
+inline UiCallStream tile_stream(StreamWatchState state) noexcept {
     switch (state) {
     case StreamWatchState::connecting:
         return UiCallStream::connecting;
@@ -226,7 +226,7 @@ u32 project_streams(u64 channel_id) noexcept {
     }
     return count;
 }
-u32 project_participants(u64 channel_id) noexcept {
+inline u32 project_participants(u64 channel_id) noexcept {
     auto& ui = *g_app.account_ui;
     const u64 self = ui.chat_state.self_user_id;
     const auto* s = application_voice_call();
@@ -537,7 +537,7 @@ bool clear_hover() noexcept {
     return true;
 }
 // Keys that would edit or send through the hidden composer.
-bool editing_key(u32 key) noexcept {
+inline bool editing_key(u32 key) noexcept {
     const bool control = application_control_down(), alt = application_alt_down();
     if (alt)
         return false;

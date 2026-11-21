@@ -13,7 +13,7 @@ struct Layout {
 constexpr u32 align(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
-Layout layout() noexcept {
+inline Layout layout() noexcept {
     Layout l{};
     l.levels = align(sizeof(OpusEncoder), 64);
     l.stream = align(l.levels + kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames, 64);

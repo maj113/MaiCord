@@ -56,7 +56,7 @@ void observe(VoiceJitterBuffer& buffer, u16 sequence, u32 timestamp, u64 arrival
     }
 }
 // Oldest buffered sequence at or after the playout point.
-bool oldest(const VoiceJitterBuffer& buffer, u16* sequence) noexcept {
+inline bool oldest(const VoiceJitterBuffer& buffer, u16* sequence) noexcept {
     for (u32 i = 0; i < kVoiceJitterSlots; ++i)
         if (holds(buffer, static_cast<u16>(buffer.next_sequence + i))) {
             *sequence = static_cast<u16>(buffer.next_sequence + i);

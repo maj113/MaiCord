@@ -66,7 +66,7 @@ __declspec(noinline) bool extensions_valid(ConstSlice<u8> data, ConstSlice<u8> c
     }
     return true;
 }
-MlsPackageCryptoError dave_profile(const MlsKeyPackageView& view, u64 expected_user_id) noexcept {
+inline MlsPackageCryptoError dave_profile(const MlsKeyPackageView& view, u64 expected_user_id) noexcept {
     u64 user_id = 0;
     const auto leaf = mls_leaf_check_dave(view.leaf, &user_id);
     if (leaf != MlsPackageCryptoError::none)

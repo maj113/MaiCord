@@ -61,7 +61,7 @@ const ChannelRecord* channel_of(u64 channel_id) noexcept {
 PermissionSet self_permissions(const ChannelRecord& channel) noexcept {
     return channel.permissions_resolved ? channel.effective_permissions : 0;
 }
-const VoiceState* self_state(const ChannelRecord& channel) noexcept {
+inline const VoiceState* self_state(const ChannelRecord& channel) noexcept {
     const auto& ui = *g_app.account_ui;
     const auto* state = voice_state_store_find(ui.voice_states, channel.guild_id, ui.chat_state.self_user_id);
     return state && state->channel_id == channel.id ? state : nullptr;
@@ -221,7 +221,7 @@ bool end_save(TextFormOwnerKey key, Utf8View) noexcept {
     const auto* channel = end_valid(key) ? channel_of(stage.form.channel_id) : nullptr;
     return channel && queue_simple(*channel, StageOperation::end);
 }
-bool open_end_confirmation(const ChannelRecord& channel) noexcept {
+inline bool open_end_confirmation(const ChannelRecord& channel) noexcept {
     if (g_app.text_form)
         return false;
     begin_form(channel);

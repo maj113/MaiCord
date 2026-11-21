@@ -548,20 +548,18 @@ u8 voice_connection_video_payload_type(const VoiceConnection& connection, VoiceV
 }
 bool voice_connection_set_sink_wants(VoiceConnection* connection, u8 any_quality,
                                      ConstSlice<VoiceSinkWant> wants) noexcept {
-    if (!connection || wants.count > kVoiceSinkWantsMaximum || (wants.count && !wants.data) ||
-        !voice_gateway_write_media_sink_wants(any_quality, wants, {}).bytes)
+    if (!connection || wants.count > kVoiceSinkWantsMaximum || (wants.count && !wants.data))
         return false;
+    // The video sink builds the same wants, in the same order, on each drive. Stored wants passed the checks.
     bool same = connection->sink_wants_configured && connection->sink_any_quality == any_quality &&
                 connection->sink_want_count == wants.count;
-    for (u32 i = 0; same && i != wants.count; ++i) {
-        bool found = false;
-        for (u32 j = 0; !found && j != connection->sink_want_count; ++j)
-            found = connection->sink_wants[j].ssrc == wants[i].ssrc &&
-                    connection->sink_wants[j].quality == wants[i].quality;
-        same = found;
-    }
+    for (u32 i = 0; same && i != wants.count; ++i)
+        same = connection->sink_wants[i].ssrc == wants[i].ssrc &&
+               connection->sink_wants[i].quality == wants[i].quality;
     if (same)
         return true;
+    if (!voice_gateway_write_media_sink_wants(any_quality, wants, {}).bytes)
+        return false;
     copy_bytes(connection->sink_wants, wants.data, wants.count * static_cast<u32>(sizeof(VoiceSinkWant)));
     connection->sink_want_count = wants.count;
     connection->sink_any_quality = any_quality;

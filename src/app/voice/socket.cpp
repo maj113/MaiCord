@@ -280,8 +280,6 @@ void voice_socket_completion(VoiceSocket* socket, NetworkLoop* loop, const Netwo
 }
 
 void voice_socket_tick(VoiceSocket* socket, u64 now_ms) noexcept {
-    if (!socket)
-        return;
     socket->now_ms = now_ms;
     if (!active(*socket)) {
         finish(socket);
@@ -338,7 +336,7 @@ u64 voice_socket_deadline(const VoiceSocket& socket) noexcept {
 }
 VoiceSocketSend voice_socket_send(VoiceSocket* socket, WebSocketOpcode opcode, ConstSlice<u8> payload,
                                   u64 now_ms) noexcept {
-    if (!socket || socket->phase != VoiceSocketPhase::open || socket->pending_close ||
+    if (socket->phase != VoiceSocketPhase::open || socket->pending_close ||
         socket->stop_requested || !payload.data || !payload.count ||
         (opcode != WebSocketOpcode::text && opcode != WebSocketOpcode::binary) ||
         payload.count > socket->session.maximum_message_bytes)

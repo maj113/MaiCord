@@ -25,7 +25,7 @@ bool find(const MlsProposalCache& cache, const u8* reference, u32* index) noexce
         }
     return false;
 }
-MlsStatus insert(MlsProposalCache& cache, ConstSlice<u8> message, const MlsProposal& proposal) noexcept {
+inline MlsStatus insert(MlsProposalCache& cache, ConstSlice<u8> message, const MlsProposal& proposal) noexcept {
     if (!message.count || message.count > kMlsMaxProposalBytes || proposal.group_id != cache.group_id ||
         proposal.epoch != cache.epoch)
         return MlsStatus::malformed;
@@ -48,7 +48,7 @@ MlsStatus insert(MlsProposalCache& cache, ConstSlice<u8> message, const MlsPropo
     cache.storage_used += message.count;
     return MlsStatus::ok;
 }
-void remove(MlsProposalCache& cache, u32 index) noexcept {
+inline void remove(MlsProposalCache& cache, u32 index) noexcept {
     for (u32 i = index; i + 1 < cache.entry_count; ++i)
         cache.entries[i] = cache.entries[i + 1];
     --cache.entry_count;

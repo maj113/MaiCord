@@ -8,7 +8,7 @@ void append(char* line, u32 capacity, u32* used, const char* text) noexcept {
     while (text && *text && *used + 1 < capacity)
         line[(*used)++] = *text++;
 }
-void append_number(char* line, u32 capacity, u32* used, u64 value) noexcept {
+inline void append_number(char* line, u32 capacity, u32* used, u64 value) noexcept {
     char digits[21];
     digits[decimal_write(digits, value)] = 0;
     append(line, capacity, used, digits);

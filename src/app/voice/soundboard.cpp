@@ -209,7 +209,7 @@ void want_guild(u64 guild_id) noexcept {
                  (load->state == LoadState::failed && now_ms() >= load->retry_at_ms)))
         load->state = LoadState::wanted;
 }
-void want_defaults() noexcept {
+inline void want_defaults() noexcept {
     if (board.defaults == LoadState::none || (board.defaults == LoadState::failed && now_ms() >= board.defaults_retry_ms))
         board.defaults = LoadState::wanted;
 }
@@ -224,7 +224,7 @@ void list_failed(bool defaults, GuildLoad* load, u64 now) noexcept {
     }
 }
 
-u32 effect_text(char* output, u32 capacity, Utf8View emoji, bool custom_emoji, Utf8View name) noexcept {
+inline u32 effect_text(char* output, u32 capacity, Utf8View emoji, bool custom_emoji, Utf8View name) noexcept {
     u32 bytes = 0;
     if (emoji.bytes && !custom_emoji) {
         bytes = utf8_copy_truncated(output, capacity, emoji);

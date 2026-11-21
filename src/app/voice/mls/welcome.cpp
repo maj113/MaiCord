@@ -8,10 +8,10 @@
 namespace maicord {
 namespace {
 // GroupSecrets: joiner_secret, optional path_secret, empty PSK list.
-u32 group_secrets_bytes(bool has_path) noexcept {
+inline u32 group_secrets_bytes(bool has_path) noexcept {
     return 1 + kMlsHashBytes + 1 + (has_path ? 1 + kMlsHashBytes : 0) + 1;
 }
-MlsStatus welcome_path_secret(const MlsTreeKemPrivate& state, u32 joiner, const u8** secret) noexcept {
+inline MlsStatus welcome_path_secret(const MlsTreeKemPrivate& state, u32 joiner, const u8** secret) noexcept {
     u32 ancestor = 0;
     if (const auto status = mls_tree_leaf_ancestor(state.leaf_index, joiner, &ancestor);
         status != MlsStatus::ok)

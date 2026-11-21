@@ -70,7 +70,7 @@ Slice<u8> context(const DaveSession& session, u8 index) noexcept {
     return {block_data(session, DaveArenaBlock::fixed) + index * kMlsGroupContextMaximum,
             kMlsGroupContextMaximum};
 }
-Slice<u8> external_sender_buffer(const DaveSession& session) noexcept {
+inline Slice<u8> external_sender_buffer(const DaveSession& session) noexcept {
     return {block_data(session, DaveArenaBlock::fixed) + kFixedSender, kMlsMaxExternalSenderBytes};
 }
 ConstSlice<u8> external_sender(const DaveSession& session) noexcept {
@@ -252,7 +252,7 @@ DaveReceiveSender* find_receiver(const DaveSession& session, u64 user_id) noexce
             return &list[i];
     return nullptr;
 }
-void remove_receiver(DaveSession& session, u32 index) noexcept {
+inline void remove_receiver(DaveSession& session, u32 index) noexcept {
     auto* list = receivers(session);
     dave_receive_sender_release(&list[index]);
     list[index] = list[session.receiver_count - 1];
@@ -267,7 +267,7 @@ void retire_receivers(DaveSession& session, u64 now_ms) noexcept {
 }
 // Re-keys every remote member of the newly active epoch from its exporter
 // secret; members that left keep their old keys only for the grace period.
-MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
+inline MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
     const auto& active = session.group.active;
     const u64 revision = ++session.receive_revision;
     auto* list = receivers(session);

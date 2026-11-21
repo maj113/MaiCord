@@ -902,8 +902,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             const auto& row = scene.rows[i];
             const auto* layout = row.view.voice_count ? shell_navigation_scene_layout_node(scene, row) : nullptr;
             UiVoiceParticipantRow voice{};
-            for (u32 j = 0; layout && ui_voice_participant_row(row.view, layout->rectangle,
-                                                               application.account_ui->voice_states, j, &voice);
+            const UiVoiceParticipants users = ui_voice_participants(row.view, application.account_ui->voice_states);
+            for (u32 j = 0; layout && ui_voice_participant_row(row.view, layout->rectangle, users, j, &voice);
                  ++j) {
                 if (!ui_rect_has_area(ui_rect_intersection(voice.avatar, scene.viewport)))
                     continue;

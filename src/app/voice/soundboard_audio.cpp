@@ -318,8 +318,6 @@ __attribute__((minsize)) bool soundboard_cache_insert(SoundboardCache* cache, So
 }
 
 void soundboard_cache_remove(SoundboardCache* cache, u64 sound_id) noexcept {
-    if (!cache)
-        return;
     for (u32 i = 0; i < cache->count; ++i)
         if (cache->entries[i]->sound_id == sound_id) {
             cache_drop(cache, i);

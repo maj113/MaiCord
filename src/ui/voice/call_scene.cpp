@@ -749,9 +749,8 @@ Color ui_call_identity_color(const Theme& theme, u64 user_id) noexcept {
     color.alpha = 1;
     return color;
 }
-Color ui_call_tile_tint(const Theme& theme, u64 user_id) noexcept {
-    return ui_theme_color_alpha(ui_call_identity_color(theme, user_id),
-                                theme.appearance == ThemeAppearance::light ? .20f : .26f);
+Color ui_call_tile_tint(const Theme& theme, Color identity) noexcept {
+    return ui_theme_color_alpha(identity, theme.appearance == ThemeAppearance::light ? .20f : .26f);
 }
 
 bool ui_call_control_enabled(const UiCallScene& s, UiCallControl control) noexcept {
@@ -1003,9 +1002,10 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
             // colour. The host draws a custom avatar over the placeholder.
             const Color fill = theme.surface;
             const auto a = avatar_rect(tile);
+            const Color identity = ui_call_identity_color(theme, who->user_id);
             p.use<ui_surface_paint>(r, theme, UiElevation::card, kTileRadius, &fill, &theme.tokens.border.subtle)
-                .rounded(r, ui_call_tile_tint(theme, who->user_id), kTileRadius)
-                .rounded(a, who->has_avatar ? theme.avatar_placeholder : ui_call_identity_color(theme, who->user_id),
+                .rounded(r, ui_call_tile_tint(theme, identity), kTileRadius)
+                .rounded(a, who->has_avatar ? theme.avatar_placeholder : identity,
                          ui_rect_width(a) * .5f);
         }
         p.unclip();

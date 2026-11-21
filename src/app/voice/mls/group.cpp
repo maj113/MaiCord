@@ -52,8 +52,6 @@ MlsStatus commit_sender(const MlsGroup& group, ConstSlice<u8> message, u32* send
 } // namespace
 
 void mls_group_cancel_pending(MlsGroup* group) noexcept {
-    if (!group)
-        return;
     secure_clear_bytes(&group->staged, sizeof(group->staged));
     reset_value(&group->pending_message);
     group->pending_joiners = nullptr;
@@ -62,8 +60,6 @@ void mls_group_cancel_pending(MlsGroup* group) noexcept {
     group->has_pending_transition = false;
 }
 void mls_group_clear(MlsGroup* group) noexcept {
-    if (!group)
-        return;
     if (group->initialized)
         mls_proposal_cache_clear(&group->proposals);
     secure_clear_bytes(group, sizeof(*group));

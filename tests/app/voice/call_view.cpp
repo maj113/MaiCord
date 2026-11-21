@@ -209,7 +209,7 @@ void control_cases(Check check) noexcept {
           "call controls: grouped 44-DIP buttons centred in the bar with a wider disconnect");
     // Avatar-less participants: initials on their identity colour; the tile
     // plate carries a translucent tint of the same hue.
-    const Color hue = ui_call_identity_color(kDefaultTheme, 7), tint = ui_call_tile_tint(kDefaultTheme, 7);
+    const Color hue = ui_call_identity_color(kDefaultTheme, 7), tint = ui_call_tile_tint(kDefaultTheme, hue);
     check(hue.alpha == 1 && tint.alpha > 0 && tint.alpha < .5f && tint.red == hue.red &&
               (hue.red != ui_call_identity_color(kDefaultTheme, 8).red ||
                hue.blue != ui_call_identity_color(kDefaultTheme, 8).blue),

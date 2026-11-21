@@ -108,12 +108,12 @@ MlsStatus edit_shape(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposa
     *additions = adds;
     return status;
 }
-bool same_leaf_key(const MlsLeafNode& leaf, const MlsKeyPackage& added) noexcept {
+inline bool same_leaf_key(const MlsLeafNode& leaf, const MlsKeyPackage& added) noexcept {
     return leaf.user_id == added.user_id ||
            mls_equal(leaf.encryption_key, added.leaf_encryption_key, kMlsPointBytes) ||
            mls_equal(leaf.signature_key, added.signature_key, kMlsPointBytes);
 }
-bool same_add_key(const MlsKeyPackage& left, const MlsKeyPackage& right) noexcept {
+inline bool same_add_key(const MlsKeyPackage& left, const MlsKeyPackage& right) noexcept {
     return left.user_id == right.user_id || mls_equal(left.init_key, right.init_key, kMlsPointBytes) ||
            mls_equal(left.leaf_encryption_key, right.leaf_encryption_key, kMlsPointBytes) ||
            mls_equal(left.signature_key, right.signature_key, kMlsPointBytes);
@@ -124,7 +124,7 @@ u32 additions_below(ConstSlice<u32> joiners, u32 parent) noexcept {
         count += mls_tree_is_below(joiners[i] * 2, parent) ? 1 : 0;
     return count;
 }
-const MlsKeyPackage* add_at(ConstSlice<MlsProposal> proposals, ConstSlice<u32> joiners, u32 leaf) noexcept {
+inline const MlsKeyPackage* add_at(ConstSlice<MlsProposal> proposals, ConstSlice<u32> joiners, u32 leaf) noexcept {
     for (u32 i = 0, add = 0; i != proposals.count; ++i) {
         if (proposals[i].type != kMlsProposalAdd)
             continue;
@@ -164,7 +164,7 @@ struct NodeWriter {
     }
 };
 // A parent gains each new joiner below it as an unmerged leaf, kept sorted.
-void write_parent(MlsWriter& writer, const MlsParentNode& parent, ConstSlice<u32> joiners,
+inline void write_parent(MlsWriter& writer, const MlsParentNode& parent, ConstSlice<u32> joiners,
                   u32 node) noexcept {
     writer.integer(1, 1);
     writer.integer(kMlsNodeParent, 1);

@@ -75,7 +75,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
     if (queued)
         wake_worker(send);
 }
-void discard(VoiceSendShared& s) noexcept {
+inline void discard(VoiceSendShared& s) noexcept {
     write_release(&s.read, read_acquire(&s.write));
 }
 void stop_capture(VoiceSend& send) noexcept {
@@ -93,7 +93,7 @@ u64 tick(void* context, u64 now_us) noexcept {
     process(send, now_us);
     return send.shared->wake_us;
 }
-bool start_capture(VoiceSend& send) noexcept {
+inline bool start_capture(VoiceSend& send) noexcept {
     if (!send.shared && !voice_send_open(&send))
         return false;
     copy_bytes(send.capture_device, send.applied.input_device, sizeof(send.capture_device));
@@ -136,7 +136,7 @@ bool voice_send_open(VoiceSend* send) noexcept {
 }
 
 void voice_send_close(VoiceSend* send) noexcept {
-    if (!send || !send->shared)
+    if (!send->shared)
         return;
     pages_release(send->shared);
     send->shared = nullptr;
@@ -146,7 +146,7 @@ void voice_send_close(VoiceSend* send) noexcept {
 }
 
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept {
-    if (!send || !send->shared)
+    if (!send->shared)
         return;
     LONG64 word = 0;
     copy_bytes(&word, &control, sizeof(word));
@@ -188,7 +188,7 @@ VoiceAudioStatus voice_send_status(VoiceSend* send) noexcept {
 }
 
 void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
-    if (!send || !t.ready || !t.seal || !t.send || !t.speaking)
+    if (!t.ready || !t.seal || !t.send || !t.speaking)
         return;
     if (t.session != send->session) {
         u8 random[6]{};
@@ -206,9 +206,7 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
         if (read == static_cast<u32>(read_acquire(&s->write)))
             break;
         const auto& packet = s->packets[read % kVoiceSendQueue];
-        if (!t.ready(t.context)) {
-            ++send->dropped_packets;
-        } else {
+        if (t.ready(t.context)) {
             bool announce_ok = true;
             if (packet.action == VoiceTransmitAction::start || packet.action == VoiceTransmitAction::voice) {
                 send->speaking_off_pending = false;
@@ -233,10 +231,8 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
                 if (sent == VoiceUdpMediaSend::accepted) {
                     ++send->sequence;
                     increment_single_writer(&send->sent_packets); // worker only; the UI status read is lock-free
-                } else
-                    ++send->dropped_packets;
-            } else
-                ++send->dropped_packets;
+                }
+            }
         }
         if (packet.action == VoiceTransmitAction::tail_end)
             send->speaking_off_pending = send->speaking_on;

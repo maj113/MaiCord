@@ -133,15 +133,15 @@ u8 guild_tier() noexcept {
     return record ? record->premium_tier : 0;
 }
 // No hardware H.264 encoder (known once the renderer's device reached the module): nothing can stream.
-bool no_encoder() noexcept {
+inline bool no_encoder() noexcept {
     return ui.snapshot_valid && ui.snapshot.encodable_known &&
            !(ui.snapshot.encodable & voice_video_codec_bit(VoiceVideoCodec::h264));
 }
-bool can_capture() noexcept {
+inline bool can_capture() noexcept {
     const auto support = capture_support();
     return support.screens || support.windows || support.system_picker;
 }
-bool allowed_in(u64 channel_id) noexcept {
+inline bool allowed_in(u64 channel_id) noexcept {
     const auto* channel =
         g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id) : nullptr;
     if (!channel)
@@ -169,13 +169,13 @@ StreamQuality resolved() noexcept {
 bool audio_available() noexcept {
     return stream_audio_available(stream_audio_method());
 }
-Utf8View audio_unavailable_reason() noexcept {
+inline Utf8View audio_unavailable_reason() noexcept {
     return stream_audio_method() == StreamAudioMethod::unavailable_windows_version
                ? MAICORD_OS_TEXT("Sound sharing needs Windows 10 version 2004 or later.",
                                  "Sound sharing needs a newer system.")
                : utf8_literal("Sound sharing needs PipeWire.");
 }
-GoLiveSettings settings() noexcept {
+inline GoLiveSettings settings() noexcept {
     const auto q = resolved();
     return {q.resolution, q.fps, preset(), !prefs().stream_muted && audio_available(), {}};
 }
@@ -217,19 +217,6 @@ void project_summary() noexcept {
     ui.detail_bytes = d.used;
 }
 
-// Thumbnails live where the renderer routes their keys (the large preview atlas) and are forgotten when the dialog
-// closes or a source leaves the list (go_live_thumbnails.hpp).
-bool upload_thumbnail(void*, const MediaAssetKey& key, u32 width, u32 height, const u8* rgba) noexcept {
-    return renderer_upload_media_straight_rgba8(&g_app.renderer, key, static_cast<u16>(width), static_cast<u16>(height),
-                                                width * 4, {rgba, width * height * 4})
-        .ok();
-}
-void forget_thumbnail(void*, const MediaAssetKey& key) noexcept {
-    if (MediaAtlas* atlas =
-            g_app.renderer.preview_media_atlas ? g_app.renderer.preview_media_atlas : g_app.renderer.media_atlas)
-        media_atlas_forget(atlas, key);
-}
-constexpr GoLiveThumbnailAtlas kThumbnailAtlas{nullptr, upload_thumbnail, forget_thumbnail};
 void project_content() noexcept;
 u32 worker_main(void* argument) noexcept {
     auto* job = static_cast<ThumbnailJob*>(argument);
@@ -264,7 +251,7 @@ void refresh_sources(u64 now) noexcept {
     u64 listed[kUiGoLiveMaximumSources];
     for (u32 i = 0; i < ui.capture_count; ++i)
         listed[i] = ui.capture[i].handle;
-    go_live_thumbnails_prune(&ui.thumbnails, kThumbnailAtlas, listed, ui.capture_count);
+    go_live_thumbnails_prune(&ui.thumbnails, listed, ui.capture_count);
     project_sources();
     ++ui.revision;
     if (ui.worker || !g_app.renderer.graphics.device || !g_app.window || application_window_minimized())
@@ -295,8 +282,8 @@ void collect_thumbnails() noexcept {
         return;
     for (u32 i = 0; i < ui.job->count; ++i)
         if (ui.job->ok[i])
-            go_live_thumbnail_publish(&ui.thumbnails, kThumbnailAtlas, ui.job->sources[i].handle, ui.job->width[i],
-                                      ui.job->height[i], ui.job->pixels[i]);
+            go_live_thumbnail_publish(&ui.thumbnails, ui.job->sources[i].handle, ui.job->width[i], ui.job->height[i],
+                                      ui.job->pixels[i]);
     project_sources();
     project_content();
     application_go_live_modal_synchronize();
@@ -312,7 +299,7 @@ void stop_worker() noexcept {
         pages_release(ui.job, sizeof(ThumbnailJob));
         ui.job = nullptr;
     }
-    go_live_thumbnails_release(&ui.thumbnails, kThumbnailAtlas);
+    go_live_thumbnails_release(&ui.thumbnails);
 }
 
 // Why this computer cannot stream, or {} when it can.
@@ -532,7 +519,7 @@ void start(const CaptureSource* source) noexcept {
 }
 
 // A stream that ended for a reason the user should hear about (not a stop, a leave or a picker cancelled).
-Utf8View end_message(const GoLiveSnapshot& s, bool was_live) noexcept {
+inline Utf8View end_message(const GoLiveSnapshot& s, bool was_live) noexcept {
     switch (s.end) {
     case GoLiveEnd::no_hardware_encoder:
         return utf8_literal("Your graphics card has no hardware H.264 video encoder, which streaming needs.");
@@ -649,6 +636,19 @@ void activate_target(const UiGoLiveTarget& target) noexcept {
     application_repaint();
 }
 } // namespace
+
+// Thumbnails live where the renderer routes their keys (the large preview atlas) and are forgotten when the dialog
+// closes or a source leaves the list (go_live_thumbnails.hpp).
+bool go_live_thumbnail_upload(const MediaAssetKey& key, u32 width, u32 height, const u8* rgba) noexcept {
+    return renderer_upload_media_straight_rgba8(&g_app.renderer, key, static_cast<u16>(width), static_cast<u16>(height),
+                                                width * 4, {rgba, width * height * 4})
+        .ok();
+}
+void go_live_thumbnail_drop(const MediaAssetKey& key) noexcept {
+    if (MediaAtlas* atlas =
+            g_app.renderer.preview_media_atlas ? g_app.renderer.preview_media_atlas : g_app.renderer.media_atlas)
+        media_atlas_forget(atlas, key);
+}
 
 UiCallShare application_go_live_share(u64 channel_id) noexcept {
     if (live())
@@ -821,7 +821,7 @@ bool application_go_live_modal_synchronize() noexcept {
         return true;
     }
     // The scene holds the latest keys now: the pictures they replaced can go.
-    go_live_thumbnails_synchronized(&ui.thumbnails, kThumbnailAtlas);
+    go_live_thumbnails_synchronized(&ui.thumbnails);
     g_app.renderer.go_live_scene = &ui.scene;
     g_app.context_focus = &ui.scene.widgets;
     return true;

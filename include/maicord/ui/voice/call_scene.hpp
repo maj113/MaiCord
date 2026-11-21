@@ -262,9 +262,10 @@ bool ui_call_control_enabled(const UiCallScene&, UiCallControl) noexcept;
 // Bar grouping: controls sharing a group sit kUiCallGroupGap apart.
 u32 ui_call_control_group(UiCallControl) noexcept;
 // Identity colour for a participant (stable per user): the avatar-less
-// initials disc, and at a low alpha the tint over an avatar tile's plate.
+// initials disc, and at a low alpha (ui_call_tile_tint of it) the tint over
+// an avatar tile's plate.
 Color ui_call_identity_color(const Theme&, u64 user_id) noexcept;
-Color ui_call_tile_tint(const Theme&, u64 user_id) noexcept;
+Color ui_call_tile_tint(const Theme&, Color identity) noexcept;
 // Toggled controls (muted, deafened, fullscreen) paint in their active style.
 bool ui_call_control_active(const UiCallScene&, UiCallControl) noexcept;
 // Tooltip text for a control at its current state.

@@ -16,7 +16,7 @@ StreamPreviewEntry* find(StreamPreviewCache& cache, const GatewayStreamKey& key)
 bool wanted(const StreamPreviewEntry& entry, u64 now_ms) noexcept {
     return entry.key.type != GatewayStreamType::none && entry.wanted_ms && now_ms - entry.wanted_ms < kStreamPreviewWantMs;
 }
-void erase(StreamPreviewEntry& entry) noexcept {
+inline void erase(StreamPreviewEntry& entry) noexcept {
     // The URL is a bearer of unencrypted media: wipe it, not just its length.
     clear_bytes(&entry, sizeof(entry));
 }
@@ -66,7 +66,7 @@ u64 stream_preview_next_wake(const StreamPreviewCache& cache, u64 now_ms) noexce
 
 bool stream_preview_submitted(StreamPreviewCache* cache, const GatewayStreamKey& key, u64 request_id,
                               u64 now_ms) noexcept {
-    auto* entry = cache && request_id ? find(*cache, key) : nullptr;
+    auto* entry = request_id ? find(*cache, key) : nullptr;
     if (!entry || entry->request_id)
         return false;
     entry->request_id = request_id;
@@ -75,7 +75,7 @@ bool stream_preview_submitted(StreamPreviewCache* cache, const GatewayStreamKey&
 }
 
 void stream_preview_deferred(StreamPreviewCache* cache, const GatewayStreamKey& key, u64 retry_ms) noexcept {
-    if (auto* entry = cache ? find(*cache, key) : nullptr; entry && !entry->request_id)
+    if (auto* entry = find(*cache, key); entry && !entry->request_id)
         entry->next_ms = retry_ms;
 }
 
@@ -117,8 +117,7 @@ const StreamPreviewEntry* stream_preview_complete(StreamPreviewCache* cache, u64
 }
 
 void stream_preview_clear(StreamPreviewCache* cache) noexcept {
-    if (cache)
-        clear_bytes(cache, sizeof(*cache));
+    clear_bytes(cache, sizeof(*cache));
 }
 
 MediaAssetKey stream_preview_media_key(const StreamPreviewEntry& entry) noexcept {

@@ -13,13 +13,13 @@ namespace maicord {
 namespace {
 constexpr u32 kBufferBytes = 2 * kVideoRtpFrameBytes;
 constexpr u32 kHeldPageBytes = 4096;
-VideoRtpCodec rtp_codec(VoiceVideoCodec codec) noexcept {
+inline VideoRtpCodec rtp_codec(VoiceVideoCodec codec) noexcept {
     return codec == VoiceVideoCodec::h264   ? VideoRtpCodec::h264
            : codec == VoiceVideoCodec::h265 ? VideoRtpCodec::h265
            : codec == VoiceVideoCodec::av1  ? VideoRtpCodec::av1
                                             : VideoRtpCodec::none;
 }
-VoiceVideoCodec voice_codec(VideoRtpCodec codec) noexcept {
+inline VoiceVideoCodec voice_codec(VideoRtpCodec codec) noexcept {
     return codec == VideoRtpCodec::h264   ? VoiceVideoCodec::h264
            : codec == VideoRtpCodec::h265 ? VoiceVideoCodec::h265
            : codec == VideoRtpCodec::av1  ? VoiceVideoCodec::av1
@@ -175,7 +175,7 @@ void log_summary(VoiceVideoSink& sink) noexcept {
     }
     reset_value(&summary);
 }
-bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
+inline bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)
         return true;
     if (!sink.offer || !video_rtp_initialize(&sink.rtp, local_ssrc, deliver, &sink))
