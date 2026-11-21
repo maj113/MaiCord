@@ -4,14 +4,14 @@
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
+#include "activity.hpp"
 
 // Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
+using namespace chat_activity_detail;
 namespace {
-
-#include "activity.inc"
 
 bool permission_prefix_valid(const ChatStateStore& store) noexcept {
     return store.role_backed_count <= store.role_capacity &&
@@ -800,9 +800,10 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     bool changed = false;
     u32 activity_unread = 0;
     u32 activity_mentions = 0;
+    // A guild record's list holds only that guild's channels.
     for (u16 link = guild->channel_list.head; link; link = store->channels[link - 1].guild_next) {
         ChannelRecord& channel = store->channels[link - 1];
-        if (channel.guild_id != guild_id || channel_is_thread(channel.type)) {
+        if (channel_is_thread(channel.type)) {
             continue;
         }
         const u64 effective = resolved ? channel_permissions(*store, scope, channel) : 0;
@@ -819,7 +820,7 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     }
     for (u16 link = guild->channel_list.head; link; link = store->channels[link - 1].guild_next) {
         ChannelRecord& channel = store->channels[link - 1];
-        if (channel.guild_id != guild_id || !channel_is_thread(channel.type)) {
+        if (!channel_is_thread(channel.type)) {
             continue;
         }
         const ChannelRecord* parent = chat_state_store_find_channel(*store, channel.parent_id);

@@ -453,44 +453,59 @@ u32 lowercase(u32 value) noexcept {
     }
     return value;
 }
-struct Folded {u32 scalars[kFriendSearchMaximumBytes];u32 count;};
-bool final_sigma(ConstSlice<u32> original, u32 index) noexcept {
+// Final_Sigma for the sigma at [start, end): a cased scalar before it and none after it, each side skipping
+// case-ignorable scalars. The bytes before it are UTF-8 that the cursor read. Bytes after it that are not UTF-8
+// fail the whole name later, so the result for them does not matter.
+bool final_sigma(const Utf8View& text, u32 start, u32 end) noexcept {
     bool preceding = false;
-    for (u32 i = index; i; ) {
-        const u32 value = original[--i];
+    for (u32 at = start; at;) {
+        do --at; while ((static_cast<u8>(text.data[at]) & 0xC0) == 0x80);
+        const u32 value = utf8_decode_one(text.data + at, text.bytes - at).codepoint;
         if (contains(case_ignorable, value)) continue;
         preceding = contains(cased, value);break;
     }
     if (!preceding) return false;
-    for (u32 i = index + 1; i < original.count; ++i) {
-        const u32 value = original[i];
-        if (contains(case_ignorable, value)) continue;
-        return !contains(cased, value);
-    }
-    return true;
-}
-bool fold(Utf8View input, Folded* output) noexcept {
-    if (!output || input.bytes > kFriendSearchMaximumBytes || (!input.data && input.bytes)) return false;
-    u32 original[kFriendSearchMaximumBytes];u32 count = 0;
-    for (u32 offset = 0; offset < input.bytes;) {
-        const auto decoded = utf8_decode_one(input.data + offset, input.bytes - offset);
+    for (u32 at = end; at < text.bytes;) {
+        const auto decoded = utf8_decode_one(text.data + at, text.bytes - at);
         if (!decoded.valid) return false;
-        original[count++] = decoded.codepoint;offset += decoded.width;
-    }
-    output->count = 0;
-    // U+0130 is the only full default lowercase expansion. Its two UTF-8
-    // source bytes bound its two output scalars, so 128 slots always suffice.
-    for (u32 i = 0; i < count; ++i) {
-        const u32 value = original[i];
-        if (value == 0x130) {
-            output->scalars[output->count++] = 0x69;
-            output->scalars[output->count++] = 0x307;
-        } else output->scalars[output->count++] = value == 0x3A3 && final_sigma({original, count}, i) ?
-            0x3C2 : lowercase(value);
+        at += decoded.width;
+        if (contains(case_ignorable, decoded.codepoint)) continue;
+        return !contains(cased, decoded.codepoint);
     }
     return true;
 }
-bool substring(const Folded& name, const Folded& query) noexcept {
+// The full default lowercase of a name, one scalar at a time. U+0130 is the only scalar that lowercases to two
+// (its second is never zero). The cursor stops at the end, or with its offset on bytes that are not UTF-8.
+struct FoldCursor {Utf8View text;u32 offset, pending;};
+bool next_scalar(FoldCursor* cursor, u32* output) noexcept {
+    if (cursor->pending) {*output = cursor->pending;cursor->pending = 0;return true;}
+    const u32 start = cursor->offset;
+    if (start == cursor->text.bytes) return false;
+    u32 value = static_cast<u8>(cursor->text.data[start]);
+    if (value < 0x80) ++cursor->offset;
+    else {
+        const auto decoded = utf8_decode_one(cursor->text.data + start, cursor->text.bytes - start);
+        if (!decoded.valid) return false;
+        value = decoded.codepoint;
+        cursor->offset += decoded.width;
+    }
+    if (value == 0x130) {*output = 0x69;cursor->pending = 0x307;}
+    else *output = value == 0x3A3 && final_sigma(cursor->text, start, cursor->offset) ? 0x3C2 : lowercase(value);
+    return true;
+}
+// A name of at most 128 bytes, which the cursor can read.
+bool readable(const Utf8View& text) noexcept {
+    return text.bytes <= kFriendSearchMaximumBytes && (text.data || !text.bytes);
+}
+// U+0130's two UTF-8 source bytes bound its two output scalars, so 128 slots always suffice.
+bool fold(const Utf8View& input, FriendSearchQuery* output) noexcept {
+    if (!readable(input)) return false;
+    FoldCursor cursor{input, 0, 0};
+    output->count = 0;
+    while (next_scalar(&cursor, &output->scalars[output->count])) ++output->count;
+    return cursor.offset == input.bytes;
+}
+bool substring(const FriendSearchQuery& name, const FriendSearchQuery& query) noexcept {
     if (query.count > name.count) return false;
     for (u32 start = 0; start <= name.count - query.count; ++start) {
         bool same = true;
@@ -499,11 +514,12 @@ bool substring(const Folded& name, const Folded& query) noexcept {
     }
     return false;
 }
-struct Utf16Cursor {const Folded* text;u32 index;u16 pending_low;};
+// The UTF-16 units of a fold: a scalar above U+FFFF gives a surrogate pair.
+struct Utf16Cursor {FoldCursor fold;u16 pending_low;};
 bool next_unit(Utf16Cursor* cursor, u16* output) noexcept {
     if (cursor->pending_low) {*output = cursor->pending_low;cursor->pending_low = 0;return true;}
-    if (cursor->index == cursor->text->count) return false;
-    const u32 value = cursor->text->scalars[cursor->index++];
+    u32 value = 0;
+    if (!next_scalar(&cursor->fold, &value)) return false;
     if (value < 0x10000) *output = static_cast<u16>(value);
     else {
         const u32 pair = value - 0x10000;
@@ -513,21 +529,30 @@ bool next_unit(Utf16Cursor* cursor, u16* output) noexcept {
     return true;
 }
 } // namespace
-FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username,
+bool friend_search_query(const Utf8View& query, FriendSearchQuery* output) noexcept {
+    return output->valid = fold(query, output);
+}
+FriendSearchResult friend_search_folded(const FriendSearchQuery& query, const Utf8View& username,
     const Utf8View& nickname, const Utf8View& display_name) noexcept {
-    Folded needle, name;
-    if (!fold(query, &needle)) return {FriendSearchError::invalid_query, false};
+    if (!query.valid) return {FriendSearchError::invalid_query, false};
+    FriendSearchQuery name;
     bool matched = false;
     const Utf8View fields[]{username, nickname, display_name};
     for (const auto field : fields) {
         if (!fold(field, &name)) return {FriendSearchError::invalid_name, false};
-        matched = substring(name, needle) || matched;
+        matched = substring(name, query) || matched;
     }
     return {FriendSearchError::none, matched};
 }
+FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username,
+    const Utf8View& nickname, const Utf8View& display_name) noexcept {
+    FriendSearchQuery folded;
+    friend_search_query(query, &folded);
+    return friend_search_folded(folded, username, nickname, display_name);
+}
 // A name the fold accepts and that holds only ASCII bytes.
 static bool ascii_name(Utf8View name) noexcept {
-    if (name.bytes > kFriendSearchMaximumBytes || (!name.data && name.bytes)) return false;
+    if (!readable(name)) return false;
     u8 any = 0;
     for (u32 i = 0; i < name.bytes; ++i) any |= static_cast<u8>(name.data[i]);
     return any < 0x80;
@@ -541,14 +566,21 @@ FriendCompareResult friend_name_compare(Utf8View left, Utf8View right) noexcept 
         }
         return {FriendSearchError::none, left.bytes > right.bytes ? 1 : left.bytes < right.bytes ? -1 : 0};
     }
-    Folded a, b;
-    if (!fold(left, &a) || !fold(right, &b)) return {FriendSearchError::invalid_name, 0};
-    Utf16Cursor first{&a, 0, 0}, second{&b, 0, 0};
+    // Other names fold only as far as the first unit that differs. The bytes after it do not change the order, so
+    // they are only checked to be UTF-8.
+    if (!readable(left) || !readable(right)) return {FriendSearchError::invalid_name, 0};
+    Utf16Cursor first{{left, 0, 0}, 0}, second{{right, 0, 0}, 0};
+    i32 order = 0;
     for (;;) {
         u16 x = 0, y = 0;
         const bool has_x = next_unit(&first, &x), has_y = next_unit(&second, &y);
-        if (!has_x || !has_y) return {FriendSearchError::none, has_x ? 1 : has_y ? -1 : 0};
-        if (x != y) return {FriendSearchError::none, x < y ? -1 : 1};
+        if (!has_x || !has_y) {order = has_x ? 1 : has_y ? -1 : 0;break;}
+        if (x != y) {order = x < y ? -1 : 1;break;}
     }
+    // A cursor that stopped at bytes that are not UTF-8 left its offset on them.
+    if (!utf8_validate({left.data + first.fold.offset, left.bytes - first.fold.offset}).valid ||
+        !utf8_validate({right.data + second.fold.offset, right.bytes - second.fold.offset}).valid)
+        return {FriendSearchError::invalid_name, 0};
+    return {FriendSearchError::none, order};
 }
 } // namespace maicord

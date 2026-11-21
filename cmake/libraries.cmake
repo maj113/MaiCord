@@ -16,7 +16,7 @@ maicord_library(maicord_core
     linux:src/os/linux/wait.cpp linux:src/os/linux/thread.cpp linux:src/os/linux/file.cpp
     linux:src/os/linux/directory.cpp linux:src/os/linux/ordinal.cpp linux:src/os/linux/local_time.cpp
     linux:src/os/linux/date_format.cpp linux:src/os/linux/process.cpp linux:src/os/linux/text.cpp
-    linux:src/platform/time/tzif.cpp)
+    linux:src/platform/time/tzif.cpp src/core/hash.cpp)
 if(MAICORD_LINUX)
     # The Linux resources are #embedded (src/core/linux/resource.cpp): clang 23 reports them as a C23 extension.
     target_compile_options(maicord_core PRIVATE -Wno-c23-extensions)

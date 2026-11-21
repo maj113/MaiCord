@@ -1011,10 +1011,10 @@ void test_member_list_subscription_scope() noexcept {
     ChatStateStore state{};
     state.guilds = guilds;
     MemberListRow rows[4]{};
-    u32 scratch[2]{};
+    MemberListSortKey scratch[2]{};
     MemberListView projection{};
     const bool initialized = member_list_view_initialize(
-        &projection, Slice<MemberListRow>{rows, 4}, Slice<u32>{scratch, 2});
+        &projection, Slice<MemberListRow>{rows, 4}, Slice<MemberListSortKey>{scratch, 2});
     const MemberListViewResult rebuilt =
         initialized ? member_list_view_rebuild(&projection, members, users, state, 7, 70)
                     : MemberListViewResult{};

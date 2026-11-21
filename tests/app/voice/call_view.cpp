@@ -476,9 +476,9 @@ void roster_cases(Check check) noexcept {
     check(valid && !call_video_unlisted_users(states, 10, {cameras, 3}, {users, 4}),
           "call roster: once the channel's voice states are known, an announced camera adds no tile");
     valid = voice_state_store_apply(&states, 1, 0, 2, 0) == VoiceStateResult::changed &&
-            voice_state_store_channel_count(states, 10) == 1 &&
+            voice_state_store_channel(states, 10).count == 1 &&
             voice_state_store_apply(&states, 1, 11, 1, 0) == VoiceStateResult::changed;
-    check(valid && !voice_state_store_channel_count(states, 10) &&
+    check(valid && !voice_state_store_channel(states, 10).count &&
               !call_video_unlisted_users(states, 11, {cameras, 3}, {users, 4}),
           "call roster: a user who disconnects or moves leaves no tile behind for a still-announced camera");
     const CallVideoTarget fewer[1]{{3, 301, 0, false}}, moved[2]{{2, 299, 0, false}, {3, 301, 0, false}};

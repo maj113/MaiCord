@@ -40,10 +40,10 @@ u32 purge(DesktopNotificationQueue* q,Purge kind,u64 p=0,u64 g=0,u64 c=0,u64 m=0
     return removed;
 }
 }
+// The storage arrives zeroed (fresh pages): a clear here would only fault in pages that the queue may never use.
 void desktop_notification_queue_initialize(DesktopNotificationQueue* q,Slice<DesktopNotificationQueueRow> rows,
     Slice<char> bytes,Slice<char> scratch) noexcept {
     reset_value(q);q->rows=rows;q->bytes=bytes;q->scratch=scratch;
-    clear_bytes(rows.data,rows.count*sizeof(*rows.data));clear_bytes(bytes.data,bytes.count);clear_bytes(scratch.data,scratch.count);
 }
 void desktop_notification_queue_reset(DesktopNotificationQueue* q,u64 p,u64 g) noexcept {
     purge(q,Purge::all);q->profile_id=p;q->generation=g;

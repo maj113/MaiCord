@@ -65,6 +65,32 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
     MessageNotificationGlobal global{100,200,15,true,MessageNotificationStatus::dnd},partial{};partial.fields=notification_quiet;partial.quiet=false;
     message_notifications_apply_global(&global,partial,true);check(!global.quiet&&global.status==MessageNotificationStatus::dnd&&global.focus_expires_ms==100,"global partial preserves status and expiry");
     message_notifications_apply_global(&global,partial,false);check(global.status==MessageNotificationStatus::unknown&&global.focus_expires_ms==0,"global full resets omitted proto subset");
+    MessageNotificationGuildSetting order_guilds[3]{};MessageNotificationOverride order_overrides[5]{};MessageNotificationThreadSetting order_threads[1]{};
+    MessageNotificationStore order{};message_notifications_initialize(&order,{order_guilds,3},{order_overrides,5},{order_threads,1});
+    MessageNotificationGuildSetting order_input[3]{};MessageNotificationOverride order_rows[5]{};
+    const u64 order_ids[3]{30,10,20};
+    const u64 row_keys[5][2]{{30,301},{10,102},{20,201},{10,101},{30,300}};
+    for(u32 g=0;g<3;++g){order_input[g].guild_id=order_ids[g];order_input[g].setting.fields=notification_level;order_input[g].setting.level=L::mentions;}
+    for(u32 r=0;r<5;++r){order_rows[r].guild_id=row_keys[r][0];order_rows[r].channel_id=row_keys[r][1];
+        order_rows[r].setting.fields=notification_level;order_rows[r].setting.level=L::none;}
+    bool found=message_notifications_apply_settings(&order,{order_input,3},{order_rows,5},false,1)==E::none;
+    for(u32 r=0;r<5;++r){const auto* row=message_notifications_override(order,row_keys[r][0],row_keys[r][1]);
+        found=found&&row&&row->guild_id==row_keys[r][0]&&row->channel_id==row_keys[r][1];}
+    for(u32 g=0;g<3;++g){const auto* row=message_notifications_guild(order,order_ids[g]);found=found&&row&&row->guild_id==order_ids[g];}
+    found=found&&!message_notifications_override(order,10,201)&&!message_notifications_override(order,20,102)&&
+        !message_notifications_guild(order,40);
+    check(found,"lookups find each guild and override row that arrived out of order, and no other row");
+    MessageNotificationOverride replacement{};replacement.guild_id=10;replacement.channel_id=100;
+    replacement.setting.fields=notification_level;replacement.setting.level=L::all;
+    found=message_notifications_apply_settings(&order,{&order_input[1],1},{&replacement,1},true,2)==E::none&&
+        message_notifications_override(order,10,100)&&!message_notifications_override(order,10,101)&&
+        !message_notifications_override(order,10,102)&&message_notifications_override(order,30,300)&&
+        message_notifications_override(order,20,201);
+    message_notifications_remove_guild(&order,30);
+    found=found&&!message_notifications_override(order,30,301)&&!message_notifications_guild(order,30)&&
+        message_notifications_override(order,20,201)&&message_notifications_override(order,10,100)&&
+        message_notifications_guild(order,20)&&message_notifications_guild(order,10);
+    check(found,"lookups find the rows after a partial update and a guild removal");
     MessageNotificationGuildSetting age_guilds[2]{};MessageNotificationOverride age_overrides[3]{};MessageNotificationThreadSetting age_threads[2]{};
     MessageNotificationStore age_store{};message_notifications_initialize(&age_store,{age_guilds,2},{age_overrides,3},{age_threads,2});
     MessageNotificationGuildSetting clear_guild{};clear_guild.guild_id=10;clear_guild.setting.fields=notification_level;clear_guild.setting.level=L::all;

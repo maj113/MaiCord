@@ -139,6 +139,8 @@ struct GuildMemberStore {
     // Every occupied slot lies below this high-water mark, so scans stop here
     // and never touch (or fault in) the unused tail of a zeroed record array.
     u32 slot_extent;
+    // Every slot below this one is occupied, so the search for a free slot starts here.
+    u32 free_hint;
 };
 
 enum class GuildMemberStoreError : u8 {

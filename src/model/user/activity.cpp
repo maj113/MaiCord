@@ -194,7 +194,9 @@ u32 user_activities_write(const UserActivitySet& set, Slice<u8> output) noexcept
     }
     return w.ok ? w.used : 0;
 }
-bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* output) noexcept {
+namespace {
+// Reads a user_activities_write record without a UTF-8 check of its text.
+bool decode(ConstSlice<u8> input, u64 user, UserActivitySet* output) noexcept {
     if (!output || !user || !input.data || input.count < 2)
         return false;
     In r{input};
@@ -236,18 +238,25 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
         if (bytes > kUserActivityTextBytes || !a.lengths[0])
             return false;
         r.get(a.text, bytes);
-        for (u32 k = 0; r.ok && k < kUserActivityFieldCount; ++k)
-            if (!utf8_validate(user_activity_text(a, static_cast<UserActivityField>(k))).valid)
-                return false;
     }
     return r.ok && r.used == input.count;
 }
+} // namespace
 
+bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* output) noexcept {
+    if (!decode(input, user, output))
+        return false;
+    for (u32 i = 0; i < output->count; ++i)
+        for (u32 k = 0; k < kUserActivityFieldCount; ++k)
+            if (!utf8_validate(user_activity_text(output->items[i], static_cast<UserActivityField>(k))).valid)
+                return false;
+    return true;
+}
 
+// user_activity_apply stores only text that user_activities_read checked, so the stored record needs no UTF-8 check.
 bool user_activity_find(const UserActivityStore& s, u64 user, UserActivitySet* output) noexcept {
     const Row* row = output ? find_row(s, user) : nullptr;
-    return row && user_activities_read({bank(s) + row->offset + sizeof(Entry), entry(s, row->offset).bytes}, user,
-                                       output);
+    return row && decode({bank(s) + row->offset + sizeof(Entry), entry(s, row->offset).bytes}, user, output);
 }
 bool user_activity_first_type(const UserActivityStore& s, u64 user, UserActivityType* output) noexcept {
     const Row* row = output ? find_row(s, user) : nullptr;

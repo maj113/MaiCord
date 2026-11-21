@@ -657,8 +657,10 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         // The game search token reads as a chip the same way: "@game" as its
         // head, the query as its value, active while the caret is in it.
         const bool option_chip = context && chip < context->option_chip_count;
+        // Only the head's lead byte can start a token, and a token ends inside the source.
         GameToken game{};
-        const bool game_head = !option_chip && game_token_at(source, cursor, &game) && game.last <= end;
+        const bool game_head = !option_chip && source.data[cursor] == kGameTokenHead[0] &&
+                               game_token_at(source, cursor, &game);
         if (game_head) {
             game_end_at = game.query_last;
             game_flags = model.caret >= game.query_first && model.caret <= game.query_last

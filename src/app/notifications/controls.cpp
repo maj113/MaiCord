@@ -39,6 +39,8 @@ struct Pending {
     MessageNotificationSetting prior;
     u32 attempts;
     bool submitted;
+    u64 not_before; // monotonic ms; a batch of channel flags waits for it
+    MessageNotificationSetting batch_prior[kUserGuildSettingsBatch];
 };
 struct Menu {
     u64 guild_id, channel_id;
@@ -94,7 +96,7 @@ bool target(u64 guild, u64 channel, u64* guild_out, u8* type) noexcept {
     *type = record->type;
     return true;
 }
-Utf8View until_text(u64 end_ms) noexcept {
+inline Utf8View until_text(u64 end_ms) noexcept {
     constexpr auto prefix = utf8_literal("Muted until ");
     copy_bytes(owner.detail, prefix.data, prefix.bytes);
     const u64 now = clock_unix_milliseconds();
@@ -103,20 +105,20 @@ Utf8View until_text(u64 end_ms) noexcept {
                                                           {owner.detail + prefix.bytes, sizeof(owner.detail) - prefix.bytes});
     return formatted.ok ? Utf8View{owner.detail, prefix.bytes + formatted.bytes} : Utf8View{};
 }
-PopupItem row(Utf8View label, u32 action, u16 flags = 0) noexcept {
+inline PopupItem row(Utf8View label, u32 action, u16 flags = 0) noexcept {
     PopupItem item{};
     item.label = label;
     item.action = action;
     item.flags = static_cast<u16>(popup_item_enabled | flags);
     return item;
 }
-bool menu_current() noexcept {
+inline bool menu_current() noexcept {
     return owner.menu.active && g_app.popup_scene.active &&
            g_app.popup_owner_kind == PopupOwnerKind::notification_settings &&
            g_app.popup_scene.opens == owner.menu.popup_opens &&
            g_app.popup_scene.widgets.generation == owner.menu.popup_generation;
 }
-MessageNotificationLevel effective_level(u64 guild, u64 channel) noexcept {
+inline MessageNotificationLevel effective_level(u64 guild, u64 channel) noexcept {
     const auto setting = current_setting(guild, channel);
     const bool known = setting.fields & notification_level;
     if (channel)
@@ -167,15 +169,31 @@ bool open_follow_up(u64 guild, u64 channel, bool mute) noexcept {
     g_app.context_focus = &g_app.popup_scene.widgets;
     return refresh_popup_text();
 }
-// Queues the write, merging into an unsent patch for the same scope.
-bool enqueue(const UserGuildSettingsPatch& patch) noexcept {
+bool batch_add(Pending& pending, u64 channel, u32 flags) noexcept {
+    auto& p = pending.patch;
+    u32 i = 0;
+    while (i < p.batch_count && p.batch_channels[i] != channel)
+        ++i;
+    if (i == kUserGuildSettingsBatch)
+        return false;
+    if (i == p.batch_count) {
+        pending.batch_prior[i] = current_setting(p.guild_id, channel);
+        p.batch_channels[p.batch_count++] = channel;
+    }
+    p.batch_flags[i] = flags;
+    return true;
+}
+// Queues the write, merging into an unsent patch for the same scope. Channel flags (Browse Channels) gather in the
+// patch of their server, which waits until `not_before` (0: none), as the official client batches them.
+bool enqueue(const UserGuildSettingsPatch& patch, u64 not_before) noexcept {
     scope();
-    for (u32 i = 0; i < owner.count; ++i) {
-        auto& pending = owner.queue[i];
-        if (pending.submitted || pending.patch.guild_id != patch.guild_id ||
-            pending.patch.channel_id != patch.channel_id)
-            continue;
-        auto& merged = pending.patch;
+    Pending* pending = nullptr;
+    for (u32 i = 0; i < owner.count && !pending; ++i)
+        if (!owner.queue[i].submitted && owner.queue[i].patch.guild_id == patch.guild_id &&
+            owner.queue[i].patch.channel_id == patch.channel_id)
+            pending = &owner.queue[i];
+    if (pending) {
+        auto& merged = pending->patch;
         if (patch.fields & user_guild_settings_muted) {
             merged.muted = patch.muted;
             merged.mute_end_ms = patch.mute_end_ms;
@@ -192,21 +210,40 @@ bool enqueue(const UserGuildSettingsPatch& patch) noexcept {
         if (patch.fields & user_guild_settings_flags)
             merged.flags = patch.flags;
         merged.fields |= patch.fields;
-        return true;
+    } else {
+        if (owner.count == kQueueCapacity)
+            return false;
+        pending = &owner.queue[owner.count++];
+        *pending = {patch, current_setting(patch.guild_id, patch.channel_id)};
+        pending->patch.batch_count = 0;
     }
-    if (owner.count == kQueueCapacity)
-        return false;
-    owner.queue[owner.count++] = {patch, current_setting(patch.guild_id, patch.channel_id), 0, false};
+    pending->not_before = not_before;
+    for (u32 i = 0; i < patch.batch_count; ++i)
+        if (!batch_add(*pending, patch.batch_channels[i], patch.batch_flags[i]))
+            return false;
     return true;
 }
-bool apply(const UserGuildSettingsPatch& patch) noexcept {
+// Shows a patch's channel flags before the server confirms them, or their priors again (restore).
+void project_batch(const UserGuildSettingsPatch& p, const MessageNotificationSetting* priors) noexcept {
+    for (u32 i = 0; i < p.batch_count; ++i) {
+        UserGuildSettingsPatch one{p.guild_id, p.batch_channels[i]};
+        one.fields = user_guild_settings_flags;
+        one.flags = p.batch_flags[i];
+        application_notifications_project(&g_app, p.guild_id, p.batch_channels[i],
+                                          priors ? priors[i]
+                                                 : user_guild_settings_project(
+                                                       current_setting(p.guild_id, p.batch_channels[i]), one));
+    }
+}
+bool apply(const UserGuildSettingsPatch& patch, u64 not_before = 0) noexcept {
     if (!user_guild_settings_patch_valid(patch))
         return false;
     const auto projected = user_guild_settings_project(current_setting(patch.guild_id, patch.channel_id), patch);
-    if (!enqueue(patch))
+    if (!enqueue(patch, not_before))
         return false;
-    if (!application_notifications_project(&g_app, patch.guild_id, patch.channel_id, projected))
+    if (patch.fields && !application_notifications_project(&g_app, patch.guild_id, patch.channel_id, projected))
         log_write(LogLevel::warning, "notifications", "settings_projection_failed");
+    project_batch(patch, nullptr);
     owner.projected = false;
     application_notification_controls_tick(clock_monotonic_milliseconds());
     application_request_frame();
@@ -217,34 +254,48 @@ void remove_front() noexcept {
         owner.queue[i - 1] = owner.queue[i];
     --owner.count;
 }
+// The server keeps the front patch's prior settings: show them again.
+void restore_front() noexcept {
+    const auto& front = owner.queue[0];
+    application_notifications_project(&g_app, front.patch.guild_id, front.patch.channel_id, front.prior);
+    project_batch(front.patch, front.batch_prior);
+}
+// The override row of a channel or category; null without one or without a channel.
+const MessageNotificationOverride* override_row(const MessageNotificationStore& store, u64 guild,
+                                                u64 channel) noexcept {
+    return channel ? message_notifications_override(store, guild, channel) : nullptr;
+}
+bool override_muted(const MessageNotificationOverride* row, u64 now) noexcept {
+    return row && message_notification_muted(row->setting, now);
+}
 // Channel override flags OPT_IN_ENABLED for one channel or category.
-bool override_opted_in(const MessageNotificationStore& store, u64 guild, u64 channel) noexcept {
-    const auto* row = channel ? message_notifications_override(store, guild, channel) : nullptr;
+bool override_opted_in(const MessageNotificationOverride* row) noexcept {
     return row && (row->setting.fields & notification_flags) && (row->setting.flags & kUserChannelOptInEnabled);
 }
-bool guild_flag(const MessageNotificationStore& store, u64 guild, u32 bit) noexcept {
-    const auto* row = message_notifications_guild(store, guild);
+bool guild_flag(const MessageNotificationGuildSetting* row, u32 bit) noexcept {
     return row && (row->setting.fields & notification_flags) && (row->setting.flags & bit);
 }
 // Effective mute for one channel record, following the notification policy:
 // guild, own override, category, and for threads the joined-thread setting.
-// Opt-in follows the channel or its category; a thread follows its parent.
+// Opt-in follows the channel or its category; a thread follows its parent. Each override row is looked up once.
 void project_channel(const MessageNotificationStore& store, ChatStateStore& s, const ChannelRecord& c,
                      u64 now) noexcept {
     const bool guild = c.guild_id && message_notifications_guild_muted(store, c.guild_id, now);
-    bool own = message_notifications_override_muted(store, c.guild_id, c.id, now);
-    bool parent = c.parent_id && message_notifications_override_muted(store, c.guild_id, c.parent_id, now);
-    bool opted = c.guild_id && (override_opted_in(store, c.guild_id, c.id) ||
-                                override_opted_in(store, c.guild_id, c.parent_id));
+    const auto* parent = override_row(store, c.guild_id, c.parent_id);
+    bool own, inherited = override_muted(parent, now), opted;
     if (channel_is_thread(c.type)) {
         const auto* t = message_notifications_thread(store, c.id);
         own = t && message_notification_muted(t->setting, now);
         const auto* p = chat_state_store_find_channel(s, c.parent_id);
-        parent = parent || (p && p->parent_id && message_notifications_override_muted(store, c.guild_id, p->parent_id, now));
-        opted = p && c.guild_id &&
-                (override_opted_in(store, c.guild_id, p->id) || override_opted_in(store, c.guild_id, p->parent_id));
+        const auto* category = p ? override_row(store, c.guild_id, p->parent_id) : nullptr;
+        inherited = inherited || override_muted(category, now);
+        opted = p && c.guild_id && (override_opted_in(parent) || override_opted_in(category));
+    } else {
+        const auto* row = override_row(store, c.guild_id, c.id);
+        own = override_muted(row, now);
+        opted = c.guild_id && (override_opted_in(row) || override_opted_in(parent));
     }
-    chat_state_store_set_channel_mute(&s, c.id, guild || own || parent, own || parent);
+    chat_state_store_set_channel_mute(&s, c.id, guild || own || inherited, own || inherited);
     chat_state_store_set_channel_opted_in(&s, c.id, opted);
 }
 void project_all(u64 unix_now) noexcept {
@@ -267,7 +318,7 @@ void project_all(u64 unix_now) noexcept {
         const auto* row = message_notifications_guild(*store, id);
         const bool hide = row && (row->setting.fields & notification_hide_muted) && row->setting.hide_muted_channels;
         const bool opt_in =
-            (guild.upload_features & guild_record_community) && guild_flag(*store, id, kUserGuildOptInChannelsOn);
+            (guild.upload_features & guild_record_community) && guild_flag(row, kUserGuildOptInChannelsOn);
         list_changed = chat_state_store_set_guild_hide_muted(&s, id, hide) || list_changed;
         list_changed = chat_state_store_set_guild_channel_opt_in(&s, id, opt_in) || list_changed;
     }
@@ -383,15 +434,12 @@ GuildChannelOptIn application_notification_controls_channel_opt_in(u64 guild_id)
     const auto* guild = s ? chat_state_store_find_guild(*s, guild_id) : nullptr;
     if (!store || !guild || guild->unavailable || !(guild->upload_features & guild_record_community))
         return result;
-    result.enabled = guild_flag(*store, guild_id, kUserGuildOptInChannelsOn);
+    result.enabled = guild_flag(message_notifications_guild(*store, guild_id), kUserGuildOptInChannelsOn);
     // Turning opt-in on needs a channel list to keep: opted-in channels or
     // finished onboarding. Otherwise the official client onboards the member first.
     bool opted = false;
-    for (u32 i = 0; i < store->override_count && !opted; ++i) {
-        const auto& row = store->overrides[i];
-        opted = row.guild_id == guild_id && (row.setting.fields & notification_flags) &&
-                (row.setting.flags & kUserChannelOptInEnabled);
-    }
+    for (u32 i = 0; i < store->override_count && !opted; ++i)
+        opted = store->overrides[i].guild_id == guild_id && override_opted_in(&store->overrides[i]);
     const bool onboarded = (guild->settings.known & guild_settings_self_member) &&
                            (guild->settings.self_member & guild_self_member_onboarding_completed);
     result.available = result.enabled || opted || onboarded;
@@ -407,6 +455,27 @@ bool application_notification_controls_set_channel_opt_in(u64 guild_id, bool ena
     UserGuildSettingsPatch patch{guild_id, 0};
     patch.fields = user_guild_settings_flags;
     patch.flags = enabled ? flags | kUserGuildOptInChannelsOn : flags & ~kUserGuildOptInChannelsOn;
+    return apply(patch);
+}
+
+bool application_notification_controls_follow_channel(u64 guild_id, u64 channel_id, bool follow) noexcept {
+    const auto* store = application_notifications_store(&g_app);
+    if (!store || !guild_id || !channel_id)
+        return false;
+    const auto setting = current_setting(guild_id, channel_id);
+    const u32 flags = (setting.fields & notification_flags) ? setting.flags : 0;
+    UserGuildSettingsPatch patch{guild_id, 0};
+    patch.batch_count = 1;
+    patch.batch_channels[0] = channel_id;
+    // Unfollowing also takes the channel out of the favourites, as the official client does.
+    patch.batch_flags[0] =
+        follow ? flags | kUserChannelOptInEnabled : flags & ~(kUserChannelOptInEnabled | kUserChannelFavorited);
+    // With opt-in on, follows save together a second after the last one. The first follow turns opt-in on, at once.
+    if (guild_flag(message_notifications_guild(*store, guild_id), kUserGuildOptInChannelsOn))
+        return apply(patch, deadline_after(clock_monotonic_milliseconds(), 1'000));
+    const auto guild = current_setting(guild_id, 0);
+    patch.fields = user_guild_settings_flags;
+    patch.flags = ((guild.fields & notification_flags) ? guild.flags : 0) | kUserGuildOptInChannelsOn;
     return apply(patch);
 }
 
@@ -438,14 +507,14 @@ u64 application_notification_controls_next_wake() noexcept {
         wake = earliest_deadline(wake, owner.next_expiry_ms >= unix_now ? now + (owner.next_expiry_ms - unix_now) + 1 : now);
     }
     if (owner.count && !owner.request_id && g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake = earliest_deadline(wake, owner.retry_at ? owner.retry_at : 1);
+        wake = earliest_deadline(wake, owner.retry_at ? owner.retry_at : maximum<u64>(owner.queue[0].not_before, 1));
     return wake;
 }
 
 bool application_notification_controls_pending(u64 now_ms) noexcept {
     scope();
     return owner.count && !owner.request_id && (!owner.retry_at || owner.retry_at <= now_ms) &&
-           g_app.account.instance && g_app.account.status.running;
+           owner.queue[0].not_before <= now_ms && g_app.account.instance && g_app.account.status.running;
 }
 
 bool application_notification_controls_submit(u64 request_id, u64 now_ms) noexcept {
@@ -457,7 +526,7 @@ bool application_notification_controls_submit(u64 request_id, u64 now_ms) noexce
         return false;
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "notifications", "settings_submit_error", static_cast<u64>(submitted.error));
-        application_notifications_project(&g_app, front.patch.guild_id, front.patch.channel_id, front.prior);
+        restore_front();
         remove_front();
         owner.projected = false;
         return false;
@@ -485,7 +554,7 @@ bool application_notification_controls_response(const RestClientResponse& respon
     if (!ok) {
         // The server keeps the prior setting; show it again.
         log_u64(LogLevel::warning, "notifications", "settings_response_status", response.status_code);
-        application_notifications_project(&g_app, front.patch.guild_id, front.patch.channel_id, front.prior);
+        restore_front();
         owner.projected = false;
         application_request_frame();
     }

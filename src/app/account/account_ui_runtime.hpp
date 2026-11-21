@@ -96,7 +96,7 @@ static_assert(kAccountUiEventScratchBytes >= kGatewayClientDispatchPayloadCapaci
               kAccountUiEventScratchBytes >= kRendererTransientScratchBytes);
 
 struct AccountProjectionScratch {
-    u32 member_list[kGuildMemberCapacity];
+    MemberListSortKey member_list[kGuildMemberCapacity];
     u16 navigation_channels[kNavigationChannelRows];
 };
 
@@ -108,7 +108,8 @@ struct AccountDemandCommit {
     u32 emoji_roles;
 };
 
-static_assert(sizeof(AccountProjectionScratch) == 10'240);
+// As large as message_history_object_structurals, which shares its union.
+static_assert(sizeof(AccountProjectionScratch) == 16'384);
 
 struct AccountTextShapeScratch {
     TextGlyph glyphs[kRendererContentTextUnitCapacity];

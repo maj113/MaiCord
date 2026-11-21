@@ -682,8 +682,8 @@ void requests() noexcept {
               spam->request_flags == (private_request_pending | private_request_spam) && warned &&
               warned->safety_warning_id == 801 && warned->safety_warning == PrivateSafetyWarning::likely_account_takeover &&
               plain && !plain->request_flags && !plain->safety_warning_id &&
-              private_channel_store_request_count(f.metadata, false) == 1 &&
-              private_channel_store_request_count(f.metadata, true) == 1,
+              private_channel_store_request_counts(f.metadata).pending == 1 &&
+              private_channel_store_request_counts(f.metadata).spam == 1,
           "requests: flags, spam and the first undismissed safety warning are stored");
 
     PrivateChannelActionController c{};
@@ -700,7 +700,7 @@ void requests() noexcept {
               c.phase == PrivateChannelActionPhase::idle && !private_channel_store_find(f.metadata, 50)->request_flags,
           "requests: accepting clears the request locally after success");
     check(private_channel_begin_ignore_request(&c, f.state, 51) && respond(2) &&
-              !chat_state_store_find_channel(f.state, 51) && !private_channel_store_request_count(f.metadata, true),
+              !chat_state_store_find_channel(f.state, 51) && !private_channel_store_request_counts(f.metadata).spam,
           "requests: ignoring removes the conversation");
     check(!private_channel_begin_dismiss_safety(&c, f.state, 53) && private_channel_begin_dismiss_safety(&c, f.state, 52) &&
               c.request.recipients[0] == 801 && respond(3) && !private_channel_store_find(f.metadata, 52)->safety_warning_id,

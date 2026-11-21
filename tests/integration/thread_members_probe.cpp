@@ -36,7 +36,7 @@ struct ThreadMembersFixture {
     u8 state_names[2048]{};
     MemberListView source{};
     MemberListRow projected_rows[16]{};
-    u32 scratch[8]{};
+    MemberListSortKey scratch[8]{};
     MemberListScene scene{};
     MemberListRowWidget rows[16]{};
     UiWidget widgets[65]{};

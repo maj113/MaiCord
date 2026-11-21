@@ -766,10 +766,7 @@ void installed_row(Ctx& c, const StoreItem& item, u32 index, bool last) noexcept
     if (item.revoked)
         c.b.chip("Turned off", UiStoreTone::dev);
     c.b.close();
-    if (item.sideloaded && item.folder.bytes)
-        subtle(c, compose(c.b, "Loaded from {} \xC2\xB7 reloads when you rebuild", item.folder));
-    else
-        subtle(c, item.summary);
+    subtle(c, item.summary);
     c.b.close();
     card_control(c, item, index, true);
     c.b.close();

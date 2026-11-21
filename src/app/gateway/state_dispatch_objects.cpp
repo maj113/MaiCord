@@ -127,14 +127,11 @@ void member_state_from_flags(GatewayClientStateMutation* m) noexcept {
 } // namespace state_dispatch_detail
 namespace {
 
-// Guild settings and member timeout keys. Null channel IDs and a null timeout
-// are explicit observations of "none".
-bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue value, bool* handled) noexcept {
-    const u32 index = member_index<"pending", "mfa_level", "verification_level", "default_message_notifications",
-                                   "explicit_content_filter", "system_channel_id", "afk_channel_id", "afk_timeout",
-                                   "communication_disabled_until">(name);
+// Guild settings and member timeout keys, by position: pending, mfa_level, verification_level,
+// default_message_notifications, explicit_content_filter, system_channel_id, afk_channel_id, afk_timeout,
+// communication_disabled_until. Null channel IDs and a null timeout are explicit observations of "none".
+bool visit_guild_setting(StateObjectContext* context, u32 index, JsonValue value) noexcept {
     if (index == 0) {
-        *handled = true;
         bool pending = false;
         if (value.kind == JsonValueKind::null_value)
             return true;
@@ -150,7 +147,7 @@ bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue
         u16 field;
         u8 maximum;
     };
-    // Runs for every member of every visited state object.
+    // Runs for every setting member of every visited state object.
     static constexpr Key keys[] = {
         {guild_settings_mfa_level, 1},
         {guild_settings_verification_level, 4},
@@ -161,77 +158,91 @@ bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue
         {guild_settings_afk_timeout, 0},
         {guild_settings_self_timeout, 0},
     };
-    if (index < 9) {
-        const Key& key = keys[index - 1];
-        *handled = true;
-        auto& m = context->mutation;
-        if (m.guild_settings_known & key.field)
-            return gateway_duplicate_member(&context->error);
-        m.guild_settings_known = static_cast<u16>(m.guild_settings_known | key.field);
-        u64 number = 0;
-        switch (key.field) {
-        case guild_settings_system_channel:
-        case guild_settings_afk_channel: {
-            u64& id = key.field == guild_settings_system_channel ? m.system_channel_id : m.afk_channel_id;
-            return value.kind == JsonValueKind::null_value || json_value_to_snowflake(value, &id) ||
-                   reject(context);
-        }
-        case guild_settings_afk_timeout:
-            // Presentation-only setting: an unexpected value stays unknown.
-            if (!json_value_to_u64(value, &number) || number > 86'400) {
-                m.guild_settings_known = static_cast<u16>(m.guild_settings_known & ~key.field);
-                return true;
-            }
-            m.afk_timeout = static_cast<u32>(number);
-            return true;
-        case guild_settings_self_timeout: {
-            if (value.kind == JsonValueKind::null_value)
-                return true;
-            JsonString stamp{};
-            u64 milliseconds = 0;
-            if (!json_value_as_string(value, &stamp) || !parse_iso_timestamp(stamp, &milliseconds) ||
-                milliseconds / 1000 > 0xFFFFFFFFull)
-                return reject(context);
-            m.self_communication_disabled_until = static_cast<u32>(milliseconds / 1000);
-            return true;
-        }
-        default:
-            // The API adds enum levels over time; an unknown level leaves the
-            // setting unknown instead of rejecting the whole guild.
-            if (!json_value_to_u64(value, &number) || number > key.maximum) {
-                m.guild_settings_known = static_cast<u16>(m.guild_settings_known & ~key.field);
-                return true;
-            }
-            (key.field == guild_settings_mfa_level            ? m.mfa_level
-             : key.field == guild_settings_verification_level ? m.verification_level
-             : key.field == guild_settings_default_notifications
-                 ? m.default_message_notifications
-                 : m.explicit_content_filter) = static_cast<u8>(number);
-            return true;
-        }
+    const Key& key = keys[index - 1];
+    auto& m = context->mutation;
+    if (m.guild_settings_known & key.field)
+        return gateway_duplicate_member(&context->error);
+    m.guild_settings_known = static_cast<u16>(m.guild_settings_known | key.field);
+    u64 number = 0;
+    switch (key.field) {
+    case guild_settings_system_channel:
+    case guild_settings_afk_channel: {
+        u64& id = key.field == guild_settings_system_channel ? m.system_channel_id : m.afk_channel_id;
+        return value.kind == JsonValueKind::null_value || json_value_to_snowflake(value, &id) || reject(context);
     }
-    return true;
+    case guild_settings_afk_timeout:
+        // Presentation-only setting: an unexpected value stays unknown.
+        if (!json_value_to_u64(value, &number) || number > 86'400) {
+            m.guild_settings_known = static_cast<u16>(m.guild_settings_known & ~key.field);
+            return true;
+        }
+        m.afk_timeout = static_cast<u32>(number);
+        return true;
+    case guild_settings_self_timeout: {
+        if (value.kind == JsonValueKind::null_value)
+            return true;
+        JsonString stamp{};
+        u64 milliseconds = 0;
+        if (!json_value_as_string(value, &stamp) || !parse_iso_timestamp(stamp, &milliseconds) ||
+            milliseconds / 1000 > 0xFFFFFFFFull)
+            return reject(context);
+        m.self_communication_disabled_until = static_cast<u32>(milliseconds / 1000);
+        return true;
+    }
+    default:
+        // The API adds enum levels over time; an unknown level leaves the
+        // setting unknown instead of rejecting the whole guild.
+        if (!json_value_to_u64(value, &number) || number > key.maximum) {
+            m.guild_settings_known = static_cast<u16>(m.guild_settings_known & ~key.field);
+            return true;
+        }
+        (key.field == guild_settings_mfa_level            ? m.mfa_level
+         : key.field == guild_settings_verification_level ? m.verification_level
+         : key.field == guild_settings_default_notifications
+             ? m.default_message_notifications
+             : m.explicit_content_filter) = static_cast<u8>(number);
+        return true;
+    }
 }
+
+// The state keys, then the guild setting keys (visit_guild_setting), then the guild detail keys
+// (gateway_guild_detail_visit), in one lookup.
+constexpr u32 kStateKeys = 52, kSettingKeys = 9, kDetailKeys = 17;
 
 bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<StateObjectContext*>(opaque);
-    bool setting = false;
-    if (!visit_guild_setting(context, name, value, &setting))
-        return false;
-    if (setting || gateway_guild_detail_visit(&context->details, name, value))
-        return true;
     // Ordering, flag and color values outside the native range (a negative
     // position, a future 64-bit flag) degrade to "absent" for that record.
     const bool array = value.kind == JsonValueKind::array;
     const bool object = value.kind == JsonValueKind::object;
-    switch (member_index<"id", "name", "type", "guild_id", "parent_id", "flags", "position", "permissions",
-                         "last_message_id", "user", "roles", "channels", "members", "threads", "emojis",
-                         "permission_overwrites", "features", "icon", "banner", "owner_id", "role_id", "color",
-                         "colors", "tags", "hoist", "managed", "mentionable", "unicode_emoji", "allow", "deny",
-                         "rate_limit_per_user", "nsfw", "nsfw_level", "member", "thread_metadata", "newly_created",
-                         "member_list_id", "animated", "available", "require_colons", "joined_at", "unavailable",
-                         "role", "nicks", "recipients", "recipient_ids", "properties", "is_message_request",
-                         "is_spam", "safety_warnings", "default_auto_archive_duration">(name)) {
+    const u32 index = member_index<
+        "id", "name", "type", "guild_id", "parent_id", "flags", "position", "permissions", "last_message_id", "user",
+        "roles", "channels", "members", "threads", "emojis", "permission_overwrites", "features", "icon", "banner",
+        "owner_id", "role_id", "color", "colors", "tags", "hoist", "managed", "mentionable", "unicode_emoji", "allow",
+        "deny", "rate_limit_per_user", "nsfw", "nsfw_level", "member", "thread_metadata", "newly_created",
+        "member_list_id", "animated", "available", "require_colons", "joined_at", "unavailable", "role", "nicks",
+        "recipients", "recipient_ids", "properties", "is_message_request", "is_spam", "safety_warnings",
+        "default_auto_archive_duration", "user_limit",
+        "pending", "mfa_level", "verification_level", "default_message_notifications", "explicit_content_filter",
+        "system_channel_id", "afk_channel_id", "afk_timeout", "communication_disabled_until",
+        "premium_tier", "premium_subscription_count", "system_channel_flags", "rules_channel_id",
+        "public_updates_channel_id", "safety_alerts_channel_id", "premium_progress_bar_enabled", "description",
+        "vanity_url_code", "incidents_data", "member_count", "splash", "preferred_locale",
+        "owner_configured_content_level", "discovery_splash", "guild_space_settings", "experiments">(name);
+    if (index >= kStateKeys + kSettingKeys) {
+        if (index < kStateKeys + kSettingKeys + kDetailKeys)
+            gateway_guild_detail_visit(&context->details, index - kStateKeys - kSettingKeys, value);
+        return true;
+    }
+    if (index >= kStateKeys)
+        return visit_guild_setting(context, index - kStateKeys, value);
+    // A kept member: the first occurrence of a value with the expected shape. The cases share one copy.
+    struct Kept {
+        bool* seen;
+        JsonValue* slot;
+        bool shape;
+    } kept;
+    switch (index) {
     case 0:
     case 20:
         return snowflake_member(context, gateway_client_state_field_id, value, &context->mutation.id);
@@ -271,19 +282,12 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     case 8:
         return snowflake_member(context, gateway_client_state_field_last_message_id, value,
                                 &context->mutation.last_message_id, true);
-    case 9:
-        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value, object);
-    case 10:
-        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value, array);
-    case 11:
-        return gateway_keep_member(&context->error, &context->channels_seen, &context->channels, value, array);
-    case 12:
-        return gateway_keep_member(&context->error, &context->members_seen, &context->members, value, array);
-    case 13:
-        return gateway_keep_member(&context->error, &context->threads_seen, &context->threads, value, array);
-    case 14:
-        return gateway_keep_member(&context->error, &context->emojis_seen, &context->emojis, value,
-                                   array || object);
+    case 9: kept = {&context->user_seen, &context->user, object}; break;
+    case 10: kept = {&context->roles_seen, &context->roles, array}; break;
+    case 11: kept = {&context->channels_seen, &context->channels, array}; break;
+    case 12: kept = {&context->members_seen, &context->members, array}; break;
+    case 13: kept = {&context->threads_seen, &context->threads, array}; break;
+    case 14: kept = {&context->emojis_seen, &context->emojis, array || object}; break;
     case 15:
         if (!mark_field(context, gateway_client_state_field_permission_overwrites) || !array)
             return reject(context);
@@ -321,8 +325,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     case 21:
         return bounded_member(context, gateway_client_state_field_color, value, 0xFFFFFFu,
                               &context->mutation.color);
-    case 22:
-        return gateway_keep_member(&context->error, &context->colors_seen, &context->colors, value, object);
+    case 22: kept = {&context->colors_seen, &context->colors, object}; break;
     case 23:
         // Only an object carries role tags; other shapes are ignored.
         if (!object)
@@ -380,11 +383,14 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         return true;
     }
     case 32: {
+        // An unknown future level leaves the guild classification unknown. The guild details keep the level too.
+        u64 level = 0;
+        const bool known = json_value_to_u64(value, &level) && level <= 3;
+        if (known)
+            context->details.nsfw_level = static_cast<u8>(level);
         if (context->guild_nsfw_level_seen)
             return gateway_duplicate_member(&context->error);
-        u64 level = 0;
-        // An unknown future level leaves the guild classification unknown.
-        if (!json_value_to_u64(value, &level) || level > 3) return true;
+        if (!known) return true;
         context->guild_nsfw_level = static_cast<u8>(level);
         context->guild_nsfw_level_seen = true;
         return true;
@@ -399,9 +405,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->thread_member_seen = true;
         context->thread_member = value;
         return true;
-    case 34:
-        return gateway_keep_member(&context->error, &context->thread_metadata_seen, &context->thread_metadata,
-                                   value, object);
+    case 34: kept = {&context->thread_metadata_seen, &context->thread_metadata, object}; break;
     case 35:
         if (context->newly_created_seen)
             return gateway_duplicate_member(&context->error);
@@ -433,20 +437,11 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     case 41:
         return flag_member(context, gateway_client_state_field_unavailable, value,
                            &context->mutation.unavailable);
-    case 42:
-        return gateway_keep_member(&context->error, &context->role_seen, &context->role, value, object);
-    case 43:
-        return gateway_keep_member(&context->error, &context->nicks_seen, &context->nicks, value,
-                                   array || value.kind == JsonValueKind::null_value);
-    case 44:
-        return gateway_keep_member(&context->error, &context->recipients_seen, &context->recipients, value,
-                                   array);
-    case 45:
-        return gateway_keep_member(&context->error, &context->recipient_ids_seen, &context->recipient_ids, value,
-                                   array);
-    case 46:
-        return gateway_keep_member(&context->error, &context->properties_seen, &context->properties, value,
-                                   object);
+    case 42: kept = {&context->role_seen, &context->role, object}; break;
+    case 43: kept = {&context->nicks_seen, &context->nicks, array || value.kind == JsonValueKind::null_value}; break;
+    case 44: kept = {&context->recipients_seen, &context->recipients, array}; break;
+    case 45: kept = {&context->recipient_ids_seen, &context->recipient_ids, array}; break;
+    case 46: kept = {&context->properties_seen, &context->properties, object}; break;
     // Message request and DM safety fields are advisory: malformed values are
     // ignored rather than rejecting the channel.
     case 47:
@@ -469,8 +464,17 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
             context->mutation.default_archive_code = channel_archive_code(minutes);
         return true;
     }
+    case 51: {
+        // Presentation and the join check only, like slowmode: a malformed value keeps the stored limit. The store
+        // keeps it for voice and stage channels.
+        u64 limit = 0;
+        if (json_value_to_u64(value, &limit) && limit <= 10'000)
+            context->mutation.user_limit = static_cast<u32>(limit + 1);
+        return true;
+    }
     default: return true;
     }
+    return gateway_keep_member(&context->error, kept.seen, kept.slot, value, kept.shape);
 }
 
 struct SafetyWarningFields {

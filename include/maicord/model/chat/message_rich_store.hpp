@@ -256,7 +256,6 @@ struct MessageRichRecord {
     MessageRichEmbedField* embed_fields;
     MessageRichSticker* stickers;
     MessageRichComponent* components;
-    u16 generation;
     u8 reaction_count;
     u8 attachment_count;
     u8 embed_count;
@@ -283,7 +282,7 @@ constexpr bool message_rich_record_voice(const MessageRichRecord& record) noexce
 static_assert(sizeof(MessageRichRecord) == 256);
 
 // Zeroes a record and points its arrays at the shared empty items. Store slots
-// that are not in use are exactly a cleared record plus their generation.
+// that are not in use are exactly a cleared record.
 void message_rich_record_clear(MessageRichRecord* record) noexcept;
 
 inline bool message_rich_has_interaction(const MessageRichRecord& rich) noexcept {
@@ -395,6 +394,10 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
     MessageRichStore* store, u64 message_id, u32 message_revision,
     const MessageRichReactionMutation& mutation) noexcept;
 const MessageRichRecord* message_rich_store_find(const MessageRichStore& store, u64 message_id) noexcept;
+// The same answer as message_rich_store_find, for a pass that asks for ascending ids. *cursor starts at 0 and keeps
+// the order position of the last answer, so the search starts there instead of at the middle.
+const MessageRichRecord* message_rich_store_find_next(const MessageRichStore& store, u64 message_id,
+                                                      u32* cursor) noexcept;
 // Delivery-only base-message changes preserve current rich metadata. Stale
 // metadata is never promoted to match a newer base revision.
 bool message_rich_store_advance_revision(MessageRichStore* store, u64 message_id, u32 expected_revision,
@@ -414,6 +417,8 @@ bool message_rich_store_set_attachment_dimensions(MessageRichStore* store, u64 m
 bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 message_id, u32 message_revision,
                                              u32 embed_index, MessageRichEmbedMediaSlot slot, u32 width,
                                              u32 height, bool* changed, bool snapshot = false) noexcept;
+// The store validates the UTF-8 of each string when it writes it, so a read does not validate it again.
+// Empty for a string outside the used text.
 Utf8View message_rich_store_string(const MessageRichStore& store, MessageRichString value) noexcept;
 const MessageRichRecord* message_rich_store_snapshot(const MessageRichStore& store,
                                                      u64 outer_message_id) noexcept;
@@ -429,6 +434,7 @@ bool message_rich_store_reset(MessageRichStore* store) noexcept;
 bool message_rich_store_pack(const MessageRichStore& store, u64 message_id, Slice<u8> output,
                              u32* written) noexcept;
 // Inserts a packed message that is not yet resident, bound to message_revision.
+// The strings are not validated again: give only the output of message_rich_store_pack.
 // A bulk caller passes slot_hint (initially 0) so free slots are found in order.
 bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 message_revision,
                                ConstSlice<u8> packed, u32* slot_hint = nullptr) noexcept;

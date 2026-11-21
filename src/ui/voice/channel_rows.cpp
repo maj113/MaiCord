@@ -4,14 +4,18 @@
 #include "maicord/ui/voice/panel.hpp"
 
 namespace maicord {
+UiVoiceParticipants ui_voice_participants(const ChannelViewRow& row, const VoiceStateStore& store) noexcept {
+    const ConstSlice<VoiceState> states =
+        row.voice_count ? voice_state_store_channel(store, row.id) : ConstSlice<VoiceState>{};
+    return {states.data, minimum<u32>(states.count, row.voice_count)};
+}
+
 bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_rectangle,
-                              const VoiceStateStore& store, u32 index,
+                              const UiVoiceParticipants& users, u32 index,
                               UiVoiceParticipantRow* output) noexcept {
-    if (!output || index >= row.voice_count)
+    if (index >= users.count)
         return false;
-    const auto* state = voice_state_store_channel_at(store, row.id, index);
-    if (!state)
-        return false;
+    const VoiceState* state = users.first + index;
     const float top = row_rectangle.top + shell_navigation_voice_top(row) +
                       static_cast<float>(index) * kShellNavigationVoiceUserHeight;
     // 32-DIP rows with a 24-DIP avatar under the channel name, 16-DIP state

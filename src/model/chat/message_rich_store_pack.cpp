@@ -11,6 +11,27 @@ const MessageRichRecord* message_rich_store_find(const MessageRichStore& store, 
     return search.found ? &store.records[search.slot] : nullptr;
 }
 
+const MessageRichRecord* message_rich_store_find_next(const MessageRichStore& store, u64 message_id,
+                                                      u32* cursor) noexcept {
+    if (!store.records || !store.order || message_id == 0)
+        return nullptr;
+    const auto id_at = [&](u32 at) noexcept { return store.records[store.order[at]].message_id; };
+    // Every position before low holds a smaller id. A cursor after this id (ids out of order) starts over.
+    u32 low = *cursor <= store.count && (!*cursor || id_at(*cursor - 1) < message_id) ? *cursor : 0;
+    u32 high = store.count;
+    // Exponential search from the cursor (Bentley and Yao, 1976), then a binary search of its bracket.
+    for (u32 step = 1; low + step - 1 < high; step *= 2) {
+        if (id_at(low + step - 1) >= message_id) {
+            high = low + step - 1;
+            break;
+        }
+        low += step;
+    }
+    const SearchResult search = find_record(store, message_id, low, high);
+    *cursor = search.order_index;
+    return search.found ? &store.records[search.slot] : nullptr;
+}
+
 // The record a dimension update edits (the message itself or its forwarded snapshot) when
 // it is resident at message_revision.
 static MessageRichRecord* dimension_target(MessageRichStore* store, u64 message_id, u32 message_revision,
@@ -78,11 +99,6 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
     return true;
 }
 
-Utf8View message_rich_store_string(const MessageRichStore& store, MessageRichString value) noexcept {
-    const Utf8View result = stored_text(store, value);
-    return utf8_validate(result).valid ? result : Utf8View{};
-}
-
 bool message_rich_store_delete(MessageRichStore* store, u64 message_id) noexcept {
     if (!store || message_id == 0) {
         return false;
@@ -121,7 +137,7 @@ struct PackedRichHeader {
 // Head and tail are copied verbatim, so fields added outside the bounded
 // arrays are carried without changing the snapshot format.
 inline constexpr u32 kRichHead = __builtin_offsetof(MessageRichRecord, reactions);
-inline constexpr u32 kRichTailBegin = __builtin_offsetof(MessageRichRecord, generation);
+inline constexpr u32 kRichTailBegin = __builtin_offsetof(MessageRichRecord, reaction_count);
 inline constexpr u32 kRichTail = sizeof(MessageRichRecord) - kRichTailBegin;
 inline constexpr u32 kPackedRichMinimum = sizeof(PackedRichHeader) + kRichHead + kRichTail;
 
@@ -159,7 +175,7 @@ bool pack_string(void* opaque, MessageRichString* value) noexcept {
 }
 
 // Appends the record's items of every kind, each through a local copy that carries relative string offsets.
-bool write_items(const MessageRichRecord& source, u8** cursor, PackStringContext* strings) noexcept {
+inline bool write_items(const MessageRichRecord& source, u8** cursor, PackStringContext* strings) noexcept {
     alignas(8) u8 item[sizeof(MessageRichEmbed)];
     #pragma clang loop unroll(disable)
     for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
@@ -175,7 +191,7 @@ bool write_items(const MessageRichRecord& source, u8** cursor, PackStringContext
     return true;
 }
 
-const u8* read_items(const u8* cursor, void* items, u32 bytes) noexcept {
+inline const u8* read_items(const u8* cursor, void* items, u32 bytes) noexcept {
     copy_bytes(items, cursor, bytes);
     return cursor + bytes;
 }
@@ -201,7 +217,6 @@ bool pack_record(const MessageRichStore& store, const MessageRichRecord& source,
                kRichTail);
     // Slot and revision bindings are reassigned by unpack.
     copy.message_revision = 0;
-    copy.generation = 0;
     copy.forwarded_snapshot_slot = 0;
     PackStringContext strings{&store, output + fixed, capacity - fixed, 0};
     u8* cursor = output + sizeof(PackedRichHeader);
@@ -365,11 +380,8 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
             return false;
     }
     const auto abandon = [&](u32 count) noexcept {
-        for (u32 index = 0; index < count; ++index) {
-            MessageRichRecord& record = store->records[slots[index]];
-            const u16 generation = record.generation;
-            reset_slot(store, &record, generation == 0 ? u16{1} : generation);
-        }
+        for (u32 index = 0; index < count; ++index)
+            reset_slot(store, &store->records[slots[index]]);
         return false;
     };
     const u32 base = bank_base(*store);
@@ -377,18 +389,14 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
     cursor = sizeof(u32);
     for (u32 index = 0; index < parts; ++index) {
         MessageRichRecord& record = store->records[slots[index]];
-        const u16 generation = record.generation;
         ConstSlice<u8> strings{};
         u32 consumed = 0;
         UnpackStringContext context{headers[index].string_bytes, destination};
         if (!parse_record(store, {packed.data + cursor, packed.count - cursor}, &record, &strings, &consumed) ||
             record.has_forwarded_snapshot != (index == 0 && has_child) ||
             record.forwarded_snapshot_child != (index != 0) ||
-            !walk_strings(&record, kRichFields, unpack_string, &context)) {
-            record.generation = generation;
+            !walk_strings(&record, kRichFields, unpack_string, &context))
             return abandon(index + 1);
-        }
-        record.generation = generation == 0 ? 1 : generation;
         record.message_id = message_id;
         record.message_revision = message_revision;
         record.occupied = false;

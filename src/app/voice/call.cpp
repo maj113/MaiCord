@@ -192,7 +192,8 @@ u32 project_streams(u64 channel_id) noexcept {
     // A stream whose owner the channel's known voice states no longer list
     // live (left, moved, stopped) has no tile, even before STREAM_DELETE.
     const auto* owner = voice_state_store_find(ui.voice_states, watched.key.guild_id, watched.key.owner_id);
-    const bool owner_live = !voice_state_store_channel_count(ui.voice_states, channel_id) ||
+    const ConstSlice<VoiceState> states = voice_state_store_channel(ui.voice_states, channel_id);
+    const bool owner_live = !states.count ||
                             (owner && owner->channel_id == channel_id && voice_state_live(*owner));
     if (watched.state != StreamWatchState::none && watched.key.channel_id == channel_id &&
         (owner_live || watched.state == StreamWatchState::ended)) {
@@ -212,11 +213,8 @@ u32 project_streams(u64 channel_id) noexcept {
             p.preview = application_stream_preview(watched.key);
         view.participants[count++] = p;
     }
-    const u32 states = voice_state_store_channel_count(ui.voice_states, channel_id);
-    for (u32 i = 0; i < states && count < kUiCallMaximumTiles / 2; ++i) {
-        const auto* state = voice_state_store_channel_at(ui.voice_states, channel_id, i);
-        if (!state)
-            break;
+    for (u32 i = 0; i < states.count && count < kUiCallMaximumTiles / 2; ++i) {
+        const auto* state = &states[i];
         if (!voice_state_live(*state) || state->user_id == self || state->user_id == watched_owner)
             continue;
         UiCallParticipant p{};
@@ -238,11 +236,9 @@ u32 project_participants(u64 channel_id) noexcept {
     bool self_seen = false;
     // A stage's tiles are its speakers; the audience is the stage band.
     const bool stage = application_stage_channel(channel_id);
-    const u32 states = voice_state_store_channel_count(ui.voice_states, channel_id);
-    for (u32 i = 0; i < states; ++i) {
-        const auto* state = voice_state_store_channel_at(ui.voice_states, channel_id, i);
-        if (!state)
-            break;
+    const ConstSlice<VoiceState> states = voice_state_store_channel(ui.voice_states, channel_id);
+    for (u32 i = 0; i < states.count; ++i) {
+        const auto* state = &states[i];
         self_seen = self_seen || state->user_id == self;
         if (!stage || application_stage_speaker(state->flags))
             add_participant(&count, state->user_id, state->flags, state->user_id == self);

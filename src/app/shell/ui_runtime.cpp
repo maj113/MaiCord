@@ -443,7 +443,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         !member_list_view_initialize(
             &runtime->member_list,
             Slice<MemberListRow>{runtime->member_list_rows, kMemberListViewCapacity},
-            Slice<u32>{runtime->projection_scratch.member_list, kGuildMemberCapacity}) ||
+            Slice<MemberListSortKey>{runtime->projection_scratch.member_list, kGuildMemberCapacity}) ||
         // The whole owner is committed. Readers use only the active text
         // prefix, so initialization and reset need only two bank sentinels.
         !message_rich_store_initialize_owned_sparse(

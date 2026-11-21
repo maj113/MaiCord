@@ -47,6 +47,8 @@ struct VoiceStateStore {
     // The writable prefix: owned stores grow it as they commit pages.
     Slice<VoiceState> records;
     u32 count;
+    // Moves with every change other than a speaking mark: no reader of the revision shows those marks, and the
+    // caller of voice_state_store_set_speaking repaints for them.
     u32 revision;
     // States lost at the bound, and the guild evictions that freed room.
     u32 dropped;
@@ -71,10 +73,8 @@ VoiceStateResult voice_state_store_clear_guild(VoiceStateStore* store,
                                                               u64 guild_id) noexcept;
 const VoiceState* voice_state_store_find(const VoiceStateStore& store, u64 guild_id,
                                                         u64 user_id) noexcept;
-u32 voice_state_store_channel_count(const VoiceStateStore& store, u64 channel_id) noexcept;
-// The index-th state in channel_id by join order, or null.
-const VoiceState* voice_state_store_channel_at(const VoiceStateStore& store,
-                                                              u64 channel_id, u32 index) noexcept;
+// The states in channel_id by join order; empty for a zero channel.
+ConstSlice<VoiceState> voice_state_store_channel(const VoiceStateStore& store, u64 channel_id) noexcept;
 // Go Live: true while the user streams (self_stream). LIVE badge hook.
 inline bool voice_state_live(const VoiceState& state) noexcept {
     return (state.flags & voice_self_stream) != 0;

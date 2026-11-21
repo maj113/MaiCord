@@ -28,7 +28,6 @@ ClientPreferences snapshot(u32 value) noexcept {
     preferences.message_sounds_enabled = (value & 32) != 0;
     preferences.selected_message_sounds_enabled = (value & 64) != 0;
     preferences.output_volume = static_cast<u8>(value % 201);
-    preferences.soundpack = static_cast<NotificationSoundpack>(value % 9);
     return preferences;
 }
 
@@ -84,11 +83,6 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
     const ClientPreferences invalid{static_cast<ClientTheme>(255), false, false, false};
     check(!client_preferences_writer_submit(writer, invalid, &revision) && revision == 91,
           "preferences writer: malformed requests cannot consume revisions or enqueue disk IO");
-
-    auto invalid_pack=defaults;invalid_pack.soundpack=static_cast<NotificationSoundpack>(9);
-    const u64 pack_rejected_revision=revision;
-    check(!client_preferences_writer_submit(writer,invalid_pack,&revision) && revision==pack_rejected_revision,
-        "preferences writer: invalid pack cannot consume a revision or enqueue a malformed snapshot");
 
     const auto first = snapshot(9);
     check(client_preferences_writer_submit(writer, first, &revision) && revision == 1 &&

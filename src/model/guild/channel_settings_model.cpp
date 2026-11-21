@@ -1,4 +1,5 @@
 #include "maicord/model/guild/channel_settings_model.hpp"
+#include "maicord/model/guild/settings_model.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/core/utf.hpp"
@@ -110,17 +111,10 @@ bool channel_settings_equal(const ChannelSettingsDraft& a, const ChannelSettings
            utf8_equal({a.name, a.name_bytes}, {b.name, b.name_bytes});
 }
 
+// A channel name follows the role name rule: 1 to kGuildAdminNameCodepoints code points, no control
+// characters, not blank.
 bool channel_settings_name_valid(Utf8View text) noexcept {
-    const auto validation = utf8_validate(text);
-    if (!validation.valid || !validation.codepoints || validation.codepoints > kGuildAdminNameCodepoints)
-        return false;
-    bool visible = false;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        if (static_cast<u8>(text.data[i]) < 0x20)
-            return false;
-        visible = visible || text.data[i] != ' ';
-    }
-    return visible;
+    return guild_role_name_valid(text);
 }
 
 bool channel_settings_patch(const ChannelSettingsDraft& baseline, const ChannelSettingsDraft& draft,

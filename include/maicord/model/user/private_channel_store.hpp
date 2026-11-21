@@ -83,8 +83,11 @@ ConstSlice<u64> private_channel_store_recipients(const PrivateChannelStore& stor
 // Optimistic local updates after an accepted request or a dismissed warning.
 bool private_channel_store_set_request(PrivateChannelStore* store, u64 id, u8 request_flags) noexcept;
 bool private_channel_store_clear_safety_warning(PrivateChannelStore* store, u64 id, u64 warning_id) noexcept;
-// Pending message requests; spam requests are counted separately.
-u32 private_channel_store_request_count(const PrivateChannelStore& store, bool spam) noexcept;
+// Message requests: pending ones that are not spam, and spam ones.
+struct PrivateRequestCounts {
+    u32 pending, spam;
+};
+PrivateRequestCounts private_channel_store_request_counts(const PrivateChannelStore& store) noexcept;
 constexpr bool private_channel_is_request(const PrivateChannelRecord& record) noexcept {
     return (record.request_flags & (private_request_pending | private_request_spam)) != 0;
 }

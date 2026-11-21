@@ -127,7 +127,6 @@ struct ApplicationNotifications {
     u32 seen_next, guild_scope_count, channel_scope_count, os_setting, global_known_gates, global_gates;
     bool live, ready, snapshot, snapshot_failed, enrolled, focused, has_create_sequence, snapshot_partial, work_pending,
         backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, mention_on_all;
-    NotificationSoundpack current_pack;
     Utf8View status;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     void(*fixture_sink)(void*,const DesktopNotificationPayload&) noexcept;
@@ -226,9 +225,6 @@ void audio_reset(ApplicationNotifications& n,bool enabled) noexcept {
 }
 void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     notification_sound_assets_volume(&n.sound_assets,a.preferences.output_volume);
-    // A local pack override changes the mapping of future sounds only: never a pending request, an accepted
-    // clip, an active voice or the account audio epoch.
-    n.current_pack=a.preferences.soundpack;
     if(n.audio_preference!=a.preferences.message_sounds_enabled) {
         n.audio_preference=a.preferences.message_sounds_enabled;
         audio_reset(n,n.audio_preference && n.profile!=0);
@@ -238,9 +234,8 @@ void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     // Streamer Mode's "Disable all sound effects".
     if(!id || epoch!=n.audio_epoch || !n.audio_preference || application_streamer_disable_sounds() || !audio_sink(n)) return;
     if(id!=1 && id!=2) return;
-    const u32 clip=notification_soundpack_clip(n.current_pack,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1);
-    if(!clip) return;
-    const NotificationAudioRequest request{epoch,clip,.4f,{}};
+    // The id is the sound bank's clip: 1 the ordinary alert, 2 the alert for the selected channel.
+    const NotificationAudioRequest request{epoch,id,.4f,{}};
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     const auto result=n.fixture_audio_sink(n.fixture_audio_context,request);
 #else
@@ -354,7 +349,6 @@ ApplicationNotifications* ensure(Application* a) noexcept {
                 (!t || stable_storage_reserve(&owner.threads,t));
         },n);
     n->audio_epoch=1; n->audio_preference=a->preferences.message_sounds_enabled;
-    n->current_pack=a->preferences.soundpack;
     n->sound_assets.module=module_image();
     // VirtualAlloc zeroes storage; it does not run default member initializers.
     notification_sound_assets_volume(&n->sound_assets,a->preferences.output_volume);
@@ -966,7 +960,6 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.audio_failed=n.audio_failed;
     metrics.audio_worker_started=n.audio.runtime!=nullptr;
     metrics.audio_output_percent=static_cast<u32>(ReadAcquire(&n.sound_assets.output_percent));
-    metrics.audio_pack=n.current_pack;
     metrics.retention_channels=n.retention.count;
     metrics.retention_capacity_channels=n.retention.rows.count;
     for(u32 i=0;i<n.retention.count;++i) saturating_accumulate(metrics.retention_tickets,u64{n.retention.rows[i].count});

@@ -306,7 +306,7 @@ void project_dm(ApplicationFriends& friends) noexcept {
         return;
     friends.dm_tab = friends.tab;friends.dm_store_revision = revision;friends.dm_user_revision = users.revision;
     friends.dm_busy = busy;
-    friends.dm_spam_count = store ? private_channel_store_request_count(*store, true) : 0;
+    friends.dm_spam_count = store ? private_channel_store_request_counts(*store).spam : 0;
     const bool spam = friends.tab == UiFriendsTab::spam;
     const u64 now = clock_unix_milliseconds() / 1000;
     u64 recency[kFriendsDmRequestCapacity];
@@ -398,12 +398,14 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
     }
     const auto filter = friends.tab == UiFriendsTab::online ? RelationshipFilter::online :
         friends.tab == UiFriendsTab::pending ? RelationshipFilter::pending : RelationshipFilter::all;
+    FriendSearchQuery folded;
+    if (query.bytes) friend_search_query(query, &folded);
     if (friends.tab <= UiFriendsTab::pending)
         for (u32 i = 0; i < friends.store.count; ++i)
             if (relationship_matches(friends.records[i], filter)) {
                 ++friends.total_count;
                 const auto* user = query.bytes ? user_store_find(users, friends.records[i].user_id) : nullptr;
-                if (!query.bytes || (user && friend_search(query, user_store_username(users, *user),
+                if (!query.bytes || (user && friend_search_folded(folded, user_store_username(users, *user),
                     {friends.records[i].nickname, friends.records[i].nickname_bytes},
                     user_store_name(users, *user)).matched)) {
                     friends.names[i] = relationship_display_name(friends.records[i], users);

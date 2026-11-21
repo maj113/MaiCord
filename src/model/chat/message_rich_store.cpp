@@ -1,6 +1,5 @@
 #include "message_rich_store_internal.hpp"
 #include "maicord/media/core/asset_key.hpp"
-#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace message_rich_store_detail {
@@ -135,7 +134,7 @@ bool slab_owns(const MessageRichSlab& slab, const void* block) noexcept {
 }
 
 // A zeroed block, or null when the slab cannot commit more.
-void* slab_take(MessageRichSlab* slab) noexcept {
+inline void* slab_take(MessageRichSlab* slab) noexcept {
     u8* base = stable_storage_data<u8>(slab->storage);
     u32 index = slab->top;
     if (slab->free_head) {
@@ -159,7 +158,7 @@ void slab_give(MessageRichSlab* slab, void* block) noexcept {
 }
 
 // How many items a block holds; zero for the shared empty items and foreign pointers.
-u32 block_items(const MessageRichSide& side, u32 kind, const void* block) noexcept {
+inline u32 block_items(const MessageRichSide& side, u32 kind, const void* block) noexcept {
     return slab_owns(side.slabs[kind][0], block)   ? kSmallItems[kind]
            : slab_owns(side.slabs[kind][1], block) ? kLargeItems[kind]
                                                    : 0;
@@ -199,7 +198,7 @@ void discard_plan(MessageRichSide* side, const ArrayPlan& plan) noexcept {
             release_block(side, kind, plan.block[kind]);
 }
 
-bool plan_arrays(MessageRichSide* side, const MessageRichRecord& record, const GatewayMessageEvent& input,
+inline bool plan_arrays(MessageRichSide* side, const MessageRichRecord& record, const GatewayMessageEvent& input,
                  u32 fields, ArrayPlan* plan) noexcept {
     const u32 counts[kMessageRichSideKinds] = {input.reactions.count,  input.attachments.count,
                                                input.embeds.count,     input.embed_fields.count,
@@ -219,7 +218,7 @@ bool plan_arrays(MessageRichSide* side, const MessageRichRecord& record, const G
     return true;
 }
 
-void commit_plan(MessageRichSide* side, MessageRichRecord* record, const ArrayPlan& plan) noexcept {
+inline void commit_plan(MessageRichSide* side, MessageRichRecord* record, const ArrayPlan& plan) noexcept {
     #pragma clang loop unroll(disable)
     for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
         void* const previous = block_of(*record, kind);
@@ -230,19 +229,12 @@ void commit_plan(MessageRichSide* side, MessageRichRecord* record, const ArrayPl
     }
 }
 
-// Returns every block of a record to its slab and points the arrays back at the empty items.
-void release_arrays(MessageRichSide* side, MessageRichRecord* record) noexcept {
+// Returns every block of a record to its slab and clears the record.
+void reset_slot(MessageRichStore* store, MessageRichRecord* record) noexcept {
     #pragma clang loop unroll(disable)
-    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
-        release_block(side, kind, block_of(*record, kind));
-        set_block(record, kind, kNoItems[kind]);
-    }
-}
-
-void reset_slot(MessageRichStore* store, MessageRichRecord* record, u16 generation) noexcept {
-    release_arrays(&store->side, record);
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind)
+        release_block(&store->side, kind, block_of(*record, kind));
     message_rich_record_clear(record);
-    record->generation = generation;
 }
 
 void side_release(MessageRichSide* side) noexcept {
@@ -254,7 +246,7 @@ void side_release(MessageRichSide* side) noexcept {
 }
 
 // One block per live record per kind, plus one while a record changes class.
-bool side_initialize(MessageRichSide* side, u32 records) noexcept {
+inline bool side_initialize(MessageRichSide* side, u32 records) noexcept {
     reset_value(side);
     side->initialized = kSideMagic;
     #pragma clang loop unroll(disable)
@@ -275,14 +267,10 @@ bool side_initialize(MessageRichSide* side, u32 records) noexcept {
 }
 
 // Every block is free again; committed pages stay for reuse.
-void side_clear(MessageRichSide* side) noexcept {
+inline void side_clear(MessageRichSide* side) noexcept {
     for (auto& pair : side->slabs)
         for (auto& slab : pair)
             slab.free_head = slab.top = 0;
-}
-
-u32 bank_capacity(const MessageRichStore& store) noexcept {
-    return store.text_capacity / 2;
 }
 
 u32 bank_base(const MessageRichStore& store) noexcept {
@@ -294,6 +282,7 @@ struct TotalContext {
     u64 total;
 };
 
+// The store validated each string when it wrote it, and a sum of 16-bit lengths cannot wrap.
 bool total_string(void* opaque, MessageRichString* value) noexcept {
     auto* context = static_cast<TotalContext*>(opaque);
     if (value->bytes == 0) {
@@ -303,10 +292,6 @@ bool total_string(void* opaque, MessageRichString* value) noexcept {
     const u32 base = bank_base(store);
     if (value->offset < base || value->offset > base + store.text_used ||
         value->bytes > base + store.text_used - value->offset) {
-        return false;
-    }
-    const Utf8View text{reinterpret_cast<const char*>(store.text + value->offset), value->bytes};
-    if (!utf8_validate(text).valid || context->total > ~0ull - value->bytes) {
         return false;
     }
     context->total += value->bytes;
@@ -338,40 +323,19 @@ bool relocate_string(void* opaque, MessageRichString* value) noexcept {
     return true;
 }
 
-SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept {
-    u32 low = 0;
-    u32 high = store.count;
+// The store writes every order entry, and each names an occupied slot below record_extent, so a probe reads
+// just the id and needs no bounds or occupancy test.
+SearchResult find_record(const MessageRichStore& store, u64 message_id, u32 low, u32 high) noexcept {
     while (low < high) {
         const u32 middle = low + (high - low) / 2;
-        const u16 slot = store.order[middle];
-        // order lists occupied slots only, so a probe reads just the id (the
-        // 8 KiB record's first line); occupancy is checked on the final candidate.
-        if (slot >= store.record_extent) {
-            return SearchResult{};
-        }
-        if (store.records[slot].message_id < message_id) {
+        if (store.records[store.order[middle]].message_id < message_id)
             low = middle + 1;
-        } else {
+        else
             high = middle;
-        }
     }
-    if (low < store.count) {
-        const u16 slot = store.order[low];
-        if (slot < store.record_extent && store.records[slot].occupied &&
-            store.records[slot].message_id == message_id) {
-            return SearchResult{low, slot, true};
-        }
-    }
+    if (low < store.count && store.records[store.order[low]].message_id == message_id)
+        return SearchResult{low, store.order[low], true};
     return SearchResult{low, 0, false};
-}
-
-// The text a string names, or empty when it lies outside the used bank.
-Utf8View stored_text(const MessageRichStore& store, MessageRichString value) noexcept {
-    const u32 base = bank_base(store);
-    if (value.bytes == 0 || !store.text || value.offset < base || value.offset > base + store.text_used ||
-        value.bytes > base + store.text_used - value.offset)
-        return Utf8View{};
-    return Utf8View{reinterpret_cast<const char*>(store.text + value.offset), value.bytes};
 }
 
 // First unoccupied slot at or after `from` (wrapping), other than `skip`; 0xFFFF when none.
@@ -417,9 +381,9 @@ bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target
     return true;
 }
 
+// Callers bound the item counts first, so a sum of 16-bit lengths cannot wrap.
 bool add_bytes(u64* total, const Utf8View& value) noexcept {
-    if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu ||
-        !utf8_validate(value).valid || *total > ~0ull - value.bytes) {
+    if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu || !utf8_validate(value).valid) {
         return false;
     }
     *total += value.bytes;
@@ -563,7 +527,7 @@ bool count_wasted(void* opaque, MessageRichString* value) noexcept {
     return true;
 }
 
-void clear_replaced(MessageRichRecord* record, u32 fields) noexcept {
+inline void clear_replaced(MessageRichRecord* record, u32 fields) noexcept {
     if ((fields & gateway_message_field_interaction) != 0)
         reset_value(&record->interaction);
     if ((fields & gateway_message_field_thread) != 0)
@@ -605,7 +569,7 @@ bool record_has_content(const MessageRichRecord& record) noexcept {
            record.component_count != 0 || (record.truncations & ~gateway_message_rich_truncated_text) != 0;
 }
 
-u32 replaced_truncation_mask(u32 fields) noexcept {
+inline u32 replaced_truncation_mask(u32 fields) noexcept {
     u32 mask = 0;
     if ((fields & gateway_message_field_reactions) != 0) {
         mask |= gateway_message_rich_truncated_reactions;
@@ -804,8 +768,7 @@ bool erase_snapshot_slot(MessageRichStore* store, u16 slot) noexcept {
     if (!walk_strings(&store->records[slot], kRichFields, count_wasted, &wasted) ||
         wasted > ~0u - store->text_wasted)
         return false;
-    const u16 generation = store->records[slot].generation;
-    reset_slot(store, &store->records[slot], static_cast<u16>(generation == 0xFFFFu ? 1u : generation + 1u));
+    reset_slot(store, &store->records[slot]);
     store->text_wasted += static_cast<u32>(wasted);
     --store->snapshot_count;
     return true;
@@ -825,8 +788,7 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
         !erase_snapshot_slot(store, store->records[slot].forwarded_snapshot_slot))
         return false;
     store->text_wasted += static_cast<u32>(bytes);
-    const u16 generation = store->records[slot].generation;
-    reset_slot(store, &store->records[slot], generation == 0xFFFFu ? u16{1} : static_cast<u16>(generation + 1u));
+    reset_slot(store, &store->records[slot]);
     sorted_erase_gap(store->order, store->count, order_index);
     --store->count;
     ++store->deleted;
@@ -862,10 +824,8 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
     store->record_extent = record_extent;
     store->text_capacity = text.count;
     store->sparse_text = sparse_text;
-    for (u32 index = 0; index < record_extent; ++index) {
+    for (u32 index = 0; index < record_extent; ++index)
         message_rich_record_clear(&records[index]);
-        records[index].generation = 1;
-    }
     for (u32 index = 0; index < capacity; ++index) {
         order[index] = 0;
     }
@@ -887,10 +847,8 @@ bool extend_records(MessageRichStore* store) noexcept {
     const u32 previous_extent = store->record_extent;
     store->records = stable_storage_data<MessageRichRecord>(*store->record_storage);
     store->record_extent = store->record_storage->capacity;
-    for (u32 index = previous_extent; index < store->record_extent; ++index) {
+    for (u32 index = previous_extent; index < store->record_extent; ++index)
         message_rich_record_clear(&store->records[index]);
-        store->records[index].generation = 1;
-    }
     return true;
 }
 
@@ -940,31 +898,41 @@ void message_rich_record_clear(MessageRichRecord* record) noexcept {
         set_block(record, kind, kNoItems[kind]);
 }
 
+Utf8View message_rich_store_string(const MessageRichStore& store, MessageRichString value) noexcept {
+    const u32 base = bank_base(store);
+    if (value.bytes == 0 || value.offset < base || value.offset > base + store.text_used ||
+        value.bytes > base + store.text_used - value.offset)
+        return Utf8View{};
+    return Utf8View{reinterpret_cast<const char*>(store.text + value.offset), value.bytes};
+}
+
 namespace {
 // Checked in order. Suffix rules read the filename; the generic ones apply
 // only when the content type is absent or an opaque binary.
-enum class AudioRuleKind : u8 { mime, generic_suffix, suffix };
-struct AudioRule {
-    MediaAttachmentFormat format;
-    AudioRuleKind kind;
-};
-// One row per text of kAudioRuleTexts, in its order. MPEG-4 audio: AAC in an audio-only MP4/QuickTime container.
-// Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data before any native playback resource is
-// opened.
-constexpr AudioRule kAudioRules[] = {
-    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::mime},  {MediaAttachmentFormat::mp3, AudioRuleKind::mime},
-    {MediaAttachmentFormat::mp3, AudioRuleKind::mime},       {MediaAttachmentFormat::wav, AudioRuleKind::mime},
-    {MediaAttachmentFormat::wav, AudioRuleKind::mime},       {MediaAttachmentFormat::wav, AudioRuleKind::mime},
-    {MediaAttachmentFormat::mp3, AudioRuleKind::generic_suffix},
-    {MediaAttachmentFormat::wav, AudioRuleKind::generic_suffix},
-    {MediaAttachmentFormat::m4a, AudioRuleKind::mime},       {MediaAttachmentFormat::m4a, AudioRuleKind::mime},
-    {MediaAttachmentFormat::m4a, AudioRuleKind::mime},       {MediaAttachmentFormat::m4a, AudioRuleKind::generic_suffix},
-    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
-    {MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
-};
-constexpr char kAudioRuleTexts[] = "audio/ogg\0audio/mpeg\0audio/mp3\0audio/wav\0audio/x-wav\0audio/vnd.wave\0.mp3\0"
-                                   ".wav\0audio/mp4\0audio/x-m4a\0audio/m4a\0.m4a\0.ogg\0.opus\0";
-static_assert(name_list_count(kAudioRuleTexts) == sizeof(kAudioRules) / sizeof(kAudioRules[0]));
+enum AudioRuleKind : u8 { audio_mime, audio_generic_suffix, audio_suffix };
+// Rows of [format | kind << 4][length][lower-case text], ended by a zero byte. The length saves a scan of each text
+// on this paint path. MPEG-4 audio: AAC in an audio-only MP4/QuickTime container. Ogg/Opus is admitted by filename
+// alone; the demuxer rejects non-Ogg data before any native playback resource is opened.
+constexpr char kAudioRules[] =
+    "\x07\x09" "audio/ogg" "\x08\x0a" "audio/mpeg" "\x08\x09" "audio/mp3" "\x09\x09" "audio/wav"
+    "\x09\x0b" "audio/x-wav" "\x09\x0e" "audio/vnd.wave" "\x18\x04" ".mp3" "\x19\x04" ".wav"
+    "\x0a\x09" "audio/mp4" "\x0a\x0b" "audio/x-m4a" "\x0a\x09" "audio/m4a" "\x1a\x04" ".m4a"
+    "\x27\x04" ".ogg" "\x27\x05" ".opus";
+// Each length ends its text at the next row's code: an audio format and a known kind.
+consteval bool audio_rules_valid() noexcept {
+    u32 at = 0;
+    for (; kAudioRules[at]; at += 2u + static_cast<u8>(kAudioRules[at + 1])) {
+        const u8 code = static_cast<u8>(kAudioRules[at]);
+        if ((code & 15) < static_cast<u32>(MediaAttachmentFormat::ogg_opus) ||
+            (code & 15) > static_cast<u32>(MediaAttachmentFormat::m4a) || (code >> 4) > audio_suffix)
+            return false;
+        for (u32 i = 0; i < static_cast<u8>(kAudioRules[at + 1]); ++i)
+            if (kAudioRules[at + 2 + i] < '-' || kAudioRules[at + 2 + i] > 'z')
+                return false;
+    }
+    return at + 1 == sizeof(kAudioRules);
+}
+static_assert(audio_rules_valid());
 
 // ASCII case-insensitive; `text` is lower case.
 bool equal_lower(Utf8View value, Utf8View text, bool tail) noexcept {
@@ -994,14 +962,12 @@ MediaAttachmentFormat message_rich_attachment_audio_format(
         --type.bytes;
     const bool generic = !type.bytes || equal_lower(type, utf8_literal("application/octet-stream"), false) ||
                          equal_lower(type, utf8_literal("binary/octet-stream"), false);
-    NameList text{kAudioRuleTexts};
     #pragma clang loop unroll(disable)
-    for (const AudioRule& rule : kAudioRules) {
-        const bool mime = rule.kind == AudioRuleKind::mime;
-        if ((rule.kind != AudioRuleKind::generic_suffix || generic) &&
-            equal_lower(mime ? type : name, text.name(), !mime))
-            return rule.format;
-        text.next();
+    for (const char* rule = kAudioRules; *rule; rule += 2 + static_cast<u8>(rule[1])) {
+        const u32 kind = static_cast<u8>(*rule) >> 4;
+        if ((kind != audio_generic_suffix || generic) &&
+            equal_lower(kind == audio_mime ? type : name, {rule + 2, static_cast<u8>(rule[1])}, kind != audio_mime))
+            return static_cast<MediaAttachmentFormat>(*rule & 15);
     }
     return MediaAttachmentFormat::unknown;
 }
@@ -1048,7 +1014,6 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     MessageRichStoreResult result{};
     const auto reject = [&](MessageRichStoreError error) noexcept {
         result.error = error;
-        ++store->rejected;
         return result;
     };
     if (!store->text || store->capacity == 0)
@@ -1075,7 +1040,7 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     }
     u64 desired_bytes = 0;
     constexpr u32 removable = gateway_message_field_mentions | gateway_message_field_call | kReferenceFields;
-    if (!child && validated && !(fields & ~validated->fields) &&
+    if (validated && !(fields & ~validated->fields) &&
         !((validated->fields & ~fields) & ~removable)) {
         desired_bytes = validated->bytes;
         if (!(fields & gateway_message_field_mentions)) desired_bytes -= validated->mention_bytes;
@@ -1111,9 +1076,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         return reject(MessageRichStoreError::record_capacity);
     MessageRichRecord* record = &store->records[slot];
     if (!search.found) {
-        // A free slot is zero except for its generation (erase_slot,
-        // erase_snapshot_slot, abandon, initialize_store and extend_records
-        // leave it so), which stays.
+        // A free slot is a cleared record (erase_slot, erase_snapshot_slot, abandon,
+        // initialize_store and extend_records leave it so).
         record->forwarded_snapshot_child = child;
         record->message_id = message_id;
         record->occupied = true;
@@ -1195,11 +1159,14 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
     if (!outer && (!(input.fields & kRichFields) || store->count >= store->capacity))
         return apply_body(store, message_id, message_revision, input, false, 0, nullptr, &found);
     const u16 previous_slot = previous ? outer->forwarded_snapshot_slot : 0;
-    GatewayMessageEvent body{};
+    // Only a supplied snapshot builds and reads the body, so the other applies do not clear its 728 bytes.
+    GatewayMessageEvent body;
     constexpr u32 body_fields = gateway_message_field_attachments | gateway_message_field_embeds |
                                 gateway_message_field_sticker_items | gateway_message_field_components |
                                 gateway_message_field_message_snapshots | gateway_message_field_flags;
+    u64 body_bytes = 0;
     if (supplied && input.snapshot.present) {
+        reset_value(&body);
         body.id = message_id;
         body.fields = body_fields;
         body.flags = input.snapshot.flags;
@@ -1210,19 +1177,14 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         body.stickers = input.snapshot.stickers;
         body.components = input.snapshot.components;
         body.rich_truncations = input.snapshot.rich_truncations;
-        u64 bytes = 0;
         if (input.snapshot.fields & gateway_message_field_message_snapshots)
             return {nullptr, MessageRichStoreError::invalid_input, false, false};
-        if (!validate_input(body, body_fields, &bytes)) {
-            ++store->rejected;
+        if (!validate_input(body, body_fields, &body_bytes))
             return {nullptr, MessageRichStoreError::invalid_utf8, false, false};
-        }
     }
     u64 bytes = 0;
-    if (!validate_input(input, input.fields & kRichFields, &bytes)) {
-        ++store->rejected;
+    if (!validate_input(input, input.fields & kRichFields, &bytes))
         return {nullptr, MessageRichStoreError::invalid_utf8, false, false};
-    }
     // Empty array fields cannot retain a new record. Preserve the logical
     // insert/delete counters without a physical slot or two full record clears.
     constexpr u32 empty_arrays = gateway_message_field_reactions | gateway_message_field_attachments |
@@ -1286,7 +1248,9 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         if (slot == 0xFFFFu)
             return {nullptr, MessageRichStoreError::corrupt_state, false, false};
     }
-    const auto copied = apply_body(store, message_id, message_revision, body, true, slot);
+    // The child replaces exactly the body fields that the check above validated.
+    const RichValidationPlan body_plan{body_bytes, 0, body_fields & kRichFields, 0};
+    const auto copied = apply_body(store, message_id, message_revision, body, true, slot, &body_plan);
     if (!copied.ok())
         return copied;
     store->records[resident_slot].forwarded_snapshot_slot = slot;
@@ -1302,8 +1266,6 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
     MessageRichStoreResult result{};
     const auto reject = [&](MessageRichStoreError error) noexcept {
         result.error = error;
-        if (store)
-            ++store->rejected;
         return result;
     };
     const bool needs_emoji = mutation.kind != MessageRichReactionMutationKind::remove_all;
@@ -1349,7 +1311,7 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
         const MessageRichReaction& item = record->reactions[index];
         if (item.emoji_id != mutation.emoji_id)
             continue;
-        const Utf8View name = stored_text(*store, item.name);
+        const Utf8View name = message_rich_store_string(*store, item.name);
         if (item.emoji_id != 0 || (name.bytes == mutation.name.bytes && bytes_equal(name.data, mutation.name.data, name.bytes)))
             match = index;
     }

@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/model/notifications/message_notifications.hpp"
-#include "maicord/model/notifications/soundpack.hpp"
 
 namespace maicord {
+enum class NotificationSoundKind : u8 { message1, message3 }; // supported message-create assets
 enum class NotificationSoundDecision : u8 { unknown, denied, allowed };
 enum class NotificationMessageSoundRoute : u8 { none, direct, popup };
 // Selection is the original channel's main selection, before THREAD_STARTER_MESSAGE

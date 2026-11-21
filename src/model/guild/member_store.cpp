@@ -11,6 +11,7 @@
 #include "maicord/model/user/store.hpp"
 #include "maicord/model/guild/role_policy.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -48,7 +49,7 @@ bool nickname_equal(const GuildMemberRecord& record, Utf8View nickname) noexcept
 }
 
 u32 empty_slot(const GuildMemberStore& store) noexcept {
-    for (u32 slot = 0; slot < store.slot_extent; ++slot) {
+    for (u32 slot = store.free_hint; slot < store.slot_extent; ++slot) {
         if (!store.records[slot].occupied) {
             return slot;
         }
@@ -82,6 +83,9 @@ u32 least_recent_slot(const GuildMemberStore& store) noexcept {
     for (u32 slot = 0; slot < store.slot_extent; ++slot) {
         const auto& record = store.records[slot];
         if (!record.occupied)
+            continue;
+        // Once an unpinned record is the victim, only an older unpinned one replaces it.
+        if (!result_pinned && record.last_seen >= oldest)
             continue;
         const bool keep = pinned(store, record);
         if (result == store.capacity || (!keep && result_pinned) ||
@@ -174,6 +178,7 @@ void erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     const u16 generation = next_generation(store->records[slot].generation);
     reset_value<GuildMemberRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
+    store->free_hint = minimum(store->free_hint, slot);
     sorted_erase_gap(store->order, store->count, order_index);
     --store->count;
     store->order[store->count] = ~0u;
@@ -265,7 +270,27 @@ void position_drop(GuildMemberStore* store, u32 at) noexcept {
     store->positions.scopes[at] = 0;
     --store->positions.count;
 }
-void positions_clear(GuildMemberStore* store, u8 scope) noexcept {
+// Byte s of the result is 0xFF when bit s of `scopes` is set: a lookup table for the scope bytes (0 to 8).
+__forceinline __m128i scope_table(u32 scopes) noexcept {
+    const __m128i spread = _mm_shuffle_epi8(_mm_set1_epi16(static_cast<short>(scopes)),
+                                            _mm_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1));
+    const __m128i select = _mm_setr_epi8(1, 2, 4, 8, 16, 32, 64, -128, 1, 2, 4, 8, 16, 32, 64, -128);
+    return _mm_cmpeq_epi8(_mm_and_si128(spread, select), select);
+}
+// Calls visit(at) for each entry whose scope byte is in `scopes` (bit s for byte s), in entry order. Most
+// entries belong to other lists or are free, so one compare tests 32 of them.
+template <typename Visit>
+MAICORD_HASWELL __forceinline void positions_each(const MemberListPositionTable& p, u32 scopes,
+                                                  Visit visit) noexcept {
+    const __m256i table = _mm256_broadcastsi128_si256(scope_table(scopes));
+    for (u32 base = 0; base < kMemberListPositionCapacity; base += 32) {
+        const __m256i block = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(p.scopes + base));
+        for (u32 bits = static_cast<u32>(_mm256_movemask_epi8(_mm256_shuffle_epi8(table, block))); bits;
+             bits &= bits - 1)
+            visit(base + static_cast<u32>(__builtin_ctz(bits)));
+    }
+}
+inline void positions_clear(GuildMemberStore* store, u8 scope) noexcept {
     const u8 tag = static_cast<u8>(scope + 1);
     for (u32 at = 0; at < kMemberListPositionCapacity; ++at)
         if (store->positions.scopes[at] == tag)
@@ -310,25 +335,34 @@ u32 positions_evict_list(GuildMemberStore* store, u8 keep) noexcept {
 #pragma clang attribute pop
 // A list holds one row per position and one position per user. True when
 // the list's rows changed.
-bool position_set(GuildMemberStore* store, u8 scope, u32 index, u64 user_id) noexcept {
+MAICORD_HASWELL bool position_set(GuildMemberStore* store, u8 scope, u32 index, u64 user_id) noexcept {
     if (scope == kNoScope || index == ~0u || !user_id)
         return false;
     auto& p = store->positions;
     const u8 tag = static_cast<u8>(scope + 1);
     u32 free_entry = kMemberListPositionCapacity;
     u32 held = 0;
-    for (u32 at = 0; at < kMemberListPositionCapacity; ++at) {
-        if (p.scopes[at] == tag) {
-            if (p.indexes[at] == index && p.user_ids[at] == user_id)
-                return false;
-            if (p.indexes[at] != index && p.user_ids[at] != user_id) {
-                ++held;
-                continue;
+    // The list's entries, and the free ones until the first is found.
+    const __m256i tags = _mm256_set1_epi8(static_cast<char>(tag));
+    for (u32 base = 0; base < kMemberListPositionCapacity; base += 32) {
+        const __m256i block = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(p.scopes + base));
+        u32 bits = static_cast<u32>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(block, tags)));
+        if (free_entry == kMemberListPositionCapacity)
+            bits |= static_cast<u32>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(block, _mm256_setzero_si256())));
+        for (; bits; bits &= bits - 1) {
+            const u32 at = base + static_cast<u32>(__builtin_ctz(bits));
+            if (p.scopes[at] == tag) {
+                if (p.indexes[at] == index && p.user_ids[at] == user_id)
+                    return false;
+                if (p.indexes[at] != index && p.user_ids[at] != user_id) {
+                    ++held;
+                    continue;
+                }
+                position_drop(store, at);
             }
-            position_drop(store, at);
+            if (free_entry == kMemberListPositionCapacity)
+                free_entry = at;
         }
-        if (!p.scopes[at] && free_entry == kMemberListPositionCapacity)
-            free_entry = at;
     }
     if (held >= kMemberListPositionsPerList) {
         // Within its page budget a list keeps the pages on screen; the row
@@ -364,24 +398,23 @@ bool position_set(GuildMemberStore* store, u8 scope, u32 index, u64 user_id) noe
     ++p.count;
     return true;
 }
-void positions_invalidate(GuildMemberStore* store, u64 guild_id, u64 list_id, u32 first, u32 last) noexcept {
+MAICORD_HASWELL void positions_invalidate(GuildMemberStore* store, u64 guild_id, u64 list_id, u32 first,
+                                          u32 last) noexcept {
     const u32 scopes = guild_scope_bits(*store, guild_id, list_id);
     if (!scopes)
         return;
     auto& p = store->positions;
-    for (u32 at = 0; at < kMemberListPositionCapacity; ++at)
-        if (((scopes >> p.scopes[at]) & 1u) && p.indexes[at] >= first && p.indexes[at] <= last)
+    positions_each(p, scopes, [&](u32 at) noexcept {
+        if (p.indexes[at] >= first && p.indexes[at] <= last)
             position_drop(store, at);
+    });
 }
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-void positions_shift(GuildMemberStore* store, u8 scope, u32 index, bool insert) noexcept {
+MAICORD_HASWELL void positions_shift(GuildMemberStore* store, u8 scope, u32 index, bool insert) noexcept {
     if (scope == kNoScope)
         return;
     auto& p = store->positions;
-    const u8 tag = static_cast<u8>(scope + 1);
-    for (u32 at = 0; at < kMemberListPositionCapacity; ++at) {
-        if (p.scopes[at] != tag)
-            continue;
+    positions_each(p, 2u << scope, [&](u32 at) noexcept {
         if (insert && p.indexes[at] >= index) {
             if (p.indexes[at] == ~0u - 1)
                 position_drop(store, at);
@@ -390,9 +423,9 @@ void positions_shift(GuildMemberStore* store, u8 scope, u32 index, bool insert) 
         } else if (!insert && p.indexes[at] > index) {
             --p.indexes[at];
         }
-    }
+    });
 }
-void positions_remove_user(GuildMemberStore* store, u64 guild_id, u64 user_id) noexcept {
+inline void positions_remove_user(GuildMemberStore* store, u64 guild_id, u64 user_id) noexcept {
     const u32 scopes = guild_scope_bits(*store, guild_id, 0);
     if (!scopes)
         return;
@@ -640,6 +673,8 @@ GuildMemberStoreResult guild_member_store_upsert(
         record.user_id = user_id;
         record.generation = generation;
         record.occupied = true;
+        if (slot == store->free_hint)
+            ++store->free_hint;
         store->slot_extent = maximum(store->slot_extent, slot + 1);
     }
     if (nickname_changed)
@@ -811,8 +846,9 @@ bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild
         return false;
     }
     bool changed = false;
-    for (u32 order = 0; order < store->count; ++order) {
-        GuildMemberRecord& member = store->records[store->order[order]];
+    // A free slot holds guild 0, which never matches.
+    for (u32 slot = 0; slot < store->slot_extent; ++slot) {
+        GuildMemberRecord& member = store->records[slot];
         if (member.guild_id != guild_id || (list_id != 0 && member.list_id != list_id) ||
             member.list_index < first || member.list_index > last) {
             continue;
@@ -860,8 +896,8 @@ bool guild_member_store_visible_index(const GuildMemberStore& store, u64 guild_i
     return guild_id && range.guild_id == guild_id && range.list_id == list_id && index != ~0u &&
            index >= range.first && index <= range.last;
 }
-u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
-                                                     UserStore* users) noexcept {
+MAICORD_HASWELL u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
+                                                             UserStore* users) noexcept {
     user_store_clear_pins(users);
     if (!members.records || !users)
         return 0;
@@ -877,15 +913,14 @@ u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
     const u8 scope = scope_slot(members, members.visible.guild_id, members.visible.list_id);
     if (scope != kNoScope) {
         const auto& p = members.positions;
-        const u8 tag = static_cast<u8>(scope + 1);
-        for (u32 at = 0; at < kMemberListPositionCapacity; ++at)
-            if (p.scopes[at] == tag && p.indexes[at] >= members.visible.first &&
-                p.indexes[at] <= members.visible.last) {
+        positions_each(p, 2u << scope, [&](u32 at) noexcept {
+            if (p.indexes[at] >= members.visible.first && p.indexes[at] <= members.visible.last) {
                 // Rows the record pass above already pinned count once.
                 const auto* user = user_store_find(*users, p.user_ids[at]);
-                if (user && !user->pinned && user_store_pin(users, p.user_ids[at]))
+                if (user && !user_store_pinned(*users, *user) && user_store_pin(users, p.user_ids[at]))
                     ++count;
             }
+        });
     }
     return count;
 }
@@ -951,9 +986,10 @@ void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
 // member record or a position changed.
 bool displace_header_row(GuildMemberStore* store, u64 guild_id, u64 list_id, u32 index) noexcept {
     bool changed = false;
-    for (u32 order = 0; order < store->count; ++order) {
-        auto& member = store->records[store->order[order]];
-        if (member.guild_id == guild_id && member.list_id == list_id && member.list_index == index) {
+    for (u32 slot = 0; slot < store->slot_extent; ++slot) {
+        auto& member = store->records[slot];
+        if (member.occupied && member.guild_id == guild_id && member.list_id == list_id &&
+            member.list_index == index) {
             member.list_index = ~0u;
             saturating_increment(member.revision);
             changed = true;
@@ -1146,9 +1182,10 @@ bool guild_member_store_shift_list(GuildMemberStore* store, u64 guild_id, u64 li
                                            u32 index, bool insert) noexcept {
     if (!store || !store->records || !store->order || index == ~0u)
         return false;
-    for (u32 order = 0; order < store->count; ++order) {
-        auto& member = store->records[store->order[order]];
-        if (member.guild_id != guild_id || member.list_id != list_id || member.list_index == ~0u)
+    for (u32 slot = 0; slot < store->slot_extent; ++slot) {
+        auto& member = store->records[slot];
+        if (!member.occupied || member.guild_id != guild_id || member.list_id != list_id ||
+            member.list_index == ~0u)
             continue;
         if ((insert && member.list_index >= index) || (!insert && member.list_index > index)) {
             member.list_index = insert ? (member.list_index == ~0u - 1 ? ~0u : member.list_index + 1)

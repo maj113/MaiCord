@@ -175,7 +175,7 @@ void test_gateway_member_list_update() noexcept {
         user_store_initialize(&sync_user_store, {sync_users, 100}, {sync_user_order, 100}, {sync_names, 4096}) &&
         message_event_pump_consume(&sync_pump, sync_event, sync_output).ok();
     MemberListRow sync_rows[101]{};
-    u32 sync_projection_scratch[100]{};
+    MemberListSortKey sync_projection_scratch[100]{};
     MemberListView sync_projection{};
     bool sync_visible = sync_applied && member_list_view_initialize(
         &sync_projection, {sync_rows, 101}, {sync_projection_scratch, 100});

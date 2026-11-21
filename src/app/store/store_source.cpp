@@ -183,7 +183,6 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             out.text = w.add({line->text, line->text_bytes});
         }
     }
-    m->installable = view.installable;
     m->checked_unix = view.checked_unix;
     m->fetched_unix = view.fetched_unix;
     m->catalog = view.status == CatalogStatus::not_configured                                                   ? StoreCatalogState::not_configured

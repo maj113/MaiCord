@@ -22,8 +22,8 @@ MessageDraftStoreError validate_input(const MessageDraftStore* store,
         input.anchor > input.text.bytes || input.caret > input.text.bytes) {
         return MessageDraftStoreError::invalid_input;
     }
-    if (!utf8_validate(input.text).valid || !utf8_is_boundary(input.text, input.anchor) ||
-        !utf8_is_boundary(input.text, input.caret)) {
+    // The text is valid UTF-8 (see message_draft_store_save): only the selection's boundaries are checked here.
+    if (!utf8_is_boundary(input.text, input.anchor) || !utf8_is_boundary(input.text, input.caret)) {
         return MessageDraftStoreError::invalid_utf8;
     }
     const u64 source_begin = reinterpret_cast<u64>(input.text.data);

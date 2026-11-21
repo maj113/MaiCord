@@ -21,7 +21,7 @@ struct MemberFixture {
     static inline u32 user_order[kMembers];
     static inline u8 names[kMembers * 16];
     static inline MemberListRow source_rows[kMembers + 1];
-    static inline u32 member_scratch[kMembers];
+    static inline MemberListSortKey member_scratch[kMembers];
     static inline MemberListRowWidget rows[32];
     static inline UiWidget widgets[32 * kMemberListWidgetsPerRow + 1];
     static inline UiLayoutNode nodes[32 * kMemberListWidgetsPerRow + 1];
@@ -206,7 +206,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     projection.rows = {source_rows, 2}; projection.count = 100'000;
     projection.resident_count = 2; projection.authoritative = true; projection.guild_id = 7;
     projection.list_id = 70;
-    u32 member_scratch[1]{};
+    MemberListSortKey member_scratch[1]{};
     projection.member_scratch = {member_scratch, 1};
     projection.revision = 1;
     MemberListRowWidget rows[16]{};

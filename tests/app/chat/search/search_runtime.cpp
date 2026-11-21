@@ -248,7 +248,7 @@ bool initialize() noexcept {
     ui.user_record_storage[0].id = 5;
     ui.user_record_storage[0].occupied = true;
     ui.user_order_storage[0] = 0;
-    ui.user_store.count = 1;
+    ui.user_store.count = ui.user_store.free_hint = ui.user_store.slot_extent = 1;
     auto& view = g_app.message_view;
     if (!message_store_initialize(&view.store, {records, 2}, {message_order, 2}, {message_text, 128}) ||
         !message_store_upsert(&view.store, {900, 70, 5, 0, 0, utf8_literal("Existing conversation"), 0})

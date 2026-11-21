@@ -19,9 +19,9 @@ Utf8View label(const GuildMemberRecord* p, const UserStore& users, const UserRec
     if (nick.bytes) return nick;
     return user_store_name(users, user);
 }
-bool less(const ThreadMemberStore& threads, const GuildMemberStore& members,
-    const UserStore& users, u32 a, u32 b) noexcept {
-    const auto& left_user = users.records[a]; const auto& right_user = users.records[b];
+bool less(const ThreadMemberStore& threads, const GuildMemberStore& members, const UserStore& users,
+    const MemberListSortKey& a, const MemberListSortKey& b) noexcept {
+    const auto& left_user = users.records[a.slot]; const auto& right_user = users.records[b.slot];
     const auto* left = profile(threads, members, left_user.id); const auto* right = profile(threads, members, right_user.id);
     const u64 lg = group(left), rg = group(right);
     if (lg != rg) {
@@ -31,12 +31,11 @@ bool less(const ThreadMemberStore& threads, const GuildMemberStore& members,
         if (rg == kMemberListOnlineGroup) return true;
         return role_rank_before(left->guild_id, left->group_position, lg, right->group_position, rg);
     }
-    const auto ln = label(left, users, left_user), rn = label(right, users, right_user);
-    for (u32 i = 0; i < minimum(ln.bytes, rn.bytes); ++i) {
-        const auto lc = ascii_lower(static_cast<u8>(ln.data[i])), rc = ascii_lower(static_cast<u8>(rn.data[i]));
+    for (u32 i = 0; i < minimum(a.name_bytes, b.name_bytes); ++i) {
+        const auto lc = ascii_lower(static_cast<u8>(a.name[i])), rc = ascii_lower(static_cast<u8>(b.name[i]));
         if (lc != rc) return lc < rc;
     }
-    if (ln.bytes != rn.bytes) return ln.bytes < rn.bytes;
+    if (a.name_bytes != b.name_bytes) return a.name_bytes < b.name_bytes;
     return left_user.id < right_user.id;
 }
 }
@@ -57,12 +56,15 @@ MemberListViewResult member_list_view_thread(MemberListView* p,
         if (!user || !user_store_username(users, *user).bytes) continue;
         if (known == p->member_scratch.count) { incomplete = true; continue; }
         // The stores stay unchanged through this sort and publication pass.
-        p->member_scratch[known++] = static_cast<u32>(user - users.records);
+        const auto name = label(profile(threads, members, user->id), users, *user);
+        p->member_scratch[known++] = {name.data, name.bytes, static_cast<u32>(user - users.records)};
     }
-    heap_sort(p->member_scratch.data, known, [&](u32 a, u32 b) noexcept { return less(threads, members, users, a, b); });
+    heap_sort(p->member_scratch.data, known, [&](const MemberListSortKey& a, const MemberListSortKey& b) noexcept {
+        return less(threads, members, users, a, b);
+    });
     u32 rows = 0; u64 previous = 0; u32 group_row = 0;
     for (u32 i = 0; i < known; ++i) {
-        const auto& user = users.records[p->member_scratch[i]]; const auto* member = profile(threads, members, user.id);
+        const auto& user = users.records[p->member_scratch[i].slot]; const auto* member = profile(threads, members, user.id);
         const u64 current = group(member); const bool new_group = !i || current != previous;
         if ((new_group ? 2u : 1u) > p->rows.count - rows) { incomplete = true; break; }
         if (new_group) {

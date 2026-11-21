@@ -62,21 +62,23 @@ bool compact_names(UserStore* store, u32 skipped_slot) noexcept {
 }
 #pragma clang attribute pop
 
+// Slots at and above slot_extent are free.
 u32 empty_slot(const UserStore& store) noexcept {
-    for (u32 slot = 0; slot < store.capacity; ++slot) {
+    for (u32 slot = store.free_hint; slot < store.slot_extent; ++slot) {
         if (!store.records[slot].occupied) {
             return slot;
         }
     }
-    return store.capacity;
+    return store.slot_extent;
 }
 
 u32 least_recent_slot(const UserStore& store, u32 skipped = ~0u) noexcept {
     u32 result = store.capacity;
     u32 oldest = ~0u;
-    for (u32 slot = 0; slot < store.capacity; ++slot) {
+    for (u32 slot = 0; slot < store.slot_extent; ++slot) {
         const UserRecord& record = store.records[slot];
-        if (slot != skipped && record.occupied && !record.pinned && (result == store.capacity || record.last_seen < oldest)) {
+        if (slot != skipped && record.occupied && !user_store_pinned(store, record) &&
+            (result == store.capacity || record.last_seen < oldest)) {
             result = slot;
             oldest = record.last_seen;
         }
@@ -97,6 +99,7 @@ bool remove_slot(UserStore* store, u32 slot) noexcept {
     const u16 generation = next_generation(store->records[slot].generation);
     reset_value<UserRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
+    store->free_hint = minimum(store->free_hint, slot);
     sorted_erase_gap(store->order, store->count, order);
     --store->count;
     store->order[store->count] = ~0u;
@@ -119,6 +122,7 @@ bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> or
         return false;
     }
     reset_value<UserStore>(store);
+    store->pin_mark = 1;
     store->records = records.data;
     store->order = order.data;
     store->names = double_buffered_names.data;
@@ -145,21 +149,24 @@ bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, S
 }
 #pragma clang attribute pop
 
-// Only occupied records can be pinned (removal resets a record), so the
-// ordered prefix covers them without touching unused slots.
+// The next mark matches no record. Once each 255 clears the marks start again at 1, so the marks of the last
+// 255 clears go first: only occupied records hold one (removal resets a record), and they lie below slot_extent.
 void user_store_clear_pins(UserStore* store) noexcept {
     if (!store || !store->records || !store->order)
         return;
     ++store->pin_epoch;
-    for (u32 index = 0; index < store->count; ++index)
-        store->records[store->order[index]].pinned = false;
+    if (++store->pin_mark == 0) {
+        store->pin_mark = 1;
+        for (u32 slot = 0; slot < store->slot_extent; ++slot)
+            store->records[slot].pin_mark = 0;
+    }
 }
 bool user_store_pin(UserStore* store, u64 id) noexcept {
     if (!store || !store->records || !store->order || !id) return false;
     bool found = false;
     const u32 order = find_order(*store, id, &found);
     if (!found) return false;
-    store->records[store->order[order]].pinned = true;
+    store->records[store->order[order]].pin_mark = store->pin_mark;
     return true;
 }
 
@@ -215,9 +222,10 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     const u32 capacity_replaced_bytes = found ? name_size(store->records[existing_slot]) : 0;
     if (display_name.bytes > store->name_bank_bytes - (capacity_live_bytes - capacity_replaced_bytes)) {
         u32 protected_bytes = 0;
-        for (u32 protected_slot = 0; protected_slot < store->capacity; ++protected_slot) {
+        for (u32 protected_slot = 0; protected_slot < store->slot_extent; ++protected_slot) {
             const auto& protected_record = store->records[protected_slot];
-            if (protected_slot != existing_slot && protected_record.occupied && protected_record.pinned)
+            if (protected_slot != existing_slot && protected_record.occupied &&
+                user_store_pinned(*store, protected_record))
                 protected_bytes += name_size(protected_record);
         }
         if (protected_bytes > store->name_bank_bytes || display_name.bytes > store->name_bank_bytes - protected_bytes)
@@ -254,8 +262,9 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
             return store_error(store, UserStoreError::name_capacity);
         ++eviction_count;
         evicted = true;
+        // The eviction moved the order entries after the victim.
+        order_index = find_order(*store, id, &found);
     }
-    order_index = find_order(*store, id, &found);
 
     if (display_name.bytes > store->name_bank_bytes - store->name_used) {
         const u32 live_bytes = store->name_used - store->name_wasted;
@@ -284,6 +293,9 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         record.id = id;
         record.generation = generation;
         record.occupied = true;
+        if (slot == store->free_hint)
+            ++store->free_hint;
+        store->slot_extent = maximum(store->slot_extent, slot + 1);
     } else {
         store->name_wasted += name_size(record);
     }
@@ -346,8 +358,8 @@ u8 user_store_client_status(const UserStore& store, u64 id) noexcept {
 bool user_store_clear_client_status(UserStore* store) noexcept {
     if (!store || !store->records || !store->order) return false;
     bool changed = false;
-    for (u32 i = 0; i < store->count; ++i) {
-        UserRecord& record = store->records[store->order[i]];
+    for (u32 slot = 0; slot < store->slot_extent; ++slot) {
+        UserRecord& record = store->records[slot];
         if (record.client_status) {
             record.client_status = 0;
             changed = true;

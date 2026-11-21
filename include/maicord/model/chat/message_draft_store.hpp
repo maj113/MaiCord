@@ -82,6 +82,8 @@ bool message_draft_store_initialize(MessageDraftStore* store,
 bool message_draft_store_initialize_sparse(MessageDraftStore* store,
                                            Slice<MessageDraftRecord> records,
                                            Slice<u8> text) noexcept;
+// input.text must be valid UTF-8: a composer's text always is, and the draft file loader validates each record
+// first. The store checks only that anchor and caret are on character boundaries (invalid_utf8 when not).
 MessageDraftStoreResult message_draft_store_save(
     MessageDraftStore* store, const MessageDraftInput& input) noexcept;
 // Clear only this channel's exact reply target, retaining any text/selection.

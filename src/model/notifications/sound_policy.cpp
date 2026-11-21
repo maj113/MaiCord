@@ -1,4 +1,5 @@
 #include "maicord/model/notifications/sound_policy.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -32,7 +33,6 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
 }
 namespace {
 constexpr u64 wait_ms=1000;
-u64 deadline(u64 now,u64 wait) noexcept {return now>~u64{0}-wait?~u64{0}:now+wait;}
 bool should_invoke(const NotificationSoundThrottle& s,u64 now) noexcept {
     return !s.has_last_call||now<s.last_call_ms||now-s.last_call_ms>=wait_ms||
         (now>=s.last_invoke_ms&&now-s.last_invoke_ms>=wait_ms);
@@ -49,10 +49,10 @@ NotificationSoundInvocation notification_sound_throttle_request(NotificationSoun
     s->pending_request=request;s->pending=true;s->last_call_ms=now;s->has_last_call=true;
     if(invoking) {
         // The leading edge and the maxWait branch both arm wait_ms.
-        s->timer_active=true;s->deadline_ms=deadline(now,wait_ms);
+        s->timer_active=true;s->deadline_ms=deadline_after(now,wait_ms);
         return invoke(s,now);
     }
-    if(!s->timer_active){s->timer_active=true;s->deadline_ms=deadline(now,wait_ms);}
+    if(!s->timer_active){s->timer_active=true;s->deadline_ms=deadline_after(now,wait_ms);}
     return {};
 }
 NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundThrottle* s,u64 now,u64 generation) noexcept {
@@ -68,7 +68,7 @@ NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundT
     }
     const u64 since_call=now-s->last_call_ms,since_invoke=now-s->last_invoke_ms;
     const u64 call_wait=wait_ms-since_call,invoke_wait=wait_ms-since_invoke;
-    s->deadline_ms=deadline(now,call_wait<invoke_wait?call_wait:invoke_wait);
+    s->deadline_ms=deadline_after(now,call_wait<invoke_wait?call_wait:invoke_wait);
     return {};
 }
 bool notification_sound_throttle_deadline(const NotificationSoundThrottle& s,u64* out) noexcept {

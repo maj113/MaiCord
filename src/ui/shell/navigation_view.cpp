@@ -233,7 +233,7 @@ bool voice_invite(const NavigationView& view, u64 channel_id, u8 type) noexcept 
 u16 voice_count(const NavigationView& view, u64 channel_id, u8 type) noexcept {
     if (!view.voice_states || (type != 2 && type != 13))
         return 0;
-    return static_cast<u16>(minimum(voice_state_store_channel_count(*view.voice_states, channel_id),
+    return static_cast<u16>(minimum(voice_state_store_channel(*view.voice_states, channel_id).count,
                                     u32{kNavigationVoiceRowsMaximum}));
 }
 

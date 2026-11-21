@@ -211,7 +211,6 @@ void plugins() noexcept {
     auto& m = fixture.model;
     reset_value(&m);
     m.catalog = StoreCatalogState::ready;
-    m.installable = true;
     m.checked_unix = 1793000000;
     m.fetched_unix = 1792700000;
     m.protocol_state = 0;
@@ -259,7 +258,6 @@ void plugins() noexcept {
     pin.installed = pin.enabled = true;
     pin.sideloaded = true;
     pin.item = ~0u;
-    pin.folder = utf8_literal("D:\\dev\\pin-counter");
     pin.summary = utf8_literal("Loaded from D:\\dev\\pin-counter");
     pin.order = 4;
     names.has_settings = false;
@@ -289,7 +287,6 @@ void themes() noexcept {
     auto& m = fixture.model;
     reset_value(&m);
     m.catalog = StoreCatalogState::ready;
-    m.installable = true;
     static constexpr struct {
         Utf8View slug, name, summary, c0, c1;
         u32 sw[4];
@@ -334,7 +331,6 @@ void effects() noexcept {
     auto& m = fixture.model;
     reset_value(&m);
     m.catalog = StoreCatalogState::ready;
-    m.installable = true;
     static constexpr struct {
         Utf8View slug, name, summary, c0, c1;
     } kEffects[]{

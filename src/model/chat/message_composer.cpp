@@ -139,7 +139,7 @@ MessageComposerResult replace_selection(MessageComposer* composer, Utf8View inse
 
 // A typed character: keyboard control characters (Escape, Ctrl+letter,
 // Ctrl+Backspace) are commands, never text.
-bool scalar_allowed(u32 codepoint) noexcept {
+inline bool scalar_allowed(u32 codepoint) noexcept {
     return codepoint >= 0x20u && codepoint != 0x7Fu && codepoint <= 0x10FFFFu &&
            !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
 }
@@ -153,14 +153,14 @@ bool inserted_scalar_allowed(u32 codepoint) noexcept {
            !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
 }
 
-u32 line_begin(const MessageComposer& composer, u32 position) noexcept {
+inline u32 line_begin(const MessageComposer& composer, u32 position) noexcept {
     while (position != 0 && composer.text[position - 1] != '\n') {
         --position;
     }
     return position;
 }
 
-u32 line_end(const MessageComposer& composer, u32 position) noexcept {
+inline u32 line_end(const MessageComposer& composer, u32 position) noexcept {
     while (position < composer.bytes && composer.text[position] != '\n') {
         ++position;
     }

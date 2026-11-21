@@ -31,9 +31,16 @@ struct MemberListRow {
     u32 group_count;
 };
 
+// A member of a list sort: its slot and the name the sort compares, found once before the sort.
+struct MemberListSortKey {
+    const char* name;
+    u32 name_bytes;
+    u32 slot;
+};
+
 struct MemberListView {
     Slice<MemberListRow> rows;
-    Slice<u32> member_scratch;
+    Slice<MemberListSortKey> member_scratch;
     u64 guild_id;
     u64 list_id;
     u32 count;
@@ -82,7 +89,7 @@ struct MemberListViewResult {
 
 bool member_list_view_initialize(
     MemberListView* projection,
-    Slice<MemberListRow> rows, Slice<u32> member_scratch) noexcept;
+    Slice<MemberListRow> rows, Slice<MemberListSortKey> member_scratch) noexcept;
 MemberListViewResult member_list_view_rebuild(
     MemberListView* projection,
     const GuildMemberStore& members, const UserStore& users,

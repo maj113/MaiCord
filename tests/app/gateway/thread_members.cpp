@@ -17,7 +17,7 @@ struct Fixture {
     GuildRecord guilds[2]; u16 guild_order[2];
     ChannelRecord channels[2]; u16 channel_order[2]; u8 state_names[4096];
     MemberListView projection;
-    MemberListRow rows[16]; u32 scratch[8];
+    MemberListRow rows[16]; MemberListSortKey scratch[8];
 };
 Fixture fixture{};
 u32 structurals[4096]; char packet[16384];

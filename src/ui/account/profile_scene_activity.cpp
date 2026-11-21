@@ -260,7 +260,8 @@ float voice_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     y += 16 + 8;
     // The members' collage; past four, the second slot (the fourth from ten
     // on) shows how many more there are.
-    const u32 members = voice_state_store_channel_count(*s->voice_states, v->channel_id);
+    const ConstSlice<VoiceState> states = voice_state_store_channel(*s->voice_states, v->channel_id);
+    const u32 members = states.count;
     const u32 shown = minimum<u32>(members, 4);
     const u32 more = members > 4 ? members - 4 + 1 : 0, more_slot = more >= 10 ? 3 : 1;
     const auto& collage = (large ? kFullCollage : kPopoutCollage)[shown ? shown - 1 : 0];
@@ -282,7 +283,7 @@ float voice_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             caption(s, owner, r, label.view(), kXs | text_style_bold, ProfileTone::strong)->centered = true;
             continue;
         }
-        const auto* state = voice_state_store_channel_at(*s->voice_states, v->channel_id, i);
+        const auto* state = &states[i];
         const auto* member = state ? user_store_find(*s->users, state->user_id) : nullptr;
         auto* face = blank(s, owner, r, member ? hint_action(*s) : ProfileAction::none);
         face->media = ProfileMediaKind::voice_avatar;

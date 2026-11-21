@@ -39,7 +39,6 @@ StoreItem& add(Utf8View slug, Utf8View name, Utf8View summary, Utf8View authors,
 void fixture() noexcept {
     reset_value(&g_model);
     g_model.catalog = StoreCatalogState::ready;
-    g_model.installable = true;
     add(utf8_literal("clear-urls"), utf8_literal("Clear URLs"), utf8_literal("Removes tracking parameters from links you send."),
         utf8_literal("Maj"), utf8_literal("chat"), 1, true, true);
     StoreItem& tr = add(utf8_literal("translate"), utf8_literal("Translate"), utf8_literal("Translate messages with Google or DeepL."),
@@ -451,7 +450,6 @@ static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcep
 static void store_themes(void (*check)(bool, const char*) noexcept) noexcept {
     reset_value(&g_model);
     g_model.catalog = StoreCatalogState::ready;
-    g_model.installable = true;
     const auto theme = [](Utf8View slug, Utf8View name, bool installed, bool local, u32 file) noexcept -> StoreItem& {
         StoreItem& item = add(slug, name, utf8_literal("A theme."), utf8_literal("MaiCord"), utf8_literal("dark"), 0, installed, installed);
         item.kind = CatalogKind::theme;

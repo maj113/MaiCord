@@ -13,7 +13,7 @@ void ring_write(TextEditHistory& history, u32 offset, const u8* input, u32 bytes
     copy_bytes(history.payload.data + offset, input, first);
     if (bytes > first) copy_bytes(history.payload.data, input + first, bytes - first);
 }
-void ring_read(const TextEditHistory& history, u32 offset, u8* output, u32 bytes) noexcept {
+inline void ring_read(const TextEditHistory& history, u32 offset, u8* output, u32 bytes) noexcept {
     const u32 first = minimum(bytes, history.payload.capacity - offset);
     copy_bytes(output, history.payload.data + offset, first);
     if (bytes > first) copy_bytes(output + first, history.payload.data, bytes - first);

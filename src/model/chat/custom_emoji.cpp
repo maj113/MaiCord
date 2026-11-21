@@ -3,17 +3,17 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "chat_state_backing.hpp"
 
 // Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp).
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
+using chat_state_detail::back_range;
 namespace {
 
-#include "chat_state_backing.inc"
-
 // ASCII letters, digits and '_' only, so no UTF-8 check is needed.
-bool valid_emoji_name(Utf8View name) noexcept {
+inline bool valid_emoji_name(Utf8View name) noexcept {
     if (!name.data || name.bytes == 0 || name.bytes > kCustomEmojiNameMaximumBytes) {
         return false;
     }
@@ -35,7 +35,7 @@ bool read_role(ConstSlice<u8> roles, u32 index, u64* role_id) noexcept {
     return value != 0;
 }
 
-bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
+inline bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
     if ((!roles.data && roles.count != 0) || role_count > kGuildRoleMaximum ||
         roles.count != role_count * 8u) {
         return false;
@@ -56,7 +56,7 @@ bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
 }
 
 // The emojis and emoji roles the guild holds now.
-void resident_counts(const ChatStateStore& store, u64 guild_id, u32* emojis, u32* roles) noexcept {
+inline void resident_counts(const ChatStateStore& store, u64 guild_id, u32* emojis, u32* roles) noexcept {
     *emojis = *roles = 0;
     for (u32 index = 0; index < store.emoji_count; ++index) {
         if (store.emojis[index].guild_id == guild_id) {

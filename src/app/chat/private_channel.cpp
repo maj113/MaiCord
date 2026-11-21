@@ -401,8 +401,8 @@ u64 application_private_channel_next_wake() noexcept {
 u32 application_private_channel_request_count() noexcept {
     if (!g_app.account_ui || !state().private_channels)
         return 0;
-    return private_channel_store_request_count(*state().private_channels, false) +
-           private_channel_store_request_count(*state().private_channels, true);
+    const PrivateRequestCounts counts = private_channel_store_request_counts(*state().private_channels);
+    return counts.pending + counts.spam;
 }
 bool application_private_channel_request_busy(u64 channel_id) noexcept {
     if (!scope_current())

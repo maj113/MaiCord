@@ -174,7 +174,7 @@ bool gateway_client_user_record(ConstSlice<u8> payload, u32* cursor,
     if (username) *username = login_name;
     if (!utf8_validate(login_name).valid || !utf8_validate(*name).valid || (avatar->bytes && !asset_hash_hex_valid(*avatar))) return false;
     const ConstSlice<u8> extra{reinterpret_cast<const u8*>(login_name.data + login_name.bytes), user->appearance_bytes};
-    UserAppearance decoded{};
+    UserAppearance decoded; // user_appearance_read clears it first
     if (!user_appearance_read(extra, user->id, 0, &decoded)) return false;
     if (appearance) *appearance = extra;
     *cursor = first + bytes;

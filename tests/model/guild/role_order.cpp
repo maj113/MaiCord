@@ -30,7 +30,7 @@ struct Fixture {
     u8 user_names[512];
     MemberListView projection;
     MemberListRow rows[16];
-    u32 scratch[8];
+    MemberListSortKey scratch[8];
     ThreadMemberStore threads;
     u64 banks[2][8];
 };

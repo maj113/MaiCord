@@ -24,7 +24,7 @@ struct Fixture {
     u8 state_names[1024];
     MemberListView projection;
     MemberListRow projected_rows[768];
-    u32 member_scratch[512];
+    MemberListSortKey member_scratch[512];
     MemberListScene scene;
     MemberListRowWidget rows[128];
     UiWidget widgets[513];

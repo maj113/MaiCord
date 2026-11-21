@@ -8,7 +8,9 @@ struct Fixture {
     DesktopNotificationQueue q{};
     DesktopNotificationQueueRow rows[4]{};
     char bytes[128]{}, scratch[64]{};
+    // The queue takes zeroed storage, as the client's fresh pages are.
     void initialize(u32 row_count=4,u32 byte_count=128) noexcept {
+        *this=Fixture{};
         desktop_notification_queue_initialize(&q,{rows,row_count},{bytes,byte_count},{scratch,64});
         desktop_notification_queue_reset(&q,11,1);
     }

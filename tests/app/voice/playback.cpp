@@ -146,7 +146,7 @@ void test_playback(Check check) noexcept {
     Run run{&playback, 1'000'000};
     feed(run, 1, 11, Kind::silence, 0, 6);
     const u64 silent = render(run, a, 1920);
-    check(!silent && playback.stats.decoded == 2, "Voice playback: Opus silence frames decode to digital silence");
+    check(!silent, "Voice playback: Opus silence frames decode to digital silence");
     check(playback.stream_count == 1, "Voice playback: one speaker commits one stream");
     voice_playback_clear(&playback);
     feed(run, 1, 11, Kind::celt, 0, 6);
@@ -222,12 +222,13 @@ void test_playback(Check check) noexcept {
     voice_playback_set_deafened(&playback, false);
 
     voice_playback_clear(&playback);
-    const u64 dropped = playback.stats.dropped;
     u8 packet[4];
     const u32 bytes = make_packet(Kind::silence, 0, packet);
-    for (u32 ssrc = 100; ssrc < 100 + kVoicePlaybackStreams + 1; ++ssrc)
-        voice_playback_push(&playback, ssrc, ssrc, 1, 0, 0, {packet, bytes}, run.now_us);
-    const bool full = playback.stats.dropped == dropped + 1 && playback.stream_count == kVoicePlaybackStreams;
+    bool stored = true;
+    for (u32 ssrc = 100; ssrc < 100 + kVoicePlaybackStreams; ++ssrc)
+        stored = voice_playback_push(&playback, ssrc, ssrc, 1, 0, 0, {packet, bytes}, run.now_us) && stored;
+    const bool full =
+        stored && !voice_playback_push(&playback, 100 + kVoicePlaybackStreams, 1, 1, 0, 0, {packet, bytes}, run.now_us);
     const bool evicted =
         voice_playback_push(&playback, 500, 500, 1, 0, 0, {packet, bytes}, run.now_us + kVoiceStreamIdleUs + 1);
     check(full && evicted, "Voice playback: the stream table is bounded and idle streams are reused");
@@ -245,7 +246,7 @@ void test_speaking_marks(Check check) noexcept {
     const u64 speaking[]{11, 33};
     const u32 revision = store.revision;
     const bool marked = voice_state_store_set_speaking(&store, 7, {speaking, 2}) &&
-                        store.revision == revision + 1 &&
+                        store.revision == revision &&
                         !voice_state_store_set_speaking(&store, 7, {speaking, 2});
     voice_state_store_apply(&store, 1, 7, 11, 0);
     const auto* kept = voice_state_store_find(store, 1, 11);

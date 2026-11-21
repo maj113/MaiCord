@@ -37,6 +37,51 @@ constexpr bool pane_width_valid(u16 width) noexcept {
     return width == 0 ||
            (width >= kClientPreferencesPaneWidthMinimum && width <= kClientPreferencesPaneWidthMaximum);
 }
+// A record byte's switches are consecutive bools in bit order (ClientPreferences), so one multiplication moves them
+// between the byte's bits and the bools' bytes: no two of its partial products share a bit, so no carry reaches
+// another switch.
+#define AT(member) __builtin_offsetof(ClientPreferences, member)
+template <typename... Offsets> constexpr bool in_bit_order(usize first, Offsets... next) noexcept {
+    return ((next == ++first) && ...);
+}
+static_assert(in_bit_order(AT(reduced_motion), AT(smooth_scroll), AT(member_pane_visible), AT(desktop_enabled),
+                           AT(message_sounds_enabled), AT(selected_message_sounds_enabled), AT(developer_mode)) &&
+              in_bit_order(AT(image_zoom), AT(image_zoom_square)) &&
+              in_bit_order(AT(role_colors_everywhere), AT(reply_timestamps), AT(folders_close_others),
+                           AT(folders_close_on_home), AT(folders_follow_selection), AT(show_hidden_channels)) &&
+              in_bit_order(AT(taskbar_flash), AT(unread_badge), AT(minimize_to_tray), AT(start_minimized),
+                           AT(spellcheck), AT(game_detection), AT(dm_profile_visible)) &&
+              in_bit_order(AT(reduced_motion_sync), AT(desaturate_user_colors), AT(underline_links)) &&
+              in_bit_order(AT(streamer_mode), AT(streamer_auto), AT(streamer_hide_personal), AT(streamer_hide_invites),
+                           AT(streamer_disable_sounds), AT(streamer_disable_notifications), AT(streamer_hide_window)));
+// The byte of `count` switches from offset `first` (each bool 0 or 1).
+inline u8 gather_switches(const ClientPreferences& preferences, usize first, u32 count) noexcept {
+    u64 bools;
+    copy_bytes(&bools, reinterpret_cast<const u8*>(&preferences) + first, sizeof(bools));
+    bools &= 0x0101010101010101ull >> (64 - 8 * count);
+    return static_cast<u8>(bools * 0x0102040810204080ull >> 56);
+}
+// Bits 0..6 of a byte (bit 7 is zero) as the eight bools from offset `first`. The ones past the byte's switches are
+// other members: the decoder writes them after this.
+inline void spread_switches(ClientPreferences& preferences, usize first, u32 bits) noexcept {
+    const u64 bools = bits * 0x0002040810204081ull & 0x0101010101010101ull;
+    copy_bytes(reinterpret_cast<u8*>(&preferences) + first, &bools, sizeof(bools));
+}
+// Switches that are on by default are stored inverted, so a zero bit is their default: image zoom (byte 60); role
+// colours everywhere (65); taskbar flash, unread badge, minimize to tray, spellcheck and the DM profile panel (66).
+constexpr u8 kInverted60 = 0x01, kInverted65 = 0x01, kInverted66 = 0x57;
+// Bytes 72..75 (chat text size, desaturation, zoom, speech rate) are four consecutive members.
+static_assert(AT(desaturation) == AT(chat_font_size) + 1 && AT(zoom) == AT(chat_font_size) + 2 &&
+              AT(speech_rate) == AT(chat_font_size) + 3 && AT(image_zoom_size) == AT(image_zoom_factor) + 1);
+// Bytes 72..87 as the defaults encode them: a version 9 record (which ends at byte 72) reads with them.
+constexpr u8 kVersion10Defaults[16]{0, 0, 100, kClientPreferencesSpeechRateDefault, 1, 0x3C};
+constexpr ClientPreferences kDefaults = client_preferences_defaults();
+static_assert(!kDefaults.chat_font_size && !kDefaults.desaturation && kDefaults.zoom == 100 &&
+              kDefaults.reduced_motion_sync && !kDefaults.desaturate_user_colors && !kDefaults.underline_links &&
+              !kDefaults.role_style && !kDefaults.streamer_mode && !kDefaults.streamer_auto &&
+              kDefaults.streamer_hide_personal && kDefaults.streamer_hide_invites && kDefaults.streamer_disable_sounds &&
+              kDefaults.streamer_disable_notifications && !kDefaults.streamer_hide_window && !kDefaults.speak_messages &&
+              !kDefaults.tabs_enabled && !kDefaults.test_mode_application);
 } // namespace
 
 bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
@@ -45,7 +90,7 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
             return false;
     return static_cast<u8>(preferences.theme) <= static_cast<u8>(ClientTheme::custom_light_gradient) &&
            static_cast<u8>(preferences.builtin_theme) <= static_cast<u8>(ClientTheme::custom_light_gradient) &&
-           preferences.output_volume <= 200 && notification_soundpack_valid(preferences.soundpack) &&
+           preferences.output_volume <= 200 &&
            preferences.message_group_spacing < kClientPreferencesGroupSpacingCount &&
            pane_width_valid(preferences.channel_pane_width) && pane_width_valid(preferences.member_pane_width) &&
            preferences.image_zoom_factor >= 2 && preferences.image_zoom_factor <= 100 &&
@@ -58,42 +103,6 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
            preferences.speak_messages <= client_speak_messages_all && background_theme_valid(preferences.gradient);
 }
 
-bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept {
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i) {
-        const auto x = a.effect_profiles[i], y = b.effect_profiles[i];
-        if (x.speed != y.speed || x.strength != y.strength || x.density != y.density)
-            return false;
-    }
-    return a.theme == b.theme && a.builtin_theme == b.builtin_theme && a.reduced_motion == b.reduced_motion &&
-           a.smooth_scroll == b.smooth_scroll && a.member_pane_visible == b.member_pane_visible &&
-           a.desktop_enabled == b.desktop_enabled && a.message_sounds_enabled == b.message_sounds_enabled &&
-           a.selected_message_sounds_enabled == b.selected_message_sounds_enabled &&
-           a.output_volume == b.output_volume && a.soundpack == b.soundpack &&
-           a.developer_mode == b.developer_mode && a.taskbar_flash == b.taskbar_flash &&
-           a.unread_badge == b.unread_badge && a.minimize_to_tray == b.minimize_to_tray &&
-           a.start_minimized == b.start_minimized && a.spellcheck == b.spellcheck &&
-           a.game_detection == b.game_detection && a.dm_profile_visible == b.dm_profile_visible &&
-           a.message_group_spacing == b.message_group_spacing &&
-           a.channel_pane_width == b.channel_pane_width && a.member_pane_width == b.member_pane_width &&
-           a.expression_picker_width == b.expression_picker_width &&
-           a.role_colors_everywhere == b.role_colors_everywhere && a.reply_timestamps == b.reply_timestamps &&
-           a.folders_close_others == b.folders_close_others && a.folders_close_on_home == b.folders_close_on_home &&
-           a.folders_follow_selection == b.folders_follow_selection && a.show_hidden_channels == b.show_hidden_channels &&
-           a.image_zoom == b.image_zoom && a.image_zoom_square == b.image_zoom_square &&
-           a.image_zoom_factor == b.image_zoom_factor && a.image_zoom_size == b.image_zoom_size &&
-           a.chat_font_size == b.chat_font_size && a.desaturation == b.desaturation && a.zoom == b.zoom &&
-           a.speech_rate == b.speech_rate && a.reduced_motion_sync == b.reduced_motion_sync &&
-           a.desaturate_user_colors == b.desaturate_user_colors && a.underline_links == b.underline_links &&
-           a.role_style == b.role_style && a.streamer_mode == b.streamer_mode &&
-           a.streamer_auto == b.streamer_auto && a.streamer_hide_personal == b.streamer_hide_personal &&
-           a.streamer_hide_invites == b.streamer_hide_invites &&
-           a.streamer_disable_sounds == b.streamer_disable_sounds &&
-           a.streamer_disable_notifications == b.streamer_disable_notifications &&
-           a.streamer_hide_window == b.streamer_hide_window && a.speak_messages == b.speak_messages &&
-           a.test_mode_application == b.test_mode_application && a.tabs_enabled == b.tabs_enabled &&
-           background_theme_equal(a.gradient, b.gradient);
-}
-
 ClientPreferencesResult client_preferences_encode(const ClientPreferences& preferences,
                                                   Slice<u8> record) noexcept {
     if (!record.data || record.count != kClientPreferencesRecordBytes ||
@@ -103,51 +112,27 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     copy_bytes(record.data, kMagic, sizeof(kMagic));
     byte_store_le32(record.data + 8, kClientPreferencesVersion);
     byte_store_le32(record.data + 12, kClientPreferencesRecordBytes);
-    record.data[16] = static_cast<u8>(preferences.theme);
-    record.data[17] = static_cast<u8>(
-        (preferences.reduced_motion ? 1u : 0u) | (preferences.smooth_scroll ? 2u : 0u) |
-        (preferences.member_pane_visible ? 4u : 0u) | (preferences.desktop_enabled ? 8u : 0u) |
-        (preferences.message_sounds_enabled ? 16u : 0u) |
-        (preferences.selected_message_sounds_enabled ? 32u : 0u) | (preferences.developer_mode ? 64u : 0u));
-    record.data[18] = preferences.output_volume;
-    record.data[19] = static_cast<u8>(preferences.soundpack);
-    gradient_record_store(record.data, preferences.gradient, preferences.effect_profiles);
-    record.data[57] = static_cast<u8>(static_cast<u8>(preferences.builtin_theme) + 1);
-    record.data[58] = static_cast<u8>(preferences.expression_picker_width);
-    record.data[59] = static_cast<u8>(preferences.expression_picker_width >> 8);
+    u8* out = record.data;
+    out[16] = static_cast<u8>(preferences.theme);
+    out[17] = gather_switches(preferences, AT(reduced_motion), 7);
+    out[18] = preferences.output_volume;
+    gradient_record_store(out, preferences.gradient, preferences.effect_profiles);
+    out[57] = static_cast<u8>(static_cast<u8>(preferences.builtin_theme) + 1);
+    byte_store_le16(out + 58, preferences.expression_picker_width);
     // Image zoom: flags (bit 0 off, bit 1 square lens), zoom in halves, size in tens of DIPs.
-    record.data[60] = static_cast<u8>((preferences.image_zoom ? 0u : 1u) | (preferences.image_zoom_square ? 2u : 0u));
-    record.data[61] = preferences.image_zoom_factor;
-    record.data[62] = preferences.image_zoom_size;
-    record.data[65] = static_cast<u8>(
-        (preferences.role_colors_everywhere ? 0u : 1u) | (preferences.reply_timestamps ? 2u : 0u) |
-        (preferences.folders_close_others ? 4u : 0u) | (preferences.folders_close_on_home ? 8u : 0u) |
-        (preferences.folders_follow_selection ? 16u : 0u) | (preferences.show_hidden_channels ? 32u : 0u));
-    record.data[66] =
-        static_cast<u8>((preferences.taskbar_flash ? 0u : 1u) | (preferences.unread_badge ? 0u : 2u) |
-                        (preferences.minimize_to_tray ? 0u : 4u) | (preferences.start_minimized ? 8u : 0u) |
-                        (preferences.spellcheck ? 0u : 16u) | (preferences.game_detection ? 32u : 0u) |
-                        (preferences.dm_profile_visible ? 0u : 64u));
-    record.data[67] = preferences.message_group_spacing;
-    record.data[68] = static_cast<u8>(preferences.channel_pane_width);
-    record.data[69] = static_cast<u8>(preferences.channel_pane_width >> 8);
-    record.data[70] = static_cast<u8>(preferences.member_pane_width);
-    record.data[71] = static_cast<u8>(preferences.member_pane_width >> 8);
-    record.data[72] = preferences.chat_font_size;
-    record.data[73] = preferences.desaturation;
-    record.data[74] = preferences.zoom;
-    record.data[75] = preferences.speech_rate;
-    record.data[76] = static_cast<u8>((preferences.reduced_motion_sync ? 1u : 0u) |
-                                      (preferences.desaturate_user_colors ? 2u : 0u) |
-                                      (preferences.underline_links ? 4u : 0u) | preferences.role_style << 3);
-    record.data[77] = static_cast<u8>(
-        (preferences.streamer_mode ? 1u : 0u) | (preferences.streamer_auto ? 2u : 0u) |
-        (preferences.streamer_hide_personal ? 4u : 0u) | (preferences.streamer_hide_invites ? 8u : 0u) |
-        (preferences.streamer_disable_sounds ? 16u : 0u) | (preferences.streamer_disable_notifications ? 32u : 0u) |
-        (preferences.streamer_hide_window ? 64u : 0u));
-    record.data[78] = preferences.speak_messages;
-    record.data[79] = preferences.tabs_enabled ? 1 : 0;
-    byte_store_le64(record.data + 80, preferences.test_mode_application);
+    out[60] = static_cast<u8>(gather_switches(preferences, AT(image_zoom), 2) ^ kInverted60);
+    copy_bytes(out + 61, &preferences.image_zoom_factor, 2);
+    out[65] = static_cast<u8>(gather_switches(preferences, AT(role_colors_everywhere), 6) ^ kInverted65);
+    out[66] = static_cast<u8>(gather_switches(preferences, AT(taskbar_flash), 7) ^ kInverted66);
+    out[67] = preferences.message_group_spacing;
+    byte_store_le16(out + 68, preferences.channel_pane_width);
+    byte_store_le16(out + 70, preferences.member_pane_width);
+    copy_bytes(out + 72, &preferences.chat_font_size, 4);
+    out[76] = static_cast<u8>(gather_switches(preferences, AT(reduced_motion_sync), 3) | preferences.role_style << 3);
+    out[77] = gather_switches(preferences, AT(streamer_mode), 7);
+    out[78] = preferences.speak_messages;
+    out[79] = preferences.tabs_enabled;
+    byte_store_le64(out + 80, preferences.test_mode_application);
     byte_store_le64(record.data + kChecksumOffset, hash64_bytes(kHash64Seed, record.data, kChecksumOffset));
     return {};
 }
@@ -172,84 +157,49 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         return failure(ClientPreferencesError::size);
     if (byte_load_le32(record.data + 12) != bytes)
         return failure(ClientPreferencesError::format);
-    if (record.data[16] > static_cast<u8>(ClientTheme::custom_light_gradient) ||
-        (record.data[17] & ~kKnownFlags) != 0 || record.data[18] > 200 ||
-        !notification_soundpack_valid(static_cast<NotificationSoundpack>(record.data[19])) ||
-        (record.data[66] & ~127u) || (record.data[65] & ~kBuiltInFlags) ||
-        record.data[67] >= kClientPreferencesGroupSpacingCount || (record.data[60] & ~3u) ||
-        (record.data[61] && (record.data[61] < 2 || record.data[61] > 100)) ||
-        (record.data[62] && (record.data[62] < 5 || record.data[62] > 100)) ||
-        (current && ((record.data[76] & ~31u) || (record.data[77] & ~127u) || record.data[78] > client_speak_messages_all ||
-                     (record.data[79] & ~1u))))
+    // A version 9 record reads as a current one with the fields added since at their defaults.
+    u8 data[kChecksumOffset];
+    copy_bytes(data, record.data, kVersion9ChecksumOffset);
+    copy_bytes(data + kVersion9ChecksumOffset, current ? record.data + kVersion9ChecksumOffset : kVersion10Defaults,
+               sizeof(kVersion10Defaults));
+    if (data[16] > static_cast<u8>(ClientTheme::custom_light_gradient) || (data[17] & ~kKnownFlags) != 0 ||
+        data[18] > 200 || (data[66] & ~127u) || (data[65] & ~kBuiltInFlags) ||
+        data[67] >= kClientPreferencesGroupSpacingCount || (data[60] & ~3u) ||
+        (data[61] && (data[61] < 2 || data[61] > 100)) || (data[62] && (data[62] < 5 || data[62] > 100)) ||
+        (data[76] & ~31u) || (data[77] & ~127u) || data[78] > client_speak_messages_all || (data[79] & ~1u))
         return failure(ClientPreferencesError::format);
     if (byte_load_le64(record.data + checksum) != hash64_bytes(kHash64Seed, record.data, checksum))
         return failure(ClientPreferencesError::checksum);
-    ClientPreferences decoded = {static_cast<ClientTheme>(record.data[16]),
-                                 (record.data[17] & 1) != 0,
-                                 (record.data[17] & 2) != 0,
-                                 (record.data[17] & 4) != 0,
-                                 (record.data[17] & 8) != 0,
-                                 (record.data[17] & 16) != 0,
-                                 (record.data[17] & 32) != 0,
-                                 record.data[18],
-                                 static_cast<NotificationSoundpack>(record.data[19])};
-    gradient_record_load(record.data, &decoded.gradient, decoded.effect_profiles);
-    decoded.developer_mode = (record.data[17] & 64) != 0;
-    decoded.taskbar_flash = !(record.data[66] & 1);
-    decoded.unread_badge = !(record.data[66] & 2);
-    decoded.minimize_to_tray = !(record.data[66] & 4);
-    decoded.start_minimized = (record.data[66] & 8) != 0;
-    decoded.spellcheck = !(record.data[66] & 16);
-    decoded.game_detection = (record.data[66] & 32) != 0;
-    decoded.dm_profile_visible = !(record.data[66] & 64);
-    decoded.role_colors_everywhere = !(record.data[65] & 1);
-    decoded.reply_timestamps = (record.data[65] & 2) != 0;
-    decoded.folders_close_others = (record.data[65] & 4) != 0;
-    decoded.folders_close_on_home = (record.data[65] & 8) != 0;
-    decoded.folders_follow_selection = (record.data[65] & 16) != 0;
-    decoded.show_hidden_channels = (record.data[65] & 32) != 0;
-    decoded.image_zoom = !(record.data[60] & 1);
-    decoded.image_zoom_square = (record.data[60] & 2) != 0;
-    decoded.image_zoom_factor = record.data[61] ? record.data[61] : kClientPreferencesDefaultZoomFactor;
-    decoded.image_zoom_size = record.data[62] ? record.data[62] : kClientPreferencesDefaultZoomSize;
-    decoded.message_group_spacing = record.data[67];
+    ClientPreferences decoded;
+    // In member order: a switch group's eight-byte store reaches into the members after it, written after it.
+    decoded.theme = static_cast<ClientTheme>(data[16]);
+    spread_switches(decoded, AT(reduced_motion), data[17]);
+    decoded.output_volume = data[18];
+    copy_bytes(&decoded.image_zoom_factor, data + 61, 2);
+    decoded.message_group_spacing = data[67];
+    gradient_record_load(data, &decoded.gradient, decoded.effect_profiles);
+    spread_switches(decoded, AT(taskbar_flash), data[66] ^ kInverted66);
+    spread_switches(decoded, AT(role_colors_everywhere), data[65] ^ kInverted65);
+    spread_switches(decoded, AT(image_zoom), data[60] ^ kInverted60);
+    decoded.channel_pane_width = byte_load_le16(data + 68);
+    decoded.member_pane_width = byte_load_le16(data + 70);
+    decoded.expression_picker_width = byte_load_le16(data + 58);
     // Records written before the last built-in theme existed restore the record's own theme.
-    decoded.builtin_theme = record.data[57] && record.data[57] <= static_cast<u8>(ClientTheme::custom_light_gradient) + 1
-                                ? static_cast<ClientTheme>(record.data[57] - 1)
+    decoded.builtin_theme = data[57] && data[57] <= static_cast<u8>(ClientTheme::custom_light_gradient) + 1
+                                ? static_cast<ClientTheme>(data[57] - 1)
                                 : decoded.theme;
-    decoded.expression_picker_width = byte_load_le16(record.data + 58);
-    decoded.channel_pane_width = byte_load_le16(record.data + 68);
-    decoded.member_pane_width = byte_load_le16(record.data + 70);
-    if (current) {
-        decoded.chat_font_size = record.data[72];
-        decoded.desaturation = record.data[73];
-        decoded.zoom = record.data[74];
-        decoded.speech_rate = record.data[75];
-        decoded.reduced_motion_sync = (record.data[76] & 1) != 0;
-        decoded.desaturate_user_colors = (record.data[76] & 2) != 0;
-        decoded.underline_links = (record.data[76] & 4) != 0;
-        decoded.role_style = static_cast<u8>(record.data[76] >> 3);
-        decoded.streamer_mode = (record.data[77] & 1) != 0;
-        decoded.streamer_auto = (record.data[77] & 2) != 0;
-        decoded.streamer_hide_personal = (record.data[77] & 4) != 0;
-        decoded.streamer_hide_invites = (record.data[77] & 8) != 0;
-        decoded.streamer_disable_sounds = (record.data[77] & 16) != 0;
-        decoded.streamer_disable_notifications = (record.data[77] & 32) != 0;
-        decoded.streamer_hide_window = (record.data[77] & 64) != 0;
-        decoded.speak_messages = record.data[78];
-        decoded.test_mode_application = byte_load_le64(record.data + 80);
-        decoded.tabs_enabled = (record.data[79] & 1) != 0;
-    } else {
-        const auto defaults = client_preferences_defaults();
-        decoded.zoom = defaults.zoom;
-        decoded.speech_rate = defaults.speech_rate;
-        decoded.reduced_motion_sync = defaults.reduced_motion_sync;
-        decoded.streamer_auto = defaults.streamer_auto;
-        decoded.streamer_hide_personal = defaults.streamer_hide_personal;
-        decoded.streamer_hide_invites = defaults.streamer_hide_invites;
-        decoded.streamer_disable_sounds = defaults.streamer_disable_sounds;
-        decoded.streamer_disable_notifications = defaults.streamer_disable_notifications;
-    }
+    copy_bytes(&decoded.chat_font_size, data + 72, 4);
+    spread_switches(decoded, AT(reduced_motion_sync), data[76]);
+    decoded.role_style = static_cast<u8>(data[76] >> 3);
+    spread_switches(decoded, AT(streamer_mode), data[77]);
+    decoded.speak_messages = data[78];
+    decoded.tabs_enabled = data[79] != 0;
+    decoded.test_mode_application = byte_load_le64(data + 80);
+    // Image zoom and lens size: zero restores the default.
+    if (!decoded.image_zoom_factor)
+        decoded.image_zoom_factor = kClientPreferencesDefaultZoomFactor;
+    if (!decoded.image_zoom_size)
+        decoded.image_zoom_size = kClientPreferencesDefaultZoomSize;
     if (!client_preferences_valid(decoded))
         return failure(ClientPreferencesError::format);
     *preferences = decoded;
@@ -319,4 +269,5 @@ ClientPreferencesResult client_preferences_save(const ClientPreferences& prefere
     return result.ok() ? client_preferences_save_file(path, preferences) : result;
 }
 
+#undef AT
 } // namespace maicord

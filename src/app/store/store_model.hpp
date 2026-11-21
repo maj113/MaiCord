@@ -41,7 +41,7 @@ struct StoreItem {
     bool has_settings;  // a plugin with a settings page
     bool installable;   // the catalog can install or update now (fresh signed index)
     u8 revoked;         // CatalogRevocationSeverity
-    Utf8View reason, installed_version, update_version, previous_version, folder, changelog, sha, commit, contrast;
+    Utf8View reason, installed_version, update_version, previous_version, changelog, sha, commit, contrast;
     u32 api_level;
     bool update, needs_review;
     // The operation running on this item: 0 none, else a phase (1 downloading, 2 verifying, 3 applying).
@@ -98,7 +98,6 @@ struct StoreConsent {
 struct StoreLink {
     bool open;     // the install-from-link entry or the card
     u8 phase;      // 0 entry, 1 working, 2 card, 3 failed
-    u8 error;      // PackageError
     Utf8View host, name, authors, license, based_on, cost_text;
     CatalogKind kind;
     bool replaces, has_effect, effect_installed, cost_known, cost_refused, previewing;
@@ -123,7 +122,7 @@ struct StoreModel {
     // scene built from it, still shows.
     const CatalogIndex* index;
     StoreCatalogState catalog;
-    bool developer_mode, installable;
+    bool developer_mode;
     u64 checked_unix, fetched_unix;
     Utf8View error_text;
     u32 protocol_state;  // 0 asked, 1 ask now

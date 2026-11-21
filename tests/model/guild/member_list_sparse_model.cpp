@@ -22,7 +22,7 @@ struct Fixture {
     u8 state_names[4096];
     MemberListView projection;
     MemberListRow rows[768];
-    u32 scratch[512];
+    MemberListSortKey scratch[512];
 };
 Fixture fixture{};
 char json[128 * 1024], packet[128 * 1024];
@@ -269,7 +269,8 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
     bool retained = true;
     for (u32 i = 0; i < 64; ++i) {
         const auto* record = user_store_find(f.users, 100 + i);
-        retained &= record && record->pinned && record->name_bytes == 128 && record->username_bytes == 128 &&
+        retained &= record && user_store_pinned(f.users, *record) && record->name_bytes == 128 &&
+            record->username_bytes == 128 &&
             record->avatar_hash_bytes == 32 && bytes_equal(user_store_name(f.users, *record).data, display, 128) &&
             bytes_equal(user_store_username(f.users, *record).data, login, 128);
     }
@@ -281,8 +282,33 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
         "visible-interest bounds reject more than128 rows before changing admitted interest");
     guild_member_store_clear_visible_range(&f.members);
     check(guild_member_store_refresh_visible_users(f.members, &f.users) == 0 &&
-        !user_store_find(f.users, 100)->pinned,
+        !user_store_pinned(f.users, *user_store_find(f.users, 100)),
         "clearing viewport interest releases global profile pins");
+    // A pin mark repeats after 255 clears: the clear that starts the marks again at 1 must release the old pins,
+    // from a fresh store (mark 1) and from a mark near the wrap.
+    const u8 starts[]{1, 250};
+    for (const u8 start : starts) {
+        UserStore cycle{};
+        UserRecord cycle_records[2]{};
+        u32 cycle_order[2]{};
+        u8 cycle_names[64]{};
+        bool released = user_store_initialize(&cycle, {cycle_records, 2}, {cycle_order, 2}, {cycle_names, 64}) &&
+            cycle.pin_mark == 1 && user_store_upsert(&cycle, 1, utf8_literal("One")).ok() &&
+            user_store_upsert(&cycle, 2, utf8_literal("Two")).ok();
+        cycle.pin_mark = start;
+        released = released && user_store_pin(&cycle, 1) && user_store_pinned(cycle, *user_store_find(cycle, 1)) &&
+            !user_store_pinned(cycle, *user_store_find(cycle, 2));
+        u32 clears = 0;
+        do {
+            user_store_clear_pins(&cycle);
+            released = released && cycle.pin_mark != 0 && !user_store_pinned(cycle, *user_store_find(cycle, 1)) &&
+                !user_store_pinned(cycle, *user_store_find(cycle, 2));
+        } while (++clears < 300 && cycle.pin_mark != start);
+        // The store's mark is now the one user 1 was pinned with.
+        released = released && clears == 255 && user_store_pin(&cycle, 2) &&
+            user_store_pinned(cycle, *user_store_find(cycle, 2)) && !user_store_pinned(cycle, *user_store_find(cycle, 1));
+        check(released, "pin marks of earlier clears never read pinned, also after 255 clears and the mark wrap");
+    }
 
     UserStore tiny{};
     UserRecord records[3]{};

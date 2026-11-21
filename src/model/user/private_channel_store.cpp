@@ -187,15 +187,15 @@ bool private_channel_store_clear_safety_warning(PrivateChannelStore* store, u64 
     saturating_increment(store->revision);
     return true;
 }
-u32 private_channel_store_request_count(const PrivateChannelStore& store, bool spam) noexcept {
-    if (!valid(store)) return 0;
-    u32 count = 0;
+PrivateRequestCounts private_channel_store_request_counts(const PrivateChannelStore& store) noexcept {
+    PrivateRequestCounts counts{};
+    if (!valid(store)) return counts;
     for (u32 i = 0; i < store.count; ++i) {
         const u8 flags = store.records[i].request_flags;
-        count += spam ? (flags & private_request_spam) != 0
-                      : (flags & private_request_pending) && !(flags & private_request_spam);
+        counts.spam += (flags & private_request_spam) != 0;
+        counts.pending += (flags & (private_request_pending | private_request_spam)) == private_request_pending;
     }
-    return count;
+    return counts;
 }
 bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept {
     const auto* found = store ? private_channel_store_find(*store, id) : nullptr;

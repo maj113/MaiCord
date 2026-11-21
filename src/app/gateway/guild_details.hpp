@@ -29,9 +29,12 @@ struct GatewayGuildDetailValues {
     u8 nsfw_level;
 };
 
-// True when `name` is a detail key. Details are advisory: a malformed value
-// leaves the field unseen and a repeated key keeps the first value.
-bool gateway_guild_detail_visit(GatewayGuildDetailValues* values, JsonString name, JsonValue value) noexcept;
+// One detail key, by its position in this list: premium_tier, premium_subscription_count, system_channel_flags,
+// rules_channel_id, public_updates_channel_id, safety_alerts_channel_id, premium_progress_bar_enabled,
+// description, vanity_url_code, incidents_data, member_count, splash, preferred_locale,
+// owner_configured_content_level, discovery_splash, guild_space_settings, experiments. Details are advisory: a
+// malformed value leaves the field unseen and a repeated key keeps the first value.
+void gateway_guild_detail_visit(GatewayGuildDetailValues* values, u32 index, JsonValue value) noexcept;
 // Fills the fields `to` has not seen from `from` (user-account properties).
 void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuildDetailValues& from) noexcept;
 // Appends the details record of one guild create/update. Every field but

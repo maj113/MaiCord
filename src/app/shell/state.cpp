@@ -23,11 +23,13 @@ constinit Application g_app{.preferences = {ClientTheme::dark,
                                             false,
                                             false,
                                             false,
-                                            0,
-                                            NotificationSoundpack::classic,
-                                            {},
-                                            {},
                                             false, // developer_mode
+                                            0,     // output_volume
+                                            0,     // image_zoom_factor
+                                            0,     // image_zoom_size
+                                            0,     // message_group_spacing
+                                            {},
+                                            {},
                                             false, // taskbar_flash
                                             false, // unread_badge
                                             false, // minimize_to_tray
@@ -43,9 +45,6 @@ constinit Application g_app{.preferences = {ClientTheme::dark,
                                             false, // show_hidden_channels
                                             false, // image_zoom
                                             false, // image_zoom_square
-                                            0,     // image_zoom_factor
-                                            0,     // image_zoom_size
-                                            0,     // message_group_spacing
                                             0,     // channel_pane_width
                                             0,     // member_pane_width
                                             0},    // expression_picker_width

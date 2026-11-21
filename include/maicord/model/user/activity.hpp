@@ -151,7 +151,7 @@ bool user_activity_first_type(const UserActivityStore&, u64 user_id, UserActivit
 // guild-less lookup does: a set with activities replaces the record; an empty
 // set clears it only from the scope that wrote it or from scope 0, so a
 // server that hides the activity cannot erase the friend presence's. Offline
-// clears every scope.
+// clears every scope. The text must be valid UTF-8 (user_activities_read checks it): find reads it unchecked.
 bool user_activity_apply(UserActivityStore*, const UserActivitySet&, u64 scope, bool offline) noexcept;
 void user_activity_release(UserActivityStore*) noexcept;
 } // namespace maicord

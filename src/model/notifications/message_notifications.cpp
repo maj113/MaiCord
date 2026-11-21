@@ -1,5 +1,8 @@
 #include "maicord/model/notifications/message_notifications.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat/sorted_search.hpp"
 namespace maicord {
 namespace {
 constexpr u16 all_fields = 255;
@@ -30,16 +33,23 @@ bool settings_known(const MessageNotificationStore& s,const MessageNotificationG
     return g?!g->incomplete:(s.complete||!guild);
 }
 bool private_type(u8 type) noexcept {return type==1||type==3;}
+// Guild rows sort by guild ID and override rows by guild and channel ID, so that each lookup is a binary search.
+// apply_settings sorts both after each write. remove_guild keeps the order.
+bool override_before(const MessageNotificationOverride& o,u64 guild,u64 channel) noexcept {
+    return o.guild_id!=guild?o.guild_id<guild:o.channel_id<channel;
+}
 }
 void message_notifications_initialize(MessageNotificationStore* s,Slice<MessageNotificationGuildSetting>g,
     Slice<MessageNotificationOverride>o,Slice<MessageNotificationThreadSetting>t,MessageNotificationReserve r,void*c) noexcept {
     reset_value(s);s->guilds=g;s->overrides=o;s->threads=t;s->reserve=r;s->reserve_context=c;
 }
 const MessageNotificationGuildSetting* message_notifications_guild(const MessageNotificationStore&s,u64 id) noexcept {
-    for(u32 i=0;i<s.guild_count;++i)if(s.guilds[i].guild_id==id)return &s.guilds[i];return nullptr;
+    const u32 at=sorted_lower_bound(s.guild_count,[&](u32 i) noexcept {return s.guilds[i].guild_id<id;});
+    return at<s.guild_count&&s.guilds[at].guild_id==id?&s.guilds[at]:nullptr;
 }
 const MessageNotificationOverride* message_notifications_override(const MessageNotificationStore&s,u64 g,u64 id) noexcept {
-    for(u32 i=0;i<s.override_count;++i)if(s.overrides[i].guild_id==g&&s.overrides[i].channel_id==id)return &s.overrides[i];return nullptr;
+    const u32 at=sorted_lower_bound(s.override_count,[&](u32 i) noexcept {return override_before(s.overrides[i],g,id);});
+    return at<s.override_count&&s.overrides[at].guild_id==g&&s.overrides[at].channel_id==id?&s.overrides[at]:nullptr;
 }
 const MessageNotificationThreadSetting* message_notifications_thread(const MessageNotificationStore&s,u64 id) noexcept {
     for(u32 i=0;i<s.thread_count;++i)if(s.threads[i].thread_id==id)return &s.threads[i];return nullptr;
@@ -65,6 +75,11 @@ MessageNotificationApplyError message_notifications_apply_settings(MessageNotifi
         const auto old=at<s->guild_count?s->guilds[at].setting:baseline();
         if(at==s->guild_count)++s->guild_count;s->guilds[at]={g[i].guild_id,merge(old,g[i].setting)};}
     for(u32 i=0;i<o.count;++i)s->overrides[s->override_count++]={o[i].guild_id,o[i].channel_id,merge(baseline(),o[i].setting)};
+    // Settings updates are rare: the shared sort body costs less code than two inlined sorts.
+    heap_sort_shared(s->guilds.data,s->guild_count,[](const MessageNotificationGuildSetting& a,const MessageNotificationGuildSetting& b) noexcept {
+        return a.guild_id<b.guild_id;});
+    heap_sort_shared(s->overrides.data,s->override_count,[](const MessageNotificationOverride& a,const MessageNotificationOverride& b) noexcept {
+        return override_before(a,b.guild_id,b.channel_id);});
     s->version=version;s->complete=s->complete||!partial;++s->revision;return E::none;
 }
 MessageNotificationApplyError message_notifications_upsert_thread(MessageNotificationStore*s,const MessageNotificationThreadSetting&t) noexcept {
@@ -94,7 +109,7 @@ bool message_notifications_override_muted(const MessageNotificationStore&s,u64 g
     const auto*o=channel?message_notifications_override(s,guild,channel):nullptr;return o&&message_notification_muted(o->setting,now);}
 u64 message_notifications_next_mute_expiry(const MessageNotificationStore&s,u64 now) noexcept {
     u64 next=0;const auto consider=[&](const MessageNotificationSetting&v) noexcept {
-        if(v.muted&&v.mute_end_ms&&v.mute_end_ms>=now&&(!next||v.mute_end_ms<next))next=v.mute_end_ms;};
+        if(v.muted&&v.mute_end_ms>=now)next=earliest_deadline(next,v.mute_end_ms);};
     for(u32 i=0;i<s.guild_count;++i)consider(s.guilds[i].setting);
     for(u32 i=0;i<s.override_count;++i)consider(s.overrides[i].setting);
     for(u32 i=0;i<s.thread_count;++i)consider(s.threads[i].setting);

@@ -28,7 +28,7 @@ struct Fixture {
     u8 state_names[1024];
     MemberListView projection;
     MemberListRow rows[16];
-    u32 member_scratch[8];
+    MemberListSortKey member_scratch[8];
     MessageTimeline timeline;
     MessageEventPump pump;
     char payload[16 * 1024];
@@ -773,7 +773,7 @@ void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept
               guild_member_store_find(f.members, 7, 13) && !f.members.pin_count &&
               !f.members.visible.guild_id && !guild_member_store_list(f.members, 7, 70) &&
               guild_member_store_find(f.members, 7, 13)->list_index == ~0u &&
-              !user_store_find(f.users, 13)->pinned && project() && !f.projection.count,
+              !user_store_pinned(f.users, *user_store_find(f.users, 13)) && project() && !f.projection.count,
           "member pump: successful fresh READY withdraws all list residency and pins while retaining "
           "cached guild identity");
     check(
@@ -824,17 +824,17 @@ void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept
     bool old_unpinned = true, visible_retained = true;
     u32 pinned_profiles = 0;
     for (u32 slot = 0; slot < f.users.capacity; ++slot)
-        pinned_profiles += f.user_records[slot].occupied && f.user_records[slot].pinned;
+        pinned_profiles += f.user_records[slot].occupied && user_store_pinned(f.users, f.user_records[slot]);
     for (u32 member_index = 0; member_index < 4; ++member_index) {
         const auto* old_profile = user_store_find(f.users, 20 + member_index);
         const auto* current_profile = user_store_find(f.users, 30 + member_index);
-        old_unpinned &= !old_profile || !old_profile->pinned;
-        visible_retained &= current_profile && current_profile->pinned &&
+        old_unpinned &= !old_profile || !user_store_pinned(f.users, *old_profile);
+        visible_retained &= current_profile && user_store_pinned(f.users, *current_profile) &&
                             current_profile->name_bytes == 128 && current_profile->username_bytes == 128 &&
                             current_profile->avatar_hash_bytes == 32;
     }
     check(replaced_profiles && old_unpinned && visible_retained && pinned_profiles == 4 &&
-              user_store_find(f.users, 99) && !user_store_find(f.users, 99)->pinned &&
+              user_store_find(f.users, 99) && !user_store_pinned(f.users, *user_store_find(f.users, 99)) &&
               project() && user(10) == 30 && user(100) == 99,
           "member pump: replacement SYNC releases obsolete pins before later offscreen profile admission");
     user_appearance_release(&f.users.appearance);

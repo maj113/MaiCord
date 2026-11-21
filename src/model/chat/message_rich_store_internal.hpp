@@ -34,11 +34,16 @@ bool walk_item(u32 kind, void* item, StringVisitor visitor, void* context) noexc
 bool walk_head_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept;
 bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept;
 void* fit_block(MessageRichSide* side, u32 kind, void* current, u32 count, bool* fresh) noexcept;
-void reset_slot(MessageRichStore* store, MessageRichRecord* record, u16 generation) noexcept;
-u32 bank_capacity(const MessageRichStore& store) noexcept;
+void reset_slot(MessageRichStore* store, MessageRichRecord* record) noexcept;
+inline u32 bank_capacity(const MessageRichStore& store) noexcept {
+    return store.text_capacity / 2;
+}
 u32 bank_base(const MessageRichStore& store) noexcept;
-SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept;
-Utf8View stored_text(const MessageRichStore& store, MessageRichString value) noexcept;
+// The id's position in the order, searched between low and high (its lower bound lies in that bracket).
+SearchResult find_record(const MessageRichStore& store, u64 message_id, u32 low, u32 high) noexcept;
+inline SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept {
+    return find_record(store, message_id, 0, store.count);
+}
 u32 free_slot(const MessageRichStore& store, u32 from, u32 skip) noexcept;
 bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target,
                        u32 replaced_fields) noexcept;

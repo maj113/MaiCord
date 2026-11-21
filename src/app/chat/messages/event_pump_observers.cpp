@@ -425,7 +425,7 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
             // Most page arrivals only pin their just-accepted visible identity.
             // A previously visible user moving out needs a bounded refresh so
             // its old profile pin does not accumulate beside replacements.
-            if (profile && profile->pinned)
+            if (profile && user_store_pinned(*pump->users, *profile))
                 guild_member_store_refresh_visible_users(*pump->members, pump->users);
         }
         ++member_records;

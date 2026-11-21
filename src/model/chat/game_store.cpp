@@ -284,8 +284,9 @@ bool game_token_at(Utf8View text, u32 offset, GameToken* token) noexcept {
 
 bool game_token_around(Utf8View text, u32 caret, GameToken* token) noexcept {
     GameToken found{};
+    // Only the head's lead byte can start a token.
     for (u32 at = 0; at < text.bytes; ++at)
-        if (game_token_at(text, at, &found)) {
+        if (text.data[at] == kGameTokenHead[0] && game_token_at(text, at, &found)) {
             if (caret >= found.query_first && caret <= found.query_last) {
                 *token = found;
                 return true;

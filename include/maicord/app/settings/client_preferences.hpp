@@ -1,7 +1,7 @@
 #pragma once
 
+#include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
-#include "maicord/model/notifications/soundpack.hpp"
 #include "maicord/ui/theme/background_theme.hpp"
 
 namespace maicord {
@@ -17,6 +17,8 @@ enum class ClientTheme : u8 {
     custom_light_gradient = 7
 };
 
+// The members follow preferences.bin's bit groups (client_preferences_encode): the switches stored in one record byte
+// are consecutive bools in bit order, and every byte is a member (no padding).
 struct ClientPreferences {
     ClientTheme theme;
     bool reduced_motion;
@@ -25,14 +27,20 @@ struct ClientPreferences {
     bool desktop_enabled;
     bool message_sounds_enabled;
     bool selected_message_sounds_enabled = false;
+    bool developer_mode = false;
     u8 output_volume = 100;
-    NotificationSoundpack soundpack = NotificationSoundpack::classic;
+    // Image zoom lens (image_zoom below): zoom in half units (2..100 = 1x..50x) and lens size in tens of DIPs
+    // (5..100 = 50..1000).
+    u8 image_zoom_factor;
+    u8 image_zoom_size;
+    // Space between message groups: 0 = default for the display mode,
+    // 1..5 = 0, 4, 8, 16, 24 px.
+    u8 message_group_spacing = 0;
     BackgroundTheme gradient = background_theme_defaults();
     BackgroundEffectSettings effect_profiles[kBackgroundEffectProfileCount] = {
         background_effect_settings_defaults(BackgroundEffect::stars),
         background_effect_settings_defaults(BackgroundEffect::comets),
         background_effect_settings_defaults(BackgroundEffect::stars_and_comets)};
-    bool developer_mode = false;
     // Taskbar attention, independent of desktop notifications.
     bool taskbar_flash = true;
     bool unread_badge = true;
@@ -59,15 +67,9 @@ struct ClientPreferences {
     bool folders_follow_selection = false;
     bool show_hidden_channels = false;
     // Image zoom lens (hold Ctrl over an image, or hold the pointer on one in
-    // the viewer): on by default (client_preferences_defaults); zoom in half
-    // units (2..100 = 1x..50x) and lens size in tens of DIPs (5..100 = 50..1000).
+    // the viewer): on by default (client_preferences_defaults); a square lens.
     bool image_zoom;
     bool image_zoom_square = false;
-    u8 image_zoom_factor;
-    u8 image_zoom_size;
-    // Space between message groups: 0 = default for the display mode,
-    // 1..5 = 0, 4, 8, 16, 24 px.
-    u8 message_group_spacing = 0;
     // Splitter-resized pane widths in DIPs; 0 keeps the theme's default.
     u16 channel_pane_width = 0;
     u16 member_pane_width = 0;
@@ -101,11 +103,16 @@ struct ClientPreferences {
     bool streamer_hide_window = false;
     // Notifications > "Speak all messages out loud" (ClientSpeakMessages; never by default).
     u8 speak_messages = 0;
-    // Developer > Application Test Mode: the application in test mode (0 for none), kept across restarts.
-    u64 test_mode_application = 0;
     // Appearance > Layout: channel tabs in the title bar (opt-in).
     bool tabs_enabled = false;
+    // Developer > Application Test Mode: the application in test mode (0 for none), kept across restarts.
+    u64 test_mode_application = 0;
 };
+// Every byte is a member (no padding), so two preferences are equal exactly when their bytes are.
+static_assert(sizeof(ClientPreferences) == 96 && __has_unique_object_representations(ClientPreferences));
+inline bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept {
+    return bytes_equal(&a, &b, sizeof(ClientPreferences));
+}
 // Role colours on names (the default), as a dot next to names, or not at all.
 enum ClientRoleStyle : u8 { client_role_style_names, client_role_style_dot, client_role_style_hidden };
 // Which messages are read aloud besides /tts ones: none, those of the selected channel, or all.
@@ -181,12 +188,11 @@ constexpr ClientPreferences client_preferences_defaults() noexcept {
     return preferences;
 }
 bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
-bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept;
 
 // Bytes 48..56 hold the three effect profiles; 58..59 hold the expression
 // drawer width (little-endian u16). Byte 57 holds the last built-in theme + 1;
 // zero (records written before it existed) restores the record's theme. Bytes
-// 63..64 are reserved and ignored.
+// 19 and 63..64 are reserved and ignored. Older clients wrote a sound pack choice to byte 19.
 // Byte 60 bits: 0 image zoom off, 1 square lens (other bits must be zero);
 // byte 61 is the zoom in half units (2..100) and byte 62 the lens size in tens
 // of DIPs (5..100); zero in either restores its default.

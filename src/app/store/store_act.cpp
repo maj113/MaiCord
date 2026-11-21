@@ -105,7 +105,8 @@ void store_page_build(UiStoreScene* scene, const StoreLayoutInput& in) noexcept 
 // ---- Actions ---------------------------------------------------------------------------------------------------
 namespace {
 
-StoreCommand cmd(StoreCommandKind kind, u32 item = 0, u32 arg = 0, u32 value = 0, bool flag = false) noexcept {
+__declspec(noinline) StoreCommand cmd(StoreCommandKind kind, u32 item = 0, u32 arg = 0, u32 value = 0,
+                                      bool flag = false) noexcept {
     StoreCommand c{};
     c.kind = kind;
     c.item = static_cast<u16>(item);

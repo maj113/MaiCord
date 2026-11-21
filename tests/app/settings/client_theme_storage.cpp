@@ -85,7 +85,6 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     preferences.smooth_scroll = false;
     preferences.member_pane_visible = false;
     preferences.output_volume = 173;
-    preferences.soundpack = NotificationSoundpack::classic;
     const auto other_preferences = preferences;
     check(client_theme_storage_apply_theme_fields(fixture.output, &preferences) &&
               preferences.theme == ClientTheme::ocean &&
@@ -97,7 +96,6 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
               preferences.reduced_motion == other_preferences.reduced_motion &&
               preferences.smooth_scroll == other_preferences.smooth_scroll &&
               preferences.member_pane_visible == other_preferences.member_pane_visible &&
-              preferences.soundpack == other_preferences.soundpack &&
               preferences.effect_profiles[1].density == 9,
           "authoritative theme store applies only theme gradient and profiles preserving every other "
           "legacy preference");

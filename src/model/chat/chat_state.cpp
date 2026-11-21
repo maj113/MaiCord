@@ -5,14 +5,16 @@
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
+#include "../guild/activity.hpp"
+#include "chat_state_backing.hpp"
 
 // Not machine-outlined (see src/app/gateway/chat_state_dispatch.cpp): the state apply of each Gateway event runs here.
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
 namespace maicord {
+using namespace chat_activity_detail;
+using namespace chat_state_detail;
 namespace {
-
-#include "chat_state_backing.inc"
 
 u32 find_guild_order(const ChatStateStore& store, u64 id, bool* found) noexcept {
     const u32 first = sorted_lower_bound(
@@ -89,7 +91,7 @@ __declspec(noinline) void close_order(u16* order, u32& count, u16& free_hint, u3
     order[count] = 0xFFFF;
 }
 
-u32 active_name_base(const ChatStateStore& store) noexcept {
+inline u32 active_name_base(const ChatStateStore& store) noexcept {
     return static_cast<u32>(store.active_name_bank) * store.name_bank_bytes;
 }
 
@@ -237,7 +239,7 @@ bool live_names_valid(const ChatStateStore& store) noexcept {
     return live == store.name_used - store.name_wasted;
 }
 
-ChatStateStoreError preflight_channel_slot(const ChatStateStore& store, u64 id, bool* found,
+inline ChatStateStoreError preflight_channel_slot(const ChatStateStore& store, u64 id, bool* found,
                                               u32* slot) noexcept {
     u32 first = 0, count = store.channel_count;
     while (count != 0) {
@@ -325,22 +327,20 @@ u8 store_asset_hash(char (&field)[kGuildIconHashMaximumBytes], Utf8View hash) no
     return static_cast<u8>(hash.bytes);
 }
 
-bool guild_icon_equals(const GuildRecord& record, Utf8View hash) noexcept {
+inline bool guild_icon_equals(const GuildRecord& record, Utf8View hash) noexcept {
     if (record.icon_hash_bytes != hash.bytes) {
         return false;
     }
     return bytes_equal(record.icon_hash, hash.data, hash.bytes);
 }
 
-#include "../guild/activity.inc"
-
 // The list that holds a guild's channels: the guild record's own, the private list for guild 0, else the
 // detached list.
-ChannelList& channel_list_of(ChatStateStore* store, GuildRecord* guild, u64 guild_id) noexcept {
+inline ChannelList& channel_list_of(ChatStateStore* store, GuildRecord* guild, u64 guild_id) noexcept {
     return guild ? guild->channel_list : guild_id ? store->detached_channel_list : store->private_channel_list;
 }
 
-ChannelList& channel_list_of(ChatStateStore* store, u64 guild_id) noexcept {
+inline ChannelList& channel_list_of(ChatStateStore* store, u64 guild_id) noexcept {
     return channel_list_of(store, mutable_guild(store, guild_id), guild_id);
 }
 
@@ -369,7 +369,7 @@ void link_channel(ChatStateStore* store, ChannelList& list, u32 slot) noexcept {
     *at = link;
 }
 
-void unlink_channel(ChatStateStore* store, ChannelList& list, u32 slot) noexcept {
+inline void unlink_channel(ChatStateStore* store, ChannelList& list, u32 slot) noexcept {
     const u16 link = static_cast<u16>(slot + 1);
     u16* at = &list.head;
     u16 previous = 0;
@@ -398,7 +398,7 @@ void reverse_channels(ChatStateStore* store, ChannelList& list) noexcept {
 }
 
 // Moves the detached channels of a new guild record into its list, in their order.
-void adopt_channels(ChatStateStore* store, GuildRecord& guild) noexcept {
+inline void adopt_channels(ChatStateStore* store, GuildRecord& guild) noexcept {
     ChannelList& detached = store->detached_channel_list;
     u16* at = &detached.head;
     u16 previous = 0;
@@ -958,6 +958,10 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         record.thread_join_seconds = input.thread_join_seconds;
     record.flags = input.flags;
     record.type = input.type;
+    if (!channel_is_voice_chat(input.type))
+        record.user_limit = 0;
+    else if (input.user_limit)
+        record.user_limit = static_cast<u16>(input.user_limit - 1);
     if (input.rate_limit_known)
         record.slowmode_code = slowmode_encode(input.rate_limit_per_user);
     // Codes 1..4 (hour, day, three days, week) map to the record's two bits.
@@ -1654,5 +1658,72 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
     if (changed)
         chat_state_store_select_default(store);
 }
+
+namespace chat_activity_detail {
+GuildRecord* mutable_guild(ChatStateStore* store, u64 guild_id) noexcept {
+    const auto* found = store && guild_id ? chat_state_store_find_guild(*store, guild_id) : nullptr;
+    return found ? &store->guilds[found - store->guilds] : nullptr;
+}
+
+ChannelRecord* mutable_channel(ChatStateStore* store, u64 channel_id) noexcept {
+    const auto* found = store && channel_id ? chat_state_store_find_channel(*store, channel_id) : nullptr;
+    return found ? &store->channels[found - store->channels] : nullptr;
+}
+
+RoleRun guild_role_run(const ChatStateStore& store, u64 guild_id) noexcept {
+    const u32 first = sorted_lower_bound(
+        store.role_count, [&](u32 at) noexcept { return store.roles[at].guild_id < guild_id; });
+    const u32 count = sorted_lower_bound(
+        store.role_count - first, [&](u32 at) noexcept { return store.roles[first + at].guild_id == guild_id; });
+    return {first, first + count};
+}
+
+void adjust_guild_activity(GuildRecord* guild, bool old_unread, u32 old_mentions, bool new_unread,
+                           u32 new_mentions) noexcept {
+    if (!guild || (old_unread == new_unread && old_mentions == new_mentions)) {
+        return;
+    }
+    if (old_unread && guild->unread_channels != 0) {
+        --guild->unread_channels;
+    }
+    saturating_increment_if(new_unread, guild->unread_channels);
+    guild->mention_count = old_mentions > guild->mention_count ? 0 : guild->mention_count - old_mentions;
+    guild->mention_count += minimum(new_mentions, ~0u - guild->mention_count);
+    saturating_increment(guild->revision);
+}
+
+// An unread channel is visible, and zero mentions need no visibility check.
+ChannelActivity channel_activity(const ChatStateStore& store, const ChannelRecord& channel) noexcept {
+    const bool unread = chat_state_store_channel_unread(store, channel);
+    const bool counted = channel.mention_count && (unread || chat_state_store_channel_visible(store, channel));
+    return {unread, counted ? channel.mention_count : 0};
+}
+
+void commit_channel_activity(ChatStateStore* store, const ChannelRecord& channel,
+                             ChannelActivity old) noexcept {
+    const ChannelActivity now = channel_activity(*store, channel);
+    if (old.unread != now.unread || old.mentions != now.mentions) {
+        adjust_guild_activity(mutable_guild(store, channel.guild_id), old.unread, old.mentions, now.unread,
+                              now.mentions);
+        ++store->activity_mutations;
+    }
+}
+} // namespace chat_activity_detail
+
+namespace chat_state_detail {
+bool back_range(const ChatStateStore& store, ChatStateBacking backing, u32 bank, u32& backed, u32 capacity,
+                u32 required) noexcept {
+    if (required <= backed)
+        return true;
+    if (required > capacity)
+        return false;
+    if (!store.backing_reserve)
+        return true;
+    if (!store.backing_reserve(store.backing_context, backing, bank, required))
+        return false;
+    backed = required;
+    return true;
+}
+} // namespace chat_state_detail
 } // namespace maicord
 #pragma clang attribute pop

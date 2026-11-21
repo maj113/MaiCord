@@ -115,7 +115,7 @@ bool synchronize_navigation_view() noexcept {
     if (ui.home_badge_requests != requests_key || ui.home_badge_relationships != relationships_key) {
         ui.home_badge_requests = requests_key;
         ui.home_badge_relationships = relationships_key;
-        u32 home_badge = requests ? private_channel_store_request_count(*requests, false) : 0;
+        u32 home_badge = requests ? private_channel_store_request_counts(*requests).pending : 0;
         for (u32 i = 0; relationships && i < relationships->count; ++i)
             home_badge += relationships->records[i].type == RelationshipType::incoming;
         if (ui.navigation_view.home_badge != home_badge) {

@@ -12,7 +12,7 @@ namespace {
 
 using protocol_detail::member_index;
 
-// In the order of the member names listed in gateway_guild_detail_visit.
+// In the order of the detail keys that gateway_guild_detail_visit lists.
 constexpr u16 kFields[] = {
     guild_detail_premium_tier,
     guild_detail_boost_count,
@@ -143,75 +143,124 @@ bool visit_incident(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
+// The hub's gate. `experiments` is {evaluation_id, assignments: [[hashed_name, variant_id, flags, ...]]}.
+// guild_space_settings is {enabled, publish_status} or null.
+struct SpaceGate {
+    JsonIndexedDocument document;
+    u64 fields[3];
+    u8 bits, enabled; // enabled: 0 absent, 1 true, 2 false
+    bool status;      // publish_status 1 (PUBLISHED)
+};
+bool visit_space_field(void* opaque, u32 index, JsonValue value) noexcept {
+    if (index < 3)
+        json_value_to_u64(value, &static_cast<SpaceGate*>(opaque)->fields[index]);
+    return true;
+}
+// An assignment used only as an eligibility gate (flag 8) leaves the experiment at its default (off).
+bool visit_space_assignment(void* opaque, u32, JsonValue value) noexcept {
+    auto& g = *static_cast<SpaceGate*>(opaque);
+    clear_bytes(g.fields, sizeof(g.fields));
+    if (value.kind == JsonValueKind::array &&
+        json_visit_indexed_array(g.document, value, 4, visit_space_field, &g).ok() &&
+        g.fields[0] == kGuildSpaceExperimentHash && g.fields[1] == 1 && !(g.fields[2] & 8))
+        g.bits |= guild_space_trial;
+    return true;
+}
+bool visit_space_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& g = *static_cast<SpaceGate*>(opaque);
+    bool on = false;
+    u64 status = 0;
+    switch (member_index<"assignments", "enabled", "publish_status">(name)) {
+    case 0:
+        if (value.kind == JsonValueKind::array)
+            json_visit_indexed_array(g.document, value, 4, visit_space_assignment, &g);
+        break;
+    case 1:
+        if (json_value_to_bool(value, &on))
+            g.enabled = on ? 1 : 2;
+        break;
+    case 2: g.status = json_value_to_u64(value, &status) && status == 1; break;
+    default: break;
+    }
+    return true;
+}
+// The bits of one object, with `known` when the object is there. Null settings count as an empty object.
+u8 space_bits(JsonValue value, Slice<u32> scratch, u8 known) noexcept {
+    if (!value.source.bytes)
+        return 0;
+    SpaceGate g{};
+    const auto scan = json_scan_structurals_avx1(value.source, scratch);
+    if (value.kind == JsonValueKind::object && scan.ok()) {
+        g.document = {value.source, {scratch.data, scan.count}};
+        json_visit_root_object(value.source, g.document.structurals, 4, visit_space_member, &g);
+    }
+    if (g.enabled == 2)
+        g.bits |= guild_space_disabled;
+    else if (g.enabled && g.status)
+        g.bits |= guild_space_published;
+    return static_cast<u8>(g.bits | known);
+}
+
 } // namespace
 
-bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, JsonValue value) noexcept {
-    const u32 index = member_index<"premium_tier", "premium_subscription_count", "system_channel_flags",
-                                   "rules_channel_id", "public_updates_channel_id", "safety_alerts_channel_id",
-                                   "premium_progress_bar_enabled", "description", "vanity_url_code",
-                                   "incidents_data", "member_count", "splash", "preferred_locale",
-                                   "owner_configured_content_level", "discovery_splash", "nsfw_level">(name);
+void gateway_guild_detail_visit(GatewayGuildDetailValues* d, u32 index, JsonValue value) noexcept {
+    if (index >= 15) {
+        JsonValue& kept = index == 15 ? d->space_settings : d->experiments;
+        if (!kept.source.bytes)
+            kept = value;
+        return;
+    }
     u64 number = 0;
-    if (index == 15) {
-        // Read beside the owner's level, and left to the content policy's own visitor.
-        if (json_value_to_u64(value, &number) && number <= 3)
-            d->nsfw_level = static_cast<u8>(number);
-        return false;
-    }
-    if (index < 15) {
-        const u16 field = kFields[index];
-        if (d->seen & field)
-            return true;
-        bool valid = true;
-        switch (field) {
-        case guild_detail_premium_tier:
-            valid = json_value_to_u64(value, &number) && number <= 255;
-            if (valid)
-                d->premium_tier = static_cast<u8>(number);
-            break;
-        case guild_detail_boost_count: valid = nullable_u32(value, &d->premium_subscription_count); break;
-        case guild_detail_member_count: valid = nullable_u32(value, &d->member_count); break;
-        case guild_detail_system_channel_flags: valid = nullable_u32(value, &d->system_channel_flags); break;
-        case guild_detail_rules_channel: valid = nullable_id(value, &d->rules_channel_id); break;
-        case guild_detail_public_updates_channel: valid = nullable_id(value, &d->public_updates_channel_id); break;
-        case guild_detail_safety_alerts_channel: valid = nullable_id(value, &d->safety_alerts_channel_id); break;
-        case guild_detail_progress_bar:
-            d->premium_progress_bar_enabled = false;
-            valid = is_null(value) || json_value_to_bool(value, &d->premium_progress_bar_enabled);
-            break;
-        case guild_detail_description:
-            valid = is_null(value) || value.kind == JsonValueKind::string;
-            d->description = value;
-            break;
-        case guild_detail_vanity:
-            valid = is_null(value) || value.kind == JsonValueKind::string;
-            d->vanity_url_code = value;
-            break;
-        case guild_detail_incidents:
-            valid = is_null(value) || value.kind == JsonValueKind::object;
-            d->incidents_data = value;
-            break;
-        case guild_detail_splash:
-        case guild_detail_discovery_splash:
-            valid = is_null(value) || value.kind == JsonValueKind::string;
-            (field == guild_detail_splash ? d->splash : d->discovery_splash) = value;
-            break;
-        case guild_detail_preferred_locale:
-            valid = value.kind == JsonValueKind::string;
-            d->preferred_locale = value;
-            break;
-        case guild_detail_content_level:
-            valid = json_value_to_u64(value, &number) && number <= 3;
-            if (valid)
-                d->owner_configured_content_level = static_cast<u8>(number);
-            break;
-        default: break;
-        }
+    const u16 field = kFields[index];
+    if (d->seen & field)
+        return;
+    bool valid = true;
+    switch (field) {
+    case guild_detail_premium_tier:
+        valid = json_value_to_u64(value, &number) && number <= 255;
         if (valid)
-            d->seen = static_cast<u16>(d->seen | field);
-        return true;
+            d->premium_tier = static_cast<u8>(number);
+        break;
+    case guild_detail_boost_count: valid = nullable_u32(value, &d->premium_subscription_count); break;
+    case guild_detail_member_count: valid = nullable_u32(value, &d->member_count); break;
+    case guild_detail_system_channel_flags: valid = nullable_u32(value, &d->system_channel_flags); break;
+    case guild_detail_rules_channel: valid = nullable_id(value, &d->rules_channel_id); break;
+    case guild_detail_public_updates_channel: valid = nullable_id(value, &d->public_updates_channel_id); break;
+    case guild_detail_safety_alerts_channel: valid = nullable_id(value, &d->safety_alerts_channel_id); break;
+    case guild_detail_progress_bar:
+        d->premium_progress_bar_enabled = false;
+        valid = is_null(value) || json_value_to_bool(value, &d->premium_progress_bar_enabled);
+        break;
+    case guild_detail_description:
+        valid = is_null(value) || value.kind == JsonValueKind::string;
+        d->description = value;
+        break;
+    case guild_detail_vanity:
+        valid = is_null(value) || value.kind == JsonValueKind::string;
+        d->vanity_url_code = value;
+        break;
+    case guild_detail_incidents:
+        valid = is_null(value) || value.kind == JsonValueKind::object;
+        d->incidents_data = value;
+        break;
+    case guild_detail_splash:
+    case guild_detail_discovery_splash:
+        valid = is_null(value) || value.kind == JsonValueKind::string;
+        (field == guild_detail_splash ? d->splash : d->discovery_splash) = value;
+        break;
+    case guild_detail_preferred_locale:
+        valid = value.kind == JsonValueKind::string;
+        d->preferred_locale = value;
+        break;
+    case guild_detail_content_level:
+        valid = json_value_to_u64(value, &number) && number <= 3;
+        if (valid)
+            d->owner_configured_content_level = static_cast<u8>(number);
+        break;
+    default: break;
     }
-    return false;
+    if (valid)
+        d->seen = static_cast<u16>(d->seen | field);
 }
 
 void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuildDetailValues& from) noexcept {
@@ -248,6 +297,10 @@ void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuild
         to->owner_configured_content_level = from.owner_configured_content_level;
     if (!to->nsfw_level)
         to->nsfw_level = from.nsfw_level;
+    if (!to->space_settings.source.bytes)
+        to->space_settings = from.space_settings;
+    if (!to->experiments.source.bytes)
+        to->experiments = from.experiments;
     to->seen = static_cast<u16>(to->seen | take);
 }
 
@@ -279,6 +332,8 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     header.premium_progress_bar_enabled = v.premium_progress_bar_enabled;
     header.owner_configured_content_level = v.owner_configured_content_level;
     header.nsfw_level = v.nsfw_level;
+    header.space = static_cast<u8>(space_bits(v.experiments, scratch, guild_space_trial_known) |
+                                   space_bits(v.space_settings, scratch, guild_space_settings_known));
     if (v.seen & guild_detail_preferred_locale) {
         JsonString text{};
         const Slice<char> locale{header.preferred_locale, sizeof(header.preferred_locale)};

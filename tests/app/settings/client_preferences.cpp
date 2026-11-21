@@ -42,7 +42,6 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
             auto value = defaults;
             value.theme = static_cast<ClientTheme>(theme);
             value.output_volume = static_cast<u8>(volume);
-            value.soundpack = static_cast<NotificationSoundpack>(volume % 9);
             value.selected_message_sounds_enabled = (volume & 1) != 0;
             value.speak_messages = static_cast<u8>(volume % 3);
             value.test_mode_application = volume * 0x0123456789ull;
@@ -309,8 +308,8 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
         profile_bounds = profile_bounds && reject(ClientPreferencesError::format);
     }
     check(profile_bounds, "preferences: every active and retained effect setting rejects values above100");
-    constexpr u32 offsets[]{16, 17, 18, 19, 23, 40, 42, 43, 45};
-    constexpr u8 values[]{8, 128, 201, 9, 1, 255, 6, 101, 101};
+    constexpr u32 offsets[]{16, 17, 18, 23, 40, 42, 43, 45};
+    constexpr u8 values[]{8, 128, 201, 1, 255, 6, 101, 101};
     bool invalid = true;
     for (u32 i = 0; i < sizeof(offsets) / sizeof(offsets[0]); ++i) {
         reset();
@@ -430,5 +429,25 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
               client_preferences_load_file(path, &decoded).ok() &&
               client_preferences_equal(decoded, defaults),
           "preferences: explicit save repairs corrupt record");
+    // Older clients wrote a sound pack choice (0..8) to byte 19. Their files load, and the client ignores the byte.
+    constexpr u8 packs[]{1, 8, 255};
+    bool sound_pack = true;
+    for (const u8 pack : packs) {
+        reset();
+        record[19] = pack;
+        checksum();
+        decoded = sentinel;
+        sound_pack = sound_pack && fixture_write(path, record, kBytes) &&
+                     client_preferences_load_file(path, &decoded).ok() && client_preferences_equal(decoded, defaults);
+        byte_store_le32(record + 8, 9);
+        byte_store_le32(record + 12, 80);
+        clear_bytes(record + 72, kBytes - 72);
+        byte_store_le64(record + 72, hash64_bytes(kHash64Seed, record, 72));
+        decoded = sentinel;
+        sound_pack = sound_pack && fixture_write(path, record, 80) &&
+                     client_preferences_load_file(path, &decoded).ok() && client_preferences_equal(decoded, defaults);
+    }
+    check(sound_pack && reset() && record[19] == 0,
+          "preferences: version 9 and 10 files with the old sound pack byte load, and save writes zero there");
 }
 } // namespace maicord

@@ -36,7 +36,7 @@ u32 find_usage(const ReactionPreferenceTable& table, ReactionEmojiRef emoji) noe
     return kReactionPreferenceUsageCapacity;
 }
 
-u32 find_empty(const ReactionPreferenceTable& table) noexcept {
+inline u32 find_empty(const ReactionPreferenceTable& table) noexcept {
     for (u32 index = 0; index < kReactionPreferenceUsageCapacity; ++index)
         if (!table.usage[index].occupied)
             return index;
@@ -54,7 +54,7 @@ u64 last_use(const ReactionPreferenceUsage& usage) noexcept {
 
 // Only the 100 most recently used entries are synced, so eviction follows
 // recency rather than score.
-u32 eviction_candidate(const ReactionPreferenceTable& table) noexcept {
+inline u32 eviction_candidate(const ReactionPreferenceTable& table) noexcept {
     u32 selected = kReactionPreferenceUsageCapacity;
     for (u32 index = 0; index < kReactionPreferenceUsageCapacity; ++index) {
         const ReactionPreferenceUsage& usage = table.usage[index];
@@ -134,7 +134,7 @@ void clear_table(ReactionPreferenceTable& table) noexcept {
         entry = kNoEmoji;
 }
 
-u32 next_sequence(ReactionPreferenceStore* store) noexcept {
+inline u32 next_sequence(ReactionPreferenceStore* store) noexcept {
     const u32 sequence = store->next_sequence++;
     if (store->next_sequence == 0)
         store->next_sequence = 1;
@@ -188,7 +188,7 @@ bool apply_favorite(ReactionPreferenceStore* store, ReactionEmojiRef emoji, bool
     return true;
 }
 
-void push_pending(ReactionPreferenceStore* store, ReactionPreferenceKind kind, ReactionEmojiRef emoji,
+inline void push_pending(ReactionPreferenceStore* store, ReactionPreferenceKind kind, ReactionEmojiRef emoji,
                   u64 timestamp_ms) noexcept {
     if (store->pending_use_count == kReactionPreferencePendingUseCapacity) {
         // The oldest unsent use survives locally; only its replay is lost.

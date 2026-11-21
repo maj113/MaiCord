@@ -25,9 +25,13 @@ inline constexpr u32 kGuildChannelIdCapacity = sizeof(GuildEmojiScratch) / sizeo
 struct GuildChannelIdScratch {
     u64 values[kGuildChannelIdCapacity];
 };
+struct GuildRoleIdScratch {
+    u64 values[kGuildRoleMaximum];
+};
 union GuildTransientScratch {
     GuildEmojiScratch emojis;
     GuildChannelIdScratch channel_ids;
+    GuildRoleIdScratch role_ids;
 };
 struct GuildStateScratch {
     GuildTransientScratch transient;
@@ -44,8 +48,9 @@ struct MemberRoleScratch {
 static_assert(is_trivial_v<GuildStateScratch> && is_trivial_v<PrivateStateScratch> &&
               is_trivial_v<MemberRoleScratch>);
 static_assert(is_trivial_v<GuildEmojiScratch> && is_trivial_v<GuildChannelIdScratch> &&
-              is_trivial_v<GuildTransientScratch>);
+              is_trivial_v<GuildRoleIdScratch> && is_trivial_v<GuildTransientScratch>);
 static_assert(sizeof(GuildChannelIdScratch) <= sizeof(GuildEmojiScratch) &&
+              sizeof(GuildRoleIdScratch) <= sizeof(GuildEmojiScratch) &&
               alignof(GuildChannelIdScratch) <= alignof(GuildEmojiScratch) &&
               sizeof(GuildTransientScratch) == sizeof(GuildEmojiScratch) &&
               alignof(GuildTransientScratch) == alignof(GuildEmojiScratch));
@@ -255,14 +260,14 @@ bool read_guild_role_input(const void* opaque, u32 index, RoleInput* output) noe
     return true;
 }
 
-bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                       ConstSlice<u32> offsets) noexcept {
+// The roles must hold @everyone and distinct ids, with names of at most 400 bytes. ids receives the role ids, and
+// *end the offset after the last role.
+bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload, ConstSlice<u32> offsets, u64* ids,
+                       u32* end) noexcept {
     if (event.state.role_count == 0 || event.state.role_count > kGuildRoleMaximum) {
         return false;
     }
     bool everyone = false;
-    if (offsets.count < event.state.role_count) return false;
-    u64 ids[kGuildRoleMaximum]; // Only the ids of the roles before `index` are read.
     for (u32 index = 0; index < event.state.role_count; ++index) {
         GatewayClientRoleMutation role{};
         Utf8View name{};
@@ -273,52 +278,21 @@ bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload,
             if (ids[previous] == role.id) return false;
         ids[index] = role.id;
         everyone = everyone || role.id == event.state.id;
+        *end = offsets[index] + static_cast<u32>(sizeof(role)) + name.bytes;
     }
     return everyone;
 }
 
-bool guild_roles_payload_bytes(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                               u32* bytes, ConstSlice<u32> offsets) noexcept {
-    u64 total = gateway_client_guild_strings_bytes(event.state);
-    for (u32 index = 0; index < event.state.role_count; ++index) {
-        GatewayClientRoleMutation role{};
-        Utf8View name{};
-        if (index >= offsets.count ||
-            !gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name)) {
-            return false;
-        }
-        total += sizeof(role) + name.bytes;
-        if (total > 0xFFFFFFFFull) {
-            return false;
-        }
-    }
-    *bytes = static_cast<u32>(total);
-    return true;
-}
-
-bool guild_has_packet_role(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                           u64 role_id, ConstSlice<u32> offsets) noexcept {
-    for (u32 index = 0; index < offsets.count; ++index) {
-        GatewayClientRoleMutation role{};
-        Utf8View name{};
-        if (gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name) && role.id == role_id) {
-            return true;
-        }
-    }
-    return false;
-}
-
+// The member's role ids after the roles. The caller checked that member_role_count ids fit the payload.
 bool guild_self_roles(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                      Slice<u64> roles, ConstSlice<u32> offsets, u32 roles_end) noexcept {
-    if (event.state.member_role_count > roles.count || roles_end > payload.count ||
-        event.state.member_role_count > (payload.count - roles_end) / 8u) {
-        return false;
-    }
+                      u64* roles, ConstSlice<u64> role_ids, u32 roles_end) noexcept {
     for (u32 index = 0; index < event.state.member_role_count; ++index) {
-        if (!read_u64(payload, roles_end + index * 8u, &roles[index]) ||
-            !guild_has_packet_role(event, payload, roles[index], offsets)) {
+        if (!read_u64(payload, roles_end + index * 8u, &roles[index])) {
             return false;
         }
+        u32 listed = 0;
+        while (listed < role_ids.count && role_ids[listed] != roles[index]) ++listed;
+        if (listed == role_ids.count) return false;
         for (u32 previous = 0; previous < index; ++previous)
             if (roles[previous] == roles[index]) return false;
     }
@@ -361,21 +335,16 @@ static_assert(static_cast<u8>(gateway_client_emoji_animated) == custom_emoji_ani
               static_cast<u8>(gateway_client_emoji_managed) == custom_emoji_managed &&
               static_cast<u8>(gateway_client_emoji_require_colons) == custom_emoji_require_colons);
 
+// The guild's emojis from begin, where the caller's walk of the payload ended. Called only when emojis_known.
 bool guild_emojis_payload(
-    const GatewayClientEvent& event, ConstSlice<u8> payload,
-    Slice<CustomEmojiInput> emojis, u32* count) noexcept {
-    if (!event.state.emojis_known ||
-        event.state.emoji_count > emojis.count ||
-        event.state.emoji_count > kGuildEmojiMaximum ||
-        (!emojis.data && event.state.emoji_count != 0)) {
+    const GatewayClientEvent& event, ConstSlice<u8> payload, u32 begin,
+    CustomEmojiInput* emojis, u32* count) noexcept {
+    if (event.state.emoji_count > kGuildEmojiMaximum) {
         return false;
     }
-    u32 cursor = 0;
+    u32 cursor = begin;
     u32 index = 0;
     u32 role_count = 0;
-    if (!gateway_client_event_guild_emojis_begin(event, payload, &cursor)) {
-        return false;
-    }
     while (index < event.state.emoji_count) {
         GatewayClientEmojiMutation emoji{};
         ConstSlice<u8> roles{};
@@ -848,10 +817,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             u32 emoji_count = 0;
             if (event.state.guild_id == 0 || !event.state.emojis_known ||
                 !chat_state_store_find_guild(*store, event.state.guild_id) ||
-                !guild_emojis_payload(
-                    event, payload,
-                    Slice<CustomEmojiInput>{emojis, kGuildEmojiMaximum},
-                    &emoji_count)) {
+                !guild_emojis_payload(event, payload, 0, emojis, &emoji_count)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
             const auto emoji_admission = chat_state_store_guild_emoji_admission(
@@ -887,22 +853,21 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             } else {
                 auto& role_offsets = guild_scratch.role_offsets;
                 const ConstSlice<u32> offsets{role_offsets, event.state.role_count};
+                auto& role_ids = (::new (static_cast<void*>(&guild_scratch.transient.role_ids)) GuildRoleIdScratch)->values;
+                u32 roles_end = 0;
                 if (store->self_user_id == 0 || event.state.owner_id == 0 ||
                     !gateway_client_event_guild_role_offsets(event, payload, {role_offsets, kGuildRoleMaximum}) ||
-                    !guild_roles_valid(event, payload, offsets)) {
+                    !guild_roles_valid(event, payload, offsets, role_ids, &roles_end)) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
-                u32 roles_end = 0;
-                if (!guild_roles_payload_bytes(event, payload, &roles_end, offsets) ||
-                    (!(event.state.member_role_flags & gateway_client_member_roles_known) &&
+                if ((!(event.state.member_role_flags & gateway_client_member_roles_known) &&
                      event.state.member_role_count) ||
-                    event.state.member_role_count > kGuildRoleMaximum || roles_end > payload.count ||
+                    event.state.member_role_count > kGuildRoleMaximum ||
                     event.state.member_role_count > (payload.count - roles_end) / 8u)
                     return apply_error(ChatStateApplyError::invalid_payload);
                 const u32 channels_begin = roles_end + event.state.member_role_count * 8u;
                 auto& self_roles = guild_scratch.self_roles;
-                if (!guild_self_roles(event, payload,
-                                      Slice<u64>{self_roles, kGuildRoleMaximum}, offsets, roles_end)) {
+                if (!guild_self_roles(event, payload, self_roles, {role_ids, event.state.role_count}, roles_end)) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
                 u32 cursor = channels_begin;
@@ -959,11 +924,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 u32 emoji_count = 0;
                 if (overwrite_count != event.state.overwrite_count ||
                     (event.state.emojis_known
-                         ? !guild_emojis_payload(
-                               event, payload,
-                               Slice<CustomEmojiInput>{
-                                   emojis, kGuildEmojiMaximum},
-                               &emoji_count)
+                         ? !guild_emojis_payload(event, payload, cursor, emojis, &emoji_count)
                          : (event.state.emoji_count != 0 ||
                             event.state.emoji_role_count != 0 ||
                             cursor != payload.count))) {
@@ -1069,17 +1030,13 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 ((event.state.fields & gateway_client_state_field_icon) != 0 &&
                  !gateway_client_event_guild_icon(event, payload, &icon_hash)) ||
                 !gateway_client_event_guild_role_offsets(event, payload, {role_offsets, kGuildRoleMaximum}) ||
-                !guild_roles_payload_bytes(event, payload, &roles_bytes, offsets) ||
+                // An update has no member roles: their scratch takes the role ids.
+                !guild_roles_valid(event, payload, offsets, guild_scratch.self_roles, &roles_bytes) ||
                 (event.state.emojis_known
-                     ? !guild_emojis_payload(
-                           event, payload,
-                           Slice<CustomEmojiInput>{emojis,
-                                                    kGuildEmojiMaximum},
-                           &emoji_count)
+                     ? !guild_emojis_payload(event, payload, roles_bytes, emojis, &emoji_count)
                      : (event.state.emoji_count != 0 ||
                         event.state.emoji_role_count != 0 ||
-                        roles_bytes != payload.count)) ||
-                !guild_roles_valid(event, payload, offsets)) {
+                        roles_bytes != payload.count))) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
             const u32 old_roles = resident_guild_roles(*store, event.state.id);

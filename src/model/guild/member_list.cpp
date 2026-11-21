@@ -17,7 +17,7 @@ MemberListViewResult fail(const MemberListView* projection, MemberListViewError 
                                              projection ? projection->member_count : 0, false};
 }
 
-bool offline(const GuildMemberRecord& member) noexcept {
+inline bool offline(const GuildMemberRecord& member) noexcept {
     return member.status == GuildMemberStatus::offline;
 }
 
@@ -28,7 +28,7 @@ u64 group_id(const GuildMemberRecord& member) noexcept {
     return member.group_role_id;
 }
 
-int compare_text(Utf8View left, Utf8View right) noexcept {
+inline int compare_text(Utf8View left, Utf8View right) noexcept {
     const u32 shared = minimum(left.bytes, right.bytes);
     for (u32 index = 0; index < shared; ++index) {
         const int a = ascii_lower(static_cast<u8>(left.data[index]));
@@ -49,10 +49,10 @@ Utf8View member_name(const GuildMemberRecord& member, const UserStore& users) no
     return user ? user_store_name(users, *user) : Utf8View{};
 }
 
-bool member_less(const GuildMemberStore& members, const UserStore& users, u32 left_slot,
-                 u32 right_slot) noexcept {
-    const GuildMemberRecord& left = members.records[left_slot];
-    const GuildMemberRecord& right = members.records[right_slot];
+bool member_less(const GuildMemberStore& members, const MemberListSortKey& left_key,
+                 const MemberListSortKey& right_key) noexcept {
+    const GuildMemberRecord& left = members.records[left_key.slot];
+    const GuildMemberRecord& right = members.records[right_key.slot];
     const u64 left_group = group_id(left);
     const u64 right_group = group_id(right);
     if (left_group != right_group) {
@@ -71,7 +71,7 @@ bool member_less(const GuildMemberStore& members, const UserStore& users, u32 le
         return role_rank_before(left.guild_id, left.group_position, left_group, right.group_position,
                                 right_group);
     }
-    const int names = compare_text(member_name(left, users), member_name(right, users));
+    const int names = compare_text({left_key.name, left_key.name_bytes}, {right_key.name, right_key.name_bytes});
     return names != 0 ? names < 0 : left.user_id < right.user_id;
 }
 
@@ -79,7 +79,7 @@ bool member_less(const GuildMemberStore& members, const UserStore& users, u32 le
 
 bool member_list_view_initialize(MemberListView* projection,
                                                Slice<MemberListRow> rows,
-                                               Slice<u32> member_scratch) noexcept {
+                                               Slice<MemberListSortKey> member_scratch) noexcept {
     if (!projection || !rows.data || rows.count == 0 || !member_scratch.data || member_scratch.count == 0 ||
         rows.count < member_scratch.count) {
         return false;
@@ -167,17 +167,18 @@ MemberListViewResult member_list_view_rebuild(
             if (member_count >= projection->member_scratch.count) {
                 return fail(projection, MemberListViewError::capacity);
             }
-            projection->member_scratch[member_count++] = slot;
+            const Utf8View name = member_name(members.records[slot], users);
+            projection->member_scratch[member_count++] = {name.data, name.bytes, slot};
         }
     }
     heap_sort(projection->member_scratch.data, member_count,
-              [&](u32 left, u32 right) noexcept {
-                  return member_less(members, users, left, right);
+              [&](const MemberListSortKey& left, const MemberListSortKey& right) noexcept {
+                  return member_less(members, left, right);
               });
     u32 row_count = 0;
     u64 previous_group = ~0ull - 1ull;
     for (u32 index = 0; index < member_count; ++index) {
-        const u32 slot = projection->member_scratch[index];
+        const u32 slot = projection->member_scratch[index].slot;
         const GuildMemberRecord& member = members.records[slot];
         const u64 current_group = group_id(member);
         if (index == 0 || current_group != previous_group) {

@@ -10,6 +10,7 @@
 #include "stage.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/messages/interaction.hpp"
+#include "../chat/composer/text_form.hpp"
 #include "../shell/state.hpp"
 #include "settings.hpp"
 #include "../shell/overlay_input.hpp"
@@ -259,8 +260,16 @@ bool application_voice_join(u64 guild_id, u64 channel_id) noexcept {
     // As in the official client, a voice channel opens its call view; a click on a
     // participant whose camera is on focuses their tile.
     const auto* s = application_voice_call();
+    const bool joined = s && s->channel_id == channel_id;
+    // As in the official client, a full channel opens this dialog and the client stays where it is.
+    if (!joined && channel &&
+        channel_voice_full(*channel, voice_state_store_channel(g_app.account_ui->voice_states, channel_id).count)) {
+        application_text_form_notice(utf8_literal("Channel is full"),
+                                     utf8_literal("Sorry, this channel has the max number of people!"));
+        return true;
+    }
     const u64 focus = guild_id ? camera_user_at_message_point() : 0;
-    if (!(s && s->channel_id == channel_id))
+    if (!joined)
         request(guild_id, channel_id);
     application_call_open(channel_id, focus);
     return true;
@@ -342,8 +351,8 @@ const VoiceState* application_voice_participant_at(float x, float y, UiRect* row
         const auto& channel_row = scene.rows[i];
         const auto* layout = channel_row.view.voice_count ? shell_navigation_scene_layout_node(scene, channel_row) : nullptr;
         UiVoiceParticipantRow user{};
-        for (u32 j = 0; layout && ui_voice_participant_row(channel_row.view, layout->rectangle,
-                                                           g_app.account_ui->voice_states, j, &user);
+        const UiVoiceParticipants users = ui_voice_participants(channel_row.view, g_app.account_ui->voice_states);
+        for (u32 j = 0; layout && ui_voice_participant_row(channel_row.view, layout->rectangle, users, j, &user);
              ++j) {
             // Rows scrolled under the list's edges are not hoverable.
             const UiRect visible = ui_rect_intersection(user.row, scene.viewport);

@@ -81,5 +81,18 @@ void test_friend_search(void (*check)(bool, const char*) noexcept) noexcept {
         friend_name_compare({maximum, 128}, {maximum, 128}).ok() &&
         friend_name_compare({maximum, 128}, {maximum, 128}).order == 0,
         "friend name order: bounded invalid input returns explicit error and valid maximum names preserve equality");
+    const char tail[]{static_cast<char>(0xC3), static_cast<char>(0xA9), 'b', static_cast<char>(0xFF)};
+    check(friend_name_compare(utf8_literal("\xC3\xA9" "a"), {tail, 4}).error == FriendSearchError::invalid_name &&
+        friend_name_compare({tail, 4}, utf8_literal("\xC3\xA9" "a")).error == FriendSearchError::invalid_name &&
+        friend_name_compare({tail, 3}, utf8_literal("\xC3\xA9" "a")).order == 1,
+        "friend name order: bytes that are not UTF-8 after the first difference still fail the comparison");
+    FriendSearchQuery folded{};
+    check(friend_search_query(utf8_literal("\xCE\x9F\xCE\xA3"), &folded) &&
+        friend_search_folded(folded, utf8_literal("x\xCE\xBF\xCF\x82"), {}, {}).matched &&
+        !friend_search_folded(folded, utf8_literal("\xCE\xBF\xCF\x83" "a"), {}, {}).matched &&
+        friend_search_folded(folded, {}, {invalid, 2}, {}).error == FriendSearchError::invalid_name &&
+        !friend_search_query({invalid, 2}, &folded) &&
+        friend_search_folded(folded, utf8_literal("any"), {}, {}).error == FriendSearchError::invalid_query,
+        "friend search: a query folded once matches as friend_search does and keeps its invalid_query error");
 }
 }

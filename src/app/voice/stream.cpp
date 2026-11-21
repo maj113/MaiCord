@@ -122,7 +122,7 @@ const VoiceState* live_state(const GatewayStreamKey& key) noexcept {
 // channel's known voice states say; STREAM_DELETE can lag behind or be lost.
 bool owner_gone(const GatewayStreamKey& key) noexcept {
     return valid(key) && g_app.account_ui &&
-           voice_state_store_channel_count(g_app.account_ui->voice_states, key.channel_id) && !live_state(key);
+           voice_state_store_channel(g_app.account_ui->voice_states, key.channel_id).count && !live_state(key);
 }
 // (Re)projects the card for card_key; closes it when the stream went away.
 void project_card(u64 now) noexcept {

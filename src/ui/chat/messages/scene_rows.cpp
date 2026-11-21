@@ -5,6 +5,7 @@
 #include "maicord/ui/chat/polls/controls.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/os/local_time.hpp"
+#include <stddef.h>
 // Not machine-outlined (see scene.cpp).
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
@@ -98,34 +99,34 @@ UiLayoutStyle region_style(float height) noexcept {
     return style;
 }
 
-u64 hash_mix_string(u64 hash, MessageRichString value) noexcept {
-    hash = hash_mix(hash, value.offset);
-    return hash_mix(hash, value.bytes);
+// Offset and length are one 8-byte word (the reserved half-word is always 0): one mix covers both. Inline, a mix is
+// smaller than the call that passes the word.
+__forceinline u64 hash_mix_string(u64 hash, MessageRichString value) noexcept {
+    static_assert(sizeof(MessageRichString) == sizeof(u64));
+    return hash_mix(hash, __builtin_bit_cast(u64, value));
 }
+// Small fields that fit one 8-byte word share one mix. The signature is only compared in memory.
 u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
     if (!rich) {
         return 0;
     }
     u64 hash = kHash64Seed;
-    hash = hash_mix(hash, rich->message_revision);
-    hash = hash_mix(hash, rich->has_forwarded_snapshot);
-    hash = hash_mix(hash, rich->forwarded_snapshot_child);
+    hash = hash_mix(hash, rich->message_revision | static_cast<u64>(rich->has_forwarded_snapshot) << 32 |
+                              static_cast<u64>(rich->forwarded_snapshot_child) << 33 |
+                              static_cast<u64>(rich->reference.state) << 40 |
+                              static_cast<u64>(rich->component_count) << 48);
     if (rich->forwarded_snapshot_child) {
         hash = hash_mix_string(hash, rich->snapshot.content);
         hash = hash_mix(hash, rich->snapshot.flags);
         hash = hash_mix(hash, rich->snapshot.timestamp_ms);
         hash = hash_mix(hash, rich->snapshot.edited_timestamp_ms);
     }
-    hash = hash_mix(hash, static_cast<u64>(rich->reference.state));
     hash = hash_mix(hash, rich->interaction.id);
     hash = hash_mix_string(hash, rich->interaction.user_name);
     hash = hash_mix_string(hash, rich->interaction.command_name);
-    hash = hash_mix(hash, rich->reaction_count);
-    hash = hash_mix(hash, rich->attachment_count);
-    hash = hash_mix(hash, rich->embed_count);
-    hash = hash_mix(hash, rich->sticker_count);
-    hash = hash_mix(hash, rich->component_count);
-    hash = hash_mix(hash, rich->truncations);
+    hash = hash_mix(hash, rich->reaction_count | rich->attachment_count << 8 | rich->embed_count << 16 |
+                              static_cast<u64>(rich->sticker_count) << 24 |
+                              static_cast<u64>(rich->truncations) << 32);
     hash = hash_mix(hash, rich->thread.id);
     hash = hash_mix(hash, (static_cast<u64>(rich->thread.message_count) << 32) | rich->thread.member_count);
     hash = hash_mix(hash, (rich->thread.archived ? 1u : 0u) | (rich->thread.locked ? 2u : 0u));
@@ -133,15 +134,13 @@ u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
     for (u32 index = 0; index < rich->reaction_count; ++index) {
         const MessageRichReaction& value = rich->reactions[index];
         hash = hash_mix(hash, value.emoji_id);
-        hash = hash_mix(hash, value.count);
-        hash = hash_mix(hash, value.flags);
+        hash = hash_mix(hash, value.count | static_cast<u64>(value.flags) << 32);
         hash = hash_mix_string(hash, value.name);
     }
     for (u32 index = 0; index < rich->attachment_count; ++index) {
         const MessageRichAttachment& value = rich->attachments[index];
         hash = hash_mix(hash, value.id);
-        hash = hash_mix(hash, value.width);
-        hash = hash_mix(hash, value.height);
+        hash = hash_mix(hash, value.width | static_cast<u64>(value.height) << 32);
         hash = hash_mix(hash, value.state);
         hash = hash_mix_string(hash, value.filename);
         hash = hash_mix_string(hash, value.title);
@@ -155,7 +154,7 @@ u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
         hash = hash_mix_string(hash, value.title);
         hash = hash_mix_string(hash, value.description);
         hash = hash_mix_string(hash, value.url);
-        hash = hash_mix(hash, value.field_count);
+        hash = hash_mix(hash, value.field_count | static_cast<u64>(value.type) << 16);
         hash = hash_mix_string(hash, value.footer_text);
         hash = hash_mix_string(hash, value.author_url);
         hash = hash_mix_string(hash, value.author_icon);
@@ -163,11 +162,9 @@ u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
         hash = hash_mix_string(hash, value.provider_name);
         hash = hash_mix_string(hash, value.provider_url);
         hash = hash_mix(hash, value.timestamp_ms);
-        hash = hash_mix(hash, static_cast<u64>(value.type));
         const MessageRichEmbedMedia* media_items[] = {&value.image, &value.thumbnail, &value.video};
         for (const MessageRichEmbedMedia* media : media_items) {
-            hash = hash_mix(hash, media->width);
-            hash = hash_mix(hash, media->height);
+            hash = hash_mix(hash, media->width | static_cast<u64>(media->height) << 32);
             hash = hash_mix(hash, media->flags);
             hash = hash_mix_string(hash, media->url);
             hash = hash_mix_string(hash, media->proxy_url);
@@ -177,8 +174,7 @@ u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
         const MessageRichEmbedField& value = rich->embed_fields[index];
         hash = hash_mix_string(hash, value.name);
         hash = hash_mix_string(hash, value.value);
-        hash = hash_mix(hash, value.embed_index);
-        hash = hash_mix(hash, value.inline_field);
+        hash = hash_mix(hash, value.embed_index | static_cast<u32>(value.inline_field) << 16);
     }
     for (u32 index = 0; index < rich->sticker_count; ++index) {
         hash = hash_mix(hash, rich->stickers[index].id);
@@ -191,15 +187,14 @@ u64 rich_layout_signature(const MessageRichRecord* rich) noexcept {
         hash = hash_mix_string(hash, value.content);
         hash = hash_mix_string(hash, value.custom_id);
         hash = hash_mix_string(hash, value.url);
-        hash = hash_mix(hash, value.id);
-        hash = hash_mix(hash, value.parent);
-        hash = hash_mix(hash, value.order);
-        hash = hash_mix(hash, value.type);
-        hash = hash_mix(hash, value.style);
-        hash = hash_mix(hash, value.disabled);
+        hash = hash_mix(hash, value.id | static_cast<u64>(value.parent) << 32 |
+                                  static_cast<u64>(value.order) << 48);
+        hash = hash_mix(hash, value.type | static_cast<u32>(value.style) << 16 |
+                                  static_cast<u64>(value.disabled) << 32 | static_cast<u64>(value.flags) << 40 |
+                                  static_cast<u64>(value.min_values) << 48 |
+                                  static_cast<u64>(value.max_values) << 56);
         hash = hash_mix_string(hash, value.emoji_name);
         hash = hash_mix(hash, value.emoji_id);
-        hash = hash_mix(hash, (static_cast<u32>(value.flags) << 16) | (value.min_values << 8) | value.max_values);
     }
     hash = hash_mix(hash, rich->system.target_user_id);
     hash = hash_mix_string(hash, rich->system.target_name);
@@ -453,15 +448,15 @@ float content_trailing(bool accessories) noexcept {
 }
 
 namespace {
-float unread_row_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
+inline float unread_row_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
     return !row.forwarded_snapshot && row.message_id == scene.unread_first_message_id && row.message_id
-               ? scene.unread_divider_style.height
+               ? kUiUnreadDividerStyle.height
                : 0;
 }
 
 // The channel-beginning block occupies the top of the first resident row.
 float intro_index_height(const MessageScene& scene, u32 source_index) noexcept {
-    return scene.owns_rows && !scene.result_cards && source_index == 0 ? scene.intro_height : 0.0f;
+    return source_index == 0 ? scene.intro_height : 0.0f;
 }
 } // namespace
 float intro_row_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
@@ -474,10 +469,10 @@ float row_leading(const MessageScene& scene, const MessageSceneRowWidget& row) n
 }
 
 float result_card_leading(const MessageScene& scene) noexcept {
-    return scene.result_cards ? scene.result_card_style.heading_height : 0;
+    return scene.result_cards ? kMessageResultCardStyle.heading_height : 0;
 }
 float result_card_trailing(const MessageScene& scene) noexcept {
-    return scene.result_cards ? scene.result_card_style.action_height + scene.result_card_style.gap : 0;
+    return scene.result_cards ? kMessageResultCardStyle.action_height + kMessageResultCardStyle.gap : 0;
 }
 } // namespace
 bool set_resident_height(MessageScene* scene, u32 index, u32 units) noexcept {
@@ -534,8 +529,7 @@ float snapshot_estimated_height(MessageScene* scene, MessageHandle handle,
                                 const MessageRichRecord* outer) noexcept {
     if (!snapshot)
         return 0.0f;
-    auto* cached = scene->owns_rows && scene->timeline->store->capacity + handle.slot <
-                                           scene->owned_measurements.capacity
+    auto* cached = scene->timeline->store->capacity + handle.slot < scene->owned_measurements.capacity
                        ? message_scene_detail::measurement(scene, handle.slot, true)
                        : nullptr;
     const u64 key = hash_mix(hash_mix(rich_layout_signature(snapshot), ui_extent_units(width)),
@@ -591,7 +585,6 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     }
     if (scene->prepared_signature == epoch)
         return true;
-    const u64 previous_unread = scene->unread_first_message_id;
     scene->unread_first_message_id = 0;
     if (scene->unread_cursor_known) {
         for (u32 index = 0; index < source_count; ++index) {
@@ -604,16 +597,11 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
             }
         }
     }
-    if (!scene->owns_rows && !previous_unread && !scene->unread_first_message_id) {
-        scene->prepared_signature = epoch;
-        return true;
-    }
     UiScrollAnchor anchor{};
     if (source_count && !ui_variable_list_capture_anchor(*timeline.list, timeline.scroll_units, &anchor))
         return false;
     const MessageRecord* previous = nullptr;
     u64 group_start = 0;
-    u64 previous_group_start = 0;
     MessageLocalDay day;
     // The same for each message of the pass. The two entries are for an ungrouped and a grouped row.
     const float minimum_height[2]{ungrouped_minimum(*scene), grouped_minimum(*scene)};
@@ -623,7 +611,10 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     const float card_height = result_card_leading(*scene) + result_card_trailing(*scene);
     const float default_content = content_height(*scene), default_reply = reply_height(*scene);
     const float snapshot_width = maximum(1.f, width - 2 * snapshot_padding(*scene));
-    const float divider_height = scene->unread_divider_style.height;
+    constexpr float divider_height = kUiUnreadDividerStyle.height;
+    // A timeline's sources run in ascending id order, so each rich search starts where the last one ended. Another
+    // order gets the same answers.
+    u32 rich_cursor = 0;
     for (u32 index = 0; index < source_count; ++index) {
         const MessageHandle handle = message_scene_source_handle(*scene, index);
         const MessageRecord* record = message_store_resolve(store, handle);
@@ -631,7 +622,7 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
             return false;
         // A plugin-hidden message keeps a one-unit slot and neither starts nor
         // continues a group, so its neighbours keep their own headers.
-        if (scene->owns_rows && scene->plugin_decorations &&
+        if (scene->plugin_decorations &&
             message_scene_plugin_visibility(*scene, *record) == ui_plugin_render_hidden) {
             if (!ui_variable_list_set_height(
                     timeline.list, index,
@@ -639,36 +630,18 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
                 return false;
             continue;
         }
-        const MessageRichRecord* stored = row_stored_rich(*scene, *record);
+        const MessageRichRecord* stored = rich_store && !plugin_folded(*scene, *record)
+                                              ? message_rich_store_find_next(*rich_store, record->id, &rich_cursor)
+                                              : nullptr;
         const MessageRichRecord* rich = current_rich(stored, *record);
         const bool divider = record->id == scene->unread_first_message_id;
         const bool neighbors = previous && message_group_neighbors(*previous, *record, rich, &day);
         const bool system = !scene->result_cards && message_type_is_system(record->type);
         const bool grouped = system || (!scene->result_cards && !divider && neighbors &&
                                         record->timestamp_ms - group_start < kMessageGroupIntervalMilliseconds);
-        const bool previous_divider = record->id == previous_unread;
-        const bool previous_grouped =
-            system || (!previous_divider && neighbors &&
-                       record->timestamp_ms - previous_group_start < kMessageGroupIntervalMilliseconds);
         if (!grouped)
             group_start = record->timestamp_ms;
-        if (!previous_grouped)
-            previous_group_start = record->timestamp_ms;
         previous = record;
-        if (!scene->owns_rows) {
-            // Borrowed scenes keep their measured row heights in the timeline even
-            // after the widgets leave the viewport. A read-state change must not
-            // replace them with body estimates, which can clamp a valid scroll anchor.
-            const float before =
-                chrome_height[previous_grouped] + (previous_divider ? scene->unread_prepared_height : 0);
-            const float after = chrome_height[grouped] + (divider ? divider_height : 0);
-            const float height =
-                maximum(minimum_height[grouped] + (divider ? divider_height : 0),
-                        ui_extent_dips(ui_variable_list_item_units(*timeline.list, index)) + after - before);
-            if (!ui_variable_list_set_height(timeline.list, index, ui_extent_units(height)))
-                return false;
-            continue;
-        }
         auto* cached = message_scene_detail::measurement(scene, handle.slot);
         if (!cached)
             return false;
@@ -718,7 +691,6 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         return false;
     if (!message_timeline_restore_scroll(&timeline, restored, timeline.follow_bottom))
         return false;
-    scene->unread_prepared_height = scene->unread_divider_style.height;
     scene->prepared_signature = epoch;
     saturating_increment(scene->preparation_passes);
     return true;
@@ -873,18 +845,8 @@ static bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 sou
         row->poll_content_revision != poll_content || row->poll_result_revision != poll_result;
     if (!preserve_measurement || row->message_id != record->id || row->measured_width != width ||
         poll_changed || row->poll_backend_revision != (scene->polls ? scene->polls->backend_revision : 0)) {
-        const float previous_poll_height = row->poll_height;
         if (!poll_height(*scene, *record, handle, width, &row->poll_height))
             return false;
-        if (!scene->owns_rows && preserve_measurement && previous_poll_height != row->poll_height) {
-            const float resident =
-                ui_extent_dips(ui_variable_list_item_units(*scene->timeline->list, source_index));
-            if (!set_resident_height(
-                    scene, source_index,
-                    ui_extent_units(maximum(1.f, resident + row->poll_height - previous_poll_height))))
-                return false;
-            scene->dirty = true;
-        }
     }
     row->poll_content_revision = poll_content;
     row->poll_unavailable = missing_poll;
@@ -962,6 +924,7 @@ __forceinline UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle pare
 }
 
 } // namespace
+// A row without a message id gets no retained state: build_row clears it.
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
     if (!scene->active || scene->count == 0 || count == 0) {
         return;
@@ -973,7 +936,7 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
     const u32 overlap_end = minimum(old_end, new_end);
     if (overlap_first >= overlap_end) {
         for (u32 local = 0; local < count; ++local) {
-            reset_value<MessageSceneRowWidget>(&scene->rows[local]);
+            scene->rows[local].message_id = 0;
         }
         return;
     }
@@ -991,10 +954,10 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
         }
     }
     for (u32 local = 0; local < destination_first; ++local) {
-        reset_value<MessageSceneRowWidget>(&scene->rows[local]);
+        scene->rows[local].message_id = 0;
     }
     for (u32 local = destination_end; local < count; ++local) {
-        reset_value<MessageSceneRowWidget>(&scene->rows[local]);
+        scene->rows[local].message_id = 0;
     }
 }
 
@@ -1003,15 +966,11 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     // materialization, so a half-built row is never read.
     MessageSceneRowWidget& row = scene->rows[local];
     const bool preserve_measurement = scene->active && row.message_id != 0 && row.source_index == source_index;
+    // A new row clears only the fields before its layouts. refresh_row writes the rich layout, the reaction widths
+    // and the item layout, and message_rich_widgets_build writes the rich widget handles, before anything reads them.
+    // The row's own handles are written below before anything reads them.
     if (!preserve_measurement)
-        reset_value(&row);
-    row.widget = ui_widget_invalid_handle();
-    row.avatar = ui_widget_invalid_handle();
-    row.body = ui_widget_invalid_handle();
-    row.reply = ui_widget_invalid_handle();
-    row.author = ui_widget_invalid_handle();
-    row.content = ui_widget_invalid_handle();
-    message_rich_widgets_reset_handles(&row);
+        clear_bytes(&row, offsetof(MessageSceneRowWidget, rich_layout));
     bool data_changed = false;
     RowSource source;
     if (!refresh_row(scene, &row, source_index, preserve_measurement, &data_changed, &source)) {
@@ -1059,8 +1018,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     const MessageRichRecord* snapshot = stored_snapshot(*scene, stored);
     if (snapshot) {
         if (scene->snapshot_count >= scene->snapshot_rows.count) {
-            if (!scene->owns_rows ||
-                !stable_storage_reserve(&scene->owned_rows,
+            if (!stable_storage_reserve(&scene->owned_rows,
                                         scene->snapshot_storage_offset + scene->snapshot_count + 1u))
                 return false;
             scene->snapshot_rows = {stable_storage_data<MessageSceneRowWidget>(scene->owned_rows) +
@@ -1085,8 +1043,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
                                       scene->theme_styles, child.rich_item_layout);
         child.rich_layout =
             message_rich_aggregate_layout(*snapshot, child.rich_item_layout, child.measured_width);
-        auto* cached =
-            scene->owns_rows ? message_scene_detail::measurement(scene, row.message.slot, true) : nullptr;
+        auto* cached = message_scene_detail::measurement(scene, row.message.slot, true);
         const u64 key = hash_mix(hash_mix(child.rich_signature, ui_extent_units(child.measured_width)),
                                  scene->theme_geometry_revision);
         if (cached && cached->signature == key)

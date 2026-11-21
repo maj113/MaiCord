@@ -51,21 +51,21 @@ void store_cases(Check check) noexcept {
     check(voice_state_store_apply(&store, 1, 10, 100, 0) == VoiceStateResult::changed &&
               voice_state_store_apply(&store, 1, 10, 101, self_mute) == VoiceStateResult::changed &&
               voice_state_store_apply(&store, 1, 11, 102, 0) == VoiceStateResult::changed &&
-              voice_state_store_channel_count(store, 10) == 2 &&
-              voice_state_store_channel_count(store, 11) == 1,
+              voice_state_store_channel(store, 10).count == 2 &&
+              voice_state_store_channel(store, 11).count == 1,
           "voice store join adds users to their channels");
     const u32 revision = store.revision;
     check(voice_state_store_apply(&store, 1, 10, 100, 0) == VoiceStateResult::unchanged &&
               store.revision == revision,
           "voice store repeated state is unchanged");
     check(voice_state_store_apply(&store, 1, 10, 100, self_mute) == VoiceStateResult::changed &&
-              voice_state_store_channel_at(store, 10, 0)->user_id == 100 &&
-              voice_state_store_channel_at(store, 10, 0)->flags == self_mute,
+              voice_state_store_channel(store, 10)[0].user_id == 100 &&
+              voice_state_store_channel(store, 10)[0].flags == self_mute,
           "voice store flag change keeps join order");
     check(voice_state_store_apply(&store, 1, 11, 100, 0) == VoiceStateResult::changed &&
-              voice_state_store_channel_count(store, 10) == 1 &&
-              voice_state_store_channel_at(store, 11, 1)->user_id == 100 &&
-              !voice_state_store_channel_at(store, 11, 2),
+              voice_state_store_channel(store, 10).count == 1 &&
+              voice_state_store_channel(store, 11).count == 2 &&
+              voice_state_store_channel(store, 11)[1].user_id == 100,
           "voice store move re-joins at the end of the new channel");
     check(voice_state_store_apply(&store, 1, 0, 101, 0) == VoiceStateResult::changed &&
               !voice_state_store_find(store, 1, 101) &&
@@ -85,6 +85,26 @@ void store_cases(Check check) noexcept {
               store.count == 2 && !voice_state_store_find(store, 1, 102) &&
               voice_state_store_reset(&store) && store.count == 0,
           "voice store clears one guild and resets");
+    // Runs of every length up to 40 between other channels: the lookup finds the whole run in join order.
+    static VoiceState runs[64];
+    VoiceStateStore sized{};
+    bool exact = voice_state_store_initialize_sparse(&sized, {runs, 64});
+    for (u32 users = 0; users <= 40 && exact; ++users) {
+        voice_state_store_reset(&sized);
+        for (u32 i = 0; i < 3; ++i)
+            voice_state_store_apply(&sized, 1, 5, 900 + i, 0);
+        for (u32 i = 0; i < users; ++i)
+            voice_state_store_apply(&sized, 1, 7, 1000 + i, 0);
+        for (u32 i = 0; i < 2; ++i)
+            voice_state_store_apply(&sized, 1, 9, 950 + i, 0);
+        const ConstSlice<VoiceState> run = voice_state_store_channel(sized, 7);
+        exact = run.count == users && voice_state_store_channel(sized, 5).count == 3 &&
+                voice_state_store_channel(sized, 9).count == 2 && !voice_state_store_channel(sized, 6).count &&
+                !voice_state_store_channel(sized, 10).count && !voice_state_store_channel(sized, 0).count;
+        for (u32 i = 0; i < run.count && exact; ++i)
+            exact = run[i].user_id == 1000 + i;
+    }
+    check(exact, "voice store finds channel runs of every length in join order");
 }
 
 void projection_cases(Check check) noexcept {
@@ -196,7 +216,7 @@ bool channel_users(const VoiceStateStore& store, u64 channel, ConstSlice<u64> us
     ChannelViewRow row{};
     row.id = channel;
     row.type = 2;
-    row.voice_count = static_cast<u16>(voice_state_store_channel_count(store, channel));
+    row.voice_count = static_cast<u16>(voice_state_store_channel(store, channel).count);
     if (row.voice_count != users.count)
         return false;
     for (u32 i = 0; i < users.count; ++i) {
@@ -342,7 +362,7 @@ void roster_cases(Check check) noexcept {
           "GUILD_CREATE voice states without sessions publish");
     apply_published(&store, published);
     const u64 created[]{21, 22};
-    check(channel_users(store, 7, {created, 2}) && voice_state_store_channel_count(store, 12) == 0,
+    check(channel_users(store, 7, {created, 2}) && voice_state_store_channel(store, 12).count == 0,
           "GUILD_CREATE replaces the guild's rows with every member");
 }
 } // namespace

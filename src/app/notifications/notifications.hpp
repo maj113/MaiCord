@@ -4,7 +4,6 @@ namespace maicord { struct GatewayClientEvent; }
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
 #include "maicord/platform/desktop/notifications.hpp"
 #include "maicord/platform/audio/notification_audio.hpp"
-#include "maicord/model/notifications/soundpack.hpp"
 #endif
 namespace maicord::app_detail {
 struct Application;
@@ -47,7 +46,6 @@ struct ApplicationNotificationFixtureMetrics {
     u32 guilds,overrides,threads; bool ready,live; u32 seen_count;
     u64 audio_epoch, audio_backend_epoch, sound_deadline;
     u32 audio_output_percent;
-    NotificationSoundpack audio_pack;
     bool audio_failed, audio_worker_started;
     u32 display_outstanding;
     u64 retention_tickets;

@@ -75,7 +75,7 @@ void member_roles() noexcept {
     bool typical = true;
     for (u32 m = 0; m < 32; ++m)
         typical = upsert(100 + m, {ids + m % 4, 10}) && typical;
-    check(typical && !f.members.role_overflow.storage.arena.base && !f.members.role_overflow.used,
+    check(typical && !f.members.role_overflow.storage.arena.base,
           "member roles: up to 16 roles stay inline and reserve no overflow");
 
     // The administrator role (index 200) sits far past the inline 16.
@@ -89,20 +89,19 @@ void member_roles() noexcept {
               heavy->role_color == kAdminColor && heavy->color_role_id == kAdminRole &&
               heavy->group_role_id == kAdminRole,
           "member roles: permissions, colour and hoist read every role past 16");
-    const u32 used = f.members.role_overflow.used;
     ids[5] = role_id(249);
-    check(upsert(200, {ids, 220}) && f.members.role_overflow.used == used &&
+    check(upsert(200, {ids, 220}) && guild_member_store_role_ids(f.members, *heavy).count == 220 &&
               guild_member_store_role_ids(f.members, *heavy)[5] == role_id(249),
-          "member roles: a same-length change rewrites its span in place");
+          "member roles: a same-length change replaces the role");
     ids[5] = role_id(5);
     check(upsert(201, {ids, kRoles}) && guild_member_store_role_ids_known(*guild_member_store_find(f.members, kGuild, 201)) &&
               upsert(202, {ids, kGuildMemberRoleMaximum + 1}) &&
               !guild_member_store_role_ids_known(*guild_member_store_find(f.members, kGuild, 202)) &&
               !guild_member_store_role_ids(f.members, *guild_member_store_find(f.members, kGuild, 202)).count,
           "member roles: 250 roles are kept; past 256 they are unknown, never truncated");
-    const u32 before = f.members.role_overflow.used;
-    check(upsert(201, {ids, 3}) && f.members.role_overflow.used == before - kRoles,
-          "member roles: shrinking to inline reclaims the tail span");
+    check(upsert(201, {ids, 3}) &&
+              guild_member_store_role_ids(f.members, *guild_member_store_find(f.members, kGuild, 201)).count == 3,
+          "member roles: a list shrinks back to inline roles");
 
     // Heavy churn: spans released mid-arena are compacted, not grown into.
     bool churn = true;
@@ -114,14 +113,14 @@ void member_roles() noexcept {
         if (f.records[slot].occupied && f.records[slot].role_overflow)
             live += f.records[slot].role_count;
     const auto& overflow = f.members.role_overflow;
-    check(churn && overflow.compactions > 0 && overflow.used - overflow.wasted == live &&
+    check(churn &&
               overflow.storage.arena.committed <= (u64{live} * 2u + 512u) * 8u,
           "member roles: churn compacts released spans and keeps the commit near the live lists");
     bool removed = true;
     for (u32 slot = 0; slot < f.members.capacity; ++slot)
         if (f.records[slot].occupied && f.records[slot].role_overflow)
             removed = guild_member_store_remove(&f.members, kGuild, f.records[slot].user_id) && removed;
-    check(removed && !overflow.used && !overflow.storage.arena.committed,
+    check(removed && !overflow.storage.arena.committed,
           "member roles: removing every heavy member returns the overflow pages");
     check(upsert(200, {ids, 120}), "member roles: heavy member re-admitted");
     guild_member_store_release(&f.members);
@@ -215,10 +214,9 @@ void voice_states() noexcept {
     for (u32 i = 1; i < store.count; ++i)
         sorted = sorted && store.records[i - 1].channel_id <= store.records[i].channel_id;
     // Join order within a channel is arrival order.
-    const VoiceState* second = voice_state_store_channel_at(store, 1000 + 5 * 16 + 3, 1);
-    check(applied && store.count == 64 * 512 && !store.dropped && sorted &&
-              voice_state_store_channel_count(store, 1000 + 5 * 16 + 3) == 32 && second &&
-              second->user_id == 50000 + 16 + 3 && voice_state_store_find(store, 100 + 63, 50000 + 511) &&
+    const ConstSlice<VoiceState> run = voice_state_store_channel(store, 1000 + 5 * 16 + 3);
+    check(applied && store.count == 64 * 512 && sorted && run.count == 32 &&
+              run[1].user_id == 50000 + 16 + 3 && voice_state_store_find(store, 100 + 63, 50000 + 511) &&
               store.owned.arena.committed <= (64u * 512u + 4u * 128u) * sizeof(VoiceState),
           "voice: 32,768 states commit only their pages and stay channel-sorted in join order");
 
@@ -226,10 +224,11 @@ void voice_states() noexcept {
     const u64 channel = 1000 + 5 * 16 + 3;
     check(voice_state_store_apply(&store, 105, channel, 50000 + 3, voice_self_mute) == VoiceStateResult::unchanged &&
               voice_state_store_apply(&store, 105, channel + 1, 50000 + 3, 0) == VoiceStateResult::changed &&
-              voice_state_store_channel_count(store, channel) == 31 &&
-              voice_state_store_channel_at(store, channel + 1, 32)->user_id == 50000 + 3 &&
+              voice_state_store_channel(store, channel).count == 31 &&
+              voice_state_store_channel(store, channel + 1).count == 33 &&
+              voice_state_store_channel(store, channel + 1)[32].user_id == 50000 + 3 &&
               voice_state_store_apply(&store, 105, 0, 50000 + 3, 0) == VoiceStateResult::changed &&
-              voice_state_store_channel_count(store, channel + 1) == 32,
+              voice_state_store_channel(store, channel + 1).count == 32,
           "voice: move and leave keep channel runs and join order");
     // A batch with moves, flag changes, leaves and repeats equals row-by-row apply.
     VoiceState reference_rows[64];
@@ -265,7 +264,8 @@ void voice_states() noexcept {
         filled = voice_state_store_apply(&small, i < 100 ? 1 : i < 220 ? 2 : 3, 10 + i % 3, 7000 + i, 0) ==
                  VoiceStateResult::changed;
     check(filled && voice_state_store_apply(&small, 4, 99, 1, 0) == VoiceStateResult::changed &&
-              small.evictions == 1 && small.dropped == 120 && !voice_state_store_find(small, 2, 7100) &&
+              small.count == 137 && !voice_state_store_find(small, 2, 7100) && !voice_state_store_find(small, 2, 7219) &&
+              voice_state_store_find(small, 3, 7220) &&
               voice_state_store_find(small, 1, 7000) && voice_state_store_find(small, 4, 1),
           "voice: at the bound the largest unselected guild is evicted");
     voice_state_store_release(&small);

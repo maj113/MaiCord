@@ -121,7 +121,7 @@ const CallVideoStream* call_video_presenter_find(const CallVideoPresenter& prese
 
 u32 call_video_unlisted_users(const VoiceStateStore& states, u64 channel_id, ConstSlice<CallVideoTarget> cameras,
                               Slice<u64> output) noexcept {
-    if (!channel_id || voice_state_store_channel_count(states, channel_id))
+    if (!channel_id || voice_state_store_channel(states, channel_id).count)
         return 0;
     u32 count = 0;
     for (u32 i = 0; i < cameras.count && count < output.count; ++i) {

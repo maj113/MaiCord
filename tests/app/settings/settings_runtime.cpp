@@ -1537,6 +1537,18 @@ void test_controller() noexcept {
     check(selected_sounds && !selected_sounds->checked && volume_labels_valid,
           "settings: selected channel sound default is off and every exact volume label from 0 to 200 is "
           "present");
+    const auto* notifications_page = static_cast<const UiSettingsPageContent*>(
+        ui_page_registry_find(*application_settings_pages(), kNotificationsPage)->context);
+    u32 sounds_group = 0;
+    while (notifications_page && sounds_group < notifications_page->controls.count &&
+           notifications_page->controls[sounds_group].id != cid("notifications.sounds"))
+        ++sounds_group;
+    check(notifications_page && sounds_group + 4 < notifications_page->controls.count &&
+              notifications_page->controls[sounds_group + 1].id == cid("notifications.message_sounds") &&
+              notifications_page->controls[sounds_group + 2].id == cid("notifications.selected_channel_sounds") &&
+              notifications_page->controls[sounds_group + 3].id == cid("notifications.volume") &&
+              notifications_page->controls[sounds_group + 4].kind == UiSettingsControlKind::category,
+          "settings: the Sounds group shows the two message sound toggles and the volume, and no sound pack choice");
     check(activate_control(kNotificationsPage, cid("notifications.selected_channel_sounds")) && g_app.preferences.selected_message_sounds_enabled &&
               await_save_retained(),
           "settings: selected channel sounds toggles through keyboard and persists independently");

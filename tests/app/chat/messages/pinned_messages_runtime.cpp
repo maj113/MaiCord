@@ -119,7 +119,7 @@ bool initialize() noexcept {
     ui.user_record_storage[0].id = 5;
     ui.user_record_storage[0].occupied = true;
     ui.user_order_storage[0] = 0;
-    ui.user_store.count = 1;
+    ui.user_store.count = ui.user_store.free_hint = ui.user_store.slot_extent = 1;
     g_app.renderer_ready = true;
     g_app.renderer.width = 1280;
     g_app.renderer.height = 720;

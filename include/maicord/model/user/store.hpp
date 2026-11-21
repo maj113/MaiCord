@@ -19,7 +19,8 @@ struct UserRecord {
     u8 avatar_hash_bytes;
     bool occupied;
     char avatar_hash[kUserAvatarHashMaximumBytes];
-    bool pinned;
+    // The pin mark of the store's pin epoch when the record was pinned; read through user_store_pinned.
+    u8 pin_mark;
     // Presence client_status, two bits per platform (protocol/client_status.hpp);
     // zero until a presence reports a platform.
     u8 client_status;
@@ -44,10 +45,22 @@ struct UserStore {
     u32 evictions;
     u32 compactions;
     u32 rejected;
+    // Every slot below free_hint is occupied, so the search for a free slot starts there. Every occupied slot
+    // lies below slot_extent, so scans of all records stop there.
+    u32 free_hint;
+    u32 slot_extent;
     u8 active_name_bank;
-    // Advances whenever every pin is cleared (fills padding).
+    // The mark that pins a record now, 1 to 255; initialization sets 1, so a reset record (mark 0) is never
+    // pinned. Each pin clear moves to the next mark, so earlier marks no longer match. When the marks start
+    // again at 1 (each 255 clears), the clear sets every mark to 0 first.
+    u8 pin_mark;
+    // Advances whenever every pin is cleared.
     u16 pin_epoch;
 };
+
+inline bool user_store_pinned(const UserStore& store, const UserRecord& record) noexcept {
+    return record.pin_mark == store.pin_mark;
+}
 
 enum class UserStoreError : u8 {
     none,

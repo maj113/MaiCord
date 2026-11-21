@@ -49,11 +49,9 @@ u32 stage_self_actions(StageRole role, PermissionSet permissions, bool live) noe
 StageRoster stage_roster(const VoiceStateStore& store, u64 channel_id, Slice<const VoiceState*> speakers,
                          Slice<const VoiceState*> audience, Slice<const VoiceState*> requests) noexcept {
     StageRoster roster{};
-    const u32 count = voice_state_store_channel_count(store, channel_id);
-    for (u32 i = 0; i < count; ++i) {
-        const auto* state = voice_state_store_channel_at(store, channel_id, i);
-        if (!state)
-            break;
+    const ConstSlice<VoiceState> states = voice_state_store_channel(store, channel_id);
+    for (u32 i = 0; i < states.count; ++i) {
+        const auto* state = &states[i];
         const auto role = stage_role(state);
         if (role == StageRole::speaker) {
             if (roster.speakers < speakers.count)

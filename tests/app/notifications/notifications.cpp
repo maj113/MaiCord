@@ -410,63 +410,6 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     application_notifications_release(&g_app);
 }
 
-void pack_regressions(void(*check)(bool,const char*) noexcept) noexcept {
-    auto& f=fixture;
-    check(initialize() && enable_sound() && hydrate(),"notification packs: fake owner and production READY initialize Classic");
-    f.auto_drain=false;
-    const u64 initial_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
-    check(message(1200,2) && f.sound_count==1 && f.sounds[0].clip_id==1,
-        "notification packs: default H leading submission fixes concrete Classic bank ID");
-    f.sound_now=100;
-    check(message(1201,3) && f.sound_count==1,"notification packs: second logical message1 waits in inherited-current H");
-    g_app.preferences.soundpack=NotificationSoundpack::retro;application_notifications_settings_refresh(&g_app);
-    auto metrics=application_notifications_fixture_metrics(&g_app);
-    check(metrics.audio_epoch==initial_epoch && metrics.audio_pack==NotificationSoundpack::retro && metrics.sound_deadline==1000 &&
-        f.sounds[0].clip_id==1,"notification packs: preference change retains epoch pending H and already-admitted immutable clip ID");
-    f.sound_now=1000;application_notifications_drain(&g_app);
-    check(f.sound_count==2 && f.sounds[1].clip_id==1 && f.sounds[0].clip_id==1,
-        "notification sounds: legacy preference change retains original alert and prior worker request");
-    check(initialize() && enable_sound() && hydrate(),"notification packs: fresh fake owner prepares queued native retry mapping");
-    f.auto_drain=false;application_notifications_fixture_show_state(&g_app,DesktopNotificationShowState::retry_required);
-    check(message(1210,2) && f.sound_count==1 && f.sounds[0].clip_id==1,"notification packs: popup starts Classic fallback before retry");
-    application_notifications_drain(&g_app);
-    const u64 retry_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
-    g_app.preferences.soundpack=NotificationSoundpack::ducky;application_notifications_settings_refresh(&g_app);
-    f.sound_now=1000;application_notifications_drain(&g_app);
-    check(f.delivered==2 && f.sound_count==2 && f.sounds[1].clip_id==1 &&
-        application_notifications_fixture_metrics(&g_app).audio_epoch==retry_epoch &&
-        !application_notifications_fixture_metrics(&g_app).display_outstanding,
-        "notification sounds: terminal FAILED retains ordinary alert routing across legacy preference change");
-    check(initialize() && enable_sound() && hydrate(),"notification packs: fresh fake owner prepares all local direct overrides");
-    f.auto_drain=false;g_app.preferences.desktop_enabled=false;
-    constexpr u32 clip_ids[9]={1,1,1,1,1,1,1,1,1};
-    const u64 direct_epoch=application_notifications_fixture_metrics(&g_app).audio_epoch;
-    bool direct=true;
-    for(u32 i=0;i<9;++i) {
-        g_app.preferences.soundpack=static_cast<NotificationSoundpack>(i);application_notifications_settings_refresh(&g_app);
-        direct=direct && message(1300+i,10+i) && f.sound_count==i+1 && f.sounds[i].clip_id==clip_ids[i] &&
-            f.sounds[i].epoch==direct_epoch && !application_notifications_fixture_metrics(&g_app).display_outstanding;
-    }
-    check(direct,"notification sounds: all legacy ordinary choices map the original alert without epoch reset");
-    g_app.preferences.selected_message_sounds_enabled=true;application_notifications_fixture_focus(&g_app,true);
-    bool selected=true;
-    for(u32 i=0;i<9;++i) {
-        g_app.preferences.soundpack=static_cast<NotificationSoundpack>(i);application_notifications_settings_refresh(&g_app);
-        const u64 id=1400+i;
-        selected=selected && message(id,100+2*i,20) && f.sound_count==10+i && f.sounds[9+i].clip_id==2 &&
-            f.sounds[9+i].epoch==direct_epoch;
-        // Retire the selected timeline row through the actual delete producer,
-        // avoiding an unrelated eight-row fixture capacity limit.
-        ProtocolWriter writer{{reinterpret_cast<u8*>(f.header),sizeof(f.header)},0};
-        selected=selected && protocol_writer_append_literal(&writer,"{\"id\":\"") && protocol_writer_append_u64(&writer,id) &&
-            protocol_writer_append_literal(&writer,"\",\"channel_id\":\"20\"}") &&
-            dispatch(utf8_literal("MESSAGE_DELETE"),{f.header,writer.used},101+2*i);
-    }
-    check(selected && !application_notifications_fixture_metrics(&g_app).audio_worker_started,
-        "notification packs: selected message3 stays sealed ID2 for every pack through production message and delete routing without real audio");
-    application_notifications_release(&g_app);
-}
-
 // Retention allocation failure is visible to the user through the status line.
 bool notification_unavailable() noexcept {
     return utf8_equal(application_notifications_status(&g_app), utf8_literal("Notifications are unavailable right now."));
@@ -1120,7 +1063,6 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     speech_regressions(check);
     sound_regressions(check);
     controls_regressions(check);
-    pack_regressions(check);
     retention_regressions(check);
     check(initialize()&&hydrate(),"read badge host: production settings and relationship owner initialize");
     const auto badge_channel=[&]() noexcept {return chat_state_store_find_channel(f.ui.chat_state,21);};

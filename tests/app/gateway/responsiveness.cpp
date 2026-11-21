@@ -121,7 +121,7 @@ struct PresenceFixture {
     ChatStateStore state;
     MemberListView projection;
     MemberListRow rows[96];
-    u32 scratch[64];
+    MemberListSortKey scratch[64];
     u64 visible_user;
 };
 PresenceFixture g_presence{};

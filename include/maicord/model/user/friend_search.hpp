@@ -16,6 +16,16 @@ struct FriendSearchResult {
 // malformed fields still report error.
 FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username,
     const Utf8View& nickname, const Utf8View& display_name) noexcept;
+// A query folded once for friend_search over many names. `valid` is false for a query that friend_search
+// reports as invalid_query.
+struct FriendSearchQuery {
+    u32 scalars[kFriendSearchMaximumBytes];
+    u32 count;
+    bool valid;
+};
+bool friend_search_query(const Utf8View& query, FriendSearchQuery* output) noexcept;
+FriendSearchResult friend_search_folded(const FriendSearchQuery& query, const Utf8View& username,
+    const Utf8View& nickname, const Utf8View& display_name) noexcept;
 struct FriendCompareResult {
     FriendSearchError error;
     i32 order;
