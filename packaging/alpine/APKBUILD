@@ -9,7 +9,7 @@
 #
 # Per release: set pkgver and run `abuild checksum`.
 pkgname=maicord
-pkgver=0.8.1
+pkgver=0.8.2
 pkgrel=0
 pkgdesc="Lightweight, native Discord client (unofficial)"
 url="https://maicord.com/"
@@ -41,5 +41,5 @@ package() {
 }
 
 sha512sums="
-7284dbba5e5a9744e5c2eb8c2e6e57d5a50a64f54e97467368ffba7bb78c805283eb2f924d2314d7ef5329cf0a4681f5cc53ef1d0f52983c47c0f9ae993c9e7f  maicord-0.8.1-linux-x86_64-musl.tar.gz
+ffdccfc3ad0e654022dc88d7540de9fd82854713638491916e74be4a3b4bdad57af7f00a4436a1130b2f0ef3d409ec69813614374ab106acca3d8423b6b2f6a8  maicord-0.8.2-linux-x86_64-musl.tar.gz
 "

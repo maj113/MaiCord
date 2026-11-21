@@ -17,7 +17,7 @@
 %global __requires_exclude ^lib(c|dl|pthread)\\.so.*$
 
 Name:           maicord
-Version:        0.8.1
+Version:        0.8.2
 Release:        1%{?dist}
 Summary:        A lightweight, native Discord client (unofficial)
 License:        MPL-2.0 AND OFL-1.1 AND BSD-3-Clause AND MIT AND ISC AND CC-BY-4.0 AND Unicode-3.0
@@ -119,6 +119,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{application_id}.des
 %{_datadir}/metainfo/%{application_id}.metainfo.xml
 
 %changelog
+* Sat Nov 21 2026 maj113 <https://github.com/maj113/MaiCord/issues> - 0.8.2-1
+- MaiCord 0.8.2 from the release tarball
+
 * Sun Nov 15 2026 maj113 <https://github.com/maj113/MaiCord/issues> - 0.8.1-1
 - MaiCord 0.8.1 from the release tarball
 
