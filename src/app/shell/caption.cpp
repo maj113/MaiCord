@@ -26,6 +26,7 @@
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "../account/application_account_reconnect.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -401,7 +402,7 @@ bool item_pointer(const WindowEvent& event) noexcept {
     }
 }
 
-// The current place, as the official client's title bar names it.
+// The current place, as the official client's title bar names it, or the connection indicator while it shows.
 UiCaptionTitle caption_title() noexcept {
     UiCaptionTitleInput in{};
     const auto* ui = g_app.account_ui;
@@ -419,6 +420,12 @@ UiCaptionTitle caption_title() noexcept {
             in.guild_name = chat_state_store_guild_name(state, *guild);
         }
     }
+    // The renderer copies the line before this buffer changes again.
+    static char connection_text[kUiConnectionTextBytes];
+    in.connection = g_caption.frame.connection;
+    if (in.connection != UiConnectionStatus::hidden)
+        in.connection_text = ui_connection_indicator_text(application_connection_indicator(clock_monotonic_milliseconds()),
+                                                          {connection_text, sizeof(connection_text)});
     return ui_caption_title(in);
 }
 
@@ -475,8 +482,14 @@ UiCaptionBarState application_caption_state() noexcept {
                        to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
                        shown,
                        entrance,
-                       application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, now_ms)};
+                       application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, now_ms),
+                       application_connection_indicator(now_ms).shown,
+                       application_loading_spinner_phase()};
     return g_caption.frame;
+}
+
+bool application_caption_spinner() noexcept {
+    return g_app.renderer.caption_height && g_caption.frame.connection == UiConnectionStatus::connecting;
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {

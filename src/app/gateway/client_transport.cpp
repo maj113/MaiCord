@@ -142,9 +142,11 @@ void finish_close(GatewayClientRuntime* runtime) noexcept {
     clear_user_transport(runtime);
 }
 
-// The reconnecting event: the sequence a resume would continue from, when there is one.
-void publish_reconnecting(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+// The reconnecting event: the wait before the next attempt, and the sequence a resume would continue from, when
+// there is one.
+void publish_reconnecting(GatewayClientRuntime* runtime, u64 now_ms, u32 delay_ms) noexcept {
     GatewayClientEvent event = bare_event(GatewayClientEventKind::reconnecting, now_ms);
+    event.retry_delay_ms = delay_ms;
     event.has_sequence = runtime->resume.valid;
     event.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
     publish_event(runtime, event);
@@ -169,7 +171,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     runtime->qos.has_immediate = false;
     close_transport(runtime, close_code, now_ms);
     publish_phase(client, GatewayClientPhase::reconnect_wait);
-    publish_reconnecting(runtime, now_ms);
+    publish_reconnecting(runtime, now_ms, delay_ms);
     return true;
 }
 

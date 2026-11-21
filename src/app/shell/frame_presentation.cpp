@@ -147,7 +147,8 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
                   ? const_cast<UiMediaPickerScene*>(renderer.media_picker_scene)
                   : nullptr),
     };
-    bool shown = false;
+    // The caption's connection indicator while it connects.
+    bool shown = application_caption_spinner();
     for (const u8* at : phases)
         shown = shown || at;
     ui_spinner_clock_tick(&g_loading_spinner, now_ms, g_app.renderer_ready && !renderer.live_resize && shown,
@@ -234,6 +235,9 @@ bool application_loading_spinner_due(u64 now_ms) noexcept {
     return ui_spinner_clock_due(g_loading_spinner, now_ms) || ui_typing_dots_clock_due(g_typing_dots, now_ms) ||
            ui_typing_dots_clock_due(g_component_dots, now_ms);
 }
+u8 application_loading_spinner_phase() noexcept {
+    return g_loading_spinner.phase;
+}
 
 namespace {
 // The step that rejected the last frame, logged with the failure count.
@@ -274,15 +278,16 @@ bool application_present_frame() noexcept {
     // every tick of this frame (the caption's included) arms the next one, and only the next frame's start drops it.
     u64 now_ms = clock_monotonic_milliseconds();
     application_surface_motion_begin_frame(now_ms);
-    application_caption_synchronize();
     // Consume a due spinner step first: a rejected draw below must not leave
     // the expired deadline armed (it is re-sampled once scenes are published).
+    // The caption below draws the step's phase.
     if (ui_spinner_clock_due(g_loading_spinner, now_ms))
         ui_spinner_clock_tick(&g_loading_spinner, now_ms, true, application_reduced_motion());
     if (ui_typing_dots_clock_due(g_typing_dots, now_ms))
         ui_typing_dots_clock_tick(&g_typing_dots, now_ms, true, typing_dots_animate());
     if (ui_typing_dots_clock_due(g_component_dots, now_ms))
         ui_typing_dots_clock_tick(&g_component_dots, now_ms, true, typing_dots_animate());
+    application_caption_synchronize();
     // A due entrance must consume its deadline even when later scene/text
     // preparation rejects this draw. Retained permits cannot repeatedly wake
     // against the same past-due opacity sample. Reconcile final scene keys again

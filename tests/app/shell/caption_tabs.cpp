@@ -22,6 +22,9 @@
 #include "../../../src/app/account/account_ui_runtime.hpp"
 #include "media_page_fake.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "account/application_account_reconnect.hpp"
+#include "maicord/ui/shell/connection_status.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord::caption_tabs_test {
 using namespace app_detail;
@@ -46,6 +49,11 @@ u8 names[1024];
 UiAccessNode access_nodes[64];
 char access_text[2048];
 u32 access_slots[128], access_keys[128];
+// The connection indicator the bar reads, the spinner phase, and the last bar handed to the renderer.
+UiConnectionIndicator indicator;
+u8 spinner_phase;
+UiCaptionBarState drawn;
+UiCaptionTitle drawn_title;
 constexpr u64 rights = kPermissionViewChannel | kPermissionReadMessageHistory | kPermissionSendMessages;
 
 void check(bool valid, const char* label) noexcept {
@@ -617,6 +625,37 @@ void origin() noexcept {
     check(shown == 1 && selected() == 100, "caption tabs origin: an unreachable origin keeps the selection");
 }
 
+// The connection indicator takes the title's place in the bar the renderer draws: its line, the spinner's slot and
+// phase while it connects, and the shared spinner clock runs only then.
+void connection() noexcept {
+    check(fixture(1000), "caption connection: fixture");
+    seed(1);
+    indicator = {};
+    application_caption_synchronize();
+    check(drawn.connection == UiConnectionStatus::hidden && utf8_equal(drawn_title.text, utf8_literal("Guild")) &&
+              !application_caption_spinner(),
+          "caption connection: a live session keeps the server's title and no spinner");
+    ui_connection_indicator_set(&indicator, UiConnectionLink::down, 0, 1000);
+    ui_connection_indicator_tick(&indicator, 1000 + kUiConnectionGraceMs);
+    spinner_phase = 7;
+    application_caption_synchronize();
+    check(drawn.connection == UiConnectionStatus::connecting && drawn.spinner_phase == 7 &&
+              utf8_equal(drawn_title.text, utf8_literal("Connecting\xE2\x80\xA6")) && drawn_title.glyph == UiIcon::sending &&
+              !media_asset_key_valid(drawn_title.image) && application_caption_spinner(),
+          "caption connection: Connecting replaces the title, draws the spinner's phase and runs the spinner clock");
+    ui_connection_indicator_set(&indicator, UiConnectionLink::down, 1000 + kUiConnectionGraceMs + 9'500,
+                                1000 + kUiConnectionGraceMs);
+    application_caption_synchronize();
+    check(drawn.connection == UiConnectionStatus::disconnected &&
+              utf8_equal(drawn_title.text, utf8_literal("Disconnected \xC2\xB7 retrying in 10s")) &&
+              drawn_title.glyph == UiIcon::signal_zero && !application_caption_spinner(),
+          "caption connection: the countdown replaces the title without a spinner");
+    indicator = {};
+    application_caption_synchronize();
+    check(drawn.connection == UiConnectionStatus::hidden && utf8_equal(drawn_title.text, utf8_literal("Guild")),
+          "caption connection: the title returns");
+}
+
 void run() noexcept {
     clicks();
     drags();
@@ -629,6 +668,7 @@ void run() noexcept {
     media();
     accessibility();
     access_details();
+    connection();
     window_test::close();
 }
 } // namespace maicord::caption_tabs_test
@@ -701,8 +741,16 @@ ApplicationUpdatesView application_updates_view() noexcept {
 bool application_updates_restart() noexcept {
     return false;
 }
+u8 application_loading_spinner_phase() noexcept {
+    return caption_tabs_test::spinner_phase;
+}
+const UiConnectionIndicator& application_connection_indicator(u64) noexcept {
+    return caption_tabs_test::indicator;
+}
 } // namespace app_detail
-bool renderer_set_caption(D3D11Renderer*, const UiCaptionBarState&, const UiCaptionTitle&) noexcept {
+bool renderer_set_caption(D3D11Renderer*, const UiCaptionBarState& state, const UiCaptionTitle& title) noexcept {
+    caption_tabs_test::drawn = state;
+    caption_tabs_test::drawn_title = title;
     return false;
 }
 void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept {

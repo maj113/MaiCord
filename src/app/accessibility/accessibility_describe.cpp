@@ -1,6 +1,7 @@
 #include "accessibility_internal.hpp"
 #include "../chat/private_header.hpp"
 #include "../shell/caption.hpp"
+#include "../account/application_account_reconnect.hpp"
 #include "../shell/notice.hpp"
 #include "../account/friends.hpp"
 #include "../media/media_page.hpp"
@@ -1081,7 +1082,10 @@ void build_account(UiAccessTree* tree) noexcept {
     }
 }
 
-// The window caption's buttons, above the content origin.
+// The indicator's node key: far above the part keys and the tab items' (application_caption_tab_item).
+constexpr u64 kCaptionConnectionNode = 0x434F'4E4E'0000'0000ull; // "CONN"
+
+// The window caption's buttons, above the content origin, and its connection indicator.
 void build_caption(UiAccessTree* tree) noexcept {
     const UiCaptionBarLayout layout = application_caption_layout();
     const UiCaptionBarState state = application_caption_state();
@@ -1113,6 +1117,18 @@ void build_caption(UiAccessTree* tree) noexcept {
         ui_access_add(tree, parent, button);
     }
     application_caption_describe_tabs(tree, parent, surface_caption);
+    // The connection indicator in the title's place: a status line named by what it shows.
+    if (state.connection == UiConnectionStatus::hidden)
+        return;
+    char text[kUiConnectionTextBytes];
+    UiAccessNodeDesc status{};
+    status.key = ui_access_key(surface_caption, kCaptionConnectionNode);
+    status.rectangle = layout.title;
+    status.name =
+        ui_connection_indicator_text(application_connection_indicator(clock_monotonic_milliseconds()), {text, sizeof(text)});
+    status.role = UiAccessRole::status;
+    status.surface = surface_caption;
+    ui_access_add(tree, parent, status);
 }
 
 // The app-wide notice band: a status line named by its text, with its button and its X.

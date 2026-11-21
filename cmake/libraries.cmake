@@ -301,7 +301,7 @@ maicord_library(maicord_ui
     src/ui/chat/messages/typing_indicator.cpp src/ui/account/dm_profile_panel.cpp
     src/ui/widgets/toast.cpp windows:src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
     src/ui/text/pointer_selection.cpp src/ui/chat/messages/author.cpp src/ui/chat/messages/interaction.cpp
-    src/ui/media/expression_card_scene.cpp
+    src/ui/media/expression_card_scene.cpp src/ui/shell/connection_status.cpp
     # The spell tokenizer classifies letters with the Unicode property tables.
     # On Linux the text system entry points, the emoji presentation and the theme
     # typography are maicord_text_system's, the theme maicord_theme's.

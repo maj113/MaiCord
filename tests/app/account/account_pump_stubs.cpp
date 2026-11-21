@@ -362,7 +362,11 @@ bool application_stop_account() noexcept {
 void application_account_stop_recoverable(const char*) noexcept {
     application_stop_account();
 }
-void application_account_connection_observe(GatewayClientEventKind) noexcept {}
+void application_account_connection_observe(const GatewayClientEvent&) noexcept {}
+void application_account_connection_restart(u64) noexcept {}
+u64 application_connection_indicator_next_wake() noexcept {
+    return 0;
+}
 u64 application_account_reconnect_next_wake() noexcept {
     return reconnect_wake;
 }

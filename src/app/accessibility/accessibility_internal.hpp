@@ -8,6 +8,7 @@
 #include "../../render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/platform/uia/provider.hpp"
 #include "maicord/ui/accessibility/scenes.hpp"
+#include "maicord/ui/shell/connection_status.hpp"
 #include "../account/account_ui_runtime.hpp"
 
 
@@ -89,10 +90,11 @@ struct StatusObserver {
     u64 mention_total;
     u64 mention_sampled_ms;
     u64 quick_summary, search_summary;
-    const char* connection;
     u32 failed_count;
     u32 toast_serial;
     MessageComposerPhase composer_phase;
+    // The connection indicator's last announced state.
+    UiConnectionStatus connection;
     bool voice_connected;
     bool primed, mentions_primed;
 };

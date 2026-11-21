@@ -4,6 +4,8 @@
 namespace maicord {
 inline constexpr u32 kUiSpinnerPhases = 32;
 inline constexpr u32 kUiSpinnerStepMs = 32;
+// The paint quads one spinner pushes.
+inline constexpr u32 kUiSpinnerSegments = 24;
 struct UiSpinnerStyle {
     float stroke{2.5f};
     float tail_opacity{.18f};

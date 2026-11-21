@@ -144,6 +144,7 @@ enum class AccountModuleError : u8 {
 struct AccountModuleStatus {
     u64 profile_id;
     u64 frecency_settings_revision;
+    // When the account module restarts its failed Gateway worker (monotonic), zero when no restart waits.
     u64 retry_at_ms;
     u64 next_wake_at_ms;
     u32 native_error;

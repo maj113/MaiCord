@@ -7,11 +7,10 @@
 #include "maicord/core/time.hpp"
 #include "../chat/composer/text_input.hpp"
 #include "../account/friends.hpp"
-#include "../chat/messages/feedback.hpp"
+#include "../account/application_account_reconnect.hpp"
 #include "../shell/window_state.hpp"
 #include "maicord/app/voice/socket.hpp"
 #include "maicord/app/voice/udp_discovery.hpp"
-#include "maicord/app/chat/messages/interaction_rules.hpp"
 #if !defined(_WIN32)
 #include "maicord/platform/atspi/server.hpp"
 #endif
@@ -89,21 +88,16 @@ u64 text_hash(const Utf8View& text) noexcept {
     return text.bytes ? hash64_bytes(kHash64Seed, text.data, text.bytes) : 0;
 }
 
-// Reconnecting / offline strip above the composer.
+// The caption's connection indicator: each state once as it shows, not each second of a countdown. A lost session is
+// polite; failed and stopped sessions interrupt.
 void observe_connection(StatusObserver& status, bool primed) noexcept {
-    const Utf8View notice = application_composer_status_notice();
-    const Utf8View reconnecting = connection_notice_text(ConnectionNoticeState::reconnecting);
-    const Utf8View offline = connection_notice_text(ConnectionNoticeState::offline);
-    const char* shown = notice.data == reconnecting.data || notice.data == offline.data ? notice.data : nullptr;
-    if (primed && shown != status.connection) {
-        if (shown == reconnecting.data)
-            announce(reconnecting, false);
-        else if (shown == offline.data)
-            announce(offline, true);
-        else if (status.connection)
-            announce(utf8_literal("Connected"), false);
+    const UiConnectionIndicator& indicator = application_connection_indicator(clock_monotonic_milliseconds());
+    if (primed && indicator.shown != status.connection && indicator.shown != UiConnectionStatus::hidden) {
+        char text[kUiConnectionTextBytes];
+        announce(ui_connection_indicator_text(indicator, {text, sizeof(text)}),
+                 indicator.shown == UiConnectionStatus::failed || indicator.shown == UiConnectionStatus::stopped);
     }
-    status.connection = shown;
+    status.connection = indicator.shown;
 }
 
 // Composer send failures and failed deliveries in the open conversation.

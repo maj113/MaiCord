@@ -7,6 +7,7 @@
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/widgets/tooltip.hpp"
+#include "maicord/ui/widgets/spinner.hpp"
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/gpu/api.hpp"
@@ -14,13 +15,14 @@
 
 namespace maicord {
 
-inline constexpr u32 kCaptionPaintCapacity = 64;
+// The connection indicator's spinner (kUiSpinnerSegments quads) adds to both paint capacities.
+inline constexpr u32 kCaptionPaintCapacity = 64 + kUiSpinnerSegments;
 inline constexpr u32 kCaptionGlyphCapacity = 128;
 inline constexpr u32 kCaptionRunCapacity = 8;
 inline constexpr u32 kCaptionTitleCapacity = 256;
 // With the tab strip showing: more quads, the glyph quads each tab label may use, and the glyphs its scratch line
 // shapes (the label's first kCaptionTabLineGlyphs bytes; the app keeps at most kChannelMemoryTabLabelBytes).
-inline constexpr u32 kCaptionTabPaintCapacity = 128;
+inline constexpr u32 kCaptionTabPaintCapacity = 128 + kUiSpinnerSegments;
 inline constexpr u32 kCaptionTabGlyphs = 16;
 inline constexpr u32 kCaptionTabLineGlyphs = 48;
 // The effect pass's canvas index for the caption band (content quads use theirs).
@@ -122,7 +124,7 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
     const UiCaptionBarState& s = caption.state;
     // One block of every scalar input: no padding, so each byte is an input.
     struct {
-        u32 values[27];
+        u32 values[28];
         Color colors[2];
     } inputs{{static_cast<u32>(s.hovered), static_cast<u32>(s.pressed), s.active, s.maximized,
               static_cast<u32>(s.update), s.settings, static_cast<u32>(s.frame * 96.0f),
@@ -133,13 +135,15 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
               renderer.width, renderer.caption_height, renderer.height, renderer.dpi, caption.icon_extent,
               static_cast<u32>(caption.scrim.red * 1000.0f), static_cast<u32>(caption.scrim.green * 1000.0f),
               static_cast<u32>(caption.scrim.blue * 1000.0f), static_cast<u32>(caption.scrim.alpha * 1000.0f),
-              static_cast<u32>(ui_icon_theme_weight(theme) * 1000.0f)},
+              static_cast<u32>(ui_icon_theme_weight(theme) * 1000.0f),
+              // The connection indicator's state and spinner step.
+              static_cast<u32>(s.connection) | static_cast<u32>(s.spinner_phase) << 8},
              {theme.base_lowest, theme.text_primary}};
-    static_assert(sizeof(inputs) == 27 * sizeof(u32) + 2 * sizeof(Color));
+    static_assert(sizeof(inputs) == 28 * sizeof(u32) + 2 * sizeof(Color));
     // A server icon draws once resident, from where the atlas holds it.
     if (media_asset_key_valid(caption.title_image) && renderer.media_atlas) {
         const MediaAtlasResult image = media_atlas_peek(renderer.media_atlas, caption.title_image);
-        u32* place = inputs.values + 21;
+        u32* place = inputs.values + 22;
         place[0] = image.ok() ? 1u : 0u;
         place[1] = image.x;
         place[2] = image.y;

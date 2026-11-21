@@ -548,7 +548,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             const GatewayLifecycleStep retry = gateway_lifecycle_session_retry(&runtime->session.lifecycle);
             if (!retry.ok() || !gateway_outbound_enqueue(&runtime->outbound, retry.action))
                 return fail_plaintext(runtime, GatewayClientFailureStage::invalid_session_reconnect);
-            publish_reconnecting(runtime, now_ms);
+            publish_reconnecting(runtime, now_ms, 0);
             runtime->deadline_ms = now_ms + kPhaseTimeoutMs;
             return drive_queued_actions(client, runtime, now_ms);
         }

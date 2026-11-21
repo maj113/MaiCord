@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/shell/connection_status.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/shell/tab_strip.hpp"
 #include "maicord/ui/core/paint.hpp"
@@ -58,6 +59,10 @@ struct UiCaptionBarState {
     // The channel tabs, none while the feature is off or no account is signed in: the title moves to a fixed
     // region beside the window buttons and the strip takes the room left of it. Outlives the bar's layouts.
     const UiTabStripView* tabs;
+    // The connection indicator (connection_status.hpp). Hidden shows the title; the other states replace it with their
+    // line (ui_caption_title) and a mark: a spinner at spinner_phase (ui_spinner_phase) while connecting.
+    UiConnectionStatus connection;
+    u8 spinner_phase;
 };
 
 struct UiCaptionBarLayout {
@@ -97,14 +102,17 @@ struct UiCaptionBarLayout {
 // selected server (its icon and name), "Direct Messages" while a DM or group
 // DM is open, "Friends" on Home without one, and nothing elsewhere (message
 // requests). Settings keep the title of the view beneath. Signed out, the
-// app's name.
+// app's name. A shown connection indicator takes the place of all of these.
 struct UiCaptionTitleInput {
     bool signed_in, friends, home;
     // The selected conversation's channel type (1 DM, 3 group DM), 0 none.
     u8 private_type;
+    UiConnectionStatus connection;
     u64 guild_id;
     u32 guild_icon_variant;
     Utf8View guild_name;
+    // The indicator's line (ui_connection_indicator_text) while it shows.
+    Utf8View connection_text;
 };
 struct UiCaptionTitle {
     Utf8View text;
@@ -139,9 +147,10 @@ UiCaptionBarLayout ui_caption_bar_layout(const Theme& theme, float width, const 
                                          float height = 0, float pixel_scale = 1) noexcept;
 // caption for the drag band, none outside the bar.
 UiCaptionPart ui_caption_bar_part(const UiCaptionBarLayout& layout, float x, float y) noexcept;
-// Background, item and button fills, icons and glyphs. Glyph strokes snap to
-// device pixels. The app icon itself is the renderer's. The window buttons
-// come last, from `buttons_first`: a content scrim dims everything before them.
+// Background, item and button fills, icons and glyphs, and the connection
+// indicator's mark. Glyph strokes snap to device pixels. The app icon itself
+// is the renderer's. The window buttons come last, from `buttons_first`: a
+// content scrim dims everything before them.
 bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptionBarLayout& layout,
                           const UiCaptionBarState& state, float pixel_scale,
                           u32* buttons_first = nullptr) noexcept;

@@ -941,6 +941,9 @@ struct GatewayClientEvent {
     u32 heartbeat_interval_ms;
     u32 native_error;
     u32 dispatch_payload_bytes;
+    // reconnecting: the wait before the worker's next attempt, zero when it starts at once. It fills the padding
+    // before the union.
+    u32 retry_delay_ms;
     union {
         GatewayClientMessageMutation message;
         GatewayClientMessageReactionEvent reaction;

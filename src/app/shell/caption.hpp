@@ -45,6 +45,8 @@ void application_caption_describe_tabs(UiAccessTree* tree, u32 parent, u8 surfac
 UiCaptionBarState application_caption_state() noexcept;
 // When the hovered part's tooltip is due, zero when none is pending.
 u64 application_caption_tooltip_wake() noexcept;
+// The shown bar draws the connection indicator's spinner (its phase comes from the shared spinner clock).
+bool application_caption_spinner() noexcept;
 // Caption buttons in content DIPs (negative rows), for accessibility.
 UiCaptionBarLayout application_caption_layout() noexcept;
 

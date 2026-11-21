@@ -2,6 +2,7 @@
 
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/icon.hpp"
+#include "maicord/ui/widgets/spinner.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
 #include "maicord/media/core/asset.hpp"
 
@@ -62,6 +63,19 @@ bool paint_glyph(PaintStream* paint, UiCaptionPart part, bool maximized, const U
 UiCaptionTitle ui_caption_title(const UiCaptionTitleInput& in) noexcept {
     if (!in.signed_in)
         return {utf8_literal("MaiCord"), UiIcon::count, {}};
+    // The loader-circle glyph keeps the mark's place: the paint draws a spinner there.
+    switch (in.connection) {
+    case UiConnectionStatus::connecting:
+        return {in.connection_text, UiIcon::sending, {}};
+    case UiConnectionStatus::connected:
+        return {in.connection_text, UiIcon::circle_check, {}};
+    case UiConnectionStatus::disconnected:
+    case UiConnectionStatus::failed:
+    case UiConnectionStatus::stopped:
+        return {in.connection_text, UiIcon::signal_zero, {}};
+    case UiConnectionStatus::hidden:
+        break;
+    }
     if (!in.home && !in.friends && in.guild_id && in.guild_name.bytes)
         return {in.guild_name, UiIcon::guild,
                 in.guild_icon_variant ? media_asset_guild_icon(in.guild_id, in.guild_icon_variant, false)
@@ -273,9 +287,22 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
         return UiRect{left, top, left + icon, top + icon};
     };
     const Color idle = state.active ? tokens.icon : tokens.icon_inactive;
-    if (layout.title_glyph != UiIcon::count && ui_rect_has_area(layout.title_icon) &&
-        !ui_icon_paint(paint, layout.title_glyph, layout.title_icon, ui_caption_bar_title_color(theme, state)))
-        return false;
+    // The title's glyph, or the connection indicator's mark tinted by its state. The spinner is a 14 DIP ring in the
+    // glyph's 18 DIP box.
+    if (layout.title_glyph != UiIcon::count && ui_rect_has_area(layout.title_icon)) {
+        const Color title = ui_caption_bar_title_color(theme, state);
+        const bool painted =
+            state.connection == UiConnectionStatus::connecting
+                ? ui_spinner_paint(paint, ui_rect_inset(layout.title_icon, UiInsets{2, 2, 2, 2}), title,
+                                   state.spinner_phase, UiSpinnerStyle{2.f})
+                : ui_icon_paint(paint, layout.title_glyph, layout.title_icon,
+                                state.connection == UiConnectionStatus::connected      ? theme.tokens.text.positive
+                                : state.connection == UiConnectionStatus::disconnected ? theme.tokens.text.warning
+                                : state.connection != UiConnectionStatus::hidden       ? theme.tokens.text.danger
+                                                                                       : title);
+        if (!painted)
+            return false;
+    }
     if (state.tabs && !ui_tab_strip_paint(paint, theme, layout.tabs, *state.tabs, state.active, pixel_scale))
         return false;
     if (state.settings && layout.settings.right > layout.settings.left) {

@@ -172,7 +172,8 @@ constexpr WakeSource kVisualWakeSources[]{
     application_video_next_wake,         application_tooltip_next_wake,          application_toast_next_wake,
     application_guild_banner_next_wake,  application_voice_invite_next_wake,     application_surface_motion_next_wake,
     application_search_edit_next_wake,   application_media_picker_caret_wake,    application_downloads_next_wake,
-    application_message_forward_caret_wake, application_quick_switcher_caret_wake, application_channel_overview_caret_wake};
+    application_message_forward_caret_wake, application_quick_switcher_caret_wake, application_channel_overview_caret_wake,
+    application_connection_indicator_next_wake};
 constexpr WakeSource kLogoutVisualWakeSources[]{application_surface_motion_next_wake, application_downloads_next_wake};
 
 // The earliest visual deadline from the background's (its wake retires a paused clock, so the caller reads it first).
@@ -181,7 +182,7 @@ constexpr WakeSource kLogoutVisualWakeSources[]{application_surface_motion_next_
 u64 visual_deadlines(u64 now_ms, u64 background, bool logout_blocked) noexcept {
     u64 wake_at = logout_blocked ? background : earliest_deadline(background, g_app.dm_profile_clock_ms);
     const ConstSlice<WakeSource> sources = logout_blocked ? ConstSlice<WakeSource>{kLogoutVisualWakeSources, 2}
-                                                          : ConstSlice<WakeSource>{kVisualWakeSources, 12};
+                                                          : ConstSlice<WakeSource>{kVisualWakeSources, 13};
     for (u32 i = 0; i < sources.count && !deadline_due(now_ms, wake_at); ++i)
         wake_at = earliest_deadline(wake_at, sources.data[i]());
     return wake_at;

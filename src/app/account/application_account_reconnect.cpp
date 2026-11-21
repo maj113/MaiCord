@@ -11,6 +11,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/unread_banner_scene.hpp"
+#include "maicord/ui/shell/connection_status.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -19,6 +20,15 @@ AccountReconnect g_reconnect{};
 void* g_restarted{};
 // Notice ids change with the state so the card re-announces it.
 constexpr u64 kConnectionNoticeId = 0xC0'4E'00'00ull;
+// The caption's connection indicator, and the Gateway session it follows: the session of `g_session_instance`, up
+// after READY, RESUMED or RESUMING (the official client counts a resuming session as established), and when its next
+// attempt starts (monotonic, zero while one runs or when unknown).
+UiConnectionIndicator g_indicator{};
+const void* g_session_instance{};
+bool g_session_up;
+u64 g_session_retry_at_ms;
+// The account module's last reported restart time of a failed Gateway worker.
+u64 g_restart_at_ms;
 
 bool shell_retained() noexcept {
     return g_app.account_ui && !g_app.login.visible && !application_account_logout_blocked() &&
@@ -42,6 +52,35 @@ void log_schedule() noexcept {
     const u64 now = clock_monotonic_milliseconds();
     trace.field("delay_ms", g_reconnect.retry_at_ms > now ? g_reconnect.retry_at_ms - now : 0);
     log_write(LogLevel::warning, "account", trace.text);
+}
+
+// Another account instance (a start, a restart, a stop) starts its session down.
+void follow_instance() noexcept {
+    if (g_app.account.instance == g_session_instance)
+        return;
+    g_session_instance = g_app.account.instance;
+    g_session_up = false;
+    g_session_retry_at_ms = g_restart_at_ms = 0;
+}
+
+// Tells the indicator what the sources say: an account restart schedule first, then the Gateway session. True when
+// what it shows changed.
+bool indicator_update(u64 now_ms) noexcept {
+    follow_instance();
+    if (!shell_retained()) {
+        const bool shown = g_indicator.shown != UiConnectionStatus::hidden;
+        reset_value(&g_indicator);
+        return shown;
+    }
+    UiConnectionLink link = g_session_up ? UiConnectionLink::up : UiConnectionLink::down;
+    u64 retry_at_ms = g_session_retry_at_ms;
+    if (g_reconnect.phase == AccountReconnectPhase::offline)
+        link = g_reconnect.reason == AccountStopReason::failure ? UiConnectionLink::failed : UiConnectionLink::stopped;
+    else if (g_reconnect.phase == AccountReconnectPhase::waiting) {
+        link = UiConnectionLink::down;
+        retry_at_ms = g_reconnect.retry_at_ms;
+    }
+    return ui_connection_indicator_set(&g_indicator, link, retry_at_ms, now_ms);
 }
 } // namespace
 
@@ -87,24 +126,65 @@ u64 application_account_reconnect_next_wake() noexcept {
     return account_reconnect_next_wake(g_reconnect);
 }
 
-void application_account_connection_observe(GatewayClientEventKind kind) noexcept {
+void application_account_connection_observe(const GatewayClientEvent& event) noexcept {
     const auto banner = account_reconnect_banner(g_reconnect);
-    switch (kind) {
+    const u64 now_ms = clock_monotonic_milliseconds();
+    follow_instance();
+    switch (event.kind) {
     case GatewayClientEventKind::ready:
     case GatewayClientEventKind::resumed:
-        account_reconnect_connected(&g_reconnect, clock_monotonic_milliseconds());
+        account_reconnect_connected(&g_reconnect, now_ms);
         g_restarted = nullptr;
+        g_session_up = true;
+        break;
+    case GatewayClientEventKind::resuming:
+        g_session_up = true;
+        break;
+    // An attempt runs.
+    case GatewayClientEventKind::websocket_opened:
+    case GatewayClientEventKind::hello:
+    case GatewayClientEventKind::identifying:
+        g_session_retry_at_ms = 0;
         break;
     case GatewayClientEventKind::reconnecting:
     case GatewayClientEventKind::closed:
     case GatewayClientEventKind::failed:
         account_reconnect_gateway_lost(&g_reconnect);
+        g_session_up = false;
+        // The worker waits before its next attempt; a failed worker waits for the account module's restart.
+        g_session_retry_at_ms = event.kind == GatewayClientEventKind::reconnecting && event.retry_delay_ms
+                                    ? now_ms + event.retry_delay_ms
+                                : event.kind == GatewayClientEventKind::failed && g_restart_at_ms > now_ms
+                                    ? g_restart_at_ms
+                                    : 0;
         break;
     default:
         return;
     }
-    if (banner != account_reconnect_banner(g_reconnect))
+    if ((banner != account_reconnect_banner(g_reconnect)) | indicator_update(now_ms))
         application_request_frame();
+}
+
+void application_account_connection_restart(u64 restart_at_ms) noexcept {
+    follow_instance();
+    if (restart_at_ms == g_restart_at_ms)
+        return;
+    g_restart_at_ms = restart_at_ms;
+    if (g_session_up)
+        return;
+    // Zero: the worker restarted and its first attempt runs.
+    g_session_retry_at_ms = restart_at_ms;
+    if (indicator_update(clock_monotonic_milliseconds()))
+        application_request_frame();
+}
+
+const UiConnectionIndicator& application_connection_indicator(u64 now_ms) noexcept {
+    indicator_update(now_ms);
+    return g_indicator;
+}
+
+u64 application_connection_indicator_next_wake() noexcept {
+    return ui_connection_indicator_next_wake(g_indicator);
 }
 
 UiBannerNotice application_account_connection_notice(Slice<char> scratch) noexcept {

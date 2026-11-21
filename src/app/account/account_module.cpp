@@ -147,6 +147,7 @@ AccountModuleStatus build_status(AccountModuleRuntime* runtime) noexcept {
     status.running = coordinator.phase == UserAccountCoordinatorPhase::running;
     status.failed = coordinator.phase == UserAccountCoordinatorPhase::failed;
     // A failed Gateway worker restarts at this deadline (see the coordinator).
+    status.retry_at_ms = coordinator.gateway_restart_at_ms;
     if (coordinator.gateway_restart_at_ms)
         status.next_wake_at_ms = earliest_deadline(status.next_wake_at_ms, coordinator.gateway_restart_at_ms);
     status.error = status.failed ? AccountModuleError::coordinator : AccountModuleError::none;

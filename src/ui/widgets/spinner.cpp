@@ -58,12 +58,11 @@ bool ui_spinner_paint(PaintStream* paint, const UiRect& bounds, const Color& col
         return false;
     const UiPoint center{(bounds.left + bounds.right) * .5f, (bounds.top + bounds.bottom) * .5f};
     const float radius = (size - style.stroke) * .5f;
-    constexpr u32 segments = 24;
-    for (u32 i = 0; i < segments; ++i) {
+    for (u32 i = 0; i < kUiSpinnerSegments; ++i) {
         const auto a = circle_point(phase + i), b = circle_point(phase + i + 1);
         Color segment = color;
         segment.alpha *=
-            style.tail_opacity + (1 - style.tail_opacity) * static_cast<float>(i) / (segments - 1);
+            style.tail_opacity + (1 - style.tail_opacity) * static_cast<float>(i) / (kUiSpinnerSegments - 1);
         if (!paint_stream_push_line(paint, {center.x + a.x * radius, center.y + a.y * radius},
                                     {center.x + b.x * radius, center.y + b.y * radius}, style.stroke,
                                     segment))

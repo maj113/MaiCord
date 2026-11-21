@@ -324,7 +324,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
             application_channel_snapshots_reset();
         }
     }
-    application_account_connection_observe(event->kind);
+    application_account_connection_observe(*event);
     if (ready || event->kind == GatewayClientEventKind::reconnecting ||
         event->kind == GatewayClientEventKind::closed || event->kind == GatewayClientEventKind::failed ||
         event->kind == GatewayClientEventKind::stopped) {
@@ -762,6 +762,7 @@ bool application_pump_account() noexcept {
     const AccountModuleStatus status =
         account_host_pump(&host, now_ms, clock_unix_milliseconds(), &observations);
     application_log_account_observations(status, observations);
+    application_account_connection_restart(status.retry_at_ms);
     if (status.failed) {
         // Fatal worker results must be read before teardown destroys their
         // mailbox. This path consumes no ordinary dispatch/model callbacks.

@@ -143,6 +143,9 @@ figures 0.6.6's. Other machines and drivers differ, Linux memory most of all.
   unread channels show a dot. <kbd>Ctrl</kbd>+<kbd>T</kbd> pins, <kbd>Ctrl</kbd>+<kbd>W</kbd> closes,
   <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>9</kbd> switch. Channel tabs come back after a
   restart; a version without tabs cannot read that file and starts with its last-channel memory empty
+- Connection status in the title bar: *Connecting…* with a spinner while MaiCord connects or reconnects, *Connected*
+  for a moment when the connection comes back, and *Disconnected* with the countdown to the next try, or *Connection
+  failed* once the retries stop. A short drop shows nothing, and screen readers hear each change
 
 **Voice and video**
 - Voice channels with Discord's end-to-end encryption (DAVE)

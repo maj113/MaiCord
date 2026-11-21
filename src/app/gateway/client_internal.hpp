@@ -390,7 +390,7 @@ void publish_event(GatewayClientRuntime* runtime, const GatewayClientEvent& even
 // A zeroed event of `kind` at `now_ms`: one copy of the zeroing for every lifecycle event, not one per use.
 GatewayClientEvent bare_event(GatewayClientEventKind kind, u64 now_ms) noexcept;
 void publish_marker(GatewayClientRuntime* runtime, GatewayClientEventKind kind, u64 now_ms) noexcept;
-void publish_reconnecting(GatewayClientRuntime* runtime, u64 now_ms) noexcept;
+void publish_reconnecting(GatewayClientRuntime* runtime, u64 now_ms, u32 delay_ms) noexcept;
 void notify_consumer(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 bool publish_event_payload(GatewayClient* client, GatewayClientRuntime* runtime,
                            const GatewayClientEvent& event, const ConstSlice<u8>& payload) noexcept;

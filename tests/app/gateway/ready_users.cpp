@@ -205,12 +205,18 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
     const auto failed = process_session(&client, &runtime, before_failure);
     GatewayClientEvent event{};
     bool reported = false, scheduled = false, prefix = false;
+    u32 report_delay = ~0u, scheduled_delay = 0;
     for (u32 i = 0; i < 16 && spsc_mailbox_pop(&runtime.events, &event, {output, sizeof(output)}).ok(); ++i) {
-        reported = reported || (event.kind == GatewayClientEventKind::reconnecting &&
-                                event.error == GatewayClientError::session &&
-                                event.failure_stage == GatewayClientFailureStage::ready_route);
-        scheduled = scheduled || (event.kind == GatewayClientEventKind::reconnecting &&
-                                  event.error == GatewayClientError::none);
+        const bool report = event.kind == GatewayClientEventKind::reconnecting &&
+                            event.error == GatewayClientError::session &&
+                            event.failure_stage == GatewayClientFailureStage::ready_route;
+        if (report)
+            report_delay = event.retry_delay_ms;
+        reported = reported || report;
+        if (event.kind == GatewayClientEventKind::reconnecting && event.error == GatewayClientError::none) {
+            scheduled = true;
+            scheduled_delay = event.retry_delay_ms;
+        }
         prefix = prefix || event.kind == GatewayClientEventKind::ready ||
                  event.kind == GatewayClientEventKind::dispatch;
     }
@@ -223,6 +229,10 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.reconnect_deadline_ms >= before_failure + gateway_ready_failure_delay(1),
         "shipping READY worker reports an unprojectable READY and re-identifies later without publishing a prefix");
     runtime.reconnecting = false;
+    // The connection indicator counts down the scheduled wait; the report before it carries none.
+    check(report_delay == 0 && scheduled_delay >= gateway_ready_failure_delay(1) &&
+              scheduled_delay == runtime.reconnect_deadline_ms - before_failure,
+          "shipping READY worker's scheduled reconnecting event carries the wait before the next IDENTIFY");
     runtime.reconnect_deadline_ms = 0;
     runtime.ready_failures = 0;
     gateway_reconnect_reset(&runtime.reconnect_backoff);
