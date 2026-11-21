@@ -618,14 +618,10 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
 }
 
 // Re-walks the markers of a progressive file and decodes every scan into blocks, which
-// holds image.coefficient_blocks entries.
+// holds image.coefficient_blocks entries. image is a successful parse of encoded.
 JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImage& image,
                                           JpegCoefficientBlock* blocks) noexcept {
     JpegDecodeResult result{};
-    if (image.scan_count == 0 || encoded.count < 4 || encoded[0] != 0xFF || encoded[1] != 0xD8) {
-        result.error = JpegError::invalid_input;
-        return result;
-    }
     memset(blocks, 0, static_cast<usize>(image.coefficient_blocks) * sizeof(*blocks));
     JpegTables tables{};
     u16 restart_interval = 0;
@@ -717,18 +713,8 @@ JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
 
 JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
                                                  JpegCoefficientWorkspace* coefficients) noexcept {
-    JpegDecodeResult result{};
-    if (!coefficients || !image.tables || (!encoded.data && encoded.count != 0) || image.width == 0 ||
-        image.height == 0 || image.component_count == 0 || image.component_count > kJpegComponentMaximum ||
-        !jpeg_orientation_valid(image.orientation) ||
-        image.coefficient_blocks > kJpegCoefficientBlockMaximum ||
-        static_cast<u64>(image.entropy_offset) + image.entropy_bytes > encoded.count) {
-        result.error = JpegError::invalid_input;
-        return result;
-    }
-
-    coefficients->stored_rows = 0;
     if (image.progressive) {
+        coefficients->stored_rows = 0;
         coefficients->whole_blocks = 1;
         return decode_progressive_scans(
             encoded, image,
@@ -765,7 +751,6 @@ JpegDecodeResult jpeg_detail::decode_baseline_coefficients(ConstSlice<u8> encode
     JpegDecodeResult result{};
     u8* const words = coefficients->bytes;
     u8* const rows = words + jpeg_coefficient_row_offset(image.coefficient_blocks);
-    coefficients->stored_rows = 0;
     coefficients->whole_blocks = stored_rows ? 0u : 1u;
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes});
     JpegDecodeTable dc_decode[kJpegTableMaximum];

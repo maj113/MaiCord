@@ -1,5 +1,6 @@
 #include "maicord/media/compression/deflate.hpp"
 
+#include "maicord/core/adler32.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "deflate_tables.hpp"
@@ -242,7 +243,7 @@ DeflateTables g_fixed_tables;
 volatile LONG g_fixed_state;
 
 // Built once on first use; a thread racing the builder uses its own tables.
-const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
+inline const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
     if (g_fixed_state == 2) {
         _ReadWriteBarrier();
         return &g_fixed_tables;
@@ -375,7 +376,7 @@ bool decode_slow(BitReader* reader, const u32* table, u32 table_bits, u32 maximu
 }
 
 // Records the error. Returns false, which the caller returns.
-bool reject(InflateState* state, ZlibInflateError error) noexcept {
+inline bool reject(InflateState* state, ZlibInflateError error) noexcept {
     state->error = error;
     return false;
 }
@@ -717,49 +718,6 @@ bool read_zlib_header(InflateState* state) noexcept {
 }
 
 } // namespace
-
-// SSSE3 Adler-32 over 32-byte blocks, reduced every NMAX (5552) bytes.
-u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
-    u32 first = adler & 0xFFFFu;
-    u32 second = adler >> 16;
-    const u8* data = bytes.data;
-    u32 remaining = bytes.count;
-    constexpr u32 kBlock = 32;
-    const __m128i tap_high = _mm_setr_epi8(32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17);
-    const __m128i tap_low = _mm_setr_epi8(16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1);
-    const __m128i zero = _mm_setzero_si128();
-    const __m128i ones = _mm_set1_epi16(1);
-    while (remaining >= kBlock) {
-        u32 blocks = minimum<u32>(remaining / kBlock, 5552 / kBlock);
-        remaining -= blocks * kBlock;
-        __m128i prefix = _mm_cvtsi32_si128(static_cast<int>(first * blocks));
-        __m128i sum_second = _mm_cvtsi32_si128(static_cast<int>(second));
-        __m128i sum_first = zero;
-        do {
-            const __m128i low = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data));
-            const __m128i high = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + 16));
-            prefix = _mm_add_epi32(prefix, sum_first);
-            sum_first = _mm_add_epi32(sum_first, _mm_sad_epu8(low, zero));
-            sum_second = _mm_add_epi32(sum_second, _mm_madd_epi16(_mm_maddubs_epi16(low, tap_high), ones));
-            sum_first = _mm_add_epi32(sum_first, _mm_sad_epu8(high, zero));
-            sum_second = _mm_add_epi32(sum_second, _mm_madd_epi16(_mm_maddubs_epi16(high, tap_low), ones));
-            data += kBlock;
-        } while (--blocks);
-        sum_second = _mm_add_epi32(sum_second, _mm_slli_epi32(prefix, 5));
-        sum_first = _mm_add_epi32(sum_first, _mm_shuffle_epi32(sum_first, _MM_SHUFFLE(2, 3, 0, 1)));
-        sum_first = _mm_add_epi32(sum_first, _mm_shuffle_epi32(sum_first, _MM_SHUFFLE(1, 0, 3, 2)));
-        sum_second = _mm_add_epi32(sum_second, _mm_shuffle_epi32(sum_second, _MM_SHUFFLE(2, 3, 0, 1)));
-        sum_second = _mm_add_epi32(sum_second, _mm_shuffle_epi32(sum_second, _MM_SHUFFLE(1, 0, 3, 2)));
-        first = (first + static_cast<u32>(_mm_cvtsi128_si32(sum_first))) % 65'521;
-        second = static_cast<u32>(_mm_cvtsi128_si32(sum_second)) % 65'521;
-    }
-#pragma clang loop unroll(disable)
-    for (; remaining != 0; --remaining) {
-        first += *data++;
-        second += first;
-    }
-    return ((second % 65'521) << 16) | (first % 65'521);
-}
 
 DeflateWorkspace* deflate_workspace_allocate() noexcept {
     return static_cast<DeflateWorkspace*>(heap_allocate(sizeof(DeflateWorkspace)));

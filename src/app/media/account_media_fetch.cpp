@@ -130,7 +130,7 @@ namespace account_media_detail {
 // program from a single lazily reserved workspace; the encoded bytes stay
 // with the caller (response body or cache lease).
 bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const ConstSlice<u8>& encoded_view, u64 request_id,
-                    u32 frame_index) noexcept {
+                    u32 frame_index, u64 content_identity) noexcept {
     const MediaAssetKey key = key_view; // the media state is rewritten below
     const ConstSlice<u8> encoded = encoded_view;
     const bool lottie = lottie_asset(key);
@@ -149,7 +149,22 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
     LottieTiming timing{};
     const u32 pixels = lottie ? lottie_raster_pixels(key) : 0;
     if (lottie) {
-        if (!lottie_program_compile_frame(encoded, frame_index, static_cast<float>(pixels), &timing, workspace, media))
+        // The frames of one cache content share the document read for the first of them.
+        LottieDocument& document = media->lottie_document;
+        if (!content_identity || content_identity != media->lottie_identity) {
+            account_media_release_lottie(media);
+            if (!lottie_document_read(encoded, &document))
+                return false;
+        }
+        timing = document.timing;
+        ColrPaintProgram* program = nullptr;
+        const bool compiled = frame_index < timing.frames && (program = workspace(media)) &&
+                              lottie_program_compile_frame(document, encoded, frame_index, static_cast<float>(pixels),
+                                                           program);
+        media->lottie_identity = compiled ? content_identity : 0;
+        if (!media->lottie_identity)
+            lottie_document_release(&document);
+        if (!compiled)
             return false;
     } else {
         RegionalFlagArt art;
@@ -241,8 +256,8 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
             const bool matches = lease.acquired && lease.lookup.etag.count == conditional_etag.count &&
                                  bytes_equal(lease.lookup.etag.data, conditional_etag.data, conditional_etag.count);
             if (matches)
-                published =
-                    publish_vector(media, media->active_key, lease.lookup.bytes, response.request_id);
+                published = publish_vector(media, media->active_key, lease.lookup.bytes, response.request_id, 0,
+                                           lease.lookup.content_identity);
             if (published && policy.store_allowed)
                 media->frame_cache_generation = lease.lookup.generation;
             if (lease.acquired)

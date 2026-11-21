@@ -112,7 +112,8 @@ maicord_library(maicord_platform
     # library: one compile for every image.
     src/app/net/file_persistence.cpp
     ${maicord_test_hook_net_sources}
-    LIBS maicord_core maicord_window_win32 ${maicord_tls_libs} ole32 user32 gdi32 shell32 mfuuid ntdll maicord_combase advapi32)
+    LIBS maicord_core maicord_media_codec maicord_window_win32 ${maicord_tls_libs} ole32 user32 gdi32 shell32 mfuuid ntdll
+        maicord_combase advapi32)
 
 maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
     src/platform/audio/notification_audio_mixer.cpp

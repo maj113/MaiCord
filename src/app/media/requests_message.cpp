@@ -257,8 +257,9 @@ __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
     // The rarer decoders' errors only when they failed.
     const u64 details[] = {static_cast<u64>(failure.attachment_query_error), static_cast<u64>(failure.video_failure),
                            static_cast<u64>(failure.gif_error), static_cast<u64>(failure.animated_webp_error),
-                           static_cast<u64>(failure.lossy_webp_error)};
-    const char* keys = "attachment_query_error\0video_decode_failure\0gif_error\0animated_webp_error\0lossy_webp_error";
+                           static_cast<u64>(failure.lossy_webp_error), static_cast<u64>(failure.apng_error)};
+    const char* keys =
+        "attachment_query_error\0video_decode_failure\0gif_error\0animated_webp_error\0lossy_webp_error\0apng_error";
     for (const u64 value : details) {
         if (value)
             line.field(keys, value);

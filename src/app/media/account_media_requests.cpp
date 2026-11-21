@@ -20,8 +20,8 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     if (!supported_key(key)) {
         return result(AccountMediaRequestState::unsupported);
     }
-    u8 guild_target[kCdnMaximumTargetBytes];
-    CdnTargetResult guild_target_result{};
+    u8 target[kCdnMaximumTargetBytes];
+    CdnTargetResult written{};
     const bool hashed_identity = key.kind == MediaAssetKind::guild_icon ||
                                  key.kind == MediaAssetKind::user_avatar ||
                                  key.kind == MediaAssetKind::channel_icon;
@@ -29,8 +29,8 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         const bool animated = asset_hash_animated(guild_icon_hash);
         const bool animated_key = key.flags == media_asset_flag_animated;
         const u32 size = identity_size ? identity_size : kCdnIdentityDefaultSize;
-        const Slice<u8> output{guild_target, sizeof(guild_target)};
-        guild_target_result =
+        const Slice<u8> output{target, sizeof(target)};
+        written =
             key.kind == MediaAssetKind::guild_icon
                 ? write_guild_icon_cdn_target(key.id, guild_icon_hash, size, output, animated_key)
             : key.kind == MediaAssetKind::user_avatar
@@ -40,7 +40,7 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         // fetches the CDN's still (.webp without animated=true) until hovered.
         const bool flags_match = key.kind == MediaAssetKind::guild_icon ? !animated_key || animated
                                                                          : animated == animated_key;
-        if (!guild_target_result.ok() || cdn_guild_icon_variant(guild_icon_hash) != key.variant ||
+        if (!written.ok() || cdn_guild_icon_variant(guild_icon_hash) != key.variant ||
             !flags_match) {
             return result(AccountMediaRequestState::failed, AccountMediaError::target);
         }
@@ -105,20 +105,14 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         if (probe_static_png(media, &probe, &settled))
             return settled;
     }
-    u8 target[kCdnMaximumTargetBytes]{};
-    CdnTargetResult written{};
-    if (hashed_identity) {
-        copy_bytes(target, guild_target, guild_target_result.bytes);
-        written = guild_target_result;
-    } else {
+    if (!hashed_identity) {
         written =
             key.kind == MediaAssetKind::custom_emoji
                 ? write_custom_emoji_cdn_target(key.id, key.flags == media_asset_flag_animated, 64,
                                                 Slice<u8>{target, sizeof(target)})
                 : write_sticker_cdn_target(key.id, key.variant, Slice<u8>{target, sizeof(target)});
-    }
-    if (!written.ok()) {
-        return result(AccountMediaRequestState::failed, AccountMediaError::target);
+        if (!written.ok())
+            return result(AccountMediaRequestState::failed, AccountMediaError::target);
     }
     const AccountMediaRequestResult client = ensure_client_started(media);
     if (!client.ok()) {

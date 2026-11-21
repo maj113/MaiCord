@@ -572,12 +572,17 @@ bool sequence_table(u32 mode, const u8* source, u32 size, u32* consumed, const Z
 __forceinline void copy16(u8* output, const u8* from) noexcept {
     _mm_storeu_si128(reinterpret_cast<__m128i*>(output), _mm_loadu_si128(reinterpret_cast<const __m128i*>(from)));
 }
-// Writes may run up to 16 bytes past the match: the block's output has the
+// Writes may run up to 31 bytes past the match: the block's output has the
 // literal guard behind it. A chunk never reads bytes it has not written yet
 // once the offset is at least its width.
-__forceinline void copy_match(u8* output, u32 offset, u32 length) noexcept {
+MAICORD_HASWELL __forceinline void copy_match(u8* output, u32 offset, u32 length) noexcept {
     const u8* from = output - offset;
-    if (offset >= 16) {
+    if (offset >= 32) {
+#pragma clang loop unroll(disable)
+        for (u32 i = 0; i < length; i += 32)
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(output + i),
+                                _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(from + i)));
+    } else if (offset >= 16) {
         for (u32 i = 0; i < length; i += 16)
             copy16(output + i, from + i);
     } else if (offset >= 8) {

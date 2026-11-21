@@ -156,7 +156,6 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             byte_load_be32(data + length)) {
             return fail(result, ApngError::chunk_crc);
         }
-        ++result.chunks;
         if (!header_seen && type != kChunkIhdr) {
             return fail(result, ApngError::chunk_order);
         }
@@ -229,7 +228,6 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
                 return fail(result, ApngError::frame_sequence);
             }
             ++expected_sequence;
-            ++result.sequence_chunks;
             ApngFrame frame{};
             frame.first_span = image->span_count;
             frame.width = byte_load_be32(data + 4);
@@ -297,7 +295,6 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
                 return fail(result, ApngError::frame_sequence);
             }
             ++expected_sequence;
-            ++result.sequence_chunks;
             if (!append_span(image, &image->frames[current_frame],
                              cursor + 12, length - 4, false)) {
                 return fail(result, ApngError::span_limit);

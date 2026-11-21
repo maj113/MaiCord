@@ -34,11 +34,12 @@ struct Reader {
 // the exact value it had when flags were drawn from SVG text.
 double decimal(Reader& r, u32 unit) noexcept {
     const u32 zigzag = r.varint(), magnitude = (zigzag >> 1) + (zigzag & 1);
-    if (magnitude > 409600 / unit) {r.ok = false; return 0;}
-    const u32 hundredths = magnitude * unit;
+    // The same bound as magnitude > 409600 / unit (both units divide it), without a division.
+    if (u64{magnitude} * unit > 409600) {r.ok = false; return 0;}
+    const u32 hundredths = magnitude * unit, fraction = hundredths % 100;
     double value = hundredths / 100;
-    value += (hundredths / 10 % 10) / 10.0;
-    value += (hundredths % 10) / 100.0;
+    value += (fraction / 10) / 10.0;
+    value += (fraction % 10) / 100.0;
     return zigzag & 1 ? -value : value;
 }
 // The outline commands one path command adds at most: a move may close the
@@ -115,13 +116,16 @@ bool arc(Path& path, double rx, double ry, double rotation, bool large, bool swe
     const Point a{(x-cx)/rx,(y-cy)/ry},b{(-x-cx)/rx,(-y-cy)/ry};
     if (!arc_piece(path,a,b,center,rx,ry,sine,cosine,sweep)) return false; path.current=end; return true;
 }
-// Per command: its letter, the count of its numbers, then the numbers.
-bool path_outline(ConstSlice<u8> input, Path& path) noexcept {
-    Reader r{input.data, input.data + input.count};
+// Per command: its letter and the count of its numbers. The numbers at even places in the command come from the
+// x stream, the others from the y stream (regional_flag_layer_outline checked their bounds).
+bool path_outline(const RegionalFlagLayer& layer, Path& path) noexcept {
+    const u8* const numbers = layer.path.data + layer.command_bytes + 1;
+    Reader r{layer.path.data, layer.path.data + layer.command_bytes};
+    Reader x{numbers, numbers + layer.x_bytes}, y{numbers + layer.x_bytes, layer.path.data + layer.path.count};
     while (r.at < r.end) {
         char command = static_cast<char>(r.byte());
         const u32 count = r.varint();
-        if (!r.ok || !r.fits(count)) return false;
+        if (!r.ok || !x.fits(count - count / 2) || !y.fits(count / 2)) return false;
         const char letter = command >= 'a' && command <= 'z' ? static_cast<char>(command - 32) : command;
         if (letter == 'Z') {if (count || !path.close()) return false; path.previous = letter; continue;}
         u32 step = 0;
@@ -130,8 +134,12 @@ bool path_outline(ConstSlice<u8> input, Path& path) noexcept {
         if (!count || count % step) return false;
         for (u32 first = 0; first < count; first += step) {
             double v[7]{};
-            for (u32 i = 0; i < step; ++i) v[i] = decimal(r, kRegionalFlagPathUnit);
-            if (!r.ok) return false;
+            // A segment of an odd count starts on the y stream when it starts at an odd place.
+            Reader* const even = first & 1 ? &y : &x;
+            Reader* const odd = first & 1 ? &x : &y;
+            for (u32 i = 0; i < step; i += 2) v[i] = decimal(*even, kRegionalFlagPathUnit);
+            for (u32 i = 1; i < step; i += 2) v[i] = decimal(*odd, kRegionalFlagPathUnit);
+            if (!x.ok || !y.ok) return false;
             // Pairs after a move's first are lines.
             const bool relative = command >= 'a' && command <= 'z';
             const char upper = relative ? static_cast<char>(command - 32) : command;
@@ -178,15 +186,24 @@ bool regional_flag_record_parse(ConstSlice<u8> record, RegionalFlagArt* output) 
         layer.rotation = header & 8 ? -76.714f : 0;
         if (kind == 0) {
             const u8* first = r.at;
-            u64 bound = 1; // The closing of the last figure.
+            u64 bound = 1, x_numbers = 0, y_numbers = 0; // The bound counts the closing of the last figure.
             for (u8 letter = r.byte(); r.ok && letter; letter = r.byte()) {
                 const u32 count = r.varint();
-                if (!r.fits(count)) return false;
-                for (u32 i = 0; i < count; ++i) r.varint();
+                x_numbers += count - count / 2;
+                y_numbers += count / 2;
+                // Every number takes at least one byte.
+                if (!r.fits(static_cast<u32>(minimum<u64>(x_numbers + y_numbers, ~0u)))) return false;
                 bound += command_bound(letter, count);
             }
             if (!r.ok || r.at - 1 == first) return false;
-            layer.path = {first, static_cast<u32>(r.at - 1 - first)};
+            layer.command_bytes = static_cast<u32>(r.at - 1 - first);
+            // The x stream, then the y stream.
+            const u8* const x = r.at;
+            for (u64 n = 0; n < x_numbers; ++n) r.varint();
+            layer.x_bytes = static_cast<u32>(r.at - x);
+            for (u64 n = 0; n < y_numbers; ++n) r.varint();
+            if (!r.ok) return false;
+            layer.path = {first, static_cast<u32>(r.at - first)};
             layer.command_bound = static_cast<u32>(minimum<u64>(bound, kRegionalFlagMaximumCommands));
         } else {
             float* const geometry[]{&layer.cx, &layer.cy, &layer.rx, &layer.ry};
@@ -210,13 +227,16 @@ bool regional_flag_layer_outline(const RegionalFlagLayer& layer, GlyphOutline* o
     const ConstSlice<u8> commands_range{reinterpret_cast<const u8*>(output->commands),output->capacity*static_cast<u32>(sizeof(GlyphPathCommand))};
     if(!byte_range_valid(commands_range)||byte_ranges_overlap(commands_range,path_range)||
         byte_ranges_overlap(commands_range,layer_range)||byte_ranges_overlap(commands_range,result_range))return false;
+    // The commands, their zero end and the x stream lie inside the path.
+    if(layer.path.count&&(layer.command_bytes>=layer.path.count||layer.x_bytes>layer.path.count-layer.command_bytes-1))
+        return false;
     const float geometry[]{layer.cx,layer.cy,layer.rx,layer.ry};
     for(float value:geometry)if(!(value>=-4096&&value<=4096))return false;
     if((layer.rotation!=0&&layer.rotation!=-76.714f)||
         (layer.fill_rule!=GlyphFillRule::winding&&layer.fill_rule!=GlyphFillRule::alternate))return false;
     auto* commands=output->commands;const auto capacity=output->capacity;*output={commands,capacity};output->fill_rule=layer.fill_rule;
     Path path{output};
-    if(layer.path.count)return path_outline(layer.path,path)&&output->has_bounds;
+    if(layer.path.count)return path_outline(layer,path)&&output->has_bounds;
     if(!(layer.rx>0)||!(layer.ry>0))return false;
     double sine=0,cosine=0;sincos(layer.rotation*pi/180,sine,cosine);
     Point center{layer.cx,layer.cy};

@@ -95,8 +95,9 @@ struct ConsumeContext {
     u64 now_ms;
 };
 
+// A Lottie from cache content `content_identity` keeps its read document for the next frames (0: keeps none).
 bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const ConstSlice<u8>& encoded_view, u64 request_id,
-                    u32 frame_index = 0) noexcept;
+                    u32 frame_index = 0, u64 content_identity = 0) noexcept;
 bool publish_bundled_flag(AccountMedia* media, MediaAssetKey key) noexcept;
 bool consume_response(void* opaque, const CdnClientResponse& response,
                       ConstSlice<u8> body) noexcept;

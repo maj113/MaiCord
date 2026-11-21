@@ -698,7 +698,6 @@ void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u3
                           u32 declared_chunk_count, bool marker_seen, bool transport_malformed,
                           const JpegImage& image, JpegIccWorkspace* workspace) noexcept {
     JpegIccProfile& profile = workspace->profile;
-    profile.entries = workspace->entries;
     if (!marker_seen) {
         return;
     }

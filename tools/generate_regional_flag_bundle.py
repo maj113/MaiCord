@@ -13,12 +13,16 @@ SVG left to parse at run time: its filled layers in paint order, groups resolved
 into each layer's own fill and fill rule. A layer is a header byte (bits 0-1 the
 kind: 0 path, 1 circle, 2 ellipse; bit 2 the even-odd fill rule; bit 3 the one
 admitted ellipse rotation), the fill's three sRGB bytes, then for a path its SVG
-path commands (the letter, the varint count of its numbers, the zigzag varint
-numbers in tenths; a zero letter ends the path) and for a circle or ellipse its
-centre and radii (zigzag varint hundredths). 0xFF ends the record. Output is a
-deterministic C++ include with one stream of the records, similar ones adjacent: a zstd frame
-from tools/deflate_cache.txt, or a zlib stream when the cache lacks it. The client unpacks it
-once, on the first flag it draws.
+path commands (the letter and the varint count of its numbers; a zero letter ends
+the commands) and the path's numbers (zigzag varints in tenths) in two streams:
+first the x stream, the numbers at even places in their command, then the y
+stream, the numbers at odd places. A circle or ellipse has its centre and radii
+(zigzag varint hundredths). 0xFF ends the record. Each number stream holds one
+kind of value, so the pack compresses better than with the numbers between the
+commands. Output is a deterministic C++ include with one stream of the records,
+similar ones adjacent: a zstd frame from tools/deflate_cache.txt, or a zlib
+stream when the cache lacks it. The client unpacks it once, on the first flag it
+draws.
 """
 import argparse
 from collections import Counter
@@ -255,11 +259,13 @@ def encode(svg):
         out.append(kind | even_odd << 2 | rotated << 3)
         out += colour.to_bytes(3, "big")
         if kind == 0:
+            xs, ys = bytearray(), bytearray()
             for letter, numbers in convert(path_items(attributes[b"d"]), PATH_UNIT)[0]:
                 out += letter; varint(len(numbers), out, False)
-                for value in numbers:
-                    varint(value, out)
+                for index, value in enumerate(numbers):
+                    varint(value, ys if index & 1 else xs)
             out.append(0)
+            out += xs + ys
         else:
             for name in SHAPE_ATTRIBUTES[KINDS[kind]]:
                 varint(hundredths(attributes[name]), out)
@@ -290,11 +296,15 @@ def decode(record):
         at += 4
         kind = header & 3
         if kind == 0:
-            geometry = []
+            counts = []
             while record[at]:
                 letter = record[at:at + 1]; at += 1
-                geometry.append((letter, [signed() * PATH_UNIT for _ in range(unsigned())]))
+                counts.append((letter, unsigned()))
             at += 1
+            xs = iter([signed() * PATH_UNIT for _ in range(sum(count - count // 2 for _, count in counts))])
+            ys = iter([signed() * PATH_UNIT for _ in range(sum(count // 2 for _, count in counts))])
+            geometry = [(letter, [next(ys) if index & 1 else next(xs) for index in range(count)])
+                        for letter, count in counts]
         else:
             geometry = [signed() for _ in SHAPE_ATTRIBUTES[KINDS[kind]]]
         rows.append((kind, colour, bool(header & 4), bool(header & 8), geometry))

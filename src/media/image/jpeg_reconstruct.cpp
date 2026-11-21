@@ -223,60 +223,50 @@ MAICORD_HASWELL __forceinline __m256i convert_pixels(__m256i pixels) noexcept {
     }
 }
 
-// One row in place, eight pixels for each step.
-template <JpegColorTransform Transform> MAICORD_HASWELL void convert_row(u8* row, u32 width) noexcept {
-    u32 x = 0;
-    for (; x + 8 <= width; x += 8) {
-        __m256i_u* const pixels = reinterpret_cast<__m256i_u*>(row + x * 4u);
-        _mm256_storeu_si256(pixels, convert_pixels<Transform>(_mm256_loadu_si256(pixels)));
+// Sixteen pixels of the image's transform: one switch for each step, which takes the same case all image long.
+MAICORD_HASWELL __forceinline void convert_pixels(JpegColorTransform transform, __m256i pixels[2]) noexcept {
+    switch (transform) {
+    case JpegColorTransform::grayscale:
+        for (u32 i = 0; i < 2; ++i) pixels[i] = convert_pixels<JpegColorTransform::grayscale>(pixels[i]);
+        return;
+    case JpegColorTransform::rgb:
+        for (u32 i = 0; i < 2; ++i) pixels[i] = convert_pixels<JpegColorTransform::rgb>(pixels[i]);
+        return;
+    case JpegColorTransform::ycbcr:
+        for (u32 i = 0; i < 2; ++i) pixels[i] = convert_pixels<JpegColorTransform::ycbcr>(pixels[i]);
+        return;
+    case JpegColorTransform::cmyk:
+        for (u32 i = 0; i < 2; ++i) pixels[i] = convert_pixels<JpegColorTransform::cmyk>(pixels[i]);
+        return;
+    case JpegColorTransform::ycck: break;
     }
-    if (x < width) {
-        // The last pixels go through a padded copy, one pixel for each move.
-        u8 tail[32]{};
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-        for (u32 i = x; i < width; ++i)
-            copy_bytes(tail + (i - x) * 4u, row + i * 4u, 4);
-        __m256i_u* const pixels = reinterpret_cast<__m256i_u*>(tail);
-        _mm256_storeu_si256(pixels, convert_pixels<Transform>(_mm256_loadu_si256(pixels)));
-#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-        for (u32 i = x; i < width; ++i)
-            copy_bytes(row + i * 4u, tail + (i - x) * 4u, 4);
-    }
+    for (u32 i = 0; i < 2; ++i) pixels[i] = convert_pixels<JpegColorTransform::ycck>(pixels[i]);
 }
 
-using ConvertRow = void (*)(u8*, u32) noexcept;
-
-bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes, u8* row,
-                    JpegThumbnailRowSink sink, void* context) noexcept {
+// Each component's sample for pixel x is the plane sample at (x * h / max_h, y * v / max_v). The frame admits
+// sampling factors 1 and 2 only, so each component has full or half width. A pixel gets four component bytes:
+// past the image's components it repeats the first one, which no transform reads.
+MAICORD_HASWELL bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes,
+                                    u8* row, JpegThumbnailRowSink sink, void* context) noexcept {
     const u32 max_h = image.maximum_horizontal_sampling, max_v = image.maximum_vertical_sampling;
-    ConvertRow convert = convert_row<JpegColorTransform::grayscale>;
-    switch (image.color_transform) {
-    case JpegColorTransform::grayscale: break;
-    case JpegColorTransform::rgb: convert = convert_row<JpegColorTransform::rgb>; break;
-    case JpegColorTransform::ycbcr: convert = convert_row<JpegColorTransform::ycbcr>; break;
-    case JpegColorTransform::cmyk: convert = convert_row<JpegColorTransform::cmyk>; break;
-    case JpegColorTransform::ycck: convert = convert_row<JpegColorTransform::ycck>; break;
-    }
+    const JpegColorTransform transform = image.color_transform;
     const u32 width = layout.width;
     for (u32 y = 0; y < layout.height; ++y) {
-        // Each component's sample for pixel x is the plane sample at
-        // (x * h / max_h, y * v / max_v).
-        const u8* sources[kJpegComponentMaximum]{};
-        u32 shifts[kJpegComponentMaximum]{};
-        bool doubled = true;
-        for (u32 c = 0; c < image.component_count; ++c) {
-            const JpegComponent& component = image.components[c];
+        const u8* sources[kJpegComponentMaximum];
+        u32 shifts[kJpegComponentMaximum];
+        for (u32 c = 0; c < kJpegComponentMaximum; ++c) {
+            const u32 index = c < image.component_count ? c : 0u;
+            const JpegComponent& component = image.components[index];
             const u32 py = y * component.vertical_sampling / max_v;
-            sources[c] = planes + layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c];
+            sources[c] = planes + layout.plane_offsets[index] + static_cast<usize>(py) * layout.plane_pitches[index];
             shifts[c] = component.horizontal_sampling == max_h ? 0 : 1;
-            doubled = doubled && u32{component.horizontal_sampling} << shifts[c] == max_h;
         }
-        // Full and half width components: 16 pixels for each step, a half width sample two times.
-        u32 first = 0;
-        for (; doubled && first + 16 <= width; first += 16) {
-            __m128i samples[4]{};
-            for (u32 c = 0; c < image.component_count; ++c) {
-                const __m128i* const source = reinterpret_cast<const __m128i*>(sources[c] + (first >> shifts[c]));
+        u32 x = 0;
+        for (; x + 16 <= width; x += 16) {
+            __m128i samples[kJpegComponentMaximum];
+            for (u32 c = 0; c < kJpegComponentMaximum; ++c) {
+                const __m128i* const source = reinterpret_cast<const __m128i*>(sources[c] + (x >> shifts[c]));
+                // A half width sample two times.
                 const __m128i half = _mm_loadl_epi64(source);
                 samples[c] = shifts[c] ? _mm_unpacklo_epi8(half, half) : _mm_loadu_si128(source);
             }
@@ -284,36 +274,29 @@ bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, c
             const __m128i high01 = _mm_unpackhi_epi8(samples[0], samples[1]);
             const __m128i low23 = _mm_unpacklo_epi8(samples[2], samples[3]);
             const __m128i high23 = _mm_unpackhi_epi8(samples[2], samples[3]);
-            __m128i* const pixels = reinterpret_cast<__m128i*>(row + first * 4u);
-            _mm_storeu_si128(pixels, _mm_unpacklo_epi16(low01, low23));
-            _mm_storeu_si128(pixels + 1, _mm_unpackhi_epi16(low01, low23));
-            _mm_storeu_si128(pixels + 2, _mm_unpacklo_epi16(high01, high23));
-            _mm_storeu_si128(pixels + 3, _mm_unpackhi_epi16(high01, high23));
+            __m256i pixels[2] = {
+                __builtin_shufflevector(_mm_unpacklo_epi16(low01, low23), _mm_unpackhi_epi16(low01, low23), 0, 1, 2,
+                                        3),
+                __builtin_shufflevector(_mm_unpacklo_epi16(high01, high23), _mm_unpackhi_epi16(high01, high23), 0, 1,
+                                        2, 3)};
+            convert_pixels(transform, pixels);
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(row + x * 4u), pixels[0]);
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(row + x * 4u) + 1, pixels[1]);
         }
-        // The last pixels of the row, and every pixel of another ratio. Locals and a stepped output pointer
-        // keep the u8 stores from reloading them.
-        for (u32 c = 0; c < image.component_count; ++c) {
-            const u8* source = sources[c];
-            u8* out = row + first * 4u + c;
-            if (doubled) {
-                const u32 shift = shifts[c];
-                for (u32 x = first; x < width; ++x, out += 4)
-                    *out = source[x >> shift];
-                continue;
-            }
-            // Other ratios step the column index instead of dividing it.
-            const u32 h = image.components[c].horizontal_sampling;
-            u32 accumulated = 0;
-            for (u32 x = 0; x < width; ++x, out += 4) {
-                *out = *source;
-                accumulated += h;
-                if (accumulated >= max_h) {
-                    accumulated -= max_h;
-                    ++source;
-                }
-            }
+        if (x < width) {
+            // The last pixels go through a padded copy, one pixel for each move.
+            u8 tail[64]{};
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for (u32 i = x; i < width; ++i)
+                for (u32 c = 0; c < kJpegComponentMaximum; ++c)
+                    tail[(i - x) * 4u + c] = sources[c][i >> shifts[c]];
+            __m256i_u* const unaligned = reinterpret_cast<__m256i_u*>(tail);
+            __m256i pixels[2] = {_mm256_loadu_si256(unaligned), _mm256_loadu_si256(unaligned + 1)};
+            convert_pixels(transform, pixels);
+            _mm256_storeu_si256(unaligned, pixels[0]);
+            _mm256_storeu_si256(unaligned + 1, pixels[1]);
+            copy_bytes(row + x * 4u, tail, (width - x) * 4u);
         }
-        convert(row, width);
         if (!sink(context, y, row)) return false;
     }
     return true;

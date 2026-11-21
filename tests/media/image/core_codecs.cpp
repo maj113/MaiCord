@@ -1326,7 +1326,7 @@ void test_animated_webp_lossless() noexcept {
     AnimatedWebpImage animation{};
     const AnimatedWebpParseResult parsed = animated_webp_parse(
         ConstSlice<u8>{encoded, fixture.encoded_bytes}, &animation, &animation_workspace);
-    expect(parsed.ok() && parsed.chunks == 7 && parsed.frame_chunks == 4 && animation.width == 4 &&
+    expect(parsed.ok() && animation.width == 4 &&
                animation.height == 4 && animation.frame_count == 4 && animation.play_count == 2 &&
                animation.background_rgba == 0x80302010u && animation.has_alpha &&
                !animation.has_color_profile && animation.frames == animation_workspace.frames &&
@@ -1446,7 +1446,7 @@ void test_animated_webp_mixed_codecs() noexcept {
     AnimatedWebpImage animation{};
     const AnimatedWebpParseResult parsed = animated_webp_parse(
         ConstSlice<u8>{encoded, fixture.encoded_bytes}, &animation, &animation_workspace);
-    expect(parsed.ok() && parsed.chunks == 5 && parsed.frame_chunks == 4 && animation.frame_count == 3 &&
+    expect(parsed.ok() && animation.frame_count == 3 &&
                animation.play_count == 1 && animation.width == 4 && animation.height == 4 &&
                animation.has_alpha && animation.frames[0].codec == AnimatedWebpCodec::vp8l_lossless &&
                animation.frames[1].codec == AnimatedWebpCodec::vp8_lossy &&
@@ -1564,8 +1564,7 @@ void test_apng_decode() noexcept {
     ApngImage animation{};
     const ApngParseResult parsed =
         apng_parse(ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes}, &animation, &apng_workspace);
-    expect(parsed.ok() && parsed.chunks == 13 && parsed.sequence_chunks == 8 &&
-               animation.frame_count == 4 && animation.play_count == 2 && animation.default_in_animation &&
+    expect(parsed.ok() && animation.frame_count == 4 && animation.play_count == 2 && animation.default_in_animation &&
                animation.default_span_count == 2 && animation.frames[0].span_count == 2 &&
                animation.frames[1].span_count == 2 &&
                animation.frames[1].dispose == ApngDispose::previous &&
@@ -1969,7 +1968,7 @@ void test_png_decode() noexcept {
     const PngDecodeResult decoded =
         png_decode_scanlines(ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes}, &image, &workspace,
                              Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)});
-    expect(decoded.ok() && decoded.parse.chunks == 4 && image.width == 64 && image.height == 64 &&
+    expect(decoded.ok() && image.width == 64 && image.height == 64 &&
                image.color_type == 6 && image.bit_depth == 8 && image.channels == 4 &&
                image.bytes_per_pixel == 4 && image.row_bytes == 256 && image.row_stride == 257 &&
                image.inflated_bytes == fixture.filtered_bytes &&

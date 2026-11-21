@@ -7,6 +7,7 @@
 #include "maicord/media/containers/track_info.hpp"
 #include "maicord/app/media/local_draft_preview.hpp"
 #include "maicord/app/media/attachment_media_probe.hpp"
+#include "maicord/render/effects/lottie_program.hpp"
 
 namespace maicord {
 
@@ -285,6 +286,10 @@ struct AccountMedia {
     void* allocation;
     void* expanded_scanlines;
     void* lottie_workspace;
+    // The Lottie document whose frames this media compiles, read once from the cache content `lottie_identity`
+    // (0: none kept). See publish_vector.
+    LottieDocument lottie_document;
+    u64 lottie_identity;
     u64 request_id;
     u64 active_request_id;
     u64 frame_request_id;
@@ -394,6 +399,8 @@ bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noe
 // Returns scanline storage a large decode grew past the lane's own, once its
 // frame is taken; the next decode grows again if it needs to.
 bool account_media_trim_scanlines(AccountMedia* media) noexcept;
+// Frees the kept Lottie document: its animation's frames stopped coming to this media.
+void account_media_release_lottie(AccountMedia* media) noexcept;
 bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation = 0) noexcept;
 // Only a ready collection source publishes a count / one-based selected track.

@@ -555,6 +555,9 @@ u32 media_worker_entry(void* opaque) noexcept {
         AccountMediaWorkItem& work = lane->command;
         account_media_release_audio_source(&lane->media);
         account_media_trim_scanlines(&lane->media);
+        // Animation frames keep to the lane holding their source (see queue): other work ends the animation here.
+        if (work.kind != AccountMediaWorkKind::animation_advance)
+            account_media_release_lottie(&lane->media);
         // A composer poster was copied into the atlas when its frame was taken;
         // its decoder and sparse source never outlive the next lane command.
         if (account_media_local_video_resident(&lane->media))

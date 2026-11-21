@@ -112,7 +112,6 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
         const u8* data = type_bytes + 4;
         if (crc32_extend(0, type_bytes, length + 4) != byte_load_be32(data + length))
             return parse_failure(result, PngError::chunk_crc);
-        ++result.chunks;
         if (!header && type != kChunkIhdr)
             return parse_failure(result, PngError::chunk_order);
         if (idat && type != kChunkIdat)

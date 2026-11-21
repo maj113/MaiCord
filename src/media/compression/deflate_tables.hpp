@@ -24,7 +24,4 @@ inline constexpr u8 kDeflateCodeLengthOrder[19] = {
     16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
 };
 
-// RFC 1950 Adler-32 continued over bytes (start from 1).
-u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept;
-
 } // namespace maicord

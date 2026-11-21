@@ -88,7 +88,6 @@ enum class GifError : u8 {
     lzw_code_size,
     lzw_missing_clear,
     lzw_invalid_code,
-    lzw_dictionary,
     lzw_pixel_count,
     lzw_missing_end,
 };

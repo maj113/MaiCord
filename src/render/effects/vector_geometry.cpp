@@ -102,13 +102,14 @@ bool vec_grow(Scratch& s, void** data, u32* capacity, u32 count, u32 needed, u32
 }
 
 bool flatten_cubic(Scratch& s, const double (&curve)[8], double tolerance, double min_cosine, Vec<Flat>& out) noexcept {
-    // A stack of pieces still to cut, the next on top; a piece cut in two leaves its second half in place.
+    // A stack of pieces still to cut, the next on top; a piece cut in two leaves its second half in place. Below the
+    // top two, the pieces have depths that rise one step or more from the bottom, so 16 levels need 17 places.
     struct Piece {
         double c[8];
         double t0, t1;
         u32 depth;
     };
-    Piece stack[48];
+    Piece stack[17];
     u32 top = 1;
     copy_bytes(stack[0].c, curve, sizeof(curve));
     stack[0].t0 = 0;
@@ -116,7 +117,7 @@ bool flatten_cubic(Scratch& s, const double (&curve)[8], double tolerance, doubl
     stack[0].depth = 0;
     while (top) {
         Piece& piece = stack[top - 1];
-        if (piece.depth >= 16 || top + 1 >= 48 || (cubic_flat(piece.c, tolerance) && cubic_turn_ok(piece.c, min_cosine))) {
+        if (piece.depth >= 16 || (cubic_flat(piece.c, tolerance) && cubic_turn_ok(piece.c, min_cosine))) {
             Flat* end = vec_push(s, out);
             if (!end)
                 return false;

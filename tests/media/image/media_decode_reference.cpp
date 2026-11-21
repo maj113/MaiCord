@@ -191,18 +191,20 @@ GifError reference_gif_decode(const u8* data, u32 data_end, u32 minimum_code_siz
         } else if (code > next_code) {
             return GifError::lzw_invalid_code;
         }
+        // Each prefix points to a smaller code that is not a control code, so these guards never trip. They keep the
+        // stack in bounds if that rule breaks.
         u32 chain = 0;
         while (code >= clear_code) {
             if (code < end_code + 1u || code >= next_code || stack_count >= kGifLzwDictionaryCapacity ||
                 ++chain > kGifLzwDictionaryCapacity) {
-                return GifError::lzw_dictionary;
+                return GifError::lzw_invalid_code;
             }
             stack[stack_count++] = suffix[code];
             code = prefix[code];
         }
         first = code;
         if (stack_count >= kGifLzwDictionaryCapacity) {
-            return GifError::lzw_dictionary;
+            return GifError::lzw_invalid_code;
         }
         stack[stack_count++] = static_cast<u8>(first);
         while (stack_count != 0) {

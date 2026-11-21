@@ -931,7 +931,8 @@ bool failure_cooling(AccountMedia* media, const MediaAssetKey& key, u64 now_ms,
 LottieProbe probe_lottie(AccountMedia* media, CacheProbe* probe) noexcept {
     auto lease = encoded_media_cache_acquire(media->pipeline.cache, probe->key, probe->unix_seconds);
     const bool fresh = lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh;
-    const bool published = fresh && publish_vector(media, probe->key, lease.lookup.bytes, 0);
+    const bool published =
+        fresh && publish_vector(media, probe->key, lease.lookup.bytes, 0, 0, lease.lookup.content_identity);
     if (published)
         media->frame_cache_generation = lease.lookup.generation;
     if (lease.acquired && !fresh && lease.lookup.etag.count <= sizeof(media->pipeline.result_etag)) {
@@ -976,6 +977,11 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
     media->pipeline.scanline_capacity = 0;
     media->pipeline.scanline_reserved = kScanlineStorageBytes;
     return true;
+}
+
+void account_media_release_lottie(AccountMedia* media) noexcept {
+    lottie_document_release(&media->lottie_document);
+    media->lottie_identity = 0;
 }
 
 bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey& key,
@@ -1159,7 +1165,8 @@ AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, c
     if (lottie_asset(key)) {
         auto lease = encoded_media_cache_acquire(media->pipeline.cache, key, unix_now_seconds);
         const bool matches = lease.acquired && lease.lookup.generation == cache_generation;
-        const bool published = matches && publish_vector(media, key, lease.lookup.bytes, 0, frame_index);
+        const bool published = matches && publish_vector(media, key, lease.lookup.bytes, 0, frame_index,
+                                                         lease.lookup.content_identity);
         if (published)
             media->frame_cache_generation = lease.lookup.generation;
         if (lease.acquired)
@@ -1416,6 +1423,7 @@ bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
         arena_release(&static_cast<ColrPaintProgram*>(media->lottie_workspace)->storage);
         pages_release(media->lottie_workspace);
     }
+    account_media_release_lottie(media);
     if (media->expanded_scanlines)
         pages_release(media->expanded_scanlines);
     if (media->webp_workspace) {

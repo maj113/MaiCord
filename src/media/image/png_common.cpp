@@ -3,6 +3,7 @@
 #include "maicord/media/image/png.hpp"
 
 #include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 
@@ -122,10 +123,12 @@ void unfilter_sub(u8* bytes, u32 count, u32 bpp) noexcept {
     }
 }
 
-void unfilter_up(u8* bytes, const u8* previous, u32 count) noexcept {
+MAICORD_HASWELL void unfilter_up(u8* bytes, const u8* previous, u32 count) noexcept {
     u32 x = 0;
-    for (; x + 16 <= count; x += 16) {
-        store16(bytes + x, _mm_add_epi8(load16(bytes + x), load16(previous + x)));
+    for (; x + 32 <= count; x += 32) {
+        __m256i_u* const row = reinterpret_cast<__m256i_u*>(bytes + x);
+        _mm256_storeu_si256(row, _mm256_add_epi8(_mm256_loadu_si256(row),
+                                                 _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(previous + x))));
     }
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; x < count; ++x) {
@@ -312,6 +315,9 @@ bool png_unfilter_row(u8 filter, u8* bytes, const u8* previous, u32 count, u32 b
         if (previous) {
             unfilter_average(bytes, previous, count, bpp);
         } else {
+            // Each byte adds a byte this loop wrote bpp bytes earlier. The compiler's vector copy of the loop is
+            // valid only for rows of two pixels or fewer, which are shorter than one vector, so it never runs.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (u32 x = bpp; x < count; ++x) {
                 bytes[x] = static_cast<u8>(bytes[x] + (bytes[x - bpp] >> 1));
             }

@@ -39,8 +39,6 @@ struct AnimatedWebpRetainedMetadata {
     u32 background_rgba;
     u32 frame_count;
     u32 play_count;
-    u32 chunks;
-    u32 frame_chunks;
     u16 width;
     u16 height;
     bool has_alpha;
@@ -70,8 +68,6 @@ struct AnimatedWebpImage {
 };
 
 struct AnimatedWebpParseResult {
-    u32 chunks;
-    u32 frame_chunks;
     AnimatedWebpError error;
 
     constexpr bool ok() const noexcept {
@@ -107,8 +103,8 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
 AnimatedWebpError animated_webp_frame_payloads(ConstSlice<u8> encoded, const AnimatedWebpFrame& frame,
                                                ConstSlice<u8>* image_payload, ConstSlice<u8>* alpha_payload) noexcept;
 
-static_assert(sizeof(AnimatedWebpRetainedMetadata) == 48);
-static_assert(sizeof(AnimatedWebpWorkspace) == 6'216);
+static_assert(sizeof(AnimatedWebpRetainedMetadata) == 40);
+static_assert(sizeof(AnimatedWebpWorkspace) == 6'208);
 static_assert(sizeof(AnimatedWebpImage) == 32);
 
 } // namespace maicord

@@ -16,9 +16,10 @@ enum class LossyWebpError : u8 {
     alpha,
 };
 
+// The one-byte results follow the alpha result, with no padding between them.
 struct LossyWebpDecodeResult {
-    WebpParseResult parse;
     WebpAlphaDecodeResult alpha;
+    WebpParseResult parse;
     Vp8ParseResult envelope;
     Vp8ControlParseResult control;
     Vp8CoefficientParseResult coefficients;
@@ -59,7 +60,7 @@ LossyWebpDecodeResult lossy_webp_decode_frame_keyframe(
     Vp8lWorkspace* alpha_lossless_workspace, Slice<u8> alpha_rgba_scratch,
     Slice<u8> alpha_output) noexcept;
 
-static_assert(sizeof(LossyWebpDecodeResult) == 44);
+static_assert(sizeof(LossyWebpDecodeResult) == 28);
 static_assert(sizeof(LossyWebpWorkspace) == 812'080);
 
 } // namespace maicord

@@ -7,7 +7,7 @@
 maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp windows:src/core/data_path.cpp
     linux:src/core/linux/data_path.cpp src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp
-    src/core/stable_storage.cpp src/core/utf.cpp src/core/byte_range.cpp windows:src/core/delay_load.cpp
+    src/core/stable_storage.cpp src/core/utf.cpp src/core/byte_range.cpp src/core/adler32.cpp windows:src/core/delay_load.cpp
     # Linux: the system side of what Windows takes from src/core (log, paths, shared libraries, resources), and the
     # bodies of the neutral os layer (include/maicord/os): address space, SRW locks, waits, threads, files and
     # directories, ordinal compares, the local time zone and date formatting (the TZif reader is pure).

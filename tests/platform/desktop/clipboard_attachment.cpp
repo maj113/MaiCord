@@ -292,7 +292,7 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
         // The PNG goes to Discord as it is: a faster conversion keeps every byte (FNV-1a of the file).
         u64 hash = 1469598103934665603ull;
         for (u64 i = 0; i < png.bytes; ++i) hash = (hash ^ png.data[i]) * 1099511628211ull;
-        check(pass ? hash == 15560526484314000521ull && png.bytes == 67413 : hash == 16193588247255920943ull && png.bytes == 863,
+        check(pass ? hash == 10907331817183208007ull && png.bytes == 67413 : hash == 3789476198103969147ull && png.bytes == 551,
               "the converted PNG has the pinned bytes");
         clipboard_png_release(&png);
     }

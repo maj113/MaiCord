@@ -306,9 +306,12 @@ ColrPaintProgram g_program;
 MaskDigest g_masks[kMaxMasks];
 
 bool compile(ConstSlice<u8> json, u32 frame, LottieTiming* timing) noexcept {
-    return lottie_program_compile_frame(
-        json, frame, 160, timing, +[](void* program) noexcept { return static_cast<ColrPaintProgram*>(program); },
-        &g_program);
+    LottieDocument document{};
+    const bool read = lottie_document_read(json, &document);
+    *timing = document.timing;
+    const bool ok = read && frame < timing->frames && lottie_program_compile_frame(document, json, frame, 160, &g_program);
+    lottie_document_release(&document);
+    return ok;
 }
 
 // One document at up to three frames: the first, the middle and the last.

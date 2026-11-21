@@ -311,6 +311,7 @@ struct JpegDecodeResult {
 };
 
 JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace) noexcept;
+// `image` is the result of a successful jpeg_parse of `encoded`: the decode does not check it again.
 JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const JpegImage& image,
                                                  JpegCoefficientWorkspace* coefficients) noexcept;
 

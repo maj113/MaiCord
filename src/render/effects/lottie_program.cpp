@@ -185,7 +185,6 @@ struct Document {
     float frame = 0;
     bool invalid_parent = false;
     u16 gradient_count = 0;
-    u32* ends;
     // The low bits count prior gradient records. The high bit marks a gradient.
     u16 leaf_records[maximum_leaves];
     alignas(Leaf) u8 leaf_pool[leaf_pool_bytes];
@@ -229,13 +228,14 @@ struct Document {
     }
     // The complete document is validated once. Matched delimiters let property
     // reads skip subtrees without recursively revalidating their keyframes.
+    // `at` is the value's first byte.
     JsonValue value(u32& at,u32& token) noexcept {
-        whitespace(at);const u32 begin=at;JsonValueKind kind{};
+        const u32 begin=at;JsonValueKind kind{};
         const char c=json.input.data[at];
         if(c=='{' || c=='[' || c=='"') {
             kind=c=='{'?JsonValueKind::object:c=='['?JsonValueKind::array:JsonValueKind::string;
             if(c!='"')located[located_slot(begin)]={begin,token};
-            const u32 end=ends[token];at=json.structurals[end]+1;token=end+1;
+            const u32 end=json.ends[token];at=json.structurals[end]+1;token=end+1;
         } else {
             kind=c=='n'?JsonValueKind::null_value:(c=='t'||c=='f')?JsonValueKind::boolean:JsonValueKind::number;
             at=json.structurals[token];
@@ -246,33 +246,29 @@ struct Document {
     }
     JsonValue get(const JsonValue& object,const char* name) noexcept {
         if(object.kind!=JsonValueKind::object || !object.source.bytes)return {};
-        u32 token=locate(object.source_offset)+1,n=0;while(name[n])++n;
+        const u32 open=locate(object.source_offset),close=json.ends[open];
+        u32 n=0;while(name[n])++n;
         JsonValue result{};bool found=false;
-        while(json.input.data[json.structurals[token]]!='}') {
+        // Each member's name links to the next one's (see lottie_document_read).
+        for(u32 token=open+1;token!=close;token=json.ends[token]) {
             const u32 start=json.structurals[token]+1,end=json.structurals[token+1];
-            const JsonString key{{json.input.data+start,end-start},start,false};
-            token+=3;
-            if(json_name_is(key,{name,n})) {
+            if(json_name_is({{json.input.data+start,end-start},start,false},{name,n})) {
                 if(found)return {};
-                u32 at=json.structurals[token-1]+1;result=value(at,token);found=true;
-            } else {
-                // Another member's value ends at its closing token. A number or a literal has none.
-                const char c=json.input.data[json.structurals[token]];
-                if(c=='{' || c=='[' || c=='"')token=ends[token]+1;
+                u32 at=json.structurals[token+2]+1,value_token=token+3;whitespace(at);
+                result=value(at,value_token);found=true;
             }
-            if(json.input.data[json.structurals[token]]==',')++token;
         }
         return result;
     }
-    // Element-by-element walk of an array.
-    struct Elements { u32 token, at; bool more; };
+    // Element-by-element walk of an array of `count` elements (see lottie_document_read).
+    struct Elements { u32 token, at; bool more; u32 count; };
     Elements elements(const JsonValue& input) noexcept {
-        if(input.kind!=JsonValueKind::array || !input.source.bytes)return {0,0,false};
-        return {locate(input.source_offset)+1,input.source_offset+1,true};
+        if(input.kind!=JsonValueKind::array || !input.source.bytes)return {0,0,false,0};
+        const u32 open=locate(input.source_offset);
+        return {open+1,input.source_offset+1,true,json.ends[json.ends[open]]};
     }
     bool step(Elements& e,JsonValue* item) noexcept {
         if(!e.more)return false;
-        if(json.input.data[json.structurals[e.token]]==']' && e.at>=json.structurals[e.token]){e.more=false;return false;}
         whitespace(e.at);
         if(json.input.data[e.at]==']'){e.more=false;return false;}
         *item=value(e.at,e.token);
@@ -321,25 +317,24 @@ struct Document {
         if(property.kind==JsonValueKind::object){const auto k=get(property,"k");if(k.source.bytes)property=k;}
         Sample result{property,property,{},0};
         if(property.kind!=JsonValueKind::array)return result;
-        // Keyframes are walked in order, keeping only the selected one and its neighbours.
+        // Keyframes are walked in order up to the first one after the frame, keeping it and the two before it.
+        auto walk=elements(property);
+        if(!walk.count || walk.count>512)return {};
         JsonValue previous{},current{},upcoming{},item{};
-        u32 count=0,selected=0;bool plain=false,advancing=true;
-        for(auto walk=elements(property);step(walk,&item);++count){
-            if(count==512)return {};
-            if(!count){current=item;plain=item.kind!=JsonValueKind::object || !get(item,"t").source.bytes;}
-            else if(!plain && advancing){
-                if(field(item,"t")<=frame){previous=current;current=item;++selected;}
-                else{upcoming=item;advancing=false;}
-            }
+        step(walk,&current);
+        if(current.kind!=JsonValueKind::object || !get(current,"t").source.bytes)return result;
+        u32 selected=0;float current_time=0,upcoming_time=0;bool advancing=true;
+        while(advancing && step(walk,&item)){
+            const float time=field(item,"t");
+            if(time<=frame){previous=current;current=item;current_time=time;++selected;}
+            else{upcoming=item;upcoming_time=time;advancing=false;}
         }
-        if(!count)return {};
-        if(plain)return result;
         result.key=current;result.start=get(current,"s");
         if(!result.start.source.bytes && selected)result.start=get(previous,"e");
         if(!result.start.source.bytes && selected)result.start=get(previous,"s");
         result.end=result.start;
         if(!advancing && field(current,"h")!=1){
-            const float begin=field(current,"t"),end=field(upcoming,"t");
+            const float begin=selected?current_time:field(current,"t"),end=upcoming_time;
             result.end=get(current,"e");
             if(!result.end.source.bytes)result.end=get(upcoming,"s");
             if(!result.end.source.bytes)result.end=result.start;
@@ -347,16 +342,12 @@ struct Document {
         }
         return result;
     }
+    // Element `index` of an array (its last when shorter), or the value itself.
     float component(JsonValue value,u32 index,float fallback=0) noexcept {
         if(value.kind==JsonValueKind::array){
-            JsonValue chosen{},last{},item{};u32 n=0;
-            for(auto walk=elements(value);step(walk,&item);++n){
-                if(n==256)return fallback;
-                if(n==index)chosen=item;
-                last=item;
-            }
-            if(!n)return fallback;
-            value=index<n?chosen:last;
+            auto walk=elements(value);
+            if(!walk.count || walk.count>256)return fallback;
+            for(u32 n=minimum(index,walk.count-1)+1;n--;)step(walk,&value);
         }
         return number(value,fallback);
     }
@@ -432,17 +423,14 @@ struct Document {
         return point(get(object, key), fallback);
     }
     __declspec(noinline) Point point_array_components(const JsonValue& value, Point fallback) noexcept {
-        JsonValue first{}, second{}, item{};
-        u32 count = 0;
-        for (auto walk = elements(value); step(walk, &item); ++count) {
-            if (count == 256)
-                return fallback;
-            if (count < 2)
-                (count ? second : first) = item;
-        }
-        if (!count)
+        auto walk = elements(value);
+        if (!walk.count || walk.count > 256)
             return fallback;
-        return {number(first, fallback.x), number(count > 1 ? second : first, fallback.y)};
+        JsonValue first{}, second{};
+        step(walk, &first);
+        if (!step(walk, &second))
+            second = first;
+        return {number(first, fallback.x), number(second, fallback.y)};
     }
     Point point_components(const JsonValue& value, Point fallback) noexcept {
         if (value.kind != JsonValueKind::array)
@@ -586,7 +574,11 @@ struct Document {
         const Shape kind = style.kind;
         if (kind != Shape::gradient_fill && kind != Shape::gradient_stroke)
             return append(geometry, m, style.color);
-        const JsonValue& item = style.item;
+        return append_gradient(geometry, m, style.item, opacity);
+    }
+    // A gradient fill or stroke. The stops' scratch is in this frame, not in the frame of every solid colour.
+    __declspec(noinline) bool append_gradient(Geometry* geometry, const Matrix& m, const JsonValue& item,
+                                              float opacity) noexcept {
         const u32 previous = leaf_count;
         if (!append(geometry, m, {1, 1, 1, opacity * animated_field(item, "o", 100) * .01f}, true))
             return false;
@@ -1102,9 +1094,9 @@ struct Document {
         return true;
     }
 };
-static_assert(offsetof(Document, leaf_records) == 112);
-static_assert(offsetof(Document, leaf_pool) == 2160);
-static_assert(sizeof(Document) == 748160);
+static_assert(offsetof(Document, leaf_records) == 100);
+static_assert(offsetof(Document, leaf_pool) == 2152);
+static_assert(sizeof(Document) == 748152);
 // A leaf's outline as glyph path commands; a figure is closed as a fill closes it.
 struct OutlineSink {
     GlyphOutline* out;
@@ -1158,27 +1150,10 @@ ColrPaintElement leaf(const Document& doc) noexcept {
     }
     return e;
 }
-struct ScannedJson {
-    JsonIndexedDocument json{};
-    u32* index = nullptr;
-    ~ScannedJson() noexcept {
-        if (index)
-            pages_release(index);
-    }
-    bool read(ConstSlice<u8> encoded) noexcept {
-        index = commit_pages<u32>(encoded.count * sizeof(u32));
-        if (!index)
-            return false;
-        index = new (index) u32[encoded.count];
-        const Utf8View text{reinterpret_cast<const char*>(encoded.data), encoded.count};
-        const auto scan = json_scan_structurals_avx1(text, {index, encoded.count});
-        json = {text, {index, scan.count}};
-        return scan.ok();
-    }
-};
-bool timing_from_index(const JsonIndexedDocument& json, LottieTiming* timing) noexcept {
+// The header of a validated document; the visit also writes the bracket ends of every container but the root.
+bool read_header(const Utf8View& text, ConstSlice<u32> index, u32* ends, LottieTiming* timing) noexcept {
     struct Header { float w=0,h=0,first=0,last=0,rate=0; bool layers=false; } h{};
-    const bool okay=json_visit_root_object(json.input,json.structurals,64,
+    const bool okay=json_visit_root_object(text,index,64,
         +[](void* p,JsonString key,JsonValue value) noexcept {
             auto& h=*static_cast<Header*>(p);
             if(json_string_equals_ascii(key,utf8_literal("w")))h.w=number(value);
@@ -1188,7 +1163,7 @@ bool timing_from_index(const JsonIndexedDocument& json, LottieTiming* timing) no
             else if(json_string_equals_ascii(key,utf8_literal("fr")))h.rate=number(value);
             else if(json_string_equals_ascii(key,utf8_literal("layers")))h.layers=value.kind==JsonValueKind::array;
             return true;
-        },&h).ok() && h.w>0 && h.w<=4096 && h.h>0 && h.h<=4096 && h.layers;
+        },&h,ends).ok() && h.w>0 && h.w<=4096 && h.h>0 && h.h<=4096 && h.layers;
     if(!okay)return false;
     if(h.first<0 || h.last-h.first>10000 || h.rate>120)return false;
     timing->first=h.first;timing->rate=h.rate;
@@ -1200,34 +1175,21 @@ bool timing_from_index(const JsonIndexedDocument& json, LottieTiming* timing) no
 bool compile_parameters_valid(ColrPaintProgram* program, float frame, float pixels) noexcept {
     return program && pixels > 0 && pixels <= 512 && frame >= 0 && frame < 100000;
 }
-bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
-                     float frame, float pixels) noexcept {
-    const usize ends_bytes = json.structurals.count * sizeof(u32);
-    const usize doc_offset = (ends_bytes + alignof(Document) - 1) & ~(alignof(Document) - 1);
-    void* block = commit_pages(doc_offset + sizeof(Document));
+bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program, float frame, float pixels) noexcept {
+    void* block = commit_pages(sizeof(Document));
     if (!block)
         return false;
-    // The hot ends table precedes the header and first leaf records.
-    auto* doc = new (static_cast<u8*>(block) + doc_offset) Document;
+    auto* doc = new (block) Document;
     struct Release {
         Document* doc;
-        void* block;
         ~Release() noexcept {
             if (doc->factory)
                 geometry::factory_release(doc->factory);
-            pages_release(block);
+            pages_release(doc);
         }
-    } release{doc, block};
+    } release{doc};
     const auto text = json.input;
-    const auto index = json.structurals;
     doc->json = json;
-    doc->ends = new (block) u32[json.structurals.count];
-    u32 stack[64]{},depth=0;
-    for(u32 i=0;i<index.count;++i){const char c=text.data[index[i]];
-        if(c=='"'){doc->ends[i]=i+1;++i;}
-        else if(c=='{'||c=='['){if(depth==64)return false;stack[depth++]=i;}
-        else if(c=='}'||c==']'){if(!depth)return false;doc->ends[stack[--depth]]=i;}
-    }
     doc->frame = frame;
     if (!geometry::factory_create(&doc->factory))
         return false;
@@ -1299,18 +1261,71 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
     return colr_program_build(program, source, root_paint, {0, 0, w / extent, h / extent}, pixels);
 }
 } // namespace
-bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float pixels,
-                                  LottieTiming* timing, LottieProgramAcquire acquire, void* context) noexcept {
-    if (!encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes)
+bool lottie_document_read(ConstSlice<u8> json, LottieDocument* document) noexcept {
+    reset_value(document);
+    if (!json.data || !json.count || json.count > kLottieMaximumBytes)
         return false;
-    reset_value(timing);
-    ScannedJson source;
-    if (!source.read(encoded) || !timing_from_index(source.json, timing) || frame_index >= timing->frames)
+    // Room for an index entry and a bracket end for each byte. The pages past the two tables go back to the system.
+    const usize bytes = usize{json.count} * 2 * sizeof(u32);
+    auto* index = commit_pages<u32>(bytes);
+    if (!index)
         return false;
-    auto* program = acquire(context);
-    const float frame = timing->first + frame_index;
-    return compile_parameters_valid(program, frame, pixels) &&
-           compile_indexed(source.json, program, frame, pixels);
+    const Utf8View text{reinterpret_cast<const char*>(json.data), json.count};
+    const auto scan = json_scan_structurals_avx1(text, {index, json.count});
+    u32* const ends = index + scan.count;
+    if (!scan.ok() || !read_header(text, {index, scan.count}, ends, &document->timing)) {
+        pages_release(index);
+        return false;
+    }
+    // The root object closes at the last structural. A string value ends at its closing quote, the next structural.
+    // The entry of a member's name is the next member's name, or the object's closing bracket after the last member.
+    // The entry of an array's closing bracket is its element count. The visit allowed 64 levels.
+    ends[0] = scan.count - 1;
+    u32 elements[64], depth = 0;
+    for (u32 i = 0; i < scan.count; ++i) {
+        const char c = text.data[index[i]];
+        if (c == '{' || c == '[') {
+            // A number has no structural: an array is empty when only blanks separate its brackets.
+            u32 at = index[i] + 1;
+            while (text.data[at] == ' ' || text.data[at] == '\t' || text.data[at] == '\n' || text.data[at] == '\r')
+                ++at;
+            elements[depth++] = text.data[at] != ']';
+        } else if (c == ',') {
+            ++elements[depth - 1];
+        } else if (c == ']') {
+            ends[i] = elements[--depth];
+        } else if (c == '}') {
+            --depth;
+        } else if (c == '"') {
+            u32 next = i + 1;
+            if (text.data[index[i + 2]] == ':') {
+                const u32 value = i + 3;
+                const char first = text.data[index[value]];
+                const u32 after = first == '{' || first == '[' ? ends[value] + 1 : first == '"' ? value + 2 : value;
+                next = text.data[index[after]] == ',' ? after + 1 : after;
+            }
+            ends[i] = next;
+            ++i;
+        }
+    }
+    const usize used = (usize{scan.count} * 2 * sizeof(u32) + 4095) & ~usize{4095};
+    if (used < bytes)
+        pages_decommit(reinterpret_cast<u8*>(index) + used, bytes - used);
+    document->index = index;
+    document->count = scan.count;
+    return true;
+}
+void lottie_document_release(LottieDocument* document) noexcept {
+    if (document->index)
+        pages_release(document->index);
+    document->index = nullptr;
+}
+bool lottie_program_compile_frame(const LottieDocument& document, ConstSlice<u8> json, u32 frame_index, float pixels,
+                                  ColrPaintProgram* program) noexcept {
+    const float frame = document.timing.first + frame_index;
+    const JsonIndexedDocument indexed{{reinterpret_cast<const char*>(json.data), json.count},
+                                      {document.index, document.count}, 0, document.index + document.count};
+    return compile_parameters_valid(program, frame, pixels) && compile_indexed(indexed, program, frame, pixels);
 }
 } // namespace maicord
 #pragma clang attribute pop

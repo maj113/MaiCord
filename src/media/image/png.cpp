@@ -216,8 +216,6 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
         if (crc32_extend(0, type_bytes, length + 4) != expected_crc) {
             return parse_failure(result, PngError::chunk_crc);
         }
-        ++result.chunks;
-
         if (stage == ParseStage::header && type != kChunkIhdr) {
             return parse_failure(result, PngError::chunk_order);
         }

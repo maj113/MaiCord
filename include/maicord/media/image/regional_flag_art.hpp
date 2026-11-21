@@ -22,7 +22,10 @@ inline constexpr u32 kRegionalFlagMaximumCommands = 2048;
 inline constexpr float kRegionalFlagPixelsPerUnit = 64.f / 36;
 
 struct RegionalFlagLayer {
-    ConstSlice<u8> path; // The path's commands; empty for a circle or ellipse.
+    // The path: its commands (letters and number counts), their zero end, then its x and y number streams; empty
+    // for a circle or ellipse.
+    ConstSlice<u8> path;
+    u32 command_bytes, x_bytes; // Of path: the commands before their zero end, and the x stream.
     ColrColor color;
     float cx, cy, rx, ry, rotation;
     GlyphFillRule fill_rule;

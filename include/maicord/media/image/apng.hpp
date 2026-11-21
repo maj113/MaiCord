@@ -69,8 +69,6 @@ enum class ApngError : u8 {
 };
 
 struct ApngParseResult {
-    u32 chunks;
-    u32 sequence_chunks;
     ApngError error;
 
     constexpr bool ok() const noexcept {

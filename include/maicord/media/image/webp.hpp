@@ -104,9 +104,10 @@ struct Vp8lWorkspace {
     u16 lookup[kVp8lLookupCapacity];
 };
 
+// Eight bytes: the decoders return it in a register.
 struct WebpDecodeResult {
-    WebpParseResult parse;
     u32 rgba_bytes;
+    WebpParseResult parse;
     WebpError error;
 
     constexpr bool ok() const noexcept {
@@ -137,5 +138,6 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(
     Slice<u8> pixel_output) noexcept;
 
 static_assert(sizeof(WebpImage) == 48);
+static_assert(sizeof(WebpDecodeResult) == 8);
 
 } // namespace maicord

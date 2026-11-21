@@ -42,7 +42,7 @@ u32 bgra_to_rgba(const u8* bytes) noexcept {
 }
 
 AnimatedWebpError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 size, AnimatedWebpImage* image,
-                              AnimatedWebpFrame* frame, AnimatedWebpParseResult* result) noexcept {
+                              AnimatedWebpFrame* frame) noexcept {
     if (size <= 16) {
         return AnimatedWebpError::chunk;
     }
@@ -91,7 +91,6 @@ AnimatedWebpError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 size, Ani
         if (!chunk_bounds(encoded, cursor, limit, &type, &child_size, &child_payload, &child_end)) {
             return AnimatedWebpError::chunk;
         }
-        ++result->frame_chunks;
         if (type == kVp8l) {
             if (image_seen || alpha_seen || unknown_seen || child_size < 5) {
                 return image_seen ? AnimatedWebpError::duplicate_chunk : AnimatedWebpError::order;
@@ -191,7 +190,6 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
         if (!chunk_bounds(encoded, cursor, encoded.count, &type, &size, &payload, &end)) {
             return parse_failure(result, AnimatedWebpError::chunk);
         }
-        ++result.chunks;
         const u8* data = encoded.data + payload;
         if (type == kVp8x) {
             if (vp8x_seen || cursor != 12 || size != 10) {
@@ -256,7 +254,7 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
             }
             AnimatedWebpFrame& frame = frames[image->frame_count];
             const AnimatedWebpError frame_error =
-                parse_frame(encoded, payload, size, image, &frame, &result);
+                parse_frame(encoded, payload, size, image, &frame);
             if (frame_error != AnimatedWebpError::none) {
                 return parse_failure(result, frame_error);
             }

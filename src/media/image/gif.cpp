@@ -24,32 +24,31 @@ void decode_fail(GifDecodeResult& result, GifError error) noexcept {
     result.error = error;
 }
 
-void initialize_image(GifImage* image, GifWorkspace* workspace) noexcept {
+inline void initialize_image(GifImage* image, GifWorkspace* workspace) noexcept {
     reset_value<GifImage>(image);
     image->frames = workspace->frames;
     image->frame_capacity = kGifFrameCapacity;
 }
 
-bool palette_bounds(ConstSlice<u8> encoded, u32 offset, u32 count) noexcept {
+inline bool palette_bounds(ConstSlice<u8> encoded, u32 offset, u32 count) noexcept {
     return count >= 2 && count <= 256 && offset <= encoded.count && count * 3u <= encoded.count - offset;
 }
 
-bool skip_subblocks(ConstSlice<u8> encoded, u32* cursor, GifParseResult* result,
-                    u32* payload_bytes) noexcept {
+// gif_parse bounds encoded.count by kGifEncodedMaximumBytes, so the payload total cannot pass it.
+bool skip_subblocks(ConstSlice<u8> encoded, u32* cursor, u32* payload_bytes) noexcept {
     u32 total = 0;
     for (;;) {
         if (*cursor >= encoded.count) {
             return false;
         }
         const u32 bytes = encoded[(*cursor)++];
-        ++result->data_subblocks;
         if (bytes == 0) {
             if (payload_bytes) {
                 *payload_bytes = total;
             }
             return true;
         }
-        if (bytes > encoded.count - *cursor || bytes > kGifEncodedMaximumBytes - total) {
+        if (bytes > encoded.count - *cursor) {
             return false;
         }
         total += bytes;
@@ -328,7 +327,6 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
     bool loop_seen = false;
     while (cursor < encoded.count) {
         const u8 block = encoded[cursor++];
-        ++result.blocks;
         if (block == 0x3Bu) {
             if (pending.present || image->frame_count == 0 || cursor != encoded.count) {
                 return fail(result, GifError::block_order);
@@ -340,7 +338,6 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
             if (version_87a || cursor >= encoded.count) {
                 return fail(result, version_87a ? GifError::version : GifError::truncated);
             }
-            ++result.extensions;
             const u8 label = encoded[cursor++];
             if (label == 0xF9u) {
                 if (pending.present || encoded.count - cursor < 6 || encoded[cursor] != 4) {
@@ -358,7 +355,6 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                 pending.transparent = (packed & 1u) != 0;
                 pending.present = true;
                 cursor += 6;
-                ++result.data_subblocks;
                 continue;
             }
             if (label == 0xFFu) {
@@ -378,7 +374,6 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                             return fail(result, GifError::truncated);
                         }
                         const u32 bytes = encoded[cursor++];
-                        ++result.data_subblocks;
                         if (bytes == 0) {
                             break;
                         }
@@ -399,13 +394,13 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                         }
                         cursor += bytes;
                     }
-                } else if (!skip_subblocks(encoded, &cursor, &result, nullptr)) {
+                } else if (!skip_subblocks(encoded, &cursor, nullptr)) {
                     return fail(result, GifError::truncated);
                 }
                 continue;
             }
             if (label == 0xFEu) {
-                if (!skip_subblocks(encoded, &cursor, &result, nullptr)) {
+                if (!skip_subblocks(encoded, &cursor, nullptr)) {
                     return fail(result, GifError::truncated);
                 }
                 continue;
@@ -415,7 +410,7 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                     return fail(result, GifError::block);
                 }
                 cursor += 12;
-                if (!skip_subblocks(encoded, &cursor, &result, nullptr)) {
+                if (!skip_subblocks(encoded, &cursor, nullptr)) {
                     return fail(result, GifError::truncated);
                 }
                 reset_value<PendingControl>(&pending);
@@ -488,7 +483,7 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
             return fail(result, GifError::lzw_code_size);
         }
         frame.data_offset = cursor;
-        if (!skip_subblocks(encoded, &cursor, &result, &frame.compressed_bytes)) {
+        if (!skip_subblocks(encoded, &cursor, &frame.compressed_bytes)) {
             return fail(result, GifError::truncated);
         }
         if (frame.compressed_bytes == 0) {
@@ -559,13 +554,6 @@ void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const
     if ((frame.flags & gif_frame_interlaced) != 0) {
         deinterlace_rows(indices.data, frame.width, frame.height);
     }
-}
-
-GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
-                                        GifWorkspace* workspace, Slice<u8> indices) noexcept {
-    GifDecodeResult result;
-    gif_decode_parsed_frame(&result, encoded, image, frame_index, workspace, indices);
-    return result;
 }
 
 } // namespace maicord

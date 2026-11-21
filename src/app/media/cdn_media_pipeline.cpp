@@ -46,7 +46,8 @@ ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, const ConstSlice<u8>
 }
 
 // Results are reset out of line: a braced result written at each return would be zeroed in a
-// temporary and copied. A reset result is given its state without another reset.
+// temporary and copied. lookup_cached, decode_cached_frame and admit_response reset the result once, so the
+// decoders below write into a reset result and give it its state without another reset.
 template <typename Result> __declspec(noinline) void reset(Result* out) noexcept {
     reset_value<Result>(out);
 }
@@ -136,7 +137,6 @@ bool gif_key_valid(const MediaAssetKey& key) noexcept {
 
 void decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticPngState success_state,
                   CdnStaticPngResult* out) noexcept {
-    reset(out);
     const auto parsed = png_parse(encoded, &out->image);
     if (parsed.ok()) {
         // Interlaced files and files with many IDAT chunks need room past the output.
@@ -205,7 +205,6 @@ bool reduced_webp_row(void* context, u32 y, const u8* rgba) noexcept {
 // at most `extent` px per side; a compressed ALPH plane decodes whole first.
 void reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 extent,
                        CdnStaticWebpState success_state, CdnStaticWebpResult* out) noexcept {
-    reset(out);
     out->state = CdnStaticWebpState::decode_rejected;
     out->decode.error = WebpError::dimensions;
     WebpThumbnailLayout layout{};
@@ -262,7 +261,6 @@ void reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 e
 
 void decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticWebpState success_state,
                        CdnStaticWebpResult* out) noexcept {
-    reset(out);
     if ((reinterpret_cast<usize>(pipeline->scanline_storage) & 3u) != 0) {
         return set_state(out, CdnStaticWebpState::invalid);
     }
@@ -442,7 +440,6 @@ __forceinline void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> 
 
 void decode_jpeg_bytes(CdnMediaPipeline* pipeline, const MediaAssetKey& key, ConstSlice<u8> encoded,
                        CdnStaticJpegState success_state, CdnStaticJpegResult* out) noexcept {
-    reset(out);
     if (!pipeline->jpeg_workspace) {
         return set_state(out, CdnStaticJpegState::jpeg_workspace_required);
     }
@@ -535,7 +532,6 @@ AnimatedWebpError decode_lossy_frame_rgba8(CdnMediaPipeline* pipeline, ConstSlic
 void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 frame_index,
                                 u16 cache_generation, CdnAnimatedWebpState success_state,
                                 u64 content_identity, CdnAnimatedWebpResult* out) noexcept {
-    reset(out);
     if (!pipeline->webp_workspace || !pipeline->animated_webp_workspace ||
         (reinterpret_cast<usize>(pipeline->scanline_storage) & 3u) != 0) {
         return set_state(out, CdnAnimatedWebpState::invalid);
@@ -550,7 +546,7 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     if (retained) {
         animation = {saved.frames, saved.background_rgba, saved.frame_count, saved.play_count,
                      saved.width, saved.height, saved.has_alpha, saved.has_color_profile};
-        out->decode.parse = {saved.chunks, saved.frame_chunks, AnimatedWebpError::none};
+        out->decode.parse = {AnimatedWebpError::none};
     } else {
         out->decode.parse = animated_webp_parse(encoded, &animation, &workspace);
     }
@@ -614,8 +610,8 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     }
     if (!retained && content_identity != 0) {
         saved = {content_identity, animation.frames, animation.background_rgba, animation.frame_count,
-                 animation.play_count, animation_parse.chunks, animation_parse.frame_chunks,
-                 animation.width, animation.height, animation.has_alpha, animation.has_color_profile, lossy_present};
+                 animation.play_count, animation.width, animation.height, animation.has_alpha,
+                 animation.has_color_profile, lossy_present};
     }
     if (requested.codec == AnimatedWebpCodec::vp8l_lossless) {
         out->rgba8 = ConstSlice<u8>{pipeline->scanline_storage, out->decode.frame_decode.rgba_bytes};
@@ -634,7 +630,6 @@ void decode_animated_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
 
 struct RetainedApngMetadata {
     u32 marker;
-    ApngParseResult parse;
     u32 play_count;
     u32 default_compressed_bytes;
     u32 palette_offset;
@@ -649,7 +644,8 @@ struct RetainedApngMetadata {
     bool default_in_animation;
     bool has_color_metadata;
 };
-static_assert(sizeof(RetainedApngMetadata) == kApngRetainedMetadataBytes);
+// The record lives in the span table's reserved tail. It is 48 bytes, so 16 bytes of that tail stay unused.
+static_assert(sizeof(RetainedApngMetadata) <= kApngRetainedMetadataBytes);
 
 __forceinline bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
                            u64 content_identity, ApngImage* image, ApngParseResult* parse) noexcept {
@@ -662,8 +658,8 @@ __forceinline bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<
     if (saved.content_identity != content_identity) {
         return false;
     }
-    // The identity pins the same validated bytes. No encoded pointers are retained.
-    reset_value<ApngImage>(image);
+    // The identity pins the same validated bytes. No encoded pointers are retained. The caller's image starts
+    // zeroed.
     image->frames = pipeline->apng_workspace->frames;
     image->spans = pipeline->apng_workspace->spans;
     image->frame_capacity = kApngFrameCapacity;
@@ -704,17 +700,16 @@ __forceinline bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<
         }
     }
     png.has_color_metadata = saved.has_color_metadata;
-    *parse = saved.parse;
+    *parse = {ApngError::none}; // only a parse without error is retained
     return true;
 }
 
 __forceinline void retain_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
-                          const ApngImage& image, ApngParseResult parse, u64 content_identity) noexcept {
+                          const ApngImage& image, u64 content_identity) noexcept {
     if (content_identity == 0 || image.span_count > kApngRetainedSpanCapacity) {
         return;
     }
     RetainedApngMetadata saved{};
-    saved.parse = parse;
     saved.play_count = image.play_count;
     saved.default_compressed_bytes = image.default_compressed_bytes;
     saved.frame_count = static_cast<u16>(image.frame_count);
@@ -761,7 +756,6 @@ __declspec(noinline) PngDecodeResult decode_apng_default(const CdnMediaPipeline*
 void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 frame_index,
                        u16 cache_generation, CdnApngState success_state, bool validate_default,
                        u64 content_identity, CdnApngResult* out) noexcept {
-    reset(out);
     if (!pipeline->apng_workspace) {
         return set_state(out, CdnApngState::invalid);
     }
@@ -806,7 +800,7 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
         return;
     }
     if (!retained) {
-        retain_apng_metadata(pipeline, encoded, animation, parse, content_identity);
+        retain_apng_metadata(pipeline, encoded, animation, content_identity);
     }
     out->scanlines = ConstSlice<u8>{pipeline->scanline_storage, out->image.inflated_bytes};
     out->frame_count = animation.frame_count;
@@ -820,7 +814,6 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
 void decode_gif_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 frame_index,
                       u16 cache_generation, CdnGifState success_state, u64 content_identity,
                       CdnGifResult* out) noexcept {
-    reset(out);
     if (!pipeline->gif_workspace) {
         return set_state(out, CdnGifState::invalid);
     }
