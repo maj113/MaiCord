@@ -41,7 +41,7 @@ bool settings_dialog_begin(SettingsDialog& dialog, UiPageKey page, Utf8View titl
     settings_layer_reset(&dialog.layer);
     if (!ui_page_registry_initialize(&dialog.registry, {&dialog.page, 1}))
         return false;
-    dialog.content = {title, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+    dialog.content = {title, {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
     if (!ui_page_registry_register(&dialog.registry, {page, dialog.content.title, &dialog.content}).ok())
         return false;
     settings_modal_take_input();

@@ -31,6 +31,9 @@ struct UiMediaPickerMetrics {
     // header_gap separates the tabs, search field and body.
     float padding, gap, content_inset, tab_height, tab_max_width, header_gap;
     float search_height, footer_height, section_height, rail_width, rail_pitch;
+    // A Unicode category's rail pitch (Discord's 34 DIP), the inset of an inline sticker row's art and text, and
+    // the side of the inline results' paging arrows and spinner.
+    float category_pitch, inline_inset, inline_arrow;
     // card_gap: the space around the rail and inspector cards inside the panel.
     float card_gap;
     // list_inset: the grid's leading padding; the scrollbar gutter trails it.
@@ -49,7 +52,8 @@ struct UiMediaPickerStyle {
     UiMediaPickerMetrics metrics;
     float panel_radius, control_radius, edit_radius, selection_width, category_opacity;
 };
-constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
+// The theme's paddings and radii shape the picker; the rest are the picker's own sizes.
+constexpr UiMediaPickerStyle ui_media_picker_style(const UiThemeMetrics& theme_metrics) noexcept {
     UiMediaPickerStyle style{};
     auto& m = style.metrics;
     m.panel_width = kUiMediaPickerWidth;
@@ -58,46 +62,50 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
     m.anchor_gap = kUiAutocompleteGap;
     // Discord: 16 DIP header padding, 30 DIP tabs, 12 DIP header gaps.
     m.padding = kUiFloatingSurfaceInset * 2;
-    m.gap = kUiMenuRowGap;
+    m.gap = theme_metrics.menu_gap;
     m.content_inset = kUiFloatingSurfaceInset * 2;
-    m.tab_height = kUiMenuCompactRowHeight - 2;
+    m.tab_height = theme_metrics.menu_compact_height - 2;
     m.tab_max_width = kUiMediaControlHeight * 2;
-    m.header_gap = kUiMenuPadding * 2;
+    m.header_gap = theme_metrics.menu_padding * 2;
     m.search_height = kUiMediaControlHeight;
     // Inspector bar 48, section heading 32, category list 48 with 40 DIP items.
     m.footer_height = kUiMediaControlHeight + kUiFloatingSurfaceInset;
-    m.section_height = kUiMenuCompactRowHeight;
+    m.section_height = theme_metrics.menu_compact_height;
     m.rail_width = kUiMediaControlHeight + kUiFloatingSurfaceInset;
     m.rail_pitch = kUiMediaControlHeight;
+    m.category_pitch = m.rail_pitch - theme_metrics.menu_padding;
+    m.inline_inset = theme_metrics.composer_padding;
+    m.inline_arrow = theme_metrics.menu_compact_height;
     m.card_gap = kUiFloatingSurfaceInset;
     m.scrollbar_gutter = kUiFloatingSurfaceInset;
     m.list_inset = kUiFloatingSurfaceInset;
     // Medium (40) and large (48) emoji with 4 DIP padding.
     m.emoji_extent = kUiMediaControlHeight;
     m.emoji_large_extent = kUiMediaControlHeight + kUiFloatingSurfaceInset;
-    m.emoji_padding = kUiComposerPadding;
+    m.emoji_padding = theme_metrics.composer_padding;
     // 96 DIP sticker previews at least 12 DIP apart.
     m.sticker_extent = kUiMediaControlHeight * 2 + kUiFloatingSurfaceInset * 2;
-    m.sticker_gap = kUiMenuPadding * 2;
+    m.sticker_gap = theme_metrics.menu_padding * 2;
     // 200 DIP desired GIF columns, 12 DIP gutters, 110 DIP category tiles.
     m.gif_target_width = kUiMediaControlHeight * 5;
-    m.gif_gutter = kUiMenuPadding * 2;
-    m.gif_category_height = kUiMediaControlHeight * 2 + kUiMenuCompactRowHeight - 2;
-    m.icon_extent = kUiMenuIconExtent;
-    m.text_inset = kUiComposerPadding;
-    m.rail_inset = kUiComposerPadding;
+    m.gif_gutter = theme_metrics.menu_padding * 2;
+    m.gif_category_height = kUiMediaControlHeight * 2 + theme_metrics.menu_compact_height - 2;
+    m.icon_extent = theme_metrics.menu_icon;
+    m.text_inset = theme_metrics.composer_padding;
+    m.rail_inset = theme_metrics.composer_padding;
     m.footer_art = kUiMediaControlTarget;
-    style.panel_radius = kUiSearchMenuCornerRadius;
-    style.control_radius = kUiControlCornerRadius;
-    style.edit_radius = kUiEditCornerRadius;
+    // The corner of a search menu: the edit radius plus the menu padding.
+    style.panel_radius = theme_metrics.edit_radius + theme_metrics.menu_padding;
+    style.control_radius = theme_metrics.control_radius;
+    style.edit_radius = theme_metrics.edit_radius;
     style.selection_width = 1.5f;
     style.category_opacity = kUiMediaHoverOpacity;
     return style;
 }
 // The reaction popout is the emoji picker without the tab selector, at the
 // popout size and spacing; every other metric is shared.
-constexpr UiMediaPickerStyle ui_media_picker_reaction_style() noexcept {
-    auto style = ui_media_picker_style();
+constexpr UiMediaPickerStyle ui_media_picker_reaction_style(const UiThemeMetrics& theme_metrics) noexcept {
+    auto style = ui_media_picker_style(theme_metrics);
     style.metrics.panel_width = kUiMediaPickerReactionWidth;
     style.metrics.panel_height = kUiMediaPickerReactionHeight;
     style.metrics.anchor_gap = 8;
@@ -105,9 +113,9 @@ constexpr UiMediaPickerStyle ui_media_picker_reaction_style() noexcept {
 }
 // Inline results float like the composer's other autocomplete popups: the
 // menu corner radius, 8 DIP above their anchor.
-constexpr UiMediaPickerStyle ui_media_picker_inline_style() noexcept {
-    auto style = ui_media_picker_style();
-    style.panel_radius = kUiMenuCornerRadius;
+constexpr UiMediaPickerStyle ui_media_picker_inline_style(const UiThemeMetrics& theme_metrics) noexcept {
+    auto style = ui_media_picker_style(theme_metrics);
+    style.panel_radius = theme_metrics.menu_radius;
     style.metrics.anchor_gap = kUiFloatingSurfaceInset;
     return style;
 }
@@ -123,7 +131,6 @@ inline constexpr u32 kUiInlineResultsStickerLimit = 8;
 // 32 DIP squares 8 DIP inside the strip's ends.
 inline constexpr float kUiInlineResultsPadding = kUiFloatingSurfaceInset;
 inline constexpr float kUiInlineResultsHeadingHeight = kUiFloatingSurfaceInset * 3 + 18;
-inline constexpr float kUiInlineResultsArrowExtent = kUiMenuCompactRowHeight;
 enum class UiMediaPickerKind : u8 {
     gif,
     sticker,
@@ -320,6 +327,8 @@ struct UiMediaPickerScene {
     const UiMediaPickerContent* content;
     UiRect viewport, panel, tabs, field, text, body, rail, footer;
     UiMediaPickerStyle style;
+    // Borrowed apply-time bank (null: the default metrics); the host sets it before each update.
+    const UiResolvedThemeStyles* theme_styles;
     UiWidgetHandle root, edit, back, tab_widgets[3];
     UiMediaPickerTarget pressed;
     u64 account_scope, query_generation;

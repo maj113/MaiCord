@@ -261,7 +261,7 @@ bool project() noexcept {
         if (!application_synchronize_login_view())
             return false;
     } else {
-        auto metrics = kFriendsShellLayoutMetrics;
+        auto metrics = ui_friends_shell_layout_metrics(kUiThemeMetricsDefault);
         if (!ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::friends, metrics,
                                           r.width * 96.f / r.dpi, r.height * 96.f / r.dpi))
             return false;
@@ -308,7 +308,7 @@ bool account_storage() noexcept {
     renderer_bind_navigation_view(&g_app.renderer, &ui.chat_state, &ui.user_store, &ui.navigation_view);
     g_app.renderer.message_measure_cache = &ui.text_measure_cache;
     return ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::friends,
-                                        kFriendsShellLayoutMetrics,
+                                        ui_friends_shell_layout_metrics(kUiThemeMetricsDefault),
                                         g_app.renderer.width * 96.f / g_app.renderer.dpi,
                                         g_app.renderer.height * 96.f / g_app.renderer.dpi) &&
            renderer_bind_ui_scene(&g_app.renderer, &g_app.shell_scene) &&

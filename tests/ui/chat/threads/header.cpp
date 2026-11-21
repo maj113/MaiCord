@@ -15,9 +15,9 @@ bool disjoint(UiRect a, UiRect b) noexcept {
 void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     UiScene shell{};
     UiThreadHeader header{};
-    const auto style = ui_thread_header_style();
+    const auto style = ui_thread_header_style(kUiThemeMetricsDefault);
     const UiRect strip{312, 48, 632, 128}, clip{0, 0, 632, 480};
-    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 632, 480) &&
+    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 632, 480) &&
         ui_thread_header_bind_shell(&header, &shell), "thread header: borrows six actual shell slots without another widget owner");
     if (!header.manager) { ui_scene_release(&shell); return; }
     const u32 shell_count = shell.widgets.count;

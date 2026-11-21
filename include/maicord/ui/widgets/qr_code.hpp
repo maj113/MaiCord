@@ -62,12 +62,8 @@ template <u32 MaximumSize> QrCodeModules qr_code_modules(const QrCodeOf<MaximumS
     return {code.modules, code.size <= MaximumSize ? code.size : 0u};
 }
 
-bool qr_code_module(QrCodeModules code, u32 x, u32 y) noexcept;
-template <u32 MaximumSize> bool qr_code_module(const QrCodeOf<MaximumSize>& code, u32 x, u32 y) noexcept {
-    return qr_code_module(qr_code_modules(code), x, y);
-}
-// Coalesces adjacent rows with identical horizontal black runs. A null/zero
-// output is a size query and the destination remains untouched when too small.
+// Coalesces adjacent rows with identical horizontal black runs. A null/zero output is a size query. A too small
+// output holds the first rectangles that fit, and the result reports the count the symbol needs.
 QrCodeRectResult qr_code_compact_rects(QrCodeModules code, Slice<QrCodeRect> output) noexcept;
 template <u32 MaximumSize>
 QrCodeRectResult qr_code_compact_rects(const QrCodeOf<MaximumSize>& code, Slice<QrCodeRect> output) noexcept {

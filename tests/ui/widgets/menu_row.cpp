@@ -9,6 +9,9 @@
 #include "maicord/ui/chat/messages/context_menu.hpp"
 #include "maicord/ui/text/edit_menu.hpp"
 #include "maicord/model/chat/message_store.hpp"
+#include "maicord/ui/chat/threads/header.hpp"
+#include "maicord/ui/media/picker.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -121,8 +124,8 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
         valid ? popup_scene_layout_node(fixture.scene, fixture.rows[1].widget) : nullptr;
     valid = valid && popup_scene_menu_row_geometry(fixture.scene, 0, &first) &&
             popup_scene_menu_row_geometry(fixture.scene, 1, &second) && first_row && second_row &&
-            ui_rect_height(first_row->rectangle) == kUiMenuRowHeight &&
-            ui_rect_height(second_row->rectangle) == kUiMenuDetailRowHeight &&
+            ui_rect_height(first_row->rectangle) == kUiThemeMetricsDefault.menu_row_height &&
+            ui_rect_height(second_row->rectangle) == kUiThemeMetricsDefault.menu_detail_height &&
             first.shortcut.right <= first.icon.left && second.icon.right <= second.primary.left &&
             popup_scene_selected_action(fixture.scene) == 1;
     check(valid, "menu row: real popup scene uses shared row heights and icon placement");
@@ -261,7 +264,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
     valid = valid && popup_scene_menu_row_geometry(fixture.scene, 0, &first) &&
             popup_scene_resolve_item_layout(fixture.scene, 0, &checked_layout);
     const auto checked_content = checked_layout.label ? checked_layout.label->content_rectangle : UiRect{};
-    const float mark_extent = minimum(kUiMenuIconExtent, ui_rect_width(checked_content) * .5f);
+    const float mark_extent = minimum(kUiThemeMetricsDefault.menu_icon, ui_rect_width(checked_content) * .5f);
     const float mark_top = (checked_content.top + checked_content.bottom - mark_extent) * .5f;
     const UiRect mark{checked_content.right - mark_extent, mark_top, checked_content.right,
                       mark_top + mark_extent};
@@ -532,11 +535,35 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                         themed.scene.widgets.generation == generation &&
                         popup_scene_bind_theme_styles(&themed.scene, nullptr);
         const auto* restored_row = popup_scene_layout_node(themed.scene, themed.rows[0].widget);
-        restored &= restored_row && restored_row->spec.style.height.value == kUiMenuRowHeight &&
+        restored &= restored_row && restored_row->spec.style.height.value == kUiThemeMetricsDefault.menu_row_height &&
                     popup_scene_selected_action(themed.scene) == 12;
         check(restored,
               "popup theme: geometry publication reflows once and restoring defaults preserves selection "
               "authority");
+        // Hosts build a menu footer and a thread header's feedback row from the active theme: a theme with
+        // taller menu rows (48 DIPs here, 36 by default) makes both taller.
+        MenuFixture footed{};
+        const UiPopupFeedback themed_feedback{utf8_literal("Marked as read"),
+                                              ui_popup_feedback_style(ui_theme_metrics(&styles)), false};
+        const bool footer =
+            popup_scene_initialize(&footed.scene, {footed.items, 4}, {footed.rows, 4}, {footed.widgets, 10},
+                                   {footed.nodes, 10}) &&
+            popup_scene_bind_theme_styles(&footed.scene, &styles) &&
+            popup_scene_open(&footed.scene, PopupKind::context_menu, 78, {entries, 1}, {10, 10, 11, 11},
+                             {0, 0, 320, 240}, 240.f, false, 0.f, 0.f, 6, &themed_feedback)
+                .ok() &&
+            ui_rect_height(popup_feedback_rectangle(footed.scene)) == 48.f &&
+            ui_thread_header_style(ui_theme_metrics(&styles)).feedback_height == 48.f;
+        check(footer, "popup theme: a menu footer and a thread header's feedback row take the theme's row height");
+        // The other menu metrics reach their former constant readers too: the wheel step is a compact row (40),
+        // the thread header controls sit a menu gap apart (16), and the media picker takes the compact row height
+        // for its section headings and the menu icon (24) for its icons.
+        const auto& theme_metrics = ui_theme_metrics(&styles);
+        const auto picker = ui_media_picker_style(theme_metrics).metrics;
+        check(footer && popup_scene_scroll_step(footed.scene) == 40.f &&
+                  ui_thread_header_style(theme_metrics).gap == 16.f && picker.section_height == 40.f &&
+                  picker.inline_arrow == 40.f && picker.icon_extent == 24.f && picker.gap == 16.f,
+              "popup theme: compact row, gap and icon metrics reach the wheel step, thread header and picker");
     }
     {
         // The server header popout stays below the header, shortened to the
@@ -612,7 +639,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                       open() && popup_scene_fit_content(&fit.scene, nullptr, 320) &&
                       ui_rect_width(fit.scene.rectangle) == 160;
         const float opened_height = ui_rect_height(fit.scene.rectangle);
-        const float line = (kUiMenuDetailRowHeight - 2.f * (kUiThemeMetricsDefault.menu_padding - 1.f)) * .5f;
+        const float line = (kUiThemeMetricsDefault.menu_detail_height - 2.f * (kUiThemeMetricsDefault.menu_padding - 1.f)) * .5f;
         fitted = fitted && popup_scene_fit_content(&fit.scene, &measure, 320) &&
                  ui_rect_width(fit.scene.rectangle) == 320 && fit.scene.items[0].presentation.extra_detail_lines == 0 &&
                  fit.scene.items[1].presentation.extra_detail_lines == 1 &&
@@ -620,7 +647,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                  ui_rect_height(fit.scene.rectangle) == opened_height + line;
         UiMenuRowGeometry gaming{}, preview{};
         const auto* row = popup_scene_layout_node(fit.scene, fit.scene.rows[1].widget);
-        fitted = fitted && row && ui_rect_height(row->rectangle) == kUiMenuDetailRowHeight + line &&
+        fitted = fitted && row && ui_rect_height(row->rectangle) == kUiThemeMetricsDefault.menu_detail_height + line &&
                  popup_scene_menu_row_geometry(fit.scene, 0, &gaming) &&
                  popup_scene_menu_row_geometry(fit.scene, 1, &preview) &&
                  ui_rect_width(gaming.detail) >= 6.f * rows[0].detail.bytes &&

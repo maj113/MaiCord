@@ -38,16 +38,25 @@ enum class UiTooltipPlacement : u8 {
 // card: the first line bold, the following lines in the muted colour below it, left-aligned (a badge's title and
 // its subtitles); rows: one line per row beside the host's picture for it (row_media).
 enum class UiTooltipLayout : u8 { label, chips, card, rows };
+// ui_tooltip_style sets the padding, the corner radius and the arrow from the theme. Without it they are zero.
 struct UiTooltipStyle {
     u32 pointer_delay_ms = static_cast<u32>(kUiTooltipPointerDelayMs);
     u32 keyboard_delay_ms = static_cast<u32>(kUiTooltipKeyboardDelayMs);
-    float padding_x = kUiMenuPadding + 4, padding_y = kUiMenuPadding + 1;
+    float padding_x, padding_y;
     float margin = kUiFloatingSurfaceInset, gap = kUiFloatingSurfaceInset;
     float maximum_width = 320, maximum_height = 80;
-    float radius = kUiControlCornerRadius, arrow_size = kUiControlCornerRadius;
+    float radius, arrow_size;
     // A leading emoji's square and the space between it and the label.
     float emoji_size = 48, emoji_gap = 12;
 };
+// A tooltip of the theme: the menu padding inside, the control radius at the corners and as the arrow.
+constexpr UiTooltipStyle ui_tooltip_style(const UiThemeMetrics& metrics) noexcept {
+    UiTooltipStyle style{};
+    style.padding_x = metrics.menu_padding + 4;
+    style.padding_y = metrics.menu_padding + 1;
+    style.radius = style.arrow_size = metrics.control_radius;
+    return style;
+}
 
 struct UiTooltipKey {
     UiWidgetReference owner;
@@ -124,7 +133,7 @@ static_assert(sizeof(UiTooltipScene) <= 1024);
 // content for the visible source (a label that finished loading) replaces it
 // in place at the next tick.
 bool ui_tooltip_offer(UiTooltipScene*, const UiTooltipTarget&, UiRect viewport, UiTooltipTrigger,
-                      u64 now_ms, const UiTooltipStyle& = UiTooltipStyle{}) noexcept;
+                      u64 now_ms, const UiTooltipStyle&) noexcept;
 // Text emits against a host-owned viewport root, independent from the source
 // control's smaller clip. Clear before releasing either owner.
 bool ui_tooltip_bind_text_owner(UiTooltipScene*, UiWidgetReference) noexcept;
@@ -142,6 +151,6 @@ bool ui_tooltip_row_media(const UiTooltipScene&, u32 index, UiRect* square, Medi
 // A plain label's box for hosts that place, shape and draw the label
 // themselves (the window caption): painted as above, without a text owner.
 bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectangle, UiRect anchor,
-                          UiTooltipPlacement placement, const UiTooltipStyle& = UiTooltipStyle{}) noexcept;
+                          UiTooltipPlacement placement, const UiTooltipStyle&) noexcept;
 
 } // namespace maicord

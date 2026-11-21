@@ -263,7 +263,7 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
     // Launch restores a channel before READY: its header lays out without Pins
     // or Threads. Permissions arriving later must lay the header out again.
     ui.text_rebuild_retry_at_ms = 0;
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     pins = threads = false;
     const bool laid_out = ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
                           ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics, 1280, 800);

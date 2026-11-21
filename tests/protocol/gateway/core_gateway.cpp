@@ -1024,7 +1024,7 @@ void test_chat_state() noexcept {
     UiTextCommandStream shell_text_stream{};
     const bool shell_text_scene_ready = ui_scene_initialize_bootstrap(&shell_text_scene) &&
                                         ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::guild_channel,
-                                                                     kGuildChannelShellLayoutMetrics, 1280.0f,
+                                                                     ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280.0f,
                                                                      800.0f);
     const UiLayoutNode* shell_navigation =
         ui_scene_node(shell_text_scene, UiSemantic::channel_navigation);
@@ -1301,7 +1301,8 @@ void test_chat_state() noexcept {
                tiny_shell_text_stream.count == 0,
            "shell_text_presentation_capacity_failure_is_atomic");
     bool friends_label_padded = false;
-    if (ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::friends, kFriendsShellLayoutMetrics,
+    if (ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::friends,
+                                     ui_friends_shell_layout_metrics(kUiThemeMetricsDefault),
                                      1280.f, 800.f)) {
         const auto* friends_text_navigation = ui_scene_node(shell_text_scene, UiSemantic::channel_navigation);
         const auto* friends_text_node =

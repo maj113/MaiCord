@@ -53,7 +53,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             };
             auto* state = thread_browser_ui_adapter_state();
             auto* shell = const_cast<UiScene*>(renderer.ui_scene);
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             if (application_thread_browser_available())
                 metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_threads);

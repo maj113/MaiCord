@@ -160,7 +160,7 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
                                           g_app.popup_scene.kind != PopupKind::popover))
             return false;
         *range = {g_app.popup_scene.rectangle, g_app.popup_scene.scroll_offset,
-                  g_app.popup_scene.scroll_max, kPopupRowHeight, 1};
+                  g_app.popup_scene.scroll_max, popup_scene_scroll_step(g_app.popup_scene), 1};
         return true;
     case reaction_users:
     case reaction_types: {
@@ -328,8 +328,9 @@ void track_scrollbar_pointer(const WindowEvent& input) noexcept {
     }
     const float scale = 96.f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
     const float x = static_cast<float>(point.x) * scale, y = static_cast<float>(point.y) * scale;
+    // A move without the primary button needs no capture query: it never counts as captured.
     const bool captured =
-        application_pointer_captured() && (input.type != EventType::pointer_move || input_held(input));
+        (input.type != EventType::pointer_move || input_held(input)) && application_pointer_captured();
     const auto hot = ui_scrollbar_pointer_update(&g_app.scrollbar_pointer, g_app.renderer.paint_stream.scrollbar_tracks,
                                                  event, x, y, captured);
     if (!ui_scrollbar_hot_equal(hot, g_app.renderer.scrollbar_hot)) {

@@ -464,39 +464,40 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
                 return true;
         }
         break;
-    case EventType::pointer_move:
-        if (application_profile_pointer(UiButtonPointerEvent::move, {client_dip_x(content), client_dip_y(content)}))
+    case EventType::pointer_move: {
+        // No handler of a pointer event changes the scale: the point in DIPs holds for the whole event.
+        const UiPoint dip{client_dip_x(content), client_dip_y(content)};
+        if (application_profile_pointer(UiButtonPointerEvent::move, dip))
             return true;
         if (!g_app.renderer_ready)
             break;
-        update_scrollbar_hover(client_dip_x(content), client_dip_y(content));
-        if (handle_reaction_viewer_hover(client_dip_x(content), client_dip_y(content)) ||
-            handle_message_text_selection_drag(content) ||
-            handle_scrollbar_drag(input_held(content), client_dip_y(content)) || handle_pane_resize_drag(content) ||
+        update_scrollbar_hover(dip.x, dip.y);
+        if (handle_reaction_viewer_hover(dip.x, dip.y) || handle_message_text_selection_drag(content) ||
+            handle_scrollbar_drag(input_held(content), dip.y) || handle_pane_resize_drag(content) ||
             handle_popup_hover(content) || application_login_handle_drag(content) || handle_composer_drag(content))
             return true;
         handle_message_hover(content);
-        if (message_action_bar_hit_test(g_app.message_action_bar, client_dip_x(content), client_dip_y(content))
-                .inside)
+        if (message_action_bar_hit_test(g_app.message_action_bar, dip.x, dip.y).inside)
             return true;
         // The DM profile panel tracks the pointer leaving it as well.
-        if (!g_app.login.visible && application_dm_profile_hover({client_dip_x(content), client_dip_y(content)}))
+        if (!g_app.login.visible && application_dm_profile_hover(dip))
             return true;
         if (g_app.login.visible || handle_shell_hover(content) || handle_navigation_hover(content) ||
             handle_composer_hover(content) || handle_member_hover(content))
             return true;
         handle_content_hover(content);
         break;
-    case EventType::pointer_up:
+    }
+    case EventType::pointer_up: {
         if (!input_release(event))
             break;
-        if (application_profile_pointer(UiButtonPointerEvent::release,
-                                        {client_dip_x(content), client_dip_y(content)}))
+        const UiPoint dip{client_dip_x(content), client_dip_y(content)};
+        if (application_profile_pointer(UiButtonPointerEvent::release, dip))
             return true;
         // A click on an emoji or sticker without a drag opens its popout; the
         // release still ends a text selection begun on it.
         if (g_app.renderer_ready)
-            application_expression_card_pointer_up({client_dip_x(content), client_dip_y(content)});
+            application_expression_card_pointer_up(dip);
         if (g_app.message_text_pointer_selection) {
             end_message_text_selection();
             return true;
@@ -518,6 +519,7 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             return true;
         }
         break;
+    }
     case EventType::capture_lost:
         application_video_cancel_pointer();
         application_profile_pointer(UiButtonPointerEvent::cancel, {});
@@ -531,12 +533,11 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
         return true;
     case EventType::pointer_down:
         if (input_press(event)) {
-            if (application_profile_pointer(UiButtonPointerEvent::press,
-                                            {client_dip_x(content), client_dip_y(content)}))
+            const UiPoint dip{client_dip_x(content), client_dip_y(content)};
+            if (application_profile_pointer(UiButtonPointerEvent::press, dip))
                 return true;
             ui_button_keyboard_cancel(&g_app.button_keyboard);
-            if (g_app.renderer_ready &&
-                handle_reaction_viewer_click(client_dip_x(content), client_dip_y(content))) {
+            if (g_app.renderer_ready && handle_reaction_viewer_click(dip.x, dip.y)) {
                 application_focus_window();
                 return true;
             }
@@ -546,27 +547,24 @@ bool chain(const WindowEvent& event, WindowEventResult* answer) noexcept {
             if (!g_app.renderer_ready)
                 break;
             if (handle_popup_click(content) || handle_message_action_bar_click(content) ||
-                application_login_handle_click(content) ||
-                application_notice_click(client_dip_x(content), client_dip_y(content)) ||
-                handle_scrollbar_begin(client_dip_x(content), client_dip_y(content))) {
+                application_login_handle_click(content) || application_notice_click(dip.x, dip.y) ||
+                handle_scrollbar_begin(dip.x, dip.y)) {
                 application_focus_window();
                 return true;
             }
-            focus_context_at(client_dip_x(content), client_dip_y(content));
+            focus_context_at(dip.x, dip.y);
             application_request_frame();
             if (handle_shell_click(content) || handle_composer_click(content)) {
                 application_focus_window();
                 return true;
             }
-            application_expression_card_pointer_down({client_dip_x(content), client_dip_y(content)});
+            application_expression_card_pointer_down(dip);
             // An attachment's ALT badge opens its description's popout instead of the media under it.
-            if (application_alt_text_toggle(client_dip_x(content), client_dip_y(content)) ||
-                application_gif_favorite_star_press(client_dip_x(content), client_dip_y(content)) ||
-                application_message_media_reveal_at(client_dip_x(content), client_dip_y(content)) ||
-                application_image_viewer_open_at(client_dip_x(content), client_dip_y(content)) ||
-                application_dm_profile_click({client_dip_x(content), client_dip_y(content)}) ||
-                handle_member_click(content) || handle_message_click(content) || handle_content_click(content) ||
-                handle_navigation_click(content) || application_plugins_message_click(content, false, 1))
+            if (application_alt_text_toggle(dip.x, dip.y) || application_gif_favorite_star_press(dip.x, dip.y) ||
+                application_message_media_reveal_at(dip.x, dip.y) || application_image_viewer_open_at(dip.x, dip.y) ||
+                application_dm_profile_click(dip) || handle_member_click(content) || handle_message_click(content) ||
+                handle_content_click(content) || handle_navigation_click(content) ||
+                application_plugins_message_click(content, false, 1))
                 return true;
             if (begin_message_text_selection(content)) {
                 application_focus_window();

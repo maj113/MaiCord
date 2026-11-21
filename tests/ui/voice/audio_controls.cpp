@@ -136,7 +136,7 @@ void search_geometry(void (*check)(bool, const char*) noexcept,
                            : nullptr;
     UiAudioCardGeometry expected{};
     check(ready && node &&
-              ui_audio_card_geometry(node->content_rectangle, kDefaultUiAudioControlsStyle, &expected,
+              ui_audio_card_geometry(node->content_rectangle, UiAudioControlsStyle{}, &expected,
                                      voice) &&
               ui_search_scene_rich_preview_geometry(scene, target, &bounds, &clip) &&
               ui_rect_equal(bounds, expected.bounds) && ui_rect_has_area(clip) &&

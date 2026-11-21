@@ -1737,7 +1737,8 @@ void test_controller() noexcept {
     // from hover and omitted click. Exercise real layout and hit testing here.
     check(ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
               ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                           kGuildChannelShellLayoutMetrics, 1280, 700),
+                                           ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280,
+                                           700),
           "shell: actual bootstrap scene lays out settings gear, member toggle and account footer");
     const auto* gear =
         ui_scene_node(g_app.shell_scene, UiSemantic::settings);
@@ -1895,7 +1896,7 @@ void test_controller() noexcept {
     check(footer_node && !handle_shell_click(window_test::pointer_down(window_test::x_of(blank_point), window_test::y_of(blank_point))) &&
               observed.account_menu_opens == menus_before + 1 && observed.profile_opens == profile_before,
           "shell: blank account-footer space cannot open an identity menu");
-    auto pin_metrics = kGuildChannelShellLayoutMetrics;
+    auto pin_metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     pin_metrics.flags |= ui_shell_layout_pins;
     ++pin_metrics.revision;
     check(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, pin_metrics, 1280,

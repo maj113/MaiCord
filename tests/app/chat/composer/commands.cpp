@@ -436,7 +436,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                 const auto& q = card_paint.quads[n];
                 card_quad = card_quad || (q.left == rail_card.left && q.top == rail_card.top &&
                                           q.right == rail_card.right && q.bottom == rail_card.bottom &&
-                                          q.radius == kUiEditCornerRadius &&
+                                          q.radius == kUiThemeMetricsDefault.edit_radius &&
                                           bytes_equal(&q.fill, &kDefaultTheme.base_lowest, sizeof(Color)));
             }
         }

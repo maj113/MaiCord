@@ -21,16 +21,25 @@ consteval UiRectEdge ui_end(int offset) noexcept {
 }
 
 // Every edge is base.edge + offset (the same float addition a hand-written
-// brace initializer performs).
+// brace initializer performs). The four edges are one vector: each 16-bit
+// field gives its offset (bits 0-14, sign-extended) and its corner (bit 15).
 __declspec(noinline) inline UiRect ui_rect_from_edges(const UiRect& base, u64 edges) noexcept {
-    const float* const corners = &base.left;
-    float out[4];
-    for (u32 index = 0; index < 4; ++index) {
-        const u32 bits = static_cast<u32>(edges >> (16 * index)) & 0xffffu;
-        const i32 offset = static_cast<i16>(bits << 1) >> 1;
-        out[index] = corners[(index & 1u) + ((bits >> 15) << 1)] + static_cast<float>(offset);
-    }
-    return {out[0], out[1], out[2], out[3]};
+    typedef short Fields __attribute__((__vector_size__(8)));
+    typedef int Ints __attribute__((__vector_size__(16)));
+    typedef float Floats __attribute__((__vector_size__(16)));
+    static_assert(sizeof(UiRect) == sizeof(Floats) && sizeof(edges) == sizeof(Fields));
+    Fields fields;
+    __builtin_memcpy(&fields, &edges, sizeof(fields));
+    Floats corners;
+    __builtin_memcpy(&corners, &base, sizeof(corners));
+    const Ints from_end = __builtin_convertvector(fields >> 15, Ints);
+    const Floats offsets = __builtin_convertvector(__builtin_convertvector((fields << 1) >> 1, Ints), Floats);
+    const Floats out = (from_end ? __builtin_shufflevector(corners, corners, 2, 3, 2, 3)
+                                 : __builtin_shufflevector(corners, corners, 0, 1, 0, 1)) +
+                       offsets;
+    UiRect result;
+    __builtin_memcpy(&result, &out, sizeof(result));
+    return result;
 }
 
 __forceinline UiRect ui_rect_edges(const UiRect& base, UiRectEdge left, UiRectEdge top, UiRectEdge right,

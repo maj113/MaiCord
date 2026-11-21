@@ -139,13 +139,6 @@ __declspec(noinline) bool text_badge(const ProfileScene& s, const UiBadgeWidget&
                                      const TextPalette& c, UiTextOutput* text) noexcept {
     return ui_badge_text_output(badge, s.widgets, card_theme(theme, c), text);
 }
-__declspec(noinline) bool text_edit(const ProfileScene& s, const Theme& theme, const TextPalette& c,
-                                    const UiEditGeometry* edit, UiTextOutput* text) noexcept {
-    if (!s.edit.active)
-        return true;
-    return ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit, edit,
-                                     s.message_placeholder.view(), card_theme(theme, c));
-}
 Color tone_color(const TextPalette& c, const Theme& theme, const ProfilePart& p) noexcept {
     switch (p.tone) {
     case ProfileTone::strong:
@@ -952,7 +945,8 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        bio ? ConstSlice<TextStyleSpan>{s.bio_styles, s.bio_style_count} : ConstSlice<TextStyleSpan>{}}))
             return false;
     }
-    return text_edit(s, theme, c, edit, text);
+    return !s.edit.active || ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit,
+                                                       edit, s.message_placeholder.view(), c.text);
 }
 namespace {
 void describe_access(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget& widget,

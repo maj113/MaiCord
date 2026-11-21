@@ -239,7 +239,7 @@ bool channel(u64 id, Utf8View name, u8 type, u64 parent, u32 position, u64 last,
 }
 bool layout_shell() noexcept {
     const auto& r = g_app.renderer;
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags &= static_cast<u16>(~(ui_shell_layout_members | ui_shell_layout_composer));
     metrics.member_sidebar_width = 0;
     return SCOPED_READ_REQUIRE(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,

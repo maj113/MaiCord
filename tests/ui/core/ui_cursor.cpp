@@ -130,10 +130,10 @@ void test_media_controls(Check check) noexcept {
     OwnerFixture owner{};
     UiAudioScene scene{};
     audio.voice = true;
-    const UiRect card{20, 40, 420, 40 + ui_audio_card_height(kDefaultUiAudioControlsStyle, 400, true)};
+    const UiRect card{20, 40, 420, 40 + ui_audio_card_height(UiAudioControlsStyle{}, 400, true)};
     const bool projected = owner.initialize() &&
                            ui_audio_scene_project(&scene, audio, card, card, {&owner.manager, owner.root},
-                                                  UiAudioSourceSurface::timeline, kDefaultUiAudioControlsStyle,
+                                                  UiAudioSourceSurface::timeline, UiAudioControlsStyle{},
                                                   kDefaultTheme);
     const auto* play = ui_audio_controls_find(scene.projection, UiAudioControl::play_pause);
     check(projected && play && ui_audio_scene_cursor(scene, center(play->bounds)) == UiCursor::hand &&

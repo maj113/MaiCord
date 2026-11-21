@@ -25,6 +25,7 @@
 #include "maicord/ui/core/scene.hpp"
 #include "../chat/messages/history_decode.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -398,7 +399,9 @@ UiSidePanelInput application_side_panel_input() noexcept {
     UiSidePanelInput in{};
     in.members_visible = g_app.member_pane_visible;
     in.profile_visible = g_app.preferences.dm_profile_visible;
-    in.member_width = g_app.member_pane_width;
+    in.member_width = g_app.member_pane_width > 0.0f
+                          ? g_app.member_pane_width
+                          : ui_theme_metrics(application_theme().styles).shell_member_width;
     in.friends = application_friends_active();
     in.window_width = static_cast<float>(g_app.renderer.width) * 96.0f /
                       static_cast<float>(maximum<u32>(g_app.renderer.dpi, 1));

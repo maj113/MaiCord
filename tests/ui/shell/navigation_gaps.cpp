@@ -639,7 +639,7 @@ void channel_controls() noexcept {
 // ---- notice band ----------------------------------------------------------
 void notice_band() noexcept {
     static UiScene scene{};
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     const bool plain = ui_scene_initialize_bootstrap(&scene) &&
                        ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, metrics, 1280, 800);
     const auto* rail = plain ? ui_scene_node(scene, UiSemantic::guild_rail) : nullptr;

@@ -16,7 +16,7 @@ struct UiSidePanelInput {
     // kUiSidePanelNoChannel when nothing is selected.
     u8 channel_type;
     bool home, friends, members_visible, profile_visible;
-    // The resized member pane width (0: the default) and the window's width.
+    // The member pane width (the host gives the theme's width for a pane never resized) and the window's width.
     float member_width, window_width;
 };
 struct UiSidePanelPlan {

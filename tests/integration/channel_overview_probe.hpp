@@ -4,6 +4,7 @@
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/text/form.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 namespace channel_overview_probe_detail {
@@ -139,7 +140,7 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
          0,
          {},
          nullptr}};
-    UiSettingsStyle style = kUiDefaultSettingsStyle;
+    UiSettingsStyle style = ui_theme_settings_style(nullptr);
     UiSettingsFooter footer{utf8_literal("No unsaved changes"),
                             utf8_literal("Save changes"),
                             utf8_literal("Reset"),

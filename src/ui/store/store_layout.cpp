@@ -242,9 +242,7 @@ float place_stack(const UiStoreScene& s, UiStoreNode& n, float x, float y, float
         if (any)
             cy += n.gap;
         place(s, c, cx, cy, cw);
-        if (child.flags & ui_store_end)
-            shift(s, c, cw - child.w, 0);
-        else if (child.flags & ui_store_center)
+        if (child.flags & ui_store_center)
             shift(s, c, (cw - child.w) * .5f, 0);
         cy += child.h;
         any = true;

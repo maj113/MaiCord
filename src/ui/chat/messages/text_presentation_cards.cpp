@@ -1189,7 +1189,7 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
                  node->rectangle.top + poll_style.padding,
                  minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width) -
                      poll_style.padding,
-                 node->rectangle.top + row.poll_height - kDefaultMessageRichBlockGapDips -
+                 node->rectangle.top + row.poll_height - ui_theme_metrics(scene.theme_styles).message_rich_gap -
                      poll_style.padding},
                 row_clip, theme.text_secondary, record,
                 kInvalidMessageTextMeasurement, kLookMiddleWrapped))

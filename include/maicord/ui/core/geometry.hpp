@@ -30,24 +30,27 @@ struct UiInsets {
     float bottom;
 };
 
+// A NaN fails every compare, so the bounds alone reject it.
 constexpr bool ui_coordinate_valid(float value) noexcept {
-    return value == value && value >= -kMaximumUiCoordinate && value <= kMaximumUiCoordinate;
+    return (value >= -kMaximumUiCoordinate) & (value <= kMaximumUiCoordinate);
 }
 
 constexpr bool ui_extent_valid(float value) noexcept {
-    return value == value && value >= 0.0f && value <= kMaximumUiCoordinate;
+    return (value >= 0.0f) & (value <= kMaximumUiCoordinate);
 }
 
+// The predicates below combine their checks with `&`, without early exits: the compiler then tests the values
+// together, mostly with one vector compare.
 constexpr bool ui_size_valid_or_empty(const UiSize& size) noexcept {
-    return ui_extent_valid(size.width) && ui_extent_valid(size.height);
+    return ui_extent_valid(size.width) & ui_extent_valid(size.height);
 }
 
 constexpr bool ui_size_valid(const UiSize& size) noexcept {
-    return ui_size_valid_or_empty(size) && size.width > 0.0f && size.height > 0.0f;
+    return ui_size_valid_or_empty(size) & (size.width > 0.0f) & (size.height > 0.0f);
 }
 
 constexpr bool ui_insets_valid(const UiInsets& insets) noexcept {
-    return ui_extent_valid(insets.left) && ui_extent_valid(insets.top) && ui_extent_valid(insets.right) &&
+    return ui_extent_valid(insets.left) & ui_extent_valid(insets.top) & ui_extent_valid(insets.right) &
            ui_extent_valid(insets.bottom);
 }
 
@@ -60,32 +63,46 @@ constexpr float ui_rect_height(const UiRect& rectangle) noexcept {
 }
 
 constexpr bool ui_rect_has_area(const UiRect& rectangle) noexcept {
-    return rectangle.right > rectangle.left && rectangle.bottom > rectangle.top;
+    return (rectangle.right > rectangle.left) & (rectangle.bottom > rectangle.top);
 }
 
 constexpr bool ui_rect_contains(const UiRect& rectangle, float x, float y) noexcept {
-    return x >= rectangle.left && x < rectangle.right && y >= rectangle.top && y < rectangle.bottom;
+    return (x >= rectangle.left) & (x < rectangle.right) & (y >= rectangle.top) & (y < rectangle.bottom);
 }
 
 constexpr bool ui_rect_valid_or_empty(const UiRect& rectangle) noexcept {
     // Valid ordered edges already imply finite, nonnegative extents.
-    return ui_coordinate_valid(rectangle.left) && ui_coordinate_valid(rectangle.top) &&
-           ui_coordinate_valid(rectangle.right) && ui_coordinate_valid(rectangle.bottom) &&
-           rectangle.right >= rectangle.left && rectangle.bottom >= rectangle.top &&
-           ui_rect_width(rectangle) <= kMaximumUiCoordinate &&
-           ui_rect_height(rectangle) <= kMaximumUiCoordinate;
+    return ui_coordinate_valid(rectangle.left) & ui_coordinate_valid(rectangle.top) &
+           ui_coordinate_valid(rectangle.right) & ui_coordinate_valid(rectangle.bottom) &
+           (rectangle.right >= rectangle.left) & (rectangle.bottom >= rectangle.top) &
+           (ui_rect_width(rectangle) <= kMaximumUiCoordinate) & (ui_rect_height(rectangle) <= kMaximumUiCoordinate);
 }
 
 constexpr bool ui_rect_valid(const UiRect& rectangle) noexcept {
-    return ui_rect_valid_or_empty(rectangle) && ui_rect_has_area(rectangle);
+    return ui_rect_valid_or_empty(rectangle) & ui_rect_has_area(rectangle);
 }
 
 constexpr bool ui_rect_equal(const UiRect& left, const UiRect& right) noexcept {
-    return left.left == right.left && left.top == right.top && left.right == right.right &&
-           left.bottom == right.bottom;
+    return (left.left == right.left) & (left.top == right.top) & (left.right == right.right) &
+           (left.bottom == right.bottom);
 }
 
-UiRect ui_rect_inset(UiRect rectangle, const UiInsets& insets) noexcept;
+// Every edge moved inward by its inset (outward when negative). An edge that crosses its opposite stops on it, as
+// `right < left ? left : right` does. The four edges are one vector, and one compare chooses both far edges.
+inline UiRect ui_rect_inset(const UiRect& rectangle, const UiInsets& insets) noexcept {
+    typedef float Floats __attribute__((__vector_size__(16)));
+    static_assert(sizeof(UiRect) == sizeof(Floats) && sizeof(UiInsets) == sizeof(Floats));
+    Floats edges;
+    Floats amounts;
+    __builtin_memcpy(&edges, &rectangle, sizeof(edges));
+    __builtin_memcpy(&amounts, &insets, sizeof(amounts));
+    const Floats moved = __builtin_shufflevector(edges + amounts, edges - amounts, 0, 1, 6, 7);
+    const Floats starts = __builtin_shufflevector(moved, moved, 0, 1, 0, 1);
+    const Floats out = __builtin_shufflevector(moved, starts > moved ? starts : moved, 0, 1, 6, 7);
+    UiRect result;
+    __builtin_memcpy(&result, &out, sizeof(result));
+    return result;
+}
 UiRect ui_rect_intersection(const UiRect& left, const UiRect& right) noexcept;
 // ui_rect_has_area(ui_rect_intersection(left, right)) in one call.
 __declspec(noinline) bool ui_rect_intersects(const UiRect& left, const UiRect& right) noexcept;

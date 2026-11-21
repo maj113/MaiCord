@@ -34,15 +34,16 @@ bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds,
            push_icon_quad(paint, icon, box, style.ink, false, style.weight);
 }
 
-bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept {
-    return ui_icon_paint_styled(paint, icon, bounds, {color, {}, 0});
-}
-
 bool ui_icon_paint_turned(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color,
                           float radians) noexcept {
     if (!paint || icon >= UiIcon::count || !ui_rect_has_area(bounds) || !(radians == radians))
         return false;
     return push_icon_quad(paint, icon, icon_box(bounds), color, false, 0, radians);
+}
+
+// A plain icon is its ink quad alone: the styled path with no fill and weight 0 adds only checks.
+bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept {
+    return ui_icon_paint_turned(paint, icon, bounds, color, 0);
 }
 
 Color ui_icon_role_color(const Theme& theme, UiIconRole role) noexcept {

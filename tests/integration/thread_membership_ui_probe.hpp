@@ -105,7 +105,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
             auto* users = thread_membership_ui_adapter_users();
             auto* header = thread_membership_ui_adapter_header();
             auto* shell = const_cast<UiScene*>(renderer.ui_scene);
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             metrics.member_sidebar_width = 0;
             metrics.revision += static_cast<u32>(metrics.flags) * 7u;
@@ -175,7 +175,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
             c.ready = false;
             auto& r = c.renderer;
             if (auto* active = thread_membership_ui_adapter_header())
-                ui_thread_header_update(active, {}, {}, {}, ui_thread_header_style());
+                ui_thread_header_update(active, {}, {}, {}, ui_thread_header_style(kUiThemeMetricsDefault));
             r.message_scene = scene; r.message_text = text; r.chat_state = state; r.user_store = users;
             r.navigation_view = navigation; r.message_measure_cache = cache; r.focus_owner = focus;
             renderer_bind_thread_header(&r, header); renderer_bind_popup_scene(&r, popup);

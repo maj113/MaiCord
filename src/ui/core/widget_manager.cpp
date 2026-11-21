@@ -251,7 +251,7 @@ UiWidgetHandle ui_widget_manager_find(const UiWidgetManager& manager, u32 id) no
 }
 
 UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float x, float y) noexcept {
-    if (!ui_coordinate_valid(x) || !ui_coordinate_valid(y)) {
+    if (!(ui_coordinate_valid(x) & ui_coordinate_valid(y))) {
         return ui_widget_invalid_handle();
     }
     constexpr u16 required = ui_widget_enabled | ui_widget_hit_test;
@@ -261,12 +261,13 @@ UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float 
         if ((manager.storage[index].flags & required) != required)
             continue;
         const UiLayoutNode& layout = manager.layout.storage[index];
-        if (!layout.visible || !ui_rect_contains(layout.rectangle, x, y) ||
-            !ui_rect_contains(layout.clip_rectangle, x, y)) {
+        if (!(layout.visible & ui_rect_contains(layout.rectangle, x, y) &
+              ui_rect_contains(layout.clip_rectangle, x, y))) {
             continue;
         }
         const UiWidgetHandle handle{static_cast<u16>(index), manager.generation};
-        if (ui_widget_manager_input_enabled(manager, handle) &&
+        // `required` already holds the enabled flag.
+        if (ui_widget_manager_input_reachable(manager, handle) &&
             (!manager.hit_filter || manager.hit_filter(manager.hit_filter_context, manager, handle, x, y)))
             return handle;
     }
@@ -284,10 +285,10 @@ bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* an
     const auto* widget = ui_widget_manager_resolve(manager, manager.focused);
     if (!widget || !widget_focusable(manager, *widget))
         return false;
-    const auto* node = ui_widget_manager_layout_node(manager, manager.focused);
-    if (!node || !ui_rect_valid(node->rectangle) || !ui_rect_valid(node->clip_rectangle))
+    const UiLayoutNode& node = manager.layout.storage[manager.focused.slot];
+    if (!ui_rect_valid(node.rectangle) || !ui_rect_valid(node.clip_rectangle))
         return false;
-    const auto visible = ui_rect_intersection(node->rectangle, node->clip_rectangle);
+    const auto visible = ui_rect_intersection(node.rectangle, node.clip_rectangle);
     if (!ui_rect_valid(visible))
         return false;
     *anchor = visible;

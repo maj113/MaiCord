@@ -257,7 +257,7 @@ const ClientThemeEffect* theme_effect() noexcept {
 }
 
 u64 theme_hash(const ClientThemeEffect* effect) noexcept {
-    return effect ? hash64_bytes(kHash64Seed, effect, sizeof(*effect)) | 1 : 0;
+    return effect ? hash64_words(kHash64Seed, effect, sizeof(*effect)) | 1 : 0;
 }
 
 // The theme's effect when it is the one named `slug`.

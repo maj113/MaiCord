@@ -48,10 +48,10 @@ bool ui_spinner_clock_due(const UiSpinnerClock& clock, u64 now_ms) noexcept {
 }
 bool ui_spinner_paint(PaintStream* paint, const UiRect& bounds, const Color& color, u8 phase,
                       const UiSpinnerStyle& style) noexcept {
-    if (!paint || !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
-        !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom) ||
-        !paint_coordinate_valid(style.stroke) || style.stroke <= 0 ||
-        !paint_coordinate_valid(style.tail_opacity) || style.tail_opacity < 0 || style.tail_opacity > 1)
+    // One combined check (NaN fails every compare): coordinates in range, a positive stroke, an opacity in [0, 1].
+    if (!paint || !(ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) &
+                    ui_coordinate_valid(bounds.right) & ui_coordinate_valid(bounds.bottom) & (style.stroke > 0) &
+                    (style.stroke <= kMaximumPaintCoordinate) & (style.tail_opacity >= 0) & (style.tail_opacity <= 1)))
         return false;
     const float size = minimum(ui_rect_width(bounds), ui_rect_height(bounds));
     if (size < 4 * style.stroke)

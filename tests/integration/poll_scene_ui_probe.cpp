@@ -212,7 +212,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
             break;
         const float width = static_cast<float>(renderer.width) / scale,
                     height = static_cast<float>(renderer.height) / scale;
-        auto metrics = kGuildChannelShellLayoutMetrics;
+        auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         metrics.flags = compact ? static_cast<u16>(ui_shell_layout_navigation) : u16{};
         metrics.navigation_width = compact ? width - metrics.guild_rail_width - 248 : 0;
         metrics.member_sidebar_width = metrics.composer_height = metrics.message_bottom_margin = 0;
@@ -361,7 +361,8 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
         valid =
             valid &&
             require(
-                ui_tooltip_offer(&tooltip, tooltip_target, viewport, UiTooltipTrigger::pointer, 0) &&
+                ui_tooltip_offer(&tooltip, tooltip_target, viewport, UiTooltipTrigger::pointer, 0,
+                                 ui_tooltip_style(kUiThemeMetricsDefault)) &&
                     ui_tooltip_bind_text_owner(&tooltip, {&f.messages.widgets, f.messages.root}) &&
                     ui_tooltip_tick(&tooltip, kUiTooltipPointerDelayMs, renderer.message_measure_cache) &&
                     ui_tooltip_visible(tooltip),

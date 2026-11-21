@@ -68,8 +68,8 @@ void test_user_context_menu(void (*check)(bool, const char*) noexcept) noexcept 
     PopupItem leading{};
     leading.presentation = ui_menu_row_presentation(UiIcon::copy);
     check(popup_item_menu_row_height(items[4], true) == popup_item_menu_row_height(items[0], true) &&
-              popup_item_menu_row_height(items[4], true) == kUiMenuCompactRowHeight &&
-              popup_item_menu_row_height(leading, true) == kUiMenuRowHeight,
+              popup_item_menu_row_height(items[4], true) == kUiThemeMetricsDefault.menu_compact_height &&
+              popup_item_menu_row_height(leading, true) == kUiThemeMetricsDefault.menu_row_height,
           "user menu: a submenu chevron keeps the compact row rhythm; only leading icons make rows taller");
     {
         // In a menu with an icon column, a submenu row's label starts in that column.

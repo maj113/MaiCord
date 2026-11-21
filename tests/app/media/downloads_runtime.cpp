@@ -217,7 +217,7 @@ void audio_hit_tests() noexcept {
         const bool geometry = rich && node && row_node &&
                               message_rich_attachment_audio_supported(g_app.account_ui->message_rich_store,
                                                                       rich->attachments[0]) &&
-                              ui_audio_card_geometry(node->content_rectangle, kDefaultUiAudioControlsStyle,
+                              ui_audio_card_geometry(node->content_rectangle, UiAudioControlsStyle{},
                                                      &card, message_rich_record_voice(*rich));
         check(geometry, "Downloads ordinary and forwarded audio cards resolve actual card geometry");
         if (!geometry)

@@ -5,7 +5,7 @@
 namespace maicord::app_detail {
 
 bool application_present_frame() noexcept;
-void application_update_frame_rate(u64 now_us) noexcept;
+void application_update_frame_rate() noexcept;
 void application_present_pending_frame() noexcept;
 void application_record_presentation_failure(const char* stage) noexcept;
 void application_record_presentation_success() noexcept;

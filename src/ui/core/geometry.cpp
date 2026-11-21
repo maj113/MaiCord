@@ -4,20 +4,6 @@
 
 namespace maicord {
 
-UiRect ui_rect_inset(UiRect rectangle, const UiInsets& insets) noexcept {
-    rectangle.left += insets.left;
-    rectangle.top += insets.top;
-    rectangle.right -= insets.right;
-    rectangle.bottom -= insets.bottom;
-    if (rectangle.right < rectangle.left) {
-        rectangle.right = rectangle.left;
-    }
-    if (rectangle.bottom < rectangle.top) {
-        rectangle.bottom = rectangle.top;
-    }
-    return rectangle;
-}
-
 static_assert(sizeof(UiRect) == 16 && offsetof(UiRect, top) == 4 &&
               offsetof(UiRect, right) == 8 && offsetof(UiRect, bottom) == 12);
 

@@ -173,7 +173,7 @@ bool initialize() noexcept {
         !chat_state_store_upsert_guild(&state, {7, utf8_literal("Fixture guild"), GuildMutationKind::create, 99}).ok() ||
         !chat_state_store_upsert_channel(&state, {70, 7, 0, utf8_literal("Parent"), 0, 0, 0}).ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene)) return false;
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags |= ui_shell_layout_threads;
     if (!ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics, 1280, 720)) return false;
     state.self_user_id = 5; state.selected_guild_id = 7; state.selected_channel_id = 70;

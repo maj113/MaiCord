@@ -174,7 +174,7 @@ void tooltip() noexcept {
          ui_text_measure_cache_initialize(&cache, {records, 4}, fake_text_measure<true>, nullptr) &&
          ui_tooltip_offer(&scene, {{{&manager, button.handle}, 7, 1, 2, 3}, {200, 200, 232, 232},
                                    utf8_literal("Notification settings")},
-                          viewport, UiTooltipTrigger::pointer, 100) &&
+                          viewport, UiTooltipTrigger::pointer, 100, ui_tooltip_style(kUiThemeMetricsDefault)) &&
          ui_tooltip_tick(&scene, 10'000, &cache) && ui_tooltip_visible(scene) && begin(640, 480) &&
          ui_tooltip_paint(scene, kDefaultTheme, &g.paint);
     check(ok, "tooltip fixture");
@@ -393,8 +393,8 @@ struct Shell {
 void shell() noexcept {
     static Shell f{};
     bool ok = ui_scene_initialize_bootstrap(&f.scene) &&
-              ui_scene_layout_with_metrics(&f.scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280,
-                                           800) &&
+              ui_scene_layout_with_metrics(&f.scene, UiShellView::guild_channel,
+                                           ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 800) &&
               chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 6},
                                           {f.channel_order, 6}, {f.names, sizeof(f.names)}) &&
               chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&

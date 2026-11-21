@@ -29,7 +29,7 @@ bool rail_write(void* context, u64, double offset, bool* changed) noexcept {
 // Mirrors the client's menu surface adapter.
 bool popup_read(void* context, u64, UiScrollRange* range) noexcept {
     const auto& popup = *static_cast<PopupScene*>(context);
-    *range = {popup.rectangle, popup.scroll_offset, popup.scroll_max, kPopupRowHeight, 1};
+    *range = {popup.rectangle, popup.scroll_offset, popup.scroll_max, popup_scene_scroll_step(popup), 1};
     return popup.active;
 }
 bool popup_write(void* context, u64, double offset, bool* changed) noexcept {
@@ -150,7 +150,7 @@ void test_menu_rail_smooth_scroll(void (*check)(bool, const char*) noexcept) noe
                                            rail.scene.root) == UiScrollDispatch::unhandled &&
               !ui_scroll_host_active(host),
           "menu smooth scroll: retained trees leave menu and rail wheels to their surface bindings");
-    const float step = 3 * kPopupRowHeight;
+    const float step = 3 * popup_scene_scroll_step(popup);
     check(ui_scroll_host_wheel(&host, popup_binding, over, -120, 3, false, now) == UiScrollDispatch::handled &&
               popup.scroll_offset == 0 && ui_scroll_host_active(host),
           "menu smooth scroll: a wheel notch queues an animation instead of jumping");

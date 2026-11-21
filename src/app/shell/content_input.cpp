@@ -766,20 +766,18 @@ bool handle_message_click(const WindowEvent& event) noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active || g_app.login.visible) {
         return false;
     }
-    if (application_downloads_save_press(client_dip_x(event), client_dip_y(event)))
+    const float x = client_dip_x(event), y = client_dip_y(event);
+    if (application_downloads_save_press(x, y))
         return true;
-    const auto reply =
-        message_scene_reply_hit_test(g_app.message_scene, client_dip_x(event), client_dip_y(event));
+    const auto reply = message_scene_reply_hit_test(g_app.message_scene, x, y);
     if (reply.message_id != 0) {
         window_focus(g_app.window);
         // The quoted author's avatar and name open their profile; the rest of the line jumps.
-        if (const auto author = application_message_profile_hit_test(client_dip_x(event), client_dip_y(event));
-            author.user_id)
+        if (const auto author = application_message_profile_hit_test(x, y); author.user_id)
             return application_profile_open(author.user_id, author.anchor);
         return navigate_content_message(reply.channel_id, reply.message_id);
     }
-    const MessageSceneHit hit =
-        message_scene_hit_test(g_app.message_scene, client_dip_x(event), client_dip_y(event));
+    const MessageSceneHit hit = message_scene_hit_test(g_app.message_scene, x, y);
     // Generic received attachments use the same message access check as
     // inline media, while opening only their validated HTTPS download URL.
     const auto* row = message_scene_find_row(g_app.message_scene, hit.source_index);
@@ -793,7 +791,6 @@ bool handle_message_click(const WindowEvent& event) noexcept {
     }
     if (row && record && record->channel_id == g_app.account_ui->active_channel_id && hit.widget.generation) {
         const auto* node = message_scene_layout_node(g_app.message_scene, hit.widget);
-        const float x = client_dip_x(event), y = client_dip_y(event);
         if (application_invite_card_click(record->id, hit.widget, x, y)) {
             window_focus(g_app.window);
             return true;
@@ -831,7 +828,7 @@ bool handle_message_click(const WindowEvent& event) noexcept {
                     return true;
                 const auto clip = ui_rect_intersection(
                     file_card(*node), ui_rect_intersection(row_node->rectangle, g_app.message_scene.viewport));
-                if (!ui_rect_contains(clip, client_dip_x(event), client_dip_y(event)))
+                if (!ui_rect_contains(clip, x, y))
                     return false;
                 begin_received_attachment_open(*record, attachment.id,
                                                content_scope ? outer_rich->reference.channel_id : 0);
@@ -1142,8 +1139,7 @@ bool handle_content_click(const WindowEvent& event) noexcept {
         return true;
     }
     case MessageMarkdownSemanticKind::user_mention:
-        return application_profile_open(hit.target, {client_dip_x(event), client_dip_y(event),
-                                                     client_dip_x(event) + 1, client_dip_y(event) + 1});
+        return application_profile_open(hit.target, {x, y, x + 1, y + 1});
     case MessageMarkdownSemanticKind::channel_mention:
         // A voice or stage channel mention joins it instead of opening it.
         return join_voice_channel(hit.target) || select_content_channel(hit.target);

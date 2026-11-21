@@ -680,6 +680,8 @@ bool application_media_page_synchronize() noexcept {
         return !g_app.account_ui || !renderer.interaction_text_media_page_revision ||
                renderer_rebuild_content_text(&renderer, application_theme());
     }
+    // An audio page's artwork sits above a card of the active theme, as the player draws it.
+    ui_image_viewer_bind_theme_styles(&scene, application_theme().styles);
     if (page->kind != MediaPageKind::image) {
         sync_player(*page);
         sync_quality(*page);

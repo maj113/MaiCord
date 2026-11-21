@@ -21,7 +21,8 @@ bool ui_edit_field_paint(PaintStream* paint, const UiRect& field, const UiRect& 
 bool ui_edit_field_paint_content(PaintStream* paint, const UiRect& content, const UiEditView& view,
                                  const UiEditGeometry* geometry, const Theme& theme, u32 dpi) noexcept;
 Color ui_edit_selection_color(const Theme& theme) noexcept;
+// The entered text in `ink` (the theme's primary text; a themed profile card passes its own), a placeholder dimmed.
 bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, const UiRect& content,
                         const UiEditView& view, const UiEditGeometry* geometry, const Utf8View& placeholder,
-                        const Theme& theme) noexcept;
+                        const Color& ink) noexcept;
 } // namespace maicord

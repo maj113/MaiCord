@@ -367,7 +367,7 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
     case UiStoreKey::page_up:
     case UiStoreKey::page_down: {
         const UiStoreKey step = key == UiStoreKey::page_up ? UiStoreKey::up : UiStoreKey::down;
-        const float rows = maximum(1.f, ui_rect_height(s->panel) / maximum(40.f, screen_rect(*s, current).bottom - screen_rect(*s, current).top));
+        const float rows = maximum(1.f, ui_rect_height(s->panel) / maximum(40.f, ui_rect_height(screen_rect(*s, current))));
         u16 at = current;
         for (float k = 0; k < rows; ++k) {
             const u16 next = neighbour(*s, at, step);

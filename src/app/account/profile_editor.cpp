@@ -55,7 +55,7 @@ bool register_pages() noexcept {
     if (!ui_page_registry_initialize(&p.registry, {p.pages, kPageCapacity}))
         return false;
     p.content = {utf8_literal("Profiles"), {}, {}, 1, kUiSettingsPageFormat, &kEditorStyle, nullptr};
-    p.other = {utf8_literal("Settings"), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+    p.other = {utf8_literal("Settings"), {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
     const auto* settings = application_settings_pages();
     bool profiles = false;
     for (u32 i = 0; settings && i < settings->count && p.registry.count < kPageCapacity; ++i) {

@@ -330,7 +330,7 @@ static __declspec(noinline) bool typing_output(const MessageComposerScene& compo
             float width = static_cast<float>(bytes) * 7.0f;
             if (ui_text_measure_cache_measure(
                     measure,
-                    {{0x5459'5049'4E47ull, hash64_mix(hash64_bytes(kHash64Seed, part.data, bytes), look.style_flags),
+                    {{0x5459'5049'4E47ull, hash64_mix(hash64_words(kHash64Seed, part.data, bytes), look.style_flags),
                       0, 0, 0},
                      part,
                      {&style, 1},
@@ -799,7 +799,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             if (measure &&
                 ui_text_measure_cache_measure(
                     measure,
-                    {{0x434F4D4D414E44ull, hash64_bytes(kHash64Seed, bar_name.data, bar_name.bytes), 0, 0, 0},
+                    {{0x434F4D4D414E44ull, hash64_words(kHash64Seed, bar_name.data, bar_name.bytes), 0, 0, 0},
                      bar_name, {&name_style, 1}, {maximum(1.f, ui_rect_width(text)), kMessageComposerCommandBarHeight},
                      true},
                     &measured)

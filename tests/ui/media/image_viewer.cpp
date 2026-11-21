@@ -479,19 +479,20 @@ void test_image_viewer_page(void (*check)(bool, const char*) noexcept) noexcept 
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_zoom_in)) &&
               !ui_rect_has_area(ui_image_viewer_button(player, ui_image_viewer_copy)),
           "page: a wide playlist page puts the queue beside the player, without zoom or Copy");
-    check(ui_rect_has_area(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) &&
-              ui_rect_width(ui_audio_page_card(regions.player, kDefaultUiAudioControlsStyle)) == 480,
+    const UiAudioControlsStyle audio_style{};
+    check(ui_rect_has_area(ui_audio_page_card(regions.player, audio_style)) &&
+              ui_rect_width(ui_audio_page_card(regions.player, audio_style)) == 480,
           "page: the audio card is as wide as its style allows");
-    const auto stack = ui_audio_page_layout(regions.player, kDefaultUiAudioControlsStyle);
+    const auto stack = ui_audio_page_layout(regions.player, audio_style);
     check(ui_rect_has_area(stack.art) && ui_rect_width(stack.art) == ui_rect_height(stack.art) &&
               stack.art.top >= regions.player.top && stack.art.bottom <= stack.title.top &&
               stack.title.bottom <= stack.source.top && stack.source.bottom <= stack.card.top &&
               stack.card.bottom <= regions.player.bottom && ui_rect_equal(player.body, stack.art) &&
               ui_rect_equal(player.image, stack.art) && ui_rect_equal(player.display, stack.art),
           "page: an audio page stacks artwork, title and source above the card, and the artwork square is its picture");
-    const auto cramped = ui_audio_page_layout({0, 0, 480, 200}, kDefaultUiAudioControlsStyle);
+    const auto cramped = ui_audio_page_layout({0, 0, 480, 200}, audio_style);
     check(!ui_rect_has_area(cramped.art) && !ui_rect_has_area(cramped.title) && ui_rect_width(cramped.card) == 480 &&
-              cramped.card.top == 44 && !ui_rect_has_area(ui_audio_page_layout({0, 0, 100, 200}, kDefaultUiAudioControlsStyle).card),
+              cramped.card.top == 44 && !ui_rect_has_area(ui_audio_page_layout({0, 0, 100, 200}, audio_style).card),
           "page: a stage too short for artwork keeps the card alone, centred; one too narrow has none");
     // A queue of 40 tracks scrolled to its fourth row: rows[n] is track first + n + 1.
     UiImageViewerQueue queue{};

@@ -17,7 +17,7 @@ float measured_width(UiTextMeasureCache* cache, Utf8View text, ConstSlice<TextSt
         return 0;
     if (!cache)
         return limit;
-    u64 signature = hash64_bytes(kHash64Seed, text.data, text.bytes);
+    u64 signature = hash64_words(kHash64Seed, text.data, text.bytes);
     for (u32 i = 0; i < styles.count; ++i)
         signature = hash64_mix(signature, (static_cast<u64>(styles[i].byte_offset) << 32) | styles[i].byte_count);
     UiTextMeasureValue value{};

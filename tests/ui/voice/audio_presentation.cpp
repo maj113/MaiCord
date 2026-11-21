@@ -78,7 +78,7 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     UiAudioScene scene{};
     const UiRect bounds{16, 16, 336, 102};
     ready = ui_audio_scene_project(&scene, state, bounds, bounds, reference, UiAudioSourceSurface::timeline,
-                                   kDefaultUiAudioControlsStyle, kDefaultTheme) &&
+                                   UiAudioControlsStyle{}, kDefaultTheme) &&
             paint_stream_reset(&paint, 400, 200) && ui_audio_scene_paint(scene, kDefaultTheme, &paint);
     check(ready && waveform_geometry(paint, scene.projection, 24, true) && paint.clip_depth == 1 &&
               ui_rect_height(scene.projection.geometry.bounds) == 86,
@@ -100,13 +100,13 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
           "mutation");
     state.elapsed_ms = 30'500;
     ready = ui_audio_scene_project(&scene, state, bounds, bounds, reference, UiAudioSourceSurface::timeline,
-                                   kDefaultUiAudioControlsStyle, kDefaultTheme);
+                                   UiAudioControlsStyle{}, kDefaultTheme);
     check(ready && ui_audio_scene_text_revision(scene) == before_text &&
               ui_audio_scene_paint_revision(scene) != before_paint,
           "audio retention: subsecond progress changes native paint while preserving exact text signature");
     state.elapsed_ms = 31'000;
     ready = ui_audio_scene_project(&scene, state, bounds, bounds, reference, UiAudioSourceSurface::timeline,
-                                   kDefaultUiAudioControlsStyle, kDefaultTheme);
+                                   UiAudioControlsStyle{}, kDefaultTheme);
     check(ready && ui_audio_scene_text_revision(scene) != before_text,
           "audio retention: visible elapsed second changes text signature");
 
@@ -115,7 +115,7 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     const UiRect ordinary{16, 16, 336, 128};
     ready =
         ui_audio_scene_project(&scene, state, ordinary, ordinary, reference, UiAudioSourceSurface::timeline,
-                               kDefaultUiAudioControlsStyle, kLightTheme) &&
+                               UiAudioControlsStyle{}, kLightTheme) &&
         paint_stream_reset(&paint, 400, 200) && ui_audio_scene_paint(scene, kLightTheme, &paint);
     ui_text_command_stream_reset(&text);
     ready = ready && ui_audio_scene_text_output(scene, &output);
@@ -129,7 +129,7 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     state.waveform = {};
     ready =
         ui_audio_scene_project(&scene, state, ordinary, ordinary, reference, UiAudioSourceSurface::timeline,
-                               kDefaultUiAudioControlsStyle, kLightTheme) &&
+                               UiAudioControlsStyle{}, kLightTheme) &&
         paint_stream_reset(&paint, 400, 200) && ui_audio_scene_paint(scene, kLightTheme, &paint);
     u32 neutral{};
     for (u32 i = 0; i < paint.count; ++i) {
@@ -145,13 +145,13 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     state.error = true;
     ready =
         ui_audio_scene_project(&scene, state, ordinary, ordinary, reference, UiAudioSourceSurface::timeline,
-                               kDefaultUiAudioControlsStyle, kLightTheme);
+                               UiAudioControlsStyle{}, kLightTheme);
     ui_text_command_stream_reset(&text);
     ready = ready && ui_audio_scene_text_output(scene, &output);
     bool error_label{};
     for (u32 i = 0; i < text.count; ++i)
         error_label = error_label ||
-                      (utf8_equal(commands[i].text, kDefaultUiAudioControlsStyle.error) &&
+                      (utf8_equal(commands[i].text, UiAudioControlsStyle{}.error) &&
                        same(commands[i].color, ui_foreground_color(kLightTheme, kLightTheme.notification)));
     check(ready && error_label && text.count == 3, "audio text: explicit unavailable state publishes "
                                                    "visible semantic error alongside filename and time");
@@ -162,19 +162,19 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     const UiRect compact{16, 16, 176, 128};
     ready =
         ui_audio_scene_project(&scene, state, compact, compact, reference, UiAudioSourceSurface::timeline,
-                               kDefaultUiAudioControlsStyle, kLightTheme);
+                               UiAudioControlsStyle{}, kLightTheme);
     ui_text_command_stream_reset(&text);
     ready = ready && ui_audio_scene_text_output(scene, &output);
     check(ready && scene.projection.geometry.compact && text.count == 2 &&
               utf8_equal(commands[0].text, utf8_literal("1:00:00\n2:00:00")) &&
               commands[0].wrapping == TextWrapping::wrap &&
-              ui_rect_height(commands[0].rectangle) == kDefaultUiAudioControlsStyle.target &&
+              ui_rect_height(commands[0].rectangle) == UiAudioControlsStyle{}.target &&
               commands[1].wrapping == TextWrapping::no_wrap,
           "audio text: compact hour timestamps wrap explicit elapsed and duration lines while filename "
           "stays no-wrap");
     ready =
         ui_audio_scene_project(&scene, state, ordinary, ordinary, reference, UiAudioSourceSurface::timeline,
-                               kDefaultUiAudioControlsStyle, kLightTheme);
+                               UiAudioControlsStyle{}, kLightTheme);
     ui_text_command_stream_reset(&text);
     ready = ready && ui_audio_scene_text_output(scene, &output);
     check(ready && !scene.projection.geometry.compact && text.count == 2 &&

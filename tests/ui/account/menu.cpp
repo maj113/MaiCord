@@ -46,7 +46,7 @@ void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {
               utf8_equal(logout.label, utf8_literal("Log out")) &&
               logout.flags == (popup_item_enabled | popup_item_separator_before | popup_item_danger) &&
               ui_menu_row_icon(logout.presentation) == UiIcon::log_out &&
-              popup_item_menu_row_height(logout) == kUiMenuRowHeight,
+              popup_item_menu_row_height(logout) == kUiThemeMetricsDefault.menu_row_height,
           "account menu: full authorized identity/profile/ID/four-status/Downloads/logout bank has unique "
           "stable actions and a separated danger row with shared original icon and dimensions");
     constexpr u32 widget_capacity = kUiAccountMenuItemCapacity * 2 + 2;
@@ -69,7 +69,7 @@ void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {
     const auto& plate = themed.quads[kUiSurfaceShadowLayers];
     check(painted && popup.panel_material == PopupPanelMaterial::gradient && themed.count > kUiSurfaceShadowLayers &&
               plate.border_width == -7 && plate.reserved_x == -1 && plate.fill.alpha == 1 &&
-              plate.radius == kUiMenuCornerRadius && themed.rejected == 0 && themed.clip_depth == 1,
+              plate.radius == kUiThemeMetricsDefault.menu_radius && themed.rejected == 0 && themed.clip_depth == 1,
           "account menu: typed opt-in paints one opaque clipped global-gradient panel and palette edge");
     bool flat =
         paint_stream_reset(&themed, 800, 640) && popup_presentation_build(popup, kDefaultTheme, &themed);

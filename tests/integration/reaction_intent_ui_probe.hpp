@@ -204,7 +204,7 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                         static_cast<u64>(nav.error));
                 return false;
             }
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             if (state->home_selected) {
                 metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
                 metrics.member_sidebar_width = 0;

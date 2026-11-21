@@ -301,13 +301,14 @@ bool handle_shell_hover(const WindowEvent& event) noexcept {
     }
     const UiWidgetHandle prior = g_app.shell_scene.widgets.hovered;
     UiWidgetHandle hit = ui_widget_manager_hit_test(g_app.shell_scene.widgets, x, y);
-    const auto* identity = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
-    if (identity && identity->id == static_cast<u32>(UiSemantic::channel_footer) + 1u && !account_identity_contains(x, y))
+    const UiWidget* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
+    if (widget && widget->id == static_cast<u32>(UiSemantic::channel_footer) + 1u && !account_identity_contains(x, y)) {
         hit = ui_widget_invalid_handle();
+        widget = nullptr;
+    }
     if (!ui_widget_manager_hover(&g_app.shell_scene.widgets, hit)) {
         return false;
     }
-    const UiWidget* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
     if (widget && (widget->id == static_cast<u32>(UiSemantic::member_toggle) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::private_create) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::private_search) + 1u ||
@@ -368,17 +369,17 @@ bool handle_shell_click(const WindowEvent& event) noexcept {
     if (g_app.login.visible) {
         return false;
     }
-    if (application_voice_shell_click(client_dip_x(event), client_dip_y(event)))
+    const float x = client_dip_x(event), y = client_dip_y(event);
+    if (application_voice_shell_click(x, y))
         return true;
-    if (const auto header = header_plugin_hit(client_dip_x(event), client_dip_y(event)); header.action_id) {
+    if (const auto header = header_plugin_hit(x, y); header.action_id) {
         application_plugin_surfaces_activate(header.owner_id, {kUiPluginSlotHeaderToolbar, 0, 0, 0, 0}, header.action_id);
         return true;
     }
     // Channel/DM row and server rail badges, account panel buttons.
-    if (application_plugins_surface_click(client_dip_x(event), client_dip_y(event)))
+    if (application_plugins_surface_click(x, y))
         return true;
-    const UiWidgetHandle hit =
-        ui_widget_manager_hit_test(g_app.shell_scene.widgets, client_dip_x(event), client_dip_y(event));
+    const UiWidgetHandle hit = ui_widget_manager_hit_test(g_app.shell_scene.widgets, x, y);
     const UiWidget* widget = ui_widget_manager_resolve(g_app.shell_scene.widgets, hit);
     if (widget && widget->id == static_cast<u32>(UiSemantic::settings) + 1u)
         return application_settings_open();
@@ -396,16 +397,16 @@ bool handle_shell_click(const WindowEvent& event) noexcept {
         return application_private_channel_picker(g_app.account_ui->chat_state.selected_channel_id);
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_call) + 1u && g_app.account_ui)
         return application_private_channel_call(g_app.account_ui->chat_state.selected_channel_id);
-    if (application_private_channel_title_hit(client_dip_x(event), client_dip_y(event)))
+    if (application_private_channel_title_hit(x, y))
         return application_private_channel_rename(g_app.account_ui->chat_state.selected_channel_id);
     if (widget && widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u)
         return application_friends_show();
     if (widget && widget->id == static_cast<u32>(UiSemantic::threads_toggle) + 1u)
         return application_thread_browser_toggle();
     if (widget && widget->id == static_cast<u32>(UiSemantic::channel_footer) + 1u && g_app.account_ui) {
-        if (voice_disconnect_contains(client_dip_x(event), client_dip_y(event)))
+        if (voice_disconnect_contains(x, y))
             return leave_voice();
-        if (!account_identity_contains(client_dip_x(event), client_dip_y(event))) return false;
+        if (!account_identity_contains(x, y)) return false;
         const auto* node = ui_widget_manager_layout_node(g_app.shell_scene.widgets, hit);
         return application_account_menu_open(
             hit, node ? ui_rect_intersection(node->rectangle, node->clip_rectangle) : UiRect{});

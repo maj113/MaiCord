@@ -117,7 +117,7 @@ void test_typing_strip(void (*check)(bool, const char*) noexcept) noexcept {
     // The shell as the application lays it out: the composer's height and its strip's overlap over the list's
     // bottom space are the only inputs, and neither names typers.
     constexpr float kWidth = 1280.f, kHeight = 420.f;
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     const auto layout_shell = [&]() noexcept {
         metrics.composer_height =
             message_composer_scene_preferred_height(f.model, ui_scene_composer_width(metrics, kWidth), false);
@@ -163,8 +163,8 @@ void test_typing_strip(void (*check)(bool, const char*) noexcept) noexcept {
     // The strip is part of the composer even when nobody types: the indicator's row sits above its surface and
     // draws over the bottom of the message list, inside the list's own bottom space. The list keeps the gap it
     // had before the strip existed (the list's bottom margin plus the composer's top margin): the strip adds none.
-    const float kListGap = kGuildChannelShellLayoutMetrics.message_bottom_margin +
-                           kGuildChannelShellLayoutMetrics.composer_margin.top;
+    const float kListGap = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).message_bottom_margin +
+                           ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).composer_margin.top;
     const auto last_row_gap = [&](const Geometry& g) noexcept {
         const auto* row = message_scene_find_row(f.scene, kRows - 1);
         return row ? g.surface.top - message_scene_message_rectangle(f.scene, *row).bottom : -1.f;

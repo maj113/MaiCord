@@ -1149,7 +1149,7 @@ bool probe_media_gallery(bool favorites) noexcept {
             for (u32 q = batch.first_quad; q < batch.first_quad + batch.quad_count; ++q) {
                 const auto& quad = renderer.media_draw.quad_data[q];
                 catalog_only = catalog_only && renderer.media_draw.domain_data[q] == 1 &&
-                               quad.clip_radius == kUiControlCornerRadius &&
+                               quad.clip_radius == kUiThemeMetricsDefault.control_radius &&
                                ui_rect_has_area(quad.rounded_clip) && quad.v0 < 0 && quad.v1 < 0;
             }
         }
@@ -6402,8 +6402,8 @@ bool probe_media_page() noexcept {
     playback.title = utf8_literal("night-drive.mp3");
     playback.generation = audio.owner.handle.generation;
     const auto stage = ui_image_viewer_page_layout(audio).player;
-    if (!ui_audio_scene_project(&card, playback, ui_audio_page_card(stage, kDefaultUiAudioControlsStyle), stage,
-                                audio.owner, UiAudioSourceSurface::page, kDefaultUiAudioControlsStyle, kDefaultTheme))
+    if (!ui_audio_scene_project(&card, playback, ui_audio_page_card(stage, UiAudioControlsStyle{}), stage,
+                                audio.owner, UiAudioSourceSurface::page, UiAudioControlsStyle{}, kDefaultTheme))
         return false;
     g_probe.failure_stage = 146;
     renderer.media_page = &audio;

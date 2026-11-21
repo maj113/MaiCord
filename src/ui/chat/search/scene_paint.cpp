@@ -229,7 +229,7 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         return true;
     if (!ui_edit_field_text_output(
             output, {&s.widgets, s.edit}, s.text, s.content->edit, edit,
-            s.content->placeholder.bytes ? s.content->placeholder : utf8_literal("Search messages"), theme))
+            s.content->placeholder.bytes ? s.content->placeholder : utf8_literal("Search messages"), theme.text_primary))
         return false;
     Pen out{output, s.widgets, s.panel};
     if (s.scope.generation) {

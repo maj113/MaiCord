@@ -9,6 +9,8 @@
 
 namespace maicord {
 namespace {
+// The default theme's tooltip.
+constexpr UiTooltipStyle kTooltipStyle = ui_tooltip_style(kUiThemeMetricsDefault);
 bool emoji_bounds_centered(UiRect ink, UiRect square) noexcept {
     const float dx = ink.left + ink.right - square.left - square.right;
     const float dy = ink.top + ink.bottom - square.top - square.bottom;
@@ -222,7 +224,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
                                ui_rect_intersection(button->rectangle, button->clip_rectangle),
                                utf8_literal("User settings")};
         const auto baseline = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
-        valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 100) &&
+        valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 100, kTooltipStyle) &&
                 ui_tooltip_next_wake(scene) == 600 && !ui_tooltip_tick(&scene, 599, &measure) &&
                 renderer_presentation_stamp_equal(
                     baseline, renderer_capture_presentation_stamp(renderer, kDefaultTheme));
@@ -243,7 +245,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
         const bool pointer_passed = valid;
         renderer_bind_focus_owner(&renderer, &source);
         valid = valid && ui_widget_manager_focus(&focus_manager, settings) &&
-                ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::keyboard, 1000) &&
+                ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::keyboard, 1000, kTooltipStyle) &&
                 ui_tooltip_next_wake(scene) == 1350 && ui_tooltip_tick(&scene, 1350, &measure) &&
                 present() && (!capture || capture(L"tooltip-keyboard-focus.bmp"));
         if (pointer_passed && !valid)
@@ -253,7 +255,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
         target.label =
             utf8_literal("Keyboard focus and pointer hover share this bounded native tooltip presentation");
         target.placement = UiTooltipPlacement::right;
-        UiTooltipStyle narrow{};
+        UiTooltipStyle narrow = kTooltipStyle;
         narrow.maximum_width = 176;
         narrow.maximum_height = 140;
         const bool keyboard_passed = valid;
@@ -277,7 +279,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
             ui_tooltip_clear(&scene);
             ++target.key.action;
             target.emoji = {{}, emoji[i]};
-            valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000) &&
+            valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000, kTooltipStyle) &&
                     ui_tooltip_tick(&scene, 3500, &measure) && present() &&
                     native_emoji_centered(renderer, scene) && present() &&
                     native_emoji_centered(renderer, scene);
@@ -296,7 +298,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
             ui_tooltip_clear(&scene);
             ++target.key.action;
             target.emoji = {asset, {}};
-            valid = valid && ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000) &&
+            valid = valid && ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000, kTooltipStyle) &&
                     ui_tooltip_tick(&scene, 3500, &measure) && present();
             UiRect square{};
             const auto allocation = media_atlas_peek(renderer.media_atlas, asset);
@@ -325,7 +327,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
             target.bold = {&name, 1};
             target.emoji = {{}, utf8_literal("\xF0\x9F\x98\x82")};
             target.detail = utf8_literal("Click to learn more");
-            UiTooltipStyle rich{};
+            UiTooltipStyle rich = kTooltipStyle;
             rich.padding_x = 12;
             rich.padding_y = 8;
             rich.emoji_gap = 8;
@@ -347,7 +349,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
             target.emoji = {};
             target.emoji.icon = UiIcon::sticker;
             target.detail = utf8_literal("Click to learn more");
-            UiTooltipStyle sticker_style{};
+            UiTooltipStyle sticker_style = kTooltipStyle;
             sticker_style.emoji_size = 16;
             sticker_style.emoji_gap = 6;
             UiRect square{};

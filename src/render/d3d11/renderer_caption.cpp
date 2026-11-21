@@ -10,6 +10,7 @@
 #include "maicord/ui/shell/caption_bar.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/gpu/api.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 
@@ -543,7 +544,7 @@ bool append_tooltip(D3D11Renderer* renderer, RendererCaption* caption, const The
         reset_value(&caption->tooltip_pixels);
         return true;
     }
-    const UiTooltipStyle style{};
+    const UiTooltipStyle style = ui_tooltip_style(ui_theme_metrics(theme.styles));
     CaptionLine& line = caption->tooltip_line;
     if (caption->tooltip_part != part)
         line.shaped = false;

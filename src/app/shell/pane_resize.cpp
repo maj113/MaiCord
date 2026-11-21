@@ -5,6 +5,7 @@
 #include "overlay_input.hpp"
 #include "state.hpp"
 #include "maicord/ui/layout/splitter.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 
 namespace maicord::app_detail {
@@ -22,13 +23,16 @@ void set_pane_width(PaneResizeKind kind, float width) noexcept {
     g_app.pane_layout_pending = true;
     application_request_frame();
 }
-UiSplitterLimits pane_resize_limits(PaneResizeKind kind) noexcept {
+// The server rail's width in the active theme: the channel pane starts at its right edge.
+float rail_width() noexcept {
+    return ui_theme_metrics(application_theme().styles).shell_rail_width;
+}
+inline UiSplitterLimits pane_resize_limits(PaneResizeKind kind) noexcept {
     const float other = kind == PaneResizeKind::channels
                             ? (g_app.member_pane_visible ? g_app.member_pane_width : 0.0f)
                             : g_app.channel_pane_width;
     // The chat column (or the thread browser covering it) keeps its minimum.
-    return ui_splitter_limits(ui_rect_width(application_viewport_dips()) -
-                              kGuildChannelShellLayoutMetrics.guild_rail_width - other -
+    return ui_splitter_limits(ui_rect_width(application_viewport_dips()) - rail_width() - other -
                               kMinimumAccountMessageWidthDips);
 }
 } // namespace
@@ -45,8 +49,7 @@ bool handle_pane_resize_drag(const WindowEvent& event) noexcept {
     const float x = client_dip_x(event);
     const UiSplitterLimits limits = pane_resize_limits(kind);
     set_pane_width(kind, kind == PaneResizeKind::channels
-                             ? ui_splitter_drag_width(kGuildChannelShellLayoutMetrics.guild_rail_width,
-                                                      UiSplitterEdge::right, x, limits)
+                             ? ui_splitter_drag_width(rail_width(), UiSplitterEdge::right, x, limits)
                              : ui_splitter_drag_width(application_viewport_dips().right, UiSplitterEdge::left, x,
                                                       limits));
     return true;

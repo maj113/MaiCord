@@ -111,7 +111,7 @@ void drain_deferred_text_services() noexcept {
 }
 
 // Whether the waitable at `index` of the wait set is the one that ended the wait.
-bool wait_ready(const WindowWaitResult& waited, u32 index) noexcept {
+inline bool wait_ready(const WindowWaitResult& waited, u32 index) noexcept {
     return ((waited.ready_mask >> index) & 1) != 0;
 }
 
@@ -229,8 +229,10 @@ __attribute__((minsize)) int start_process() noexcept {
     application_platform_window_prepare();
     renderer_prestart();
     MAICORD_PERF_MARK("renderer_prestart");
-    g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;
-    g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
+    // No theme is published yet, so the panes start at the default theme's widths. The publication of another
+    // theme moves them to its widths (theme_publication.cpp).
+    g_app.channel_pane_width = kUiThemeMetricsDefault.shell_sidebar_width;
+    g_app.member_pane_width = kUiThemeMetricsDefault.shell_member_width;
     log_open();
     application_log_start_record();
 #if defined(MAICORD_TEST_HOOKS) && defined(_WIN32)
@@ -468,23 +470,23 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
+        // The pumps above are the last step before the wait that changes the logout block.
+        const bool wait_blocked = application_account_logout_blocked();
         Waitable wait_handles[kAccountHostNotificationHandleCapacity + 19];
         const u32 account_handle_count =
-            application_account_logout_blocked()
-                ? 0
-                : account_host_notification_handles(&g_app.account, wait_handles);
+            wait_blocked ? 0 : account_host_notification_handles(&g_app.account, wait_handles);
         u32 wait_handle_count = account_handle_count;
         const auto push_handle = [&](Waitable handle) noexcept {
             if (handle)
                 wait_handles[wait_handle_count++] = handle;
         };
-        if (!application_account_logout_blocked()) {
+        if (!wait_blocked) {
             push_handle(application_attachment_notification());
             push_handle(application_forum_attachments_notification());
             push_handle(application_guild_settings_notification());
         }
         const u32 draft_handle_index = wait_handle_count;
-        if (!application_account_logout_blocked())
+        if (!wait_blocked)
             push_handle(application_draft_save_notification());
         const bool draft_handle = wait_handle_count != draft_handle_index;
         push_handle(application_preferences_notification());
@@ -504,7 +506,7 @@ int application_run() noexcept {
         push_handle(application_platform_quit_signal());
         const u32 video_handle_index = wait_handle_count;
         const bool quit_handle = video_handle_index != quit_handle_index;
-        if (!application_account_logout_blocked())
+        if (!wait_blocked)
             push_handle(application_call_video_notification());
         const bool video_handle = wait_handle_count != video_handle_index;
         u32 frame_handle_index = 0xFFFFFFFFu;
@@ -518,8 +520,9 @@ int application_run() noexcept {
         const bool frame_clock_available = !window_hidden && g_app.renderer_ready &&
                                            !g_app.renderer.live_resize &&
                                            gpu_frame_clock_waitable(&g_app.renderer.graphics.surface);
+        u64 visual_wake = kVisualWakeUnknown;
         const bool visual_frame_requested =
-            !window_hidden && application_visual_frame_requested(wait_now_ms, wait_now_us);
+            !window_hidden && application_visual_frame_requested(wait_now_ms, wait_now_us, &visual_wake);
         // The waitable object grants an available swap-chain slot, not a
         // requirement to submit an empty frame. Keep an acquired slot while
         // a media worker is producing its next frame, and use it when ready.
@@ -537,9 +540,9 @@ int application_run() noexcept {
             g_app.frame_clock_watchdog_at_us = 0;
             g_app.frame_clock_timer_fallback = false;
         }
-        u32 timeout =
-            application_wait_timeout(wait_now_ms, wait_now_us, frame_handle_index != 0xFFFFFFFFu, window_hidden);
-        if (!application_account_logout_blocked()) {
+        u32 timeout = application_wait_timeout(wait_now_ms, wait_now_us, frame_handle_index != 0xFFFFFFFFu,
+                                               window_hidden, visual_wake);
+        if (!wait_blocked) {
             timeout = minimum(timeout, application_attachment_wait_timeout(wait_now_ms));
             timeout = minimum(timeout, application_voice_message_wait_timeout(wait_now_ms));
             timeout = minimum(timeout, application_forum_attachments_wait_timeout(wait_now_ms));
@@ -738,7 +741,7 @@ int application_run() noexcept {
             (account_work || begin_frame || g_app.frame_pending ||
              (!frame_clock_available &&
               (application_animation_frame_due(restart_now_us) ||
-               (application_video_next_wake() != 0 && restart_now_ms >= application_video_next_wake()))))) {
+               deadline_due(restart_now_ms, application_video_next_wake()))))) {
             bool repaint = false;
             // A video overlay phase needs no static-media visibility scan.
             // Real completions, viewport changes and animation deadlines keep
@@ -851,7 +854,7 @@ int application_run() noexcept {
         if (perf::probe_step(&exit_code))
             break;
 #endif
-        application_update_frame_rate(application_now_us());
+        application_update_frame_rate();
     }
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     // The first turn ended the loop before its tail. The updater starts here as it did before the loop: the install

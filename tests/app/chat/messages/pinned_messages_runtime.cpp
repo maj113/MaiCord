@@ -69,7 +69,7 @@ UiRect action_bounds(UiPinnedMessagesAction action, u64 message) noexcept {
     return {};
 }
 bool layout(float width, float height) noexcept {
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     if (application_pinned_messages_available())
         metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins);
     return ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
@@ -107,7 +107,7 @@ bool initialize() noexcept {
             {80, 0, 0, utf8_literal("fixture-dm"), 0, 0, 1}).ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene) ||
         !ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                      kGuildChannelShellLayoutMetrics, 1280, 720) ||
+                                      ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 720) ||
         !application_history_decode_storage_initialize(ui) ||
         !message_store_initialize(&g_app.message_view.store, {records, 4}, {order, 4}, {text, 4096}) ||
         !message_store_upsert(&g_app.message_view.store,

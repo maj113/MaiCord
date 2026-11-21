@@ -805,7 +805,7 @@ void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};
     auto content = picker_content(UiMediaPickerKind::gif);
     content.back = true;
-    const auto style = ui_media_picker_style();
+    const auto style = ui_media_picker_style(kUiThemeMetricsDefault);
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 600) &&
               ui_rect_width(scene.panel) == 600 && scene.panel.right == anchor.right && scene.cell_count != 0 &&
@@ -1101,7 +1101,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerMediaSlot media{};
     check(ui_media_picker_scene_media(scene, 0, &media) && media.asset_id == first.item.asset_id &&
               media.fit == UiMediaPickerFit::cover && media.opacity < 1 && media.asset_flags == 0x0201 &&
-              ui_rect_equal(media.clip, first.clip) && media.radius == kUiControlCornerRadius,
+              ui_rect_equal(media.clip, first.clip) && media.radius == kUiThemeMetricsDefault.control_radius,
           "media picker: visible preview request shares category cover geometry, dimming and corner mask");
     check(ui_media_picker_scene_hover(&scene, x, y, 1000) &&
               !ui_media_picker_scene_hover(&scene, x + 1, y + 1, 1200) &&

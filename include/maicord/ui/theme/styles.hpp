@@ -166,8 +166,9 @@ constexpr float ui_theme_chat_size(const UiThemeTypography& typography) noexcept
     return typography.chat_size ? typography.chat_size : typography.body_size;
 }
 // Semantic DIP dimensions only. Colors/background stay in Theme; product labels,
-// capacities, permissions and widget identities are not theme data. Defaults
-// match the shared primitives. Consumers project these into their own styles.
+// capacities, permissions and widget identities are not theme data. These defaults
+// are the one source of the shared primitives (layout/surface_geometry.hpp) and of
+// the native shell, form, audio and poll styles. Consumers project these into their own styles.
 struct UiThemeMetrics {
     float shell_rail_width{64}, shell_sidebar_width{240}, shell_member_width{240}, shell_header_height{48},
         shell_gutter{0};

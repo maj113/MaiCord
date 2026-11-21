@@ -8,6 +8,7 @@
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 #if !defined(_WIN32)
 #include "maicord/platform/window/wayland.hpp"
 #endif
@@ -20,17 +21,14 @@ float minimum_client_width_dips(const Application& application) noexcept {
     if (!application.account_ui || application.login.visible) {
         return kMinimumLoginClientWidthDips;
     }
-    const float navigation = application.channel_pane_width > 0.0f
-                                 ? application.channel_pane_width
-                                 : kGuildChannelShellLayoutMetrics.navigation_width;
+    const auto& metrics = ui_theme_metrics(application_theme().styles);
+    const float navigation =
+        application.channel_pane_width > 0.0f ? application.channel_pane_width : metrics.shell_sidebar_width;
     const float members =
         application.member_pane_visible
-            ? (application.member_pane_width > 0.0f
-                   ? application.member_pane_width
-                   : kGuildChannelShellLayoutMetrics.member_sidebar_width)
+            ? (application.member_pane_width > 0.0f ? application.member_pane_width : metrics.shell_member_width)
             : 0.0f;
-    return kGuildChannelShellLayoutMetrics.guild_rail_width + navigation + members +
-           kMinimumAccountMessageWidthDips;
+    return metrics.shell_rail_width + navigation + members + kMinimumAccountMessageWidthDips;
 }
 
 } // namespace

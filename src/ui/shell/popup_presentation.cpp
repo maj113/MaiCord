@@ -176,7 +176,7 @@ float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, const
     UiTextMeasureValue measured{};
     if (!ui_text_measure_cache_measure(
              measure,
-             {{scene.owner_id, hash64_bytes(kHash64Seed, value.data, value.bytes), 0, tag, 0}, value,
+             {{scene.owner_id, hash64_words(kHash64Seed, value.data, value.bytes), 0, tag, 0}, value,
               flags ? ConstSlice<TextStyleSpan>{&span, 1} : ConstSlice<TextStyleSpan>{},
               {maximum(1.f, limit), kCommandRowHeight}, true},
              &measured)
@@ -466,8 +466,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     const UiLayoutNode* panel = popup_scene_layout_node(scene, scene.panel);
     if (!panel)
         return false;
-    const float panel_radius =
-        scene.themed_menu ? popup_paint_metrics(scene, theme).menu_radius : kUiMenuCornerRadius;
+    const float panel_radius = popup_paint_metrics(scene, theme).menu_radius;
     // The drop shadow falls outside the panel clip, so it paints first. The pushed clip also forces a distinct
     // paint batch, so the overlay cannot merge into the last base batch and draw under media/text sharing the
     // root clip. Every popup kind shares the popover elevation material on gradient themes.

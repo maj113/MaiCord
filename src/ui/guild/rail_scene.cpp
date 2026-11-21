@@ -1,4 +1,5 @@
 #include "maicord/ui/guild/rail_scene.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/layout/widget_scroll.hpp"
@@ -603,8 +604,7 @@ u64 guild_rail_scene_next_wake(const GuildRailScene& scene) noexcept {
     u64 wake = 0;
     for (const auto& slot : scene.folder_motion) {
         const u64 deadline = slot.scope.owner ? ui_motion_transition_next_wake(slot, slot.scope, false) : 0;
-        if (deadline && (!wake || deadline < wake))
-            wake = deadline;
+        wake = earliest_deadline(wake, deadline);
     }
     return wake;
 }
@@ -631,9 +631,8 @@ u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill) noexcept {
     // A pill at rest has no deadline.
     if (!pill.height.active && !pill.visibility.active)
         return 0;
-    const u64 a = ui_motion_transition_next_wake(pill.height, pill.height.scope, false);
-    const u64 b = ui_motion_transition_next_wake(pill.visibility, pill.visibility.scope, false);
-    return !a ? b : !b ? a : minimum(a, b);
+    return earliest_deadline(ui_motion_transition_next_wake(pill.height, pill.height.scope, false),
+                             ui_motion_transition_next_wake(pill.visibility, pill.visibility.scope, false));
 }
 
 } // namespace maicord

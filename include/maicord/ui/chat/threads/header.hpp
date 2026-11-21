@@ -19,8 +19,9 @@ struct UiThreadHeaderStyle {
     float height, feedback_height, inset, gap, control_height;
     float primary_width, overflow_width, cancel_width;
 };
-constexpr UiThreadHeaderStyle ui_thread_header_style() noexcept {
-    return {44.f, kUiMenuRowHeight, 12.f, kUiMenuRowGap, 32.f, 90.f, 32.f, 64.f};
+// The feedback row is as tall as a menu row of the theme, and the controls are a menu gap apart.
+constexpr UiThreadHeaderStyle ui_thread_header_style(const UiThemeMetrics& metrics) noexcept {
+    return {44.f, metrics.menu_row_height, 12.f, metrics.menu_gap, 32.f, 90.f, 32.f, 64.f};
 }
 
 // The host owns membership, archive/locked permission policy,

@@ -367,7 +367,7 @@ float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, const
         return limit;
     const TextStyleSpan style{0, text.bytes, style_flags};
     UiTextMeasureValue measured{};
-    const UiTextMeasureRequest request{{source_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, item, 0},
+    const UiTextMeasureRequest request{{source_id, hash64_words(kHash64Seed, text.data, text.bytes), 0, item, 0},
                                        text,
                                        style_flags ? ConstSlice<TextStyleSpan>{&style, 1} : ConstSlice<TextStyleSpan>{},
                                        {limit, 40.f},
@@ -415,7 +415,7 @@ bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, c
     const auto icon = message_composer_scene_reply_mention_icon(scene);
     if (!stream || !mention || !ui_rect_has_area(icon))
         return false;
-    const float divider = mention->rectangle.right + kUiComposerPadding;
+    const float divider = mention->rectangle.right + ui_theme_metrics(scene.theme_styles).composer_padding;
     const float middle = (icon.top + icon.bottom) * .5f;
     return ui_icon_paint(stream, UiIcon::mention, icon,
                          scene.mention_reply_author ? theme.tokens.text.link : theme.tokens.text.muted) &&
@@ -574,6 +574,12 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         }
     }
 
+    // The server banner (its picture is media above): its container in the column and the header over it.
+    const UiGuildBannerGeometry banner =
+        channel_scene && channel_scene->banner_inset > 0 && channels && channel_header
+            ? ui_guild_banner_geometry(channels->rectangle, channel_header->rectangle, channel_scene->scroll_dips,
+                                       channel_scene->banner_header_hovered)
+            : UiGuildBannerGeometry{};
     if (channels && channel_header && channel_navigation && channel_footer) {
         // The channel column ends with its list; the account panel floats over
         // the app frame below both columns, whose rail part the rail canvas paints.
@@ -591,16 +597,12 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                          UiBackgroundBorderTone::palette)) {
             return false;
         }
-        // The server banner's container (its picture is media above): the
-        // active interactive fill shows until the picture is resident.
-        if (channel_scene && channel_scene->banner_inset > 0) {
-            const auto banner = ui_guild_banner_geometry(channels->rectangle, channel_header->rectangle,
-                                                         channel_scene->scroll_dips, channel_scene->banner_header_hovered);
+        // The banner's container: the active interactive fill shows until the picture is resident.
+        if (banner.opacity > 0) {
             const UiRect clip = ui_rect_intersection(banner.clip, channels->rectangle);
             Color placeholder = theme.tokens.state.pressed;
             placeholder.alpha *= banner.opacity;
-            if (banner.opacity > 0 && ui_rect_has_area(clip) &&
-                !paint_stream_push(stream, clip, placeholder))
+            if (ui_rect_has_area(clip) && !paint_stream_push(stream, clip, placeholder))
                 return false;
         }
         if (navigation && channel_scene && channel_scene->active) {
@@ -842,7 +844,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     // Server header: the dropdown's hover (and open) fill, the chevron after
     // the name (an X while the popout is open), then Invite People.
-    if (!shell_presentation_guild_banner_visible(scene, channel_scene) &&
+    if (!banner.visible &&
         !paint_guild_header(stream, scene, navigation, measure,
                             ui_background_hover_color(theme, theme.surface_high, .20f),
                             ui_background_hover_color(theme, theme.surface_high, .28f), theme.text_primary,
@@ -888,7 +890,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                   : ui_background_surface_color(theme, theme.base_lower, .12f), theme.scale.radius_sm))
             return false;
         // The people glyph leads the label, as on the official client's Friends row.
-        const UiRect content = ui_scene_content_rectangle(scene, UiSemantic::friends_button);
+        const UiRect content = friends->content_rectangle;
         const float middle = (content.top + content.bottom) * .5f;
         if (!ui_icon_paint(stream, UiIcon::members, {content.left, middle - 10.f, content.left + 20.f, middle + 10.f},
                            selected || hovered ? theme.text_primary : theme.text_secondary))
@@ -997,7 +999,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     if (!attachment || !edit || !emoji || !send || !typing ||
         !paint_stream_push_rounded_border(stream, edit->rectangle, background         ? Color{}
         : composer_enabled ? theme.surface_high
-                           : theme.base_low, Color{}, kUiControlCornerRadius, 0.0f) ||
+                           : theme.base_low, Color{}, ui_theme_metrics(theme.styles).control_radius, 0.0f) ||
         (voice_bar && !ui_composer_voice_bar_paint(*composer_scene->voice, edit->content_rectangle, theme, stream)) ||
         (composer_scene->command.avatar.kind == MediaAssetKind::none &&
          !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->add_attachment,
@@ -1211,7 +1213,9 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
     return paint_stream_pop_clip(paint) && ok;
 }
 
-bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNavigationScene* channel_scene) noexcept {
+// Out of line: inlined into the shell text build, it makes that build too large for the renderer to inline.
+__declspec(noinline) bool shell_presentation_guild_banner_visible(const UiScene& scene,
+                                                                  const ShellNavigationScene* channel_scene) noexcept {
     const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
     const UiLayoutNode* header = ui_scene_node(scene, UiSemantic::channel_header);
     return channel_scene && channel_scene->banner_inset > 0 && channels && header &&

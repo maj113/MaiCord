@@ -158,14 +158,14 @@ u32 build(Page* p, bool nitro, bool guild, const ProfileNameStyle* trying = null
         pr = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
     p->footer = {utf8_literal("Careful \xE2\x80\x94 you have unsaved changes!"), utf8_literal("Save Changes"),
                  utf8_literal("Reset"), true, true, false, false};
-    p->content = {utf8_literal("Profiles"), {}, {p->controls, n}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle,
+    p->content = {utf8_literal("Profiles"), {}, {p->controls, n}, 1, kUiSettingsPageFormat, nullptr,
                   &p->footer};
     p->content.presentation = p->presentation;
     p->content.sectioned = true;
     p->content.aside_width = 300;
     p->content.aside_row = 1;
     p->content.aside_label = guild ? utf8_literal("Preview For Native test server") : utf8_literal("Preview");
-    p->other = {utf8_literal("Account"), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle};
+    p->other = {utf8_literal("Account"), {}, {}, 1, kUiSettingsPageFormat, nullptr};
     p->navigation[0] = {UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("USER SETTINGS"), {}, 0};
     p->navigation[1] = {UiSettingsNavKind::page, false, UiIcon::user, utf8_literal("My Account"), {1, 1}, 0};
     p->navigation[2] = {UiSettingsNavKind::page, false, UiIcon::user_edit, utf8_literal("Profiles"), {1, 2}, 0};
@@ -842,7 +842,7 @@ bool guild_card_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache* measure,
         target.row_media = hint.media;
         target.placement =
             hint.kind == UiGuildCardHintKind::traits ? UiTooltipPlacement::above : UiTooltipPlacement::below;
-        UiTooltipStyle style{};
+        UiTooltipStyle style = ui_tooltip_style(kUiThemeMetricsDefault);
         style.maximum_height = 240;
         renderer.retained_presentation.valid = false;
         return require(ui_tooltip_offer(&tip, target, viewport, UiTooltipTrigger::pointer, 2000, style) &&

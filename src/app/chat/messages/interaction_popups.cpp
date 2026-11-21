@@ -16,6 +16,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/chat/messages/text_selection.hpp"
 #include "maicord/ui/layout/virtual_list.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {
@@ -775,7 +776,8 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
         return dismiss_popup();
     if (!builtins)
         items[0].flags &= ~popup_item_separator_before;
-    const UiPopupFeedback feedback{thread_header.status, ui_popup_feedback_style(),
+    const UiPopupFeedback feedback{thread_header.status,
+                                   ui_popup_feedback_style(ui_theme_metrics(application_theme().styles)),
                                    thread_header.status_error};
     const auto* footer = thread_count && feedback.text.bytes ? &feedback : nullptr;
     auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, channel_id, {items, count},
@@ -818,7 +820,9 @@ bool application_thread_actions_menu_open(const ApplicationThreadActionTicket& t
     const u32 count = ui_thread_menu_build(view, kApplicationThreadMenuActions, {items, 6});
     if (!count)
         return false;
-    const UiPopupFeedback feedback{view.status, ui_popup_feedback_style(), view.status_error};
+    const UiPopupFeedback feedback{view.status,
+                                   ui_popup_feedback_style(ui_theme_metrics(application_theme().styles)),
+                                   view.status_error};
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, ticket.thread_id, {items, count},
                           anchor, application_viewport_dips(), 240.f, false, 0, 0,
                           ticket.publication_revision, feedback.text.bytes ? &feedback : nullptr)
@@ -924,8 +928,9 @@ bool open_folder_context_popup(u64 row_id, UiRect anchor) noexcept {
     PopupItem items[1];
     popup_item_set(&items[0], utf8_literal("Folder settings"), popup_action_folder_settings, popup_item_enabled);
     items[0].presentation = ui_menu_row_presentation(UiIcon::settings);
+    const auto& metrics = ui_theme_metrics(application_theme().styles);
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, folder_id, {items, 1}, anchor,
-                          application_viewport_dips(), 6 * kUiMenuRowHeight + 2 * kUiMenuPadding)
+                          application_viewport_dips(), 6 * metrics.menu_row_height + 2 * metrics.menu_padding)
              .ok())
         return false;
     set_popup_owner(PopupOwnerKind::guild_folder);

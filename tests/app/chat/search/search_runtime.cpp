@@ -230,7 +230,7 @@ bool initialize() noexcept {
              .ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene) ||
         !ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                      kGuildChannelShellLayoutMetrics, 1280, 720)) {
+                                      ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 720)) {
         return false;
     }
     ui.chat_state.self_user_id = 5;

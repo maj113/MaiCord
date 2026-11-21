@@ -3,6 +3,7 @@
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/core/cursor.hpp"
 
 namespace maicord {
@@ -37,12 +38,18 @@ bool ui_poll_closed(const UiPollState& state) noexcept;
 bool ui_poll_counts_visible(const UiPollState& state) noexcept;
 // Default poll layout (DIP): a 16-padded card at most 472 wide; 50-high answer
 // rows (8/16 padding, 8 radius, 8 gap) with the selection icon on the right; a
-// 38-high footer of vote details and actions. Theme metrics override the lengths.
+// 38-high footer of vote details and actions. The lengths are the default theme
+// metrics, which a theme overrides.
 struct UiPollStyle {
-    float padding{16}, gap{8}, answer_padding{16}, answer_gap{8};
-    float minimum_width{128}, maximum_width{472}, target{38}, marker{24}, emoji_extent{24};
+    float padding{kUiThemeMetricsDefault.poll_padding}, gap{kUiThemeMetricsDefault.poll_gap},
+        answer_padding{kUiThemeMetricsDefault.poll_answer_padding},
+        answer_gap{kUiThemeMetricsDefault.poll_answer_gap};
+    float minimum_width{kUiThemeMetricsDefault.poll_minimum_width},
+        maximum_width{kUiThemeMetricsDefault.poll_maximum_width},
+        target{kUiThemeMetricsDefault.poll_target}, marker{kUiThemeMetricsDefault.poll_marker},
+        emoji_extent{kUiThemeMetricsDefault.poll_emoji};
     float question_minimum_height{20}, answer_minimum_height{50}, label_minimum_height{16};
-    float radius{8};
+    float radius{kUiThemeMetricsDefault.poll_radius};
     u32 question_style{text_style_bold};
     u32 answer_style{text_style_fold_size(text_style_bold, text_size_sm)};
     u32 detail_style{text_style_fold_size(text_style_none, text_size_sm)};
@@ -209,7 +216,7 @@ struct UiPollVotersState {
 struct UiPollVotersStyle {
     float preferred_width{480}, preferred_height{640}, margin{16}, padding{16}, gap{8};
     float header_height{48}, target{32}, row_height{44}, avatar_extent{32};
-    float radius{kUiControlCornerRadius};
+    float radius{kUiThemeMetricsDefault.control_radius};
     float backdrop_opacity{.6f};
     Utf8View title{utf8_literal("Voters")}, previous{utf8_literal("Previous")};
     Utf8View next{utf8_literal("Next")}, retry{utf8_literal("Retry")}, close{utf8_literal("Close")};

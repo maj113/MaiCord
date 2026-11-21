@@ -89,7 +89,7 @@ bool menu_scroll() noexcept {
     Glide notch = glide(start, 0);
     UINT lines = 3;
     SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-    const float row = kPopupRowHeight * static_cast<float>(lines);
+    const float row = popup_scene_scroll_step(popup) * static_cast<float>(lines);
     const float notch_target = minimum(row, popup.scroll_max);
     log_u64(LogLevel::info, "menu_scroll", "notch_intermediate_frames", notch.intermediate);
     if (notch.intermediate < 3 || notch.settled < notch_target - .01f || notch.settled > notch_target + .01f)

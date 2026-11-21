@@ -2,6 +2,7 @@
 
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord {
 
@@ -110,44 +111,49 @@ struct UiShellLayoutMetrics {
     float private_identity_width;
 };
 
-inline constexpr UiShellLayoutMetrics kGuildChannelShellLayoutMetrics{
-    1,
-    static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_members | ui_shell_layout_composer),
-    64.0f,
-    240.0f,
-    240.0f,
-    0.0f,
-    0.0f,
-    48.0f,
-    48.0f,
-    48.0f,
-    48.0f,
-    10.0f,
-    48.0f,
-    UiInsets{kUiFloatingSurfaceInset, kUiFloatingSurfaceInset, kUiFloatingSurfaceInset,
-             kUiFloatingSurfaceInset},
-    UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
-    UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
-};
-
-inline constexpr UiShellLayoutMetrics kFriendsShellLayoutMetrics{
-    1,
-    ui_shell_layout_navigation,
-    64.0f,
-    240.0f,
-    0.0f,
-    0.0f,
-    0.0f,
-    48.0f,
-    48.0f,
-    48.0f,
-    0.0f,
-    0.0f,
-    0.0f,
-    UiInsets{},
-    UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
-    UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
-};
+// A server channel's shell layout. The theme sets the widths, gutters and header heights.
+constexpr UiShellLayoutMetrics ui_guild_channel_shell_layout_metrics(const UiThemeMetrics& theme_metrics) noexcept {
+    return {
+        1,
+        static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_members | ui_shell_layout_composer),
+        theme_metrics.shell_rail_width,
+        theme_metrics.shell_sidebar_width,
+        theme_metrics.shell_member_width,
+        theme_metrics.shell_gutter,
+        theme_metrics.shell_gutter,
+        theme_metrics.shell_header_height,
+        theme_metrics.shell_header_height,
+        48.0f,
+        theme_metrics.shell_header_height,
+        10.0f,
+        48.0f,
+        UiInsets{kUiFloatingSurfaceInset, kUiFloatingSurfaceInset, kUiFloatingSurfaceInset,
+                 kUiFloatingSurfaceInset},
+        UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
+        UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
+    };
+}
+// The Friends shell layout: no member list or composer. The theme sets the widths, gutters and header heights.
+constexpr UiShellLayoutMetrics ui_friends_shell_layout_metrics(const UiThemeMetrics& theme_metrics) noexcept {
+    return {
+        1,
+        ui_shell_layout_navigation,
+        theme_metrics.shell_rail_width,
+        theme_metrics.shell_sidebar_width,
+        0.0f,
+        theme_metrics.shell_gutter,
+        theme_metrics.shell_gutter,
+        theme_metrics.shell_header_height,
+        theme_metrics.shell_header_height,
+        48.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        UiInsets{},
+        UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
+        UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
+    };
+}
 
 struct UiScene {
     UiFixedWidgetStorageOwner storage;

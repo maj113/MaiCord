@@ -445,8 +445,8 @@ u64 application_caption_tooltip_wake() noexcept {
 }
 
 UiCaptionBarState application_caption_state() noexcept {
-    if (!g_caption.tooltip_shown && g_caption.tooltip_at_ms &&
-        clock_monotonic_milliseconds() >= g_caption.tooltip_at_ms)
+    const u64 now_ms = clock_monotonic_milliseconds();
+    if (!g_caption.tooltip_shown && g_caption.tooltip_at_ms && now_ms >= g_caption.tooltip_at_ms)
         g_caption.tooltip_shown = true;
     const bool tooltip = g_caption.tooltip_shown && g_caption.pressed == UiCaptionPart::none &&
                          ui_caption_bar_part_tooltip(g_caption.hovered);
@@ -461,7 +461,7 @@ UiCaptionBarState application_caption_state() noexcept {
                                        {kCaptionTooltipMotionOwner, ++g_caption.entrance_generation}, 0);
         }
         entrance = 1 - application_motion_tick(&g_caption.tooltip_entrance, g_caption.tooltip_entrance.scope, 1,
-                                               clock_monotonic_milliseconds(), kUiMotionTooltip);
+                                               now_ms, kUiMotionTooltip);
     } else {
         g_caption.entrance_part = UiCaptionPart::none;
     }
@@ -475,7 +475,7 @@ UiCaptionBarState application_caption_state() noexcept {
                        to_dips(static_cast<i32>(g_caption.side_frame), window_dpi()),
                        shown,
                        entrance,
-                       application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, clock_monotonic_milliseconds())};
+                       application_tabs_view(g_caption.hovered_tab, g_caption.pressed_tab, now_ms)};
     return g_caption.frame;
 }
 

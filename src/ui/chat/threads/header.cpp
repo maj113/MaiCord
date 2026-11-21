@@ -5,6 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -105,7 +106,7 @@ bool paint_button(const UiThreadHeader& h, UiWidgetHandle w, const UiRect& r, co
     const bool focus = ui_widget_handle_equal(h.manager->focused, w) && ui_widget_manager_input_enabled(*h.manager, w);
     const auto fill = button_fill(h, w, theme, accent);
     return ui_background_paint_surface(out, r, theme, fill, focus ? theme.tokens.border.focus : theme.surface_high,
-        kUiControlCornerRadius, focus ? 1.5f : .75f);
+        ui_theme_metrics(theme.styles).control_radius, focus ? 1.5f : .75f);
 }
 bool accent_action(UiThreadAction action) noexcept {
     return action == UiThreadAction::join || action == UiThreadAction::unarchive || action == UiThreadAction::retry;

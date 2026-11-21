@@ -7,11 +7,12 @@
 #include "maicord/ui/text/edit_field.hpp"
 #include "maicord/media/core/asset_key.hpp"
 #include "maicord/ui/core/cursor.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/theme/styles.hpp"
 
 namespace maicord {
 enum class UiIcon : u8;
 struct UiMarkdownBank;
-struct UiSettingsLayoutTokens;
 struct UiTextMeasureCache;
 
 enum class UiSettingsControlKind : u8 {
@@ -71,11 +72,10 @@ struct UiSettingsEditor {
     Utf8View placeholder;
 };
 
-// The form geometry the rows read.
+// The form geometry the rows read: by default the theme's form metrics.
 struct UiSettingsStyle {
     float field_padding, single_height, multiline_height;
 };
-inline constexpr UiSettingsStyle kUiDefaultSettingsStyle{12, 40, 160};
 // Styles come from constants and the theme's clamped tokens; this is the contract they meet.
 constexpr bool ui_settings_style_valid(const UiSettingsStyle& s) noexcept {
     return ui_extent_valid(s.field_padding) && ui_extent_valid(s.single_height) &&
@@ -83,7 +83,6 @@ constexpr bool ui_settings_style_valid(const UiSettingsStyle& s) noexcept {
            s.single_height >= 32 && s.single_height <= 128 && s.multiline_height >= 96 &&
            s.multiline_height <= 1024 && s.field_padding * 2 < s.multiline_height;
 }
-static_assert(ui_settings_style_valid(kUiDefaultSettingsStyle));
 
 struct UiSettingsFooter {
     Utf8View status, save_label, reset_label;
@@ -636,7 +635,7 @@ bool ui_settings_scene_page_owner(const UiSettingsScene&, UiWidgetReference) noe
 bool ui_settings_scene_aside(const UiSettingsScene&, UiRect* heading, UiRect* card, UiRect* clip,
                              bool* beside = nullptr) noexcept;
 // Visible avatar rows with media and glyph tiles with a picture (UiSettingsGlyphTile::media), in page coordinates
-// (before the modal layer transform). *cursor starts at 0 and advances; false after the last one.
+// (before the modal layer transform), one each call; false after the last one.
 struct UiSettingsAvatarGeometry {
     const UiSettingsAvatarMedia* media;
     UiWidgetReference owner;
@@ -648,7 +647,14 @@ struct UiSettingsAvatarGeometry {
     // 1, or a disabled row's dimming (a glyph tile's picture).
     float opacity;
 };
-bool ui_settings_scene_next_avatar(const UiSettingsScene&, u32* cursor, UiSettingsAvatarGeometry*) noexcept;
+// Start each walk from a fresh cursor (`UiSettingsAvatarCursor cursor;`). The first call builds the layout tokens
+// and keeps them here for the rest of the walk.
+struct UiSettingsAvatarCursor {
+    u32 at = 0;
+    UiSettingsLayoutTokens tokens;
+};
+bool ui_settings_scene_next_avatar(const UiSettingsScene&, UiSettingsAvatarCursor* cursor,
+                                   UiSettingsAvatarGeometry*) noexcept;
 // What sits over the avatar media of grid cells and an upload tile (drawn after it): a game tile's hover outline or
 // focus ring and the check of a chosen one; the upload tile's shade and pencil.
 bool ui_settings_scene_paint_cell_marks(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint) noexcept;

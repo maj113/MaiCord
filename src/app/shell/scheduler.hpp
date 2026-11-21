@@ -5,9 +5,13 @@
 
 namespace maicord::app_detail {
 
-// visual_suspended (minimized/hidden window) drops purely visual deadlines.
-u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed,
-                             bool visual_suspended = false) noexcept;
+// A visual wake no caller read: application_wait_timeout reads the visual deadlines itself. A deadline that
+// saturated reads as this value too, and is read again to the same result.
+inline constexpr u64 kVisualWakeUnknown = ~0ull;
+// visual_suspended (minimized/hidden window) drops purely visual deadlines. visual_wake: what
+// application_visual_frame_requested stored at the same time, so an idle turn reads the visual deadlines once.
+u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, bool visual_suspended = false,
+                             u64 visual_wake = kVisualWakeUnknown) noexcept;
 bool application_nonvisual_wake_due(u64 now_ms) noexcept;
 // The event of a draft save in flight. Only the account pump takes the result, so the handle exists only while
 // application_pump_account reaches the draft session.
@@ -16,7 +20,9 @@ u64 application_login_browser_deadline() noexcept;
 bool application_smooth_scroll_active() noexcept;
 bool application_animation_frame_due(u64 now_us) noexcept;
 bool application_effect_frame_due(u64 now_ms) noexcept;
-bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept;
+// Stores the earliest visual deadline in *visual_wake when it reads them, which it does only when nothing else asks
+// for a frame.
+bool application_visual_frame_requested(u64 now_ms, u64 now_us, u64* visual_wake = nullptr) noexcept;
 // A rejected frame keeps its display slot, and a visual deadline that only a drawn frame moves stays due. The loop
 // would then wait zero and draw again at once, for as long as the frame fails. So the loop tries the first three
 // rejections in a row again on the next display frame. It tries each later one after a delay that doubles from

@@ -6,6 +6,7 @@
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/text/style.hpp"
@@ -83,7 +84,7 @@ UiRect queue_thumb(const UiRect& row) noexcept {
 // The audio page's artwork square (empty when the stage has no room for it); the page's picture draws into it.
 UiRect page_art(const UiImageViewer& v) noexcept {
     return v.page_info.kind == UiImageViewerPageKind::audio && !v.fullscreen
-               ? ui_audio_page_layout(page_layout(v).player, kDefaultUiAudioControlsStyle).art
+               ? ui_audio_page_layout(page_layout(v).player, ui_theme_audio_style(v.theme_styles)).art
                : UiRect{};
 }
 // From fit, or actual size when that is smaller (fit upscales on high DPI),
@@ -472,6 +473,20 @@ bool ui_image_viewer_set_page(UiImageViewer* v, const UiImageViewerPage& page) n
 }
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& v) noexcept {
     return v.active && v.page ? page_layout(v) : UiImageViewerPageLayout{};
+}
+void ui_image_viewer_bind_theme_styles(UiImageViewer* v, const UiResolvedThemeStyles* styles) noexcept {
+    const u32 revision = styles ? styles->geometry_revision : 0;
+    if (!v || (v->theme_styles == styles && v->theme_geometry_revision == revision))
+        return;
+    v->theme_styles = styles;
+    v->theme_geometry_revision = revision;
+    if (!v->active || !v->page)
+        return;
+    body_for(v);
+    if (!place_controls(v))
+        return;
+    arrange(v);
+    ++v->revision;
 }
 UiRect ui_image_viewer_queue_body(const UiImageViewer& v) noexcept {
     return queue_body(ui_image_viewer_page_layout(v));
@@ -967,7 +982,7 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiT
         const auto layout = page_layout(v);
         // An audio page's title and source line under its artwork.
         const auto audio = v.page_info.kind == UiImageViewerPageKind::audio
-                               ? ui_audio_page_layout(layout.player, kDefaultUiAudioControlsStyle)
+                               ? ui_audio_page_layout(layout.player, ui_theme_audio_style(v.theme_styles))
                                : UiAudioPageLayout{};
         if (ui_rect_has_area(audio.art)) {
             label(v.owner.handle, v.page_info.title, audio.title, theme.text_primary, text_style_bold, ui_text_center);

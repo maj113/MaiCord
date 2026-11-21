@@ -262,15 +262,14 @@ u32 ui_tab_strip_drag_slot(const UiTabStripLayout& layout, u32 dragged, float x)
 u64 ui_tab_strip_stamp(const UiTabStripView& view) noexcept {
     const u32 count = minimum<u32>(view.count, kUiTabCapacity);
     const u32 state[]{count, view.plus_enabled, static_cast<u32>(view.hovered.kind) << 8 | view.hovered.index,
-                      static_cast<u32>(view.pressed.kind) << 8 | view.pressed.index};
-    const float motion[]{view.remaining, view.drag_left};
-    u64 hash = hash64_bytes(kHash64Seed, state, sizeof(state));
-    hash = hash64_bytes(hash, motion, sizeof(motion));
+                      static_cast<u32>(view.pressed.kind) << 8 | view.pressed.index,
+                      __builtin_bit_cast(u32, view.remaining), __builtin_bit_cast(u32, view.drag_left)};
+    u64 hash = hash64_words(kHash64Seed, state, sizeof(state));
     for (u32 i = 0; i < count; ++i) {
         const UiTabItem& item = view.items[i];
-        hash = hash64_counted_bytes(hash, item.label.data, item.label.bytes);
+        hash = hash64_words(hash, item.label.data, item.label.bytes);
         hash = hash64_mix(hash, static_cast<u64>(item.icon) << 8 | item.flags);
-        hash = hash64_bytes(hash, &item.from_left, 4 * sizeof(float));
+        hash = hash64_words(hash, &item.from_left, 4 * sizeof(float));
     }
     return hash;
 }

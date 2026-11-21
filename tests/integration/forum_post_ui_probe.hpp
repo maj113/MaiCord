@@ -39,7 +39,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             if (!state || !users || !model || !navigation_view_rebuild(&navigation, *state).ok())
                 return false;
             auto* shell = const_cast<UiScene*>(r.ui_scene);
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             metrics.member_sidebar_width = 0;
             metrics.composer_height = 48;

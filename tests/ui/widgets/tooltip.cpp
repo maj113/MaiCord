@@ -13,6 +13,8 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* val
 bool failed_measure(void*, const UiTextMeasureRequest&, UiTextMeasureValue*) noexcept {
     return false;
 }
+// The default theme's tooltip.
+constexpr UiTooltipStyle kTooltipStyle = ui_tooltip_style(kUiThemeMetricsDefault);
 } // namespace
 void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     UiWidget widgets[2]{};
@@ -51,12 +53,12 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     char label[]{'S', 'e', 't', 't', 'i', 'n', 'g', 's'};
     UiTooltipTarget target{
         {{&manager, button.handle}, 7, 1, 2, 3}, {12, 12, 44, 44}, {label, sizeof(label)}};
-    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 100) &&
+    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 100, kTooltipStyle) &&
               ui_tooltip_next_wake(scene) == 600 && !ui_tooltip_tick(&scene, 599, &cache) && !scene.visible,
           "tooltip: pointer delay has exact boundary and no early visible frame");
     label[0] = 'X';
     check(!ui_tooltip_offer(&scene, {target.key, target.anchor, utf8_literal("Settings")}, viewport,
-                            UiTooltipTrigger::pointer, 200) &&
+                            UiTooltipTrigger::pointer, 200, kTooltipStyle) &&
               ui_tooltip_next_wake(scene) == 600 && ui_tooltip_tick(&scene, 600, &cache) &&
               ui_tooltip_visible(scene) && !ui_tooltip_next_wake(scene) && scene.text[0] == 'S' &&
               scene.placement == UiTooltipPlacement::below,
@@ -72,7 +74,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               command.rectangle.right <= viewport.right,
           "tooltip: text owns viewport root rather than smaller source control clip");
     const auto key = scene.key;
-    UiTooltipStyle style{};
+    UiTooltipStyle style = kTooltipStyle;
     style.padding_x = 14;
     style.radius = 8;
     check(ui_tooltip_offer(&scene, {target.key, target.anchor, utf8_literal("Settings")}, viewport,
@@ -86,34 +88,34 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     manager.storage[button.handle.slot].flags |= ui_widget_enabled;
     target.label = utf8_literal("Settings");
     ++target.key.source_revision;
-    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::keyboard, 1000) &&
+    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::keyboard, 1000, kTooltipStyle) &&
               ui_tooltip_next_wake(scene) == 1350 && ui_tooltip_tick(&scene, 1350, &cache) &&
               ui_tooltip_clear(&scene) && !ui_tooltip_next_wake(scene),
           "tooltip: keyboard focus uses bounded delay and cancellation releases all timing");
     auto stale = target;
     ++stale.key.owner.handle.generation;
-    check(!ui_tooltip_offer(&scene, stale, viewport, UiTooltipTrigger::pointer, 1500) &&
+    check(!ui_tooltip_offer(&scene, stale, viewport, UiTooltipTrigger::pointer, 1500, kTooltipStyle) &&
               !ui_tooltip_next_wake(scene),
           "tooltip: stale widget generation cannot admit borrowed source");
     target.anchor = {321, 0, 350, 32};
-    check(!ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1500),
+    check(!ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1500, kTooltipStyle),
           "tooltip: fully clipped target is inert");
     target.anchor = {270, 140, 300, 172};
     target.placement = UiTooltipPlacement::right;
     const u32 invalid_coordinate_bits = 0x7fc00000u;
     auto invalid_anchor = target;
     copy_bytes(&invalid_anchor.anchor.left, &invalid_coordinate_bits, sizeof(float));
-    check(!ui_tooltip_offer(&scene, invalid_anchor, viewport, UiTooltipTrigger::pointer, 1700) &&
+    check(!ui_tooltip_offer(&scene, invalid_anchor, viewport, UiTooltipTrigger::pointer, 1700, kTooltipStyle) &&
               !ui_tooltip_next_wake(scene),
           "tooltip: raw NaN anchor cannot become valid through viewport intersection");
-    check(!ui_tooltip_offer(&scene, target, viewport, static_cast<UiTooltipTrigger>(2), 1700),
+    check(!ui_tooltip_offer(&scene, target, viewport, static_cast<UiTooltipTrigger>(2), 1700, kTooltipStyle),
           "tooltip: invalid trigger cannot schedule a wake");
-    UiTooltipStyle extreme{};
+    UiTooltipStyle extreme = kTooltipStyle;
     extreme.padding_x = 0;
     extreme.margin = 32;
     check(!ui_tooltip_offer(&scene, target, {250, 100, 315, 180}, UiTooltipTrigger::pointer, 1700, extreme),
           "tooltip: viewport inset must leave the minimum measured label width");
-    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1700) &&
+    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1700, kTooltipStyle) &&
               ui_tooltip_tick(&scene, 2200, &cache),
           "tooltip: edge presentation prepares clip guard fixture");
     const auto root_clip = nodes[root.handle.slot].clip_rectangle;
@@ -124,7 +126,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     ui_tooltip_clear(&scene);
     ui_text_measure_cache_invalidate(&cache);
     cache.backend = failed_measure;
-    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 2000) &&
+    check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 2000, kTooltipStyle) &&
               ui_tooltip_tick(&scene, 2500, &cache) && !scene.visible && !ui_tooltip_next_wake(scene),
           "tooltip: failed native measurement cancels deadline rather than polling");
     // Reaction tooltips: an emoji square leads a start-aligned label whose
@@ -132,7 +134,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     // label in place.
     cache.backend = measure;
     ui_text_measure_cache_invalidate(&cache);
-    const float padding_x = UiTooltipStyle{}.padding_x, padding_y = UiTooltipStyle{}.padding_y;
+    const float padding_x = kTooltipStyle.padding_x, padding_y = kTooltipStyle.padding_y;
     const TextStyleSpan names[]{{18, 3, 0}};
     UiTooltipTarget reaction{{target.key.owner, 7, 5, 1, 0x300},
                              {12, 12, 44, 44},
@@ -141,7 +143,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
                              {},
                              {{}, utf8_literal("\xF0\x9F\x94\xA5")}};
     UiRect square{};
-    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3000) &&
+    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3000, kTooltipStyle) &&
               ui_tooltip_tick(&scene, 3500, &cache) && ui_tooltip_emoji(scene, &square) &&
               ui_rect_width(square) == 48 && square.left == scene.rectangle.left + padding_x &&
               ui_rect_height(scene.rectangle) == 48 + padding_y * 2 &&
@@ -149,7 +151,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
           "tooltip reaction: the emoji square leads the label and sets the height");
     reaction.label = utf8_literal(":fire: reacted by Ada");
     reaction.bold = {names, 1};
-    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3600) &&
+    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3600, kTooltipStyle) &&
               ui_tooltip_visible(scene) && ui_tooltip_next_wake(scene) == 3600 &&
               ui_tooltip_tick(&scene, 3600, &cache) && ui_tooltip_visible(scene) &&
               ui_rect_width(scene.rectangle) == 21 * 7 + 48 + 12 + padding_x * 2 && ui_tooltip_emoji(scene, &square),
@@ -173,7 +175,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               !(commands[1].styles[0].flags & text_style_bold),
           "tooltip reaction: a Unicode emoji is jumbo text and reactor names are bold runs");
     reaction.emoji = {media_asset_custom_emoji(42, false), {}};
-    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3700) &&
+    check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3700, kTooltipStyle) &&
               ui_tooltip_tick(&scene, 3700, &cache) && ui_tooltip_emoji(scene, &square) &&
               ui_rect_width(square) == scene.style.emoji_size &&
               ui_rect_height(square) == scene.style.emoji_size &&
@@ -184,12 +186,12 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
           "tooltip reaction: a custom emoji leaves its square to the host's image");
     const TextStyleSpan overlapping[]{{0, 5, 0}, {3, 4, 0}};
     reaction.bold = {overlapping, 2};
-    ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3800);
+    ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3800, kTooltipStyle);
     check(!scene.visible && !scene.pending && !ui_tooltip_emoji(scene, &square),
           "tooltip reaction: overlapping bold ranges are rejected");
     // A sticker's tooltip leads its name with the 16 DIP sticker icon, painted
     // in the label colour; the icon is content like an emoji.
-    UiTooltipStyle sticker_style{};
+    UiTooltipStyle sticker_style = kTooltipStyle;
     sticker_style.emoji_size = 16;
     sticker_style.emoji_gap = 6;
     UiTooltipEmoji sticker_icon{};
@@ -278,7 +280,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     // A card (the server badge's): its first line bold in the label colour, the rest muted below, left-aligned.
     UiTooltipTarget card{{target.key.owner, 7, 9, 1, 0x400}, {12, 12, 44, 44}, utf8_literal("Level 3\n12 Boosts")};
     card.layout = UiTooltipLayout::card;
-    const bool card_shown = ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6000) &&
+    const bool card_shown = ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6000, kTooltipStyle) &&
                             ui_tooltip_tick(&scene, 6500, &cache) && ui_tooltip_visible(scene);
     const float card_left = scene.rectangle.left + padding_x, card_top = scene.rectangle.top + padding_y;
     check(card_shown && ui_rect_width(scene.rectangle) == 9 * 7 + padding_x * 2 &&
@@ -293,7 +295,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               commands[1].horizontal_alignment == UiTextAlignment::start,
           "tooltip card: a bold title over muted subtitles, start-aligned");
     card.bold = {names, 1};
-    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6600);
+    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 6600, kTooltipStyle);
     check(!scene.visible && !scene.pending, "tooltip card: bold runs are the label layout's alone");
     // Rows ("+N"'s other games): each line beside the host's 24 DIP picture, 8 apart, rows 4 apart.
     const MediaAssetKey pictures[]{media_asset_custom_emoji(1, false), media_asset_custom_emoji(2, false)};
@@ -301,7 +303,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     rows.layout = UiTooltipLayout::rows;
     rows.row_media = {pictures, 2};
     MediaAssetKey picture{};
-    const bool rows_shown = ui_tooltip_offer(&scene, rows, viewport, UiTooltipTrigger::pointer, 7000) &&
+    const bool rows_shown = ui_tooltip_offer(&scene, rows, viewport, UiTooltipTrigger::pointer, 7000, kTooltipStyle) &&
                             ui_tooltip_tick(&scene, 7500, &cache) && ui_tooltip_visible(scene) &&
                             ui_tooltip_row_media(scene, 1, &square, &picture);
     check(rows_shown && scene.row_count == 2 && ui_rect_width(scene.rectangle) == 24 + 8 + 5 * 7 + padding_x * 2 &&
@@ -316,7 +318,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
           "tooltip rows: each line leads with its picture's square");
     card.bold = {};
     card.row_media = {pictures, 2};
-    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 7600);
+    ui_tooltip_offer(&scene, card, viewport, UiTooltipTrigger::pointer, 7600, kTooltipStyle);
     check(!scene.visible && !scene.pending, "tooltip rows: pictures belong to the rows layout alone");
 }
 } // namespace maicord

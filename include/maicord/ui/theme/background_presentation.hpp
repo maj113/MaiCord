@@ -44,31 +44,20 @@ inline bool ui_background_active(const Theme& theme) noexcept {
     return background_theme_valid(theme.background);
 }
 // Tier opacities keep raw stop saturation. Intensity varies the
-// black/white canvas layer instead of rescaling the color stops.
+// black/white canvas layer instead of rescaling the color stops. Only for a
+// theme whose background is active (ui_background_active): every caller has
+// checked it.
 inline float ui_background_tier_opacity(const Theme& theme, UiBackgroundTier tier) noexcept {
-    if (!ui_background_active(theme))
-        return 1;
+    // Each tier's dark and light opacity: scale * (base + slope * multiplier). Only the light chat tier scales.
+    static constexpr float kTierOpacity[7][2][3]{
+        {{.48f, .32f, 1}, {.6f, .4f, .95f}}, {{.54f, .36f, 1}, {.51f, .34f, 1}},   {{.51f, .34f, 1}, {.48f, .32f, 1}},
+        {{.48f, .32f, 1}, {.45f, .30f, 1}},  {{.45f, .30f, 1}, {.42f, .28f, 1}},   {{.42f, .28f, 1}, {.325f, .325f, 1}},
+        {{.39f, .26f, 1}, {.8f, .2f, 1}}};
+    static_assert(static_cast<u32>(UiBackgroundTier::highest) == 6);
     // The intensity multiplier is rounded before deriving layer opacities.
     const float multiplier = ((1000u - 7u * theme.background.intensity + 5u) / 10u) / 100.f;
-    const bool light = theme.appearance == ThemeAppearance::light;
-    if (tier == UiBackgroundTier::chat)
-        return light ? .95f * (.6f + .4f * multiplier) : .48f + .32f * multiplier;
-    switch (tier) {
-    case UiBackgroundTier::lowest:
-        return light ? .51f + .34f * multiplier : .54f + .36f * multiplier;
-    case UiBackgroundTier::lower:
-        return light ? .48f + .32f * multiplier : .51f + .34f * multiplier;
-    case UiBackgroundTier::low:
-        return light ? .45f + .30f * multiplier : .48f + .32f * multiplier;
-    case UiBackgroundTier::high:
-        return light ? .42f + .28f * multiplier : .45f + .30f * multiplier;
-    case UiBackgroundTier::higher:
-        return light ? .325f + .325f * multiplier : .42f + .28f * multiplier;
-    case UiBackgroundTier::highest:
-        return light ? .8f + .2f * multiplier : .39f + .26f * multiplier;
-    default:
-        return 1;
-    }
+    const float* row = kTierOpacity[static_cast<u32>(tier)][theme.appearance == ThemeAppearance::light];
+    return row[2] * (row[0] + row[1] * multiplier);
 }
 inline bool ui_background_palette(const Theme& theme, Color* colors) noexcept {
     if (!colors || !ui_background_active(theme))

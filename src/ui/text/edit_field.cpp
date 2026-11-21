@@ -39,11 +39,11 @@ bool ui_edit_field_paint_content(PaintStream* paint, const UiRect& content, cons
 }
 bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, const UiRect& content,
                                const UiEditView& view, const UiEditGeometry* geometry, const Utf8View& placeholder,
-                               const Theme& theme) noexcept {
+                               const Color& ink) noexcept {
     if (!view.active)
         return true;
     const bool entered = view.text.bytes && geometry;
-    auto color = theme.text_primary;
+    auto color = ink;
     if (!view.text.bytes)
         color.alpha *= .6f;
     return ui_text_output_push(text, {view.text.bytes ? view.text : placeholder, owner,

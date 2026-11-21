@@ -83,7 +83,7 @@ bool project() noexcept {
     if (!navigation_view_rebuild(&ui.navigation_view, ui.chat_state).ok())
         return false;
     const auto notice = application_message_mutation_notice_text();
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
     metrics.member_sidebar_width = 0;
     // Focused responsive fixture topology: hide the channel sidebar at narrow
@@ -230,7 +230,7 @@ bool initialize(HWND window) noexcept {
     // Bootstrap reserves the scene storage; the root widget is materialized
     // by layout. The shipping binder requires that actual root before binding.
     if (!initialize_step(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                         kGuildChannelShellLayoutMetrics,
+                                         ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault),
                                          g_app.renderer.width * 96.f / g_app.renderer.dpi,
                                          g_app.renderer.height * 96.f / g_app.renderer.dpi),
                          215))

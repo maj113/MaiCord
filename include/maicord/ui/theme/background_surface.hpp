@@ -33,9 +33,10 @@ __declspec(noinline) inline bool ui_background_paint_canvas(
         return true;
     auto& quad = stream->quads[first];
     quad.reserved_x = kUiBackgroundCanvasMarker;
-    if (ui_background_active(theme) || background_effects_active(theme.background)) {
+    const bool active = ui_background_active(theme);
+    if (active || background_effects_active(theme.background)) {
         quad.border_width = -8;
-        quad.reserved_y = ui_background_active(theme) ? 1 - ui_background_tier_opacity(theme, tier) : 0;
+        quad.reserved_y = active ? 1 - ui_background_tier_opacity(theme, tier) : 0;
     }
     return true;
 }
@@ -66,8 +67,7 @@ __declspec(noinline) inline bool ui_background_paint_surface(
     const u32 first = stream->count;
     if (!paint_stream_push_rounded_border(stream, rectangle, fill, border, radius, border_width))
         return false;
-    if (stream->count != first && ui_background_active(theme) &&
-        mode == UiBackgroundSurfaceMode::gradient) {
+    if (stream->count != first && mode == UiBackgroundSurfaceMode::gradient && ui_background_active(theme)) {
         auto& quad = stream->quads[first];
         quad.reserved_x =
             border_tone == UiBackgroundBorderTone::palette ? -quad.border_width : quad.border_width;

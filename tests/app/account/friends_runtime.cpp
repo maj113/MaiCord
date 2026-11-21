@@ -974,7 +974,9 @@ bool synchronize_navigation_view() noexcept { return true; }
 bool synchronize_selected_channel() noexcept { return true; }
 bool synchronize_shell_layout() noexcept {
     return ui_scene_layout_with_metrics(&g_app.shell_scene, application_friends_active() ? UiShellView::friends : UiShellView::private_channels,
-        application_friends_active() ? kFriendsShellLayoutMetrics : kGuildChannelShellLayoutMetrics, 1280, 700);
+        application_friends_active() ? ui_friends_shell_layout_metrics(kUiThemeMetricsDefault)
+                                     : ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault),
+        1280, 700);
 }
 bool refresh_account_text(bool) noexcept { return true; }
 void application_composer_text_input_suspend() noexcept {}

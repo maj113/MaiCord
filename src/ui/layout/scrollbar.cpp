@@ -85,13 +85,11 @@ UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_d
 }
 
 bool ui_scrollbar_track_hit(const UiScrollbarGeometry& geometry, float x, float y) noexcept {
-    return geometry.visible && x >= geometry.track.left && x < geometry.track.right &&
-           y >= geometry.track.top && y < geometry.track.bottom;
+    return geometry.visible & ui_rect_contains(geometry.track, x, y);
 }
 
 bool ui_scrollbar_thumb_hit(const UiScrollbarGeometry& geometry, float x, float y) noexcept {
-    return geometry.visible && x >= geometry.thumb.left && x < geometry.thumb.right &&
-           y >= geometry.thumb.top && y < geometry.thumb.bottom;
+    return geometry.visible & ui_rect_contains(geometry.thumb, x, y);
 }
 
 float ui_scrollbar_scroll_from_pointer(const UiScrollbarGeometry& geometry, float pointer_y,

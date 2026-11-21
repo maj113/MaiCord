@@ -1016,6 +1016,14 @@ void test_remote_auth_ticket_exchange_contract() noexcept {
     secure_buffer_release(&output);
 }
 
+namespace {
+// The module at (x, y): bit y * size + x of the packed modules, none outside the symbol.
+bool qr_module(const QrCode& code, u32 x, u32 y) noexcept {
+    const u32 index = y * code.size + x;
+    return x < code.size && y < code.size && ((code.modules[index >> 3] >> (index & 7u)) & 1u) != 0;
+}
+} // namespace
+
 void test_qr_code() noexcept {
     const ConstSlice<u8> payload =
         byte_literal("https://discord.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -1024,12 +1032,12 @@ void test_qr_code() noexcept {
     u8 unpacked[kQrCodeSize * kQrCodeSize]{};
     for (u32 y = 0; y < kQrCodeSize; ++y) {
         for (u32 x = 0; x < kQrCodeSize; ++x) {
-            unpacked[y * kQrCodeSize + x] = qr_code_module(code, x, y) ? 1 : 0;
+            unpacked[y * kQrCodeSize + x] = qr_module(code, x, y) ? 1 : 0;
         }
     }
     expect(encoded && code.size == kQrCodeSize && code.mask < 8 &&
-               qr_code_module(code, 0, 0) && !qr_code_module(code, 1, 1) && qr_code_module(code, 3, 3) &&
-               qr_code_module(code, 8, kQrCodeSize - 8),
+               qr_module(code, 0, 0) && !qr_module(code, 1, 1) && qr_module(code, 3, 3) &&
+               qr_module(code, 8, kQrCodeSize - 8),
            "qr_v5_m_function_patterns");
     expect(hash64_bytes(kHash64Seed, unpacked, sizeof(unpacked)) == 0x707756D752311B69ull,
            "qr_reference_matrix_hash");
@@ -1045,18 +1053,23 @@ void test_qr_code() noexcept {
                 covered = covered || (x >= rectangles[index].left && x < rectangles[index].right &&
                                       y >= rectangles[index].top && y < rectangles[index].bottom);
             }
-            coverage = covered == qr_code_module(code, x, y);
+            coverage = covered == qr_module(code, x, y);
         }
     }
     expect(query.output_too_small && query.count > 0 && query.count <= 384 && coverage,
            "qr_compact_rect_exact_coverage");
+    QrCodeRect prefix[4]{};
+    const QrCodeRectResult short_output = qr_code_compact_rects(code, Slice<QrCodeRect>{prefix, 4});
+    expect(short_output.output_too_small && short_output.count == query.count &&
+               bytes_equal(prefix, rectangles, sizeof(prefix)),
+           "qr_compact_rect_short_output_holds_prefix");
 
     u8 oversized[kQrCodeMaximumPayloadBytes + 1]{};
     QrCode untouched{};
     untouched.size = 99;
     expect(
         !qr_code_encode_m(ConstSlice<u8>{oversized, static_cast<u32>(sizeof(oversized))}, 1, &untouched) &&
-            untouched.size == 99 && !qr_code_module(code, kQrCodeSize, 0),
+            untouched.size == 99 && !qr_module(code, kQrCodeSize, 0),
         "qr_capacity_failure_is_atomic");
 
     const ConstSlice<u8> changed_payload =

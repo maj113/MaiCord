@@ -390,19 +390,11 @@ bool synchronize_shell_layout() noexcept {
     const float height_dip = static_cast<float>(g_app.renderer.height) * 96.0f /
                              static_cast<float>(maximum<u32>(g_app.renderer.dpi, 1));
     const bool friends = application_friends_active();
-    UiShellLayoutMetrics metrics = friends ? kFriendsShellLayoutMetrics : kGuildChannelShellLayoutMetrics;
-    metrics.guild_rail_width = theme_metrics.shell_rail_width;
-    metrics.navigation_width = theme_metrics.shell_sidebar_width;
-    metrics.member_sidebar_width = friends ? 0.f : theme_metrics.shell_member_width;
-    metrics.title_bar_height = theme_metrics.shell_header_height;
-    metrics.navigation_header_height = theme_metrics.shell_header_height;
+    UiShellLayoutMetrics metrics = friends ? ui_friends_shell_layout_metrics(theme_metrics)
+                                           : ui_guild_channel_shell_layout_metrics(theme_metrics);
     metrics.navigation_footer_reserve = application_voice_panel_reserve();
     // The app-wide notice band (shell/notice.cpp) takes the top of the window.
     metrics.notice_height = g_app.shell_scene.notice ? g_app.shell_scene.notice->height : 0.f;
-    if (metrics.member_sidebar_top != 0.f)
-        metrics.member_sidebar_top = theme_metrics.shell_header_height;
-    metrics.navigation_gutter_before = theme_metrics.shell_gutter;
-    metrics.content_gutter_before = theme_metrics.shell_gutter;
     metrics.flags = static_cast<u16>(metrics.flags | shell_header_flags(friends));
     const UiShellView view = friends ? UiShellView::friends
                              : g_app.account_ui && g_app.account_ui->chat_state.home_selected

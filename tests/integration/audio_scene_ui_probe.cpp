@@ -422,7 +422,7 @@ bool audio_scene_ui_probe(D3D11Renderer& renderer) noexcept {
         // pixel-space scissor/readback agree with this fixture's DIP layout.
         renderer_set_dpi(&renderer, narrow ? 144 : 96);
         const float scale = static_cast<float>(renderer.dpi) / 96;
-        UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+        UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         metrics.flags = narrow ? static_cast<u16>(ui_shell_layout_navigation) : u16{};
         // The real row reserves 96 DIPs for its avatar, gap and side padding.
         // A 280-DIP focused message pane therefore leaves a genuine 184-DIP

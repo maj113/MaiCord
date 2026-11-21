@@ -6,7 +6,7 @@ namespace maicord {
 void test_layout_anchors(void (*check)(bool, const char*) noexcept) noexcept {
     UiLayoutDiagnostic diagnostics[16]{};
     UiScene shell{};
-    const bool initialized = ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800);
+    const bool initialized = ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 800);
     check(initialized, "shell header: shared retained geometry initializes");
     if (initialized) {
         const auto wide = ui_scene_header_geometry(shell);
@@ -23,7 +23,7 @@ void test_layout_anchors(void (*check)(bool, const char*) noexcept) noexcept {
         const auto button = ui_scene_node(shell, UiSemantic::member_toggle);
         check(button && ui_widget_manager_hit_test(shell.widgets, 910, 20).slot == ui_scene_widget(shell, UiSemantic::member_toggle).slot,
               "shell header: painted member control uses the actual retained hit target");
-        auto hidden = kGuildChannelShellLayoutMetrics;
+        auto hidden = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         hidden.flags &= ~ui_shell_layout_members;
         ++hidden.revision;
         check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, hidden, 1280, 800) &&
@@ -38,7 +38,7 @@ void test_layout_anchors(void (*check)(bool, const char*) noexcept) noexcept {
                   ui_rect_equal(ui_scene_header_geometry(shell).search_field, {864, 8, 1144, 40}) &&
                   ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 16}).clean(),
               "shell header: resize rearranges shared trailing anchors without a tree rebuild");
-        check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 640, 800) &&
+        check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 640, 800) &&
                   ui_rect_equal(ui_scene_header_geometry(shell).search_field, {464, 8, 584, 40}) &&
                   ui_rect_equal(ui_scene_header_geometry(shell).member_toggle, {420, 8, 456, 40}) &&
                   ui_scene_header_geometry(shell).label.right == 412 &&

@@ -50,7 +50,7 @@ inline bool composer_workflow_ui_probe(D3D11Renderer& renderer, MessageComposer&
     message_composer_insert_utf8(&model, utf8_literal("Every composer action remains reachable."));
     state = {};
     state.reply = utf8_literal("Replying to Avery with a deliberately long original author name for native clipping");
-    const auto metrics = kGuildChannelShellLayoutMetrics;
+    const auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     const u32 compact_width = static_cast<u32>((metrics.guild_rail_width + metrics.navigation_width +
         kUiShellMinimumMessageWidthDips) * renderer.dpi / 96.f + .5f);
     if (!probe_resize_surface(compact_width, original_height) || !show(L"composer-workflow-narrow.bmp") ||

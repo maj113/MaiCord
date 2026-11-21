@@ -76,10 +76,10 @@ bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardC
         return false;
     }
     u64 hash = hash64_mix(kHash64Seed, identity);
-    hash = hash64_counted_bytes(hash, s->name, s->name_bytes);
-    hash = hash64_counted_bytes(hash, s->channel, s->channel_bytes);
-    hash = hash64_bytes(hash, &s->preview, sizeof(s->preview));
-    hash = hash64_bytes(hash, &s->panel, sizeof(s->panel));
+    hash = hash64_words(hash, s->name, s->name_bytes);
+    hash = hash64_words(hash, s->channel, s->channel_bytes);
+    hash = hash64_words(hash, &s->preview, sizeof(s->preview));
+    hash = hash64_words(hash, &s->panel, sizeof(s->panel));
     hash = hash64_mix(hash, (u64{static_cast<u8>(s->preview_state)} << 8) | (s->watching ? 1u : 0u));
     ui_hover_card_publish(s, hash);
     return true;

@@ -3,11 +3,7 @@
 namespace maicord {
 namespace {
 // Approximate advances (em) of a humanist UI sans for layout estimates.
-float advance(u8 byte) noexcept {
-    if ((byte & 0xc0) == 0x80)
-        return 0;
-    if (byte >= 0x80)
-        return .56f;
+consteval float ascii_advance(u8 byte) noexcept {
     switch (byte) {
     case ' ':
         return .27f;
@@ -46,6 +42,28 @@ float advance(u8 byte) noexcept {
     if (byte >= '0' && byte <= '9')
         return .55f;
     return .52f;
+}
+// The distinct ASCII advances, and each ASCII byte's index among them: two loads instead of the comparisons.
+constexpr float kAdvances[]{.52f, .27f, .25f, .31f, .35f, .86f, .73f, .94f, .62f, .55f};
+struct AdvanceClasses {
+    u8 at[128];
+};
+consteval AdvanceClasses advance_classes() noexcept {
+    AdvanceClasses classes{};
+    for (u32 byte = 0; byte < 128; ++byte) {
+        u8 index = 0;
+        while (kAdvances[index] != ascii_advance(static_cast<u8>(byte)))
+            ++index;
+        classes.at[byte] = index;
+    }
+    return classes;
+}
+constexpr AdvanceClasses kAdvanceClasses = advance_classes();
+float advance(u8 byte) noexcept {
+    if (byte < 0x80)
+        return kAdvances[kAdvanceClasses.at[byte]];
+    // A continuation byte adds nothing; a lead byte counts its whole character.
+    return (byte & 0xc0) == 0x80 ? 0.f : .56f;
 }
 } // namespace
 

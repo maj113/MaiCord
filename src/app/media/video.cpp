@@ -16,6 +16,7 @@
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/voice/video_controls.hpp"
 #include "maicord/ui/voice/video_scene.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -962,7 +963,8 @@ __declspec(noinline) bool position_page(ApplicationVideo* video, InlineMediaSour
     const bool shown = video_session_available() && !application_window_minimized() &&
                        application_media_page_player(video->source.page_id, &stage, &positioned.owner);
     positioned.clip = stage;
-    positioned.preview = video->source.audio ? ui_audio_page_card(stage, kDefaultUiAudioControlsStyle) : stage;
+    positioned.preview =
+        video->source.audio ? ui_audio_page_card(stage, ui_theme_audio_style(application_theme())) : stage;
     return shown && ui_rect_has_area(positioned.preview);
 }
 } // namespace
@@ -1117,7 +1119,7 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
             video->source.host == VideoHost::page ? UiAudioSourceSurface::page
             : searched                            ? UiAudioSourceSurface::search
                                                   : UiAudioSourceSurface::timeline,
-            kDefaultUiAudioControlsStyle, application_theme());
+            ui_theme_audio_style(application_theme()), application_theme());
         video->presentation_wake_ms = 0;
         if (projected) {
             if (video->input_focus && !video_input_focus_current(*video))
@@ -1154,6 +1156,8 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
                                 metrics.time_width + metrics.range_height;
     }
     UiVideoSceneStyle visual{};
+    // A card's controls and preview take the theme's control corners.
+    visual.radius = visual.preview_radius = ui_theme_metrics(application_theme().styles).control_radius;
     if (video->source.host != VideoHost::card) {
         // Viewer and page media hide idle controls sooner; the viewer's (and a full screen page's) is
         // square-cornered, a page's follows its stage.

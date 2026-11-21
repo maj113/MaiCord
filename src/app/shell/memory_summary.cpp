@@ -67,13 +67,8 @@ void application_memory_summary(const char* reason) noexcept {
         char number[24];
         if (rank)
             line.append(",");
-        Utf8View name = name_list_at(kArenaTagNames, best);
-        char label[16];
-        u32 used = 0;
-        for (; used < name.bytes && used + 1 < sizeof(label); ++used)
-            label[used] = name.data[used];
-        label[used] = 0;
-        line.append(label);
+        // Each name in kArenaTagNames ends with its own NUL.
+        line.append(name_list_at(kArenaTagNames, best).data);
         line.append(":");
         number[decimal_write(number, kib(accounts[best].committed))] = 0;
         line.append(number);

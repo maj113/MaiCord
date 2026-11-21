@@ -2,6 +2,7 @@
 
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/core/cursor.hpp"
 
@@ -47,10 +48,16 @@ struct UiAudioPlaybackState {
     ConstSlice<u8> waveform;
 };
 
+// The lengths are the default theme metrics, which a theme overrides (ui_theme_audio_style).
 struct UiAudioControlsStyle {
-    float padding{8}, gap{6}, target{32}, title_height{20};
-    float minimum_width{160}, maximum_width{480}, time_width{112}, volume_width{64};
-    float corner_radius{kUiEditCornerRadius}, waveform_gap{2}, minimum_peak_height{2};
+    float padding{kUiThemeMetricsDefault.audio_padding}, gap{kUiThemeMetricsDefault.audio_gap},
+        target{kUiThemeMetricsDefault.audio_target},
+        title_height{kUiThemeMetricsDefault.audio_title_height};
+    float minimum_width{kUiThemeMetricsDefault.audio_minimum_width},
+        maximum_width{kUiThemeMetricsDefault.audio_maximum_width},
+        time_width{kUiThemeMetricsDefault.audio_time_width},
+        volume_width{kUiThemeMetricsDefault.audio_volume_width};
+    float corner_radius{kUiThemeMetricsDefault.audio_radius}, waveform_gap{2}, minimum_peak_height{2};
     float volume_thumb_extent{6};
     u32 text_style{text_style_subtext};
     Utf8View play{utf8_literal("Play")}, pause{utf8_literal("Pause")};
@@ -61,7 +68,6 @@ struct UiAudioControlsStyle {
     Utf8View sound_server{utf8_literal("Sound server not answering")};
 };
 
-inline constexpr UiAudioControlsStyle kDefaultUiAudioControlsStyle{};
 inline constexpr u32 kUiAudioControlCount = 8;
 inline constexpr u32 kUiAudioWaveformMaximum = 256;
 

@@ -11,12 +11,13 @@ inline constexpr u32 kUiVideoControlsFadeMs = 120;
 // fullscreen players use the shorter delay.
 inline constexpr u32 kUiVideoControlsIdleMs = 3'000;
 inline constexpr u32 kUiVideoControlsExpandedIdleMs = 1'000;
-// Host metrics are independent of the control layout and theme colors.
+// Host metrics are independent of the control layout and theme colors. The radii are the default theme's
+// control radius, which the host replaces with the active theme's.
 struct UiVideoSceneStyle {
-    float radius{kUiControlCornerRadius}, track_height{6}, thumb_size{10}, focus_width{2};
+    float radius{kUiThemeMetricsDefault.control_radius}, track_height{6}, thumb_size{10}, focus_width{2};
     float inset{0}, icon_extent{kUiVideoControlIconExtent};
     // The bar sits on video, so it is a black scrim rather than a theme surface.
-    float surface_opacity{.6f}, preview_radius{kUiControlCornerRadius};
+    float surface_opacity{.6f}, preview_radius{kUiThemeMetricsDefault.control_radius};
     float track_opacity{.3f};
     float spinner_extent{32}, scrim_lead{20};
     UiSpinnerStyle spinner{};

@@ -37,7 +37,7 @@ inline bool server_section(UiMediaPickerSectionVisual visual) noexcept {
 float rail_item_pitch(const UiMediaPickerMetrics& m, const ConstSlice<UiMediaPickerSection>& sections,
                       u32 index) noexcept {
     const auto visual = sections[index].visual;
-    float pitch = unicode_category(visual) ? m.rail_pitch - kUiMenuPadding : m.rail_pitch;
+    float pitch = unicode_category(visual) ? m.category_pitch : m.rail_pitch;
     if (server_section(visual) && index + 1 < sections.count && !server_section(sections[index + 1].visual))
         pitch += kRailSeparator;
     return pitch;
@@ -166,7 +166,7 @@ bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
             return false;
         const u32 headers = sections ? static_cast<u32>(body_height / m.section_height) + 2 : 0;
         const u32 rail_slots =
-            sections ? static_cast<u32>(ui_rect_height(layout.rail) / (m.rail_pitch - kUiMenuPadding)) + 2 : 0;
+            sections ? static_cast<u32>(ui_rect_height(layout.rail) / m.category_pitch) + 2 : 0;
         if (headers > kUiMediaPickerVisibleSections || rail_slots > kUiMediaPickerVisibleSections)
             return false;
         grid_geometry(style, kind, back, sections, width, layout.body, &layout);
@@ -202,10 +202,10 @@ bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
     const bool ready = content.phase == UiMediaPickerPhase::ready && source && source->count;
     const bool gif = content.kind == UiMediaPickerKind::gif;
     const float pad = kUiInlineResultsPadding;
-    const float body = !ready ? pad + kUiInlineResultsArrowExtent
+    const float body = !ready ? pad + m.inline_arrow
                        : gif  ? kUiInlineResultsGifExtent + pad * 2
                               : minimum(source->count, kUiInlineResultsStickerLimit) *
-                                   (kUiInlineResultsStickerExtent + kUiComposerPadding * 2);
+                                   (kUiInlineResultsStickerExtent + m.inline_inset * 2);
     const float heading = ready ? kUiInlineResultsHeadingHeight : 0;
     const float bottom = anchor.top - m.anchor_gap;
     const float top = maximum(viewport.top + m.viewport_inset, bottom - heading - body - pad);
@@ -584,14 +584,15 @@ bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u
     constexpr float pad = kUiInlineResultsPadding;
     if (scene.kind == UiMediaPickerKind::sticker) {
         const u32 count = minimum(scene.source->count, kUiInlineResultsStickerLimit);
-        const float pitch = kUiInlineResultsStickerExtent + kUiComposerPadding * 2;
+        const float inset = scene.style.metrics.inline_inset;
+        const float pitch = kUiInlineResultsStickerExtent + inset * 2;
         scene.content_height = count * pitch;
         scene.scroll_dips =
             minimum(scene.scroll_dips, maximum(0.f, scene.content_height - ui_rect_height(scene.body)));
         for (u32 i = 0; i < count; ++i) {
             const float top = scene.body.top + i * pitch - scene.scroll_dips;
             const UiRect row{scene.body.left + pad, top, scene.body.right - pad, top + pitch};
-            const float left = row.left + pad, art_top = top + kUiComposerPadding;
+            const float left = row.left + pad, art_top = top + inset;
             const UiRect art{left, art_top, left + kUiInlineResultsStickerExtent,
                              art_top + kUiInlineResultsStickerExtent};
             if (!cell(scene, i, art, prior, prior_count, &row))
@@ -617,15 +618,16 @@ bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u
     }
     // The arrows: centred on the strip, 8 DIP inside its ends, only
     // toward content past that end.
-    const float middle = (scene.body.top + scene.body.bottom) * .5f, half = kUiInlineResultsArrowExtent * .5f;
+    const float arrow = scene.style.metrics.inline_arrow;
+    const float middle = (scene.body.top + scene.body.bottom) * .5f, half = arrow * .5f;
     if (scene.scroll_dips > 0)
         scene.page_widgets[0] = add(scene,
                                     {scene.body.left + pad, middle - half,
-                                     scene.body.left + pad + kUiInlineResultsArrowExtent, middle + half},
+                                     scene.body.left + pad + arrow, middle + half},
                                     {0, 0, UiMediaPickerAction::page_back, scene.kind}, utf8_literal("Scroll left"));
     if (scene.scroll_dips < last)
         scene.page_widgets[1] = add(scene,
-                                    {scene.body.right - pad - kUiInlineResultsArrowExtent, middle - half,
+                                    {scene.body.right - pad - arrow, middle - half,
                                      scene.body.right - pad, middle + half},
                                     {0, 0, UiMediaPickerAction::page_forward, scene.kind},
                                     utf8_literal("Scroll right"));
@@ -839,7 +841,7 @@ bool item_position(const UiMediaPickerScene& scene, u32 index, float* top, float
     if (inline_results(scene)) {
         // Offsets along the scroll axis: GIF tiles with their padding, or sticker rows.
         if (scene.kind == UiMediaPickerKind::sticker) {
-            *height = kUiInlineResultsStickerExtent + kUiComposerPadding * 2;
+            *height = kUiInlineResultsStickerExtent + scene.style.metrics.inline_inset * 2;
             *top = index * *height;
             return index < kUiInlineResultsStickerLimit;
         }

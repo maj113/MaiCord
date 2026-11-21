@@ -2,6 +2,7 @@
 #include "maicord/ui/layout/surface_geometry.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 namespace maicord {
 namespace {
 bool button(const UiWidgetManager& owner, UiWidgetHandle handle) noexcept {
@@ -78,15 +79,16 @@ bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWi
     Color background = ui_button_background(owner, handle, theme, palette || selected ? theme.surface : Color{});
     if (palette)
         background.alpha = 1;
+    const float radius = ui_theme_metrics(theme.styles).control_radius;
     bool ok = palette ? ui_background_paint_surface(
                             paint, r, theme, background, focus ? theme.tokens.border.focus : background,
-                            kUiControlCornerRadius, focus ? 1.5f : .75f,
+                            radius, focus ? 1.5f : .75f,
                             pressed ? .90f
                             : hover ? 1.f
                                     : .80f,
                             UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                             focus ? UiBackgroundBorderTone::semantic : UiBackgroundBorderTone::palette)
-                      : paint_stream_push_rounded_border(paint, r, background, focus ? theme.tokens.border.focus : background, kUiControlCornerRadius, focus ? 1.5f : 0);
+                      : paint_stream_push_rounded_border(paint, r, background, focus ? theme.tokens.border.focus : background, radius, focus ? 1.5f : 0);
     const float extent = ui_icon_button_extent(minimum(ui_rect_width(r), ui_rect_height(r)));
     const float x = (r.left + r.right - extent) * .5f,
                 y = (r.top + r.bottom - extent) * .5f + (pressed ? 1 : 0);

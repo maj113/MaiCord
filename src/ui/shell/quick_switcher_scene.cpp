@@ -369,7 +369,7 @@ bool ui_quick_switcher_scene_text_output(const UiQuickSwitcherScene& s, const Th
          ui_rect_edges(p, ui_start(20), ui_start(10), ui_end(-52), ui_start(38)), theme.text_primary, text_style_bold);
     if (text.ok() && !ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, s.content->edit, geometry,
             s.content->picker ? utf8_literal("Type the username of a friend") : utf8_literal("Where would you like to go?"),
-            theme))
+            theme.text_primary))
         text.fail();
     text(s.root, s.content->hint.bytes ? s.content->hint : utf8_literal("@ people   # channels   * servers"), s.hint,
          theme.text_secondary, text_style_subtext);

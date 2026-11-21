@@ -71,10 +71,9 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
         application_channel_overview_close(false);
         return false;
     }
-    p.content = {utf8_literal("Overview"), Utf8View{}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle,
-                 &p.footer};
-    p.permissions_content = {utf8_literal("Permissions"), Utf8View{}, {}, 1, kUiSettingsPageFormat,
-                             &kUiDefaultSettingsStyle, nullptr};
+    p.content = {utf8_literal("Overview"), Utf8View{}, {}, 1, kUiSettingsPageFormat, nullptr, &p.footer};
+    p.permissions_content = {utf8_literal("Permissions"), Utf8View{}, {}, 1, kUiSettingsPageFormat, nullptr,
+                             nullptr};
     if (!ui_page_registry_initialize(&p.registry, {p.pages, 2}) ||
         !ui_page_registry_register(&p.registry, {page_key, utf8_literal("Overview"), &p.content}).ok() ||
         !ui_page_registry_register(&p.registry, {permissions_key, utf8_literal("Permissions"), &p.permissions_content})

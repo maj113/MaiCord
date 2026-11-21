@@ -38,7 +38,8 @@ bool resolve_friend(void* context, u32 index, UiFriendsRow* out) noexcept {
 bool initialize() noexcept {
     auto& f = fixture;
     if (!ui_scene_initialize_bootstrap(&f.shell) ||
-        !ui_scene_layout_with_metrics(&f.shell, UiShellView::friends, kFriendsShellLayoutMetrics, 1280, 8192) ||
+        !ui_scene_layout_with_metrics(&f.shell, UiShellView::friends, ui_friends_shell_layout_metrics(kUiThemeMetricsDefault),
+                                      1280, 8192) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1},
             {f.channels, 192}, {f.channel_order, 192}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() ||

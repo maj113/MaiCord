@@ -86,7 +86,7 @@ void build(Page* p, const ProfileNameStyle* style = nullptr) noexcept {
               true, false, {}, 0, utf8_literal("190"), &p->editors[1]};
     for (auto& pr : p->presentation)
         pr = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
-    p->content = {utf8_literal("Profiles"), {}, {p->controls, n}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle};
+    p->content = {utf8_literal("Profiles"), {}, {p->controls, n}, 1, kUiSettingsPageFormat, nullptr};
     p->content.presentation = p->presentation;
     p->content.sectioned = true;
     p->content.aside_width = 300;

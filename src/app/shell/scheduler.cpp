@@ -166,6 +166,27 @@ u64 application_next_wake_at_ms() noexcept {
     return wake_at;
 }
 
+// The deadlines only a drawn frame serves besides the background's, in the order the frame request read them. The
+// blocked logout has its own two.
+constexpr WakeSource kVisualWakeSources[]{
+    application_video_next_wake,         application_tooltip_next_wake,          application_toast_next_wake,
+    application_guild_banner_next_wake,  application_voice_invite_next_wake,     application_surface_motion_next_wake,
+    application_search_edit_next_wake,   application_media_picker_caret_wake,    application_downloads_next_wake,
+    application_message_forward_caret_wake, application_quick_switcher_caret_wake, application_channel_overview_caret_wake};
+constexpr WakeSource kLogoutVisualWakeSources[]{application_surface_motion_next_wake, application_downloads_next_wake};
+
+// The earliest visual deadline from the background's (its wake retires a paused clock, so the caller reads it first).
+// The walk stops at the first deadline due at now_ms: the frame request needs no more, and a due deadline bounds a
+// wait to zero as the earliest one does.
+u64 visual_deadlines(u64 now_ms, u64 background, bool logout_blocked) noexcept {
+    u64 wake_at = logout_blocked ? background : earliest_deadline(background, g_app.dm_profile_clock_ms);
+    const ConstSlice<WakeSource> sources = logout_blocked ? ConstSlice<WakeSource>{kLogoutVisualWakeSources, 2}
+                                                          : ConstSlice<WakeSource>{kVisualWakeSources, 12};
+    for (u32 i = 0; i < sources.count && !deadline_due(now_ms, wake_at); ++i)
+        wake_at = earliest_deadline(wake_at, sources.data[i]());
+    return wake_at;
+}
+
 } // namespace
 
 void application_frame_retry_schedule(u64 now_ms) noexcept {
@@ -181,18 +202,22 @@ bool application_frame_retry_waiting(u64 now_ms) noexcept {
     return now_ms < g_app.presentation_retry_at_ms;
 }
 
-u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, bool visual_suspended) noexcept {
+u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, bool visual_suspended,
+                             u64 visual_wake) noexcept {
     // While a frame waits for its retry time, no visual deadline wakes the loop. The retry time does.
     const u64 frame_retry_at = application_frame_retry_waiting(now_ms) ? g_app.presentation_retry_at_ms : 0;
     frame_clock_armed = frame_clock_armed || visual_suspended || frame_retry_at;
-    if (application_account_logout_blocked()) {
+    const bool logout_blocked = application_account_logout_blocked();
+    // The visual deadlines include the downloads' wake, which also counts while the display clock paces frames.
+    if (!frame_clock_armed && visual_wake == kVisualWakeUnknown)
+        visual_wake = visual_deadlines(now_ms, application_background_next_wake(now_ms), logout_blocked);
+    const u64 downloads_or_visual = frame_clock_armed ? application_downloads_next_wake() : visual_wake;
+    if (logout_blocked) {
         u32 timeout = INFINITE;
         limit_timeout(timeout, now_ms, application_account_logout_next_wake());
         limit_timeout(timeout, now_ms, application_text_form_next_wake());
-        limit_timeout(timeout, now_ms, application_downloads_next_wake());
+        limit_timeout(timeout, now_ms, downloads_or_visual);
         if (!frame_clock_armed) {
-            limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
-            limit_timeout(timeout, now_ms, application_surface_motion_next_wake());
             if (application_effect_frame_due(now_ms))
                 timeout = 0;
             else if (g_app.renderer.text_effect_animated)
@@ -233,15 +258,8 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     // settings would otherwise hold every wait at zero.
     if (account_running && g_app.message_media.scan_pending && !application_thread_browser_read_blocked())
         timeout = 0;
+    limit_timeout(timeout, now_ms, downloads_or_visual);
     if (!frame_clock_armed) {
-        limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
-        limit_timeout(timeout, now_ms, application_video_next_wake());
-        limit_timeout(timeout, now_ms, application_tooltip_next_wake());
-        limit_timeout(timeout, now_ms, application_toast_next_wake());
-        limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
-        limit_timeout(timeout, now_ms, application_voice_invite_next_wake());
-        limit_timeout(timeout, now_ms, g_app.dm_profile_clock_ms);
-        limit_timeout(timeout, now_ms, application_surface_motion_next_wake());
         limit_timeout(timeout, now_ms, application_loading_spinner_wake());
         // Once a visual frame is due, DXGI paces it. An overdue visual timer
         // must not turn the display-slot wait into a zero-timeout polling loop.
@@ -278,15 +296,8 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     limit_timeout(timeout, now_ms, application_theme_schedule_wake());
     limit_timeout(timeout, now_ms, application_message_interaction_next_wake(now_ms));
     limit_timeout(timeout, now_ms, application_forum_form_next_wake());
-    limit_timeout(timeout, now_ms, application_downloads_next_wake());
-    if (!frame_clock_armed) {
+    if (!frame_clock_armed)
         limit_timeout(timeout, now_ms, application_friends_search_next_wake());
-        limit_timeout(timeout, now_ms, application_search_edit_next_wake());
-        limit_timeout(timeout, now_ms, application_media_picker_caret_wake());
-        limit_timeout(timeout, now_ms, application_message_forward_caret_wake());
-        limit_timeout(timeout, now_ms, application_quick_switcher_caret_wake());
-        limit_timeout(timeout, now_ms, application_channel_overview_caret_wake());
-    }
     // A dirty frame must also run when no DXGI waitable clock is available.
     if (g_app.frame_pending && !frame_clock_armed)
         timeout = 0;
@@ -312,31 +323,21 @@ bool application_effect_frame_due(u64 now_ms) noexcept {
            application_loading_spinner_due(now_ms);
 }
 
-bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
+bool application_visual_frame_requested(u64 now_ms, u64 now_us, u64* visual_wake) noexcept {
     if (application_frame_retry_waiting(now_ms))
         return false;
-    if (application_account_logout_blocked())
-        return g_app.frame_pending || application_effect_frame_due(now_ms) || application_theme_transition_active() ||
-               deadline_due(now_ms, application_background_next_wake(now_ms)) ||
-               deadline_due(now_ms, application_surface_motion_next_wake()) ||
-               deadline_due(now_ms, application_downloads_next_wake());
-    return g_app.frame_pending || application_effect_frame_due(now_ms) ||
-           deadline_due(now_ms, application_background_next_wake(now_ms)) ||
-           application_smooth_scroll_active() || application_theme_transition_active() ||
-           application_animation_frame_due(now_us) ||
-           deadline_due(now_ms, application_video_next_wake()) ||
-           deadline_due(now_ms, application_tooltip_next_wake()) ||
-           deadline_due(now_ms, application_toast_next_wake()) ||
-           deadline_due(now_ms, application_guild_banner_next_wake()) ||
-           deadline_due(now_ms, application_voice_invite_next_wake()) ||
-           deadline_due(now_ms, g_app.dm_profile_clock_ms) ||
-           deadline_due(now_ms, application_surface_motion_next_wake()) ||
-           deadline_due(now_ms, application_search_edit_next_wake()) ||
-           deadline_due(now_ms, application_media_picker_caret_wake()) ||
-           deadline_due(now_ms, application_downloads_next_wake()) ||
-           deadline_due(now_ms, application_message_forward_caret_wake()) ||
-           deadline_due(now_ms, application_quick_switcher_caret_wake()) ||
-           deadline_due(now_ms, application_channel_overview_caret_wake());
+    const bool logout_blocked = application_account_logout_blocked();
+    if (g_app.frame_pending || application_effect_frame_due(now_ms) ||
+        (logout_blocked && application_theme_transition_active()))
+        return true;
+    const u64 background = application_background_next_wake(now_ms);
+    if (deadline_due(now_ms, background) || application_theme_transition_active() ||
+        (!logout_blocked && (application_smooth_scroll_active() || application_animation_frame_due(now_us))))
+        return true;
+    const u64 wake = visual_deadlines(now_ms, background, logout_blocked);
+    if (visual_wake)
+        *visual_wake = wake;
+    return deadline_due(now_ms, wake);
 }
 
 bool application_nonvisual_wake_due(u64 now_ms) noexcept {

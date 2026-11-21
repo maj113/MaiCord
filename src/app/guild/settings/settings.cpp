@@ -1445,7 +1445,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         return false;
     u32 i = 0;
     for (NameList label{kPageLabels}; label; label.next(), ++i) {
-        p.content[i] = {label.name(), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+        p.content[i] = {label.name(), {}, {}, 1, kUiSettingsPageFormat, nullptr, nullptr};
         if (!ui_page_registry_register(&p.registry, {page_key(kPages[i].page), label.name(), &p.content[i]}).ok())
             return false;
     }

@@ -437,7 +437,7 @@ inline bool search_filter_ui_probe(D3D11Renderer& renderer,
             if (!require(text_system_font_size(renderer.glyph_text.system, 0) == 18, 15 + sample))
                 return false;
         }
-        auto metrics = kGuildChannelShellLayoutMetrics;
+        auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         metrics.flags = 0;
         if (!require(
                 ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, metrics, width, height),

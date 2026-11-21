@@ -1,4 +1,5 @@
 #include "maicord/ui/core/transition.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/core/geometry.hpp"
 
@@ -259,9 +260,8 @@ float ui_motion_hover_amount(const UiMotionHover& hover, u64 id) noexcept {
     return !id ? 0 : id == hover.in_id ? hover.in.value : id == hover.out_id ? hover.out.value : 0;
 }
 u64 ui_motion_hover_next_wake(const UiMotionHover& hover) noexcept {
-    const u64 a = ui_motion_transition_next_wake(hover.in, kHoverScope, false);
-    const u64 b = ui_motion_transition_next_wake(hover.out, kHoverScope, false);
-    return !a ? b : !b ? a : minimum(a, b);
+    return earliest_deadline(ui_motion_transition_next_wake(hover.in, kHoverScope, false),
+                             ui_motion_transition_next_wake(hover.out, kHoverScope, false));
 }
 
 } // namespace maicord

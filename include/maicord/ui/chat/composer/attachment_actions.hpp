@@ -4,10 +4,11 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
-// File cards, and the inset of their Save action from the card's edge.
-inline constexpr float kUiAttachmentFileCardRadius = kUiControlCornerRadius, kUiAttachmentFileSaveInset = 4;
+// The inset of a file card's Save action from the card's edge. The card's corner is the theme's control radius.
+inline constexpr float kUiAttachmentFileSaveInset = 4;
 // Save action geometry shared by paint and input. It reuses the attachment's
 // widget instead of adding one per row.
 inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) noexcept {
@@ -52,7 +53,8 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
     const float y = (rectangle.top + rectangle.bottom - size) * .5f;
     const UiRect icon{x,y,x + size,y + size};
     // On a file card it follows the card's corner; on media it matches the GIF star.
-    const float radius = file_card ? ui_inner_radius(kUiAttachmentFileCardRadius, kUiAttachmentFileSaveInset)
+    const float radius = file_card ? ui_inner_radius(ui_theme_metrics(theme.styles).control_radius,
+                                                     kUiAttachmentFileSaveInset)
                                    : theme.scale.radius_sm;
     const bool ok = ui_background_paint_surface(paint,rectangle,theme,fill,border,radius,1,1,
         UiBackgroundSurfaceMode::gradient,UiBackgroundTier::highest) &&

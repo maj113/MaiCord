@@ -68,7 +68,7 @@ ApplicationThreadHeaderActivationSource source() noexcept {
 bool project() noexcept {
     auto& f = thread_activation;
     return ui_thread_header_update(&f.header, application_thread_header_projection(f.host),
-        {312, 48, 632, 128}, {0, 0, 632, 480}, ui_thread_header_style());
+        {312, 48, 632, 128}, {0, 0, 632, 480}, ui_thread_header_style(kUiThemeMetricsDefault));
 }
 bool popup() noexcept {
     auto& f = thread_activation;
@@ -88,7 +88,7 @@ void test_application_thread_header_activation(void (*check)(bool, const char*) 
     f.host.membership = ApplicationThreadMembershipStatus::unknown;
     f.host.actions = thread_action_fetch;
     f.current = true; f.admission = ApplicationThreadActionEnqueueResult::accepted;
-    check(ui_scene_initialize_bootstrap(&f.shell) && ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 632, 480) &&
+    check(ui_scene_initialize_bootstrap(&f.shell) && ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 632, 480) &&
         ui_thread_header_bind_shell(&f.header, &f.shell) &&
         popup_scene_initialize(&f.popup, {f.items, 8}, {f.rows, 8}, {f.popup_widgets, 18}, {f.popup_nodes, 18}) && project(),
         "thread activation: actual shell widgets and native popup bind the shared shipping dispatcher");

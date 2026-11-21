@@ -591,10 +591,10 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return TS_E_NOLOCK;
         }
         SecureTextStoreGeometry geometry{};
-        POINT origin{};
-        if (!get_geometry(&geometry) || !client_origin(&origin)) {
+        if (!get_geometry(&geometry)) {
             return TS_E_NOLAYOUT;
         }
+        const POINT origin = client_origin();
         // TSF gives screen points; the store's callbacks work in client pixels.
         const SecureTextPoint client{point->x - origin.x, point->y - origin.y};
         const bool visible = client.x >= geometry.text.left && client.x < geometry.text.right &&
@@ -626,10 +626,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!position_valid(end)) {
             return TS_E_INVALIDPOS;
         }
-        POINT origin{};
-        if (!client_origin(&origin)) {
-            return TS_E_NOLAYOUT;
-        }
+        const POINT origin = client_origin();
         if (config.range_geometry) {
             bool range_clipped = false;
             SecureTextRect range{};
@@ -656,10 +653,10 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return E_INVALIDARG;
         }
         SecureTextStoreGeometry geometry{};
-        POINT origin{};
-        if (!get_geometry(&geometry) || !client_origin(&origin)) {
+        if (!get_geometry(&geometry)) {
             return TS_E_NOLAYOUT;
         }
+        const POINT origin = client_origin();
         *rectangle = screen_rectangle(geometry.window, origin);
         return S_OK;
     }
@@ -1319,10 +1316,10 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
 
     // The screen position of the window's client origin, to turn the callbacks' client pixels into TSF's screen ones.
     // A handle the system does not know (a test's) has its client at the screen origin.
-    bool client_origin(POINT* origin) const noexcept {
-        *origin = {};
-        ClientToScreen(win32_hwnd(config.window), origin);
-        return true;
+    POINT client_origin() const noexcept {
+        POINT origin{};
+        ClientToScreen(win32_hwnd(config.window), &origin);
+        return origin;
     }
 
     void clear_sink() noexcept {

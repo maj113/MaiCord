@@ -84,7 +84,7 @@ RestClientSubmitResult WINAPI read_profile(void*, u64 user, u64 guild, u64 id, u
 }
 
 UiShellLayoutMetrics shell_metrics(const UiSidePanelInput& in, float window) noexcept {
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_private);
     const auto plan = ui_side_panel_plan(in);
     metrics.member_sidebar_width = plan.width;

@@ -663,7 +663,8 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     // The probe's shell scene keeps the size it was laid out at and clips every label to it: lay a fresh one out at
     // the capture size so wide pages are not cut.
     valid = valid && ui_scene_initialize_bootstrap(&g_shell) &&
-            ui_scene_layout_with_metrics(&g_shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1440 / scale,
+            ui_scene_layout_with_metrics(&g_shell, UiShellView::guild_channel,
+                                         ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1440 / scale,
                                          900 / scale) &&
             renderer_bind_ui_scene(&renderer, &g_shell);
     if (valid)

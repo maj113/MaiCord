@@ -38,14 +38,17 @@ UiRect clip_of(const UiStoreScene& s, u16 index) noexcept;
 inline bool leaf_leading_glyph(const UiStoreNode& n) noexcept {
     return n.icon != kNoIcon || (n.flags & ui_store_busy);
 }
-// A button's content: leading glyph, label, trailing glyph (what a stretched button centres).
-inline float leaf_text_content(const UiStoreNode& n) noexcept {
-    float width = text_width(static_cast<u8>(UiStoreType::label_bold), n.text);
+// A button's content: leading glyph, label, trailing glyph (what a stretched button centres), from the label's width.
+inline float leaf_text_content(const UiStoreNode& n, float label) noexcept {
+    float width = label;
     if (leaf_leading_glyph(n))
         width += 24;
     if (n.icon2 != kNoIcon)
         width += 22;
     return width;
+}
+inline float leaf_text_content(const UiStoreNode& n) noexcept {
+    return leaf_text_content(n, text_width(static_cast<u8>(UiStoreType::label_bold), n.text));
 }
 // The count badge after a tab's label.
 inline float tab_badge_width(const UiStoreNode& n) noexcept {

@@ -22,6 +22,7 @@
 
 #include "maicord/platform/window/key.hpp"
 #include "maicord/platform/window/window.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -462,8 +463,9 @@ bool build_picker() noexcept {
         count = 1;
     }
     default_footer(truncated);
-    const UiPopupFeedback feedback{{p.footer, p.footer_bytes}, ui_popup_feedback_style(), p.error_until_ms != 0, 0,
-                                   0};
+    const UiPopupFeedback feedback{{p.footer, p.footer_bytes},
+                                   ui_popup_feedback_style(ui_theme_metrics(application_theme().styles)),
+                                   p.error_until_ms != 0, 0, 0};
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, p.channel_id, {p.items, count}, p.anchor,
                           application_viewport_dips(), kPickerWidth, true, 0, 0, 0, &feedback)
              .ok())

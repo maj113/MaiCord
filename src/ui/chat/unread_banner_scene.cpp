@@ -3,6 +3,7 @@
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/core/text_bank.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -266,8 +267,7 @@ u64 ui_unread_banner_next_wake(const UiUnreadBannerScene& scene, bool animate) n
     const u64 a = ui_motion_transition_next_wake(scene.banner_motion, scene.banner_motion.scope, !animate);
     const u64 b = ui_motion_transition_next_wake(scene.pill_motion, scene.pill_motion.scope, !animate);
     const u64 c = ui_motion_transition_next_wake(scene.notice_motion, scene.notice_motion.scope, !animate);
-    const u64 ab = !a ? b : !b ? a : minimum(a, b);
-    return !ab ? c : !c ? ab : minimum(ab, c);
+    return earliest_deadline(earliest_deadline(a, b), c);
 }
 
 bool ui_unread_banner_visible(const UiUnreadBannerScene& scene) noexcept {

@@ -13,14 +13,10 @@ constexpr u64 deadline_after(u64 now, u64 delay) noexcept {
     return sum < now ? ~0ull : sum;
 }
 
+// Zero is no deadline. Minus one turns it into the largest value, which the minimum never picks over a deadline, and
+// a chain of merges keeps its values minus one in between.
 constexpr u64 earliest_deadline(u64 first, u64 second) noexcept {
-    if (first == 0) {
-        return second;
-    }
-    if (second == 0) {
-        return first;
-    }
-    return minimum(first, second);
+    return minimum(first - 1, second - 1) + 1;
 }
 
 constexpr bool deadline_due(u64 now, u64 deadline) noexcept {

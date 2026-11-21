@@ -470,9 +470,9 @@ bool ui_message_forward_scene_text_output(const UiMessageForwardScene& s, const 
     const auto query_view = presentation_view(s.content->edit, s.content->sending || s.content->committed);
     const auto caption_view = presentation_view(s.content->caption, s.content->sending || s.content->committed);
     if (text.ok() && (!ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, query_view, query,
-                                                 utf8_literal("Find a channel or conversation"), t) ||
+                                                 utf8_literal("Find a channel or conversation"), t.text_primary) ||
                       !ui_edit_field_text_output(out, {&s.widgets, s.caption}, s.caption_text, caption_view, caption,
-                                                 utf8_literal("Add a message (optional)"), t)))
+                                                 utf8_literal("Add a message (optional)"), t.text_primary)))
         text.fail();
     const float split = ui_rect_width(s.hint) < 320 ? 94.f : 128.f;
     text(s.root, utf8_literal("Choose destinations"), {s.hint.left, s.hint.top, s.hint.right - split, s.hint.bottom},

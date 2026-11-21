@@ -55,8 +55,7 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
   Haswell, because hand-written `MAICORD_HASWELL` functions (`include/maicord/sys/simd_haswell.hpp`) use AVX2, BMI1, BMI2,
   LZCNT, MOVBE and F16C with no other path. Each client's entry checks the processor first
   (`maicord/app/shell/processor_check.hpp`).
-- UI colors, radii and spacing come from theme tokens (`include/maicord/ui/theme/tokens.inc`);
-  `tools/check_theme_literals.py` fails on new literals.
+- UI colors, radii and spacing come from theme tokens (`include/maicord/ui/theme/tokens.inc`).
 - Shaders: the HLSL in `src/render/shaders` and its hand-written GLSL ES 3.10 twin in `src/render/shaders/gles` change in one
   commit; `tools/check_shader_twins.py --stamp <twin>` records the reviewed pair.
 - Size: each client is at most 6,500,000 bytes (Linux stripped); report a change in either. `cmake/size_policy.cmake` is the

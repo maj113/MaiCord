@@ -32,8 +32,9 @@ inline constexpr u32 kMaxPaintBatches = 256;
 inline constexpr u32 kMaxPaintClipDepth = 16;
 inline constexpr float kMaximumPaintCoordinate = 1'048'576.0f;
 
+// A NaN fails both compares.
 inline bool paint_coordinate_valid(float value) noexcept {
-    return value == value && value >= -kMaximumPaintCoordinate && value <= kMaximumPaintCoordinate;
+    return (value >= -kMaximumPaintCoordinate) & (value <= kMaximumPaintCoordinate);
 }
 
 struct PaintClip {

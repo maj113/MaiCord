@@ -128,7 +128,7 @@ bool project() noexcept {
     const auto reply = application_reply_draft();
     char reply_storage[kMessageComposerReplyLabelBytes]{};
     const auto reply_label = application_reply_draft_label({reply_storage, sizeof(reply_storage)});
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
     metrics.member_sidebar_width = 0;
     // Compact available-width fixture topology only; the shipping minimum
@@ -236,7 +236,8 @@ bool initialize(HWND window) noexcept {
                 message_view_runtime_bind_rich_store(&g_app.message_view, &ui.message_rich_store).ok() &&
                 ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
                 ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                             kGuildChannelShellLayoutMetrics, 624, 600) &&
+                                             ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 624,
+                                             600) &&
                 guild_rail_scene_initialize(&g_app.guild_rail_scene, {fixture->rail_rows, 2},
                                             {fixture->rail_widgets, 4}, {fixture->rail_nodes, 4}) &&
                 shell_navigation_scene_initialize(

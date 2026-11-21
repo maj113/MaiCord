@@ -218,8 +218,8 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
     const auto* outer_media = message_scene_rich_item_layout_node(fixture.scene, fixture.scene.rows[0],
         MessageSceneRichItemKind::attachment, 0);
     if (!require(child_frame && outer_media &&
-        child_frame->spec.style.margin.bottom == kDefaultMessageRichBlockGapDips &&
-        outer_media->rectangle.top >= child_frame->rectangle.bottom + kDefaultMessageRichBlockGapDips,
+        child_frame->spec.style.margin.bottom == kUiThemeMetricsDefault.message_rich_gap &&
+        outer_media->rectangle.top >= child_frame->rectangle.bottom + kUiThemeMetricsDefault.message_rich_gap,
         12)) return false;
     log_u64(LogLevel::info, "probe", "forwarded_rich_live_extent", fixture.rich.record_extent);
     log_u64(LogLevel::info, "probe", "forwarded_scene_admitted_slots", fixture.scene.owned_rows.capacity);

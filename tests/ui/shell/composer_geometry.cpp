@@ -16,7 +16,7 @@ namespace maicord {
 void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept {
     {
         UiScene shell{};
-        UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+        UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         bool responsive = ui_scene_initialize_bootstrap(&shell);
         const float widths[]{624.f, 864.f, 863.5f, 1280.f, 664.f, 864.f};
         for (const float width : widths) {
@@ -37,7 +37,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                 passes == shell.layout_passes && rebuilds == shell.layout_rebuilds;
         }
         check(
-            responsive && metrics.flags == kGuildChannelShellLayoutMetrics.flags &&
+            responsive && metrics.flags == ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).flags &&
                 metrics.member_sidebar_width == 240.f,
             "shell_narrow_member_transitions_preserve_message_minimum_restore_pane_and_retain_preferences");
         metrics.revision++;
@@ -569,7 +569,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
     UiTextCommandStream status_stream{};
     const auto status_label = utf8_literal("Could not save caption. Try again.");
     bool status = ui_scene_initialize_bootstrap(&status_shell) &&
-                  ui_scene_layout_with_metrics(&status_shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800) &&
+                  ui_scene_layout_with_metrics(&status_shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 800) &&
                   ui_text_command_stream_initialize(&status_stream, {status_commands, 16});
     u32 status_passes = 0;
     for (u32 severity = 0; severity < 2; ++severity) {

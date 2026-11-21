@@ -8,7 +8,7 @@ namespace maicord {
 // composer. Keep the shell's rail and title geometry, without reserving space
 // for account surfaces that these fixtures never bind or draw.
 inline constexpr UiShellLayoutMetrics kStandaloneTitleLayoutMetrics = []() constexpr {
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.revision = 2;
     metrics.flags = 0;
     metrics.navigation_width = 0.0f;

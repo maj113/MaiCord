@@ -60,8 +60,8 @@ bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept
 }
 
 bool paint_stream_push_clip(PaintStream* stream, const UiRect& rectangle) noexcept {
-    if (!stream || !paint_coordinate_valid(rectangle.left) || !paint_coordinate_valid(rectangle.top) ||
-        !paint_coordinate_valid(rectangle.right) || !paint_coordinate_valid(rectangle.bottom) ||
+    if (!stream || !(paint_coordinate_valid(rectangle.left) & paint_coordinate_valid(rectangle.top) &
+                     paint_coordinate_valid(rectangle.right) & paint_coordinate_valid(rectangle.bottom)) ||
         stream->clip_depth == 0 || stream->clip_depth >= kMaxPaintClipDepth ||
         stream->clip_count >= kMaxPaintClips) {
         if (stream) {
@@ -135,15 +135,17 @@ bool paint_stream_push_rounded_border(PaintStream* stream, const UiRect& rectang
         stream->quad_capacity = stream->quad_storage.capacity;
     }
 
-    PaintBatch* batch = stream->batch_count != 0 ? &stream->batches[stream->batch_count - 1] : nullptr;
-    if (!batch || batch->clip_index != clip_index || stream->batch_count <= stream->sealed_batches ||
-        batch->first_quad + batch->quad_count != stream->count) {
+    // The quad joins the batch before `batch`. With no batch, batch_count is 0 and so not above sealed_batches: the
+    // last batch is read only when it exists.
+    PaintBatch* batch = stream->batches + stream->batch_count;
+    if (stream->batch_count <= stream->sealed_batches || batch[-1].clip_index != clip_index ||
+        batch[-1].first_quad + batch[-1].quad_count != stream->count) {
         if (stream->batch_count >= kMaxPaintBatches) {
             ++stream->rejected;
             return false;
         }
-        batch = &stream->batches[stream->batch_count++];
-        *batch = PaintBatch{stream->count, 0, clip_index, 0};
+        *batch++ = PaintBatch{stream->count, 0, clip_index, 0};
+        ++stream->batch_count;
     }
 
     const float maximum_radius = minimum((right - left) * 0.5f, (bottom - top) * 0.5f);
@@ -157,7 +159,7 @@ bool paint_stream_push_rounded_border(PaintStream* stream, const UiRect& rectang
     quad.radius = minimum(radius, maximum_radius);
     quad.border_width = minimum(border_width, maximum_radius);
     quad.reserved_x = quad.reserved_y = 0.0f;
-    ++batch->quad_count;
+    ++batch[-1].quad_count;
     return true;
 }
 

@@ -111,7 +111,7 @@ inline bool guild_roles_ui_probe(D3D11Renderer& renderer) noexcept {
                                 {list, 8},
                                 1,
                                 kUiSettingsPageFormat,
-                                &kUiDefaultSettingsStyle,
+                                nullptr,
                                 nullptr};
     roles.presentation = list_looks;
     roles.list_items = list_items;
@@ -145,7 +145,7 @@ inline bool guild_roles_ui_probe(D3D11Renderer& renderer) noexcept {
     UiSettingsFooter footer{utf8_literal("Careful — you have unsaved changes!"), utf8_literal("Save changes"),
                             utf8_literal("Reset"), true, true, false, false};
     UiSettingsPageContent permissions{utf8_literal("Edit role — Sketch club"), {}, {editor, 10}, 1,
-                                      kUiSettingsPageFormat, &kUiDefaultSettingsStyle, &footer};
+                                      kUiSettingsPageFormat, nullptr, &footer};
     permissions.presentation = editor_looks;
 
     // Channel overrides: deny, neutral and allow.
@@ -166,7 +166,7 @@ inline bool guild_roles_ui_probe(D3D11Renderer& renderer) noexcept {
         look = {UiSettingsVariant::standard, ui_settings_presentation_tristate, kUiSettingsNoDefault};
     channel_looks[0].flags = 0;
     UiSettingsPageContent overrides{utf8_literal("Permissions"), {}, {channel, 5}, 1, kUiSettingsPageFormat,
-                                    &kUiDefaultSettingsStyle, nullptr};
+                                    nullptr, nullptr};
     overrides.presentation = channel_looks;
 
     const UiPageKey roles_key{0x701e, 1}, editor_key{0x701e, 2}, channel_key{0x701e, 3};

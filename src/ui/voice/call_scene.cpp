@@ -241,7 +241,7 @@ inline UiRect visible_part(const UiCallTile& tile) noexcept {
     return ui_rect_intersection(tile.display, tile.clip);
 }
 inline u64 hash_rect(u64 hash, const UiRect& r) noexcept {
-    return hash64_bytes(hash, &r, sizeof(r));
+    return hash64_words(hash, &r, sizeof(r));
 }
 void place_controls(UiCallScene& s) noexcept {
     for (auto& control : s.controls)
@@ -497,11 +497,10 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
     }
     s->participant_count = minimum<u32>(content.participants.count, kUiCallMaximumTiles);
     for (u32 i = 0; i < s->participant_count; ++i) {
-        auto p = content.participants[i];
-        const u32 bytes = utf8_copy_truncated(s->names[i], kUiCallNameBytes, p.name);
-        p.name = {s->names[i], bytes};
+        auto& p = s->participants[i];
+        p = content.participants[i];
+        p.name = {s->names[i], utf8_copy_truncated(s->names[i], kUiCallNameBytes, p.name)};
         p.effect = {s->effects[i], utf8_copy_truncated(s->effects[i], kUiCallEffectBytes, p.effect)};
-        s->participants[i] = p;
     }
     s->title_bytes = utf8_copy_truncated(s->title, kUiCallTitleBytes, content.title);
     s->focus_user = content.focus_user;
@@ -575,12 +574,12 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const Ui
                                     (u64{p.live} << 3) | (u64{p.self} << 4) | (u64{p.paused} << 5) |
                                     (u64{static_cast<u8>(p.stream)} << 8) | (u64{static_cast<u8>(p.notice)} << 16) |
                                     (u64{p.viewers} << 32));
-        hash = hash64_bytes(hash, &p.preview, sizeof(p.preview));
+        hash = hash64_words(hash, &p.preview, sizeof(p.preview));
         hash = hash64_mix(hash, p.has_avatar);
-        hash = hash64_counted_bytes(hash, s->names[i], p.name.bytes);
-        hash = hash64_counted_bytes(hash, s->effects[i], p.effect.bytes);
+        hash = hash64_words(hash, s->names[i], p.name.bytes);
+        hash = hash64_words(hash, s->effects[i], p.effect.bytes);
     }
-    hash = hash64_counted_bytes(hash, s->title, s->title_bytes);
+    hash = hash64_words(hash, s->title, s->title_bytes);
     hash = hash_rect(hash, viewport);
     for (u32 i = 0; i < s->tile_count; ++i)
         hash = hash_rect(hash, s->tiles[i].display);

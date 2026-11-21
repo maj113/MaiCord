@@ -503,8 +503,11 @@ bool measure_row_text(UiTextMeasureCache* measure, const PopupScene& scene, Utf8
     return text.bytes &&
            ui_text_measure_cache_measure(
                measure,
-               {{scene.owner_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, tag, 0}, text, {},
-                {maximum(1.f, width), wrap ? kPopupFitMeasureHeight : kUiMenuDetailRowHeight}, !wrap},
+               {{scene.owner_id, hash64_words(kHash64Seed, text.data, text.bytes), 0, tag, 0}, text, {},
+                {maximum(1.f, width),
+                 wrap ? kPopupFitMeasureHeight
+                      : menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr).menu_detail_height},
+                !wrap},
                value)
                .ok();
 }
@@ -1062,6 +1065,10 @@ UiRect popup_scene_picker_rail(const PopupScene& scene) noexcept {
     return {left, top, minimum(p.right, left + kCommandRailWidth), maximum(top, p.bottom - kCommandRailInset)};
 }
 
+float popup_scene_scroll_step(const PopupScene& scene) noexcept {
+    return menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr).menu_compact_height;
+}
+
 UiRect popup_feedback_rectangle(const PopupScene& scene) noexcept {
     if (!scene.active || !scene.feedback_reserved)
         return {};
@@ -1230,20 +1237,14 @@ float popup_item_menu_row_height(const PopupItem& item, bool compact,
     // A trailing submenu chevron keeps the row's rhythm; only a leading icon
     // column makes menu rows taller.
     const bool leading_icon = item.presentation.icon_plus_one && !item.presentation.trailing_icon;
+    const auto& metrics = menu_metrics(styles);
     if (item.presentation.secondary_line || (item.flags & popup_item_command_row)) {
         // Each wrapped line of the detail adds a line of the two its label and detail share inside the row's padding.
-        const float height = styles && styles->ready ? styles->metrics.menu_detail_height : kUiMenuDetailRowHeight;
-        const float line = (height - 2.f * (menu_metrics(styles).menu_padding - 1.f)) * .5f;
+        const float height = metrics.menu_detail_height;
+        const float line = (height - 2.f * (metrics.menu_padding - 1.f)) * .5f;
         return height + static_cast<float>(item.presentation.extra_detail_lines) * line;
     }
-    if (styles && styles->ready) {
-        if (leading_icon || !compact)
-            return styles->metrics.menu_row_height;
-        return styles->metrics.menu_compact_height;
-    }
-    if (leading_icon)
-        return kUiMenuRowHeight;
-    return compact ? kUiMenuCompactRowHeight : kUiMenuRowHeight;
+    return leading_icon || !compact ? metrics.menu_row_height : metrics.menu_compact_height;
 }
 
 } // namespace maicord

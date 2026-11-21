@@ -70,9 +70,10 @@ bool paint_inline(const UiMediaPickerScene& scene, const Theme& theme, PaintStre
     UiPaint p{paint, theme};
     p.popover(scene.panel, scene.style.panel_radius, false);
     if (scene.content->phase == UiMediaPickerPhase::loading) {
-        const float x = (scene.body.left + scene.body.right) * .5f, half = kUiInlineResultsArrowExtent * .5f;
+        const float arrow = scene.style.metrics.inline_arrow;
+        const float x = (scene.body.left + scene.body.right) * .5f, half = arrow * .5f;
         const float top = scene.body.top + kUiInlineResultsPadding;
-        p.spinner({x - half, top, x + half, top + kUiInlineResultsArrowExtent}, theme.text_secondary,
+        p.spinner({x - half, top, x + half, top + arrow}, theme.text_secondary,
                   scene.spinner_phase);
     }
     p.clip(scene.body);
@@ -152,12 +153,13 @@ bool text_inline(const UiMediaPickerScene& scene, const Theme& theme, UiTextOutp
         const float name_right = right - (detail ? detail + pad * 2 : 0);
         const float middle = (row.top + row.bottom) * .5f;
         const bool note = cell.item.note.bytes != 0;
+        const float inset = scene.style.metrics.inline_inset;
         auto body = text.in(scene.body);
         body(cell.widget, cell.item.label,
-             {left, note ? row.top + kUiComposerPadding : row.top, name_right, note ? middle + 2 : row.bottom},
+             {left, note ? row.top + inset : row.top, name_right, note ? middle + 2 : row.bottom},
              theme.text_primary);
         if (note)
-            body(cell.widget, cell.item.note, {left, middle + 2, name_right, row.bottom - kUiComposerPadding},
+            body(cell.widget, cell.item.note, {left, middle + 2, name_right, row.bottom - inset},
                  theme.text_secondary, kTextStyleSizeCodeXs);
         if (detail)
             body(cell.widget, cell.item.detail, {right - detail, row.top, right, row.bottom}, theme.text_secondary,
@@ -343,7 +345,7 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
             text.in(scene.tabs)(scene.tab_widgets[i], labels[i], widget_rectangle(scene, scene.tab_widgets[i]),
                                 theme.text_primary, text_style_bold, ui_text_center);
     if (text.ok() && !ui_edit_field_text_output(output, {&scene.widgets, scene.edit}, scene.text, scene.content->edit,
-                                                edit, scene.content->placeholder, theme))
+                                                edit, scene.content->placeholder, theme.text_primary))
         text.fail();
     for (u32 i = 0; i < scene.header_count; ++i) {
         const auto& slot = scene.projection->headers[i];

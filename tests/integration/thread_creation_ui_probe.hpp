@@ -24,7 +24,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             auto* model = reply_draft_ui_adapter_composer(); auto* composer = reply_draft_ui_adapter_scene();
             if (!state || !users || !model || !navigation_view_rebuild(&navigation, *state).ok()) return false;
             auto* shell = const_cast<UiScene*>(r.ui_scene);
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             metrics.member_sidebar_width = 0; metrics.composer_height = 48;
             metrics.revision = 4400;

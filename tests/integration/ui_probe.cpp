@@ -313,7 +313,8 @@ bool synchronize_probe_shell_layout(Utf8View typing_label,
     const float height_dip = static_cast<float>(g_probe.renderer.height) * 96.0f /
                              static_cast<float>(maximum<u32>(g_probe.renderer.dpi, 1));
     const bool friends = g_probe.renderer.friends_scene && g_probe.renderer.friends_scene->active;
-    UiShellLayoutMetrics metrics = friends ? kFriendsShellLayoutMetrics : kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = friends ? ui_friends_shell_layout_metrics(kUiThemeMetricsDefault)
+                                           : ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     if (!friends && !members_visible) {
         metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
         metrics.member_sidebar_width = 0;
@@ -364,7 +365,8 @@ bool synchronize_probe_shell_layout(Utf8View typing_label,
                   message_composer_scene_chrome_height(false, 0);
     // The typing strip draws over the list's bottom space, as in the application.
     metrics.composer_overlap = friends ? 0.f : message_composer_scene_chrome_height(false, 0);
-    if (!friends && (metrics.composer_height != kGuildChannelShellLayoutMetrics.composer_height ||
+    if (!friends && (metrics.composer_height !=
+                         ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).composer_height ||
                      attachments.label.bytes != 0))
         metrics.revision += 10'000u + ui_extent_units(metrics.composer_height);
     metrics.revision += static_cast<u32>(metrics.flags) * 7u;
@@ -2231,7 +2233,7 @@ int run_probe() noexcept {
             auto& renderer = g_probe.renderer;
             const float width = renderer.width * 96.f / maximum(renderer.dpi, 1u);
             const float height = renderer.height * 96.f / maximum(renderer.dpi, 1u);
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.composer_height = message_composer_scene_preferred_height(
                 g_probe.message_composer, ui_scene_composer_width(metrics, width), state.reply.bytes != 0);
             metrics.revision = 200'000u + ui_extent_units(metrics.composer_height);

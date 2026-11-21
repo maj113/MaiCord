@@ -83,7 +83,6 @@ enum UiStoreFlag : u16 {
     ui_store_flex = 1u << 0,      // takes the free space of a row
     ui_store_wrap = 1u << 1,      // a text wraps (else one line, ellipsized)
     ui_store_center = 1u << 2,    // text centred; a row centres its children vertically
-    ui_store_end = 1u << 3,       // aligned to the end of its row
     ui_store_selected = 1u << 4,
     ui_store_disabled = 1u << 5,
     ui_store_busy = 1u << 6,
@@ -279,7 +278,7 @@ bool ui_store_scene_spinner_visible(const UiStoreScene&) noexcept;
 // Painting: layer 0 = page plates, 1 = foreground (pills over previews), 2 = dialog plates and its foreground.
 bool ui_store_scene_paint(const UiStoreScene&, const Theme&, PaintStream*, u32 layer) noexcept;
 bool ui_store_scene_text_output(const UiStoreScene&, const Theme&, UiTextOutput*, bool dialog) noexcept;
-// Visible preview tiles, in order; cursor starts at 0.
+// Visible preview tiles, in order; cursor starts at 0. A false return may leave the output partly written.
 bool ui_store_scene_next_media(const UiStoreScene&, u32* cursor, UiStoreMedia*) noexcept;
 // A live tile of the page is on screen (not scrolled out, no dialog over it): the effect it shows may animate.
 bool ui_store_scene_live_visible(const UiStoreScene&) noexcept;

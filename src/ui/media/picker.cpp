@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/sys/simd.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 #include "maicord/core/virtual_memory.hpp"
 
@@ -46,9 +47,11 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         (!admitted_source && !source_valid(source, *content)))
         return false;
     const bool inline_variant = content->variant == UiMediaPickerVariant::inline_results;
-    const UiMediaPickerStyle effective = content->variant == UiMediaPickerVariant::reaction ? ui_media_picker_reaction_style()
-                                         : inline_variant ? ui_media_picker_inline_style()
-                                                          : ui_media_picker_style();
+    const auto& theme_metrics = ui_theme_metrics(scene->theme_styles);
+    const UiMediaPickerStyle effective = content->variant == UiMediaPickerVariant::reaction
+                                             ? ui_media_picker_reaction_style(theme_metrics)
+                                         : inline_variant ? ui_media_picker_inline_style(theme_metrics)
+                                                          : ui_media_picker_style(theme_metrics);
     PickerLayout layout{};
     if (inline_variant ? !inline_layout(effective, source, *content, viewport, anchor, &layout)
                        : !picker_layout(effective, source, content->kind, content->variant, content->back, viewport,

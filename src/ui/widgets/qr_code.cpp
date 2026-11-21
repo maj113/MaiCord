@@ -462,15 +462,10 @@ bool qr_code_encode_m(ConstSlice<u8> payload, u32 minimum_version, u32 maximum_s
     return true;
 }
 
-bool qr_code_module(QrCodeModules code, u32 x, u32 y) noexcept {
-    return code.modules && valid_size(code.size) && x < code.size && y < code.size &&
-           packed_module(code.modules, code.size, x, y);
-}
-
 namespace {
 
-u32 compact_rect_pass(QrCodeModules code, const Slice<QrCodeRect>& output,
-                      bool write) noexcept {
+// Writes the first output.count rectangles and returns how many the symbol needs.
+u32 compact_rect_pass(QrCodeModules code, const Slice<QrCodeRect>& output) noexcept {
     constexpr u32 kMaximumRunsPerRow = (kQrCodeMaximumSize + 1) / 2;
     const u32 size = code.size;
     QrCodeRect active[kMaximumRunsPerRow]{};
@@ -511,7 +506,7 @@ u32 compact_rect_pass(QrCodeModules code, const Slice<QrCodeRect>& output,
             if (matched[index]) {
                 continue;
             }
-            if (write) {
+            if (required < output.count) {
                 output[required] = active[index];
             }
             ++required;
@@ -522,7 +517,7 @@ u32 compact_rect_pass(QrCodeModules code, const Slice<QrCodeRect>& output,
         }
     }
     for (u32 index = 0; index < active_count; ++index) {
-        if (write) {
+        if (required < output.count) {
             output[required] = active[index];
         }
         ++required;
@@ -536,12 +531,8 @@ QrCodeRectResult qr_code_compact_rects(QrCodeModules code, Slice<QrCodeRect> out
     if (!code.modules || !valid_size(code.size) || (!output.data && output.count != 0)) {
         return QrCodeRectResult{0, true};
     }
-    const u32 required = compact_rect_pass(code, Slice<QrCodeRect>{}, false);
-    if (required > output.count) {
-        return QrCodeRectResult{required, true};
-    }
-    compact_rect_pass(code, output, true);
-    return QrCodeRectResult{required, false};
+    const u32 required = compact_rect_pass(code, output);
+    return QrCodeRectResult{required, required > output.count};
 }
 
 bool qr_code_paint(PaintStream* stream, const UiRect& area, QrCodeModules code, float dpi_scale, float quiet_dip,

@@ -22,6 +22,26 @@ template <u32 Count>
 inline bool readable(const Color (&candidates)[Count], double background, Color* output) noexcept {
     return readable(candidates, Count, background, output);
 }
+// The blend of `color` toward black (light) or white that just keeps it readable. Its float state needs
+// callee-saved XMM registers, so it stays out of ui_foreground_color, which returns early for most colors.
+__declspec(noinline) inline Color readable_blend(const Color& color, bool light) noexcept {
+    float lower = 0, upper = 1;
+    const Color target = light ? Color{0, 0, 0, color.alpha} : Color{1, 1, 1, color.alpha};
+    for (u32 i = 0; i < 10; ++i) {
+        const float blend = (lower + upper) * .5f;
+        const Color trial{color.red + (target.red - color.red) * blend,
+                          color.green + (target.green - color.green) * blend,
+                          color.blue + (target.blue - color.blue) * blend, color.alpha};
+        const float value = ui_background_luminance(trial);
+        if (light ? value > .10f : value < .50f)
+            lower = blend;
+        else
+            upper = blend;
+    }
+    return {color.red + (target.red - color.red) * upper,
+            color.green + (target.green - color.green) * upper,
+            color.blue + (target.blue - color.blue) * upper, color.alpha};
+}
 } // namespace foreground_color_detail
 // Choose an authored palette color for a filled control, in order: the
 // theme's text colors, its on-accent text (white on the stock accents), then
@@ -44,28 +64,13 @@ inline Color ui_surface_foreground(const Theme& theme, const Color& fill) noexce
 }
 // Preserve semantic hue while keeping authored role colors readable on the
 // admitted gradient canvas. This runs when text is published, not on hover.
-inline Color ui_foreground_color(const Theme& theme, const Color& color) noexcept {
+__declspec(noinline) inline Color ui_foreground_color(const Theme& theme, const Color& color) noexcept {
     const bool light = theme.appearance == ThemeAppearance::light;
     if (!light && !ui_background_active(theme))
         return color;
     const float luminance = ui_background_luminance(color);
     if ((light && luminance <= .10f) || (!light && luminance >= .50f))
         return color;
-    float lower = 0, upper = 1;
-    const Color target = light ? Color{0, 0, 0, color.alpha} : Color{1, 1, 1, color.alpha};
-    for (u32 i = 0; i < 10; ++i) {
-        const float blend = (lower + upper) * .5f;
-        const Color trial{color.red + (target.red - color.red) * blend,
-                          color.green + (target.green - color.green) * blend,
-                          color.blue + (target.blue - color.blue) * blend, color.alpha};
-        const float value = ui_background_luminance(trial);
-        if (light ? value > .10f : value < .50f)
-            lower = blend;
-        else
-            upper = blend;
-    }
-    return {color.red + (target.red - color.red) * upper,
-            color.green + (target.green - color.green) * upper,
-            color.blue + (target.blue - color.blue) * upper, color.alpha};
+    return foreground_color_detail::readable_blend(color, light);
 }
 } // namespace maicord

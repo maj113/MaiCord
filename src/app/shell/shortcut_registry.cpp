@@ -276,10 +276,9 @@ ShortcutChord shortcut_chord_from_keyboard(u32 key) noexcept {
 }
 
 const ShortcutDefinition* shortcut_definition(ShortcutAction action) noexcept {
-    for (const auto& definition : kDefinitions)
-        if (definition.action == action)
-            return &definition;
-    return nullptr;
+    // The table follows action order from the first action (definitions_valid).
+    const u32 index = static_cast<u32>(action) - 1u;
+    return index < kDefinitionCount ? &kDefinitions[index] : nullptr;
 }
 static Utf8View shortcut_group_label(ShortcutGroup group) noexcept {
     return group < ShortcutGroup::count ? name_list_at(kGroupLabels, static_cast<u32>(group)) : Utf8View{};
@@ -300,18 +299,19 @@ static bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) 
 }
 
 u32 shortcut_resolve(ShortcutContext context, ShortcutChord chord, Slice<ShortcutAction> output) noexcept {
-    static constexpr ShortcutScope order[]{ShortcutScope::message, ShortcutScope::empty_composer, ShortcutScope::content,
-                                    ShortcutScope::global};
     u32 count = 0;
     if (!chord.key || !output.data)
         return 0;
-    for (const auto scope : order) {
-        if (!shortcut_scope_active(scope, context))
-            continue;
-        for (const auto& definition : kDefinitions)
-            if (definition.scope == scope && binds(definition, chord) && count < output.count)
-                output[count++] = definition.action;
-    }
+    // A chord binds at most one definition per scope (definitions_valid), so one walk finds each scope's action.
+    ShortcutAction bound[4]{};
+    for (const auto& definition : kDefinitions)
+        if (binds(definition, chord))
+            bound[static_cast<u32>(definition.scope)] = definition.action;
+    // The most specific scope first: message, empty composer, content, then global (the reverse of their values).
+    for (u32 scope = 4; scope-- > 0;)
+        if (bound[scope] != ShortcutAction::none && count < output.count &&
+            shortcut_scope_active(static_cast<ShortcutScope>(scope), context))
+            output[count++] = bound[scope];
     return count;
 }
 ShortcutAction shortcut_first(ShortcutContext context, ShortcutChord chord) noexcept {

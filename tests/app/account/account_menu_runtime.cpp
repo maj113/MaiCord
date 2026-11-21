@@ -74,7 +74,8 @@ void run() noexcept {
                   .ok() &&
               ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
               ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                           kGuildChannelShellLayoutMetrics, 1000, 700) &&
+                                           ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1000,
+                                           700) &&
               popup_scene_initialize(&g_app.popup_scene, {items, 9}, {rows, 9}, {widgets, 20}, {nodes, 20}),
           "account menu runtime: borrowed source/user/popup banks initialize");
     const auto footer =

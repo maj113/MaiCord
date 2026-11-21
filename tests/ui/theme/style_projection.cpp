@@ -16,7 +16,8 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
     UiResolvedThemeStyles bank{};
     check(ui_theme_styles_apply(&bank, {}, {}).ok(), "Theme component bank resolves defaults");
     const auto form = ui_theme_settings_style(&bank);
-    check(bytes_equal(&form, &kUiDefaultSettingsStyle, sizeof(form)),
+    const auto unbound = ui_theme_settings_style(nullptr);
+    check(bytes_equal(&form, &unbound, sizeof(form)),
           "Theme resolved component defaults preserve native geometry exactly");
     auto metrics = bank.metrics;
     metrics.audio_padding = 10;
@@ -105,7 +106,6 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
     UiSettingsControl choice{
         19, utf8_literal("Appearance"), {}, UiSettingsControlKind::choice, true, false, {choices, 2}, 0};
     UiSettingsPageContent page{utf8_literal("Style controls"), {}, {&choice, 1}, 1};
-    page.style = &kUiDefaultSettingsStyle;
     UiSettingsScene settings{};
     valid = ui_page_registry_initialize(&registry, {pages, 1}) &&
             ui_page_registry_register(&registry, {{1, 4}, utf8_literal("Appearance"), &page}).ok() &&

@@ -9,6 +9,7 @@
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
+#include "maicord/ui/guild/card_scene.hpp"
 
 namespace maicord {
 using namespace store_detail;
@@ -165,6 +166,10 @@ Color button_ink(const Pass& k, const UiStoreNode& n) noexcept {
 float disc_radius(const UiRect& r) noexcept {
     return minimum(ui_rect_width(r), ui_rect_height(r)) * .5f;
 }
+// A preview's corners: its own radius (aux, at most a disc), else by its size.
+float preview_radius(const UiStoreNode& n, const UiRect& r) noexcept {
+    return n.aux ? minimum(static_cast<float>(n.aux), disc_radius(r)) : ui_rect_width(r) < 100 ? 6.f : kRadius;
+}
 
 float pulse_mix(const UiStoreScene& s) noexcept {
     if (s.reduced_motion)
@@ -191,6 +196,17 @@ void paint_icon(UiPaint& p, u8 icon, const UiRect& box, const Color& color) noex
 UiRect centred(const UiRect& r, float size) noexcept {
     const float x = (r.left + r.right - size) * .5f, y = (r.top + r.bottom - size) * .5f;
     return {x, y, x + size, y + size};
+}
+// A corner badge that names its card's action in `value` grows in (from .7 of its size, transparent) as that card
+// turns chosen, on the switch's clock (the official client's check badge).
+UiRect grown(const UiStoreScene& s, const UiStoreNode& n, const UiRect& r, Color* color) noexcept {
+    if (!n.anchor || !n.value || n.value != s.toggle_action || !s.toggle_to)
+        return r;
+    const float t = !s.toggle_started_ms ? 0.f
+                    : s.toggle_ms        ? minimum(1.f, static_cast<float>(s.clock_ms - s.toggle_started_ms) / s.toggle_ms)
+                                         : 1.f;
+    color->alpha *= t;
+    return centred(r, ui_rect_width(r) * (.7f + .3f * t));
 }
 
 // A theme's four colours as a small chat window: rail, sidebar, header, messages and composer.
@@ -230,16 +246,44 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
     case UiStoreKind::grid:
         if (n.kind == UiStoreKind::row && n.variant == 1)
             p.rounded_border(r, c.input_background, c.input_border, t.metric.control_radius, 1);
+        else if (n.action && (state.hovered || state.pressed))
+            // A clickable row or column (a leaderboard entry's parts) takes the hover plate.
+            p.rounded(r, state.pressed ? c.mod_normal : c.mod_subtle, 8);
         else if (n.fill)
             p.fill(r, k.fill(n.fill));
+        if (n.action && state.focused)
+            k.focus(r, 8);
         if (n.fill == static_cast<u8>(UiStoreFill::translucent) && n.kind == UiStoreKind::row)
             p.separator({r.left, r.top, r.right, r.top + 1});
         if (n.flags & ui_store_hairline)
             p.separator({r.left + n.pad_x, r.bottom - 1, r.right - n.pad_x, r.bottom});
         break;
     case UiStoreKind::card: {
+        const auto look = static_cast<UiStoreCard>(n.variant);
+        if (look == UiStoreCard::pill) {
+            p.rounded(r, c.mod_normal, ui_rect_height(r) * .5f);
+            break;
+        }
+        if (look == UiStoreCard::row) {
+            if (state.hovered)
+                p.fill(r, c.mod_subtle);
+            if (n.flags & ui_store_hairline)
+                p.separator({r.left, r.bottom - 1, r.right, r.bottom});
+            if (state.focused)
+                k.focus(r, 4.f);
+            break;
+        }
         Color fill = n.fill ? k.fill(n.fill) : c.mod_subtle, border = c.border_subtle;
-        if (n.action && state.hovered) {
+        if (look == UiStoreCard::answer) {
+            // The official client's answer: a muted plate, subtle on hover, normal while pressed; a brand tint and
+            // edge while chosen.
+            const bool chosen = (n.flags & ui_store_selected) != 0;
+            fill = chosen          ? ui_settings_color_alpha(c.brand, state.pressed ? .12f : .08f)
+                   : state.pressed ? c.mod_normal
+                   : state.hovered ? c.mod_subtle
+                                   : ui_settings_color_alpha(c.mod_subtle, .5f);
+            border = chosen ? c.brand : state.hovered ? c.border_normal : c.border_subtle;
+        } else if (n.action && state.hovered) {
             fill = c.mod_normal;
             border = c.border_normal;
         }
@@ -256,10 +300,15 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
     case UiStoreKind::preview: {
         const bool top_only = (n.flags & ui_store_clip) != 0;
         const bool live = n.variant == static_cast<u8>(UiStoreAspect::live) && !(n.flags & ui_store_critical);
-        const float radius = ui_rect_width(r) < 100 ? 6.f : kRadius;
+        const float radius = preview_radius(n, r);
         p.clip(r);
         if (live)
             p.use<ui_background_paint_tile>(r, k.theme.base_lowest, radius);
+        else if (n.ink == static_cast<u8>(UiStoreInk::custom))
+            // A coloured banner (the Server Hub's without a picture): the server banner glow of `group` (bit 24:
+            // the theme's server banner colour); a picture covers it.
+            p.use<ui_guild_profile_banner_paint>(
+                r, (n.group >> 24) ? k.theme.tokens.profile.server_banner : k.rgb(n.group), radius, 0.f);
         else
             p.rounded(top_only ? UiRect{r.left, r.top, r.right, r.bottom + radius} : r, c.mod_subtle, radius);
         if (n.flags & ui_store_critical)
@@ -273,9 +322,11 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             p.rounded_border(r, Color{}, c.border_subtle, radius, 1);
         break;
     }
-    case UiStoreKind::icon:
-        paint_icon(p, n.icon, r, k.ink(n.ink));
+    case UiStoreKind::icon: {
+        Color ink = k.ink(n.ink);
+        paint_icon(p, n.icon, grown(k.s, n, r, &ink), ink);
         break;
+    }
     case UiStoreKind::tile: {
         const bool large = ui_rect_width(r) >= 56;
         const float radius = large ? 12 : 8;
@@ -324,17 +375,20 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             k.focus(r, 4.f);
         const Color ink = button_ink(k, n);
         const float pad = variant == UiStoreButton::link ? 0 : n.type ? 16 : 12;
-        const float content = leaf_text_content(n);
-        float x = (n.flags & ui_store_stretch) ? r.left + (ui_rect_width(r) - content) * .5f : r.left + pad;
+        // Only a stretched button centres its content: the others start at their padding and need no measure.
+        float x = r.left + pad, right = r.right - pad;
+        if (n.flags & ui_store_stretch) {
+            const float content = leaf_text_content(n);
+            x = r.left + (ui_rect_width(r) - content) * .5f;
+            right = x + content;
+        }
         const float cy = (r.top + r.bottom) * .5f;
         if (n.flags & ui_store_busy)
             p.spinner({x, cy - 8, x + 16, cy + 8}, ink, k.s.spinner_phase);
         else if (n.icon != kNoIcon)
             p.icon(static_cast<UiIcon>(n.icon), {x, cy - 8, x + 16, cy + 8}, ink);
-        if (n.icon2 != kNoIcon) {
-            const float right = (n.flags & ui_store_stretch) ? x + content : r.right - pad;
+        if (n.icon2 != kNoIcon)
             p.icon(static_cast<UiIcon>(n.icon2), {right - 14, cy - 7, right, cy + 7}, ink);
-        }
         break;
     }
     case UiStoreKind::icon_button: {
@@ -432,11 +486,16 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         break;
     }
     case UiStoreKind::swatch: {
-        const Color fill = n.variant == 2 ? c.brand : n.variant == 3 ? k.theme.tokens.accent.danger : n.variant == 4 ? k.theme.tokens.accent.warning
-                           : n.variant == 5 ? k.theme.tokens.accent.success : k.rgb(n.value);
-        if (n.variant >= 2)
-            p.rounded(r, fill, disc_radius(r));
-        else if (n.variant == 1)
+        // Variants: 0 an rgb disc, 1 an rgb tile, then discs of 2 the brand, 3 danger, 4 warning (a gold medal),
+        // 5 success (online), 6 the muted grey (members, a silver medal), 7 the game orange (a bronze medal).
+        const auto& accent = k.theme.tokens.accent;
+        Color fill = n.variant == 2 ? c.brand : n.variant == 3 ? accent.danger : n.variant == 4 ? accent.warning
+                     : n.variant == 5 ? accent.success : n.variant == 6 ? accent.boost_badge
+                     : n.variant == 7 ? accent.game_activity : k.rgb(n.value);
+        if (n.variant >= 2) {
+            const UiRect disc = grown(k.s, n, r, &fill);
+            p.rounded(disc, fill, disc_radius(disc));
+        } else if (n.variant == 1)
             p.rounded_border(r, fill, c.border_subtle, 8, 1);
         else
             p.rounded_border(r, fill, c.border_normal, disc_radius(r), 1);
@@ -475,12 +534,25 @@ bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream
     if (layer < 2) {
         p.clip(s.panel);
         k.ring_clip = s.panel;
+        // The pane's rows paint inside the pane: one clip for its whole subtree (the paint stream holds few clips).
+        bool inner = false;
         for (u32 i = 0; p && i < page_end(s); ++i) {
             const auto& n = s.nodes[i];
+            const bool in_pane = s.pane != kUiStoreNone && i > s.pane && i < s.pane_end;
+            const UiRect clip = clip_of(s, static_cast<u16>(i));
+            if (in_pane != inner) {
+                if (in_pane)
+                    p.clip(clip);
+                else
+                    p.unclip();
+                inner = in_pane;
+            }
             const UiRect r = screen_rect(s, static_cast<u16>(i));
-            if (!hidden(n) && ui_rect_has_area(r) && ui_rect_intersects(r, s.panel))
+            if (!hidden(n) && !concealed(s, n) && ui_rect_has_area(r) && ui_rect_intersects(r, clip))
                 paint_node(p, k, n, r, layer);
         }
+        if (inner)
+            p.unclip();
         paint_ring(p, k);
         if (layer == 0 && s.content_height > ui_rect_height(s.panel))
             p.scrollbar(ui_scrollbar_geometry({s.panel.left, s.column.top, s.panel.right, s.panel.bottom}, s.scroll,
@@ -532,7 +604,7 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
         const auto& n = s.nodes[i];
         const UiRect r = screen_rect(s, static_cast<u16>(i));
         const UiRect clip = clip_of(s, static_cast<u16>(i));
-        if (hidden(n) || !ui_rect_has_area(r) || !ui_rect_intersects(r, clip))
+        if (hidden(n) || concealed(s, n) || !ui_rect_has_area(r) || !ui_rect_intersects(r, clip))
             continue;
         const auto put = [&](const Utf8View& view, const UiRect& rect, const Color& color, u8 type, u32 mode = 0) noexcept {
             if (type == static_cast<u8>(UiStoreType::mono)) {
@@ -546,9 +618,13 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
         };
         switch (n.kind) {
         case UiStoreKind::text:
-            put(n.text, r, k.ink(n.ink), n.type,
-                ((n.flags & ui_store_wrap) ? ui_text_wrap : 0u) | ((n.flags & ui_store_center) ? ui_text_center : 0u) |
-                    ((n.flags & ui_store_end) ? ui_text_end : 0u));
+            put(n.text, r, n.ink == static_cast<u8>(UiStoreInk::custom) ? k.rgb(n.group) : k.ink(n.ink), n.type,
+                ((n.flags & ui_store_wrap) ? ui_text_wrap : 0u) | ((n.flags & ui_store_center) ? ui_text_center : 0u));
+            break;
+        case UiStoreKind::swatch:
+            // A medal's rank.
+            if (n.text.bytes)
+                put(n.text, r, k.theme.tokens.text.on_accent, static_cast<u8>(UiStoreType::small_bold), ui_text_center);
             break;
         case UiStoreKind::chip: {
             const auto tone = static_cast<UiStoreTone>(n.variant);
@@ -560,12 +636,13 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
         }
         case UiStoreKind::button: {
             const Color ink = button_ink(k, n);
-            const float content = leaf_text_content(n);
+            // One measure of the label gives both its box and the content a stretched button centres.
+            const float label = text_width(static_cast<u8>(UiStoreType::label_bold), n.text);
             const float pad = n.variant == static_cast<u8>(UiStoreButton::link) ? 0 : n.type ? 16 : 12;
-            const float x = (n.flags & ui_store_stretch) ? r.left + (ui_rect_width(r) - content) * .5f : r.left + pad;
+            const float x = (n.flags & ui_store_stretch) ? r.left + (ui_rect_width(r) - leaf_text_content(n, label)) * .5f
+                                                         : r.left + pad;
             const float left = x + (leaf_leading_glyph(n) ? 24 : 0);
-            put(n.text, {left, r.top, left + text_width(static_cast<u8>(UiStoreType::label_bold), n.text) + 2, r.bottom}, ink,
-                static_cast<u8>(UiStoreType::label_bold));
+            put(n.text, {left, r.top, left + label + 2, r.bottom}, ink, static_cast<u8>(UiStoreType::label_bold));
             break;
         }
         case UiStoreKind::filter: {
@@ -580,9 +657,13 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
             break;
         }
         case UiStoreKind::tab: {
+            // A selected tab of the brand look (variant 2, Channels & Roles) is in the brand ink; a hovered one
+            // brightens.
             const float width = text_width(static_cast<u8>(UiStoreType::body), n.text);
-            put(n.text, {r.left, r.top, r.left + width + 2, r.bottom - 2},
-                (n.flags & ui_store_selected) ? c.text_strong : c.text_subtle, static_cast<u8>(UiStoreType::body));
+            const Color ink = (n.flags & ui_store_selected) ? (n.variant == 2 ? c.brand : c.text_strong)
+                              : k.state(n).hovered          ? c.text_default
+                                                            : c.text_subtle;
+            put(n.text, {r.left, r.top, r.left + width + 2, r.bottom - 2}, ink, static_cast<u8>(UiStoreType::body));
             if (n.text2.bytes)
                 put(n.text2, tab_badge(n, r, width), n.variant == 1 ? c.on_brand : c.text_strong,
                     static_cast<u8>(UiStoreType::small_bold), ui_text_center);
@@ -652,17 +733,18 @@ bool ui_store_scene_next_media(const UiStoreScene& s, u32* cursor, UiStoreMedia*
             (n.flags & (ui_store_critical | ui_store_busy)) || n.variant == static_cast<u8>(UiStoreAspect::live))
             continue;
         const UiRect r = screen_rect(s, static_cast<u16>(*cursor));
-        if (!ui_rect_intersects(r, s.panel))
+        const UiRect clip = clip_of(s, static_cast<u16>(*cursor));
+        if (!ui_rect_intersects(r, clip))
             continue;
-        UiStoreMedia result{};
+        // Built in *media itself: a caller reads it only after a true return.
+        UiStoreMedia& result = *media = {};
         if (!s.media_key(s.media_context, n.value, r, &result.key, &result.domain))
             continue;
         result.slot = n.value;
         result.rect = r;
-        result.clip = s.panel;
+        result.clip = clip;
         result.mask = (n.flags & ui_store_clip) ? UiRect{r.left, r.top, r.right, r.bottom + kRadius} : r;
-        result.mask_radius = ui_rect_width(r) < 100 ? 6.f : kRadius;
-        *media = result;
+        result.mask_radius = preview_radius(n, r);
         ++*cursor;
         return true;
     }

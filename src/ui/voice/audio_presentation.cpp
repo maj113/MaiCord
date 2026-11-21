@@ -112,6 +112,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
         return true;
     if (!paint_stream_push_clip(paint, visible))
         return false;
+    const float control_radius = ui_theme_metrics(theme.styles).control_radius;
     const auto paint_controls = [&]() noexcept {
         const auto& bounds = projection.geometry.bounds;
         if (!ui_background_paint_surface(paint, bounds, theme, projection.surface, theme.interactive,
@@ -130,7 +131,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
                                   : hover == control.id && control.enabled ? theme.surface_high
                                                                            : projection.surface;
                 if (!rounded(paint, control.bounds, fill,
-                             primary ? ui_rect_width(control.bounds) * .5f : kUiControlCornerRadius))
+                             primary ? ui_rect_width(control.bounds) * .5f : control_radius))
                     return false;
                 UiIcon icon{};
                 if (primary)
@@ -159,7 +160,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
                     return false;
             }
             if (keyboard_focus && control.enabled && control.id == focus &&
-                !paint_stream_push_rounded_border(paint, control.bounds, {}, projection.focus, kUiControlCornerRadius, 2))
+                !paint_stream_push_rounded_border(paint, control.bounds, {}, projection.focus, control_radius, 2))
                 return false;
         }
         return true;
@@ -215,10 +216,10 @@ u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {
     const auto& state = projection.playback;
     const auto& geometry = projection.geometry;
     static_assert(__builtin_offsetof(UiAudioCardGeometry, status) == 8 * sizeof(UiRect));
-    u64 hash = hash64_bytes(kHash64Seed, &geometry.bounds, 9 * sizeof(UiRect));
+    u64 hash = hash64_words(kHash64Seed, &geometry.bounds, 9 * sizeof(UiRect));
     hash = hash64_mix(hash, u32{geometry.voice} | (u32{geometry.compact} << 1u) |
                                 (u32{geometry.volume_expanded} << 2u));
-    hash = hash64_bytes(hash, &scene.clip, sizeof(scene.clip));
+    hash = hash64_words(hash, &scene.clip, sizeof(scene.clip));
     hash = hash64_mix(hash, reinterpret_cast<usize>(scene.owner.manager));
     hash = hash64_mix(hash, scene.owner.handle.slot);
     hash = hash64_mix(hash, scene.owner.handle.generation);
@@ -235,18 +236,18 @@ u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {
     hash = hash64_mix(hash, scene.keyboard_focus);
     const float metrics[]{scene.style.corner_radius, scene.style.waveform_gap,
                           scene.style.minimum_peak_height, projection.volume_thumb_inset};
-    hash = hash64_bytes(hash, metrics, sizeof(metrics));
+    hash = hash64_words(hash, metrics, sizeof(metrics));
     static_assert(__builtin_offsetof(UiAudioControlsProjection, played) ==
                   __builtin_offsetof(UiAudioControlsProjection, surface) + 4 * sizeof(Color));
-    hash = hash64_bytes(hash, &projection.surface, 5 * sizeof(Color));
+    hash = hash64_words(hash, &projection.surface, 5 * sizeof(Color));
     for (const auto& control : projection.controls) {
         hash = hash64_mix(hash, static_cast<u8>(control.id));
-        hash = hash64_bytes(hash, &control.bounds, sizeof(control.bounds));
-        hash = hash64_bytes(hash, &control.foreground, sizeof(control.foreground));
+        hash = hash64_words(hash, &control.bounds, sizeof(control.bounds));
+        hash = hash64_words(hash, &control.foreground, sizeof(control.foreground));
         hash = hash64_mix(hash, control.value);
         hash = hash64_mix(hash, control.maximum);
         hash = hash64_mix(hash, u32{control.enabled} | (u32{!control.hidden} << 1u));
     }
-    return hash64_counted_bytes(hash, state.waveform.data, state.waveform.count);
+    return hash64_words(hash, state.waveform.data, state.waveform.count);
 }
 } // namespace maicord

@@ -48,12 +48,10 @@ bool codepoints_fit(const SecureEdit& edit, u32 begin, u32 end, u32 inserted) no
     return retained <= edit.maximum_codepoints && inserted <= edit.maximum_codepoints - retained;
 }
 
+// Every caller checks ready(edit) first and passes inserted text for inserted bytes.
 SecureEditResult replace_selection(SecureEdit* edit, const char* inserted, u32 inserted_bytes,
                                     u32 inserted_codepoints = 0, u32 original_anchor = ~0u,
                                     SecureEditHistoryInput input = SecureEditHistoryInput::isolated, u64 time_ms = 0) noexcept {
-    if (!ready(edit) || (!inserted && inserted_bytes != 0)) {
-        return SecureEditResult::invalid_input;
-    }
     const u32 begin = selection_begin(*edit);
     const u32 end = selection_end(*edit);
     const u32 removed = end - begin;

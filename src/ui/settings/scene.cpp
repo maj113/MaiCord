@@ -350,9 +350,10 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         return true;
     if (!valid_content(content))
         return false;
-    UiSettingsStyle style = content.style ? *content.style : kUiDefaultSettingsStyle;
-    if (scene->theme_styles && scene->theme_styles->ready)
-        style = ui_theme_settings_style(scene->theme_styles);
+    // A theme's form metrics replace the page's own style.
+    UiSettingsStyle style = content.style && !(scene->theme_styles && scene->theme_styles->ready)
+                                ? *content.style
+                                : ui_theme_settings_style(scene->theme_styles);
     const bool changed_page = scene->registry != registry || !ui_page_key_equal(selected, scene->selected_page);
     if ((!scene->active || changed_page) && scene->page_generation == ~u64{0})
         return false;

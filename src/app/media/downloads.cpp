@@ -942,7 +942,7 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
                     if (save_only)
                         continue;
                     UiAudioCardGeometry card{};
-                    if (!ui_audio_card_geometry(node->content_rectangle, kDefaultUiAudioControlsStyle,
+                    if (!ui_audio_card_geometry(node->content_rectangle, ui_theme_audio_style(scene.theme_styles),
                                                 &card, message_rich_record_voice(*rich)))
                         continue;
                     const auto rectangle =

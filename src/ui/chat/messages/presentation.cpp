@@ -519,7 +519,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         } else {
             const UiRect card{left, top, minimum(item_layout->rectangle.right, left + 420.0f), top + 36.0f};
             const UiRect icon{left + 8.0f, top + 8.0f, left + 28.0f, top + 28.0f};
-            if (!push_card(paint, card, theme, kUiAttachmentFileCardRadius, UiBackgroundTier::high) ||
+            if (!push_card(paint, card, theme, ui_theme_metrics(scene.theme_styles).control_radius,
+                           UiBackgroundTier::high) ||
                 !paint_stream_push_rounded(paint, icon, theme.tokens.emphasis.fill, 4.0f) ||
                 (!scene.result_cards &&
                  !ui_attachment_save_paint(paint, owner, ui_attachment_save_rectangle(card, true), row_clip,
@@ -788,7 +789,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             break;
         }
         case MessageComponentKind::file: {
-            if (!push_card(paint, control, theme, kUiAttachmentFileCardRadius, UiBackgroundTier::high))
+            if (!push_card(paint, control, theme, ui_theme_metrics(scene.theme_styles).control_radius,
+                           UiBackgroundTier::high))
                 return false;
             const UiRect glyph{control.left + 12.0f, control.top + (ui_rect_height(control) - 28.0f) * 0.5f,
                                control.left + 40.0f, control.top + (ui_rect_height(control) + 28.0f) * 0.5f};

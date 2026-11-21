@@ -22,7 +22,7 @@ bool valid_length(const UiLayoutLength& length) noexcept {
     return length.mode != UiLayoutLengthMode::fill || length.value > 0.0f;
 }
 
-bool valid_style(const UiLayoutNodeSpec& specification) noexcept {
+inline bool valid_style(const UiLayoutNodeSpec& specification) noexcept {
     const UiLayoutStyle& style = specification.style;
     return valid_length(style.width) && valid_length(style.height) &&
            ui_size_valid_or_empty(style.minimum_size) && ui_size_valid_or_empty(style.maximum_size) &&
@@ -102,12 +102,12 @@ struct WrapRowMetrics {
     float height;
 };
 
-inline WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
+inline WrapRowMetrics measure_wrap_row(const UiLayoutNode* nodes, u16 first, float available_width,
                                        float gap) noexcept {
     WrapRowMetrics row{first, 0, 0.0f, 0.0f};
     u16 slot = first;
     while (slot != kInvalidUiLayoutSlot) {
-        const UiLayoutNode& child = engine.storage[slot];
+        const UiLayoutNode& child = nodes[slot];
         const u16 next = child.next_sibling;
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
             slot = next;
@@ -129,8 +129,7 @@ inline WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, 
     return row;
 }
 
-inline void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
-    UiLayoutNode& node = engine->storage[index];
+inline void measure_node(const UiLayoutNode* nodes, UiLayoutNode& node) noexcept {
     const UiLayoutStyle& style = node.spec.style;
     float children_width = 0.0f;
     float children_height = 0.0f;
@@ -141,7 +140,7 @@ inline void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
             available = kMaximumUiCoordinate;
         }
         for (u16 first = node.first_child; first != kInvalidUiLayoutSlot;) {
-            const WrapRowMetrics row = measure_wrap_row(*engine, first, available, style.gap);
+            const WrapRowMetrics row = measure_wrap_row(nodes, first, available, style.gap);
             if (row.count == 0) {
                 break;
             }
@@ -153,31 +152,26 @@ inline void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
             first = row.next;
         }
     } else {
+        // A stack sums its children along its axis; across it, and in an overlay, the largest child counts.
+        const bool horizontal = style.flow == UiLayoutFlow::horizontal;
+        const bool vertical = style.flow == UiLayoutFlow::vertical;
         for (u16 child_slot = node.first_child; child_slot != kInvalidUiLayoutSlot;
-             child_slot = engine->storage[child_slot].next_sibling) {
-            const UiLayoutNode& child = engine->storage[child_slot];
+             child_slot = nodes[child_slot].next_sibling) {
+            const UiLayoutNode& child = nodes[child_slot];
             if (!has_flag(child.spec.style, ui_layout_node_visible)) {
                 continue;
             }
             const float child_width = outer_width(child);
             const float child_height = outer_height(child);
-            if (style.flow == UiLayoutFlow::horizontal) {
-                children_width += child_width;
-                children_height = maximum(children_height, child_height);
-            } else if (style.flow == UiLayoutFlow::vertical) {
-                children_width = maximum(children_width, child_width);
-                children_height += child_height;
-            } else {
-                children_width = maximum(children_width, child_width);
-                children_height = maximum(children_height, child_height);
-            }
+            children_width = horizontal ? children_width + child_width : maximum(children_width, child_width);
+            children_height = vertical ? children_height + child_height : maximum(children_height, child_height);
             ++child_count;
         }
         if (child_count > 1) {
             const float gaps = style.gap * static_cast<float>(child_count - 1);
-            if (style.flow == UiLayoutFlow::horizontal) {
+            if (horizontal) {
                 children_width += gaps;
-            } else if (style.flow == UiLayoutFlow::vertical) {
+            } else if (vertical) {
                 children_height += gaps;
             }
         }
@@ -192,11 +186,12 @@ inline void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
                          style.maximum_size.height)};
 }
 
+// Callers place only visible nodes.
 inline void set_geometry(UiLayoutNode* node, const UiRect& rectangle, const UiRect& inherited_clip) noexcept {
     node->rectangle = rectangle;
     node->content_rectangle = ui_rect_inset(rectangle, node->spec.style.padding);
     node->clip_rectangle = inherited_clip;
-    node->visible = has_flag(node->spec.style, ui_layout_node_visible);
+    node->visible = true;
 }
 
 inline UiRect children_clip(const UiLayoutNode& parent) noexcept {
@@ -274,11 +269,11 @@ inline UiRect overlay_child_rectangle(const UiLayoutNode& parent, const UiLayout
     return {left, top, left + width, top + height};
 }
 
-inline void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_overlay_children(UiLayoutNode* nodes, UiLayoutNode& parent) noexcept {
     const UiRect inherited_clip = children_clip(parent);
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
-         child_slot = engine->storage[child_slot].next_sibling) {
-        UiLayoutNode& child = engine->storage[child_slot];
+         child_slot = nodes[child_slot].next_sibling) {
+        UiLayoutNode& child = nodes[child_slot];
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
             continue;
         }
@@ -286,7 +281,7 @@ inline void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& paren
     }
 }
 
-inline void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool horizontal) noexcept {
+inline void arrange_stack_children(UiLayoutNode* nodes, UiLayoutNode& parent, bool horizontal) noexcept {
     const UiRect available = parent.content_rectangle;
     const float available_main = horizontal ? ui_rect_width(available) : ui_rect_height(available);
     const float available_cross = horizontal ? ui_rect_height(available) : ui_rect_width(available);
@@ -294,8 +289,8 @@ inline void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent,
     float occupied = 0.0f;
     float fill_weight = 0.0f;
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
-         child_slot = engine->storage[child_slot].next_sibling) {
-        const UiLayoutNode& child = engine->storage[child_slot];
+         child_slot = nodes[child_slot].next_sibling) {
+        const UiLayoutNode& child = nodes[child_slot];
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
             continue;
         }
@@ -317,18 +312,17 @@ inline void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent,
     const UiRect inherited_clip = children_clip(parent);
     const float scroll_main = horizontal ? parent.scroll_offset.x : parent.scroll_offset.y;
     const float scroll_cross = horizontal ? parent.scroll_offset.y : parent.scroll_offset.x;
-    u32 arranged_index = 0;
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
-         child_slot = engine->storage[child_slot].next_sibling) {
-        UiLayoutNode& child = engine->storage[child_slot];
+         child_slot = nodes[child_slot].next_sibling) {
+        UiLayoutNode& child = nodes[child_slot];
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
             continue;
         }
         const UiLayoutStyle& style = child.spec.style;
         const float weight = child_fill_weight(child, horizontal);
+        // A positive weight is part of fill_weight, so the share needs no zero check.
         float main_extent = weight > 0.0f
-                                ? child_main_minimum(child, horizontal) +
-                                      (fill_weight > 0.0f ? free_space * weight / fill_weight : 0.0f)
+                                ? child_main_minimum(child, horizontal) + free_space * weight / fill_weight
                                 : child_main_measured(child, horizontal);
         main_extent = horizontal
                           ? clamp_extent(main_extent, style.minimum_size.width, style.maximum_size.width)
@@ -353,30 +347,28 @@ inline void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent,
                        cross_position - scroll_cross + cross_extent, cursor - scroll_main + main_extent};
         }
         set_geometry(&child, rectangle, inherited_clip);
+        // The cursor after the last child is not read: each child adds the gap that follows it.
         cursor += main_extent + main_margin_end;
-        if (++arranged_index < child_count) {
-            cursor += parent.spec.style.gap;
-        }
+        cursor += parent.spec.style.gap;
     }
 }
 
-inline void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_wrap_children(UiLayoutNode* nodes, UiLayoutNode& parent) noexcept {
     const UiRect inherited_clip = children_clip(parent);
     const UiRect available = parent.content_rectangle;
     const float available_width = ui_rect_width(available);
     float row_top = available.top;
     u16 row_first = parent.first_child;
     while (row_first != kInvalidUiLayoutSlot) {
-        const WrapRowMetrics row = measure_wrap_row(*engine, row_first, available_width, parent.spec.style.gap);
+        const WrapRowMetrics row = measure_wrap_row(nodes, row_first, available_width, parent.spec.style.gap);
         if (row.count == 0) {
             break;
         }
         const float free_space = maximum(0.0f, available_width - row.width);
         float cursor =
             available.left + (parent.spec.style.justification == UiLayoutJustification::end ? free_space : 0.0f);
-        u32 arranged_index = 0;
-        for (u16 slot = row_first; slot != row.next; slot = engine->storage[slot].next_sibling) {
-            UiLayoutNode& child = engine->storage[slot];
+        for (u16 slot = row_first; slot != row.next; slot = nodes[slot].next_sibling) {
+            UiLayoutNode& child = nodes[slot];
             if (!has_flag(child.spec.style, ui_layout_node_visible)) {
                 continue;
             }
@@ -391,10 +383,9 @@ inline void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) 
                          UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
                                 cursor - parent.scroll_offset.x + width, top - parent.scroll_offset.y + height},
                          inherited_clip);
+            // The cursor after the row's last child is not read.
             cursor += width + style.margin.right;
-            if (++arranged_index < row.count) {
-                cursor += parent.spec.style.gap;
-            }
+            cursor += parent.spec.style.gap;
         }
         row_top += row.height;
         row_first = row.next;
@@ -404,49 +395,43 @@ inline void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) 
     }
 }
 
-inline void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+inline void arrange_children(UiLayoutNode* nodes, UiLayoutNode& parent) noexcept {
     switch (parent.spec.style.flow) {
     case UiLayoutFlow::overlay:
-        arrange_overlay_children(engine, parent);
+        arrange_overlay_children(nodes, parent);
         break;
     case UiLayoutFlow::horizontal:
-        arrange_stack_children(engine, parent, true);
+        arrange_stack_children(nodes, parent, true);
         break;
     case UiLayoutFlow::horizontal_wrap:
-        arrange_wrap_children(engine, parent);
+        arrange_wrap_children(nodes, parent);
         break;
     case UiLayoutFlow::vertical:
-        arrange_stack_children(engine, parent, false);
+        arrange_stack_children(nodes, parent, false);
         break;
     }
 }
 
-inline bool update_measure_constraints(UiLayoutEngine* engine) noexcept {
-    if (!engine->measure_callback && engine->wrap_nodes == 0) {
+// True when the constraint of a visible text or wrap node changed. The arrange pass calls it when it reaches the
+// node: the node's parent sits at a lower slot, so the node's geometry is final by then.
+inline bool update_measure_constraint(UiLayoutNode& node, bool measures_text) noexcept {
+    const bool text = measures_text && has_flag(node.spec.style, ui_layout_node_text_content);
+    const bool wrap = node.spec.style.flow == UiLayoutFlow::horizontal_wrap;
+    if (!text && !wrap) {
         return false;
     }
-    bool changed = false;
-    for (u32 index = 0; index < engine->count; ++index) {
-        UiLayoutNode& node = engine->storage[index];
-        const bool text =
-            engine->measure_callback && has_flag(node.spec.style, ui_layout_node_text_content);
-        const bool wrap = node.spec.style.flow == UiLayoutFlow::horizontal_wrap;
-        if (!node.visible || (!text && !wrap)) {
-            continue;
-        }
-        UiSize constraint{maximum(0.0f, ui_rect_width(node.content_rectangle)),
-                          node.spec.style.height.mode == UiLayoutLengthMode::content
-                              ? kMaximumUiCoordinate
-                              : maximum(0.0f, ui_rect_height(node.content_rectangle))};
-        if (constraint.width <= 0.0f) {
-            constraint.width = node.measure_constraint.width;
-        }
-        if (!extents_match(constraint, node.measure_constraint)) {
-            node.measure_constraint = constraint;
-            changed = true;
-        }
+    UiSize constraint{maximum(0.0f, ui_rect_width(node.content_rectangle)),
+                      node.spec.style.height.mode == UiLayoutLengthMode::content
+                          ? kMaximumUiCoordinate
+                          : maximum(0.0f, ui_rect_height(node.content_rectangle))};
+    if (constraint.width <= 0.0f) {
+        constraint.width = node.measure_constraint.width;
     }
-    return changed;
+    if (extents_match(constraint, node.measure_constraint)) {
+        return false;
+    }
+    node.measure_constraint = constraint;
+    return true;
 }
 
 } // namespace
@@ -588,27 +573,29 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect 
     if (!engine || !engine->storage.data || engine->count == 0) {
         return UiLayoutResult{UiLayoutError::missing_root, 0, 0};
     }
-    if (!ui_coordinate_valid(viewport_rectangle.left) || !ui_coordinate_valid(viewport_rectangle.top) ||
-        !ui_coordinate_valid(viewport_rectangle.right) || !ui_coordinate_valid(viewport_rectangle.bottom) ||
-        !ui_extent_valid(ui_rect_width(viewport_rectangle)) ||
-        !ui_extent_valid(ui_rect_height(viewport_rectangle)) || !ui_rect_has_area(viewport_rectangle)) {
+    if (!ui_rect_valid(viewport_rectangle)) {
         return UiLayoutResult{UiLayoutError::invalid_argument, engine->count, engine->revision};
     }
-    UiLayoutNode& root = engine->storage[0];
+    UiLayoutNode* const nodes = engine->storage.data;
+    UiLayoutNode& root = nodes[0];
     if (!has_flag(root.spec.style, ui_layout_node_visible)) {
         return UiLayoutResult{UiLayoutError::missing_root, engine->count, engine->revision};
     }
     const UiSize viewport{ui_rect_width(viewport_rectangle), ui_rect_height(viewport_rectangle)};
+    const u32 count = engine->count;
+    const bool measures_text = engine->measure_callback != nullptr;
     // Places every visible subtree. False when a measure constraint changed and the sizes must be measured again.
     const auto arrange = [&]() noexcept {
         set_geometry(&root, viewport_rectangle, viewport_rectangle);
-        for (u32 index = 0; index < engine->count; ++index) {
-            UiLayoutNode& node = engine->storage[index];
+        bool changed = false;
+        for (u32 index = 0; index < count; ++index) {
+            UiLayoutNode& node = nodes[index];
             if (node.visible) {
-                arrange_children(engine, node);
+                changed |= update_measure_constraint(node, measures_text);
+                arrange_children(nodes, node);
             }
         }
-        return !update_measure_constraints(engine);
+        return !changed;
     };
     // An arrange-only layout keeps the measured sizes in its first pass. Each visible node gets its geometry again
     // and a hidden node is still empty: only the styles decide which nodes are visible.
@@ -620,13 +607,13 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect 
         }
         // Measure bottom-up; the arrange pass below places only visible
         // subtrees, so every node starts the pass hidden and empty.
-        for (u32 index = engine->count; index-- != 0;) {
-            UiLayoutNode& node = engine->storage[index];
+        for (u32 index = count; index-- != 0;) {
+            UiLayoutNode& node = nodes[index];
             node.visible = false;
             reset_value<UiRect>(&node.rectangle);
             reset_value<UiRect>(&node.content_rectangle);
             reset_value<UiRect>(&node.clip_rectangle);
-            measure_node(engine, index);
+            measure_node(nodes, node);
         }
         stable = arrange();
     }

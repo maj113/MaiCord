@@ -225,14 +225,12 @@ u64 hash(const UiCallScene& s, u64 seed) noexcept {
         if (!used)
             continue;
         h = hash64_mix(h, s.stage_people[i].user_id);
-        h = hash64_counted_bytes(h, s.stage_names[i], s.stage_people[i].name.bytes);
+        h = hash64_words(h, s.stage_names[i], s.stage_people[i].name.bytes);
     }
-    h = hash64_counted_bytes(h, s.stage_topic, s.stage_topic_bytes);
-    h = hash64_counted_bytes(h, s.stage_notice, s.stage_notice_bytes);
-    const UiRect* rects[]{&s.stage_banner, &s.stage_audience, &s.stage_requests, &s.stage_speakers};
-    for (const auto* r : rects)
-        h = hash64_bytes(h, r, sizeof(*r));
-    return h;
+    h = hash64_words(h, s.stage_topic, s.stage_topic_bytes);
+    h = hash64_words(h, s.stage_notice, s.stage_notice_bytes);
+    // The four stage rectangles are adjacent members.
+    return hash64_words(h, &s.stage_banner, 4 * sizeof(UiRect));
 }
 
 Utf8View label(const UiCallScene& s, UiCallControl c) noexcept {

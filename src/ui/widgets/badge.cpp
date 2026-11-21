@@ -61,12 +61,11 @@ UiBadgeLayout ui_badge_widget_layout(UiTextMeasureCache* cache, const UiBadgeWid
     return badge.compact ? ui_badge_compact_layout(cache, badge.label, line, badge.leading, badge.style)
                          : ui_badge_layout(cache, badge.label, line, badge.leading, badge.style);
 }
-UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManager& manager) noexcept {
-    const auto* node = ui_widget_manager_layout_node(manager, badge.owner);
-    if (!node)
-        return {};
+namespace {
+// The chip's geometry inside its owner's laid-out node.
+UiBadgeLayout node_geometry(const UiBadgeWidget& badge, const UiLayoutNode& node) noexcept {
     UiBadgeLayout r{};
-    r.outer = ui_rect_has_area(badge.rectangle) ? badge.rectangle : node->rectangle;
+    r.outer = ui_rect_has_area(badge.rectangle) ? badge.rectangle : node.rectangle;
     const float cy = (r.outer.top + r.outer.bottom) * .5f;
     if (badge.compact) {
         const float mark = badge.leading ? kUiBadgeCompactIcon + kUiBadgeCompactIconGap : 0.0f;
@@ -87,12 +86,17 @@ UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManage
         r.icon = {r.outer.left + 6, cy - 7, r.outer.left + 20, cy + 7};
     return r;
 }
+} // namespace
+UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManager& manager) noexcept {
+    const auto* node = ui_widget_manager_layout_node(manager, badge.owner);
+    return node ? node_geometry(badge, *node) : UiBadgeLayout{};
+}
 bool ui_badge_paint(const UiBadgeWidget& b, const UiWidgetManager& manager, const Theme& theme,
                     PaintStream* paint) noexcept {
     const auto* n = ui_widget_manager_layout_node(manager, b.owner);
     if (!n)
         return false;
-    const auto r = ui_badge_geometry(b, manager);
+    const auto r = node_geometry(b, *n);
     if (!paint_stream_push_clip(paint, n->clip_rectangle))
         return false;
     if (b.compact) {
@@ -121,7 +125,7 @@ bool ui_badge_text_output(const UiBadgeWidget& b, const UiWidgetManager& manager
     const auto* n = ui_widget_manager_layout_node(manager, b.owner);
     if (!n)
         return false;
-    const auto r = ui_badge_geometry(b, manager);
+    const auto r = node_geometry(b, *n);
     auto color = b.accent ? theme.tokens.text.on_accent : theme.text_primary;
     color.alpha *= b.opacity;
     return ui_text_output_push(text, {b.label,

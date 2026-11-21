@@ -146,7 +146,7 @@ bool show_dialog(D3D11Renderer& renderer, UiRect viewport, bool (*capture)(const
     p.footer = {utf8_literal("Everyone who can see you sees your status."), utf8_literal("Save"),
                 utf8_literal("Clear status"), true, true, false, false};
     p.page_content = {utf8_literal("Set a custom status"), {}, {p.controls, 3}, 1, kUiSettingsPageFormat,
-                      &kUiDefaultSettingsStyle, &p.footer};
+                      nullptr, &p.footer};
     if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}) ||
         !ui_page_registry_register(&p.registry, {{0x4d41494353544154ull, 1}, p.page_content.title, &p.page_content}).ok())
         return dialog_stage(11);

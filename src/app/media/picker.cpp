@@ -556,6 +556,7 @@ bool application_media_picker_synchronize() noexcept {
         viewport.bottom = minimum(viewport.bottom, composer->rectangle.top);
     if (p->resizing && !ui_rect_equal(viewport, p->scene.viewport))
         revoke_capture(*p);
+    p->scene.theme_styles = application_theme().styles;
     const u32 prior_generation = p->scene.generation;
     if ((!popout && !p->inline_mode && !composer) ||
         !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport, anchor,

@@ -59,7 +59,8 @@ void run() noexcept {
                                            measure, nullptr) &&
               ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
               ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                           kGuildChannelShellLayoutMetrics, 1000, 700),
+                                           ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1000,
+                                           700),
           "tooltip runtime: actual shell widgets and shared measurement cache initialize");
     test_emoji_tooltip_owner(check);
     test_edited_tooltip_owner(check);
@@ -376,7 +377,7 @@ void run() noexcept {
           "tooltip runtime: final release unbinds owner before freeing its page");
     g_app.account_ui->text_measure_cache.backend = measure;
     ui_text_measure_cache_invalidate(&g_app.account_ui->text_measure_cache);
-    auto pin_metrics = kGuildChannelShellLayoutMetrics;
+    auto pin_metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     pin_metrics.flags |= ui_shell_layout_pins;
     ++pin_metrics.revision;
     check(ui_scene_initialize_bootstrap(&g_app.shell_scene) &&

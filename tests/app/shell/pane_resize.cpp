@@ -95,7 +95,7 @@ void test_pane_resize(void (*check)(bool, const char*) noexcept) noexcept {
           "splitter widths persist as whole DIPs and restore clamped, zero meaning the default");
     // Drag clamps to the live limits (800 DIP fixture keeps the chat column's
     // minimum), release marks one persistence, Escape restores the origin.
-    const float rail = kGuildChannelShellLayoutMetrics.guild_rail_width;
+    const float rail = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).guild_rail_width;
     g_app.member_pane_width = 180;
     const float channel_maximum = ui_splitter_limits(ui_rect_width(application_viewport_dips()) - rail -
                                                      g_app.member_pane_width - kMinimumAccountMessageWidthDips)

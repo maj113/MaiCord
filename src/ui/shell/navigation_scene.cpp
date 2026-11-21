@@ -13,7 +13,7 @@ namespace {
 inline constexpr u32 kNavigationRootWidgetId = 1;
 inline constexpr u32 kNavigationSpacerWidgetId = 2;
 bool row_focusable(const ChannelViewRow& row) noexcept {
-    return row.id && (row.selectable || row.type == 4 || row.type == kNavigationEventsRowType ||
+    return row.id && (row.selectable || row.type == 4 || navigation_lead_row(row.type) ||
                       row.type == kNavigationRequestsRowType);
 }
 
@@ -116,8 +116,8 @@ float shell_navigation_row_height(const ChannelViewRow& row) noexcept {
         return ui_private_row_height();
     if (row.type == 4)
         return kShellCategoryHeight;
-    if (row.type == kNavigationEventsRowType)
-        return shell_navigation_head_height() + kShellNavigationDividerBand;
+    if (navigation_lead_row(row.type))
+        return shell_navigation_head_height() + (row.collapsed ? kShellNavigationDividerBand : 0.0f);
     return shell_navigation_voice_top(row) + static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight +
            (row.voice_invite ? kShellNavigationVoiceInviteHeight : 0.0f);
 }
@@ -157,12 +157,31 @@ float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& vi
     return right;
 }
 
-// Rows plus the 8 DIP insets above and below them (banner inset excluded).
+bool shell_navigation_limit_pill(const UiRect& row, const ChannelViewRow& view, bool hovered, bool selected,
+                                 ShellLimitPill* out) noexcept {
+    const u32 limit = view.user_limit;
+    if (!limit || limit >= 10'000 || !(view.actions & channel_action_connect) || view.mention_count || hovered ||
+        selected)
+        return false;
+    // The pill ends where a mention badge ends, centred on the head.
+    const float right = row.right - kShellChannelHighlightRight - kShellChannelHighlightLeft;
+    const float top = row.top + (shell_navigation_head_height() - 20.0f) * .5f;
+    out->split = right - 1.0f - (limit < 100 ? 20.0f : limit < 1000 ? 27.0f : 34.0f);
+    out->box = {out->split - 29.0f, top, right, top + 20.0f};
+    return true;
+}
+
+u32 shell_navigation_limit_digits(u32 value, char* out) noexcept {
+    const u32 count = value >= 1000 ? 4 : value >= 100 ? 3 : 2;
+    for (u32 i = count; i--; value /= 10)
+        out[i] = static_cast<char>('0' + value % 10);
+    return count;
+}
+
+// Rows plus the 8 DIP insets above and below them (banner inset excluded). The update validated the view.
 static float shell_navigation_content_height(const NavigationView* view) noexcept {
-    if (!view || view->channel_count > view->channel_capacity ||
-        (view->channel_count != 0 && !view->channel_rows)) {
+    if (!view)
         return 0.0f;
-    }
     float height = 16.0f;
     for (u32 index = 0; index < view->channel_count; ++index) {
         height += shell_navigation_row_height(view->channel_rows[index]);

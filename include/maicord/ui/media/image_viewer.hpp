@@ -6,6 +6,7 @@
 namespace maicord {
 struct PaintStream;
 struct Theme;
+struct UiResolvedThemeStyles;
 
 struct UiTextOutput;
 // Toolbar/gallery button indices.
@@ -98,6 +99,9 @@ struct UiImageViewer {
     UiImageViewerPage page_info;
     // A playlist page's queue (host-owned; the host bumps `revision` when it changes), null without one.
     const UiImageViewerQueue* queue;
+    // Borrowed apply-time bank (null: the default metrics). An audio page sizes its card from it.
+    const UiResolvedThemeStyles* theme_styles;
+    u32 theme_geometry_revision;
     bool copied; // Copy image confirmation: the action shows a check briefly.
     char counter[16], caption[160];
     u32 counter_bytes, caption_bytes;
@@ -126,6 +130,8 @@ void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, const UiRec
 // player: no header, toolbar or queue.
 bool ui_image_viewer_set_page(UiImageViewer* viewer, const UiImageViewerPage& page) noexcept;
 UiImageViewerPageLayout ui_image_viewer_page_layout(const UiImageViewer& viewer) noexcept;
+// Binds the active theme's bank. A page lays out again when the bank's geometry changed.
+void ui_image_viewer_bind_theme_styles(UiImageViewer* viewer, const UiResolvedThemeStyles* styles) noexcept;
 // The queue's scrolled list (the column under its heading; empty without one), the rows the host fills (those in view
 // and one either side), and the one-based track of the row at `point` (0 off the rows).
 UiRect ui_image_viewer_queue_body(const UiImageViewer& viewer) noexcept;

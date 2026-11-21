@@ -184,7 +184,7 @@ bool click_at(float x, float y) noexcept {
     WindowEvent press = move;
     press.type = EventType::pointer_down;
     press.button = static_cast<u8>(PointerButton::left);
-    press.pointer.buttons = static_cast<u8>(1u << static_cast<u8>(PointerButton::left));
+    press.pointer.buttons = pointer_button_bit(PointerButton::left);
     WindowEvent release = press;
     release.type = EventType::pointer_up;
     release.pointer.buttons = 0;

@@ -10,6 +10,7 @@
 #include "maicord/ui/voice/audio_controls.hpp"
 #include "maicord/ui/voice/video_scene.hpp"
 #include "video_request.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 
@@ -312,8 +313,8 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
                 if (!owning.manager)
                     return false;
                 UiAudioCardGeometry card{};
-                if (!ui_audio_card_geometry(node->content_rectangle, kDefaultUiAudioControlsStyle, &card,
-                                            message_rich_record_voice(*rich)))
+                if (!ui_audio_card_geometry(node->content_rectangle, ui_theme_audio_style(scene.theme_styles),
+                                            &card, message_rich_record_voice(*rich)))
                     return false;
                 *out = {media_asset_attachment(attachment.id, audio_format, MediaResolutionTier::original),
                         card.bounds,

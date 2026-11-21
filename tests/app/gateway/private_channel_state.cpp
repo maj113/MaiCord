@@ -287,7 +287,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           "closing the final DM stays in Home instead of selecting a guild channel");
 
     UiScene shell{};
-    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800), "Home shell initializes");
+    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault), 1280, 800), "Home shell initializes");
     const auto* home = ui_scene_node(shell, UiSemantic::home_button);
     const auto* rail = ui_scene_node(shell, UiSemantic::guild_navigation);
     check(home && rail && home->rectangle.bottom <= rail->rectangle.top &&
@@ -325,7 +325,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     arena_release(&generated_text);
     UiLayoutDiagnostic diagnostics[32]{};
     check(ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(), "Home shell layout validates");
-    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags = ui_shell_layout_navigation;
     metrics.member_sidebar_width = 0;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::private_channels, metrics, 960, 600) &&

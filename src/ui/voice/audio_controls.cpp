@@ -79,8 +79,8 @@ UiAudioPageLayout ui_audio_page_layout(const UiRect& stage, const UiAudioControl
 }
 bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
                             bool voice, bool volume_expanded) noexcept {
-    if (!out || !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
-        !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom))
+    if (!out || !(ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) &
+                  ui_coordinate_valid(bounds.right) & ui_coordinate_valid(bounds.bottom)))
         return false;
     const float width = minimum(ui_rect_width(bounds), style.maximum_width);
     const float height = ui_audio_card_height(style, width, voice);
@@ -341,14 +341,13 @@ bool ui_audio_action_current(const UiAudioPlaybackState& state, const UiAudioAct
 }
 
 namespace {
+// The checks combine with `&`: each reads only the given values, and NaN fails every compare.
 bool rectangle(const UiRect& bounds) noexcept {
-    return paint_coordinate_valid(bounds.left) && paint_coordinate_valid(bounds.top) &&
-           paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
-           bounds.right > bounds.left && bounds.bottom > bounds.top;
+    return ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) & ui_coordinate_valid(bounds.right) &
+           ui_coordinate_valid(bounds.bottom) & (bounds.right > bounds.left) & (bounds.bottom > bounds.top);
 }
 bool contains(const UiRect& bounds, UiPoint point) noexcept {
-    return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
-           point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
+    return ui_coordinate_valid(point.x) & ui_coordinate_valid(point.y) & ui_rect_contains(bounds, point.x, point.y);
 }
 bool scene_current(const UiAudioScene& scene) noexcept {
     const auto* widget =

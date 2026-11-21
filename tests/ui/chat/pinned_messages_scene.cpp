@@ -242,7 +242,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
     check(!s.active && !s.storage.arena.base, "pins scene: lazy fixed storage releases on close");
 
     UiScene shell{};
-    auto metrics = kGuildChannelShellLayoutMetrics;
+    auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
     metrics.flags |= ui_shell_layout_pins;
     ++metrics.revision;
     UiLayoutDiagnostic diagnostics[32]{};
@@ -282,7 +282,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
     check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 1280, 800) &&
               !ui_rect_has_area(ui_scene_header_geometry(shell).pins),
           "pins launcher: lost selected-channel authority removes retained action and geometry");
-    auto friends_metrics = kFriendsShellLayoutMetrics;
+    auto friends_metrics = ui_friends_shell_layout_metrics(kUiThemeMetricsDefault);
     friends_metrics.flags |= ui_shell_layout_pins;
     ++friends_metrics.revision;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::friends, friends_metrics, 1280, 800) &&

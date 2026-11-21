@@ -12,6 +12,7 @@
 #include "maicord/model/user/profile.hpp"
 #include "maicord/ui/account/activity_card.hpp"
 #include "maicord/ui/core/transition.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 // Not machine-outlined (see navigation_view.cpp): the layout and hit test code is 5 to 17 % faster.
 #pragma clang attribute push([[clang::no_outline]], apply_to = function)
 
@@ -1355,12 +1356,13 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
         const bool note_focused = s.content->note.focused && s.note_field.generation;
+        const float edit_radius = ui_theme_metrics(theme.styles).edit_radius;
         p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, note_focused ? nullptr : edit, theme.base_lowest,
-                                   theme, dpi, kUiEditCornerRadius);
+                                   theme, dpi, edit_radius);
         if (s.note_field.generation) {
             const auto n = ui_friends_scene_note_geometry(s);
             p.use<ui_edit_field_paint>(n.field, n.text, s.content->note, note_focused ? edit : nullptr,
-                                       theme.base_lowest, theme, dpi, kUiEditCornerRadius);
+                                       theme.base_lowest, theme, dpi, edit_radius);
         }
         // Send Friend Request sits inside the field, primary while there is a name to send.
         if (adding(s)) {
@@ -1462,7 +1464,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                                                     note_focused ? nullptr : edit,
                                                     adding(s) ? utf8_literal("Enter a username")
                                                               : utf8_literal("Search friends"),
-                                                    theme))
+                                                    theme.text_primary))
             text.fail();
         if (adding(s))
             text.at(s.clear_search)(s.clear_search, utf8_literal("Send Friend Request"), g.clear,
@@ -1471,7 +1473,8 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             const auto n = ui_friends_scene_note_geometry(s);
             if (text.ok() && !ui_edit_field_text_output(stream, {&s.widgets, s.note_field}, n.text, s.content->note,
                                                         note_focused ? edit : nullptr,
-                                                        utf8_literal("Personalize your request (Optional)"), theme))
+                                                        utf8_literal("Personalize your request (Optional)"),
+                                                        theme.text_primary))
                 text.fail();
             // The characters left of the note's 120, red once none are.
             const u32 left = 120 - minimum(120u, utf8_validate(s.content->note.text).codepoints);

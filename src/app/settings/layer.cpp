@@ -638,7 +638,8 @@ bool settings_layer_window_event(SettingsLayer* layer, const WindowEvent& event)
                 [](void* context, u64, UiScrollRange* range) noexcept {
                     const auto& popup = g_app.popup_scene;
                     if (!static_cast<SettingsLayer*>(context)->choice || !popup.active) return false;
-                    *range = {popup.rectangle, popup.scroll_offset, popup.scroll_max, kPopupRowHeight, 1};
+                    *range = {popup.rectangle, popup.scroll_offset, popup.scroll_max, popup_scene_scroll_step(popup),
+                              1};
                     return true;
                 },
                 [](void* context, u64, double offset, bool* changed) noexcept {

@@ -1,6 +1,8 @@
 #include "header.hpp"
 #include "maicord/core/memory.hpp"
 #include "../../account/account_presentation.hpp"
+#include "../../shell/state.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 float application_thread_header_project(UiThreadHeader* header, UiScene* shell, u64 id,
@@ -9,7 +11,7 @@ float application_thread_header_project(UiThreadHeader* header, UiScene* shell, 
     const bool bound = header->manager == &shell->widgets &&
         ui_widget_manager_resolve(shell->widgets, header->widgets.root);
     if (!bound && !ui_thread_header_bind_shell(header, shell)) return 0;
-    const auto style = ui_thread_header_style();
+    const auto style = ui_thread_header_style(ui_theme_metrics(application_theme().styles));
     auto view = application_thread_header_projection(application_thread_actions_view(id));
     const float height = ui_thread_header_height(view, style);
     if (view.visible && (ui_rect_width(available) < 320.f || ui_rect_height(available) < height)) reset_value(&view);

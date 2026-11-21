@@ -109,8 +109,8 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
         state.collection_count > 8192 || state.collection_track > state.collection_count ||
         (state.collection_count && !state.collection_track) ||
         (state.duration_ms && state.elapsed_ms > state.duration_ms) ||
-        !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
-        !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom))
+        !(ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) & ui_coordinate_valid(bounds.right) &
+          ui_coordinate_valid(bounds.bottom)))
         return false;
     const bool collection = state.collection_count != 0;
     // A playlist either keeps its track strip above the bar or puts previous and next beside play/pause.

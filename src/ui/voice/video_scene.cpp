@@ -1,5 +1,6 @@
 #include "maicord/ui/voice/video_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
@@ -9,14 +10,13 @@
 
 namespace maicord {
 namespace {
+// The checks combine with `&`: each reads only the given values, and NaN fails every compare.
 bool rectangle(const UiRect& bounds) noexcept {
-    return paint_coordinate_valid(bounds.left) && paint_coordinate_valid(bounds.top) &&
-           paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
-           bounds.right > bounds.left && bounds.bottom > bounds.top;
+    return ui_coordinate_valid(bounds.left) & ui_coordinate_valid(bounds.top) & ui_coordinate_valid(bounds.right) &
+           ui_coordinate_valid(bounds.bottom) & (bounds.right > bounds.left) & (bounds.bottom > bounds.top);
 }
 bool contains(const UiRect& bounds, UiPoint point) noexcept {
-    return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
-           point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
+    return ui_coordinate_valid(point.x) & ui_coordinate_valid(point.y) & ui_rect_contains(bounds, point.x, point.y);
 }
 const UiVideoControlDescriptor* descriptor(const UiVideoScene& scene, UiVideoControl id) noexcept {
     for (const auto& control : scene.projection.controls)
@@ -195,16 +195,16 @@ bool symbol(PaintStream* paint, const UiRect& bounds, UiVideoControl id, const U
 }
 u64 text_revision(const UiVideoScene& scene, const Theme& theme) noexcept {
     u64 hash = hash64_words(kHash64Seed, &theme, sizeof(theme));
-    hash = hash64_bytes(hash, &scene.projection.bounds, sizeof(UiRect));
-    hash = hash64_bytes(hash, &scene.clip, sizeof(UiRect));
+    hash = hash64_words(hash, &scene.projection.bounds, sizeof(UiRect));
+    hash = hash64_words(hash, &scene.clip, sizeof(UiRect));
     for (const auto& control : scene.projection.controls) {
-        hash = hash64_bytes(hash, &control.bounds, sizeof(UiRect));
+        hash = hash64_words(hash, &control.bounds, sizeof(UiRect));
         hash = hash64_mix(hash, control.text_style);
         hash = hash64_mix(hash, !control.hidden);
         if (!control.hidden &&
             (control.id == UiVideoControl::time || control.id == UiVideoControl::status || control.id == UiVideoControl::track)) {
             const auto label = ui_video_scene_label(scene, control.id);
-            hash = hash64_counted_bytes(hash, label.data, label.bytes);
+            hash = hash64_words(hash, label.data, label.bytes);
         }
     }
     hash = hash64_mix(hash, scene.projection.playback.error);
@@ -632,11 +632,10 @@ u64 ui_video_scene_paint_revision(const UiVideoScene& scene) noexcept {
         return hash;
     hash = hash64_mix(hash, scene.text_revision);
     hash = hash64_mix(hash, scene.play_only);
-    hash = hash64_bytes(hash, &scene.play_opacity, sizeof(scene.play_opacity));
-    hash = hash64_bytes(hash, &scene.style, sizeof(scene.style));
-    hash = hash64_bytes(hash, &scene.preview, sizeof(scene.preview));
-    hash = hash64_bytes(hash, &scene.center_play, sizeof(scene.center_play));
-    hash = hash64_bytes(hash, &scene.buffering_indicator, sizeof(scene.buffering_indicator));
+    hash = hash64_mix(hash, __builtin_bit_cast(u32, scene.play_opacity));
+    hash = hash64_words(hash, &scene.style, sizeof(scene.style));
+    // preview, center_play and buffering_indicator are adjacent members.
+    hash = hash64_words(hash, &scene.preview, 3 * sizeof(UiRect));
     hash = hash64_mix(hash, scene.spinner_phase);
     hash = hash64_mix(hash, static_cast<u8>(scene.focus));
     hash = hash64_mix(hash, static_cast<u8>(scene.hover));
@@ -646,32 +645,30 @@ u64 ui_video_scene_paint_revision(const UiVideoScene& scene) noexcept {
     hash = hash64_mix(hash, scene.preview_hovered);
     hash = hash64_mix(hash, scene.idle);
     if (scene.hover_time_bytes)
-        hash = hash64_bytes(hash, &scene.hover_x, sizeof(scene.hover_x));
-    hash = hash64_bytes(hash, &scene.controls_transition.value, sizeof(scene.controls_transition.value));
+        hash = hash64_mix(hash, __builtin_bit_cast(u32, scene.hover_x));
+    hash = hash64_mix(hash, __builtin_bit_cast(u32, scene.controls_transition.value));
     hash = hash64_mix(hash, scene.projection.playback.playing);
     hash = hash64_mix(hash, scene.projection.playback.muted);
     hash = hash64_mix(hash, scene.projection.playback.has_audio);
     hash = hash64_mix(hash, scene.projection.playback.expanded);
     hash = hash64_mix(hash, scene.projection.playback.buffered_count);
-    hash = hash64_bytes(hash, scene.projection.playback.buffered_begin,
-                        sizeof(scene.projection.playback.buffered_begin));
-    hash = hash64_bytes(hash, scene.projection.playback.buffered_end,
-                        sizeof(scene.projection.playback.buffered_end));
+    // buffered_begin and buffered_end are adjacent members.
+    hash = hash64_words(hash, scene.projection.playback.buffered_begin,
+                        sizeof(scene.projection.playback.buffered_begin) * 2);
     for (const auto& control : scene.projection.controls) {
         hash = hash64_mix(hash, control.value);
         hash = hash64_mix(hash, control.maximum);
         hash = hash64_mix(hash, control.enabled);
     }
-    hash = hash64_counted_bytes(hash, scene.hover_time, scene.hover_time_bytes);
-    return hash64_counted_bytes(hash, scene.track_title, scene.track_title_bytes);
+    hash = hash64_words(hash, scene.hover_time, scene.hover_time_bytes);
+    return hash64_words(hash, scene.track_title, scene.track_title_bytes);
 }
 u64 ui_video_scene_text_paint_revision(const UiVideoScene& scene) noexcept {
-    u64 hash = hash64_bytes(scene.text_revision, &scene.controls_transition.value,
-                            sizeof(scene.controls_transition.value));
+    u64 hash = hash64_mix(scene.text_revision, __builtin_bit_cast(u32, scene.controls_transition.value));
     if (scene.hover_time_bytes)
-        hash = hash64_bytes(hash64_counted_bytes(hash, scene.hover_time, scene.hover_time_bytes), &scene.hover_x,
-                            sizeof(scene.hover_x));
-    return hash64_counted_bytes(hash, scene.track_title, scene.track_title_bytes);
+        hash = hash64_mix(hash64_words(hash, scene.hover_time, scene.hover_time_bytes),
+                          __builtin_bit_cast(u32, scene.hover_x));
+    return hash64_words(hash, scene.track_title, scene.track_title_bytes);
 }
 float ui_video_scene_chrome_opacity(const UiVideoScene& scene) noexcept {
     return scene.active && !scene.play_only && scene.preview_hovered ? scene.controls_transition.value : 1.0f;
@@ -699,7 +696,7 @@ u64 ui_video_scene_next_wake(const UiVideoScene& scene, u64 now_ms, bool reduced
     }
     if (scene.hover_track && scene.track_hover_since_ms && !scene.track_hover_requested) {
         const u64 due = scene.track_hover_since_ms + 150;
-        if (!wake || due < wake) wake = maximum(due, now_ms + 1);
+        wake = earliest_deadline(wake, maximum(due, now_ms + 1));
     }
     if (reduced_motion)
         return wake;
@@ -708,11 +705,7 @@ u64 ui_video_scene_next_wake(const UiVideoScene& scene, u64 now_ms, bool reduced
     const u64 transition =
         ui_opacity_transition_next_wake(scene.controls_transition, now_ms, false,
                                         rectangle(ui_rect_overlap(scene.projection.bounds, scene.clip)));
-    if (spinner && (!wake || spinner < wake))
-        wake = spinner;
-    if (transition && (!wake || transition < wake))
-        wake = transition;
-    return wake;
+    return earliest_deadline(earliest_deadline(wake, spinner), transition);
 }
 bool ui_video_scene_activity(UiVideoScene* scene, u64 now_ms) noexcept {
     if (!scene || !scene->active || !now_ms)

@@ -44,14 +44,11 @@ void rebuild_fenwick(UiVariableList* list) noexcept {
     }
 }
 
+// The item that holds `offset_units`, or the count when the offset is not below total_units. Every caller returns
+// before this on an empty list.
 u32 lower_bound_item(const UiVariableList& list, u64 offset_units) noexcept {
-    if (list.count == 0 || offset_units >= list.total_units) {
-        return list.count;
-    }
-    u32 step = 1;
-    while (step <= list.count / 2) {
-        step <<= 1;
-    }
+    // The largest power of two not above the count.
+    u32 step = 1u << (31 - __builtin_clz(list.count));
     u32 index = 0;
     u64 prefix = 0;
     while (step != 0) {

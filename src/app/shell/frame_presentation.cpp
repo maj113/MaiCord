@@ -451,8 +451,10 @@ bool application_present_frame() noexcept {
     return true;
 }
 
-void application_update_frame_rate(u64 now_us) noexcept {
-    if (!frame_rate_update(g_app.frame_rate, now_us) || !g_app.window || !frame_rate_title_enabled())
+void application_update_frame_rate() noexcept {
+    // Only presents counted for the diagnostic title arm the counter: the clock is read only then.
+    if (!g_app.frame_rate.next_update_us ||
+        !frame_rate_update(g_app.frame_rate, application_now_us()) || !g_app.window || !frame_rate_title_enabled())
         return;
     char title[48] = "MaiCord | ";
     u32 cursor = 10 + decimal_write(title + 10, g_app.frame_rate.fps);

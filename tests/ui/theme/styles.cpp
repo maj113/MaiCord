@@ -1,9 +1,5 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/theme/theme.hpp"
-#include "maicord/ui/voice/audio_controls.hpp"
-#include "maicord/ui/chat/polls/controls.hpp"
-#include "maicord/ui/settings/scene.hpp"
-#include "maicord/ui/core/scene.hpp"
 
 namespace maicord {
 void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
@@ -13,26 +9,6 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
               ui_theme_palette_valid(kDefaultTheme) && ui_theme_palette_valid(kLightTheme) &&
               ui_theme_palette_valid(ui_theme_amoled()),
           "Theme schema current shipped palettes and typography/metrics defaults are valid");
-    check(metrics.shell_rail_width == kGuildChannelShellLayoutMetrics.guild_rail_width &&
-              metrics.shell_sidebar_width == kGuildChannelShellLayoutMetrics.navigation_width &&
-              metrics.shell_member_width == kGuildChannelShellLayoutMetrics.member_sidebar_width &&
-              metrics.shell_header_height == kGuildChannelShellLayoutMetrics.title_bar_height &&
-              metrics.control_radius == kUiControlCornerRadius &&
-              metrics.edit_radius == kUiEditCornerRadius && metrics.menu_padding == kUiMenuPadding &&
-              metrics.menu_row_height == kUiMenuRowHeight && metrics.menu_radius == kUiMenuCornerRadius &&
-              metrics.composer_padding == kUiComposerPadding,
-          "Theme metric defaults preserve actual shell and shared control/menu/composer primitives");
-    check(metrics.form_field_padding == kUiDefaultSettingsStyle.field_padding &&
-              metrics.form_single_height == kUiDefaultSettingsStyle.single_height &&
-              metrics.form_multiline_height == kUiDefaultSettingsStyle.multiline_height &&
-              metrics.audio_padding == kDefaultUiAudioControlsStyle.padding &&
-              metrics.audio_target == kDefaultUiAudioControlsStyle.target &&
-              metrics.audio_minimum_width == kDefaultUiAudioControlsStyle.minimum_width &&
-              metrics.audio_maximum_width == kDefaultUiAudioControlsStyle.maximum_width &&
-              metrics.poll_padding == kDefaultUiPollStyle.padding &&
-              metrics.poll_marker == kDefaultUiPollStyle.marker &&
-              metrics.poll_emoji == kDefaultUiPollStyle.emoji_extent,
-          "Theme component metric defaults match existing form/audio/poll styles");
     const u32 flags[]{text_style_none,
                       text_style_picker_emoji,
                       text_style_jumbo_emoji,

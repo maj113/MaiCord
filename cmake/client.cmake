@@ -243,7 +243,7 @@ add_custom_command(TARGET MaiCord POST_BUILD
     VERBATIM)
 
 # The source rules that need no build (tools/check_source_rules.py: the GLSL twins of the HLSL shaders, the constant
-# buffer layouts, theme literals, the example theme), checked before the client links. Ninja reruns them only when a
+# buffer layouts, the example theme), checked before the client links. Ninja reruns them only when a
 # file they read changes (their depfile lists them); the client's compiles don't wait for them.
 set(maicord_source_rules_stamp "${CMAKE_CURRENT_BINARY_DIR}/source_rules.stamp")
 add_custom_command(OUTPUT "${maicord_source_rules_stamp}"

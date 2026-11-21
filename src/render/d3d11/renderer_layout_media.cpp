@@ -428,7 +428,7 @@ bool queue_message_media(D3D11Renderer* renderer, u32 shown, const Theme& theme,
             ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
         // Framing: a message attachment rounds 8 DIP, embed
         // media 4 DIP; grid and gallery tiles keep their own mask.
-        const float radius = command.ordinary_video ? UiVideoSceneStyle{}.preview_radius
+        const float radius = command.ordinary_video ? ui_theme_metrics(theme.styles).control_radius
                              : command.tile_radius || command.cover ? 0.f
                              : command.kind == MessageMediaCommandKind::attachment ? theme.scale.radius_md
                              : command.kind == MessageMediaCommandKind::embed ? theme.scale.radius_sm

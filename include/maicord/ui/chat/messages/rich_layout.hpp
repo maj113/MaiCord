@@ -23,7 +23,6 @@ inline constexpr u32 kMessageRichItemMaximum = kMessageRichInviteItemOffset + kM
 inline constexpr float kMessageInviteCardHeight = 106.0f;
 inline constexpr float kMessageInviteCardMaximumWidth = 432.0f;
 inline constexpr float kMessageInviteCardGap = 8.0f;
-inline constexpr float kDefaultMessageRichBlockGapDips = 8.0f;
 // Thread starter card below the reactions: name line and a metadata line.
 inline constexpr float kMessageThreadCardGapDips = 6.0f;
 inline constexpr float kMessageThreadCardHeightDips = 50.0f;

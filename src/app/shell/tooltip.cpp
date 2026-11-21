@@ -43,6 +43,8 @@
 #include "maicord/media/core/asset.hpp"
 #include "maicord/ui/chat/threads/browser_scene.hpp"
 #include "maicord/ui/chat/threads/forum_post_scene.hpp"
+#include "content_page.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationTooltip {
@@ -825,6 +827,9 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
     if (const auto* browser = application_thread_browser_scene();
         browser && ui_thread_browser_scene_contains(*browser, point.x, point.y))
         return browser_target(point, false, scope, target);
+    // The page covers the chat beneath it: over the page only its own tooltips show.
+    if (UiCursor cursor{}; application_content_page_cursor(point.x, point.y, &cursor))
+        return application_content_page_tooltip(point, scope, target);
     if (g_app.renderer.search_scene &&
         ui_search_scene_contains(*g_app.renderer.search_scene, point.x, point.y))
         return edited_target(point, scope, target) || search_target(point, false, scope, target);
@@ -902,7 +907,7 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         owner.viewport_failed = false;
     }
     UiTooltipTarget target{};
-    UiTooltipStyle style{};
+    UiTooltipStyle style = ui_tooltip_style(ui_theme_metrics(application_theme().styles));
     bool reaction = false;
     // The command card and the ALT popout are pinned: they stay up while the pointer moves away.
     const bool pinned = content_available() &&

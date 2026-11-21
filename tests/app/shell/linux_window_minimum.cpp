@@ -59,14 +59,14 @@ MAICORD_TEST_ENTRY(maicord_linux_window_minimum_entry) {
     alignas(8) static char account_ui_stand_in[8];
     g_app.account_ui = reinterpret_cast<decltype(g_app.account_ui)>(account_ui_stand_in);
     g_app.login.visible = false;
-    g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;
-    g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
+    g_app.channel_pane_width = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).navigation_width;
+    g_app.member_pane_width = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width;
     g_app.member_pane_visible = true;
     application_window_refresh_minimum_size();
     const NullWindowProbe main_layout = null_window_probe();
-    const float with_members = kGuildChannelShellLayoutMetrics.guild_rail_width +
-                               kGuildChannelShellLayoutMetrics.navigation_width +
-                               kGuildChannelShellLayoutMetrics.member_sidebar_width + kMinimumAccountMessageWidthDips;
+    const float with_members = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).guild_rail_width +
+                               ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).navigation_width +
+                               ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width + kMinimumAccountMessageWidthDips;
     check(main_layout.min_size_calls == 2 && main_layout.min_width == ceil_to_pixels(with_members, dpi) &&
               main_layout.min_width > login.min_width && main_layout.min_height == height,
           "switching from sign-in to the main layout sends the larger minimum size");
@@ -75,7 +75,7 @@ MAICORD_TEST_ENTRY(maicord_linux_window_minimum_entry) {
     g_app.member_pane_visible = false;
     application_window_refresh_minimum_size();
     const NullWindowProbe without_members = null_window_probe();
-    const float no_members = with_members - kGuildChannelShellLayoutMetrics.member_sidebar_width;
+    const float no_members = with_members - ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault).member_sidebar_width;
     check(without_members.min_width == ceil_to_pixels(no_members, dpi) && without_members.min_width < main_layout.min_width,
           "hiding the member list lowers the minimum size");
 

@@ -17,6 +17,7 @@
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/shell/navigation_context.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -31,8 +32,6 @@ struct ScopedReadMenu {
     bool active;
 };
 ScopedReadMenu menu;
-// The width derives from the same shared row/padding primitives as the footer.
-constexpr float menu_width = 6 * kUiMenuRowHeight + 2 * kUiMenuPadding;
 template <typename Scene>
 bool scene_row(const Scene& scene, u64 id, UiWidgetHandle* row, u32* revision, u16* generation) noexcept {
     for (u32 i = 0; i < scene.count; ++i)
@@ -173,7 +172,10 @@ bool application_scoped_read_menu_open(ReadScopeKind kind, u64 id, UiRect anchor
         {items + builtins, kApplicationPluginMenuRows});
     if (!builtins && !added)
         return dismiss_popup();
-    const UiPopupFeedback feedback{view.status, ui_popup_feedback_style(), view.error};
+    const auto& metrics = ui_theme_metrics(application_theme().styles);
+    // The width derives from the same theme row and padding metrics as the footer.
+    const float menu_width = 6 * metrics.menu_row_height + 2 * metrics.menu_padding;
+    const UiPopupFeedback feedback{view.status, ui_popup_feedback_style(metrics), view.error};
     auto opened = popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, id,
                                    {items, builtins + added}, anchor, application_viewport_dips(),
                                    menu_width, false, 0, 0, view.publication_revision, &feedback);

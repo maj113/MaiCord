@@ -36,6 +36,9 @@ u16 g_message_scene_rich_order[32];
 u8 g_message_scene_rich_text[16 * 1024];
 
 namespace {
+// The shell layouts of the default theme.
+constexpr UiShellLayoutMetrics kGuildChannel = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
+constexpr UiShellLayoutMetrics kFriends = ui_friends_shell_layout_metrics(kUiThemeMetricsDefault);
 
 #pragma float_control(precise, on, push)
 __declspec(noinline) bool reference_coordinate_valid(float value) noexcept {
@@ -148,7 +151,7 @@ void test_paint_stream() noexcept {
 void test_ui_scene() noexcept {
     UiScene scene{};
     expect(ui_scene_initialize_bootstrap(&scene) &&
-               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                             1280.0f, 800.0f),
            "ui_scene_bootstrap_layout");
     const UiLayoutNode* guild = ui_scene_node(scene, UiSemantic::guild_rail);
@@ -180,7 +183,7 @@ void test_ui_scene() noexcept {
     // In a call the voice card above the account panel spans it too, and both
     // lists end above the card.
     UiScene call_scene{};
-    UiShellLayoutMetrics call_metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics call_metrics = kGuildChannel;
     call_metrics.navigation_footer_reserve = kUiVoicePanelHeight + kUiVoicePanelGap;
     bool call_layout = ui_scene_initialize_bootstrap(&call_scene) &&
                        ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, call_metrics, 1280.0f,
@@ -199,7 +202,7 @@ void test_ui_scene() noexcept {
                       call_guilds->rectangle.bottom == card.top - kUiFloatingSurfaceInset &&
                       call_channels->rectangle.bottom == call_guilds->rectangle.bottom;
     }
-    UiShellLayoutMetrics bare_metrics = kGuildChannelShellLayoutMetrics;
+    UiShellLayoutMetrics bare_metrics = kGuildChannel;
     bare_metrics.flags = 0;
     const bool bare_layout =
         call_layout && ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, bare_metrics, 1280.0f,
@@ -234,15 +237,15 @@ void test_ui_scene() noexcept {
     const u32 scene_layout_passes = scene.layout_passes;
     const u16 scene_generation = scene.widgets.generation;
     expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{scene_diagnostics, 32}).clean() &&
-               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                             1280.0f, 800.0f) &&
                scene.layout_rebuilds == scene_rebuilds,
            "ui_scene_widget_validation_and_invalidation_cache");
-    expect(ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+    expect(ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                         1200.0f, 800.0f) &&
                scene.layout_rebuilds == scene_rebuilds &&
                scene.layout_passes == scene_layout_passes + 1 && scene.widgets.generation == scene_generation &&
-               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                             1280.0f, 800.0f) &&
                scene.layout_rebuilds == scene_rebuilds &&
                scene.layout_passes == scene_layout_passes + 2,
@@ -1176,7 +1179,7 @@ void test_ui_scene() noexcept {
            "message_scene_capacity_failure_does_not_publish_partial_tree");
 
     expect(
-        ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+        ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                      632.0f, 480.0f) &&
             ui_scene_node(scene, UiSemantic::channel_sidebar) &&
             !ui_scene_node(scene, UiSemantic::member_sidebar) &&
@@ -1188,7 +1191,7 @@ void test_ui_scene() noexcept {
     UiScene friends_scene{};
     expect(ui_scene_initialize_bootstrap(&friends_scene) &&
                ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends,
-                                            kFriendsShellLayoutMetrics, 480.0f, 930.0f),
+                                            kFriends, 480.0f, 930.0f),
            "ui_scene_friends_policy_layout");
     const UiLayoutNode* friends_guild =
         ui_scene_node(friends_scene, UiSemantic::guild_rail);
@@ -1209,14 +1212,14 @@ void test_ui_scene() noexcept {
            "ui_scene_friends_confirmed_fixed_columns");
     const u32 friends_rebuilds = friends_scene.layout_rebuilds;
     const u16 friends_generation = friends_scene.widgets.generation;
-    expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, kFriendsShellLayoutMetrics,
+    expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, kFriends,
                                         1102.0f, 930.0f) &&
                friends_scene.layout_rebuilds == friends_rebuilds &&
                friends_scene.widgets.generation == friends_generation &&
                ui_scene_node(friends_scene, UiSemantic::content)
                        ->rectangle.left == 304.0f,
            "ui_scene_friends_resize_retains_fixed_policy_tree");
-    UiShellLayoutMetrics revised_friends = kFriendsShellLayoutMetrics;
+    UiShellLayoutMetrics revised_friends = kFriends;
     revised_friends.revision = 2;
     revised_friends.navigation_width = 300.0f;
     expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, revised_friends, 1102.0f,
@@ -1236,8 +1239,7 @@ void test_ui_scene() noexcept {
     const UiShellView home_views[]{UiShellView::friends, UiShellView::private_channels};
     for (float navigation_width : home_navigation_widths) {
         for (UiShellView home_view : home_views) {
-            auto home_metrics = home_view == UiShellView::friends ? kFriendsShellLayoutMetrics
-                                                                  : kGuildChannelShellLayoutMetrics;
+            auto home_metrics = home_view == UiShellView::friends ? kFriends : kGuildChannel;
             home_metrics.navigation_width = navigation_width;
             home_metrics.flags = ui_shell_layout_navigation;
             home_metrics.member_sidebar_width = 0;
@@ -1259,7 +1261,7 @@ void test_ui_scene() noexcept {
     expect(home_columns_stable,
            "ui_scene_home_private_switch_preserves_width_and_has_no_exposed_root_gutters");
     expect(ui_scene_node(scene, UiSemantic::title_bar) &&
-               !ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+               !ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannel,
                                              0.0f, 480.0f),
            "ui_scene_node_and_bounds");
     ui_scene_release(&friends_scene);

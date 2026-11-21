@@ -674,9 +674,9 @@ void test_page(UiAccessTree* tree) noexcept {
     song.playing = song.can_play = song.can_seek = song.can_volume = song.can_download = song.has_duration = true;
     song.title = utf8_literal("Song");
     const UiRect audio_stage = ui_image_viewer_page_layout(viewer).player;
-    check(ui_audio_scene_project(&card, song, ui_audio_page_card(audio_stage, kDefaultUiAudioControlsStyle), audio_stage,
+    check(ui_audio_scene_project(&card, song, ui_audio_page_card(audio_stage, UiAudioControlsStyle{}), audio_stage,
                                  {&viewer.widgets, viewer.owner.handle}, UiAudioSourceSurface::page,
-                                 kDefaultUiAudioControlsStyle, kDefaultTheme),
+                                 UiAudioControlsStyle{}, kDefaultTheme),
           "media page: the hosted audio card projects");
     group = project_overlay(tree, PagePlayer{&viewer, nullptr, &card}, add_page_player, player_text);
     const u32 audio_seek = find_node(*tree, group, UiAccessRole::slider, utf8_literal("Seek"));

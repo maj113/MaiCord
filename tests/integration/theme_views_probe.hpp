@@ -216,7 +216,7 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
         const Theme theme = client_theme_projection(theme_preferences);
         const bool is_friends = phase < 2;
         UiShellLayoutMetrics metrics =
-            is_friends ? kFriendsShellLayoutMetrics : kGuildChannelShellLayoutMetrics;
+            is_friends ? ui_friends_shell_layout_metrics(kUiThemeMetricsDefault) : ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
         metrics.flags = is_friends
                             ? static_cast<u16>(ui_shell_layout_navigation)
                             : static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_composer);

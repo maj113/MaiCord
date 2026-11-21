@@ -10,7 +10,6 @@
 namespace maicord {
 struct UiTextMeasureCache;
 
-inline constexpr float kPopupRowHeight = kUiMenuCompactRowHeight;
 inline constexpr float kPopupAvatarRowHeight = 44.0f;
 inline constexpr float kPopupOuterMargin = 8.0f;
 inline constexpr u32 kPopupWidgetsPerItem = 2;
@@ -60,8 +59,9 @@ enum class PopupPanelMaterial : u8 {
 struct UiPopupFeedbackStyle {
     float height, text_inset;
 };
-constexpr UiPopupFeedbackStyle ui_popup_feedback_style() noexcept {
-    return {kUiMenuRowHeight, kUiMenuPadding};
+// A menu row of the theme: its height, and the menu padding as the text inset.
+constexpr UiPopupFeedbackStyle ui_popup_feedback_style(const UiThemeMetrics& metrics) noexcept {
+    return {metrics.menu_row_height, metrics.menu_padding};
 }
 // The host owns persistent text. A reserved footer is decorative, never a row
 // or input target, and changing its text does not rebuild the widget tree.
@@ -288,6 +288,8 @@ PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 o
 // reaction strip it leaves the menu as opened. False when the menu cannot be laid out again.
 bool popup_scene_fit_content(PopupScene* scene, UiTextMeasureCache* measure, float maximum_width) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
+// One wheel line of the menu: a compact menu row of its theme.
+float popup_scene_scroll_step(const PopupScene&) noexcept;
 // The command picker's scrolling body column, after the rail card and its gap
 // (empty for any other popup), and its rail card (empty without a rail).
 UiRect popup_scene_picker_body(const PopupScene&) noexcept;

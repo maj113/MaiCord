@@ -156,7 +156,7 @@ try {
         }
     }
 
-    # The source rules (tools/check_source_rules.py: shader twins, theme literals, ...) run with the client's link, or alone.
+    # The source rules (tools/check_source_rules.py: shader twins, constant buffers, ...) run with the client's link, or alone.
     $linkClient = !$SkipClient
     if ($Test -or $PerfProbe -or $StartupProbe) {
         # A private LOCALAPPDATA/TEMP for the run, owned by this repository. A profile that an interrupted run left goes first.

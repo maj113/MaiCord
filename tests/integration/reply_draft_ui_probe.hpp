@@ -78,7 +78,7 @@ inline bool reply_draft_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& me
             const auto reply = reply_draft_ui_adapter_reply();
             const bool editing = reply_draft_ui_adapter_editing();
             const bool reply_visible = editing || reply.message_id != 0;
-            auto metrics = kGuildChannelShellLayoutMetrics;
+            auto metrics = ui_guild_channel_shell_layout_metrics(kUiThemeMetricsDefault);
             metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
             metrics.member_sidebar_width = 0;
             metrics.composer_height = message_composer_scene_cached_height(

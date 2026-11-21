@@ -3,9 +3,6 @@
 
 namespace maicord {
 namespace {
-float member_width(const UiSidePanelInput& in) noexcept {
-    return in.member_width > 0 ? in.member_width : kGuildChannelShellLayoutMetrics.member_sidebar_width;
-}
 bool one_to_one(const UiSidePanelInput& in) noexcept {
     return in.home && in.channel_type == 1;
 }
@@ -18,7 +15,7 @@ UiSidePanelPlan ui_side_panel_plan(const UiSidePanelInput& in) noexcept {
         return {in.profile_visible && !unavailable ? UiSidePanel::profile : UiSidePanel::none, kUiDmProfilePanelWidth,
                 unavailable};
     }
-    return {in.members_visible ? UiSidePanel::members : UiSidePanel::none, member_width(in), false};
+    return {in.members_visible ? UiSidePanel::members : UiSidePanel::none, in.member_width, false};
 }
 Utf8View ui_side_panel_toggle_label(bool profile, bool unavailable, bool shown) noexcept {
     if (profile)

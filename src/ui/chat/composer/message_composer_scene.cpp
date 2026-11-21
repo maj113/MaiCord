@@ -80,7 +80,6 @@ inline constexpr u32 kComposerReplyCancelId = 14;
 inline constexpr u32 kComposerPluginId = 15; // through 15 + kMessageComposerPluginSlots - 1
 inline constexpr u32 kComposerCommandBarId = kComposerPluginId + kMessageComposerPluginSlots;
 inline constexpr u32 kComposerCommandCloseId = kComposerCommandBarId + 1;
-inline constexpr float kComposerRowGap = kUiComposerPadding;
 
 inline float accessory_width(const UiResolvedThemeStyles* styles) noexcept {
     return maximum(32.f, ui_theme_metrics(styles).menu_row_height);
@@ -212,10 +211,10 @@ UiLayoutStyle edit_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
 
 // Inline text gets at least the width of the complete trailing action group.
 // Below that width the four trailing actions wrap after the editor instead.
-float full_controls_minimum_width(const UiResolvedThemeStyles* styles) noexcept {
+float full_controls_minimum_width(const UiResolvedThemeStyles* styles, u32 plugin_count) noexcept {
     const auto& metrics = ui_theme_metrics(styles);
     const float accessory = accessory_width(styles), gap = metrics.composer_padding;
-    const float plugins = static_cast<float>(plugin_slot_count());
+    const float plugins = static_cast<float>(plugin_count);
     const float trailing_width = (4.f + plugins) * accessory + (3.f + plugins) * gap;
     return gap + gap + (5.f + plugins) * (accessory + gap) + trailing_width + metrics.menu_gap + metrics.menu_gap;
 }
@@ -224,16 +223,40 @@ float full_controls_minimum_width(const UiResolvedThemeStyles* styles) noexcept 
 // into the emoji picker (its tabs reach both), so attach, editor, plugins,
 // emoji and send keep one row with at least this much editable width.
 inline constexpr float kComposerCompactEditorMinimum = 120.0f;
-float compact_controls_minimum_width(const UiResolvedThemeStyles* styles) noexcept {
+float compact_controls_minimum_width(const UiResolvedThemeStyles* styles, u32 plugin_count) noexcept {
     const auto& metrics = ui_theme_metrics(styles);
-    const float plugins = static_cast<float>(plugin_slot_count());
+    const float plugins = static_cast<float>(plugin_count);
     return metrics.composer_padding + metrics.composer_padding +
            (3.f + plugins) * (accessory_width(styles) + metrics.composer_padding) + kComposerCompactEditorMinimum +
            metrics.menu_gap + metrics.menu_gap;
 }
-inline bool compact_controls(float composer_width, const UiResolvedThemeStyles* styles) noexcept {
-    return composer_width >= compact_controls_minimum_width(styles) &&
-           composer_width < full_controls_minimum_width(styles);
+inline bool compact_controls(float composer_width, const UiResolvedThemeStyles* styles, u32 plugin_count) noexcept {
+    return composer_width >= compact_controls_minimum_width(styles, plugin_count) &&
+           composer_width < full_controls_minimum_width(styles, plugin_count);
+}
+// The editable width beside the controls. Above the full width the GIF and sticker buttons show, between the compact
+// and the full width they fold away, and below the compact width the actions wrap to a toolbar.
+float controls_text_width(float composer_width, const UiResolvedThemeStyles* styles, u32 plugin_count) noexcept {
+    const auto& metrics = ui_theme_metrics(styles);
+    const float plugins = static_cast<float>(plugin_count);
+    const float actions = composer_width >= full_controls_minimum_width(styles, plugin_count)      ? 5.f + plugins
+                          : composer_width >= compact_controls_minimum_width(styles, plugin_count) ? 3.f + plugins
+                                                                                                    : 1.f;
+    return maximum(0.f, composer_width - metrics.composer_padding - metrics.composer_padding -
+                            actions * (accessory_width(styles) + metrics.composer_padding) - metrics.menu_gap -
+                            metrics.menu_gap);
+}
+// The height of the wrapped toolbar below the compact width (0 at or above it). composer_width is positive.
+float controls_toolbar_height(float composer_width, const UiResolvedThemeStyles* styles, u32 plugin_count) noexcept {
+    if (composer_width >= compact_controls_minimum_width(styles, plugin_count))
+        return 0.f;
+    const float gap = ui_theme_metrics(styles).composer_padding;
+    const float available = maximum(0.f, composer_width - gap - gap);
+    const u32 trailing = 4u + plugin_count;
+    const u32 columns =
+        minimum(trailing, maximum(1u, static_cast<u32>((available + gap) / (accessory_width(styles) + gap))));
+    const u32 rows = (trailing + columns - 1u) / columns;
+    return static_cast<float>(rows) * (accessory_height(styles) + gap);
 }
 
 inline float editor_padding_height(const UiResolvedThemeStyles* styles) noexcept {
@@ -270,7 +293,7 @@ bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, flo
     const float width = ui_rect_width(viewport);
     // The recording bar folds the media pickers and plugins away.
     const bool voice_bar = ui_composer_voice_bar_visible(scene->voice_mode);
-    const bool compact = compact_controls(width, styles) || voice_bar;
+    const bool compact = compact_controls(width, styles, scene->plugin_count) || voice_bar;
     const UiWidgetHandle accessories[]{scene->add_attachment, scene->gif, scene->sticker, scene->emoji,
                                        scene->send};
     const UiLayoutStyle accessory = fixed_control_style(accessory_width(styles), styles);
@@ -290,7 +313,7 @@ bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, flo
         if (i >= scene->plugin_count || voice_bar)
             plugin->spec.style.flags = static_cast<u16>(plugin->spec.style.flags & ~ui_layout_node_visible);
     }
-    const float toolbar = message_composer_scene_toolbar_height(width, styles);
+    const float toolbar = controls_toolbar_height(width, styles, scene->plugin_count);
     controls->spec.style = controls_style(styles);
     edit->spec.style = edit_style(styles);
     scene->widgets.layout.wrap_nodes = toolbar != 0.f ? 1u : 0u;
@@ -300,7 +323,7 @@ bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, flo
         // A fixed editor consumes the remainder of the first row; the wrap
         // engine then fits the trailing actions into the available width.
         edit->spec.style.width =
-            ui_layout_fixed(message_composer_scene_text_width(width, styles) +
+            ui_layout_fixed(controls_text_width(width, styles, scene->plugin_count) +
                             edit->spec.style.padding.left + edit->spec.style.padding.right);
         edit->spec.style.height = ui_layout_fixed(
             maximum(accessory.height.value, ui_rect_height(viewport) - chrome - toolbar -
@@ -313,13 +336,13 @@ bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, flo
 
 u64 projection_input_signature(const MessageComposerScene& scene, const MessageComposer& model,
                                const MessageComposerProjectionContext* context) noexcept {
+    // Fields that fit one 8-byte word share one mix. The signature is only compared in memory.
     u64 signature = hash64_mix(kHash64Seed, model.document_identity);
-    signature = hash64_mix(signature, model.text_revision);
+    signature = hash64_mix(signature, model.text_revision |
+                                          static_cast<u64>(context ? context->command.name_bytes : 0) << 32);
     signature = hash64_mix(signature, model.channel_id);
-    signature = hash64_mix(signature, model.anchor);
-    signature = hash64_mix(signature, model.caret);
+    signature = hash64_mix(signature, model.anchor | static_cast<u64>(model.caret) << 32);
     signature = hash64_mix(signature, context ? context->guild_id : 0);
-    signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
     for (u32 n = 0; context && n < context->option_chip_count; ++n) {
         const auto& chip = context->option_chips[n];
         signature = hash64_mix(signature, (u64{chip.head_first} << 48) | (u64{chip.name_first} << 32) |
@@ -333,17 +356,17 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     if (context && context->games)
         signature = hash64_mix(signature, context->games->revision);
     if (context && context->state) {
-        signature = hash64_mix(signature, context->state->guild_mutations);
-        signature = hash64_mix(signature, context->state->channel_mutations);
-        signature = hash64_mix(signature, context->state->permission_mutations);
-        signature = hash64_mix(signature, context->state->emoji_mutations);
-        signature = hash64_mix(signature, context->state->compactions);
+        signature = hash64_mix(signature, context->state->guild_mutations |
+                                              static_cast<u64>(context->state->channel_mutations) << 32);
+        signature = hash64_mix(signature, context->state->permission_mutations |
+                                              static_cast<u64>(context->state->emoji_mutations) << 32);
         // Role upserts have no store-wide revision. Name allocation/counts
         // also reveal newly resolvable tokens; retained visible role records
         // provide bounded dependencies for in-place color/name changes.
-        signature = hash64_mix(signature, context->state->role_count);
-        signature = hash64_mix(signature, context->state->name_used);
-        signature = hash64_mix(signature, context->state->name_wasted);
+        signature = hash64_mix(signature, context->state->compactions |
+                                              static_cast<u64>(context->state->role_count) << 32);
+        signature = hash64_mix(signature, context->state->name_used |
+                                              static_cast<u64>(context->state->name_wasted) << 32);
         for (u32 index = 0; index < scene.projection_span_count; ++index) {
             const auto& span = scene.projection_spans[index];
             if (span.kind != MessageComposerProjectionKind::role)
@@ -353,8 +376,7 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
             signature = hash64_mix(signature, span.target);
             signature = hash64_mix(signature, role ? role->guild_id : 0);
             signature = hash64_mix(signature, role ? role->id : 0);
-            signature = hash64_mix(signature, role ? role->color : 0);
-            signature = hash64_mix(signature, role ? role->name_offset : 0);
+            signature = hash64_mix(signature, role ? role->color | static_cast<u64>(role->name_offset) << 32 : 0);
             signature = hash64_mix(signature, role ? role->name_bytes : 0);
         }
     }
@@ -429,9 +451,10 @@ struct ProjectedToken {
 // The chat's game icon cell: an em, then 3 px (markdown_links.cpp).
 constexpr Utf8View kGameIconCell = utf8_literal("\xE2\x80\x83\xE2\x80\x86");
 
+// `first` is below source.bytes and holds the token's '<'.
 bool projected_token_at(const Utf8View& source, u32 first, const MessageComposerProjectionContext* context,
                         ProjectedToken* token) noexcept {
-    if (first >= source.bytes || source.data[first] != '<' || source.bytes - first < 4) {
+    if (source.bytes - first < 4) {
         return false;
     }
     u32 cursor = first + 1;
@@ -523,14 +546,14 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
 }
 
 u32 display_offset_from_source(const MessageComposerScene& scene, u32 source) noexcept {
-    if (source <= scene.display_first) {
+    if (source == 0) {
         return 0;
     }
     const u32 source_last = scene.display_source_last;
     if (source >= source_last) {
         return scene.display_bytes;
     }
-    i64 adjustment = -static_cast<i64>(scene.display_first);
+    i64 adjustment = 0;
     for (u32 index = 0; index < scene.projection_span_count; ++index) {
         const MessageComposerProjectionSpan& span = scene.projection_spans[index];
         if (source <= span.source_first) {
@@ -576,51 +599,17 @@ inline bool display_style_available(const MessageComposerScene& scene, u32 first
     const auto& last = scene.display_styles[scene.display_style_count - 1];
     return last.flags == flags && last.byte_offset + last.byte_count == first;
 }
-// Start of the UTF-8 scalar that ends at offset (offset > 0).
-inline u32 scalar_start_before(const char* text, u32 offset) noexcept {
-    u32 start = offset - 1;
-    while (start != 0 && (static_cast<u8>(text[start]) & 0xC0u) == 0x80u) {
-        --start;
-    }
-    return start;
-}
 void project_display(MessageComposerScene* scene, const MessageComposer& model,
                      const MessageComposerProjectionContext* context) noexcept {
     update_source_styles(scene, model);
     scene->display_style_count = 0;
-    u32 first = model.caret;
-    u32 before = 0;
-    while (first != 0 && before < kMessageComposerDisplayBytes / 2) {
-        const u32 previous = scalar_start_before(model.text, first);
-        if (model.caret - previous > kMessageComposerDisplayBytes / 2) {
-            break;
-        }
-        first = previous;
-        before = model.caret - first;
-    }
-    u32 end = model.caret;
-    while (end < model.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(model.text + end, model.bytes - end);
-        if (!decoded.valid || decoded.width > kMessageComposerDisplayBytes - (end - first)) {
-            break;
-        }
-        end += decoded.width;
-    }
-    // When the caret is at the end, use the complete display window rather
-    // than leaving half of it empty.
-    while (end == model.bytes && first != 0 && end - first < kMessageComposerDisplayBytes) {
-        const u32 previous = scalar_start_before(model.text, first);
-        if (end - previous > kMessageComposerDisplayBytes) {
-            break;
-        }
-        first = previous;
-    }
-    scene->display_first = first;
+    // The display holds kMessageComposerMaximumBytes, the most a model can hold, and the model keeps valid UTF-8: the
+    // projection reads the whole text.
+    const u32 end = model.bytes;
     scene->display_bytes = 0;
     scene->projection_span_count = 0;
-    u64 signature = kHash64Seed;
     const Utf8View source{model.text, model.bytes};
-    u32 cursor = first;
+    u32 cursor = 0;
     u32 style_index = 0;
     u32 flag_cursor = 0;
     RegionalFlagRange flag{};
@@ -701,7 +690,6 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                 } else {
                     space(kMessageComposerChipPadding + kMessageComposerChipMargin);
                 }
-                signature = hash64_bytes(signature, scene->display + display_first, scene->display_bytes - display_first);
                 scene->projection_spans[scene->projection_span_count] = MessageComposerProjectionSpan{
                     cursor, last, display_first, scene->display_bytes, 0,
                     head ? MessageComposerProjectionKind::command_option
@@ -726,7 +714,8 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                      0,
                      false};
         const bool projected = !(style & text_style_monospace) &&
-                               (flag_token || projected_token_at(source, cursor, context, &token)) &&
+                               (flag_token || (source.data[cursor] == '<' &&
+                                               projected_token_at(source, cursor, context, &token))) &&
                                (!flag_token || display_style_available(*scene, scene->display_bytes,
                                                                        style | text_style_custom_emoji)) &&
                                token.source_last <= end &&
@@ -735,19 +724,14 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                                    kMessageComposerDisplayBytes - scene->display_bytes;
         if (projected) {
             const u32 display_first = scene->display_bytes;
-            if (token.marker) {
+            if (token.marker)
                 scene->display[scene->display_bytes++] = token.marker;
-                signature = hash64_mix(signature, static_cast<u8>(token.marker));
-            }
             if (token.icon_cell) {
                 copy_bytes(scene->display + scene->display_bytes, kGameIconCell.data, kGameIconCell.bytes);
                 scene->display_bytes += kGameIconCell.bytes;
             }
-            for (u32 byte = 0; byte < token.label.bytes; ++byte) {
-                const char value = token.label.data[byte];
-                scene->display[scene->display_bytes++] = value;
-                signature = hash64_mix(signature, static_cast<u8>(value));
-            }
+            copy_bytes(scene->display + scene->display_bytes, token.label.data, token.label.bytes);
+            scene->display_bytes += token.label.bytes;
             scene->projection_spans[scene->projection_span_count++] = MessageComposerProjectionSpan{
                 cursor,      token.source_last, display_first, scene->display_bytes,
                 token.color, token.kind,        token.id,      token.animated};
@@ -775,30 +759,27 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         // UTF-16 length: the edit layout cannot place a caret after a hidden
         // default-ignorable character.
         const bool marker = decoded.codepoint == 0x2063u;
-        for (u32 byte = 0; byte < decoded.width; ++byte) {
-            const char value = marker ? "\xE2\x80\x8A"[byte] : model.text[cursor + byte];
-            scene->display[scene->display_bytes++] = value;
-            signature = hash64_mix(signature, static_cast<u8>(value));
-        }
+        for (u32 byte = 0; byte < decoded.width; ++byte)
+            scene->display[scene->display_bytes++] = marker ? "\xE2\x80\x8A"[byte] : model.text[cursor + byte];
         cursor += decoded.width;
     }
     scene->display_source_last = cursor;
     scene->display_caret = display_offset_from_source(*scene, model.caret);
     scene->display_anchor = display_offset_from_source(*scene, model.anchor);
-    signature = hash64_mix(signature, scene->display_bytes);
+    // The signature is only compared in memory: the display text a word at a time, then the spans.
+    u64 signature = hash64_words(kHash64Seed, scene->display, scene->display_bytes);
+    // Two offsets, or the colour with the kind and the animation flag, share one mix.
     for (u32 index = 0; index < scene->projection_span_count; ++index) {
         const MessageComposerProjectionSpan& span = scene->projection_spans[index];
-        signature = hash64_mix(signature, span.source_first);
-        signature = hash64_mix(signature, span.source_last);
-        signature = hash64_mix(signature, span.display_first);
-        signature = hash64_mix(signature, span.display_last);
-        signature = hash64_mix(signature, span.color);
-        signature = hash64_mix(signature, static_cast<u8>(span.kind));
+        signature = hash64_mix(signature, span.source_first | static_cast<u64>(span.source_last) << 32);
+        signature = hash64_mix(signature, span.display_first | static_cast<u64>(span.display_last) << 32);
+        signature = hash64_mix(signature, span.color | static_cast<u64>(span.kind) << 32 |
+                                              static_cast<u64>(span.animated) << 40);
         signature = hash64_mix(signature, span.target);
-        signature = hash64_mix(signature, span.animated);
     }
-    signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
-    scene->display_signature = hash64_mix(signature, scene->projection_span_count);
+    scene->display_signature =
+        hash64_mix(signature, scene->projection_span_count |
+                                  static_cast<u64>(context ? context->command.name_bytes : 0) << 32);
 }
 
 // Copies tile strings into scene storage; true when presentation differs.
@@ -850,6 +831,89 @@ void clamp_attachment_scroll(MessageComposerScene* scene) noexcept {
                        : 0.f;
 }
 
+// The layout style of a composer widget at creation, by index.
+enum ComposerStyle : u8 {
+    composer_style_root,
+    composer_style_typing,
+    composer_style_surface,
+    composer_style_reply,
+    composer_style_banner,
+    composer_style_command_close,
+    composer_style_mention,
+    composer_style_cancel,
+    composer_style_controls,
+    composer_style_row,
+    composer_style_edit,
+    composer_style_hidden,
+    composer_style_count
+};
+// One widget of the composer tree: the scene member that keeps its handle (null for the next plugin slot) and the
+// member of its parent (null for the root).
+struct ComposerWidgetSpec {
+    UiWidgetHandle MessageComposerScene::*handle;
+    UiWidgetHandle MessageComposerScene::*parent;
+    const char* name;
+    u8 name_bytes;
+    u8 id;
+    UiWidgetKind kind;
+    ComposerStyle style;
+    u8 flags;
+};
+constexpr ComposerWidgetSpec composer_widget(UiWidgetHandle MessageComposerScene::*handle,
+                                             UiWidgetHandle MessageComposerScene::*parent, Utf8View name, u32 id,
+                                             UiWidgetKind kind, ComposerStyle style, u16 flags = ui_widget_none) noexcept {
+    return {handle, parent, name.data, static_cast<u8>(name.bytes), static_cast<u8>(id), kind, style,
+            static_cast<u8>(flags)};
+}
+constexpr u16 kComposerControlFlags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test);
+constexpr u16 kComposerFocusFlags = static_cast<u16>(kComposerControlFlags | ui_widget_focusable);
+using Scene = MessageComposerScene;
+// The creation order sets the hit-test and focus order. The option bar leads the stacked bars, before the reply bar.
+constexpr ComposerWidgetSpec kComposerWidgets[]{
+    composer_widget(&Scene::root, nullptr, utf8_literal("MessageComposer"), kComposerRootId, UiWidgetKind::container,
+                    composer_style_root),
+    composer_widget(&Scene::typing_indicator, &Scene::root, utf8_literal("TypingIndicator"), kComposerTypingId,
+                    UiWidgetKind::text, composer_style_typing),
+    composer_widget(&Scene::surface, &Scene::root, utf8_literal("ComposerSurface"), kComposerSurfaceId,
+                    UiWidgetKind::container, composer_style_surface),
+    composer_widget(&Scene::command_bar, &Scene::surface, utf8_literal("CommandBar"), kComposerCommandBarId,
+                    UiWidgetKind::container, composer_style_banner),
+    composer_widget(&Scene::command_close, &Scene::command_bar, utf8_literal("Close"), kComposerCommandCloseId,
+                    UiWidgetKind::button, composer_style_command_close),
+    composer_widget(&Scene::reply, &Scene::surface, utf8_literal("ReplyBanner"), kComposerReplyId,
+                    UiWidgetKind::container, composer_style_banner),
+    composer_widget(&Scene::reply_mention, &Scene::reply, utf8_literal("ReplyMention"), kComposerReplyMentionId,
+                    UiWidgetKind::button, composer_style_mention),
+    composer_widget(&Scene::reply_cancel, &Scene::reply, utf8_literal("CancelReply"), kComposerReplyCancelId,
+                    UiWidgetKind::button, composer_style_cancel),
+    composer_widget(&Scene::attachments, &Scene::surface, utf8_literal("Attachments"), kComposerAttachmentsId,
+                    UiWidgetKind::button, composer_style_reply),
+    composer_widget(&Scene::controls, &Scene::surface, utf8_literal("ComposerControls"), kComposerControlsId,
+                    UiWidgetKind::container, composer_style_controls, ui_widget_enabled),
+    composer_widget(&Scene::add_attachment, &Scene::controls, utf8_literal("AddAttachment"), kComposerAttachmentId,
+                    UiWidgetKind::button, composer_style_row, kComposerControlFlags),
+    composer_widget(&Scene::edit, &Scene::controls, utf8_literal("MessageEdit"), kComposerEditId,
+                    UiWidgetKind::text_field, composer_style_edit, kComposerFocusFlags),
+    composer_widget(nullptr, &Scene::controls, utf8_literal("PluginSlot"), kComposerPluginId, UiWidgetKind::button,
+                    composer_style_hidden),
+    composer_widget(nullptr, &Scene::controls, utf8_literal("PluginSlot"), kComposerPluginId + 1,
+                    UiWidgetKind::button, composer_style_hidden),
+    composer_widget(nullptr, &Scene::controls, utf8_literal("PluginSlot"), kComposerPluginId + 2,
+                    UiWidgetKind::button, composer_style_hidden),
+    composer_widget(nullptr, &Scene::controls, utf8_literal("PluginSlot"), kComposerPluginId + 3,
+                    UiWidgetKind::button, composer_style_hidden),
+    composer_widget(&Scene::gif, &Scene::controls, utf8_literal("GIFs"), kComposerGifId, UiWidgetKind::button,
+                    composer_style_row, kComposerFocusFlags),
+    composer_widget(&Scene::sticker, &Scene::controls, utf8_literal("Stickers"), kComposerStickerId,
+                    UiWidgetKind::button, composer_style_row, kComposerFocusFlags),
+    composer_widget(&Scene::emoji, &Scene::controls, utf8_literal("Emoji"), kComposerEmojiId, UiWidgetKind::button,
+                    composer_style_row, kComposerFocusFlags),
+    composer_widget(&Scene::send, &Scene::controls, utf8_literal("Send"), kComposerSendId, UiWidgetKind::button,
+                    composer_style_row, kComposerFocusFlags),
+};
+static_assert(kMessageComposerPluginSlots == 4, "kComposerWidgets lists one entry for each plugin slot");
+static_assert(kComposerCommandCloseId <= 0xFF);
+
 } // namespace
 
 bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexcept {
@@ -870,87 +934,47 @@ bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexce
         message_composer_scene_release(scene);
         return false;
     }
-    UiWidgetBuilder b(scene->widgets);
-    constexpr u16 control_flags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test);
-    constexpr u16 focus_flags = static_cast<u16>(control_flags | ui_widget_focusable);
-    const UiWidgetResult root = b.widget(ui_widget_invalid_handle(), {kComposerRootId, utf8_literal("MessageComposer")},
-                                         UiWidgetKind::container, ui_widget_none, root_style());
-    const UiWidgetResult typing = b.widget(root.handle, {kComposerTypingId, utf8_literal("TypingIndicator")},
-                                           UiWidgetKind::text, ui_widget_none, typing_style());
-    const UiWidgetResult surface = b.widget(root.handle, {kComposerSurfaceId, utf8_literal("ComposerSurface")},
-                                            UiWidgetKind::container, ui_widget_none, surface_style());
-    UiLayoutStyle banner_style = reply_style();
-    banner_style.padding = UiInsets{kUiMenuRowHorizontalPadding, 0.f, 0.f, 0.f};
-    // The option bar leads the stacked bars, before the reply bar.
-    const UiWidgetResult command_bar = b.widget(surface.handle, {kComposerCommandBarId, utf8_literal("CommandBar")},
-                                                UiWidgetKind::container, ui_widget_none, banner_style);
-    UiLayoutStyle command_close_style = fixed_control_style(kMessageComposerCommandBarHeight);
-    command_close_style.height = ui_layout_fixed(kMessageComposerCommandBarHeight);
-    command_close_style.horizontal_alignment = UiLayoutAlignment::end;
-    command_close_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
-    const UiWidgetResult command_close = b.widget(command_bar.handle, {kComposerCommandCloseId, utf8_literal("Close")},
-                                                  UiWidgetKind::button, ui_widget_none, command_close_style);
-    const UiWidgetResult reply = b.widget(surface.handle, {kComposerReplyId, utf8_literal("ReplyBanner")},
-                                          UiWidgetKind::container, ui_widget_none, banner_style);
+    UiLayoutStyle styles[composer_style_count];
+    styles[composer_style_root] = root_style();
+    styles[composer_style_typing] = typing_style();
+    styles[composer_style_surface] = surface_style();
+    styles[composer_style_reply] = reply_style();
+    styles[composer_style_banner] = styles[composer_style_reply];
+    styles[composer_style_banner].padding = UiInsets{kUiMenuRowHorizontalPadding, 0.f, 0.f, 0.f};
+    UiLayoutStyle& command_close = styles[composer_style_command_close];
+    command_close = fixed_control_style(kMessageComposerCommandBarHeight);
+    command_close.height = ui_layout_fixed(kMessageComposerCommandBarHeight);
+    command_close.horizontal_alignment = UiLayoutAlignment::end;
+    command_close.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
     // The "@ ON" switch is padded 8x12: 16 DIP icon, 4 DIP gap, bold label.
-    UiLayoutStyle mention_style = fixed_control_style(kMessageComposerReplyMentionWidth);
-    mention_style.height = ui_layout_fixed(kComposerReplyHeight);
-    mention_style.horizontal_alignment = UiLayoutAlignment::end;
-    mention_style.margin.right = kComposerReplyHeight + 2 * kComposerRowGap + 1;
-    mention_style.flags = ui_layout_node_clip_children;
-    const UiWidgetResult mention = b.widget(reply.handle, {kComposerReplyMentionId, utf8_literal("ReplyMention")},
-                                            UiWidgetKind::button, ui_widget_none, mention_style);
-    UiLayoutStyle cancel_style = fixed_control_style(kComposerReplyHeight);
-    cancel_style.height = ui_layout_fixed(kComposerReplyHeight);
-    cancel_style.horizontal_alignment = UiLayoutAlignment::end;
-    cancel_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
-    const UiWidgetResult cancel = b.widget(reply.handle, {kComposerReplyCancelId, utf8_literal("CancelReply")},
-                                           UiWidgetKind::button, ui_widget_none, cancel_style);
-    const UiWidgetResult attachments = b.widget(surface.handle, {kComposerAttachmentsId, utf8_literal("Attachments")},
-                                                UiWidgetKind::button, ui_widget_none, reply_style());
-    const UiWidgetResult controls = b.widget(surface.handle, {kComposerControlsId, utf8_literal("ComposerControls")},
-                                             UiWidgetKind::container, ui_widget_enabled, controls_style());
-    const UiLayoutStyle row_control = fixed_control_style(kUiMenuRowHeight);
-    const UiWidgetResult attachment = b.widget(controls.handle, {kComposerAttachmentId, utf8_literal("AddAttachment")},
-                                               UiWidgetKind::button, control_flags, row_control);
-    const UiWidgetResult edit = b.widget(controls.handle, {kComposerEditId, utf8_literal("MessageEdit")},
-                                         UiWidgetKind::text_field, focus_flags, edit_style());
-    UiWidgetResult plugins[kMessageComposerPluginSlots]{};
-    UiLayoutStyle hidden = row_control;
-    hidden.flags = static_cast<u16>(hidden.flags & ~ui_layout_node_visible);
-    for (u32 i = 0; i < kMessageComposerPluginSlots; ++i)
-        plugins[i] = b.widget(controls.handle, {kComposerPluginId + i, utf8_literal("PluginSlot")},
-                              UiWidgetKind::button, ui_widget_none, hidden);
-    const UiWidgetResult gif = b.widget(controls.handle, {kComposerGifId, utf8_literal("GIFs")},
-                                        UiWidgetKind::button, focus_flags, row_control);
-    const UiWidgetResult sticker = b.widget(controls.handle, {kComposerStickerId, utf8_literal("Stickers")},
-                                            UiWidgetKind::button, focus_flags, row_control);
-    const UiWidgetResult emoji = b.widget(controls.handle, {kComposerEmojiId, utf8_literal("Emoji")},
-                                          UiWidgetKind::button, focus_flags, row_control);
-    const UiWidgetResult send = b.widget(controls.handle, {kComposerSendId, utf8_literal("Send")},
-                                         UiWidgetKind::button, focus_flags, row_control);
+    UiLayoutStyle& mention = styles[composer_style_mention];
+    mention = fixed_control_style(kMessageComposerReplyMentionWidth);
+    mention.height = ui_layout_fixed(kComposerReplyHeight);
+    mention.horizontal_alignment = UiLayoutAlignment::end;
+    mention.margin.right = kComposerReplyHeight + 2 * ui_theme_metrics(scene->theme_styles).composer_padding + 1;
+    mention.flags = ui_layout_node_clip_children;
+    UiLayoutStyle& cancel = styles[composer_style_cancel];
+    cancel = fixed_control_style(kComposerReplyHeight);
+    cancel.height = ui_layout_fixed(kComposerReplyHeight);
+    cancel.horizontal_alignment = UiLayoutAlignment::end;
+    cancel.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    styles[composer_style_controls] = controls_style();
+    styles[composer_style_row] = fixed_control_style(accessory_width(scene->theme_styles));
+    styles[composer_style_edit] = edit_style();
+    styles[composer_style_hidden] = styles[composer_style_row];
+    styles[composer_style_hidden].flags = static_cast<u16>(styles[composer_style_row].flags & ~ui_layout_node_visible);
+    UiWidgetBuilder b(scene->widgets);
+    u32 plugin = 0;
+    for (const ComposerWidgetSpec& spec : kComposerWidgets) {
+        const UiWidgetResult result =
+            b.widget(spec.parent ? scene->*spec.parent : ui_widget_invalid_handle(),
+                     {spec.id, {spec.name, spec.name_bytes}}, spec.kind, spec.flags, styles[spec.style]);
+        (spec.handle ? scene->*spec.handle : scene->plugin_slots[plugin++]) = result.handle;
+    }
     if (!b.ok()) {
         message_composer_scene_release(scene);
         return false;
     }
-    scene->root = root.handle;
-    scene->surface = surface.handle;
-    scene->reply = reply.handle;
-    scene->reply_mention = mention.handle;
-    scene->reply_cancel = cancel.handle;
-    scene->command_bar = command_bar.handle;
-    scene->command_close = command_close.handle;
-    scene->attachments = attachments.handle;
-    scene->controls = controls.handle;
-    scene->add_attachment = attachment.handle;
-    scene->edit = edit.handle;
-    scene->emoji = emoji.handle;
-    scene->gif = gif.handle;
-    scene->sticker = sticker.handle;
-    scene->send = send.handle;
-    scene->typing_indicator = typing.handle;
-    for (u32 i = 0; i < kMessageComposerPluginSlots; ++i)
-        scene->plugin_slots[i] = plugins[i].handle;
     return true;
 }
 
@@ -976,27 +1000,12 @@ bool message_composer_scene_control_visible(const MessageComposerScene& scene,
 
 float message_composer_scene_text_width(float composer_width,
                                         const UiResolvedThemeStyles* styles) noexcept {
-    const auto& metrics = ui_theme_metrics(styles);
-    const float plugins = static_cast<float>(plugin_slot_count());
-    const float actions = composer_width >= full_controls_minimum_width(styles) ? 5.f + plugins
-                          : compact_controls(composer_width, styles)            ? 3.f + plugins
-                                                                                : 1.f;
-    return maximum(0.f, composer_width - metrics.composer_padding - metrics.composer_padding -
-                            actions * (accessory_width(styles) + metrics.composer_padding) - metrics.menu_gap -
-                            metrics.menu_gap);
+    return controls_text_width(composer_width, styles, plugin_slot_count());
 }
 
 float message_composer_scene_toolbar_height(float composer_width,
                                             const UiResolvedThemeStyles* styles) noexcept {
-    if (composer_width <= 0.f || composer_width >= compact_controls_minimum_width(styles))
-        return 0.f;
-    const float gap = ui_theme_metrics(styles).composer_padding;
-    const float available = maximum(0.f, composer_width - gap - gap);
-    const u32 trailing = 4u + plugin_slot_count();
-    const u32 columns =
-        minimum(trailing, maximum(1u, static_cast<u32>((available + gap) / (accessory_width(styles) + gap))));
-    const u32 rows = (trailing + columns - 1u) / columns;
-    return static_cast<float>(rows) * (accessory_height(styles) + gap);
+    return composer_width <= 0.f ? 0.f : controls_toolbar_height(composer_width, styles, plugin_slot_count());
 }
 
 static float composer_row_height(float natural, const UiResolvedThemeStyles* styles) noexcept {
@@ -1108,11 +1117,12 @@ MessageComposerSceneResult message_composer_scene_update(
         enabled_if(voice_bar ? voice_controls : attachments.can_attach);
     send->flags = enabled_if(send_enabled);
     emoji->flags = enabled_if(voice_bar ? voice_controls : channel_allows_send);
-    gif->flags = sticker->flags =
-        compact_controls(ui_rect_width(viewport), scene->theme_styles) || voice_bar ? ui_widget_none
-                                                                                    : enabled_if(can_send);
-    edit->flags = voice_bar ? static_cast<u16>(ui_widget_hit_test) : enabled_if(channel_allows_send);
     const u32 plugin_count = plugin_slot_count();
+    gif->flags = sticker->flags =
+        compact_controls(ui_rect_width(viewport), scene->theme_styles, plugin_count) || voice_bar
+            ? ui_widget_none
+            : enabled_if(can_send);
+    edit->flags = voice_bar ? static_cast<u16>(ui_widget_hit_test) : enabled_if(channel_allows_send);
     for (u32 i = 0; i < kMessageComposerPluginSlots; ++i)
         if (UiWidget* plugin = ui_widget_manager_resolve(&scene->widgets, scene->plugin_slots[i]))
             plugin->flags = i < plugin_count && !voice_bar
@@ -1429,7 +1439,7 @@ MessageComposerControl message_composer_scene_focused_control(const MessageCompo
     const auto* widget = ui_widget_manager_resolve(scene.widgets, scene.widgets.focused);
     if (!widget || !(widget->flags & ui_widget_focusable))
         return MessageComposerControl::none;
-    const MessageComposerControl controls[] = {
+    static constexpr MessageComposerControl controls[] = {
         MessageComposerControl::command_close, MessageComposerControl::cancel_reply,
         MessageComposerControl::reply_mention,
         MessageComposerControl::edit,         MessageComposerControl::gif,
@@ -1562,7 +1572,7 @@ u32 message_composer_scene_model_offset_from_display(const MessageComposerScene&
         return 0;
     }
     const u32 display = minimum(display_byte_offset, scene.display_bytes);
-    i64 adjustment = static_cast<i64>(scene.display_first);
+    i64 adjustment = 0;
     for (u32 index = 0; index < scene.projection_span_count; ++index) {
         const MessageComposerProjectionSpan& span = scene.projection_spans[index];
         if (display <= span.display_first) {
@@ -1589,10 +1599,9 @@ bool message_composer_scene_composition_range(const MessageComposerScene& scene,
     u32 begin = 0, end = 0;
     const auto source = message_composer_text(*scene.model);
     if (!utf8_byte_offset_for_utf16_position(source, span.start, &begin) ||
-        !utf8_byte_offset_for_utf16_position(source, span.end, &end) || end <= scene.display_first ||
+        !utf8_byte_offset_for_utf16_position(source, span.end, &end) || end == 0 ||
         begin >= scene.display_source_last)
         return false;
-    begin = maximum(begin, scene.display_first);
     end = minimum(end, scene.display_source_last);
     const auto display = message_composer_scene_display_text(scene);
     return utf8_utf16_position_for_byte_offset(
