@@ -286,8 +286,10 @@ GatewayClientSelfStatusSnapshot gateway_client_self_status_snapshot(const Gatewa
     result.settings_known = owner.settings_known;
     result.available = owner.self_user_id && load_phase(client) == GatewayClientPhase::ready;
     result.pending = owner.request_id || (owner.authoritative && gateway_self_status_pending(owner));
-    result.revision =
-        owner.revision_serial * 4 + (result.authoritative ? 1 : 0) + (result.available ? 2 : 0);
+    // Matches gateway_presence_effective, which reads the same local presence.
+    result.idle = runtime->local_presence.idle && runtime->local_presence.idle_since_ms;
+    result.revision = owner.revision_serial * 8 + (result.authoritative ? 1 : 0) + (result.available ? 2 : 0) +
+                      (result.idle ? 4 : 0);
     ReleaseSRWLockShared(&runtime->subscription_lock);
     return result;
 }

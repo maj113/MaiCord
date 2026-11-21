@@ -6,10 +6,10 @@
 namespace maicord {
 namespace {
 constexpr u8 kWireMarker = 0xA8;
-constexpr u32 kMaximumUsers = 2048;
+constexpr u32 kMaximumUsers = kUserCacheMaximumUsers;
 constexpr u32 kRecordMaximumBytes = kUserActivityRecordMaximumBytes;
-// Bank budget: 2048 users at 512 bytes, about twice a typical rich presence.
-constexpr u32 kBankBytes = 1024 * 1024;
+// Bank budget: 512 bytes for each user, about twice a typical rich presence. The bank commits as it fills.
+constexpr u32 kBankBytes = kMaximumUsers * 512;
 constexpr u16 kDeadEntry = 0xFFFF;
 struct Row {
     u64 user_id;

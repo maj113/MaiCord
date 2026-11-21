@@ -979,6 +979,62 @@ void ready_outputs(void (*check)(bool, const char*) noexcept) noexcept {
     launch_presence = 0;
 }
 
+// A status that is not saved (issue 20): as the official client does, after READY the session holds Online,
+// publishes Idle while the user is away and Online when the user is back. A local presence change bumps the
+// owner's revision, as gateway_client_local_presence does.
+void unsaved_presence(void (*check)(bool, const char*) noexcept) noexcept {
+    using A = GatewayLifecycleAction;
+    const auto frame = [](const GatewayPresenceUpdate& presence, Utf8View expected) noexcept {
+        const auto written = write_self_presence(&runtime, presence, true);
+        return written.ok() && written.bytes == expected.bytes &&
+               bytes_equal(runtime.gateway_payload, expected.data, written.bytes);
+    };
+    const auto sent = []() noexcept {
+        gateway_self_status_admit(&runtime.self_status, runtime.self_status.revision, 1);
+        gateway_self_status_complete(&runtime.self_status, true);
+    };
+    reset_value(&runtime.self_status);
+    reset_value(&runtime.local_presence);
+    gateway_outbound_reset(&runtime.outbound);
+    launch_presence = 0;
+    // The account module's identify configuration seeds Invisible until saved settings arrive.
+    gateway_self_status_initialize(&runtime.self_status, 7, {0, GatewayUserStatus::invisible, false, false});
+    gateway_self_status_bind(&runtime.self_status, 9);
+    runtime.identify_presence = {0, GatewayUserStatus::online, false, false};
+    queue_ready_outputs(&runtime);
+    check(take_action() == A::send_idle_voice_state && take_action() == A::none && !self_presence_due(&runtime),
+          "Gateway without a saved status holds the Online its identify carried after READY");
+    runtime.local_presence.idle = true;
+    runtime.local_presence.idle_since_ms = 1234;
+    ++runtime.self_status.revision;
+    check(self_presence_due(&runtime) &&
+              frame(ready_presence(&runtime),
+                    utf8_literal(R"({"op":3,"d":{"status":"idle","since":1234,"activities":[],"afk":true}})")),
+          "Gateway without a saved status publishes Idle while the user is away");
+    sent();
+    const bool held = !self_presence_due(&runtime);
+    reset_value(&runtime.local_presence);
+    ++runtime.self_status.revision;
+    check(held && self_presence_due(&runtime) &&
+              frame(ready_presence(&runtime),
+                    utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[],"afk":false}})")),
+          "Gateway without a saved status publishes Online when the user is back");
+    sent();
+    // A READY whose identify did not carry Online sends the settled Online and counts it as held once sent.
+    gateway_self_status_reset_connection(&runtime.self_status);
+    runtime.identify_presence = {0, GatewayUserStatus::unknown, false, false};
+    queue_ready_outputs(&runtime);
+    const bool settles = take_action() == A::send_identify_presence && take_action() == A::send_idle_voice_state &&
+                         take_action() == A::send_ready_presence && self_presence_due(&runtime);
+    sent();
+    check(settles && !self_presence_due(&runtime),
+          "Gateway without a saved status counts the settled Online of READY as held once sent");
+    reset_value(&runtime.self_status);
+    gateway_outbound_reset(&runtime.outbound);
+    SecureZeroMemory(runtime.gateway_payload, sizeof(runtime.gateway_payload));
+    launch_presence = 0;
+}
+
 // READY's auth_token (AUTH_TOKEN_REFRESH) becomes the worker's credential and waits once for the owner; an
 // unchanged or malformed one changes nothing.
 void token_refresh(void (*check)(bool, const char*) noexcept) noexcept {
@@ -1158,6 +1214,7 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     mailbox_wakeups(check);
     identify_sequence(check);
     ready_outputs(check);
+    unsaved_presence(check);
     token_refresh(check);
     auth_session_change(check);
     subscription_once(check);

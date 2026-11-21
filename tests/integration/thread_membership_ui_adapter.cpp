@@ -138,8 +138,7 @@ bool seed_models(ThreadAdapter& fixture) noexcept {
             kThreadMembershipProbeSelf, false))
         return false;
     if (!chat_state_store_select_channel(&state, kThreadMembershipProbePublic).ok() ||
-        !user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-            {ui.user_order_storage, 4}, {ui.user_name_storage, 2048}) ||
+        !user_store_initialize_owned(&ui.user_store, 4, 1024) ||
         !user_store_upsert(&ui.user_store, kThreadMembershipProbeSelf,
             utf8_literal("Native reviewer"), utf8_literal("reviewer")).ok() ||
         !user_store_upsert(&ui.user_store, 96006, utf8_literal("Thread author"),

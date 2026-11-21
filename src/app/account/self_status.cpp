@@ -3,7 +3,7 @@
 #include "../shell/state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/app/gateway/client.hpp"
+#include "self_presence.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -54,6 +54,9 @@ GatewayClientSelfStatusSnapshot application_self_status_snapshot() noexcept {
         snapshot.revision ^= static_cast<u64>(request.revision) << 32;
     }
     return snapshot;
+}
+UiPresence application_self_presence(u64 self_user_id) noexcept {
+    return self_presence(application_self_status_snapshot(), g_app.account.status.profile_id, self_user_id);
 }
 void application_self_status_synchronize() noexcept {
     synchronize();

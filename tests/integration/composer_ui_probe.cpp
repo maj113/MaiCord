@@ -220,8 +220,7 @@ bool initialize(HWND window) noexcept {
                                            {ui.channel_order_storage, 8}, {ui.chat_state_name_storage, 4096}) &&
                 chat_state_store_bind_permissions(&ui.chat_state, {fixture->roles, 2},
                                                      {fixture->overwrites, 8}) &&
-                user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-                                              {ui.user_order_storage, 4}, {ui.user_name_storage, 2048}) &&
+                user_store_initialize_owned(&ui.user_store, 4, 1024) &&
                 navigation_view_initialize(
                     &ui.navigation_view, {ui.navigation_guild_rows, 2}, {ui.navigation_channel_rows, 8},
                     {fixture->channel_scratch, 8}, {fixture->visibility, 8}, {fixture->channel_keys, 8}) &&

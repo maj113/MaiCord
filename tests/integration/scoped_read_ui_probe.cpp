@@ -259,8 +259,7 @@ bool account_storage() noexcept {
                                         {ui.channel_order_storage, kChannels}, {ui.chat_state_name_storage, 8192}) ||
         !read_state_initialize(&ui.read_state_store, {f.read_pending, kChannels}) ||
         !read_state_bind(&ui.chat_state, &ui.read_state_store) ||
-        !user_store_initialize(&ui.user_store, {ui.user_record_storage, 2},
-                                       {ui.user_order_storage, 2}, {ui.user_name_storage, 512}) ||
+        !user_store_initialize_owned(&ui.user_store, 2, 256) ||
         !user_store_upsert(&ui.user_store, 99, utf8_literal("Alex"), utf8_literal("alex"))
              .ok() ||
         !navigation_view_initialize(

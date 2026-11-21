@@ -678,6 +678,23 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     const bool cached = p->data.user_id == user && p->data.guild_id == guild && p->loaded_at &&
                         clock_monotonic_milliseconds() - p->loaded_at < 60000;
     dismiss_popup();
+    const auto* member = guild_member_store_find(g_app.account_ui->guild_member_store, guild, user);
+    // Each open reads the presence again, also for a cached profile: a status changes faster than a profile.
+    // As in the official client, the account's own user shows the status that the session publishes in every
+    // view, never a member row or the DM path. A member row can lag a status change. The event pump keeps no
+    // platforms for this user, so the DM path reads it as offline.
+    const bool self = user == state.self_user_id;
+    p->scene.presence = self ? application_self_presence(user) : UiPresence::unknown;
+    if (!self && member)
+        p->scene.presence = static_cast<UiPresence>(member->status);
+    // Without a member row (DMs, friends, an unlisted member) the user's
+    // presence as DMs show it.
+    const auto* rows =
+        p->scene.presence == UiPresence::unknown && !self ? application_private_channel_rows() : nullptr;
+    if (rows)
+        p->scene.presence = ui_user_presence(*rows, user);
+    p->scene.presence_mobile =
+        ui_presence_mobile(p->scene.presence, user_store_client_status(g_app.account_ui->user_store, user));
     if (!cached) {
         p->mutation = ProfileRoleChange::none;
         p->mutation_role = 0;
@@ -694,16 +711,6 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
             assign(&p->data.username, user_store_username(g_app.account_ui->user_store, *u));
             assign(&p->data.avatar, user_store_avatar_hash(*u));
         }
-        const auto* member =
-            guild_member_store_find(g_app.account_ui->guild_member_store, guild, user);
-        p->scene.presence = member ? static_cast<UiPresence>(member->status) : UiPresence::unknown;
-        // Without a member row (DMs, friends, an unlisted member) the user's
-        // presence as DMs show it.
-        const auto* rows = p->scene.presence == UiPresence::unknown ? application_private_channel_rows() : nullptr;
-        if (rows)
-            p->scene.presence = ui_user_presence(*rows, user);
-        p->scene.presence_mobile =
-            ui_presence_mobile(p->scene.presence, user_store_client_status(g_app.account_ui->user_store, user));
         if (member) {
             assign(&p->data.nickname, guild_member_store_nickname(*member));
             // The member's cached roles show while the profile loads and stay if its fetch fails.

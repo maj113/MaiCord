@@ -283,8 +283,7 @@ bool account_storage() noexcept {
     if (!chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 1},
                                         {ui.guild_order_storage, 1}, {ui.channel_record_storage, 1},
                                         {ui.channel_order_storage, 1}, {ui.chat_state_name_storage, 256}) ||
-        !user_store_initialize(&ui.user_store, {ui.user_record_storage, 2},
-                                       {ui.user_order_storage, 2}, {ui.user_name_storage, 512}) ||
+        !user_store_initialize_owned(&ui.user_store, 2, 256) ||
         !user_store_upsert(&ui.user_store, 99, utf8_literal("Alex"), utf8_literal("alex"))
              .ok() ||
         !navigation_view_initialize(&ui.navigation_view, {ui.navigation_guild_rows, 1},

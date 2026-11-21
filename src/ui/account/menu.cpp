@@ -30,7 +30,8 @@ void action(PopupItem* item, Utf8View label, UiAccountMenuAction value, UiIcon i
 } // namespace
 bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentity& identity) noexcept {
     if (!model || !identity.user_id || !valid_identity_label(identity.display_name) ||
-        !valid_identity_label(identity.username) || identity.presence > UiPresence::offline)
+        !valid_identity_label(identity.username) || identity.presence > UiPresence::offline ||
+        identity.shown > UiPresence::offline)
         return false;
     const auto name = identity.display_name.bytes ? identity.display_name
                       : identity.username.bytes   ? identity.username
@@ -60,7 +61,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     header.media_id = identity.user_id;
     header.media_variant = identity.avatar_variant;
     header.media_flags = identity.avatar_animated ? 1 : 0;
-    header.status = static_cast<u8>(identity.presence);
+    header.status = static_cast<u8>(identity.shown);
     action(&model->items[1], utf8_literal("View profile"), UiAccountMenuAction::view_profile, UiIcon::user_circle,
            popup_item_separator_before);
     action(&model->items[2], utf8_literal("Edit profile"), UiAccountMenuAction::edit_profile, UiIcon::edit);

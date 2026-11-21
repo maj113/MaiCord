@@ -13,11 +13,13 @@ struct UserRecord {
     u32 name_offset;
     u32 last_seen;
     u32 revision;
-    u16 name_bytes;
-    u16 username_bytes;
+    u8 name_bytes;
+    u8 username_bytes;
     u16 generation;
     u8 avatar_hash_bytes;
     bool occupied;
+    // The username is the display name (a user without a global name): the bank holds the bytes once.
+    bool username_shared;
     char avatar_hash[kUserAvatarHashMaximumBytes];
     // The pin mark of the store's pin epoch when the record was pinned; read through user_store_pinned.
     u8 pin_mark;
@@ -34,9 +36,16 @@ struct UserStore {
     UserRecord* records;
     u32* order;
     u8* names;
+    // The address range of user_store_initialize_owned (records, order, then the two name banks), committed as the
+    // store fills. Null for caller storage, which is writable whole.
+    u8* reservation;
     u32 capacity;
+    // The records and order entries that are writable.
+    u32 committed;
     u32 count;
     u32 name_bank_bytes;
+    // The writable bytes at the start of each name bank.
+    u32 name_committed[2];
     u32 name_used;
     u32 name_wasted;
     u32 clock;
@@ -68,6 +77,8 @@ enum class UserStoreError : u8 {
     invalid_utf8,
     name_too_large,
     name_capacity,
+    // The system refused to commit owned storage.
+    memory,
 };
 
 struct UserStoreResult {
@@ -84,10 +95,15 @@ bool user_store_initialize(UserStore* store,
                                    Slice<UserRecord> records,
                                    Slice<u32> order,
                                    Slice<u8> double_buffered_names) noexcept;
-// For zero-filled (freshly committed) arrays: leaves their contents unchanged,
-// so record pages are touched only as slots fill. The count bounds order reads.
-bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
-                                  Slice<u8> double_buffered_names) noexcept;
+// Reserves address space for `capacity` users and two name banks of `name_bank_bytes` (rounded up to whole pages), and
+// commits it as users arrive: records in steps of kUserStoreCommitUsers (the order in steps of 4,096 users), names in
+// steps of kUserStoreCommitNameBytes. A compaction returns the pages of the bank it leaves. The store evicts only when it
+// holds `capacity` users or a full bank of live names. user_store_release returns the range.
+inline constexpr u32 kUserStoreCommitUsers = 256;
+inline constexpr u32 kUserStoreCommitNameBytes = 16 * 1024;
+bool user_store_initialize_owned(UserStore* store, u32 capacity, u32 name_bank_bytes) noexcept;
+// Releases owned storage and the appearance and activity stores; the store is empty afterwards.
+void user_store_release(UserStore* store) noexcept;
 void user_store_clear_pins(UserStore* store) noexcept;
 bool user_store_pin(UserStore* store, u64 id) noexcept;
 UserStoreResult user_store_upsert(UserStore* store,

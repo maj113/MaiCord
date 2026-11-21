@@ -249,7 +249,7 @@ RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
     const bool post = request.route.method == RestMethod::post && request.json_body &&
                       request.body.count <= kRestClientMaximumRequestBodyBytes;
     if (response_capacity < kRestClientMinimumResponseBytes ||
-        response_capacity > kRestClientMaximumResponseBytes || (!get && !post))
+        response_capacity > kRestClientMaximumLargeResponseBytes || (!get && !post))
         return {RestClientSubmitError::invalid_input};
     return submit_request(client, request, response_capacity);
 }

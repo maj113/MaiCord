@@ -1131,6 +1131,23 @@ void header_keyboard_cases() noexcept {
     g_app.context_focus = nullptr;
 }
 
+// Leaving a server empties its slot. The server in the later slot still names the user in the popout.
+void header_removed_server_cases() noexcept {
+    auto& state = g_app.account_ui->chat_state;
+    const bool removed = chat_state_store_remove_guild(&state, 10, false) && state.guild_count == 1 &&
+                         !state.guilds[0].occupied && state.guilds[1].occupied && state.guilds[1].id == 11;
+    chat_state_store_select_channel(&state, 9998);
+    application_private_header_popout(true);
+    const auto* shown = g_app.renderer.names_card_scene;
+    check(removed && shown && shown->active && shown->row_count == 1 && shown->icon_count[0] == 1 &&
+              utf8_equal({shown->nickname_text[0], shown->nickname_bytes[0]}, utf8_literal("TIL")) &&
+              utf8_equal({shown->initial_text[0], shown->initial_bytes[0]}, utf8_literal("W")),
+          "DM header: after leaving a server, a nickname from a server in a later slot still shows");
+    application_private_header_popout(false);
+    check(chat_state_store_upsert_guild(&state, {10, utf8_literal("Til Server"), GuildMutationKind::create, 3}).ok(),
+          "DM header: the left server comes back for the later cases");
+}
+
 void names_card_cases() noexcept {
     static UiNamesCardScene card;
     UiNamesCardContent content{};
@@ -1197,6 +1214,7 @@ void run() noexcept {
     row_cases();
     header_identity_cases();
     header_keyboard_cases();
+    header_removed_server_cases();
     names_card_cases();
     panel_cases();
     bot_cases();

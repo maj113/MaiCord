@@ -599,7 +599,7 @@ maicord_test(MaiCordStartupRecordTests ENTRY maicord_startup_record_entry
     LINUX LIBS maicord_app_net maicord_net maicord_crypto maicord_desktop_system maicord_protocol maicord_compression
             maicord_media_codec maicord_window_null maicord_core
         INCLUDES tests
-    TIMEOUT 10 TEST maicord_startup_record)
+    TIMEOUT 10 ENVIRONMENT XDG_CURRENT_DESKTOP=KDE GDMSESSION=plasma TEST maicord_startup_record)
 if(MAICORD_LINUX)
     # Tests of the application libraries on Linux: the updater's signed-manifest,
     # artifact, acceptance, preparation and package pipeline, which the Windows suite runs inside its native-extension
@@ -3144,6 +3144,9 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/call_scene_ui_probe.cpp
         tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/shell/app_icon.cpp config/maicord.rc
+        tests/integration/showcase_probe.cpp tests/integration/showcase_probe_art.cpp
+        tests/integration/showcase_probe_hub.cpp tests/integration/showcase_probe_channels.cpp
+        tests/integration/showcase_probe_store.cpp
         tests/integration/login_recovery_ui_probe.cpp
         tests/ui/account/login_reset_ui_probe.cpp tests/integration/login_phone_ui_probe.cpp
         tests/integration/login_browser_ui_probe.cpp tests/integration/member_paging_probe.cpp
@@ -3173,7 +3176,7 @@ maicord_test(MaiCordUiProbe ONLY WINDOWS WIN32 ENTRY maicord_ui_probe_entry
 if(NOT MAICORD_LINUX)
     # The constinit probe state (renderer plus every scene owner) exceeds the
     # default constant-evaluation step budget.
-    set_source_files_properties(tests/integration/ui_probe.cpp
+    set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
         PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
     # These units are mostly their own code, so unoptimized without the
     # application PCH (which is /O2) compiles them several times faster.
@@ -3323,6 +3326,18 @@ maicord_ui_probe_test(maicord_startup_glyph_atlas_probe STARTUP_GLYPH_ATLAS_PROB
     LABELS native-ui display RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_startup_glyph_atlas_warp_probe STARTUP_GLYPH_ATLAS_PROBE BOOTSTRAP WARP TIMEOUT 15
     LABELS native-ui display)
+# Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
+# runs label showcase only when the test is named, e.g.
+# -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
+# With MAICORD_SHOWCASE_THEME (a theme with variants) and optionally
+# MAICORD_SHOWCASE_EFFECT (its .mcfx) it takes only that theme through the day;
+# MAICORD_SHOWCASE_TRANSITIONS adds frame strips of a theme glide and a knob change;
+# MAICORD_SHOWCASE_HERO (the window in DIPs, e.g. 1440x900) takes instead only the
+# animated hero in that theme with the channel tabs on, for the README and the site;
+# MAICORD_SHOWCASE_FRIENDS takes only the Friends page in Dark, Light, AMOLED and
+# Aurora, then by day and night in MAICORD_SHOWCASE_THEME's theme when one is named.
+maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP LABELS showcase display
+    RESOURCE_LOCK native_gpu)
 # The full app shell (chat, member list) fills the glyph atlas, then the account signs out and the sign-in screen
 # replaces it, followed by the loop's maintenance and an idle trim: the sign-in quads stay resident and drawn.
 maicord_ui_probe_test(maicord_signout_glyph_atlas_probe SIGNOUT_GLYPH_ATLAS_PROBE BOOTSTRAP TIMEOUT 15

@@ -10,6 +10,7 @@
 #include "../settings/settings.hpp"
 #include "../shell/tooltip.hpp"
 #include "self_status.hpp"
+#include "self_presence.hpp"
 #include "custom_status.hpp"
 #include "application_account_switch.hpp"
 #include "maicord/ui/account/menu.hpp"
@@ -120,6 +121,7 @@ inline UiAccountMenuIdentity identity(u64 self_user, u32* revision, u64* status_
     }
     const auto status = application_self_status_snapshot();
     *status_revision = status.revision;
+    result.shown = self_presence(status, g_app.account.status.profile_id, self_user);
     if (status.profile_id == g_app.account.status.profile_id && status.self_user_id == self_user &&
         (status.authoritative || status.settings_known)) {
         // An unsaved status stays unknown (no row checked) until the user's choice makes it known.

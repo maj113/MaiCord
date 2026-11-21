@@ -1120,8 +1120,9 @@ MAICORD_LANE_ENTRY(account_module_guild_automation, account_guild_automation_sub
 #undef MAICORD_LANE_ENTRY
 
 RestClientSubmitResult account_module_relationships(void* instance, RelationshipOperation operation, u64 user_id,
-                                                    Utf8View username, u64 request_id) noexcept {
-    return account_relationship_submit(module_rest(instance), operation, user_id, username, request_id);
+                                                    Utf8View username, u64 request_id,
+                                                    RelationshipLocation location) noexcept {
+    return account_relationship_submit(module_rest(instance), operation, user_id, username, request_id, location);
 }
 
 RestClientSubmitResult account_module_message_ack(void* instance, u64 channel_id, u64 message_id, ConstSlice<u8> body,

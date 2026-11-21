@@ -350,8 +350,7 @@ void application_release_account_ui(Application& application) noexcept {
     reaction_viewer_storage_release(&application.reaction_viewer_storage, &application.reaction_viewer,
                                     &application.reaction_viewer_controller);
     private_channel_store_release(&application.account_ui->private_channel_store);
-    user_appearance_release(&application.account_ui->user_store.appearance);
-    user_activity_release(&application.account_ui->user_store.activities);
+    user_store_release(&application.account_ui->user_store);
     guild_member_store_release(&application.account_ui->guild_member_store);
     voice_state_store_release(&application.account_ui->voice_states);
     stable_storage_release(&application.account_ui->thread_member_banks[0]);
@@ -410,11 +409,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             &runtime->chat_state,
             Slice<CustomEmojiRecord>{runtime->emoji_record_storage, kChatStateEmojiCapacity},
             Slice<u64>{runtime->emoji_role_storage, kChatStateEmojiRoleCapacity}) ||
-        !user_store_initialize_sparse(
-            &runtime->user_store,
-            Slice<UserRecord>{runtime->user_record_storage, kUserCapacity},
-            Slice<u32>{runtime->user_order_storage, kUserCapacity},
-            Slice<u8>{runtime->user_name_storage, kUserNameBytes}) ||
+        !user_store_initialize_owned(&runtime->user_store, kUserCacheMaximumUsers, kUserNameBankBytes) ||
         !private_channel_store_initialize_owned(&runtime->private_channel_store,
                                                 kPrivateChannelCapacity,
                                                 kPrivateChannelCapacity * 16) ||
@@ -521,6 +516,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         message_rich_store_release(&runtime->message_rich_store);
         message_poll_store_release(&runtime->message_poll_store);
         private_channel_store_release(&runtime->private_channel_store);
+        user_store_release(&runtime->user_store);
         guild_member_store_release(&runtime->guild_member_store);
         voice_state_store_release(&runtime->voice_states);
         stable_storage_release(&runtime->thread_member_banks[0]);

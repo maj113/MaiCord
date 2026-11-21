@@ -291,7 +291,7 @@ GatewayClientPopResult pop(void* opaque, GatewayClientEvent* event, Slice<u8> ou
 // ------------------------------------------------------- app-shaped stores
 constexpr u32 kGuildCapacity = 256, kChannelCapacity = 4096, kRoleCapacity = 8192,
               kOverwriteCapacity = 32768, kEmojiCapacity = 4096, kEmojiRoleCapacity = 16384,
-              kUserCapacity = 4096, kMemberCapacity = 512;
+              kMemberCapacity = 512;
 struct Stores {
     GuildRecord guilds[kGuildCapacity];
     u16 guild_order[kGuildCapacity];
@@ -303,9 +303,6 @@ struct Stores {
     CustomEmojiRecord emojis[kEmojiCapacity];
     u64 emoji_roles[kEmojiRoleCapacity];
     ReadStateEntry reads[kChannelCapacity];
-    UserRecord users[kUserCapacity];
-    u32 user_order[kUserCapacity];
-    u8 user_names[128 * 1024];
     GuildMemberRecord members[kMemberCapacity];
     u32 member_order[kMemberCapacity];
     u64 thread_a[kThreadMemberMaximumIds], thread_b[kThreadMemberMaximumIds];
@@ -343,8 +340,7 @@ bool initialize(Stores& s) noexcept {
            chat_state_store_bind_emojis_sparse(&s.state, {s.emojis, kEmojiCapacity}, {s.emoji_roles, kEmojiRoleCapacity}) &&
            read_state_initialize(&s.read_state, {s.reads, kChannelCapacity}) &&
            read_state_bind(&s.state, &s.read_state) &&
-           user_store_initialize(&s.user_store, {s.users, kUserCapacity}, {s.user_order, kUserCapacity},
-                                 {s.user_names, sizeof(s.user_names)}) &&
+           user_store_initialize_owned(&s.user_store, kUserCacheMaximumUsers, 4 * 1024 * 1024) &&
            private_channel_store_initialize_owned(&s.private_channels, kChannelCapacity, kChannelCapacity * 16) &&
            guild_member_store_initialize(&s.member_store, {s.members, kMemberCapacity},
                                          {s.member_order, kMemberCapacity}) &&
@@ -586,8 +582,7 @@ void oversized_guild() noexcept {
 void release() noexcept {
     message_event_pump_reset(&stores.pump);
     private_channel_store_release(&stores.private_channels);
-    user_appearance_release(&stores.user_store.appearance);
-    user_activity_release(&stores.user_store.activities);
+    user_store_release(&stores.user_store);
     voice_state_store_release(&stores.voice_states);
 }
 } // namespace maicord::ready_scale_pump_test

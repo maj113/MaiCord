@@ -82,6 +82,7 @@ enum class PrivateConversationOperation : u8;
 struct ProfileEditRequest;
 struct ProfileImageRequest;
 enum class RelationshipOperation : u8;
+enum class RelationshipLocation : u8;
 enum class RemoteAuthClientError : u8;
 enum class RemoteAuthClientEventKind : u8;
 enum class RemoteAuthCryptoError : u8;
@@ -381,7 +382,8 @@ RestClientSubmitResult account_module_application_command(void* instance, u64 ch
                                                           u8 operation) noexcept;
 AccountLoginStatus account_module_login_submit_verification(void* instance, const SecureBuffer* link_token) noexcept;
 RestClientSubmitResult account_module_relationships(void* instance, RelationshipOperation operation, u64 user_id,
-                                                    Utf8View username, u64 request_id) noexcept;
+                                                    Utf8View username, u64 request_id,
+                                                    RelationshipLocation location) noexcept;
 RestClientSubmitResult account_module_message_ack(void* instance, u64 channel_id, u64 message_id, ConstSlice<u8> body,
                                                   u64 request_id) noexcept;
 AccountLoginStatus account_module_login_submit_recovery(void* instance, const SecureBuffer* login) noexcept;

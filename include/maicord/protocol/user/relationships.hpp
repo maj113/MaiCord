@@ -27,6 +27,12 @@ using RelationshipWriteResult = ByteResult<RelationshipWriteError>;
 RestMethod relationship_method(RelationshipOperation operation) noexcept;
 RelationshipWriteResult write_relationship_target(RelationshipOperation operation, u64 user_id, Slice<u8> output) noexcept;
 RelationshipWriteResult write_relationship_body(RelationshipOperation operation, Utf8View username, Slice<u8> output) noexcept;
+// The place in the client where a relationship change starts. The official client names it in the
+// X-Context-Properties header (base64 JSON {"location":...}). It sends "Friends" when a Friends row accepts,
+// declines, cancels or removes, and "Spam requests modal" when the spam requests dialog accepts or declines.
+enum class RelationshipLocation : u8 { none, friends, spam_requests };
+// Writes the X-Context-Properties header line of `location`; none writes nothing.
+RelationshipWriteResult write_relationship_context(RelationshipLocation location, Slice<u8> output) noexcept;
 struct RelationshipUser {
     u64 id;
     u16 username_bytes, display_name_bytes;

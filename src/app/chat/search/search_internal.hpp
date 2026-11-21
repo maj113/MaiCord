@@ -50,8 +50,8 @@ struct SearchBank {
     MessagePollStore staged_polls;
     MessageScenePollBinding polls;
     u8 poll_fields[kMessageSearchMaximumMessages]; // 0 omitted, 1 null, 2 present
-    StableStorage content_storage, rich_storage, user_records, user_order;
-    SearchTextBanks rich_text, user_names;
+    StableStorage content_storage, rich_storage;
+    SearchTextBanks rich_text;
     u16 rich_order[kMessageSearchMaximumMessages];
     UserStore users;
     GuildMemberStore members;

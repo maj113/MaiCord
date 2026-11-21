@@ -3,6 +3,7 @@
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/virtual_memory.hpp"
 
 namespace maicord {
 namespace {
@@ -29,8 +30,14 @@ u32 active_name_base(const UserStore& store) noexcept {
     return static_cast<u32>(store.active_name_bank) * store.name_bank_bytes;
 }
 
-u32 name_size(const UserRecord& record) noexcept { return record.name_bytes + record.username_bytes; }
-// Name compaction runs only when a name bank fills, initialization once: compiled for size.
+// A shared username is the display name's bytes: the bank holds them once. Inline: name lookups read both.
+inline u32 name_size(const UserRecord& record) noexcept {
+    return record.name_bytes + (record.username_shared ? 0u : u32{record.username_bytes});
+}
+inline u32 username_offset(const UserRecord& record) noexcept {
+    return record.name_offset + (record.username_shared ? 0u : u32{record.name_bytes});
+}
+// Name compaction, storage commits and initialization are rare: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool compact_names(UserStore* store, u32 skipped_slot) noexcept {
     const u8 target_bank = store->active_name_bank == 0 ? 1 : 0;
@@ -59,6 +66,51 @@ bool compact_names(UserStore* store, u32 skipped_slot) noexcept {
     store->name_wasted = 0;
     saturating_increment(store->compactions);
     return true;
+}
+
+usize page_round(usize bytes) noexcept {
+    const usize page = pages_page_size();
+    return (bytes + page - 1) & ~(page - 1);
+}
+
+// Commits owned records through `required` slots, in steps of kUserStoreCommitUsers, and the order entries in steps
+// of 16 KiB (4,096 users), so a step costs one system call. Caller storage never asks: all of it is committed.
+inline constexpr u32 kOrderCommitUsers = 4096;
+bool commit_slots(UserStore* store, u32 required) noexcept {
+    const u32 from = store->committed;
+    const u32 to = minimum(store->capacity,
+                           (required + kUserStoreCommitUsers - 1) / kUserStoreCommitUsers * kUserStoreCommitUsers);
+    const u32 order_from = (from + kOrderCommitUsers - 1) / kOrderCommitUsers * kOrderCommitUsers;
+    const u32 order_to = minimum(store->capacity, (to + kOrderCommitUsers - 1) / kOrderCommitUsers * kOrderCommitUsers);
+    if (!store->reservation || !pages_commit_at(store->records + from, usize{to - from} * sizeof(UserRecord)) ||
+        (order_to > order_from &&
+         !pages_commit_at(store->order + order_from, usize{order_to - order_from} * sizeof(u32))))
+        return false;
+    store->committed = to;
+    return true;
+}
+
+// Commits the first `required` bytes of a name bank, in steps of kUserStoreCommitNameBytes. False past the bank or
+// when the system refuses.
+bool commit_names(UserStore* store, u32 bank, u32 required) noexcept {
+    u32& committed = store->name_committed[bank];
+    if (required <= committed)
+        return true;
+    if (!store->reservation || required > store->name_bank_bytes)
+        return false;
+    const u32 to = minimum(store->name_bank_bytes, (required + kUserStoreCommitNameBytes - 1) /
+                                                       kUserStoreCommitNameBytes * kUserStoreCommitNameBytes);
+    if (!pages_commit_at(store->names + usize{bank} * store->name_bank_bytes + committed, to - committed))
+        return false;
+    committed = to;
+    return true;
+}
+
+// Returns the pages of an owned bank that a compaction left. The next compaction into it commits them again.
+void release_names(UserStore* store, u32 bank) noexcept {
+    if (store->reservation && store->name_committed[bank] &&
+        pages_decommit(store->names + usize{bank} * store->name_bank_bytes, store->name_committed[bank]))
+        store->name_committed[bank] = 0;
 }
 #pragma clang attribute pop
 
@@ -113,9 +165,11 @@ UserStoreResult store_error(UserStore* store, UserStoreError error) noexcept {
 
 #include "../chat/asset_hash_validation.inc"
 
+} // namespace
+
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
-inline bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
-                      Slice<u8> double_buffered_names, bool zeroed) noexcept {
+bool user_store_initialize(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
+                           Slice<u8> double_buffered_names) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > 1'000'000 || !order.data ||
         order.count != records.count || !double_buffered_names.data || double_buffered_names.count < 2 ||
         (double_buffered_names.count & 1u) != 0) {
@@ -126,26 +180,44 @@ inline bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<
     store->records = records.data;
     store->order = order.data;
     store->names = double_buffered_names.data;
-    store->capacity = records.count;
-    store->name_bank_bytes = double_buffered_names.count / 2;
-    if (zeroed)
-        return true;
+    store->capacity = store->committed = records.count;
+    store->name_bank_bytes = store->name_committed[0] = store->name_committed[1] = double_buffered_names.count / 2;
     for (u32 index = 0; index < records.count; ++index) {
         reset_value<UserRecord>(&records[index]);
         order[index] = ~0u;
     }
     return true;
 }
-} // namespace
 
-bool user_store_initialize(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
-                           Slice<u8> double_buffered_names) noexcept {
-    return initialize_store(store, records, order, double_buffered_names, false);
+bool user_store_initialize_owned(UserStore* store, u32 capacity, u32 name_bank_bytes) noexcept {
+    if (!store || capacity == 0 || capacity > 1'000'000 || name_bank_bytes == 0 || name_bank_bytes > (1u << 30))
+        return false;
+    // Each region starts on a page, so a bank's pages return to the system alone.
+    const usize bank = page_round(name_bank_bytes);
+    const usize order_at = page_round(usize{capacity} * sizeof(UserRecord));
+    const usize names_at = order_at + page_round(usize{capacity} * sizeof(u32));
+    auto* const base = static_cast<u8*>(pages_reserve(names_at + 2 * bank));
+    if (!base)
+        return false;
+    reset_value<UserStore>(store);
+    store->pin_mark = 1;
+    store->records = reinterpret_cast<UserRecord*>(base);
+    store->order = reinterpret_cast<u32*>(base + order_at);
+    store->names = base + names_at;
+    store->reservation = base;
+    store->capacity = capacity;
+    store->name_bank_bytes = static_cast<u32>(bank);
+    return true;
 }
 
-bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
-                                  Slice<u8> double_buffered_names) noexcept {
-    return initialize_store(store, records, order, double_buffered_names, true);
+void user_store_release(UserStore* store) noexcept {
+    if (!store)
+        return;
+    user_appearance_release(&store->appearance);
+    user_activity_release(&store->activities);
+    if (store->reservation)
+        pages_release(store->reservation);
+    reset_value<UserStore>(store);
 }
 #pragma clang attribute pop
 
@@ -183,10 +255,11 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         UserRecord& record = store->records[store->order[order_index]];
         // History pages repeat their authors: names equal to the stored,
         // already validated ones only touch LRU state and need no checks.
-        const Utf8View compared = username.bytes ? username : user_store_username(*store, record);
+        const char* stored_username = reinterpret_cast<const char*>(store->names + username_offset(record));
+        const Utf8View compared = username.bytes ? username : Utf8View{stored_username, record.username_bytes};
         if (record.name_bytes == display_name.bytes && record.username_bytes == compared.bytes &&
             bytes_equal(store->names + record.name_offset, display_name.data, display_name.bytes) &&
-            bytes_equal(store->names + record.name_offset + record.name_bytes, compared.data, compared.bytes)) {
+            bytes_equal(stored_username, compared.data, compared.bytes)) {
             saturating_increment(store->clock);
             record.last_seen = store->clock;
             return UserStoreResult{UserStoreError::none, false, false};
@@ -198,24 +271,28 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     if (!utf8_validate(display_name).valid || !utf8_validate(username).valid) {
         return store_error(store, UserStoreError::invalid_utf8);
     }
-    if (found) {
-        if (!username.bytes) username = user_store_username(*store, store->records[store->order[order_index]]);
-        if (display_name.bytes + username.bytes > store->name_bank_bytes)
-            return store_error(store, UserStoreError::name_capacity);
-    }
-    const u16 display_bytes = static_cast<u16>(display_name.bytes), username_bytes = static_cast<u16>(username.bytes);
+    if (found && !username.bytes)
+        username = user_store_username(*store, store->records[store->order[order_index]]);
+    // A user without a global name sends the username as the display name too: the bank holds it once.
+    const bool shared = username.bytes == display_name.bytes && bytes_equal(username.data, display_name.data, username.bytes);
+    const u8 display_bytes = static_cast<u8>(display_name.bytes), username_bytes = static_cast<u8>(username.bytes);
     // Inputs may borrow the current byte bank. Mutations still stage both
     // spans before eviction or compaction can invalidate their source bytes.
     char names[2 * kUserDisplayNameMaximumBytes];
     copy_bytes(names, display_name.data, display_name.bytes);
-    copy_bytes(names + display_name.bytes, username.data, username.bytes);
-    display_name = {names, display_name.bytes + username.bytes};
+    const u32 stored_username_bytes = shared ? 0 : username.bytes;
+    copy_bytes(names + display_name.bytes, username.data, stored_username_bytes);
+    display_name = {names, display_name.bytes + stored_username_bytes};
     if (display_name.bytes > store->name_bank_bytes) return store_error(store, UserStoreError::name_capacity);
     // Reject pressure that cannot be relieved before touching any identity or
     // byte-bank backing. Protected visible users must survive both record and
     // name-capacity exhaustion, including an oversized replacement name.
     const u32 existing_slot = found ? store->order[order_index] : store->capacity;
     const u32 available_slot = found || store->count == store->capacity ? store->capacity : empty_slot(*store);
+    // Owned storage commits records as the first free slot reaches the committed end.
+    if (available_slot >= store->committed && available_slot != store->capacity &&
+        !commit_slots(store, available_slot + 1))
+        return store_error(store, UserStoreError::memory);
     // If all live names plus this replacement fit, every protected subset
     // also fits. Inspect protected records only when names require eviction.
     const u32 capacity_live_bytes = store->name_used - store->name_wasted;
@@ -266,17 +343,24 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         order_index = find_order(*store, id, &found);
     }
 
-    if (display_name.bytes > store->name_bank_bytes - store->name_used) {
+    // A name that passes the committed end of the bank grows the bank. A full bank, or an owned bank that holds more
+    // dead names than live ones, first compacts into the other bank, and the bank it leaves returns its pages.
+    if (display_name.bytes > store->name_committed[store->active_name_bank] - store->name_used) {
         const u32 live_bytes = store->name_used - store->name_wasted;
-        const u32 replaced_bytes = found ? name_size(store->records[slot]) : 0;
-        if (replaced_bytes > live_bytes ||
-            display_name.bytes > store->name_bank_bytes - (live_bytes - replaced_bytes) ||
-            !compact_names(store, found ? slot : store->capacity)) {
-            return store_error(store, UserStoreError::name_capacity);
+        if (display_name.bytes > store->name_bank_bytes - store->name_used || store->name_wasted > live_bytes) {
+            const u32 replaced_bytes = found ? name_size(store->records[slot]) : 0;
+            if (replaced_bytes > live_bytes ||
+                display_name.bytes > store->name_bank_bytes - (live_bytes - replaced_bytes))
+                return store_error(store, UserStoreError::name_capacity);
+            const u8 left = store->active_name_bank;
+            if (!commit_names(store, left ^ 1u, live_bytes - replaced_bytes + display_name.bytes))
+                return store_error(store, UserStoreError::memory);
+            if (!compact_names(store, found ? slot : store->capacity))
+                return store_error(store, UserStoreError::name_capacity);
+            release_names(store, left);
         }
-    }
-    if (display_name.bytes > store->name_bank_bytes - store->name_used) {
-        return store_error(store, UserStoreError::name_capacity);
+        if (!commit_names(store, store->active_name_bank, store->name_used + display_name.bytes))
+            return store_error(store, UserStoreError::memory);
     }
     const u32 name_offset = active_name_base(*store) + store->name_used;
     copy_bytes(store->names + name_offset, reinterpret_cast<const u8*>(display_name.data),
@@ -302,6 +386,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     record.name_offset = name_offset;
     record.name_bytes = display_bytes;
     record.username_bytes = username_bytes;
+    record.username_shared = shared;
     record.last_seen = store->clock;
     saturating_increment(record.revision);
     saturating_increment(store->revision);
@@ -387,7 +472,7 @@ Utf8View user_store_name(const UserStore& store, const UserRecord& record) noexc
 
 Utf8View user_store_username(const UserStore& store, const UserRecord& record) noexcept {
     return record.occupied && store.names && record.name_offset + name_size(record) <= store.name_bank_bytes * 2
-        ? Utf8View{reinterpret_cast<const char*>(store.names + record.name_offset + record.name_bytes), record.username_bytes} : Utf8View{};
+        ? Utf8View{reinterpret_cast<const char*>(store.names + username_offset(record)), record.username_bytes} : Utf8View{};
 }
 
 Utf8View user_store_avatar_hash(const UserRecord& record) noexcept {

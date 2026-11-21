@@ -124,8 +124,7 @@ bool reaction_intent_ui_adapter_begin(HWND window, bool (*native_refresh)(void*)
     message.reactions = {&orbit, 1};
     const bool complete =
         selected && chat_state_store_replace_guild_emojis(&ui.chat_state, 60, {emojis, 2}) &&
-        user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-                                      {ui.user_order_storage, 4}, {ui.user_name_storage, 4096}) &&
+        user_store_initialize_owned(&ui.user_store, 4, 2048) &&
         user_store_upsert(&ui.user_store, 5, utf8_literal("Native reviewer")).ok() &&
         message_store_upsert(&g_app.message_view.store, {message.id, message.channel_id, message.author_id,
                                                          message.timestamp_ms, 0, message.content, 0})

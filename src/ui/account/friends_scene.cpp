@@ -787,7 +787,6 @@ bool rebuild(UiFriendsScene& s) noexcept {
     s.count = count;
     s.section_mask = visible_window.mask;
     ++s.revision;
-    ++s.layout_revision;
     return true;
 }
 } // namespace
@@ -885,11 +884,12 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
     if (!ui_friends_scene_activation(*scene, scene->focus, &accepted))
         focus_fallback();
     if (scene->focus.user_id) {
+        // Keyboard focus keeps its row in view. A row the pointer pressed stays where the pointer is.
         float offset = 0;
-        if (reveal(*scene, scene->focus.user_id, &offset))
-            scene->scroll_dips = clamp(*scene, offset);
-        else
+        if (!reveal(*scene, scene->focus.user_id, &offset))
             focus_fallback();
+        else if (scene->focus_reveal)
+            scene->scroll_dips = clamp(*scene, offset);
     }
     if (!rebuild(*scene)) {
         ui_friends_scene_release(scene);
@@ -900,11 +900,10 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
 void ui_friends_scene_release(UiFriendsScene* s) noexcept {
     if (!s)
         return;
-    const auto revision = s->revision + 1, layout_revision = s->layout_revision + 1;
+    const auto revision = s->revision + 1;
     ui_fixed_widget_storage_release(&s->storage);
     reset_value(s);
     s->revision = revision;
-    s->layout_revision = layout_revision;
 }
 bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(delta))
@@ -923,7 +922,6 @@ bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
         !ui_widget_manager_layout_rectangle(&s->widgets, s->surface, true).ok())
         return false;
     ++s->revision;
-    ++s->layout_revision;
     return true;
 }
 namespace {
@@ -992,17 +990,17 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget&
     *out = t;
     return true;
 }
-bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t) noexcept {
+bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t, bool scroll) noexcept {
     UiFriendsTarget checked{};
     if (!s || !ui_friends_scene_activation(*s, t, &checked))
         return false;
-    if (t.user_id) {
+    if (t.user_id && scroll) {
         float offset = 0;
         if (!reveal(*s, t.user_id, &offset) || !ui_friends_scene_scroll(s, offset - s->scroll_dips))
             return false;
     }
     auto h = handle(*s, t);
-    if (!h.generation && t.action == UiFriendsAction::toggle_section && s->sections) {
+    if (!h.generation && scroll && t.action == UiFriendsAction::toggle_section && s->sections) {
         float top = 0;
         for (u32 i = 0; i < s->sections->count; ++i) {
             const auto& section = s->sections->sections[i];
@@ -1018,6 +1016,7 @@ bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t) noexcep
     }
     if (!h.generation || !ui_widget_manager_focus(&s->widgets, h))
         return false;
+    s->focus_reveal = scroll;
     if (!ui_friends_target_equal(s->focus, t)) {
         s->focus = t;
         ++s->revision;

@@ -28,6 +28,9 @@ enum class UserActivityField : u8 {
 inline constexpr u32 kUserActivityFieldCount = static_cast<u32>(UserActivityField::count);
 inline constexpr u32 kUserActivityTextBytes = 1024;
 inline constexpr u32 kUserActivityMaximum = 3;
+// The user cache's hard limit. The user store reserves address space for this many users, and the activity and
+// appearance stores hold as many, so no one of them limits the cache first. A store evicts only at this limit.
+inline constexpr u32 kUserCacheMaximumUsers = 32'768;
 // Per-field byte budgets; text is cut at a code point, image keys (up to 313
 // characters, e.g. mp:external/...) are kept whole or dropped.
 inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 320, 128, 320,
@@ -135,7 +138,7 @@ bool user_activities_read(ConstSlice<u8> input, u64 user_id, UserActivitySet* ou
 
 // Users' activities in their wire form: a sorted index over one compacting
 // byte bank, so a user costs its record (typically 100-250 bytes) instead of
-// a whole UserActivitySet. Past 2048 users or the bank budget the least
+// a whole UserActivitySet. Past kUserCacheMaximumUsers users or the bank budget the least
 // recently updated users are evicted, guild-scoped records before friends'.
 struct UserActivityStore {
     StableStorage records, order, bank;

@@ -7,6 +7,8 @@
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/model/user/store.hpp"
 
 namespace maicord {
 namespace {
@@ -106,6 +108,74 @@ void test_user_store() noexcept {
                utf8_equal(user_store_name(paired, *touched), utf8_literal("Boba")) &&
                utf8_equal(user_store_username(paired, *touched), utf8_literal("lice")),
            "user_store_equal_concatenation_retains_name_boundaries");
+
+    // A user without a global name sends its username as the display name: the bank holds it once.
+    UserRecord loner_records[2]{};
+    u32 loner_order[2]{};
+    u8 loner_names[256]{};
+    UserStore loners{};
+    const bool loner_stored =
+        user_store_initialize(&loners, {loner_records, 2}, {loner_order, 2}, {loner_names, 256}) &&
+        user_store_upsert(&loners, 9001, utf8_literal("loner"), utf8_literal("loner")).ok();
+    const UserRecord* loner = user_store_find(loners, 9001);
+    const u32 loner_revision = loner ? loner->revision : 0;
+    const bool loner_unchanged = user_store_upsert(&loners, 9001, utf8_literal("loner"), utf8_literal("loner")).ok() &&
+                                 user_store_upsert(&loners, 9001, utf8_literal("loner")).ok();
+    expect(loner_stored && loner && loner_unchanged && loners.name_used == 5 && loner->username_shared &&
+               loner->revision == loner_revision && utf8_equal(user_store_name(loners, *loner), utf8_literal("loner")) &&
+               utf8_equal(user_store_username(loners, *loner), utf8_literal("loner")),
+           "user_store_shared_username_stored_once");
+    const bool named = user_store_upsert(&loners, 9001, utf8_literal("Lone Wolf")).ok();
+    loner = user_store_find(loners, 9001);
+    expect(named && loner && !loner->username_shared &&
+               utf8_equal(user_store_name(loners, *loner), utf8_literal("Lone Wolf")) &&
+               utf8_equal(user_store_username(loners, *loner), utf8_literal("loner")),
+           "user_store_global_name_keeps_shared_username");
+
+    // The account's store: it reserves the cache's limit and commits as users arrive. 300 users with a display name
+    // and a username commit 512 records and one name step, below the 4,096 records, order and 128 KiB of names
+    // (400 KiB) that the account committed before.
+    UserStore owned{};
+    bool grown = user_store_initialize_owned(&owned, kUserCacheMaximumUsers, 4 * 1024 * 1024) &&
+                 !owned.committed && !owned.name_committed[0] && !owned.name_committed[1];
+    for (u32 user = 1; grown && user <= 300; ++user) {
+        char display[32] = "Person ", login[32] = "person_";
+        const u32 display_bytes = 7 + decimal_write(display + 7, user), login_bytes = 7 + decimal_write(login + 7, user);
+        grown = user_store_upsert(&owned, user, {display, display_bytes}, {login, login_bytes}).ok();
+    }
+    const usize owned_bytes = usize{owned.committed} * (sizeof(UserRecord) + sizeof(u32)) + owned.name_committed[0] +
+                              owned.name_committed[1];
+    expect(grown && owned.count == 300 && !owned.evictions && owned.committed == 2 * kUserStoreCommitUsers &&
+               owned.name_committed[0] == kUserStoreCommitNameBytes && !owned.name_committed[1] &&
+               owned_bytes < 400 * 1024,
+           "user_store_owned_commits_as_users_arrive");
+    user_store_release(&owned);
+    expect(!owned.reservation && !owned.records && !owned.count, "user_store_owned_release");
+
+    // Renames leave dead names. When they outweigh the live ones at the committed end, the bank compacts into the
+    // other bank and returns its pages, so the names stay within one commit step.
+    UserStore renamed_store{};
+    bool renamed_ok = user_store_initialize_owned(&renamed_store, 4, 1024 * 1024);
+    for (u32 round = 0; renamed_ok && round < 400; ++round) {
+        char name[100];
+        for (u32 i = 0; i < sizeof(name); ++i)
+            name[i] = static_cast<char>('a' + (round + i) % 26);
+        renamed_ok = user_store_upsert(&renamed_store, 1, {name, sizeof(name)}).ok();
+    }
+    const u8 active = renamed_store.active_name_bank;
+    expect(renamed_ok && renamed_store.compactions >= 2 &&
+               renamed_store.name_committed[active] == kUserStoreCommitNameBytes &&
+               !renamed_store.name_committed[active ^ 1] && renamed_store.name_used < kUserStoreCommitNameBytes,
+           "user_store_owned_renames_compact_and_return_pages");
+    // The hard limit is the reservation: a fifth user evicts the least recently seen one.
+    const bool filled = user_store_upsert(&renamed_store, 2, utf8_literal("Two")).ok() &&
+                        user_store_upsert(&renamed_store, 3, utf8_literal("Three")).ok() &&
+                        user_store_upsert(&renamed_store, 4, utf8_literal("Four")).ok();
+    const UserStoreResult fifth = user_store_upsert(&renamed_store, 5, utf8_literal("Five"));
+    expect(filled && fifth.ok() && fifth.evicted && renamed_store.count == 4 && renamed_store.committed == 4 &&
+               !user_store_find(renamed_store, 1) && user_store_find(renamed_store, 5),
+           "user_store_owned_evicts_only_at_its_limit");
+    user_store_release(&renamed_store);
 }
 
 void test_message_store() noexcept {

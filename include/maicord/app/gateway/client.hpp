@@ -38,6 +38,8 @@ struct GatewayClientSelfStatusSnapshot {
     bool available, authoritative, pending;
     // Saved settings without a status: unconfirmed, but a status choice may be saved.
     bool settings_known;
+    // Automatic idle: the session publishes a chosen Online as Idle (gateway_presence_effective).
+    bool idle;
 };
 GatewayClientSelfStatusSnapshot gateway_client_self_status_snapshot(const GatewayClient*) noexcept;
 RestClientSubmitResult gateway_client_self_status_submit(GatewayClient*, RestClient*,

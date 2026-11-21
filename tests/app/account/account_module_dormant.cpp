@@ -97,7 +97,8 @@ void test_account_module_dormant(void (*check)(bool, const char*) noexcept) noex
     for (u32 op = 0; op <= static_cast<u32>(RelationshipOperation::clear_hidden); ++op)
         relationships_refused = relationships_refused &&
             account_module_relationships(nullptr, static_cast<RelationshipOperation>(op), op > 1 && op < 8 ? 42 : 0,
-                                         op == 1 ? utf8_literal("friend.name") : Utf8View{}, 108).error == invalid;
+                                         op == 1 ? utf8_literal("friend.name") : Utf8View{}, 108,
+                                         RelationshipLocation::friends).error == invalid;
     check(relationships_refused, "dormant module: every relationship operation");
     constexpr auto ack_body = utf8_literal("{\"token\":null}");
     check(account_module_message_ack(nullptr, 7, 99, {reinterpret_cast<const u8*>(ack_body.data), ack_body.bytes}, 201)

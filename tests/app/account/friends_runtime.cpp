@@ -11,6 +11,7 @@
 #include "account/friends_storage.hpp"
 #include "plugins/plugins.hpp"
 #include "maicord/app/account/account_relationships.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/window/clipboard.hpp"
 #include "../../support/application_action_captcha_stubs.hpp"
@@ -43,6 +44,7 @@ ApplicationFriendsStorageMetrics application_friends_storage_metrics() noexcept 
 }
 struct AccountFixture { RestClient rest; } account{};
 UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
+UserRecord user_records[64]{};u32 user_order[64]{};u8 user_names[8192]{};
 struct Observations {
     u32 failures, submissions, builds, form_opens, input_layouts, input_syncs;
     u64 request_id, user_id, profile_user, dm_user, call_channel, request_channel;
@@ -880,13 +882,18 @@ void context_location_runtime_fixture() noexcept {
               response(726, 204),
           "friends context: Block carries no location, as the official Friends row offers no Block");
 }
-// The list at the realistic maximum (1,000 friends and 5,000 blocked users, about 3 MB) loads through the REST path.
-// A reply over the decoder's 4 MiB cap fails and keeps the list it had.
+// The list at the realistic maximum (1,000 friends and 5,000 blocked users, about 3 MB) loads through the REST path
+// into the account's user cache. A reply over the decoder's 4 MiB cap fails and keeps the list it had.
 void full_list_fixture() noexcept {
     constexpr u32 friends = 1000, blocked = 5000, capacity = 5u << 20;
     char* reply = static_cast<char*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(reply != nullptr, "friends full list: fixture reply allocates");
     if (!reply) return;
+    // The account's user cache as the client makes it, in place of the 64-user fixture store.
+    UserStore& users = g_app.account_ui->user_store;
+    const UserStore fixture_users = users;
+    check(user_store_initialize_owned(&users, kUserCacheMaximumUsers, kUserNameBankBytes),
+          "friends full list: the account's user cache reserves its storage");
     const u32 bytes = relationships_reply(reply, friends, blocked, 500000);
     check(bytes > 2u << 20 && bytes < kRelationshipsMaximumBytes,
           "friends full list: the realistic maximum is above the old 256 KiB and 2 MiB caps and within 4 MiB");
@@ -898,6 +905,15 @@ void full_list_fixture() noexcept {
     check(loaded && g_app.friends->store.count == friends + blocked && g_app.friends->ready && scene() &&
               scene()->source_count == friends,
           "friends full list: 1,000 decorated friends and 5,000 blocked users load into the list");
+    bool named = users.count >= friends + blocked && !users.evictions;
+    for (u32 i = 0; named && i < g_app.friends->store.count; ++i) {
+        const auto& record = g_app.friends->store.records[i];
+        char expected[32] = "Person ";
+        const u32 digits = decimal_write(expected + 7, record.user_id);
+        const auto name = relationship_display_name(record, users);
+        named = name.bytes == 7 + digits && bytes_equal(name.data, expected, name.bytes);
+    }
+    check(named, "friends full list: every one of the 6,000 users has its name, none is unknown or evicted");
     const u32 revision = g_app.friends->store.revision;
     const u32 over = relationships_reply(reply, 0, 10000, 900000);
     check(over > kRelationshipsMaximumBytes && queue(RelationshipOperation::list) &&
@@ -912,6 +928,8 @@ void full_list_fixture() noexcept {
               g_app.friends->store.revision == revision,
           "friends full list: a reply the REST client refuses (over its cap) keeps the old list");
     VirtualFree(reply, 0, MEM_RELEASE);
+    user_store_release(&users);
+    users = fixture_users;
 }
 struct Cleanup {
     ~Cleanup() noexcept {
@@ -928,8 +946,8 @@ void run() noexcept {
     auto& ui = *g_app.account_ui;
     check(chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 16}, {ui.guild_order_storage, 16},
             {ui.channel_record_storage, 64}, {ui.channel_order_storage, 64}, {ui.chat_state_name_storage, 4096}) &&
-        user_store_initialize(&ui.user_store, {ui.user_record_storage, 64}, {ui.user_order_storage, 64},
-            {ui.user_name_storage, 8192}) && ui_scene_initialize_bootstrap(&g_app.shell_scene)&&
+        user_store_initialize(&ui.user_store, {user_records, 64}, {user_order, 64},
+            {user_names, 8192}) && ui_scene_initialize_bootstrap(&g_app.shell_scene)&&
         popup_scene_initialize_owned(&g_app.popup_scene,8,{popup_widgets,32},{popup_nodes,32}),
         "friends: actual state/user stores and retained shell initialize with bounded fixture backing");
     g_app.renderer_ready = true;g_app.renderer.width = 1280;g_app.renderer.height = 700;g_app.renderer.dpi = 96;

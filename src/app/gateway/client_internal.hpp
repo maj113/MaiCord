@@ -379,6 +379,9 @@ void queue_ready_outputs(GatewayClientRuntime* runtime) noexcept;
 // The presence the session settles on after READY: the saved status (Online without
 // one) with the local idle state. Caller holds subscription_lock.
 GatewayPresenceUpdate ready_presence(const GatewayClientRuntime* runtime) noexcept;
+// True while the server does not hold ready_presence: the owner's revision is not sent. A status that is not
+// saved publishes too (Online, Idle while away), as the official client does. Caller holds subscription_lock.
+bool self_presence_due(const GatewayClientRuntime* runtime) noexcept;
 bool qos_active(const GatewayQosState& qos) noexcept;
 GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token,
                                   char (&heartbeat_id)[kGatewayUserLaunchIdBytes]) noexcept;

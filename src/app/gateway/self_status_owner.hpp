@@ -72,6 +72,11 @@ inline u64 gateway_self_status_deadline(GatewaySelfStatusOwner* owner, u64 now_m
 inline bool gateway_self_status_pending(const GatewaySelfStatusOwner& owner) noexcept {
     return owner.self_user_id && owner.revision && owner.revision != owner.transmitted_revision;
 }
+// The presence that the session publishes before automatic idle: the saved one, else Online. The official
+// client's self presence also reads a status that is not saved as Online.
+inline GatewayPresenceUpdate gateway_self_status_published(const GatewaySelfStatusOwner& owner) noexcept {
+    return owner.authoritative ? owner.desired : GatewayPresenceUpdate{0, GatewayUserStatus::online, false, false};
+}
 inline void gateway_self_status_admit(GatewaySelfStatusOwner* owner, u64 revision, u64 now_ms) noexcept {
     if (!revision || owner->count == kGatewayPresenceSendLimit) return;
     owner->timestamps[(owner->head + owner->count++) % kGatewayPresenceSendLimit] = now_ms;

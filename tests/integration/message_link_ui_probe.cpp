@@ -198,9 +198,7 @@ bool initialize(HWND window) noexcept {
                                                               {fixture->overwrites, 16}),
                          202))
         return false;
-    if (!initialize_step(user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-                                                       {ui.user_order_storage, 4},
-                                                       {ui.user_name_storage, 2048}),
+    if (!initialize_step(user_store_initialize_owned(&ui.user_store, 4, 1024),
                          203))
         return false;
     if (!initialize_step(guild_member_store_initialize(&ui.guild_member_store,

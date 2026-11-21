@@ -286,9 +286,10 @@ AccountLoginStatus account_module_login_submit_verification(void* instance, cons
     return run<AccountLoginStatus>(g_account_fake.login_submit_verification, instance, link_token);
 }
 RestClientSubmitResult account_module_relationships(void* instance, RelationshipOperation operation, u64 user_id,
-                                                    Utf8View username, u64 request_id) noexcept {
+                                                    Utf8View username, u64 request_id,
+                                                    RelationshipLocation location) noexcept {
     return run<RestClientSubmitResult>(g_account_fake.relationships, instance, operation, user_id, username,
-        request_id);
+        request_id, location);
 }
 RestClientSubmitResult account_module_message_ack(void* instance, u64 channel_id, u64 message_id, ConstSlice<u8> body,
                                                   u64 request_id) noexcept {

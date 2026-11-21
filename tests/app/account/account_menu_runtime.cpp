@@ -189,6 +189,25 @@ void run() noexcept {
     check(application_account_menu_action(static_cast<u32>(UiAccountMenuAction::status_online)) &&
               status_requests == 1 && !g_app.popup_scene.active,
           "account menu runtime: lost availability rechecks backend before any status request");
+    // A status was never chosen (issue 20): the header shows the Online that the session publishes, no row checked.
+    self_status = {};
+    self_status.profile_id = 4;
+    self_status.self_user_id = ~u64{0};
+    self_status.revision = 10;
+    self_status.available = self_status.settings_known = true;
+    self_status.status = GatewayUserStatus::invisible;
+    bool unsaved = application_account_menu_open(footer, anchor) && g_app.popup_scene.item_count == 9 &&
+                   g_app.popup_scene.items[0].status == 1;
+    for (u32 i = 4; unsaved && i < 8; ++i)
+        unsaved = !(g_app.popup_scene.items[i].flags & popup_item_checked);
+    check(unsaved, "account menu runtime: an unsaved status shows Online on the avatar and checks no row");
+    self_status.authoritative = self_status.idle = true;
+    self_status.status = GatewayUserStatus::online;
+    ++self_status.revision;
+    check(application_account_menu_synchronize() && g_app.popup_scene.items[0].status == 2 &&
+              (g_app.popup_scene.items[4].flags & popup_item_checked),
+          "account menu runtime: automatic idle shows Idle on the avatar and keeps Online checked");
+    application_account_menu_clear();
     self_status = {};
     logout_available = true;
     check(application_account_menu_open(footer, anchor) && g_app.popup_scene.item_count == 6 &&

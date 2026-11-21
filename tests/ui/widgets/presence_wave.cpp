@@ -156,26 +156,32 @@ void activities() noexcept {
     user_activity_release(&store);
 
     // Churn: records of changing size are replaced at the bank's end and holes
-    // are compacted before more pages commit; the user cap evicts the least
+    // are compacted before more pages commit. Then the user cap evicts the least
     // recently updated user and every other user stays readable.
     UserActivitySet churn = set;
     bool readable = true;
     for (u32 round = 0; round < 3; ++round)
-        for (u32 user = 1; user <= 2049; ++user) {
+        for (u32 user = 1; user <= 2048; ++user) {
             churn.user_id = user;
             churn.items[0].lengths[static_cast<u32>(UserActivityField::name)] =
                 static_cast<u16>(1 + (user + round) % 7);
             readable = readable && user_activity_upsert(&store, churn);
         }
+    for (u32 user = 2049; user <= kUserCacheMaximumUsers + 1; ++user) {
+        churn.user_id = user;
+        churn.items[0].lengths[static_cast<u32>(UserActivityField::name)] = static_cast<u16>(1 + user % 7);
+        readable = readable && user_activity_upsert(&store, churn);
+    }
     u32 found = 0;
-    for (u32 user = 1; user <= 2049; ++user)
+    for (u32 user = 1; user <= kUserCacheMaximumUsers + 1; ++user)
         if (user_activity_find(store, user, &restored)) {
             ++found;
             readable = readable && restored.count == 2 &&
-                       text(restored.items[0], UserActivityField::name).bytes == 1 + (user + 2) % 7;
+                       text(restored.items[0], UserActivityField::name).bytes ==
+                           1 + (user + (user <= 2048 ? 2 : 0)) % 7;
         }
-    check(readable && store.count == 2048 && found == 2048 && !user_activity_count(store, 1) &&
-              store.bank.capacity <= 2 * (store.bank_used - store.bank_dead) + 4096,
+    check(readable && store.count == kUserCacheMaximumUsers && found == kUserCacheMaximumUsers &&
+              !user_activity_count(store, 1) && store.bank.capacity <= 2 * (store.bank_used - store.bank_dead) + 4096,
           "activities: churn compacts the bank and evicts the oldest user at the cap");
     user_activity_release(&store);
 
@@ -337,12 +343,12 @@ void scopes() noexcept {
     bool filled = true;
     churn.user_id = 1;
     filled = user_activity_apply(&store, churn, 0, false);
-    for (u64 user = 2; filled && user <= 2049; ++user) {
+    for (u64 user = 2; filled && user <= kUserCacheMaximumUsers + 1; ++user) {
         churn.user_id = user;
         filled = user_activity_apply(&store, churn, 5, false);
     }
-    check(filled && store.count == 2048 && user_activity_count(store, 1) == 1 && !user_activity_count(store, 2) &&
-              user_activity_count(store, 2049) == 1,
+    check(filled && store.count == kUserCacheMaximumUsers && user_activity_count(store, 1) == 1 &&
+              !user_activity_count(store, 2) && user_activity_count(store, kUserCacheMaximumUsers + 1) == 1,
           "scopes: eviction keeps friends and drops the oldest server record");
     user_activity_release(&store);
 }

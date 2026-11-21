@@ -49,8 +49,9 @@ inline constexpr u32 kPrivateChannelCapacity = 16'384;
 // Descriptions and vanity codes of every guild plus the feature names of
 // those the account manages.
 inline constexpr u32 kGuildDetailTextBytes = 64 * 1024;
-inline constexpr u32 kUserCapacity = 4'096;
-inline constexpr u32 kUserNameBytes = 128 * 1024;
+// The user store reserves kUserCacheMaximumUsers users and commits as they arrive. Each name bank gives a user 128
+// bytes, about five times an average display name and username.
+inline constexpr u32 kUserNameBankBytes = 4 * 1024 * 1024;
 inline constexpr u32 kGuildMemberCapacity = 512;
 inline constexpr u32 kMemberListViewCapacity = kGuildMemberCapacity + 256;
 inline constexpr u32 kMessageHistoryRequestLimit = 25;
@@ -168,11 +169,9 @@ struct AccountUiRuntime {
     GuildRecord guild_record_storage[kChatStateGuildCapacity];
     GuildDetailRecord guild_detail_records[kChatStateGuildCapacity];
     char guild_detail_text[kGuildDetailTextBytes];
-    UserRecord user_record_storage[kUserCapacity];
     GuildMemberRecord guild_member_record_storage[kGuildMemberCapacity];
     TypingRecord typing_record_storage[kTypingRecordCapacity];
     u16 guild_order_storage[kChatStateGuildCapacity];
-    u32 user_order_storage[kUserCapacity];
     u32 guild_member_order_storage[kGuildMemberCapacity];
     MemberListRow member_list_rows[kMemberListViewCapacity];
     // Bound to the member list scene while this account is presented.
@@ -191,7 +190,6 @@ struct AccountUiRuntime {
     MessageTextSpoilerReveal message_text_spoiler_reveals[kMaximumMessageTextSpoilerReveals];
     MessageTextSemantic renderer_content_semantics[kRendererContentSemanticCapacity];
     TextHitRegion renderer_content_hit_regions[kRendererContentHitRegionCapacity];
-    u8 user_name_storage[kUserNameBytes];
     alignas(8) u8 event_payload_scratch[kAccountUiEventScratchBytes];
     // READY guild IDs and bulk-delete IDs are alternative event payloads.
     union {

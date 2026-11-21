@@ -23,6 +23,9 @@ u8 form_marker{};
 MessageRecord records[4]{};
 u32 order[4]{};
 u8 text[4096]{};
+UserRecord user_records[4]{};
+u32 user_order[4]{};
+u8 user_names[4096]{};
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
@@ -97,8 +100,8 @@ bool initialize() noexcept {
     if (!chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 2},
                                         {ui.guild_order_storage, 2}, {ui.channel_record_storage, 4},
                                         {ui.channel_order_storage, 4}, {ui.chat_state_name_storage, 4096}) ||
-        !user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-                                       {ui.user_order_storage, 4}, {ui.user_name_storage, 4096}) ||
+        !user_store_initialize(&ui.user_store, {user_records, 4},
+                                       {user_order, 4}, {user_names, 4096}) ||
         !chat_state_store_upsert_guild(&ui.chat_state,
             {7, utf8_literal("Pinned fixture guild"), GuildMutationKind::create, 5}).ok() ||
         !chat_state_store_upsert_channel(&ui.chat_state,
@@ -116,9 +119,9 @@ bool initialize() noexcept {
     ui.chat_state.selected_guild_id = 7;
     ui.chat_state.selected_channel_id = 70;
     ui.active_channel_id = 70;
-    ui.user_record_storage[0].id = 5;
-    ui.user_record_storage[0].occupied = true;
-    ui.user_order_storage[0] = 0;
+    user_records[0].id = 5;
+    user_records[0].occupied = true;
+    user_order[0] = 0;
     ui.user_store.count = ui.user_store.free_hint = ui.user_store.slot_extent = 1;
     g_app.renderer_ready = true;
     g_app.renderer.width = 1280;

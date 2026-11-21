@@ -25,8 +25,10 @@ void test_banks() noexcept {
     auto* active = stable_storage_data<RelationshipRecord>(storage.active);
     auto* candidate = stable_storage_data<RelationshipRecord>(storage.candidate);
     auto* indices = stable_storage_data<u32>(storage.indices);
+    auto* names = stable_storage_data<Utf8View>(storage.names);
     check(!storage.active.arena.committed && !storage.candidate.arena.committed && !storage.indices.arena.committed &&
-        state(active, MEM_RESERVE) && state(candidate, MEM_RESERVE) && state(indices, MEM_RESERVE),
+        !storage.names.arena.committed && state(active, MEM_RESERVE) && state(candidate, MEM_RESERVE) &&
+        state(indices, MEM_RESERVE) && state(names, MEM_RESERVE),
         "friends storage: empty reservations have no committed data pages");
     check(!friends_relationship_storage_initialize(&storage) && state(active, MEM_RESERVE),
         "friends storage: duplicate initialization preserves reservations");
@@ -70,16 +72,21 @@ void test_banks() noexcept {
         "friends storage: over-bound admission cannot extend any bank");
     constexpr usize bank = (kFriendsRelationshipCapacity * sizeof(RelationshipRecord) + 4095) & ~usize{4095};
     check(storage.active.arena.committed == bank && storage.candidate.arena.committed == bank &&
-        storage.indices.arena.committed == 16384, "friends storage: full bank commitment remains bounded by the original payload sizes");
-    const MemoryMark marks[]{memory_mark(active), memory_mark(candidate), memory_mark(indices)};
+        storage.indices.arena.committed == kFriendsRelationshipCapacity * sizeof(u32) &&
+        storage.names.arena.committed == kFriendsRelationshipCapacity * sizeof(Utf8View),
+        "friends storage: full bank commitment remains bounded by the original payload sizes");
+    const MemoryMark marks[]{memory_mark(active), memory_mark(candidate), memory_mark(indices), memory_mark(names)};
     friends_relationship_storage_release(&storage);
     check(!storage.active.arena.base && !storage.candidate.arena.base && !storage.indices.arena.base &&
-        memory_released(marks[0]) && memory_released(marks[1]) && memory_released(marks[2]),
-        "friends storage: release clears metadata and all three OS reservations");
+        !storage.names.arena.base && memory_released(marks[0]) && memory_released(marks[1]) &&
+        memory_released(marks[2]) && memory_released(marks[3]),
+        "friends storage: release clears metadata and all four OS reservations");
     friends_relationship_storage_release(&storage);
 }
 void test_rest_preflight() noexcept {
-    FriendsRelationshipStorage storage{};u32 scratch[16384]{};
+    // Room for the index of an array one record over capacity.
+    static u32 scratch[4 * kFriendsRelationshipCapacity];
+    FriendsRelationshipStorage storage{};
     check(friends_relationship_storage_initialize(&storage), "friends storage: REST fixture reserves banks");
     auto* active = stable_storage_data<RelationshipRecord>(storage.active);
     auto* candidate = stable_storage_data<RelationshipRecord>(storage.candidate);
@@ -91,7 +98,7 @@ void test_rest_preflight() noexcept {
                 friends_relationship_storage_candidate(storage, count);
         }};
     const auto replace = [&](Utf8View body) noexcept {
-        return relationships_replace(&store, body, {scratch, 16384},
+        return relationships_replace(&store, body, {scratch, sizeof(scratch) / sizeof(scratch[0])},
             {candidate, kFriendsRelationshipCapacity}, admission);
     };
     check(!replace(utf8_literal("[{\"id\":\"1\"},]")).ok() && !storage.active.arena.committed && !storage.candidate.arena.committed,
@@ -105,13 +112,13 @@ void test_rest_preflight() noexcept {
     check(!replace(utf8_literal("[{\"id\":\"1\",\"type\":1},{\"id\":\"1\",\"type\":2}]")).ok() &&
         !storage.active.arena.committed && !store.count && !store.revision,
         "friends storage: duplicate validation precedes active admission");
-    char many[8195]{};u32 bytes = 0;many[bytes++] = '[';
-    for (u32 i = 0; i < 4097; ++i) { if (i) many[bytes++] = ',';many[bytes++] = '0'; }
+    static char many[2 * kFriendsRelationshipCapacity + 3];u32 bytes = 0;many[bytes++] = '[';
+    for (u32 i = 0; i <= kFriendsRelationshipCapacity; ++i) { if (i) many[bytes++] = ',';many[bytes++] = '0'; }
     many[bytes++] = ']';
     const auto candidate_highwater = storage.candidate.arena.committed;
     check(!replace({many, bytes}).ok() && !store.count &&
         storage.candidate.arena.committed == candidate_highwater && !storage.active.arena.committed,
-        "friends storage: 4097-array preflight cannot increase commitment or silently truncate");
+        "friends storage: an array one over capacity cannot increase commitment or silently truncate");
     check(replace(utf8_literal("[{\"id\":\"1\",\"type\":1}]")).ok() && store.count == 1 &&
         storage.active.arena.committed == 4096 && store.records[0].user_id == 1,
         "friends storage: validated REST snapshot commits active prefix before replacement");

@@ -68,8 +68,7 @@ bool seed() noexcept {
     for (const auto& channel : channels)
         if (!chat_state_store_upsert_channel(&state, channel).ok()) return false;
     chat_state_store_recompute_guild_permissions(&state, kReplyDraftProbeGuild);
-    if (!user_store_initialize(&ui.user_store, {ui.user_record_storage, 4},
-            {ui.user_order_storage, 4}, {ui.user_name_storage, 4096}) ||
+    if (!user_store_initialize_owned(&ui.user_store, 4, 2048) ||
         !user_store_upsert(&ui.user_store, kReplyDraftProbeSelf,
             utf8_literal("Native reviewer"), utf8_literal("reviewer")).ok() ||
         !user_store_upsert(&ui.user_store, kReplyDraftProbeAuthor,

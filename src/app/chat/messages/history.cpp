@@ -93,7 +93,7 @@ struct LargeResponseBank {
     u32 bytes = 0;
 
     bool allocate(u32 size) noexcept {
-        if (data || !size || size > kRestClientMaximumResponseBytes)
+        if (data || !size || size > kRestClientMaximumLargeResponseBytes)
             return false;
         data = static_cast<u8*>(commit_pages(size));
         bytes = data ? size : 0;

@@ -28,8 +28,8 @@ struct UiAccountMenuIdentity {
     Utf8View display_name, username;
     u32 avatar_variant;
     bool avatar_animated;
-    // Authoritative self status; a guild member's presence must not stand in for a
-    // chosen Invisible.
+    // The saved self status, which checks its row (unknown: no row checked). A guild member's presence must not
+    // stand in for a chosen Invisible.
     UiPresence presence = UiPresence::unknown;
     bool status_available = false;
     bool status_pending = false;
@@ -42,6 +42,9 @@ struct UiAccountMenuIdentity {
     // Custom status rows; the text is copied into the model.
     bool custom_status_available = false;
     Utf8View custom_status{};
+    // The status that the session publishes: the header's dot. It can differ from `presence`: Online while no
+    // status is saved, Idle while the user is away.
+    UiPresence shown = UiPresence::unknown;
 };
 // Stable caller-owned labels. Popup descriptors borrow this model until the
 // popup closes; rebuild in place before republishing rather than copying it.

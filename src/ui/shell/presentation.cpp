@@ -1339,8 +1339,11 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         const GuildMemberRecord* member = member_scene->members && row.source_row.member_slot < member_scene->members->capacity
                                               ? &member_scene->members->records[row.source_row.member_slot]
                                               : nullptr;
-        // Rows without a server record (private conversations) carry their resolved status.
-        const auto presence = static_cast<UiPresence>(member ? member->status : row.source_row.status);
+        // Rows without a server record (private conversations) and the account's own row (self_status) carry
+        // their resolved status.
+        const bool own = member_scene->self_status != GuildMemberStatus::unknown && member_scene->state &&
+                         row.user_id == member_scene->state->self_user_id;
+        const auto presence = static_cast<UiPresence>(member && !own ? member->status : row.source_row.status);
         const bool mobile =
             member_scene->users &&
             ui_presence_mobile(presence, user_store_client_status(*member_scene->users, row.user_id));

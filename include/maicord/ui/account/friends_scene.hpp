@@ -143,9 +143,6 @@ struct UiFriendsScene {
     // The shell header's free span where the title and tabs sit, as on the official client; empty keeps them
     // at the top of the page (the requests dialog).
     UiRect toolbar;
-    // Changes only when rows or their widgets move (a rebuild or a scroll), not for text or
-    // timer updates: a press is honoured on release while it holds.
-    u32 layout_revision;
     const UiFriendsActiveNow* active_now;
     u32 active_now_revision;
     UiRect active_rect;
@@ -162,6 +159,8 @@ struct UiFriendsScene {
     UiFriendsPhase phase;
     bool active,focus_visible,search_active;
     bool build_failed; // a widget could not be added during the last rebuild
+    // Whether a rebuild scrolls the focused row into view: keyboard focus does, a pointer press does not.
+    bool focus_reveal;
     // The host's row hover fade (by user ID), or null for an instant hover. Paint-only:
     // the renderer keys its presentation on it, so a fade never stales input revisions.
     const UiMotionHover* row_hover;
@@ -186,7 +185,9 @@ bool ui_friends_scene_active_card(const UiFriendsScene&, u32 index, UiRect* card
 bool ui_friends_scene_active_hover(UiFriendsScene*, float x, float y) noexcept;
 void ui_friends_scene_release(UiFriendsScene*) noexcept;
 bool ui_friends_scene_scroll(UiFriendsScene*,float delta_dips) noexcept;
-bool ui_friends_scene_focus(UiFriendsScene*,const UiFriendsTarget&) noexcept;
+// Focuses the control `t` names. Keyboard focus scrolls its row or section heading into view. A pointer press passes
+// scroll=false: the pressed control stays under the pointer until the release, as on the official client's list.
+bool ui_friends_scene_focus(UiFriendsScene*,const UiFriendsTarget&,bool scroll=true) noexcept;
 void ui_friends_scene_set_focus_visible(UiFriendsScene*,bool) noexcept;
 UiFriendsTarget ui_friends_scene_focused(const UiFriendsScene&) noexcept;
 UiFriendsTarget ui_friends_scene_hit_test(const UiFriendsScene&,float x,float y) noexcept;

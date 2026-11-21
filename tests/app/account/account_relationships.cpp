@@ -12,9 +12,9 @@ struct Submission {
     const u8* body_source;
     RestRouteKey route;
     u64 request_id;
-    u32 timeout_ms, target_bytes, body_bytes, calls;
+    u32 timeout_ms, target_bytes, body_bytes, header_bytes, calls, response_capacity;
     bool json_body, copied;
-    u8 target[128], body[256];
+    u8 target[128], body[256], headers[128];
     RestClientSubmitError result;
 } submitted{};
 u32 failures = 0;
@@ -47,13 +47,14 @@ void check(bool success, const char* message) noexcept {
     test_check(&failures, success, message);
 }
 bool captured(RestClient* client, Utf8View target, Utf8View body, RestMethod method,
-              u64 request_id, bool json) noexcept {
+              u64 request_id, bool json, Utf8View headers = {}) noexcept {
     return submitted.client == client && submitted.copied && submitted.request_id == request_id &&
            submitted.route.route_id == kRelationshipsRouteId && submitted.route.major_key == 0 &&
            submitted.route.major == RestMajorParameter::none && submitted.route.method == method &&
            submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body == json &&
            utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes}, target) &&
-           utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes}, body);
+           utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes}, body) &&
+           utf8_equal({reinterpret_cast<const char*>(submitted.headers), submitted.header_bytes}, headers);
 }
 void test_transport() noexcept {
     // This is a real caller-owned client object; the boundary seam never starts
@@ -81,9 +82,10 @@ void test_transport() noexcept {
 
     check(account_relationship_submit(&client, RelationshipOperation::list, 0, {}, 101).ok() &&
               captured(&client, utf8_literal("/api/v9/users/@me/relationships"), {},
-                       RestMethod::get, 101, false),
+                       RestMethod::get, 101, false) &&
+              submitted.response_capacity == kRelationshipsMaximumBytes,
           "relationships: list uses authenticated account owner, existing mailbox request ID and bodyless "
-          "normalized GET");
+          "normalized GET, with a response of up to the decoder's cap");
     char username[] = "friend.name";
     check(account_relationship_submit(&client, RelationshipOperation::request, 0,
                                       {username, sizeof(username) - 1}, 102)
@@ -99,6 +101,23 @@ void test_transport() noexcept {
               captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), utf8_literal("{}"),
                        RestMethod::put, 103, true),
           "relationships: accept addresses target user and omits optional relationship type in JSON body");
+    check(account_relationship_submit(&client, RelationshipOperation::accept, 42, {}, 115,
+                                      RelationshipLocation::friends).ok() &&
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), utf8_literal("{}"),
+                       RestMethod::put, 115, true,
+                       utf8_literal("X-Context-Properties: eyJsb2NhdGlvbiI6IkZyaWVuZHMifQ==\r\n")),
+          "relationships: an accept from Friends adds X-Context-Properties of {\"location\":\"Friends\"}");
+    check(account_relationship_submit(&client, RelationshipOperation::remove, 42, {}, 116,
+                                      RelationshipLocation::spam_requests).ok() &&
+              captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"), {}, RestMethod::delete_method,
+                       116, false,
+                       utf8_literal("X-Context-Properties: eyJsb2NhdGlvbiI6IlNwYW0gcmVxdWVzdHMgbW9kYWwifQ==\r\n")),
+          "relationships: a decline from the spam requests dialog names that dialog");
+    const u32 before_location = submitted.calls;
+    check(account_relationship_submit(&client, RelationshipOperation::accept, 42, {}, 117,
+                                      static_cast<RelationshipLocation>(3)).error == RestClientSubmitError::invalid_input &&
+              submitted.calls == before_location,
+          "relationships: an unknown location is refused before transport");
     check(account_relationship_submit(&client, RelationshipOperation::accept_stranger, 42, {}, 110)
                   .ok() &&
               captured(&client, utf8_literal("/api/v9/users/@me/relationships/42"),
@@ -375,22 +394,33 @@ static RestClientSubmitResult submit_stub(RestClient* client,
     capture.timeout_ms = request.timeout_ms;
     capture.target_bytes = request.target.count;
     capture.body_bytes = request.body.count;
+    capture.header_bytes = request.extra_headers.count;
     capture.json_body = request.json_body;
     capture.copied =
         request.target.count <= sizeof(capture.target) && request.body.count <= sizeof(capture.body) &&
-        (!request.target.count || request.target.data) && (!request.body.count || request.body.data);
+        request.extra_headers.count <= sizeof(capture.headers) &&
+        (!request.target.count || request.target.data) && (!request.body.count || request.body.data) &&
+        (!request.extra_headers.count || request.extra_headers.data);
     if (!capture.copied)
         return {RestClientSubmitError::invalid_input};
     for (u32 i = 0; i < request.target.count; ++i)
         capture.target[i] = request.target[i];
     for (u32 i = 0; i < request.body.count; ++i)
         capture.body[i] = request.body[i];
+    for (u32 i = 0; i < request.extra_headers.count; ++i)
+        capture.headers[i] = request.extra_headers[i];
     return {capture.result};
+}
+static RestClientSubmitResult submit_large_response_stub(RestClient* client, const RestClientRequest& request,
+                                                         u32 response_capacity) noexcept {
+    relationship_account_test::submitted.response_capacity = response_capacity;
+    return submit_stub(client, request);
 }
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_friends_account_entry() noexcept {
-    maicord::rest_install_hooks({.submit = maicord::submit_stub});
+    maicord::rest_install_hooks(
+        {.submit = maicord::submit_stub, .submit_large_response = maicord::submit_large_response_stub});
     using namespace maicord::relationship_account_test;
     test_transport();
     test_message_ack_transport();

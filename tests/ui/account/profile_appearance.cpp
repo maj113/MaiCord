@@ -3,6 +3,7 @@
 #include "maicord/media/core/animation_timeline.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/model/user/profile.hpp"
+#include "maicord/model/user/activity.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/widgets/badge.hpp"
 #include "maicord/ui/widgets/icon.hpp"
@@ -787,11 +788,13 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         const u32 revision = store.revision;
         check(user_appearance_upsert(&store, with_activity(9, 184)) && store.revision == revision,
               "profile_compact_appearance_unchanged_keeps_revision");
+        // The store holds a global and a server record for each user of the cache.
+        constexpr u32 kRecords = 2 * kUserCacheMaximumUsers;
         bool filled = true;
-        for (u64 user = 2000; user < 2000 + 4096; ++user)
+        for (u64 user = 2000; user < 2000 + kRecords; ++user)
             filled = filled && user_appearance_upsert(&store, with_activity(user, 10));
-        check(filled && store.count == 4096 && !user_appearance_find(store, 1) &&
-                  user_appearance_find(store, 9) == nullptr && matches(2000 + 4095, 10) &&
+        check(filled && store.count == kRecords && !user_appearance_find(store, 1) &&
+                  user_appearance_find(store, 9) == nullptr && matches(2000 + kRecords - 1, 10) &&
                   matches(2000, 10),
               "profile_compact_appearance_evicts_least_recent");
         user_appearance_release(&store);

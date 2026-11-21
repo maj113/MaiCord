@@ -133,12 +133,9 @@ void bank_release(SearchBank* bank) noexcept {
     message_rich_store_release(&bank->rich);
     message_poll_store_release(&bank->staged_polls);
     stable_storage_release(&bank->content_storage);
-    stable_storage_release(&bank->user_records);
-    stable_storage_release(&bank->user_order);
+    user_store_release(&bank->users);
     if (bank->rich_text.data)
         pages_release(bank->rich_text.data);
-    if (bank->user_names.data)
-        pages_release(bank->user_names.data);
     pages_release(bank);
 }
 bool bank_initialize(SearchBank& b) noexcept {
@@ -151,20 +148,13 @@ bool bank_initialize(SearchBank& b) noexcept {
                                              poll_text_limit) ||
         !stable_storage_initialize(&b.content_storage, search_bank_text_limit, 0, 1, 1) ||
         !text_reserve_both(b.rich_text, 1) ||
-        !text_reserve(b.user_names, 0, 1) ||
-        !stable_storage_initialize(&b.user_records, search_user_limit, 16, sizeof(UserRecord),
-                                   alignof(UserRecord), true) ||
-        !stable_storage_initialize(&b.user_order, search_user_limit, 16, sizeof(u32), alignof(u32)) ||
+        !user_store_initialize_owned(&b.users, search_user_limit, search_bank_text_limit) ||
         !message_store_initialize(&b.store, {b.records, kMessageSearchMaximumMessages},
                                   {b.order, kMessageSearchMaximumMessages},
                                   {stable_storage_data<u8>(b.content_storage), search_bank_text_limit}) ||
         !message_rich_store_initialize_owned_sparse(&b.rich, &b.rich_storage, kMessageSearchMaximumMessages,
                                                     {b.rich_order, kMessageSearchMaximumMessages},
                                                     {b.rich_text.data, 2 * search_bank_text_limit}) ||
-        !user_store_initialize(&b.users,
-                                       {stable_storage_data<UserRecord>(b.user_records), 16},
-                                       {stable_storage_data<u32>(b.user_order), 16},
-                                       {b.user_names.data, 2 * search_bank_text_limit}) ||
         !guild_member_store_initialize(&b.members,
                                                {b.member_records, kMessageSearchMaximumMessages},
                                                {b.member_order, kMessageSearchMaximumMessages}) ||
@@ -181,19 +171,8 @@ bool bank_initialize(SearchBank& b) noexcept {
 bool bank_user(SearchBank& b, u64 id, const Utf8View& name, const Utf8View& avatar) noexcept {
     if (!id || !name.bytes)
         return true;
-    if (!user_store_find(b.users, id) && b.users.count == b.users.capacity) {
-        const u32 old = b.users.capacity, next = minimum(search_user_limit, maximum(old + 1, old * 2));
-        if (!stable_storage_grow(&b.user_records, next) || !stable_storage_grow(&b.user_order, next))
-            return false;
-        b.users.capacity = minimum(b.user_records.capacity, b.user_order.capacity);
-        for (u32 i = old; i < b.users.capacity; ++i)
-            b.users.order[i] = ~u32{0};
-    }
     // Accepted identities are pinned; no replacement may evict a previous
-    // card's labels. Commit both possible compaction prefixes before mutation.
-    const u32 needed = b.users.name_used + name.bytes;
-    if (!text_reserve_both(b.user_names, needed))
-        return false;
+    // card's labels.
     const auto result = user_store_upsert(&b.users, id, name);
     return result.ok() && !result.evicted && user_store_pin(&b.users, id) &&
            (!avatar.bytes || user_store_set_avatar(&b.users, id, avatar));

@@ -1,10 +1,12 @@
 #include "maicord/model/user/profile.hpp"
+#include "maicord/model/user/activity.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
 #include "maicord/core/utf.hpp"
 namespace maicord {
 namespace {
-constexpr u32 maximum_records = 4096;
+// A global and a server record for each user of the cache. The arena and the order commit as they fill.
+constexpr u32 maximum_records = 2 * kUserCacheMaximumUsers;
 constexpr u32 kUnitBytes = 8;
 constexpr u32 kRecordHeaderBytes = sizeof(UserAppearanceRecord);
 constexpr u32 kRecordTailMaximum =

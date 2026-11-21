@@ -71,6 +71,8 @@ struct FriendsRequest {
     RelationshipOperation operation;
     RelationshipType expected_type;
     FriendsRequestPhase phase;
+    // Where the request started, for its X-Context-Properties header.
+    RelationshipLocation location;
     bool allow_hidden, expected_ignored, expected_spam, expected_stranger, expected_stranger_known;
     // Sent from a user menu to someone without a relationship (add or block).
     bool unknown_target;
@@ -97,10 +99,11 @@ struct ApplicationFriends {
     UiFriendsTarget pressed;
     UiFriendsTarget confirmation;
     RelationshipType confirmation_type;
+    RelationshipLocation confirmation_location;
     char confirmation_text[512];
     u64 membership_epoch, snapshot_sequence, confirmation_serial, confirmation_epoch;
     u32 snapshot_items;
-    u32 store_revision, user_revision, pressed_revision, held_key;
+    u32 store_revision, user_revision, held_key;
     u32 query_revision, total_count, edit_revision, note_revision;
     u64 search_blink_at;
     u32 search_blink_ms;
@@ -774,8 +777,10 @@ u64 captcha_subject(const FriendsRequest& request) noexcept {
 }
 // Set once a solved CAPTCHA requeued the request; its submit arms the retry.
 bool captcha_retry;
+// `location`: where on the Friends page the request started. The official client names it only when a row
+// accepts, declines, cancels or removes, so the other operations drop it.
 bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, bool allow_hidden = false,
-           bool unknown_target = false) noexcept {
+           bool unknown_target = false, RelationshipLocation location = RelationshipLocation::none) noexcept {
     const u64 subject = captcha_subject(operation, id, username);
     const auto captcha =
         application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request, subject);
@@ -809,6 +814,8 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
     pending.expected_stranger = relationship && relationship->stranger;pending.expected_stranger_known = relationship && relationship->stranger_known;
     pending.allow_hidden = allow_hidden;pending.intent_epoch = friends->membership_epoch;
     pending.operation = operation;pending.user_id = id;pending.phase = FriendsRequestPhase::queued;
+    pending.location = operation == RelationshipOperation::accept || operation == RelationshipOperation::accept_stranger ||
+        operation == RelationshipOperation::remove ? location : RelationshipLocation::none;
     pending.username_bytes = username.bytes;
     if (username.bytes) copy_bytes(pending.username, username.data, username.bytes);
     friends->request = pending;
@@ -917,7 +924,8 @@ bool confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
         action == UiFriendsAction::block ? RelationshipOperation::block :
         action == UiFriendsAction::ignore ? RelationshipOperation::ignore :
         action == UiFriendsAction::clear_incoming ? RelationshipOperation::clear_incoming : RelationshipOperation::remove,
-        key.item, {}, g_app.friends->confirmation_hidden, g_app.friends->confirmation_type == RelationshipType::none);
+        key.item, {}, g_app.friends->confirmation_hidden, g_app.friends->confirmation_type == RelationshipType::none,
+        g_app.friends->confirmation_location);
     if (queued) g_app.friends->stranger_confirmation = false;
     return queued;
 }
@@ -930,7 +938,8 @@ constexpr const char* kConfirmTexts[]{
     "Remove Friend\0" "Remove Friend\0" "Remove \0" " from your friends?",
     "Clear requests\0" "Clear all\0" "Clear all \0" " friend requests?",
 };
-bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool allow_hidden = false) noexcept {
+bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, RelationshipLocation location,
+             bool allow_hidden = false) noexcept {
     allow_hidden = allow_hidden || friends.requests_visible;
     const bool bulk = target.action == UiFriendsAction::clear_incoming;
     const auto* current = relationship_store_find(friends.store, target.user_id);
@@ -939,6 +948,7 @@ bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool al
         (current->type != RelationshipType::incoming ||
             (!allow_hidden && (current->ignored || current->spam))))) return false;
     friends.confirmation = target;friends.confirmation_type = current ? current->type : RelationshipType::none;
+    friends.confirmation_location = location;
     friends.confirmation_epoch = friends.membership_epoch;friends.confirmation_hidden = allow_hidden;
     friends.confirmation_ignored = current && current->ignored;friends.confirmation_spam = current && current->spam;
     friends.confirmation_stranger = current && current->stranger;friends.confirmation_stranger_known = current && current->stranger_known;
@@ -997,7 +1007,9 @@ bool activate(const UiFriendsTarget& target) noexcept {
         if (!repaint()) { close_requests(*friends);return false; }
         g_app.context_focus = &input_scene(*friends).widgets;return true;
     }
-    if (checked.action == UiFriendsAction::clear_incoming) return confirm(*friends, checked);
+    // The official client names the page in the row requests: the spam requests dialog, or Friends.
+    const auto page = friends->requests_visible ? RelationshipLocation::spam_requests : RelationshipLocation::friends;
+    if (checked.action == UiFriendsAction::clear_incoming) return confirm(*friends, checked, page);
     if (checked.action == UiFriendsAction::clear_hidden) {
         const bool queued = queue(RelationshipOperation::clear_hidden);
         if (queued) { close_requests(*friends);return repaint(); }return false;
@@ -1057,23 +1069,25 @@ bool activate(const UiFriendsTarget& target) noexcept {
             recovery(*friends, "This request changed. Refreshing…");
             return queue(RelationshipOperation::list);
         }
-        return confirm(*friends, {UiFriendsAction::accept, friends->request.user_id, friends->tab}, friends->request.allow_hidden);
+        return confirm(*friends, {UiFriendsAction::accept, friends->request.user_id, friends->tab}, friends->request.location,
+                       friends->request.allow_hidden);
     }
     if (checked.action == UiFriendsAction::retry) {
         if (!request_current(*friends, friends->request))
             return queue(RelationshipOperation::list);
         return queue(friends->request.operation, friends->request.user_id,
-            {friends->request.username, friends->request.username_bytes}, friends->request.allow_hidden);
+            {friends->request.username, friends->request.username_bytes}, friends->request.allow_hidden, false,
+            friends->request.location);
     }
     const auto* relationship = relationship_store_find(friends->store, checked.user_id);
     if (checked.action == UiFriendsAction::remove || checked.action == UiFriendsAction::block || checked.action == UiFriendsAction::ignore ||
         (checked.action == UiFriendsAction::accept && relationship && relationship->stranger_known && relationship->stranger))
-        return confirm(*friends, checked);
+        return confirm(*friends, checked, page);
     const auto operation = checked.action == UiFriendsAction::accept ?
         relationship && relationship->stranger_known ? RelationshipOperation::accept_stranger : RelationshipOperation::accept :
         checked.action == UiFriendsAction::unignore ? RelationshipOperation::unignore :
         checked.action == UiFriendsAction::block ? RelationshipOperation::block : RelationshipOperation::remove;
-    return queue(operation, checked.user_id, {}, friends->requests_visible);
+    return queue(operation, checked.user_id, {}, friends->requests_visible, false, page);
 }
 inline bool search_host_ready(const TextInputTarget& target) noexcept {
     return application_friends_search_focused() && target.context == application_friends_search_model();
@@ -1230,17 +1244,17 @@ bool application_friends_user_action(u64 user_id, ApplicationFriendsUserAction a
     case ApplicationFriendsUserAction::accept:
         if (!current || current->type != RelationshipType::incoming) return false;
         if (current->stranger_known && current->stranger)
-            return confirm(*friends, {UiFriendsAction::accept, user_id, friends->tab}, true);
+            return confirm(*friends, {UiFriendsAction::accept, user_id, friends->tab}, RelationshipLocation::none, true);
         return queue(current->stranger_known ? RelationshipOperation::accept_stranger : RelationshipOperation::accept,
             user_id, {}, true);
     case ApplicationFriendsUserAction::cancel:
         return current && current->type == RelationshipType::outgoing && queue(RelationshipOperation::remove, user_id, {}, true);
     case ApplicationFriendsUserAction::remove:
         return current && current->type == RelationshipType::friend_ &&
-            confirm(*friends, {UiFriendsAction::remove, user_id, friends->tab}, true);
+            confirm(*friends, {UiFriendsAction::remove, user_id, friends->tab}, RelationshipLocation::none, true);
     case ApplicationFriendsUserAction::block:
         return (!current || current->type != RelationshipType::blocked) &&
-            confirm(*friends, {UiFriendsAction::block, user_id, friends->tab}, true);
+            confirm(*friends, {UiFriendsAction::block, user_id, friends->tab}, RelationshipLocation::none, true);
     case ApplicationFriendsUserAction::unblock:
         return current && current->type == RelationshipType::blocked && queue(RelationshipOperation::remove, user_id, {}, true);
     case ApplicationFriendsUserAction::unignore:
@@ -1493,7 +1507,7 @@ bool application_friends_submit(u64 id, u64 now) noexcept {
                                        captcha_subject(request), id, false);
     }
     const auto result = account_module_relationships(g_app.account.instance, request.operation, request.user_id,
-        {request.username, request.username_bytes}, id);
+        {request.username, request.username_bytes}, id, request.location);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy) { request.phase = FriendsRequestPhase::retry;request.retry_at = deadline_after(now, 100); }
         else { request.phase = FriendsRequestPhase::failed;friends.status = utf8_literal("Something went wrong. Try again."); }
@@ -1520,7 +1534,8 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         friends->status = utf8_literal("You may not know this person. Try again to confirm.");
         const bool painted = repaint();
         if (application_friends_active() && !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
-            !(g_app.profile && g_app.profile->scene.active)) confirm(*friends, {UiFriendsAction::accept, request.user_id, friends->tab}, request.allow_hidden);
+            !(g_app.profile && g_app.profile->scene.active))
+            confirm(*friends, {UiFriendsAction::accept, request.user_id, friends->tab}, request.location, request.allow_hidden);
         return painted;
     }
     if (response.transport_ok() && response.status_code == 429 && response.retry_at_ms &&
@@ -1848,15 +1863,17 @@ bool application_friends_window_event(const WindowEvent& event) noexcept {
         }
         search_focus(*friends, false);
         if (friends->pressed.action != UiFriendsAction::none) {
-            ui_friends_scene_focus(&scene, friends->pressed);g_app.context_focus = &scene.widgets;
-            repaint();friends->pressed_revision = scene.layout_revision;window_capture_pointer(g_app.window);
+            ui_friends_scene_focus(&scene, friends->pressed, false);g_app.context_focus = &scene.widgets;
+            repaint();window_capture_pointer(g_app.window);
         }
         return true;
     }
     if (input_release(event)) {
-        const auto pressed = friends->pressed;const auto revision = friends->pressed_revision;
+        // Gateway traffic rebuilds the list while the button is held (a presence, any message author). The click
+        // acts when the same control, by action and user, is under the pointer at release.
+        const auto pressed = friends->pressed;
         reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;application_release_capture();
-        if (revision == scene.layout_revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
+        if (ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
         return true;
     }
     if (search_double)

@@ -477,15 +477,6 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_friends_scene_presence_paint(tall_search, kDefaultTheme, &paint) &&
               paint.count < kMaxPaintQuads && paint.clip_count < 12 && paint.rejected == 0,
           "friends_tall_search_and_maximum_selection_geometry_fit_shared_native_paint_budget");
-    // Text-only changes (the search text here, Active Now timers alike) repaint without
-    // moving rows, so a press held across them still activates on release.
-    const u32 text_revision = tall_search.revision, text_layout = tall_search.layout_revision;
-    ++tall_content.revision;
-    check(ui_friends_scene_update(&tall_search, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, tall,
-                                  &tall_content) &&
-              tall_search.revision != text_revision && tall_search.layout_revision == text_layout &&
-              ui_friends_scene_scroll(&tall_search, 60) && tall_search.layout_revision != text_layout,
-          "friends_text_updates_keep_the_layout_revision_scrolls_move_it");
     ui_friends_scene_release(&tall_search);
     fixture.presence = UiPresence::online;
     paint_stream_release(&paint);

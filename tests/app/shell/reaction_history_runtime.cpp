@@ -948,9 +948,7 @@ void run() noexcept {
                                        {ui->channel_record_storage, kChatStateChannelCapacity},
                                        {ui->channel_order_storage, kChatStateChannelCapacity},
                                        {ui->chat_state_name_storage, kChatStateNameBytes}) &&
-        user_store_initialize(&ui->user_store, {ui->user_record_storage, kUserCapacity},
-                                      {ui->user_order_storage, kUserCapacity},
-                                      {ui->user_name_storage, kUserNameBytes}) &&
+        user_store_initialize_owned(&ui->user_store, kUserCacheMaximumUsers, kUserNameBankBytes) &&
         guild_member_store_initialize(&ui->guild_member_store,
                                               {ui->guild_member_record_storage, kGuildMemberCapacity},
                                               {ui->guild_member_order_storage, kGuildMemberCapacity});

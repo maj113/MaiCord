@@ -98,6 +98,11 @@ struct MemberListScene {
     u8 role_style;
     // The display's DPI, for the pixel size ornaments are requested at (0: 96).
     u16 media_dpi;
+    // The account's own status, published by the app (unknown: the server's status stays). As in the official
+    // client, the account's own row shows it in place of the status that the server reports.
+    GuildMemberStatus self_status;
+    // The own status that the materialized rows carry: a change materializes the rows again.
+    GuildMemberStatus materialized_self_status;
     void (*viewport_changed)(void*) noexcept;
     void* viewport_context;
 };

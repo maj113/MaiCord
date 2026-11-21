@@ -68,10 +68,11 @@ bool project(u64 now) noexcept {
     const Utf8View display = user_store_name(ui.user_store, *user);
     UiNamesCardContent content{};
     content.username = user_store_username(ui.user_store, *user);
+    // Removing a server leaves its slot empty, so the occupied guilds are the first guild_count entries of
+    // guild_order, not the first guild_count slots.
     for (u32 g = 0; g < ui.chat_state.guild_count; ++g) {
-        const GuildRecord& guild = ui.chat_state.guilds[g];
-        const auto* member = guild.occupied ? guild_member_store_find(ui.guild_member_store, guild.id, header.user)
-                                            : nullptr;
+        const GuildRecord& guild = ui.chat_state.guilds[ui.chat_state.guild_order[g]];
+        const auto* member = guild_member_store_find(ui.guild_member_store, guild.id, header.user);
         const Utf8View nickname = member ? guild_member_store_nickname(*member) : Utf8View{};
         if (!nickname.bytes || utf8_equal(nickname, display))
             continue;

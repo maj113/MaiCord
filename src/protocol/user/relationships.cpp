@@ -237,6 +237,19 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
     copy_bytes(output.data, staged, writer.used);
     return {writer.used, RelationshipWriteError::none};
 }
+RelationshipWriteResult write_relationship_context(RelationshipLocation location, Slice<u8> output) noexcept {
+    if (location > RelationshipLocation::spam_requests) return {0, RelationshipWriteError::invalid_input};
+    if (location == RelationshipLocation::none) return {0, RelationshipWriteError::none};
+    // base64 of {"location":"Friends"} and of {"location":"Spam requests modal"}, as the client's JSON writer
+    // writes them (no spaces).
+    const Utf8View value = location == RelationshipLocation::friends
+        ? utf8_literal("eyJsb2NhdGlvbiI6IkZyaWVuZHMifQ==")
+        : utf8_literal("eyJsb2NhdGlvbiI6IlNwYW0gcmVxdWVzdHMgbW9kYWwifQ==");
+    const u32 written = rest_append_extra_header(output, 0, utf8_literal("X-Context-Properties"),
+        {reinterpret_cast<const u8*>(value.data), value.bytes});
+    if (written == ~0u) return {0, RelationshipWriteError::output_too_small};
+    return {written, RelationshipWriteError::none};
+}
 RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> scratch,
     RelationshipEvent event, RelationshipMutation* output) noexcept {
     if (event > RelationshipEvent::update || !valid_input(input, scratch)) return failure(RelationshipsDecodeError::invalid_input);

@@ -299,7 +299,7 @@ OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexc
         return OutboundDrive::idle;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     auto& owner = runtime->self_status;
-    if (!owner.authoritative || !gateway_self_status_pending(owner)) {
+    if (!self_presence_due(runtime)) {
         runtime->self_status_deadline_ms = 0;
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         return OutboundDrive::idle;
@@ -313,8 +313,7 @@ OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexc
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         return OutboundDrive::rate_limited;
     }
-    const auto written =
-        write_self_presence(runtime, gateway_presence_effective(owner.desired, &runtime->local_presence), true);
+    const auto written = write_self_presence(runtime, ready_presence(runtime), true);
     const auto sent = send_control_command(runtime, written, SendPurpose::self_status);
     if (sent == OutboundDrive::sending)
         gateway_self_status_admit(&owner, owner.revision, now_ms);
@@ -405,10 +404,10 @@ OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRunti
 }
 
 GatewayPresenceUpdate ready_presence(const GatewayClientRuntime* runtime) noexcept {
-    const auto& owner = runtime->self_status;
-    return gateway_presence_effective(
-        owner.authoritative ? owner.desired : GatewayPresenceUpdate{0, GatewayUserStatus::online, false, false},
-        &runtime->local_presence);
+    return gateway_presence_effective(gateway_self_status_published(runtime->self_status), &runtime->local_presence);
+}
+bool self_presence_due(const GatewayClientRuntime* runtime) noexcept {
+    return gateway_self_status_pending(runtime->self_status);
 }
 
 // As the desktop client's connection store does on CONNECTION_OPEN: it commits the presence its identify carried
@@ -430,7 +429,7 @@ void queue_ready_outputs(GatewayClientRuntime* runtime) noexcept {
     gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_idle_voice_state);
     if (changed)
         gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_ready_presence);
-    else if (owner.authoritative)
+    else
         owner.transmitted_revision = owner.revision;
     note_launch_presence(ready.status);
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
@@ -457,7 +456,7 @@ OutboundDrive send_ready_output(GatewayClientRuntime* runtime, GatewayLifecycleA
                                              settled);
     const auto sent = send_control_command(runtime, written, settled ? SendPurpose::self_status
                                                                      : SendPurpose::gateway_action);
-    if (sent == OutboundDrive::sending && settled && owner.authoritative) {
+    if (sent == OutboundDrive::sending && settled) {
         gateway_self_status_deadline(&owner, now_ms);
         gateway_self_status_admit(&owner, owner.revision, now_ms);
     }

@@ -2141,6 +2141,54 @@ void test_member_list_scene() noexcept {
         colored=colored && found_status;
         expect(colored, "member_status_gpu_paint_matches_presence_unknown_is_not_green");
     }
+    {
+        // The account's own row (issue 20): as in the official client, it shows the app's own status in place of
+        // the server's (every record now reads offline), for its dot and its row. Unknown keeps the server's.
+        // Rows above or below the viewport paint clipped rings, so both rows come from inside it.
+        const auto inside = [&](u32 index, u64 skip) noexcept {
+            const auto* node = member_list_scene_layout_node(scene, scene.rows[index].widget);
+            return scene.rows[index].kind == MemberListRowKind::member && scene.rows[index].user_id != skip && node &&
+                   node->rectangle.top >= viewport.top && node->rectangle.bottom <= viewport.bottom;
+        };
+        u32 own = 0;
+        while (own < scene.count && !inside(own, 0)) ++own;
+        const u64 self = own < scene.count ? scene.rows[own].user_id : 0;
+        u32 other = 0;
+        while (other < scene.count && !inside(other, self)) ++other;
+        const u64 other_user = other < scene.count ? scene.rows[other].user_id : 0;
+        state.self_user_id = self;
+        scene.self_status = GuildMemberStatus::idle;
+        // A row's status: its materialized status and the fill of its painted ring.
+        const auto shows = [&](u64 user, GuildMemberStatus status, const Color& ring) noexcept {
+            u32 index = 0;
+            while (index < scene.count && scene.rows[index].user_id != user) ++index;
+            const auto* node = index < scene.count ? member_list_scene_layout_node(scene, scene.rows[index].status)
+                                                   : nullptr;
+            for (u32 quad = 0; node && quad < status_paint.count; ++quad) {
+                const PaintQuad& q = status_paint.quads[quad];
+                if (q.left == node->rectangle.left - 2.0f && q.top == node->rectangle.top - 2.0f &&
+                    q.border_width == 2.0f)
+                    return scene.rows[index].source_row.status == status && bytes_equal(&q.fill, &ring, sizeof(Color));
+            }
+            return false;
+        };
+        const bool rebuilt = self && other_user &&
+                             member_list_scene_update(&scene, &projection, &members, &users, &state, viewport,
+                                                      scene.scroll_dips).changed;
+        paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
+        expect(rebuilt && shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
+                   shows(self, GuildMemberStatus::idle, kDefaultTheme.tokens.status.idle) &&
+                   shows(other_user, GuildMemberStatus::online, kDefaultTheme.tokens.status.offline),
+               "member_own_row_shows_the_own_status_not_the_server_status");
+        scene.self_status = GuildMemberStatus::unknown;
+        const bool restored = member_list_scene_update(&scene, &projection, &members, &users, &state, viewport,
+                                                       scene.scroll_dips).changed;
+        paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
+        expect(restored && shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
+                   shows(self, GuildMemberStatus::online, kDefaultTheme.tokens.status.offline),
+               "member_own_row_without_an_own_status_keeps_the_server_status");
+        state.self_user_id = 0;
+    }
 
     const auto member_first = member_list_scene_navigate(&scene, UiListMove::first);
     bool member_keyboard_walk = member_first.user_id == 1 && member_first.source_index == 0;
