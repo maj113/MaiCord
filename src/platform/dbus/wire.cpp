@@ -210,8 +210,15 @@ bool buffer_reserve(u8** data, u32 used, u32* capacity, u32 needed, u32 initial)
     return true;
 }
 
+// The frames and the signature past its terminator are written before they are read: only the fields are set.
 void builder_init(Builder* builder) noexcept {
-    clear_bytes(builder, static_cast<u32>(sizeof(*builder)));
+    builder->data = nullptr;
+    builder->size = 0;
+    builder->capacity = 0;
+    builder->failed = false;
+    builder->signature[0] = 0;
+    builder->signature_length = 0;
+    builder->depth = 0;
 }
 
 void builder_release(Builder* builder) noexcept {
@@ -219,7 +226,7 @@ void builder_release(Builder* builder) noexcept {
         secure_clear_bytes(builder->data, builder->capacity);
         heap_free(builder->data);
     }
-    clear_bytes(builder, static_cast<u32>(sizeof(*builder)));
+    builder_init(builder);
 }
 
 void builder_byte(Builder* builder, u8 value) noexcept {
@@ -410,13 +417,17 @@ void builder_dict_bool(Builder* builder, const char* key, bool value) noexcept {
     builder_close_dict_entry(builder);
 }
 
+// The frames are written before they are read: only the fields are set.
 void reader_init(Reader* reader, const u8* body, u32 size, const char* signature, const int* fds, u32 fd_count) noexcept {
-    clear_bytes(reader, static_cast<u32>(sizeof(*reader)));
     reader->data = body;
     reader->size = size;
+    reader->position = 0;
     reader->signature = signature ? signature : "";
+    reader->signature_position = 0;
+    reader->failed = false;
     reader->fds = fds;
     reader->fd_count = fd_count;
+    reader->depth = 0;
 }
 
 char reader_type(const Reader& reader) noexcept {
@@ -667,28 +678,32 @@ bool reader_byte_array(Reader* reader, const u8** bytes, u32* count) noexcept {
 
 namespace {
 
+// A header field is a (yv) struct: the code, then a variant of one basic type. The struct, the variant signature and a
+// C string (no NUL inside) are valid by construction, so the Builder's checks of them are not run again here.
+void field_head(Builder* b, u8 code, char type) noexcept {
+    const u8 head[4] = {code, 1, static_cast<u8>(type), 0};
+    put(b, head, 4, 8);
+}
+
 void field_string(Builder* b, u8 code, char type, const char* value) noexcept {
-    builder_open_struct(b, "(yv)");
-    builder_byte(b, code);
-    const char sig[2] = {type, 0};
-    builder_open_variant(b, sig);
-    if (type == 'g')
-        builder_signature(b, value);
-    else if (type == 'o')
-        builder_object_path(b, value);
-    else
-        builder_string(b, value);
-    builder_close_variant(b);
-    builder_close_struct(b);
+    const u32 length = c_string_length(value);
+    if (type == 'g' && !signature_valid(value)) {
+        b->failed = true;
+        return;
+    }
+    field_head(b, code, type);
+    if (type == 'g') {
+        const u8 byte = static_cast<u8>(length);
+        put(b, &byte, 1, 1);
+    } else {
+        put(b, &length, 4, 4);
+    }
+    put(b, value, length + 1, 1);
 }
 
 void field_u32(Builder* b, u8 code, u32 value) noexcept {
-    builder_open_struct(b, "(yv)");
-    builder_byte(b, code);
-    builder_open_variant(b, "u");
-    builder_u32(b, value);
-    builder_close_variant(b);
-    builder_close_struct(b);
+    field_head(b, code, 'u');
+    put(b, &value, 4, 4);
 }
 
 // Whether a message of `type` has the header fields that type requires.
@@ -743,20 +758,15 @@ bool message_serialize(const MessageHeader& header, const Builder& body, u8** bl
     builder_close_array(&h);
     pad_to(&h, 8);
     const u32 header_bytes = h.size;
-    if (h.failed || header_bytes > kMaxMessageBytes || body.size > kMaxMessageBytes - header_bytes) {
+    // The body follows in the header's own buffer, which becomes the block. ensure() fails a failed header and caps
+    // the total at kMaxMessageBytes.
+    if (!ensure(&h, body.size)) {
         builder_release(&h);
         return false;
     }
-    u8* out = static_cast<u8*>(heap_allocate(header_bytes + body.size + 1));
-    if (!out) {
-        builder_release(&h);
-        return false;
-    }
-    copy_bytes(out, h.data, header_bytes);
     if (body.size)
-        copy_bytes(out + header_bytes, body.data, body.size);
-    builder_release(&h);
-    *block = out;
+        copy_bytes(h.data + header_bytes, body.data, body.size);
+    *block = h.data;
     *bytes = header_bytes + body.size;
     return true;
 }

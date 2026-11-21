@@ -69,7 +69,8 @@ LSTATUS clear_value(HKEY key,const wchar_t* name) noexcept {
     const LSTATUS r=RegDeleteValueW(key,name);return r==ERROR_FILE_NOT_FOUND?ERROR_SUCCESS:r;
 }
 bool string_equals(HKEY key,const wchar_t* name,const wchar_t* expected) noexcept {
-    wchar_t value[kPathUnits+32]{};DWORD bytes=sizeof(value)-sizeof(wchar_t),type=0;
+    // Read only when the query wrote exactly `want` bytes.
+    wchar_t value[kPathUnits+32];DWORD bytes=sizeof(value)-sizeof(wchar_t),type=0;
     const LSTATUS r=RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE*>(value),&bytes);
     const DWORD want=(units(expected)+1)*sizeof(wchar_t);
     return r==ERROR_SUCCESS&&type==REG_SZ&&bytes==want&&bytes_equal(value,expected,want);
@@ -116,7 +117,7 @@ bool notification_identity_valid(const NotificationIdentityConfig& c) noexcept {
 }
 NotificationIdentityResult notification_identity_set_process(ConstSlice<wchar_t> id) noexcept {
     if(!token(id,128,true))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
-    wchar_t text[129]{};copy_bytes(text,id.data,id.count*sizeof(wchar_t));const HRESULT h=SetCurrentProcessExplicitAppUserModelID(text);
+    wchar_t text[129];copy_bytes(text,id.data,id.count*sizeof(wchar_t));text[id.count]=0;const HRESULT h=SetCurrentProcessExplicitAppUserModelID(text);
     return FAILED(h)?failure(NotificationIdentityError::process,static_cast<u32>(h)):NotificationIdentityResult{};
 }
 NotificationIdentityResult notification_identity_check(const NotificationIdentityConfig& c) noexcept {

@@ -12,7 +12,7 @@ constexpr u32 kWakeAll = 0x7fffffffu;
 // Critical sections are short: a contender spins this many times before it sleeps in the kernel.
 constexpr u32 kSpins = 200;
 
-u32 load(const volatile u32* word) noexcept {
+inline u32 load(const volatile u32* word) noexcept {
     return __atomic_load_n(word, __ATOMIC_RELAXED);
 }
 

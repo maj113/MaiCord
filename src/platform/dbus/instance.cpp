@@ -146,27 +146,6 @@ void on_session(Connection* c) noexcept {
         log_write(LogLevel::warning, "instance", "the application's bus name was lost");
 }
 
-// RequestName with DO_NOT_QUEUE: 1 primary owner, 4 already ours, 3 owned by another; 0 on an error.
-u32 request_name(Connection* c, const char* name) noexcept {
-    Builder body;
-    builder_init(&body);
-    builder_string(&body, name);
-    builder_u32(&body, 4);
-    const CallTarget target{"org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName"};
-    Message reply;
-    const Status status = connection_call_sync(c, target, &body, 5000, &reply);
-    builder_release(&body);
-    u32 result = 0;
-    if (status == Status::ok) {
-        Reader r;
-        message_reader(reply, &r);
-        reader_u32(&r, &result);  // stays 0 when the reply holds no code
-    }
-    if (status == Status::ok || status == Status::error_reply)
-        message_release(&reply);
-    return result;
-}
-
 InstanceResult forward_over_bus(Connection* c, const LaunchRequest& request, u32 timeout_ms) noexcept {
     Builder body;
     builder_init(&body);
@@ -391,7 +370,7 @@ InstanceResult instance_acquire(const InstanceConfig& config, const LaunchReques
 
     if (bus_allowed && session_bus_open()) {
         Connection* c = session_bus();
-        const u32 owner = c ? request_name(c, g.name) : 0;
+        const u32 owner = c ? connection_name_reply(c, g.name, true, 5000) : 0;
         if (owner == 1 || owner == 4) {
             g.primary = true;
             g.bus_backend = true;

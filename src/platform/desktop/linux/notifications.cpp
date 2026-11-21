@@ -5,6 +5,7 @@
 // Windows side keeps the history of the Action Center; Linux servers do not expose one, so the shown toasts of this
 // process (the last kToasts) are what the removals reach.
 #include "maicord/platform/desktop/notifications.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/dbus/notifications.hpp"
@@ -112,8 +113,7 @@ bool file_uri_path(Utf8View uri, char* output, u32 capacity) noexcept {
     for (u32 i = kSchemeBytes; i < uri.bytes; ++i) {
         char c = uri.data[i];
         if (c == '%' && i + 2 < uri.bytes) {
-            const auto digit = [](char h) noexcept { return h >= '0' && h <= '9' ? h - '0' : (h | 0x20) >= 'a' && (h | 0x20) <= 'f' ? (h | 0x20) - 'a' + 10 : -1; };
-            const int high = digit(uri.data[i + 1]), low = digit(uri.data[i + 2]);
+            const int high = ascii_hex_value(uri.data[i + 1]), low = ascii_hex_value(uri.data[i + 2]);
             if (high < 0 || low < 0)
                 return false;
             c = static_cast<char>(high * 16 + low);

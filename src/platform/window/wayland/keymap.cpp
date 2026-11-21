@@ -88,6 +88,54 @@ Key punctuation_key(u32 symbol) noexcept {
     }
 }
 
+// key_from_fixed_keysym of the keysyms 0xFF00..0xFFFF, one byte a keysym, by the low byte. Of the fixed keysyms only
+// Space, ISO_Left_Tab and ISO_Level3_Shift lie outside that page.
+struct FixedKeys {
+    Key key[256];
+};
+
+constexpr FixedKeys kFixedKeys = [] {
+    FixedKeys table{};
+    for (u32 i = 0; i <= keysym::f24 - keysym::f1; ++i)
+        table.key[(keysym::f1 + i) & 0xFF] = static_cast<Key>(key::f1 + i);
+    for (u32 i = 0; i <= keysym::kp_9 - keysym::kp_0; ++i)
+        table.key[(keysym::kp_0 + i) & 0xFF] = static_cast<Key>(key::numpad0 + i);
+    const struct {
+        u32 symbol;
+        Key key;
+    } pairs[] = {
+        {keysym::kp_space, key::space},       {keysym::backspace, key::backspace},
+        {keysym::tab, key::tab},              {keysym::kp_tab, key::tab},
+        {keysym::return_key, key::enter},     {keysym::linefeed, key::enter},
+        {keysym::kp_enter, key::enter},       {keysym::pause, key::pause},
+        {keysym::scroll_lock, key::scroll_lock}, {keysym::sys_req, key::print_screen},
+        {keysym::print, key::print_screen},   {keysym::escape, key::escape},
+        {keysym::home, key::home},            {keysym::kp_home, key::home},
+        {keysym::left, key::left},            {keysym::kp_left, key::left},
+        {keysym::up, key::up},                {keysym::kp_up, key::up},
+        {keysym::right, key::right},          {keysym::kp_right, key::right},
+        {keysym::down, key::down},            {keysym::kp_down, key::down},
+        {keysym::prior, key::page_up},        {keysym::kp_prior, key::page_up},
+        {keysym::next, key::page_down},       {keysym::kp_next, key::page_down},
+        {keysym::end, key::end},              {keysym::kp_end, key::end},
+        {keysym::insert, key::insert},        {keysym::kp_insert, key::insert},
+        {keysym::delete_key, key::del},       {keysym::kp_delete, key::del},
+        {keysym::menu, key::menu},            {keysym::num_lock, key::num_lock},
+        {keysym::caps_lock, key::caps_lock},  {keysym::shift_lock, key::caps_lock},
+        {keysym::kp_multiply, key::multiply}, {keysym::kp_add, key::add},
+        {keysym::kp_subtract, key::subtract}, {keysym::kp_decimal, key::decimal},
+        {keysym::kp_separator, key::decimal}, {keysym::kp_divide, key::divide},
+        {keysym::shift_l, key::shift},        {keysym::shift_r, key::shift},
+        {keysym::control_l, key::ctrl},       {keysym::control_r, key::ctrl},
+        {keysym::alt_l, key::alt},            {keysym::alt_r, key::alt},
+        {keysym::meta_l, key::alt},           {keysym::meta_r, key::alt},
+        {keysym::super_l, key::left_super},   {keysym::super_r, key::right_super},
+    };
+    for (const auto& pair : pairs)
+        table.key[pair.symbol & 0xFF] = pair.key;
+    return table;
+}();
+
 } // namespace
 
 Key key_from_position(u32 evdev) noexcept {
@@ -150,106 +198,21 @@ Key key_from_position(u32 evdev) noexcept {
 }
 
 Key key_from_fixed_keysym(u32 symbol) noexcept {
-    if (symbol >= keysym::f1 && symbol <= keysym::f24)
-        return static_cast<Key>(key::f1 + (symbol - keysym::f1));
-    if (symbol >= keysym::kp_0 && symbol <= keysym::kp_9)
-        return static_cast<Key>(key::numpad0 + (symbol - keysym::kp_0));
+    if ((symbol >> 8) == 0xFF)
+        return kFixedKeys.key[symbol & 0xFF];
     switch (symbol) {
     case keysym::space:
-    case keysym::kp_space:
         return key::space;
-    case keysym::backspace:
-        return key::backspace;
-    case keysym::tab:
-    case keysym::kp_tab:
     case keysym::iso_left_tab:
         return key::tab;
-    case keysym::return_key:
-    case keysym::linefeed:
-    case keysym::kp_enter:
-        return key::enter;
-    case keysym::pause:
-        return key::pause;
-    case keysym::scroll_lock:
-        return key::scroll_lock;
-    case keysym::sys_req:
-    case keysym::print:
-        return key::print_screen;
-    case keysym::escape:
-        return key::escape;
-    case keysym::home:
-    case keysym::kp_home:
-        return key::home;
-    case keysym::left:
-    case keysym::kp_left:
-        return key::left;
-    case keysym::up:
-    case keysym::kp_up:
-        return key::up;
-    case keysym::right:
-    case keysym::kp_right:
-        return key::right;
-    case keysym::down:
-    case keysym::kp_down:
-        return key::down;
-    case keysym::prior:
-    case keysym::kp_prior:
-        return key::page_up;
-    case keysym::next:
-    case keysym::kp_next:
-        return key::page_down;
-    case keysym::end:
-    case keysym::kp_end:
-        return key::end;
-    case keysym::insert:
-    case keysym::kp_insert:
-        return key::insert;
-    case keysym::delete_key:
-    case keysym::kp_delete:
-        return key::del;
-    case keysym::menu:
-        return key::menu;
-    case keysym::num_lock:
-        return key::num_lock;
-    case keysym::caps_lock:
-    case keysym::shift_lock:
-        return key::caps_lock;
-    case keysym::kp_multiply:
-        return key::multiply;
-    case keysym::kp_add:
-        return key::add;
-    case keysym::kp_subtract:
-        return key::subtract;
-    case keysym::kp_decimal:
-    case keysym::kp_separator:
-        return key::decimal;
-    case keysym::kp_divide:
-        return key::divide;
-    case keysym::shift_l:
-    case keysym::shift_r:
-        return key::shift;
-    case keysym::control_l:
-    case keysym::control_r:
-        return key::ctrl;
-    case keysym::alt_l:
-    case keysym::alt_r:
-    case keysym::meta_l:
-    case keysym::meta_r:
-        return key::alt;
     case keysym::iso_level3_shift:
         return key::right_alt;
-    case keysym::super_l:
-        return key::left_super;
-    case keysym::super_r:
-        return key::right_super;
     default:
         return key::none;
     }
 }
 
-Key key_from_keysyms(u32 evdev, u32 active, u32 level0, u32 level1) noexcept {
-    if (const Key fixed = key_from_fixed_keysym(active))
-        return fixed;
+Key key_from_levels(u32 evdev, u32 level0, u32 level1) noexcept {
     if (is_latin_letter(level0))
         return static_cast<Key>(level0 & ~0x20u); // upper case
     if (is_digit(level0))

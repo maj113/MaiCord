@@ -66,8 +66,4 @@ bool window_wayland_global_shortcut(Key key, u8 modifiers, const char* descripti
     return dbus::global_shortcuts_start(&shortcut, 1, wayland::on_shortcut, nullptr);
 }
 
-bool window_wayland_global_shortcut_ready() noexcept {
-    return dbus::global_shortcuts_state() == dbus::GlobalShortcutsState::ready;
-}
-
 } // namespace maicord

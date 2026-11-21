@@ -300,7 +300,7 @@ bool local_time_to_unix(const CalendarTime& local, i64* unix_seconds) noexcept {
 void local_time_now(CalendarTime* output) noexcept {
     if (!output)
         return;
-    TimeSpec now{};
+    TimeSpec now;
     clock_gettime(kClockRealtime, &now);
     if (!local_time_from_unix(now.seconds, output))
         *output = {};

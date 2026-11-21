@@ -164,21 +164,15 @@ void emit_state_changed(u32 geometry = 0) noexcept {
     g.window.state_bits = bits;
     if (!changed)
         return;
-    WindowEvent event = make_event(EventType::state_changed, now_ms32());
+    WindowEvent& event = ring_add(EventType::state_changed, now_ms32());
     event.window_state.changed = changed;
     event.window_state.state = bits | geometry;
-    ring_push(event);
 }
 
 void emit_resize(EventType type) noexcept {
-    u32 width = 0;
-    u32 height = 0;
-    window_pixel_size(&width, &height);
-    WindowEvent event = make_event(type, now_ms32());
-    event.resize.width_px = width;
-    event.resize.height_px = height;
+    WindowEvent& event = ring_add(type, now_ms32());
+    window_pixel_size(&event.resize.width_px, &event.resize.height_px);
     event.resize.scale_120 = g.window.dpi * 120 / kDefaultDpi;
-    ring_push(event);
 }
 
 void on_toplevel_configure(void*, xdg_toplevel*, i32 width, i32 height, Array* states) noexcept {
@@ -189,6 +183,8 @@ void on_toplevel_configure(void*, xdg_toplevel*, i32 width, i32 height, Array* s
     if (states && states->data) {
         const u32* state = static_cast<const u32*>(states->data);
         const usize count = states->size / sizeof(u32);
+        // A configure carries 0 to 13 states. Four lanes and no interleave are faster than the default width there.
+#pragma clang loop vectorize_width(4) interleave_count(1)
         for (usize i = 0; i < count; ++i)
             if (state[i] < 32)
                 bits |= 1u << state[i];
@@ -197,7 +193,7 @@ void on_toplevel_configure(void*, xdg_toplevel*, i32 width, i32 height, Array* s
 }
 
 void on_toplevel_close(void*, xdg_toplevel*) noexcept {
-    ring_push(make_event(EventType::close_requested, now_ms32()));
+    ring_add(EventType::close_requested, now_ms32());
 }
 
 void on_toplevel_configure_bounds(void*, xdg_toplevel*, i32, i32) noexcept {}
@@ -209,6 +205,8 @@ void on_toplevel_wm_capabilities(void*, xdg_toplevel*, Array* capabilities) noex
     bool minimize = false;
     if (capabilities && capabilities->data) {
         const u32* value = static_cast<const u32*>(capabilities->data);
+        // A few capabilities: the scalar loop is faster than a vector one.
+#pragma clang loop vectorize(disable) interleave(disable)
         for (usize i = 0; i < capabilities->size / sizeof(u32); ++i) {
             menu |= value[i] == xdg_toplevel_wm_capabilities_window_menu;
             maximize |= value[i] == xdg_toplevel_wm_capabilities_maximize;
@@ -281,11 +279,8 @@ void on_surface_configure(void*, xdg_surface* surface, u32 serial) noexcept {
         emit_resize(EventType::resize);
     const bool was_active = (previous_states & (1u << xdg_toplevel_state_activated)) != 0;
     const bool now_active = (states & (1u << xdg_toplevel_state_activated)) != 0;
-    if (now_active != was_active || (first && now_active)) {
-        WindowEvent event = make_event(EventType::activation_changed, now_ms32());
-        event.focus.gained = now_active;
-        ring_push(event);
-    }
+    if (now_active != was_active || (first && now_active))
+        ring_add(EventType::activation_changed, now_ms32()).focus.gained = now_active;
     emit_state_changed((first || size_changed) ? state_geometry : 0);
     if (was_resizing && !now_resizing)
         emit_resize(EventType::resize_end);
@@ -317,7 +312,7 @@ const wp_fractional_scale_v1_listener kFractionalListener = {on_preferred_scale}
 void on_frame_done(void*, wl_callback* callback, u32 time) noexcept {
     wl_callback_destroy(callback);
     g.window.frame_callback = nullptr;
-    ring_push(make_event(EventType::frame_done, time));
+    ring_add(EventType::frame_done, time);
     if (g.window.frame_listener)
         g.window.frame_listener(g.window.frame_listener_context, time);
 }
@@ -434,9 +429,8 @@ void set_min_size_px(u32 width_px, u32 height_px) noexcept {
 void apply_size_limits() noexcept {
     if (!g.window.sink || !g.window.configured)
         return;
-    WindowEvent query = make_event(EventType::size_limits, now_ms32());
     WindowEventResult answer{};
-    sink_call(query, &answer);
+    sink_call(make_event(EventType::size_limits, now_ms32()), &answer);
     if (answer.handled)
         set_min_size_px(answer.width_px, answer.height_px);
 }
@@ -489,8 +483,8 @@ bool dispatch_until(bool (*done)() noexcept, u32 timeout_ms) noexcept {
                 return false;
             }
         }
-        g_client.display_dispatch_pending(g.display);
-        connection_check();
+        if (g_client.display_dispatch_pending(g.display) < 0)
+            connection_check();
     }
     return true;
 }
@@ -584,8 +578,11 @@ using namespace wayland;
 
 namespace {
 
-bool is_window(Window window) noexcept {
-    return g.window_exists && window == reinterpret_cast<Window>(&g.window);
+// Copies `text` into `destination` as a C string, cut to the capacity.
+void copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
+    const u32 length = minimum<u32>(static_cast<u32>(text.bytes), capacity - 1);
+    copy_bytes(destination, text.data, length);
+    destination[length] = 0;
 }
 
 // How long a reveal waits for the compositor's configure on the UI thread. Sway answers in a few milliseconds. A
@@ -671,9 +668,7 @@ const WindowCaps& window_caps() noexcept {
 static void on_desktop_settings(void*, u32 areas) noexcept {
     if (!g.window_exists)
         return;
-    WindowEvent event = make_event(EventType::settings_changed, now_ms32());
-    event.settings.areas = areas;
-    ring_push(event);
+    ring_add(EventType::settings_changed, now_ms32()).settings.areas = areas;
     if (areas & dbus::desktop_cursor) {
         // The cursor theme or size changed: the next cursor is loaded afresh.
         g.pointer.applied_valid = false;
@@ -743,13 +738,8 @@ bool window_create(const WindowCreateInfo& info, WindowSink sink, void* context,
     g.caps.minimize = true;
     g.caps.fullscreen = true;
 
-    const auto copy = [](char* destination, u32 capacity, Utf8View text) {
-        const u32 length = minimum<u32>(static_cast<u32>(text.bytes), capacity - 1);
-        copy_bytes(destination, text.data, length);
-        destination[length] = 0;
-    };
-    copy(window.title, sizeof(window.title), info.title);
-    copy(window.app_id, sizeof(window.app_id), info.app_id);
+    copy_text(window.title, sizeof(window.title), info.title);
+    copy_text(window.app_id, sizeof(window.app_id), info.app_id);
 
     window.surface = wl_compositor_create_surface(g.compositor);
     window.shell_surface = xdg_wm_base_get_xdg_surface(g.wm_base, window.surface);
@@ -829,11 +819,8 @@ void window_show(Window window, ShowMode mode) noexcept {
 void window_set_title(Window window, Utf8View title) noexcept {
     if (!is_window(window))
         return;
-    char* text = g.window.title;
-    const u32 length = minimum<u32>(static_cast<u32>(title.bytes), sizeof(g.window.title) - 1);
-    copy_bytes(text, title.data, length);
-    text[length] = 0;
-    xdg_toplevel_set_title(g.window.toplevel, text);
+    copy_text(g.window.title, sizeof(g.window.title), title);
+    xdg_toplevel_set_title(g.window.toplevel, g.window.title);
 }
 
 void window_minimize(Window window) noexcept {
@@ -853,7 +840,7 @@ void window_toggle_maximize(Window window) noexcept {
 void window_request_close(Window window) noexcept {
     if (!is_window(window))
         return;
-    ring_push(make_event(EventType::close_requested, now_ms32()));
+    ring_add(EventType::close_requested, now_ms32());
     loop_wake();
 }
 
@@ -885,7 +872,6 @@ void window_set_min_size(Window window, u32 width_px, u32 height_px) noexcept {
     if (is_window(window))
         set_min_size_px(width_px, height_px);
 }
-
 
 void window_invalidate(Window) noexcept {}
 

@@ -401,11 +401,15 @@ bool application_desktop_forward_existing(ConstSlice<wchar_t> command_line) noex
 #if defined(_WIN32)
 void application_desktop_prepare(ConstSlice<wchar_t> command_line) noexcept {
     DesktopLaunch& launch = g_desktop.launch;
-    if (!g_desktop.mutex && !desktop_launch_parse(command_line, &launch))
-        clear_bytes(&launch, sizeof(launch));
-    wchar_t mutex_name[kNameCapacity], window_name[kNameCapacity];
-    if (instance_names(mutex_name, window_name))
-        take_mutex(mutex_name);
+    // application_desktop_forward_existing parsed the launch and took the mutex before.
+    // Only a failed attempt runs again.
+    if (!g_desktop.mutex) {
+        if (!desktop_launch_parse(command_line, &launch))
+            clear_bytes(&launch, sizeof(launch));
+        wchar_t mutex_name[kNameCapacity], window_name[kNameCapacity];
+        if (instance_names(mutex_name, window_name))
+            take_mutex(mutex_name);
+    }
     if (launch.url_present)
         application_desktop_open_link({launch.url, launch.url_units});
 }

@@ -35,7 +35,7 @@ void publish_events() noexcept {
     const UiAccessTree* tree = access_tree(nullptr);
     if (!tree)
         return;
-    UiAccessEventPlan plan{};
+    UiAccessEventPlan plan; // ui_access_plan_events clears it before it writes it
     if (!ui_access_plan_events(&g_access.events, *tree, &plan))
         return;
     atspi::server_publish(*tree, plan);

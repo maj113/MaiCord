@@ -30,7 +30,6 @@ constexpr char kSymbols[] =
     "xkb_state_key_get_one_sym\0"
     "xkb_state_key_get_utf32\0"
     "xkb_state_key_get_layout\0"
-    "xkb_state_mod_name_is_active\0"
     "xkb_compose_table_new_from_locale\0"
     "xkb_compose_table_unref\0"
     "xkb_compose_state_new\0"
@@ -64,6 +63,11 @@ const XkbApi* xkb_api() noexcept {
 Key xkb_key_for(const XkbApi& api, XkbKeymap* keymap, XkbState* state, u32 evdev, u32* active_symbol) noexcept {
     const u32 code = evdev + kEvdevToXkb;
     const u32 active = api.state_key_get_one_sym(state, code);
+    if (active_symbol)
+        *active_symbol = active;
+    // A fixed keysym names its key in every layout: the key's levels are not read.
+    if (const Key fixed = key_from_fixed_keysym(active))
+        return fixed;
     const u32 layout = api.state_key_get_layout(state, code);
     u32 level0 = 0;
     u32 level1 = 0;
@@ -73,9 +77,7 @@ Key xkb_key_for(const XkbApi& api, XkbKeymap* keymap, XkbState* state, u32 evdev
     symbols = nullptr;
     if (api.keymap_key_get_syms_by_level(keymap, code, layout, 1, &symbols) > 0 && symbols)
         level1 = symbols[0];
-    if (active_symbol)
-        *active_symbol = active;
-    return key_from_keysyms(evdev, active, level0, level1);
+    return key_from_levels(evdev, level0, level1);
 }
 
 } // namespace maicord::wayland

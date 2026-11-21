@@ -1,8 +1,10 @@
 // wl_pointer to WindowEvents: motion, buttons with the double-click synthesiser, wheel, capture bookkeeping and the
-// cursor (wp_cursor_shape, with an XCursor wl_shm fallback).
+// cursor (wp_cursor_shape, with an XCursor wl_shm fallback). The pointer over the resize margin (window.cpp) gives the
+// edge cursors and starts a resize, and the app never sees it.
 #include "maicord/core/memory.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
+#include "maicord/platform/window/frame.hpp"
 #include "maicord/platform/window/wayland/abi.hpp"
 #include "maicord/sys/linux/process.hpp"
 #include "maicord/ui/core/cursor.hpp"
@@ -48,8 +50,9 @@ bool pointer_button_of(u32 code, PointerButton* button) noexcept {
     }
 }
 
-WindowEvent pointer_event(EventType type, u32 time_ms) noexcept {
-    WindowEvent event = make_event(type, time_ms);
+// Appends a pointer event at the pointer's position and buttons.
+WindowEvent& add_pointer_event(EventType type, u32 time_ms) noexcept {
+    WindowEvent& event = ring_add(type, time_ms);
     event.pointer.x = g.pointer.x;
     event.pointer.y = g.pointer.y;
     event.pointer.buttons = g.pointer.buttons;
@@ -73,7 +76,7 @@ void flush_motion() noexcept {
             return;
         }
     }
-    ring_push(pointer_event(EventType::pointer_move, pointer.motion_time));
+    add_pointer_event(EventType::pointer_move, pointer.motion_time);
 }
 
 i32 whole_notches(float units, float* remainder) noexcept {
@@ -103,21 +106,24 @@ void flush_axis() noexcept {
         dy120 = whole_notches(dy_units, &pointer.remainder_y);
     }
     const float scale = pixel_scale();
-    WindowEvent event = make_event(EventType::wheel, pointer.axis_time);
+    const float dx_px = dx_units * scale;
+    const float dy_px = dy_units * scale;
+    const u8 source = pointer.axis_source;
+    pointer.axis_px_x = pointer.axis_px_y = 0;
+    pointer.axis_value120_x = pointer.axis_value120_y = 0;
+    pointer.axis_discrete_x = pointer.axis_discrete_y = 0;
+    pointer.axis_source = wl_pointer_axis_source_wheel;
+    if (dx120 == 0 && dy120 == 0 && dx_px == 0 && dy_px == 0)
+        return;
+    WindowEvent& event = ring_add(EventType::wheel, pointer.axis_time);
     event.modifiers = g.keyboard.modifiers;
     event.wheel.x = pointer.x;
     event.wheel.y = pointer.y;
     event.wheel.dx120 = dx120;
     event.wheel.dy120 = dy120;
-    event.wheel.dx_px = dx_units * scale;
-    event.wheel.dy_px = dy_units * scale;
-    event.wheel.source = pointer.axis_source;
-    pointer.axis_px_x = pointer.axis_px_y = 0;
-    pointer.axis_value120_x = pointer.axis_value120_y = 0;
-    pointer.axis_discrete_x = pointer.axis_discrete_y = 0;
-    pointer.axis_source = wl_pointer_axis_source_wheel;
-    if (dx120 != 0 || dy120 != 0 || event.wheel.dx_px != 0 || event.wheel.dy_px != 0)
-        ring_push(event);
+    event.wheel.dx_px = dx_px;
+    event.wheel.dy_px = dy_px;
+    event.wheel.source = source;
 }
 
 ClickPolicy click_policy() noexcept {
@@ -127,13 +133,33 @@ ClickPolicy click_policy() noexcept {
             static_cast<float>(settings.double_click_dy_px) * scale};
 }
 
-void on_enter(void*, wl_pointer*, u32 serial, wl_surface*, i32 x, i32 y) noexcept {
+// The resize margin around the window (window.cpp): the edge under (x, y), in the margin's surface coordinates, and its
+// cursor. The margin lies outside the window, where the Windows frame has its resize borders. So the frame helper names
+// the edges and the corners as it does for those borders. The app is not asked: no app code runs in a listener.
+void margin_moved(i32 x, i32 y) noexcept {
     PointerState& pointer = g.pointer;
-    pointer.inside = true;
+    const i32 client_x = (x >> 8) - kResizeBand;  // wl_fixed_t is 24.8: the shift rounds down
+    const i32 client_y = (y >> 8) - kResizeBand;
+    pointer.margin_hit = window_frame_hit(client_x, client_y, static_cast<i32>(g.window.logical_width),
+                                          static_cast<i32>(g.window.logical_height), kResizeBand, false,
+                                          FrameHit::nowhere);
+    pointer.desired_cursor = static_cast<u8>(kFrameCursorBase + static_cast<u8>(pointer.margin_hit));
+    cursor_apply();
+}
+
+void on_enter(void*, wl_pointer*, u32 serial, wl_surface* surface, i32 x, i32 y) noexcept {
+    PointerState& pointer = g.pointer;
     pointer.enter_serial = serial;
-    pointer.x = fixed_to_float(x) * pixel_scale();
-    pointer.y = fixed_to_float(y) * pixel_scale();
     pointer.applied_valid = false;  // the compositor forgets the cursor when the pointer leaves
+    if (surface && surface == g.window.margin_surface) {
+        pointer.margin = true;
+        margin_moved(x, y);
+        return;
+    }
+    pointer.inside = true;
+    const float scale = pixel_scale();
+    pointer.x = fixed_to_float(x) * scale;
+    pointer.y = fixed_to_float(y) * scale;
     pointer.motion_pending = true;
     pointer.motion_time = now_ms32();
     flush_motion();
@@ -141,17 +167,27 @@ void on_enter(void*, wl_pointer*, u32 serial, wl_surface*, i32 x, i32 y) noexcep
 
 void on_leave(void*, wl_pointer*, u32, wl_surface*) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin) {
+        // The app saw the pointer leave when it went from the window onto the margin.
+        pointer.margin = false;
+        pointer.enter_serial = 0;
+        return;
+    }
     flush_motion();
     flush_axis();
     pointer.inside = false;
     pointer.buttons = 0;
     pointer.enter_serial = 0;
     click_tracker_reset(&pointer.click);
-    ring_push(pointer_event(EventType::pointer_leave, now_ms32()));
+    add_pointer_event(EventType::pointer_leave, now_ms32());
 }
 
 void on_motion(void*, wl_pointer*, u32 time, i32 x, i32 y) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin) {
+        margin_moved(x, y);
+        return;
+    }
     const float scale = pixel_scale();
     pointer.x = fixed_to_float(x) * scale;
     pointer.y = fixed_to_float(y) * scale;
@@ -163,6 +199,15 @@ void on_motion(void*, wl_pointer*, u32 time, i32 x, i32 y) noexcept {
 
 void on_button(void*, wl_pointer*, u32 serial, u32 time, u32 code, u32 state) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin) {
+        // A left press on the margin starts the compositor's resize from the edge under it.
+        if (state == wl_pointer_button_state_pressed && code == kButtonLeft) {
+            pointer.press_serial = serial;
+            g.input_serial = serial;
+            begin_resize(pointer.margin_hit);
+        }
+        return;
+    }
     flush_motion();
     PointerButton button;
     if (!pointer_button_of(code, &button))
@@ -175,16 +220,18 @@ void on_button(void*, wl_pointer*, u32 serial, u32 time, u32 code, u32 state) no
     } else {
         pointer.buttons = static_cast<u8>(pointer.buttons & ~button_bit(button));
     }
-    WindowEvent event = pointer_event(pressed ? EventType::pointer_down : EventType::pointer_up, time);
+    const bool double_click = pressed && click_tracker_press(&pointer.click, static_cast<u8>(button), time, pointer.x,
+                                                             pointer.y, click_policy());
+    WindowEvent& event = add_pointer_event(pressed ? EventType::pointer_down : EventType::pointer_up, time);
+    event.flags = double_click ? ev_double_click : 0;
     event.button = static_cast<u8>(button);
     event.modifiers = g.keyboard.modifiers;
-    if (pressed && click_tracker_press(&pointer.click, static_cast<u8>(button), time, pointer.x, pointer.y, click_policy()))
-        event.flags |= ev_double_click;
-    ring_push(event);
 }
 
 void on_axis(void*, wl_pointer*, u32 time, u32 axis, i32 value) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin)
+        return;  // the margin does not scroll
     const float units = fixed_to_float(value);
     if (axis == wl_pointer_axis_vertical_scroll)
         pointer.axis_px_y += units;
@@ -209,12 +256,16 @@ void on_axis_stop(void*, wl_pointer*, u32, u32) noexcept {}
 
 void on_axis_discrete(void*, wl_pointer*, u32 axis, i32 discrete) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin)
+        return;
     (axis == wl_pointer_axis_vertical_scroll ? pointer.axis_discrete_y : pointer.axis_discrete_x) += discrete;
     pointer.axis_pending = true;
 }
 
 void on_axis_value120(void*, wl_pointer*, u32 axis, i32 value120) noexcept {
     PointerState& pointer = g.pointer;
+    if (pointer.margin)
+        return;
     (axis == wl_pointer_axis_vertical_scroll ? pointer.axis_value120_y : pointer.axis_value120_x) += value120;
     pointer.axis_pending = true;
 }
@@ -308,6 +359,39 @@ void choose_cursor_theme(char (&name)[64], u32* size) noexcept {
         *size = kDefaultCursorSize;
 }
 
+// Gives the cursor surface the theme's image of `code`; false when the theme has none.
+bool draw_cursor(const CursorApi& api, u8 code, u32 scale) noexcept {
+    PointerState& pointer = g.pointer;
+    Cursor* shape = nullptr;
+    const char* candidate = kCursorNames;
+    for (u32 skip = 3 * cursor_row(code); skip; --skip)
+        candidate += c_string_length(candidate) + 1;
+    for (u32 tried = 0; tried < 3; ++tried, candidate += c_string_length(candidate) + 1) {
+        shape = api.theme_get_cursor(pointer.theme, candidate);
+        if (shape && shape->image_count > 0)
+            break;
+        shape = nullptr;
+    }
+    if (!shape)
+        return false;
+    CursorImage* image = shape->images[0];
+    wl_buffer* buffer = api.image_get_buffer(image);
+    if (!buffer)
+        return false;
+    if (!pointer.cursor_surface)
+        pointer.cursor_surface = wl_compositor_create_surface(g.compositor);
+    wl_surface_set_buffer_scale(pointer.cursor_surface, static_cast<i32>(scale));
+    wl_surface_attach(pointer.cursor_surface, buffer, 0, 0);
+    wl_surface_damage_buffer(pointer.cursor_surface, 0, 0, static_cast<i32>(image->width),
+                             static_cast<i32>(image->height));
+    wl_surface_commit(pointer.cursor_surface);
+    pointer.cursor_surface_valid = true;
+    pointer.cursor_surface_code = code;
+    pointer.cursor_hotspot_x = static_cast<i32>(image->hotspot_x / scale);
+    pointer.cursor_hotspot_y = static_cast<i32>(image->hotspot_y / scale);
+    return true;
+}
+
 void apply_cursor_theme(u8 code) noexcept {
     PointerState& pointer = g.pointer;
     const CursorApi* api = cursor_api();
@@ -331,38 +415,8 @@ void apply_cursor_theme(u8 code) noexcept {
             return;
     }
     // The cursor surface keeps the image it was given: a pointer that enters again only names it with the new serial.
-    if (pointer.cursor_surface_valid && pointer.cursor_surface_code == code) {
-        wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, pointer.cursor_surface, pointer.cursor_hotspot_x,
-                              pointer.cursor_hotspot_y);
+    if ((!pointer.cursor_surface_valid || pointer.cursor_surface_code != code) && !draw_cursor(*api, code, scale))
         return;
-    }
-    Cursor* shape = nullptr;
-    const char* candidate = kCursorNames;
-    for (u32 skip = 3 * cursor_row(code); skip; --skip)
-        candidate += c_string_length(candidate) + 1;
-    for (u32 tried = 0; tried < 3; ++tried, candidate += c_string_length(candidate) + 1) {
-        shape = api->theme_get_cursor(pointer.theme, candidate);
-        if (shape && shape->image_count > 0)
-            break;
-        shape = nullptr;
-    }
-    if (!shape)
-        return;
-    CursorImage* image = shape->images[0];
-    wl_buffer* buffer = api->image_get_buffer(image);
-    if (!buffer)
-        return;
-    if (!pointer.cursor_surface)
-        pointer.cursor_surface = wl_compositor_create_surface(g.compositor);
-    wl_surface_set_buffer_scale(pointer.cursor_surface, static_cast<i32>(scale));
-    wl_surface_attach(pointer.cursor_surface, buffer, 0, 0);
-    wl_surface_damage_buffer(pointer.cursor_surface, 0, 0, static_cast<i32>(image->width),
-                             static_cast<i32>(image->height));
-    wl_surface_commit(pointer.cursor_surface);
-    pointer.cursor_surface_valid = true;
-    pointer.cursor_surface_code = code;
-    pointer.cursor_hotspot_x = static_cast<i32>(image->hotspot_x / scale);
-    pointer.cursor_hotspot_y = static_cast<i32>(image->hotspot_y / scale);
     wl_pointer_set_cursor(pointer.pointer, pointer.enter_serial, pointer.cursor_surface, pointer.cursor_hotspot_x,
                           pointer.cursor_hotspot_y);
 }
@@ -375,10 +429,8 @@ void release_pointer(wl_pointer* pointer) noexcept {
 }
 
 void send_capture_lost(u32 time_ms) noexcept {
-    WindowEvent event = make_event(EventType::capture_lost, time_ms);
-    event.focus.gained = false;
     WindowEventResult result{};
-    sink_call(event, &result);
+    sink_call(make_event(EventType::capture_lost, time_ms), &result);
 }
 
 } // namespace
@@ -450,7 +502,7 @@ void pointer_cursor_query(const WindowEvent& move) noexcept {
 
 void cursor_apply() noexcept {
     PointerState& pointer = g.pointer;
-    if (!pointer.pointer || !pointer.inside || pointer.enter_serial == 0)
+    if (!pointer.pointer || !(pointer.inside || pointer.margin) || pointer.enter_serial == 0)
         return;
     if (pointer.applied_valid && pointer.applied_cursor == pointer.desired_cursor)
         return;

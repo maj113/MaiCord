@@ -211,7 +211,7 @@ bool desktop_notification_activation_parse(ConstSlice<wchar_t> text,DesktopNotif
     if(!ids[0]||!ids[1]||!ids[2])return false;*out={ids[0],ids[1],ids[2]};return true;
 }
 DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayload& p,DesktopNotificationXml* out) noexcept {
-    if(!out)return failed(DesktopNotificationError::invalid_input,E_POINTER);reset_value(out);
+    if(!out)return failed(DesktopNotificationError::invalid_input,E_POINTER);out->count=0;out->bytes[0]=0;
     wchar_t args[61];u32 units{};
     if(!desktop_notification_activation_format(p.target,{args,61},&units)||!xml_utf8(p.title)||!xml_utf8(p.body)||!xml_utf8(p.avatar_file_uri))return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     if(p.avatar_file_uri.bytes){const auto v=p.avatar_file_uri;

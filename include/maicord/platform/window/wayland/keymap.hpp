@@ -92,14 +92,14 @@ Key key_from_position(u32 evdev) noexcept;
 // for a keysym that is not one of them.
 Key key_from_fixed_keysym(u32 keysym) noexcept;
 
-// The virtual key of a key press under the active layout. `active` is the keysym the key produces now, `level0` and
-// `level1` its unshifted and shifted keysyms in the active layout group (0 when it has none). Rules, in order:
-//   1. a fixed keysym (key_from_fixed_keysym);
-//   2. level 0 a Latin letter: 'A'..'Z' (the VK follows the label, so German Z and Dvorak O behave as on Windows);
-//   3. level 0 an ASCII digit, else level 1 one (AZERTY): '0'..'9';
-//   4. level 0 a US punctuation label: that key (semicolon, equals, comma, ...);
-//   5. otherwise the physical position (Cyrillic, Greek, Arabic, JP, accented keys): key_from_position.
-Key key_from_keysyms(u32 evdev, u32 active, u32 level0, u32 level1) noexcept;
+// The virtual key of a key press under the active layout, when the keysym the key produces now is not a fixed one
+// (key_from_fixed_keysym: that key wins over the layout). `level0` and `level1` are the key's unshifted and shifted
+// keysyms in the active layout group (0 when it has none). Rules, in order:
+//   1. level 0 a Latin letter: 'A'..'Z' (the VK follows the label, so German Z and Dvorak O behave as on Windows);
+//   2. level 0 an ASCII digit, else level 1 one (AZERTY): '0'..'9';
+//   3. level 0 a US punctuation label: that key (semicolon, equals, comma, ...);
+//   4. otherwise the physical position (Cyrillic, Greek, Arabic, JP, accented keys): key_from_position.
+Key key_from_levels(u32 evdev, u32 level0, u32 level1) noexcept;
 
 // The side-specific code of a modifier press, from the evdev code: Left Shift, Right Ctrl, ... (the generic code
 // goes in the event; the specific one feeds window_key_down(key::left_shift)). key::none for other keys.

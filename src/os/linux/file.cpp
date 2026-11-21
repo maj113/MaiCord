@@ -350,7 +350,7 @@ bool file_size(FileHandle file, u64* bytes) noexcept {
     if (!valid(file)) {
         return invalid_handle();
     }
-    Statx statx{};
+    Statx statx;
     const long result = statx_of(descriptor(file), &statx);
     if (syscall_failed(result)) {
         return fail(result);
@@ -371,7 +371,7 @@ bool file_stat(FileHandle file, FileStat* stat) noexcept {
     if (!valid(file)) {
         return invalid_handle();
     }
-    Statx statx{};
+    Statx statx;
     const long result = statx_of(descriptor(file), &statx);
     if (syscall_failed(result)) {
         return fail(result);
@@ -385,7 +385,7 @@ bool file_path_stat(const wchar_t* path, FileStat* stat) noexcept {
     if (!utf8_path(path, text)) {
         return false;
     }
-    Statx statx{};
+    Statx statx;
     const long result = sys_statx(kAtCurrentDirectory, text, kAtSymlinkNoFollow, kStatxBasicStats, &statx);
     if (syscall_failed(result)) {
         return fail(result);
@@ -398,7 +398,7 @@ bool file_times(FileHandle file, u64* last_write, u64* change) noexcept {
     if (!valid(file)) {
         return invalid_handle();
     }
-    Statx statx{};
+    Statx statx;
     const long result = sys_statx(descriptor(file), "", kAtEmptyPath, kStatxMtime | kStatxCtime, &statx);
     if (syscall_failed(result)) {
         return fail(result);
@@ -457,7 +457,7 @@ bool file_copy_new(const wchar_t* from, const wchar_t* to) noexcept {
     if (syscall_failed(input)) {
         return fail(input);
     }
-    Statx statx{};
+    Statx statx;
     long result = statx_of(static_cast<int>(input), &statx);
     long output = result;
     if (!syscall_failed(result)) {
@@ -532,7 +532,7 @@ bool file_map(FileHandle file, bool writable, u64 bytes, FileMap* map) noexcept 
         return invalid_handle();
     }
     const int fd = descriptor(file);
-    Statx statx{};
+    Statx statx;
     long result = statx_of(fd, &statx);
     if (syscall_failed(result)) {
         return fail(result);
@@ -577,7 +577,7 @@ bool file_snapshot_read(HANDLE file, FileSnapshot* output, u32* native_error) no
         }
         return false;
     }
-    Statx statx{};
+    Statx statx;
     const long result = statx_of(descriptor(file), &statx);
     if (syscall_failed(result)) {
         if (native_error) {

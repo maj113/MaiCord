@@ -998,7 +998,13 @@ Outcome answer_call(Endpoint* endpoint, const Message& call, Builder* reply, Fai
         builder_close_array(reply);
         return builder_ok(*reply) ? Outcome::replied : Outcome::unhandled;
     }
-    Request r{endpoint, {}, reply, failure, nullptr, kUiAccessNone, nullptr};
+    // The arguments' reader is set by message_reader below, before anything reads it.
+    Request r;
+    r.endpoint = endpoint;
+    r.out = reply;
+    r.failure = failure;
+    r.index = kUiAccessNone;
+    r.node = nullptr;
     const bool root = is_root_path(call.path);
     u64 key = 0;
     if (!root && !key_from_path(call.path, &key))

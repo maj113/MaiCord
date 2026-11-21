@@ -2,6 +2,7 @@
 // src/platform/dbus/open_uri.cpp. A path becomes a file: URI; a file is "revealed" by opening its folder, since
 // the portals cannot select a file in the manager.
 #include "maicord/platform/desktop/shell_open.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/os/text.hpp"
 #include "maicord/platform/dbus/open_uri.hpp"
 #include "maicord/platform/window/wayland.hpp"
@@ -49,19 +50,12 @@ bool file_uri(const wchar_t* path, u32 units, char* output, u32 capacity) noexce
     return true;
 }
 
-u32 wide_length(const wchar_t* text) noexcept {
-    u32 length = 0;
-    while (text[length])
-        ++length;
-    return length;
-}
-
 } // namespace
 
 bool desktop_open_target(Window, const wchar_t* target) noexcept {
     if (!target || !*target)
         return false;
-    const u32 units = wide_length(target);
+    const u32 units = wide_length(target, ~0u);
     char text[kMaximumUriBytes];
     // A link is opened as written; anything that is not one is an absolute path.
     if (const u32 bytes = utf16_to_utf8(target, units, text, sizeof(text) - 1, true)) {
@@ -76,7 +70,7 @@ bool desktop_open_target(Window, const wchar_t* target) noexcept {
 bool desktop_reveal_file(const wchar_t* path) noexcept {
     if (!path || !*path)
         return false;
-    u32 units = wide_length(path);
+    u32 units = wide_length(path, ~0u);
     while (units && path[units - 1] != L'/' && path[units - 1] != L'\\')
         --units;
     // The folder, without its trailing separator (the root keeps its own).

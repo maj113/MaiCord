@@ -26,6 +26,7 @@ struct GlobalName {
 
 struct EventRing {
     WindowEvent events[kRingCapacity];
+    WindowEvent overflow;  // what ring_add gives out while the ring is full: nobody reads it
     u32 head;  // next to read
     u32 tail;  // next to write
 };
@@ -93,8 +94,6 @@ struct KeyboardState {
     i32 repeat_rate;   // per second, 0 = off
     i32 repeat_delay;  // milliseconds
     KeyRepeat repeat;
-    Waitable repeat_timer;
-    u64 repeat_armed_at;  // the monotonic millisecond the timer is armed for, 0 when unknown (pump.cpp)
     // Keys currently down: per evdev code the portable key it was pressed as (0 = up).
     u8 down_key[768];
     u8 down_specific[768];
@@ -295,13 +294,22 @@ struct Backend {
 
 extern Backend g;
 
+// Whether `window` is the window that window_create made and window_destroy did not end yet.
+inline bool is_window(Window window) noexcept {
+    return g.window_exists && window == reinterpret_cast<Window>(&g.window);
+}
+
 // Events -------------------------------------------------------------------------------------------------------------
 
 // The low 32 bits of the monotonic millisecond clock: the time of events the backend raises itself.
 u32 now_ms32() noexcept;
 WindowEvent make_event(EventType type, u32 time_ms) noexcept;
-// Appends to the ring; false (and counted) when it is full.
-bool ring_push(const WindowEvent& event) noexcept;
+// Appends an event of `type` at `time_ms`, its other fields zero, for the caller to fill in place. A full ring drops
+// the event: the caller then fills a slot that nobody reads.
+WindowEvent& ring_add(EventType type, u32 time_ms) noexcept;
+inline bool ring_full() noexcept {
+    return g.ring.tail - g.ring.head >= kRingCapacity;
+}
 
 // window.cpp ---------------------------------------------------------------------------------------------------------
 
@@ -358,7 +366,6 @@ void keyboard_shutdown() noexcept;
 // Raises due key repeats into the ring; at most one per call.
 void keyboard_poll_repeat(u64 now_ms) noexcept;
 u32 keyboard_repeat_wait_ms(u64 now_ms) noexcept;
-Waitable keyboard_repeat_waitable() noexcept;
 
 // global_keys.cpp ----------------------------------------------------------------------------------------------------
 

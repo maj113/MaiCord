@@ -168,7 +168,7 @@ bool write_text(wchar_t* path, const char* text, u32 count) noexcept {
 }
 
 bool remove_file(const wchar_t* path) noexcept {
-    FileStat stat{};
+    FileStat stat;
     return file_remove(path) || !file_path_stat(path, &stat);
 }
 

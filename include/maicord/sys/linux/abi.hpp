@@ -139,7 +139,8 @@ inline constexpr long kSealShrink = 0x2;
 inline constexpr long kSealGrow = 0x4;
 inline constexpr long kSealWrite = 0x8;
 
-// <linux/stat.h>: statx(2). The kernel fills only what `mask` asks for and reports what it filled in `mask`.
+// <linux/stat.h>: statx(2). The kernel fills only what `mask` asks for and reports what it filled in `mask`. A call
+// that succeeds writes all 256 bytes (the fields not filled are zero), so a caller does not clear the struct first.
 inline constexpr u32 kStatxType = 0x1;
 inline constexpr u32 kStatxMtime = 0x40;
 inline constexpr u32 kStatxCtime = 0x80;
@@ -223,7 +224,7 @@ inline constexpr i64 kMagic9p = 0x01021997;
 inline constexpr i64 kMagicFuse = 0x65735546;
 inline constexpr i64 kMagicCifs = 0xFF534D42;
 inline constexpr i64 kMagicSmb2 = 0xFE534D42;
-// struct statfs of x86-64 (120 bytes): the type comes first.
+// struct statfs of x86-64 (120 bytes): the type comes first. fstatfs(2) writes all of it when it succeeds.
 struct StatFs {
     i64 type;
     u64 reserved[14];

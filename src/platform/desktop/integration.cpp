@@ -194,7 +194,10 @@ bool segment_is(ConstSlice<wchar_t> text, u32 first, u32 last, const wchar_t* li
 bool desktop_launch_parse(ConstSlice<wchar_t> line, DesktopLaunch* launch) noexcept {
     if (!launch)
         return false;
-    clear_bytes(launch, sizeof(*launch));
+    // The URL is read only up to url_units: the 4.4 KB buffer needs no clear.
+    launch->startup = false;
+    launch->url_present = false;
+    launch->url_units = 0;
     if (!line.data || !line.count)
         return true;
     for (u32 i = 0; i < line.count; ++i)

@@ -157,10 +157,6 @@ bool window_wayland_global_shortcut(Key key, u8, const char*) noexcept {
     return true;
 }
 
-bool window_wayland_global_shortcut_ready() noexcept {
-    return g.probe.shortcut_key != 0;
-}
-
 void window_wayland_global_shortcut_clear() noexcept {
     g.probe.shortcut_key = 0;
     ++g.probe.shortcut_clears;

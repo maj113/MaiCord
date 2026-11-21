@@ -40,8 +40,10 @@ bool text_equal(const char* left, const char* right) noexcept {
 
 // The key table ------------------------------------------------------------------------------------------------------
 
+// The key of a press as xkb_key_for decides it: the fixed keysym, else the levels.
 void check_key(u32 evdev, u32 active, u32 level0, u32 level1, Key expected, const char* label) noexcept {
-    check(key_from_keysyms(evdev, active, level0, level1) == expected, label);
+    const Key fixed = key_from_fixed_keysym(active);
+    check((fixed ? fixed : key_from_levels(evdev, level0, level1)) == expected, label);
 }
 
 void test_key_table() noexcept {

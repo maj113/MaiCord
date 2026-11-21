@@ -6,10 +6,10 @@
 // 0 -> 2 (detached: thread_close came first) when the thread cleans up after itself. Exactly one side
 // frees the record: thread_close after state 1 (joining the finished thread), the thread itself after state 2.
 #include "maicord/os/thread.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/os/linux/error.hpp"
 #include "maicord/sys/linux/calls.hpp"
 #include "maicord/sys/linux/libc.hpp"
-#include "monotonic.hpp"
 
 namespace maicord {
 
@@ -80,24 +80,26 @@ void* thread_main(void* argument) noexcept {
     return nullptr;
 }
 
-bool finished(const Thread* thread) noexcept {
+inline bool finished(const Thread* thread) noexcept {
     return __atomic_load_n(&thread->state, __ATOMIC_ACQUIRE) == kFinished;
 }
 
-// Waits until `deadline` (monotonic nanoseconds; 0 = never) for the thread to return.
+// Waits until `deadline` (clock_now nanoseconds, CLOCK_MONOTONIC as the futex's relative timeout; 0 = never) for the
+// thread to return.
 bool wait_until(Thread* thread, i64 deadline) noexcept {
     for (;;) {
         if (finished(thread)) {
             return true;
         }
-        TimeSpec timeout{};
+        TimeSpec timeout;
         const TimeSpec* limit = nullptr;
         if (deadline != 0) {
-            const i64 remaining = deadline - monotonic_nanoseconds();
+            const i64 remaining = deadline - clock_now();
             if (remaining <= 0) {
                 return false;
             }
-            timeout = timespec_from_nanoseconds(remaining);
+            timeout = {static_cast<i64>(static_cast<u64>(remaining) / 1'000'000'000),
+                       static_cast<i64>(static_cast<u64>(remaining) % 1'000'000'000)};
             limit = &timeout;
         }
         sys_futex_wait(&thread->state, kRunning, limit);
@@ -105,7 +107,7 @@ bool wait_until(Thread* thread, i64 deadline) noexcept {
 }
 
 i64 deadline_after(u32 milliseconds) noexcept {
-    return milliseconds == kInfinite ? 0 : monotonic_nanoseconds() + static_cast<i64>(milliseconds) * 1'000'000;
+    return milliseconds == kInfinite ? 0 : clock_now() + static_cast<i64>(milliseconds) * 1'000'000;
 }
 
 } // namespace

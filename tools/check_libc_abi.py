@@ -3,7 +3,7 @@
 (libc6-dev) or musl (musl-dev). The image declares its libc imports itself (include/maicord/sys/linux/libc.hpp) and
 nothing at build time proves those declarations match the library it will meet, so this compiles them:
 
-  * the dlopen modes (kDlLazy, kDlNow, kDlLocal, kDlGlobal) against RTLD_LAZY, RTLD_NOW, RTLD_LOCAL, RTLD_GLOBAL, and
+  * the dlopen modes (kDlNow, kDlLocal) against RTLD_NOW and RTLD_LOCAL, and
     RTLD_DEFAULT being a null handle (src/core/linux/start.cpp asks dlsym for the libc's own functions with it);
   * PthreadAttribute's size and alignment against pthread_attr_t, and pthread_t being an unsigned long;
   * AddrInfo's size and field offsets against struct addrinfo, and TimeSpec against struct timespec;
@@ -40,7 +40,7 @@ ERRNO = {
     "InProgress": "EINPROGRESS", "Canceled": "ECANCELED",
 }
 CLOCKS = {"Realtime": "CLOCK_REALTIME", "Monotonic": "CLOCK_MONOTONIC", "Boottime": "CLOCK_BOOTTIME"}
-MODES = {"Lazy": "RTLD_LAZY", "Now": "RTLD_NOW", "Local": "RTLD_LOCAL", "Global": "RTLD_GLOBAL"}
+MODES = {"Now": "RTLD_NOW", "Local": "RTLD_LOCAL"}
 
 
 def read(path):

@@ -74,9 +74,7 @@ void emit(const char* path, const char* interface, const char* member, const cha
     builder_release(&b);
 }
 
-void state_event(const UiAccessNode& node, const char* state, bool value) noexcept {
-    char path[kPathBytes];
-    path_for_key(node.key, path);
+void state_event(const char* path, const char* state, bool value) noexcept {
     emit(path, kObject, "StateChanged", state, value ? 1 : 0, 0, kZero);
 }
 
@@ -140,15 +138,15 @@ void property_event(const UiAccessTree& tree, const UiAccessPropertyChange& chan
     switch (change.property) {
     case UiAccessProperty::toggle:
         if (changed & ui_access_checked) {
-            state_event(node, "checked", (node.state & ui_access_checked) != 0);
+            state_event(path, "checked", (node.state & ui_access_checked) != 0);
             if (node.role == UiAccessRole::toggle_button)
-                state_event(node, "pressed", (node.state & ui_access_checked) != 0);
+                state_event(path, "pressed", (node.state & ui_access_checked) != 0);
         }
         if (changed & ui_access_mixed)
-            state_event(node, "indeterminate", (node.state & ui_access_mixed) != 0);
+            state_event(path, "indeterminate", (node.state & ui_access_mixed) != 0);
         break;
     case UiAccessProperty::selected:
-        state_event(node, "selected", (node.state & ui_access_selected) != 0);
+        state_event(path, "selected", (node.state & ui_access_selected) != 0);
         if (node.parent != kUiAccessNone) {
             char parent[kPathBytes];
             path_for_key(tree.nodes[node.parent].key, parent);
@@ -157,9 +155,9 @@ void property_event(const UiAccessTree& tree, const UiAccessPropertyChange& chan
         break;
     case UiAccessProperty::expanded:
         if (changed & ui_access_expanded)
-            state_event(node, "expanded", (node.state & ui_access_expanded) != 0);
+            state_event(path, "expanded", (node.state & ui_access_expanded) != 0);
         if (changed & ui_access_collapsed)
-            state_event(node, "collapsed", (node.state & ui_access_collapsed) != 0);
+            state_event(path, "collapsed", (node.state & ui_access_collapsed) != 0);
         break;
     case UiAccessProperty::name: {
         const Utf8View name = ui_access_name(tree, change.node);
@@ -223,12 +221,12 @@ void server_publish(const UiAccessTree& tree, const UiAccessEventPlan& plan) noe
     if (!s.bus || !s.embedded || !tree.count)
         return;
     const HostCallbacks& host = s.endpoint.host;
-    char window[kPathBytes];
-    path_for_key(tree.nodes[0].key, window);
 
     const bool active = host.window_active(host.context);
     if (active != s.active) {
         s.active = active;
+        char window[kPathBytes];
+        path_for_key(tree.nodes[0].key, window);
         emit(window, kWindow, active ? "Activate" : "Deactivate", "", 0, 0, kZero);
         emit(window, kObject, "StateChanged", "active", active ? 1 : 0, 0, kZero);
     }
@@ -243,13 +241,14 @@ void server_publish(const UiAccessTree& tree, const UiAccessEventPlan& plan) noe
     // Focus follows the active window: on Wayland the compositor activates the window that holds the keyboard focus.
     const u64 focus_key = active && tree.focus != kUiAccessNone ? tree.nodes[tree.focus].key : 0;
     if (focus_key != s.focus_key) {
-        const u32 old_node = s.focus_key ? ui_access_find(tree, s.focus_key) : kUiAccessNone;
-        if (old_node != kUiAccessNone)
-            state_event(tree.nodes[old_node], "focused", false);
+        char path[kPathBytes];
+        if (s.focus_key && ui_access_find(tree, s.focus_key) != kUiAccessNone) {
+            path_for_key(s.focus_key, path);
+            state_event(path, "focused", false);
+        }
         if (focus_key) {
-            state_event(tree.nodes[tree.focus], "focused", true);
-            char path[kPathBytes];
             path_for_key(focus_key, path);
+            state_event(path, "focused", true);
             emit(path, kFocusEvent, "Focus", "", 0, 0, kZero);
         }
         s.focus_key = focus_key;

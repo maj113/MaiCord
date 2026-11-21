@@ -1,5 +1,5 @@
 // wl_keyboard and libxkbcommon to WindowEvents: the keymap, key codes (the Windows virtual-key numbering, D14),
-// characters with compose, client-side repeat on a timerfd, held-key tracking and focus.
+// characters with compose, client-side repeat (its deadline bounds window_wait), held-key tracking and focus.
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -51,6 +51,14 @@ void resolve_modifier_masks(const XkbApi& api, XkbKeymap* keymap) noexcept {
     }
 }
 
+// The index of a portable modifier bit in kModifierNames and KeyboardState::modifier_masks.
+consteval u32 modifier_index(u8 bit) noexcept {
+    u32 i = 0;
+    while (kModifierNames[i].bit != bit)
+        ++i;
+    return i;
+}
+
 // What xkb_state_mod_name_is_active(name, effective) tells per modifier, from one serialization of the state.
 u8 compute_modifiers() noexcept {
     KeyboardState& keyboard = g.keyboard;
@@ -79,12 +87,11 @@ u8 event_flags(Key key, u8 mods) noexcept {
 
 void push_key(EventType type, Key key, u32 evdev, u32 time, u8 extra_flags) noexcept {
     KeyboardState& keyboard = g.keyboard;
-    WindowEvent event = make_event(type, time);
+    WindowEvent& event = ring_add(type, time);
     event.modifiers = keyboard.modifiers;
     event.flags = static_cast<u8>(event_flags(key, keyboard.modifiers) | extra_flags);
     event.key.key = key;
     event.key.scancode = evdev;
-    ring_push(event);
 }
 
 void push_character(u32 code_point, u32 time, u8 flags) noexcept {
@@ -93,20 +100,18 @@ void push_character(u32 code_point, u32 time, u8 flags) noexcept {
     u16 units[2];
     const u32 count = utf16_units(code_point, units);
     for (u32 i = 0; i < count; ++i) {
-        WindowEvent event = make_event(EventType::character, time);
+        WindowEvent& event = ring_add(EventType::character, time);
         event.modifiers = g.keyboard.modifiers;
         event.flags = flags;
         event.character.unit = units[i];
-        ring_push(event);
     }
 }
 
 // `altgr`: the key is an ISO_Level3_Shift (AltGr). xkbcommon keeps the level-three modifier virtual, whose bit a
-// state's masks do not carry, so the held AltGr keys are counted and mod_altgr follows them.
+// state's masks do not carry, so the held AltGr keys are counted and mod_altgr follows them. Every caller passes an
+// evdev code below kMaxEvdev.
 void set_down(u32 evdev, Key key, bool down, bool altgr = false) noexcept {
     KeyboardState& keyboard = g.keyboard;
-    if (evdev >= kMaxEvdev)
-        return;
     Key specific = key::none;
     if (down) {
         keyboard.down_key[evdev] = key;
@@ -248,9 +253,7 @@ void on_enter(void*, wl_keyboard*, u32 serial, wl_surface*, Array* keys) noexcep
                 set_down(evdev, key, true, active == keysym::iso_level3_shift);
         }
     }
-    WindowEvent event = make_event(EventType::focus_changed, now_ms32());
-    event.focus.gained = true;
-    ring_push(event);
+    ring_add(EventType::focus_changed, now_ms32()).focus.gained = true;
 }
 
 void on_leave(void*, wl_keyboard*, u32 serial, wl_surface*) noexcept {
@@ -270,9 +273,7 @@ void on_leave(void*, wl_keyboard*, u32 serial, wl_surface*) noexcept {
     }
     global_keys_clear();
     keyboard.focused = false;
-    WindowEvent event = make_event(EventType::focus_changed, time);
-    event.focus.gained = false;
-    ring_push(event);
+    ring_add(EventType::focus_changed, time);  // focus.gained false: lost
 }
 
 void on_key(void*, wl_keyboard*, u32 serial, u32 time, u32 evdev, u32 state_value) noexcept {
@@ -290,10 +291,10 @@ void on_key(void*, wl_keyboard*, u32 serial, u32 time, u32 evdev, u32 state_valu
         push_key(EventType::key_up, key, evdev, time, 0);
         return;
     }
-    u32 active = 0;
-    const Key key = map_key(evdev, &active);
     if (keyboard.down_key[evdev])
         return;  // already down from before focus: not a new press
+    u32 active = 0;
+    const Key key = map_key(evdev, &active);
     if (key != key::none) {
         set_down(evdev, key, true, active == keysym::iso_level3_shift);
         push_key(EventType::key_down, key, evdev, time, 0);
@@ -375,15 +376,8 @@ void keyboard_shutdown() noexcept {
         if (keyboard.context)
             api->context_unref(keyboard.context);
     }
-    waitable_close(keyboard.repeat_timer);
     global_keys_clear();
     clear_bytes(&keyboard, static_cast<u32>(sizeof(keyboard)));
-}
-
-Waitable keyboard_repeat_waitable() noexcept {
-    if (!g.keyboard.repeat_timer)
-        g.keyboard.repeat_timer = timer_create_waitable(false, false);
-    return g.keyboard.repeat_timer;
 }
 
 u32 keyboard_repeat_wait_ms(u64 now_ms) noexcept {
@@ -437,11 +431,14 @@ bool window_key_down(Key key_code) noexcept {
 }
 
 bool window_toggle_state(Key key_code) noexcept {
+    const KeyboardState& keyboard = g.keyboard;
     const XkbApi* api = xkb_api();
-    if (!api || !g.keyboard.state)
+    if (!api || !keyboard.state)
         return false;
-    const char* name = key_code == key::caps_lock ? "Lock" : key_code == key::num_lock ? "Mod2" : nullptr;
-    return name && api->state_mod_name_is_active(g.keyboard.state, name, kXkbStateModsLocked) > 0;
+    const u32 mask = key_code == key::caps_lock  ? keyboard.modifier_masks[modifier_index(mod_caps)]
+                     : key_code == key::num_lock ? keyboard.modifier_masks[modifier_index(mod_num)]
+                                                 : 0;
+    return (api->state_serialize_mods(keyboard.state, kXkbStateModsLocked) & mask) != 0;
 }
 
 bool window_layout_types_text(Key wanted, u8 modifiers) noexcept {
@@ -453,21 +450,14 @@ bool window_layout_types_text(Key wanted, u8 modifiers) noexcept {
     if (!probe)
         return false;
     u32 mask = 0;
-    const auto add = [&](const char* name) {
-        const u32 index = api->keymap_mod_get_index(keyboard.keymap, name);
+    for (u32 i = 0; i < kModifierNameCount; ++i)
+        if (modifiers & kModifierNames[i].bit & (mod_shift | mod_ctrl | mod_alt | mod_super))
+            mask |= keyboard.modifier_masks[i];
+    if (modifiers & mod_altgr) {
+        // What the virtual level-three modifier maps to in every standard keymap.
+        const u32 index = api->keymap_mod_get_index(keyboard.keymap, "Mod5");
         if (index != kXkbModifierInvalid)
             mask |= 1u << index;
-    };
-    if (modifiers & mod_shift)
-        add("Shift");
-    if (modifiers & mod_ctrl)
-        add("Control");
-    if (modifiers & mod_alt)
-        add("Mod1");
-    if (modifiers & mod_super)
-        add("Mod4");
-    if (modifiers & mod_altgr) {
-        add("Mod5");  // what the virtual level-three modifier maps to in every standard keymap
         if (keyboard.level_three_modifier != kXkbModifierInvalid)
             mask |= 1u << keyboard.level_three_modifier;
     }

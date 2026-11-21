@@ -91,26 +91,6 @@ bool listen(PortalRequest* request) noexcept {
 
 } // namespace
 
-bool connection_release_name(Connection* c, const char* name, u32 timeout_ms) noexcept {
-    Builder body;
-    builder_init(&body);
-    builder_string(&body, name);
-    const CallTarget target{kBusName, kBusPath, kBusName, "ReleaseName"};
-    Message reply;
-    const Status status = connection_call_sync(c, target, &body, timeout_ms, &reply);
-    builder_release(&body);
-    bool released = false;
-    if (status == Status::ok) {
-        Reader r;
-        message_reader(reply, &r);
-        u32 result = 0;
-        released = reader_u32(&r, &result) && result == 1;
-    }
-    if (status == Status::ok || status == Status::error_reply)
-        message_release(&reply);
-    return released;
-}
-
 u32 connection_watch_name(Connection* c, const char* name, NameWatchHandler handler, void* context) noexcept {
     const u32 length = c_string_length(name);
     if (length >= sizeof(Watch::name))

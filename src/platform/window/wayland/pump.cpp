@@ -1,5 +1,6 @@
 // The event ring and the loop calls of the window service on Wayland: window_wait waits for the app's waitables, the
-// display descriptor, the loop wake and the key-repeat timer at once; window_pump drains the ring into the sink.
+// display descriptor and the loop wake at once, until the next key repeat at the latest; window_pump drains the ring
+// into the sink.
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/pump.hpp"
 #include "maicord/platform/dbus/session.hpp"
@@ -20,13 +21,11 @@ WindowEvent make_event(EventType type, u32 time_ms) noexcept {
     return event;
 }
 
-bool ring_push(const WindowEvent& event) noexcept {
+WindowEvent& ring_add(EventType type, u32 time_ms) noexcept {
     EventRing& ring = g.ring;
-    if (ring.tail - ring.head >= kRingCapacity)
-        return false;
-    ring.events[ring.tail % kRingCapacity] = event;
-    ++ring.tail;
-    return true;
+    WindowEvent& event = ring_full() ? ring.overflow : ring.events[ring.tail++ % kRingCapacity];
+    event = make_event(type, time_ms);
+    return event;
 }
 
 namespace {
@@ -90,10 +89,11 @@ void dispatch(const WindowEvent& event) noexcept {
         pointer_cursor_query(event);
 }
 
-// Dispatches the queued display events. A failed connection ends the loop.
+// Dispatches the queued display events. A failed connection ends the loop. libwayland's dispatch fails while the
+// display holds an error, so only a failed dispatch asks for the error.
 void dispatch_queued() noexcept {
-    g_client.display_dispatch_pending(g.display);
-    connection_check();
+    if (g_client.display_dispatch_pending(g.display) < 0)
+        connection_check();
     if (g.failed && !g.quit) {
         g.quit = true;
         g.exit_code = 1;
@@ -103,14 +103,12 @@ void dispatch_queued() noexcept {
 } // namespace
 
 void post_drain() noexcept {
-    EventRing& ring = g.ring;
     PostEntry entry;
-    while (ring.tail - ring.head < kRingCapacity && post_queue_pop(&g.post, &entry)) {
-        WindowEvent event = make_event(EventType::wake, now_ms32());
+    while (!ring_full() && post_queue_pop(&g.post, &entry)) {
+        WindowEvent& event = ring_add(EventType::wake, now_ms32());
         event.wake.cause = entry.cause;
         event.wake.a = entry.a;
         event.wake.b = entry.b;
-        ring_push(event);
     }
 }
 
@@ -204,7 +202,7 @@ void window_wait_end(bool display_ready) noexcept {
 WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32 tolerance_ms) noexcept {
     WindowWaitResult result{};
     g_polled.polled = false;
-    constexpr u32 kExtra = 5 + dbus::kSessionBusExtraMaximum;  // the display, the loop wake, the key-repeat timer, the session bus, the instance socket, the bus extras
+    constexpr u32 kExtra = 4 + dbus::kSessionBusExtraMaximum;  // the display, the loop wake, the session bus, the instance socket, the bus extras
     if (count > kWaitMaximumCount - kExtra) {
         result.failed = true;
         return result;
@@ -241,20 +239,10 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
     all[total++] = g.display_waitable;
     const u32 wake_bit = total;
     all[total++] = loop_wake_waitable();
-    u32 repeat_bit = ~0u;
-    if (repeat_ms != kRepeatNever) {
-        // The timer keeps an expiry nothing consumed: it is armed again only for another deadline (a key pressed or
-        // repeated since), not on every turn that waits while a key is held.
-        KeyboardState& keyboard = g.keyboard;
-        const u64 due = now + repeat_ms;
-        if (keyboard.repeat_armed_at != due)
-            keyboard.repeat_armed_at = timer_arm(keyboard_repeat_waitable(), repeat_ms, 0) ? due : 0;
-        if (keyboard.repeat_armed_at == due) {
-            repeat_bit = total;
-            all[total++] = keyboard_repeat_waitable();
-        } else if (repeat_ms < timeout_ms) {
-            timeout_ms = repeat_ms;
-        }
+    // A held key repeats when the wait ends: the repeat's deadline bounds the sleep, and no tolerance delays it.
+    if (repeat_ms != kRepeatNever && repeat_ms <= timeout_ms) {
+        timeout_ms = repeat_ms;
+        tolerance_ms = 0;
     }
     // A flush that could not send everything leaves requests buffered: look again soon instead of sleeping on.
     if (flush_pending && timeout_ms > 4)
@@ -271,12 +259,10 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
         instance_bit = total;
         all[total++] = instance;
     }
-    // The session bus's extra connections (the accessibility bus) and their due times.
-    Waitable extras[dbus::kSessionBusExtraMaximum];
-    const u32 extra_count = dbus::session_bus_extra_waitables(extras, dbus::kSessionBusExtraMaximum);
+    // The session bus's extra connections (the accessibility bus) and their due times. kExtra leaves room for them.
     const u32 extra_first = total;
-    for (u32 i = 0; i < extra_count; ++i)
-        all[total++] = extras[i];
+    const u32 extra_count = dbus::session_bus_extra_waitables(all + total, dbus::kSessionBusExtraMaximum);
+    total += extra_count;
     const u32 bus_ms = dbus::session_bus_wait_ms(now);
     if (bus_ms < timeout_ms)
         timeout_ms = bus_ms;
@@ -299,9 +285,8 @@ WindowWaitResult window_wait(const Waitable* set, u32 count, u32 timeout_ms, u32
 
     result.ready_mask = waited.ready_mask & ((1ull << count) - 1);
     const bool woken = (waited.ready_mask >> wake_bit) & 1;
-    const bool repeat_fired = repeat_bit != ~0u && ((waited.ready_mask >> repeat_bit) & 1);
-    if (repeat_fired || waited.failed)
-        g.keyboard.repeat_armed_at = 0;  // the wait consumed the expiry (or its state is unknown): arm again next time
+    // A wait that ran the whole time to the repeat's deadline ends with the repeat due.
+    const bool repeat_fired = waited.timed_out && timeout_ms == repeat_ms;
     const u64 extra_mask = extra_count ? ((1ull << extra_count) - 1) << extra_first : 0;
     const bool bus_ready = (bus_bit != ~0u && ((waited.ready_mask >> bus_bit) & 1)) ||
                            (instance_bit != ~0u && ((waited.ready_mask >> instance_bit) & 1)) ||
@@ -328,18 +313,16 @@ WindowPumpResult window_pump(u32 max_events, u32 soft_budget_us, const WindowPum
         display_dispatch_queued();
     else
         display_poll_nonblocking();
-    dbus::session_bus_process(clock_monotonic_milliseconds(), g_polled.idle, polled ? g_polled.idle_count : 0);
+    const u64 now = clock_monotonic_milliseconds();
+    dbus::session_bus_process(now, g_polled.idle, polled ? g_polled.idle_count : 0);
     if (!polled || !idle_after_poll(dbus::instance_waitable()))
         dbus::instance_process();
-    keyboard_poll_repeat(clock_monotonic_milliseconds());
+    keyboard_poll_repeat(now);
     post_drain();
     // Read first: most turns have no poke, and the exchange is a locked write. A poke that comes after the read writes
     // the loop's eventfd, so the next wait returns for it.
-    if (__atomic_load_n(&g.wake_pending, __ATOMIC_ACQUIRE) && __atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL)) {
-        WindowEvent event = make_event(EventType::wake, now_ms32());
-        event.wake.cause = wake_poke;
-        ring_push(event);
-    }
+    if (__atomic_load_n(&g.wake_pending, __ATOMIC_ACQUIRE) && __atomic_exchange_n(&g.wake_pending, 0u, __ATOMIC_ACQ_REL))
+        ring_add(EventType::wake, now_ms32()).wake.cause = wake_poke;
     EventRing& ring = g.ring;
     while (result.dispatched < max_events && ring.head != ring.tail) {
         if (hooks.before_event && !hooks.before_event(hooks.context)) {

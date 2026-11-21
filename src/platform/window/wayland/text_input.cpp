@@ -77,10 +77,9 @@ void on_leave(void*, zwp_text_input_v3*, wl_surface*) noexcept {
     state.delete_before = state.delete_after = 0;
     if (state.preedit_bytes != 0) {
         state.preedit_bytes = 0;
-        WindowEvent event = make_event(EventType::ime_preedit, now_ms32());
+        WindowEvent& event = ring_add(EventType::ime_preedit, now_ms32());
         event.ime.text = state.units;
         event.ime.cursor_begin = event.ime.cursor_end = -1;
-        ring_push(event);
     }
 }
 
@@ -108,31 +107,31 @@ void on_done(void*, zwp_text_input_v3*, u32) noexcept {
     const u32 time = now_ms32();
     // The IME's changes in the order the protocol gives them: delete around the caret, insert, then the new preedit.
     if (state.delete_before != 0 || state.delete_after != 0) {
-        WindowEvent event = make_event(EventType::ime_delete_surrounding, time);
+        WindowEvent& event = ring_add(EventType::ime_delete_surrounding, time);
         const u32 cursor = state.cursor_byte;
         event.ime.delete_before = surrounding_units(cursor >= state.delete_before ? cursor - state.delete_before : 0,
                                                     minimum(cursor, state.delete_before));
         event.ime.delete_after = surrounding_units(cursor, state.delete_after);
-        ring_push(event);
     }
     if (state.commit_present && state.commit_bytes != 0) {
-        WindowEvent event = make_event(EventType::ime_commit, time);
         u32 count = 0;
-        event.ime.text = store_units(state.commit, state.commit_bytes, &count);
-        event.ime.count = count;
-        event.ime.cursor_begin = event.ime.cursor_end = -1;
-        if (event.ime.text)
-            ring_push(event);
+        if (const u16* text = store_units(state.commit, state.commit_bytes, &count)) {
+            WindowEvent& event = ring_add(EventType::ime_commit, time);
+            event.ime.text = text;
+            event.ime.count = count;
+            event.ime.cursor_begin = event.ime.cursor_end = -1;
+        }
     }
     if ((state.preedit_present && state.preedit_bytes != 0) || state.had_preedit) {
-        WindowEvent event = make_event(EventType::ime_preedit, time);
         u32 count = 0;
-        event.ime.text = state.preedit_present ? store_units(state.preedit, state.preedit_bytes, &count) : state.units;
-        event.ime.count = count;
-        event.ime.cursor_begin = preedit_position(state.preedit_begin);
-        event.ime.cursor_end = preedit_position(state.preedit_end);
-        if (event.ime.text)
-            ring_push(event);
+        if (const u16* text = state.preedit_present ? store_units(state.preedit, state.preedit_bytes, &count)
+                                                    : state.units) {
+            WindowEvent& event = ring_add(EventType::ime_preedit, time);
+            event.ime.text = text;
+            event.ime.count = count;
+            event.ime.cursor_begin = preedit_position(state.preedit_begin);
+            event.ime.cursor_end = preedit_position(state.preedit_end);
+        }
         state.had_preedit = count != 0;
     }
     state.commit_present = false;
@@ -265,7 +264,7 @@ namespace maicord {
 using namespace wayland;
 
 bool window_wayland_text_input_available(Window window) noexcept {
-    return g.window_exists && window == reinterpret_cast<Window>(&g.window) && g.text.input != nullptr;
+    return is_window(window) && g.text.input != nullptr;
 }
 
 bool window_wayland_text_input_enable(Window window, const TextInputRequest& request) noexcept {

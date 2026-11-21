@@ -217,7 +217,7 @@ void observe_mentions(StatusObserver& status, u64 now_ms) noexcept {
 // Result counts of the quick switcher and search while they are open.
 void observe_results(StatusObserver& status, bool primed) noexcept {
     const auto& renderer = g_app.renderer;
-    UiAccessNameBuilder summary{};
+    UiAccessNameBuilder summary; // each summary call clears it first
     u64 quick = 0, search = 0;
     if (d3d11_renderer_shows<d3d11_surface_quick_switcher>(renderer) &&
         ui_access_quick_switcher_summary(*renderer.quick_switcher_scene, &summary)) {

@@ -28,12 +28,12 @@ struct Output {
             put(static_cast<wchar_t>(static_cast<unsigned char>(text[i])));
     }
     void put_number(u32 value, u32 minimum_digits) noexcept {
-        char digits[10];
+        char digits[10];  // a u32 has at most 10 digits
         u32 count = 0;
         do {
             digits[count++] = static_cast<char>('0' + value % 10);
             value /= 10;
-        } while (value && count < sizeof(digits));
+        } while (value);
         for (u32 i = count; i < minimum_digits; ++i)
             put(L'0');
         while (count)

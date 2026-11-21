@@ -10,7 +10,9 @@ namespace maicord::dbus {
 // Names ----------------------------------------------------------------------------------------------------------------
 
 // Gives up a name this connection owns. True when the bus says it was released.
-bool connection_release_name(Connection* connection, const char* name, u32 timeout_ms) noexcept;
+inline bool connection_release_name(Connection* connection, const char* name, u32 timeout_ms) noexcept {
+    return connection_name_reply(connection, name, false, timeout_ms) == 1;
+}
 
 // Called with the name's owner state: once after the watch starts (the answer to GetNameOwner) and on each change.
 using NameWatchHandler = void (*)(void* context, const char* name, bool owned) noexcept;

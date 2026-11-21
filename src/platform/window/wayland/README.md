@@ -14,7 +14,7 @@ drains it and calls the sink, so no `wl_*_listener` ever runs app code. `wayland
 | `extras.cpp` | xdg-activation, idle inhibit, xdg-foreign export, ext-idle-notify watch, xdg-system-bell, xdg-toplevel-icon |
 | `pointer.cpp`, `keyboard.cpp`, `keymap.cpp`, `global_keys.cpp`, `frame.cpp` | input, cursor (cursor-shape, `wl_cursor` fallback), keys, CSD hit tests |
 | `data.cpp`, `uri.cpp`, `text_input.cpp` | clipboard, drag and drop, IME (text-input-v3) |
-| `pump.cpp` | `window_wait` / `window_pump`: display fd, loop wake, key-repeat timer, session bus |
+| `pump.cpp` | `window_wait` / `window_pump`: display fd, loop wake, key-repeat deadline, session bus |
 
 Bindings are generated at build time by `tools/generate_wayland_protocols.py` from `third_party/wayland` (see its README): every
 request is one `wl_proxy_marshal_array_flags` call (libwayland-client 1.20, Ubuntu 22.04's), which also makes a constructor's

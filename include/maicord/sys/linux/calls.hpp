@@ -119,7 +119,7 @@ inline long sys_sendfile(int output, int input, usize bytes) noexcept {
 
 // The effective user id of the process.
 inline long sys_geteuid() noexcept {
-    return syscall1(kSysGeteuid, 0);
+    return syscall0(kSysGeteuid);
 }
 
 // A new anonymous memory file (flags: kMemfd*), or a negated errno.
@@ -267,15 +267,15 @@ inline long sys_mlock(const void* address, usize bytes) noexcept {
 }
 
 inline long sys_gettid() noexcept {
-    return syscall1(kSysGettid, 0);
+    return syscall0(kSysGettid);
 }
 
 inline long sys_getpid() noexcept {
-    return syscall1(kSysGetpid, 0);
+    return syscall0(kSysGetpid);
 }
 
 inline long sys_sched_yield() noexcept {
-    return syscall1(kSysSchedYield, 0);
+    return syscall0(kSysSchedYield);
 }
 
 // A private futex: sleeps while *address == expected, until woken or timeout (null waits forever).

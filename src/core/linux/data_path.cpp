@@ -44,7 +44,7 @@ bool absolute_path(const char* text) noexcept {
 // 0 when `text` names a directory (a link followed, as mkdir and open do), -ENOTDIR when it names something else, else
 // statx's negated errno.
 long directory_check(const char* text) noexcept {
-    Statx stat{};
+    Statx stat;
     const long result = sys_statx(kAtCurrentDirectory, text, 0, kStatxType, &stat);
     if (syscall_failed(result)) {
         return result;

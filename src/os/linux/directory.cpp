@@ -36,7 +36,7 @@ int iterator_descriptor(const DirIter& iterator) noexcept {
 // Whether the file system reports changes made by other machines or the host (a mount over 9p, NFS, SMB or FUSE)
 // to inotify: it does not.
 bool watched_by_scanning(int directory) noexcept {
-    StatFs file_system{};
+    StatFs file_system;
     if (syscall_failed(sys_fstatfs(directory, &file_system))) {
         return false;
     }
@@ -115,7 +115,7 @@ bool dir_next(DirIter* iterator, DirEntry* entry) noexcept {
         if (*scan || path_from_utf8(name, entry->name, sizeof(entry->name) / sizeof(entry->name[0])) == 0) {
             continue;
         }
-        Statx statx{};
+        Statx statx;
         const long result = sys_statx(fd, name, kAtSymlinkNoFollow, kStatxType | kStatxSize | kStatxMtime, &statx);
         if (syscall_failed(result)) {
             // Removed since it was listed.

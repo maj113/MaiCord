@@ -8,18 +8,19 @@ namespace {
 
 constexpr u32 kReplacement = 0xFFFD;
 
-// Appends one scalar as UTF-8; false when it does not fit.
-bool put_utf8(u32 scalar, char* output, u32 capacity, u32* used) noexcept {
+// Appends one scalar as UTF-8; false when it does not fit. Both helpers have one caller, which inlines them.
+inline bool put_utf8(u32 scalar, char* output, u32 capacity, u32* used) noexcept {
     char encoded[4];
     const u32 need = utf8_encode(scalar, encoded);
     if (*used + need > capacity)
         return false;
-    copy_bytes(output + *used, encoded, need);
-    *used += need;
+    // At most four bytes: a loop, not a memmove call per character.
+    for (u32 index = 0; index < need; ++index)
+        output[(*used)++] = encoded[index];
     return true;
 }
 
-bool put_utf16(u32 scalar, wchar_t* output, u32 capacity, u32* used) noexcept {
+inline bool put_utf16(u32 scalar, wchar_t* output, u32 capacity, u32* used) noexcept {
     if (scalar < 0x10000) {
         if (*used + 1 > capacity)
             return false;

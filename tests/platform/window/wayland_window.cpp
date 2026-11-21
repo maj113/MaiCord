@@ -17,6 +17,7 @@
 // SKIP_RETURN_CODE expects.
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/dbus/connection.hpp"
+#include "maicord/platform/dbus/global_shortcuts.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/window/global_keys.hpp"
@@ -744,7 +745,8 @@ void test_global_shortcut() noexcept {
     if (!control)
         return;
     check(window_wayland_global_shortcut('P', mod_ctrl | mod_alt, "Push to talk"), "a push-to-talk key is bound");
-    check(pump_until([] { return window_wayland_global_shortcut_ready(); }, 5000), "the portal binds it");
+    check(pump_until([] { return dbus::global_shortcuts_state() == dbus::GlobalShortcutsState::ready; }, 5000),
+          "the portal binds it");
     check(!global_key_down('P') && !global_key_down('O'), "nothing is held yet");
     const auto set_state = [&](bool active) {
         dbus::Builder body;
@@ -767,7 +769,8 @@ void test_global_shortcut() noexcept {
     set_state(true);
     pump_until([] { return global_key_down('P'); }, 3000);
     window_wayland_global_shortcut_clear();
-    check(!global_key_down('P') && !window_wayland_global_shortcut_ready(), "clearing the shortcut releases the key");
+    check(!global_key_down('P') && dbus::global_shortcuts_state() != dbus::GlobalShortcutsState::ready,
+          "clearing the shortcut releases the key");
     dbus::connection_close(control);
 }
 

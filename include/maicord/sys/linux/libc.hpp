@@ -39,17 +39,16 @@ void free(void* block);
 int getaddrinfo(const char* node, const char* service, const maicord::AddrInfo* hints, maicord::AddrInfo** result);
 void freeaddrinfo(maicord::AddrInfo* result);
 
-// <time.h> (libc.so.6, GLIBC_2.17): the vDSO fast path.
+// <time.h> (libc.so.6, GLIBC_2.17): the vDSO fast path. It writes both fields for every clock MaiCord reads, so a
+// caller does not clear the TimeSpec first.
 int clock_gettime(int clock, maicord::TimeSpec* time);
 }
 
 namespace maicord {
 
 // <dlfcn.h> modes (the same values in glibc and musl).
-inline constexpr int kDlLazy = 0x1;
 inline constexpr int kDlNow = 0x2;
 inline constexpr int kDlLocal = 0x0;
-inline constexpr int kDlGlobal = 0x100;
 
 // <pthread.h>: the opaque pthread_attr_t of x86-64 glibc and musl (56 bytes, 8-byte aligned).
 struct alignas(8) PthreadAttribute {

@@ -223,7 +223,7 @@ void on_selection(void*, wl_data_device*, wl_data_offer* offer) noexcept {
     if (data.selection && data.selection != slot)
         destroy_slot(data.selection);
     data.selection = slot;
-    ring_push(make_event(EventType::clipboard_changed, now_ms32()));
+    ring_add(EventType::clipboard_changed, now_ms32());
 }
 
 void on_drag_enter(void*, wl_data_device*, u32 serial, wl_surface*, i32, i32, wl_data_offer* offer) noexcept {
@@ -269,10 +269,10 @@ void on_drop(void*, wl_data_device*) noexcept {
     data.drag_accepts = false;
     if (!files)
         return;
-    WindowEvent event = make_event(EventType::drop_files, now_ms32());
-    event.drop.files = files;
-    if (!ring_push(event))
+    if (ring_full())
         dropped_files_release(files);
+    else
+        ring_add(EventType::drop_files, now_ms32()).drop.files = files;
 }
 
 const wl_data_device_listener kDeviceListener = {on_data_offer, on_drag_enter, on_drag_leave,
@@ -464,7 +464,7 @@ void dropped_files_release(DroppedFiles* files) noexcept {
 }
 
 void window_set_drop_target(Window window, bool accept_files) noexcept {
-    if (window == reinterpret_cast<Window>(&g.window) && g.window_exists)
+    if (is_window(window))
         g.data.drop_target = accept_files;
 }
 

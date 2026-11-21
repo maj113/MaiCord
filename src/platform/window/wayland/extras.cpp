@@ -120,10 +120,6 @@ void on_resumed(void*, ext_idle_notification_v1*) noexcept {
 
 const ext_idle_notification_v1_listener kIdleListener = {on_idled, on_resumed};
 
-bool is_window(Window window) noexcept {
-    return g.window_exists && window == reinterpret_cast<Window>(&g.window);
-}
-
 void export_toplevel() noexcept {
     if (!g.exporter_manager)
         return;

@@ -78,6 +78,12 @@ enum SyscallNumber : long {
     kSysCloseRange = 436,
 };
 
+inline long syscall0(long number) noexcept {
+    long result;
+    __asm__ volatile("syscall" : "=a"(result) : "0"(number) : "rcx", "r11", "memory");
+    return result;
+}
+
 inline long syscall1(long number, long a) noexcept {
     long result;
     __asm__ volatile("syscall" : "=a"(result) : "0"(number), "D"(a) : "rcx", "r11", "memory");

@@ -119,7 +119,7 @@ bool start_flush_thread_locked() noexcept {
 }
 
 LineWriter begin_line(LogLevel level, const char* component) noexcept {
-    TimeSpec now{};
+    TimeSpec now;
     clock_gettime(kClockRealtime, &now);
     AcquireSRWLockExclusive(&g_log.lock);
     if (kBufferBytes - g_log.buffered < kLineBytes) {
@@ -182,7 +182,7 @@ i64 file_size(int file) noexcept {
 bool log_open() noexcept {
     set_log_file(-1);
 
-    wchar_t path[kPathCapacity]{};
+    wchar_t path[kPathCapacity];
     const DataPathResult built = state_path(path, kPathCapacity, L"logs/maicord.log", true);
     if (!built.ok()) {
         return false;
@@ -198,7 +198,7 @@ bool log_open() noexcept {
     if (log_file() >= 0 && (size = file_size(log_file())) >= static_cast<i64>(rotation_threshold)) {
         sys_close(log_file());
         set_log_file(-1);
-        wchar_t previous[kPathCapacity]{};
+        wchar_t previous[kPathCapacity];
         for (u32 index = 0; index <= directory_length; ++index) {
             previous[index] = path[index];
         }

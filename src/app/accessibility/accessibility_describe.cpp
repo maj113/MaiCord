@@ -1010,8 +1010,8 @@ void build_login(UiAccessTree* tree) noexcept {
     // Labels, headings and status without any credential text.
     LoginView view{};
     application_login_view_state(&view);
-    UiTextCommand commands[kMaximumLoginTextCommands]{};
-    UiTextCommandStream stream{};
+    UiTextCommand commands[kMaximumLoginTextCommands];
+    UiTextCommandStream stream;
     if (login_view_valid(view) && ui_text_command_stream_initialize(&stream, {commands, kMaximumLoginTextCommands}) &&
         login_text_presentation_build(scene, view, application_theme(), &stream))
         for (u32 index = 0; index < stream.count; ++index)

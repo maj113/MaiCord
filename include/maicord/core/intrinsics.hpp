@@ -46,7 +46,7 @@ __forceinline u32 current_thread_id() noexcept {
 #else
     static __thread u32 cached;
     if (!cached) {
-        cached = static_cast<u32>(syscall1(kSysGettid, 0));
+        cached = static_cast<u32>(syscall0(kSysGettid));
     }
     return cached;
 #endif

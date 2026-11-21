@@ -104,8 +104,13 @@ bool connection_reply(Connection* connection, const Message& call, const Builder
 bool connection_reply_error(Connection* connection, const Message& call, const char* name, const char* text) noexcept;
 bool connection_emit(Connection* connection, const char* path, const char* interface, const char* member,
                      const Builder* body) noexcept;
+// RequestName with DBUS_NAME_FLAG_DO_NOT_QUEUE when `request`, else ReleaseName: the code of the bus's reply (RequestName:
+// 1 primary owner, 3 owned by another, 4 already this connection's; ReleaseName: 1 released), 0 when there is none.
+u32 connection_name_reply(Connection* connection, const char* name, bool request, u32 timeout_ms) noexcept;
 // RequestName: true when this connection became the primary owner.
-bool connection_request_name(Connection* connection, const char* name, u32 timeout_ms) noexcept;
+inline bool connection_request_name(Connection* connection, const char* name, u32 timeout_ms) noexcept {
+    return connection_name_reply(connection, name, true, timeout_ms) == 1;
+}
 
 // Blocking socket helpers, for the sockets of this directory that are not bus connections too -------------------------
 

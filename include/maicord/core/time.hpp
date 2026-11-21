@@ -78,7 +78,7 @@ inline Clock clock_initialize() noexcept {
 }
 
 inline i64 clock_now() noexcept {
-    TimeSpec time{};
+    TimeSpec time;
     clock_gettime(kClockMonotonic, &time);
     return time.seconds * 1'000'000'000 + time.nanoseconds;
 }
@@ -125,7 +125,7 @@ inline u64 clock_system_ticks() noexcept {
 }
 #else
 inline u64 clock_monotonic_milliseconds() noexcept {
-    TimeSpec time{};
+    TimeSpec time;
     clock_gettime(kClockBoottime, &time);
     return static_cast<u64>(time.seconds) * 1'000 + static_cast<u64>(time.nanoseconds) / 1'000'000;
 }
@@ -137,7 +137,7 @@ __declspec(noinline) inline u64 clock_unix_milliseconds() noexcept {
     constexpr u64 windows_to_unix_ticks = 116'444'736'000'000'000ull;
     return ticks >= windows_to_unix_ticks ? (ticks - windows_to_unix_ticks) / 10'000ull : 0;
 #else
-    TimeSpec time{};
+    TimeSpec time;
     clock_gettime(kClockRealtime, &time);
     return static_cast<u64>(time.seconds) * 1'000 + static_cast<u64>(time.nanoseconds) / 1'000'000;
 #endif

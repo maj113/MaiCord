@@ -61,7 +61,6 @@ struct XkbApi {
     u32 (*state_key_get_one_sym)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_utf32)(XkbState* state, u32 key) noexcept;
     u32 (*state_key_get_layout)(XkbState* state, u32 key) noexcept;
-    int (*state_mod_name_is_active)(XkbState* state, const char* name, int type) noexcept;
     XkbComposeTable* (*compose_table_new_from_locale)(XkbContext* context, const char* locale, int flags) noexcept;
     void (*compose_table_unref)(XkbComposeTable* table) noexcept;
     XkbComposeState* (*compose_state_new)(XkbComposeTable* table, int flags) noexcept;
@@ -76,7 +75,8 @@ struct XkbApi {
 const XkbApi* xkb_api() noexcept;
 
 // The portable key (key.hpp) of the evdev key `evdev` under the layout group and level `state` has now, and the
-// keysym it produces now in *active_symbol: key_from_keysyms with the keysyms read from the keymap.
+// keysym it produces now in *active_symbol: key_from_fixed_keysym of that keysym, else key_from_levels with the
+// keysyms read from the keymap.
 Key xkb_key_for(const XkbApi& api, XkbKeymap* keymap, XkbState* state, u32 evdev, u32* active_symbol) noexcept;
 
 } // namespace maicord::wayland

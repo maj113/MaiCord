@@ -65,9 +65,9 @@ ConstSlice<u8> clipboard_capture_png(const ClipboardCapture* capture) noexcept;
 // Push-to-talk beyond the focused window: binds `key` with `modifiers` (Modifier bits) as a GlobalShortcuts portal shortcut
 // ("Push to talk" in the compositor's settings; the key is the preferred trigger the user may change). While the portal
 // holds it down, global_key_down(key) is true even when the window is not focused. Replaces an earlier binding; false
-// without a session bus. Where the portal does not exist the key stays focused-window only: _ready() says which.
+// without a session bus. Where the portal does not exist the key stays focused-window only:
+// dbus::global_shortcuts_state() says which.
 bool window_wayland_global_shortcut(Key key, u8 modifiers, const char* description) noexcept;
-bool window_wayland_global_shortcut_ready() noexcept;
 void window_wayland_global_shortcut_clear() noexcept;
 
 } // namespace maicord

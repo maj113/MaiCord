@@ -18,29 +18,31 @@ constexpr u64 kFdMask = 0xffffffffull;
 constexpr u32 kInfinite = 0xFFFFFFFFu;
 constexpr i64 kNanosecondsPerMillisecond = 1'000'000;
 
-Waitable make_waitable(int fd, bool manual, bool owned) noexcept {
+// The helpers below are `inline`: the Linux build inlines only functions declared so (-finline-hint-functions), and
+// each is smaller than the call that reaches it.
+inline Waitable make_waitable(int fd, bool manual, bool owned) noexcept {
     return reinterpret_cast<Waitable>(static_cast<u64>(fd + 1) | (manual ? kManual : 0) | (owned ? kOwned : 0));
 }
 
-bool valid(Waitable waitable) noexcept {
+inline bool valid(Waitable waitable) noexcept {
     return waitable != nullptr && waitable != INVALID_HANDLE_VALUE;
 }
 
-int descriptor(Waitable waitable) noexcept {
+inline int descriptor(Waitable waitable) noexcept {
     return static_cast<int>((reinterpret_cast<u64>(waitable) & kFdMask) - 1);
 }
 
-bool manual_reset(Waitable waitable) noexcept {
+inline bool manual_reset(Waitable waitable) noexcept {
     return (reinterpret_cast<u64>(waitable) & kManual) != 0;
 }
 
-bool owned(Waitable waitable) noexcept {
+inline bool owned(Waitable waitable) noexcept {
     return (reinterpret_cast<u64>(waitable) & kOwned) != 0;
 }
 
 // Reads the counter of an auto-reset waitable: true when it was signaled (and is now consumed).
-bool consume(Waitable waitable) noexcept {
-    u64 counter = 0;
+inline bool consume(Waitable waitable) noexcept {
+    u64 counter;
     return sys_read(descriptor(waitable), &counter, sizeof(counter)) == static_cast<long>(sizeof(counter));
 }
 
@@ -48,7 +50,7 @@ bool consume(Waitable waitable) noexcept {
 // the wanted slack differs from the last one this thread set (0 restores the kernel's default). The slack is the
 // tolerance rounded down to a power of two: the main loop asks for a part of each timeout, and the rounded value
 // stays the same over most turns, so few turns make the system call. A shorter slack is inside the contract.
-void apply_tolerance(u32 tolerance_ms) noexcept {
+inline void apply_tolerance(u32 tolerance_ms) noexcept {
     static __thread u32 applied;
     if (tolerance_ms)
         tolerance_ms = 1u << (31 - __builtin_clz(tolerance_ms));
@@ -155,7 +157,7 @@ WaitManyResult wait_set(const Waitable* waitables, u32 count, u32 timeout_ms, u3
     // A poll of one auto-reset waitable is one read. The read takes the signal, or finds none (EAGAIN). Any other
     // result goes to the full wait below, which reports it.
     if (timeout_ms == 0 && count == 1 && valid(waitables[0]) && !manual_reset(waitables[0])) {
-        u64 counter = 0;
+        u64 counter;
         const long taken = sys_read(descriptor(waitables[0]), &counter, sizeof(counter));
         if (taken == static_cast<long>(sizeof(counter)) || taken == -kErrorAgain) {
             result.ready_mask = taken > 0;

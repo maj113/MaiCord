@@ -2,6 +2,7 @@
 #include "pulse.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/shared_library.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/os/thread.hpp"
 #include "maicord/core/test_hook.hpp"
@@ -517,10 +518,7 @@ struct Lookup {
 
 void match(void* context, const DeviceInfo& device) noexcept {
     auto* lookup = static_cast<Lookup*>(context);
-    u32 i = 0;
-    while (lookup->name[i] && lookup->name[i] == device.name[i])
-        ++i;
-    if (!lookup->name[i] && !device.name[i])
+    if (c_string_equal(lookup->name, device.name))
         lookup->found = true;
 }
 

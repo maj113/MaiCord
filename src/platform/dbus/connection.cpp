@@ -995,25 +995,25 @@ bool connection_emit(Connection* c, const char* path, const char* interface, con
     return send_message(c, header, body, nullptr);
 }
 
-bool connection_request_name(Connection* c, const char* name, u32 timeout_ms) noexcept {
+u32 connection_name_reply(Connection* c, const char* name, bool request, u32 timeout_ms) noexcept {
     Builder body;
     builder_init(&body);
     builder_string(&body, name);
-    builder_u32(&body, 4);  // DBUS_NAME_FLAG_DO_NOT_QUEUE
-    const CallTarget target{kBusName, kBusPath, kBusName, "RequestName"};
+    if (request)
+        builder_u32(&body, 4);  // DBUS_NAME_FLAG_DO_NOT_QUEUE
+    const CallTarget target{kBusName, kBusPath, kBusName, request ? "RequestName" : "ReleaseName"};
     Message reply;
     const Status status = connection_call_sync(c, target, &body, timeout_ms, &reply);
     builder_release(&body);
-    bool primary = false;
+    u32 result = 0;
     if (status == Status::ok) {
         Reader reader;
         message_reader(reply, &reader);
-        u32 result = 0;
-        primary = reader_u32(&reader, &result) && result == 1;
+        reader_u32(&reader, &result);  // stays 0 when the reply holds no code
     }
     if (status == Status::ok || status == Status::error_reply)
         message_release(&reply);
-    return primary;
+    return result;
 }
 
 } // namespace maicord::dbus

@@ -1,5 +1,6 @@
 #include "maicord/sys/linux/path.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/os/text.hpp"
 
 namespace maicord {
 
@@ -36,6 +37,7 @@ u32 path_to_utf8(const wchar_t* path, char* output, u32 capacity) noexcept {
     return length;
 }
 
+// The strict conversion of os/text.hpp with room for the terminator.
 u32 path_from_utf8(const char* text, wchar_t* output, u32 capacity) noexcept {
     if (!text || !output || capacity == 0) {
         return 0;
@@ -44,25 +46,7 @@ u32 path_from_utf8(const char* text, wchar_t* output, u32 capacity) noexcept {
     while (text[bytes]) {
         ++bytes;
     }
-    u32 length = 0;
-    for (u32 offset = 0; offset < bytes;) {
-        const Utf8DecodeResult decoded = utf8_decode_one(text + offset, bytes - offset);
-        if (!decoded.valid) {
-            return 0;
-        }
-        offset += decoded.width;
-        const u32 units = decoded.codepoint >= 0x10000 ? 2 : 1;
-        if (units >= capacity - length) {
-            return 0;
-        }
-        if (units == 2) {
-            const u32 value = decoded.codepoint - 0x10000;
-            output[length++] = static_cast<wchar_t>(0xD800 + (value >> 10));
-            output[length++] = static_cast<wchar_t>(0xDC00 + (value & 0x3FF));
-        } else {
-            output[length++] = static_cast<wchar_t>(decoded.codepoint);
-        }
-    }
+    const u32 length = utf8_to_utf16(text, bytes, output, capacity - 1, true);
     output[length] = 0;
     return length;
 }

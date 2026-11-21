@@ -146,6 +146,9 @@ struct DirWatch {
 #else
 namespace maicord {
 struct DirIter {
+    // `DirIter iterator{}` runs this constructor: it closes the iterator and leaves the 4 KiB of records, which
+    // getdents64 fills, uncleared.
+    DirIter() noexcept : token(0) {}
     // The descriptor + 1; 0 when closed.
     u32 token;
     u32 position;
