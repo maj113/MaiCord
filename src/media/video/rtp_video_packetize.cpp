@@ -1,20 +1,17 @@
 #include "maicord/media/video/rtp_video_packetize.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/video/av1.hpp"
+#include "maicord/media/video/h264_stream.hpp"
 
 namespace maicord {
 u32 annexb_next_unit(ConstSlice<u8> data, u32 from, u32* start) noexcept {
-    // Nothing begins a start code at i, i + 1 or i + 2 while the third byte is above one.
-    for (u32 i = from; i + 2 < data.count;) {
-        if (data[i + 2] > 1) {
-            i += 3;
-            continue;
-        }
-        if (!data[i] && !data[i + 1] && data[i + 2] == 1) {
+    // A start code is 00 00 01. After 00 00 00 the search goes on one byte later.
+    for (u32 i = h264_annexb_zeros(data.data, from, data.count); i < data.count;
+         i = h264_annexb_zeros(data.data, i + 1, data.count)) {
+        if (data[i + 2] == 1) {
             *start = i > from && !data[i - 1] ? i - 1 : i;
             return i + 3;
         }
-        ++i;
     }
     *start = data.count;
     return data.count;
@@ -152,7 +149,7 @@ u32 h26x_next(RtpVideoPacketizer& p, u8* out) noexcept {
 }
 
 // AV1 element bytes: the OBU header without obu_has_size_field, its extension, the payload.
-u32 element_bytes(const RtpVideoPacketizer& p) noexcept {
+inline u32 element_bytes(const RtpVideoPacketizer& p) noexcept {
     return ((p.frame[p.unit] & 4) ? 2 : 1) + (p.unit_end - p.payload);
 }
 void element_copy(const RtpVideoPacketizer& p, u8* out, u32 from, u32 bytes) noexcept {
@@ -161,7 +158,7 @@ void element_copy(const RtpVideoPacketizer& p, u8* out, u32 from, u32 bytes) noe
         *out++ = from ? p.frame[p.unit + 1] : static_cast<u8>(p.frame[p.unit] & ~2u);
     copy_bytes(out, p.frame.data + p.payload + (from - header), bytes);
 }
-u32 av1_next(RtpVideoPacketizer& p, u8* out) noexcept {
+inline u32 av1_next(RtpVideoPacketizer& p, u8* out) noexcept {
     const bool continues = p.sent != 0;
     bool more = false;
     u32 at = 1, elements = 0;
@@ -205,14 +202,13 @@ bool rtp_packetizer_begin(RtpVideoPacketizer* packetizer, RtpVideoPacketCodec co
     p.keyframe = keyframe;
     p.max_payload = max_payload;
     p.first = true;
-    // Validate every unit before anything is sent.
-    RtpVideoPacketizer walk = p;
-    u32 units = 0;
-    for (u32 from = 0; locate(walk, from); from = walk.next_unit)
-        ++units;
-    if (walk.failed || !units || !locate(p, 0))
+    // Validate every unit before anything is sent. The packetizer starts at the walk's first unit.
+    if (!locate(p, 0))
         return false;
-    return true;
+    RtpVideoPacketizer walk = p;
+    while (locate(walk, walk.next_unit)) {
+    }
+    return !walk.failed;
 }
 
 u32 rtp_packetizer_next(RtpVideoPacketizer* packetizer, Slice<u8> output, bool* marker) noexcept {

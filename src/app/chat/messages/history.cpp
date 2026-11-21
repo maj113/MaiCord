@@ -590,19 +590,20 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         if (owner == MessageHistoryRequestOwner::message_jump)
             application_search_navigation_history_submitted(channel_id, query.cursor, request_id);
     } else if (auto* entry = media_url_next(&g_app.media_urls, now_ms)) {
-        if (!application_media_url_authorized(g_app, {entry->original, entry->original_bytes})) {
+        const u32 slot = static_cast<u32>(entry - g_app.media_urls.entries);
+        const Utf8View original{g_app.media_urls.text[slot].original, entry->original_bytes};
+        if (!application_media_url_authorized(g_app, original)) {
             reset_value(entry);
             return true;
         }
         // Resolving media must not starve sends, interactions, or channel history.
         const u64 request_id = next_message_history_request_id();
-        const auto submitted =
-            account_module_media_url_refresh(host.instance, {entry->original, entry->original_bytes}, request_id);
+        const auto submitted = account_module_media_url_refresh(host.instance, original, request_id);
         if (submitted.ok()) {
             entry->state = MediaUrlState::pending;
             entry->retry_at_ms = 0;
             ++entry->attempts;
-            g_app.media_urls.pending_slot = static_cast<u32>(entry - g_app.media_urls.entries) + 1;
+            g_app.media_urls.pending_slot = slot + 1;
             g_app.message_history_request_owner = MessageHistoryRequestOwner::media_url_refresh;
         } else if (submitted.error != RestClientSubmitError::busy) {
             entry->state = MediaUrlState::failed;

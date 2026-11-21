@@ -62,6 +62,23 @@ int annexb_tests() noexcept {
     cursor = {{tail, sizeof(tail)}, 0};
     constexpr u8 p3[] = {0x41, 5};
     if (!nal_is(h264_annexb_next(&cursor), 1, p3, 2) || h264_annexb_next(&cursor).error != H264Error::end) return 110;
+    // h264_annexb_zeros at every place of a long buffer, so the pattern falls in each lane of a 32-byte step, across
+    // two steps and in the tail.
+    u8 scan[128];
+    for (u32 at = 0; at + 2 < sizeof(scan); ++at)
+        for (u8 third = 0; third < 3; ++third) {
+            for (u8& value : scan)
+                value = 0x41;
+            scan[at] = scan[at + 1] = 0;
+            scan[at + 2] = third;
+            const u32 expected = third <= 1 ? at : sizeof(scan);
+            // The pattern needs all three bytes below count, and a search that starts after it finds nothing.
+            if (h264_annexb_zeros(scan, 0, sizeof(scan)) != expected ||
+                h264_annexb_zeros(scan, 0, at + 3) != (third <= 1 ? at : at + 3) ||
+                h264_annexb_zeros(scan, 0, at + 2) != at + 2 ||
+                h264_annexb_zeros(scan, at + 1, sizeof(scan)) != sizeof(scan))
+                return 111;
+        }
     return 0;
 }
 

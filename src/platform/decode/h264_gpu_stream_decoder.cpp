@@ -8,7 +8,7 @@ namespace {
 
 void present_ready(GpuStream* stream) noexcept {
     H264StreamState* state = &stream->h264.state;
-    H264StreamOutput output{};
+    H264StreamOutput output;
     while (h264_stream_pop(state, &output))
         if (!stream_show(stream, output.surface, output.rtp_timestamp, output.keyframe, &state->unsupported))
             h264_stream_reset(state);

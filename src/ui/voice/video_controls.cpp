@@ -252,12 +252,10 @@ Utf8View ui_video_controls_label(const UiVideoControlsProjection& projection, Ui
     return descriptor ? descriptor->label : Utf8View{};
 }
 UiVideoControl ui_video_controls_hit(const UiVideoControlsProjection& projection, UiPoint point) noexcept {
-    if (!paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
+    if (!(ui_coordinate_valid(point.x) & ui_coordinate_valid(point.y)))
         return UiVideoControl::none;
     for (const auto& descriptor : projection.controls)
-        if (!descriptor.hidden && descriptor.enabled && point.x >= descriptor.bounds.left &&
-            point.x < descriptor.bounds.right && point.y >= descriptor.bounds.top &&
-            point.y < descriptor.bounds.bottom)
+        if (!descriptor.hidden & descriptor.enabled & ui_rect_contains(descriptor.bounds, point.x, point.y))
             return descriptor.id;
     return UiVideoControl::none;
 }

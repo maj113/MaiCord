@@ -62,7 +62,7 @@ void bind_owner(AccountMedia* media, const AccountMediaLocalPreviewRequest& requ
 bool push_thumbnail_row(void* context, u32, const u8* rgba) noexcept {
     return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
 }
-AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const MediaAssetKey& key, const u8* rgba, u32 width,
+inline AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const MediaAssetKey& key, const u8* rgba, u32 width,
                                                   u32 height) noexcept {
     const u32 bytes = width * height * 4u;
     if (!width || !height || !media->pipeline.scanline_storage ||

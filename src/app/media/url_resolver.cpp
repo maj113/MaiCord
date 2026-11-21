@@ -5,15 +5,21 @@
 #include "maicord/protocol/media/attachment_refresh.hpp"
 
 namespace maicord {
+u32 media_url_find(const MediaUrlResolver& resolver, Utf8View source) noexcept {
+    u32 slot = 0;
+    for (; slot < 32; ++slot) {
+        const auto& entry = resolver.entries[slot];
+        if (entry.state != MediaUrlState::empty && entry.original_bytes == source.bytes &&
+            bytes_equal(resolver.text[slot].original, source.data, source.bytes))
+            break;
+    }
+    return slot;
+}
 MediaUrlState media_url_resolution_state(const MediaUrlResolver& resolver, Utf8View source) noexcept {
     if (!source.data || !source.bytes || source.bytes > kCdnMaximumTargetBytes)
         return MediaUrlState::empty;
-    for (const auto& entry : resolver.entries) {
-        if (entry.state != MediaUrlState::empty && entry.original_bytes == source.bytes &&
-            bytes_equal(entry.original, source.data, source.bytes))
-            return entry.state;
-    }
-    return MediaUrlState::empty;
+    const u32 slot = media_url_find(resolver, source);
+    return slot < 32 ? resolver.entries[slot].state : MediaUrlState::empty;
 }
 Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_ms,
                            u64 now_seconds, bool force_refresh) noexcept {
@@ -27,23 +33,23 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
         return source;
     if (source.bytes > kCdnMaximumTargetBytes)
         return {};
+    if (const u32 slot = media_url_find(*resolver, source); slot < 32) {
+        auto& entry = resolver->entries[slot];
+        entry.last_used_ms = now_ms;
+        if (entry.state == MediaUrlState::ready) {
+            const Utf8View refreshed{resolver->text[slot].refreshed, entry.refreshed_bytes};
+            if (!attachment_refresh_needed(refreshed, now_seconds))
+                return refreshed;
+            // Only a new begin call may rearm a forced result.
+            // An expired ready result fails that stored intent.
+            if (force_refresh) return {};
+            entry.state = MediaUrlState::queued;
+            entry.attempts = 0;
+        }
+        return {};
+    }
     MediaUrlEntry* replace = nullptr;
     for (auto& entry : resolver->entries) {
-        if (entry.state != MediaUrlState::empty && entry.original_bytes == source.bytes &&
-            bytes_equal(entry.original, source.data, source.bytes)) {
-            entry.last_used_ms = now_ms;
-            if (entry.state == MediaUrlState::ready) {
-                const Utf8View refreshed{entry.refreshed, entry.refreshed_bytes};
-                if (!attachment_refresh_needed(refreshed, now_seconds))
-                    return refreshed;
-                // Only a new begin call may rearm a forced result.
-                // An expired ready result fails that stored intent.
-                if (force_refresh) return {};
-                entry.state = MediaUrlState::queued;
-                entry.attempts = 0;
-            }
-            return {};
-        }
         if (entry.state == MediaUrlState::empty || entry.state == MediaUrlState::ready ||
             (entry.state == MediaUrlState::failed && now_ms - entry.last_used_ms > 60'000)) {
             if (!replace || entry.last_used_ms < replace->last_used_ms)
@@ -53,7 +59,7 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
     if (!replace)
         return {};
     // Only the used prefix of each URL buffer is ever read, so a reused entry needs no wipe of its 4 KB.
-    copy_bytes(replace->original, source.data, source.bytes);
+    copy_bytes(resolver->text[replace - resolver->entries].original, source.data, source.bytes);
     replace->original_bytes = static_cast<u16>(source.bytes);
     replace->refreshed_bytes = 0;
     replace->last_used_ms = now_ms;
@@ -77,13 +83,15 @@ void media_url_complete(MediaUrlResolver* resolver, const RestClientResponse& re
                         const Utf8View& body, u64 now_ms, u64 now_seconds) noexcept {
     if (resolver->pending_slot == 0 || resolver->pending_slot > 32)
         return;
-    auto& entry = resolver->entries[resolver->pending_slot - 1];
+    const u32 slot = resolver->pending_slot - 1;
+    auto& entry = resolver->entries[slot];
     resolver->pending_slot = 0;
     entry.retry_at_ms = 0;
     if (response.transport_ok() && response.status_code == 200) {
+        auto& text = resolver->text[slot];
         entry.refreshed_bytes = static_cast<u16>(
-            attachment_refresh_response(body, {entry.original, entry.original_bytes}, now_seconds,
-                                        {entry.refreshed, sizeof(entry.refreshed)}));
+            attachment_refresh_response(body, {text.original, entry.original_bytes}, now_seconds,
+                                        {text.refreshed, sizeof(text.refreshed)}));
         if (entry.refreshed_bytes != 0) {
             entry.state = MediaUrlState::ready;
             return;

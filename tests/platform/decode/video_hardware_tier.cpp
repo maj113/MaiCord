@@ -92,7 +92,7 @@ void tiers(GpuDevice* device, const VideoFixture& h264) noexcept {
     Capture capture{};
     g_probe = kH264 | kH265 | kAv1;
     const u32 word = gpu_stream_decoder_codecs(device);
-    check(gpu_stream_codecs_decodable(word) == (kH264 | kH265 | kAv1) && gpu_stream_codecs_software_only(word) == 0,
+    check((word & kVideoDecodeCodecMask) == (kH264 | kH265 | kAv1) && gpu_stream_codecs_software_only(word) == 0,
           "tiers: codecs the hardware lists are not software-only, whatever the libraries add");
     g_decodes = g_presented = 0;
     g_give_up = false;

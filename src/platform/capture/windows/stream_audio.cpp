@@ -7,7 +7,6 @@
 #include "maicord/platform/audio/stream_audio.hpp"
 #include "capture_abi.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"

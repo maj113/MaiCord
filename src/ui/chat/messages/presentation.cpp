@@ -198,7 +198,7 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
             button = entry->joined ? &theme.interactive : &theme.tokens.accent.success;
         }
         if (url_bytes) {
-            const MediaAssetKey key = message_component_media_key(hash64_bytes(kHash64Seed, url, url_bytes),
+            const MediaAssetKey key = message_component_media_key(hash64_words(kHash64Seed, url, url_bytes),
                                                                   MediaAttachmentFormat::png);
             if (!append_media(media, key.id, MessageMediaCommandKind::component,
                               static_cast<u8>(MediaAttachmentFormat::png), false, geometry.icon, row_clip, owner))
@@ -584,7 +584,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 continue;
             const MediaAttachmentFormat format = message_rich_embed_icon_format(icon_urls[icon]);
             const MediaAssetKey key = message_component_media_key(
-                hash64_bytes(kHash64Seed, icon_urls[icon].data, icon_urls[icon].bytes), format);
+                hash64_words(kHash64Seed, icon_urls[icon].data, icon_urls[icon].bytes), format);
             MessageMediaCommand* const command = append_media(media, key.id, MessageMediaCommandKind::component,
                                                               static_cast<u8>(format), false, icons[icon], row_clip,
                                                               owner);

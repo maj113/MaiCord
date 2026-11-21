@@ -4,7 +4,7 @@
 
 namespace maicord {
 namespace {
-void emit_row(LocalThumbnailSink* sink) noexcept {
+inline void emit_row(LocalThumbnailSink* sink) noexcept {
     const u32 out_y = (sink->row - 1) / sink->scale;
     u8* target = sink->output + static_cast<usize>(out_y) * sink->width * 4u;
     for (u32 x = 0; x < sink->width; ++x) {

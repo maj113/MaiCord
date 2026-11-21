@@ -459,14 +459,15 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const auto& store = search_store ? *search_store : application.account_ui->message_rich_store;
     if (!application_channel_readable(application, message.channel_id))
         return true;
+    // One search of the store: the forwarded snapshot hangs off the message's own record.
+    const auto* outer = message_rich_store_find(store, message.id);
+    const auto* child = outer ? message_rich_store_snapshot_of(store, *outer) : nullptr;
     bool snapshot = search_snapshot;
-    if (!search_store)
-        if (const auto* child = message_rich_store_snapshot(store, message.id))
-            for (u32 index = 0; index < child->attachment_count; ++index)
-                if (&child->attachments[index] == &attachment)
-                    snapshot = true;
-    const auto* rich = snapshot ? message_rich_store_snapshot(store, message.id)
-                                : message_rich_store_find(store, message.id);
+    if (!search_store && child)
+        for (u32 index = 0; index < child->attachment_count; ++index)
+            if (&child->attachments[index] == &attachment)
+                snapshot = true;
+    const auto* rich = snapshot ? child : outer;
     u32 attachment_index = 0;
     if (rich)
         for (u32 index = 0; index < rich->attachment_count; ++index)

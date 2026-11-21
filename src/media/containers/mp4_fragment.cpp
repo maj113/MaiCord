@@ -27,7 +27,7 @@ bool add(u64 a, u64 b, u64* out) noexcept {
     *out = a + b;
     return true;
 }
-bool offset(u64 base, i32 delta, u64* out) noexcept {
+inline bool offset(u64 base, i32 delta, u64* out) noexcept {
     if (delta >= 0) return add(base, static_cast<u32>(delta), out);
     const u64 magnitude = static_cast<u64>(-static_cast<i64>(delta));
     if (magnitude > base) return false;

@@ -33,8 +33,8 @@ bool hevc_container_present(ConstSlice<u8> source) noexcept {
 }
 Mp4DemuxError hevc_demux_initialize(Mp4Demuxer* output, ConstSlice<u8> source,
                                     Mp4SourceAvailability availability) noexcept {
+    // initialize_tables refuses an invalid source range with the same error.
     if (!output || !byte_range_valid({reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
-        !byte_range_valid(source) ||
         byte_ranges_overlap(source, {reinterpret_cast<const u8*>(output), sizeof(*output)}))
         return Mp4DemuxError::invalid_input;
     Mp4Demuxer d{};
@@ -92,13 +92,6 @@ ConstSlice<u8> hevc_demux_hvcc(const Mp4Demuxer& d) noexcept {
                : ConstSlice<u8>{};
 }
 Mp4DemuxError hevc_demux_seek_sync(Mp4Demuxer* output, i64 target, Mp4SeekPoint* point) noexcept {
-    if (!output || !point || !output->ready || target < 0 || static_cast<u64>(target) > output->duration_us)
-        return Mp4DemuxError::invalid_input;
-    const ConstSlice<u8> result_span{reinterpret_cast<const u8*>(point), sizeof(*point)},
-        owner_span{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(result_span) || byte_ranges_overlap(result_span, owner_span) ||
-        byte_ranges_overlap(result_span, output->encoded))
-        return Mp4DemuxError::invalid_input;
     return seek_sync(output, target, point, [](ConstSlice<u8> bytes, u8 length_bytes) noexcept {
         HevcNalCursor cursor{bytes, 0, length_bytes};
         bool idr{}, other{};

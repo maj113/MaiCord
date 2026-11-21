@@ -3,6 +3,7 @@
 #include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 // Parameter sets and picture bookkeeping, once per picture: compiled for size. The Annex B
 // scanner walks every byte of the frame and stays at full speed.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -10,7 +11,7 @@
 namespace maicord {
 namespace {
 
-bool read_sps_id(ConstSlice<u8> nal, u8* id) noexcept {
+inline bool read_sps_id(ConstSlice<u8> nal, u8* id) noexcept {
     if (!nal.data || nal.count < 2) return false;
     H264Bits bits{{nal.data + 1, nal.count - 1}};
     bits.read(24);
@@ -34,14 +35,14 @@ Slot* select_slot(Slot (&slots)[Count], u8 id, bool (*matches)(const Slot&, u8))
 bool sps_matches(const H264StreamSps& slot, u8 id) noexcept { return slot.parsed.id == id; }
 bool pps_matches(const H264StreamPps& slot, u8 id) noexcept { return slot.id == id; }
 
-u32 reference_mask(const H264ReferenceState& references) noexcept {
+inline u32 reference_mask(const H264ReferenceState& references) noexcept {
     u32 mask = 0;
     for (u32 i = 0; i < references.count && i < 16; ++i)
         if (references.pictures[i].surface < 32) mask |= 1u << references.pictures[i].surface;
     return mask;
 }
 
-bool stream_supported(const H264Sps& sps) noexcept {
+inline bool stream_supported(const H264Sps& sps) noexcept {
     return sps.coded_width && sps.coded_height && sps.coded_width <= kH264StreamMaximumDimension &&
            sps.coded_height <= kH264StreamMaximumDimension &&
            u64{sps.coded_width} * sps.coded_height <= kH264StreamMaximumPixels && !sps.transform_bypass &&
@@ -56,6 +57,27 @@ u8 reference_frames(const H264Sps& sps) noexcept {
 } // namespace
 
 #pragma clang attribute pop
+// 32 places at once: three loads one byte apart give bytes j, j + 1 and j + 2 of each.
+MAICORD_HASWELL u32 h264_annexb_zeros(const u8* data, u32 from, u32 count) noexcept {
+    const __m256i zero = _mm256_setzero_si256(), one = _mm256_set1_epi8(1);
+    u32 j = from;
+    for (; j + 34 <= count; j += 32) {
+        const auto load = [&](u32 offset) MAICORD_HASWELL noexcept {
+            return _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(data + j + offset));
+        };
+        const __m256i third = load(2);
+        const __m256i found = _mm256_and_si256(_mm256_cmpeq_epi8(_mm256_or_si256(load(0), load(1)), zero),
+                                               _mm256_cmpeq_epi8(_mm256_min_epu8(third, one), third));
+        const u32 mask = static_cast<u32>(_mm256_movemask_epi8(found));
+        if (mask)
+            return j + static_cast<u32>(__builtin_ctz(mask));
+    }
+    for (; j + 2 < count; ++j)
+        if (!data[j] && !data[j + 1] && data[j + 2] <= 1)
+            return j;
+    return count;
+}
+
 H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
     if (!cursor || (!cursor->bytes.data && cursor->bytes.count) || cursor->offset > cursor->bytes.count)
         return {{}, H264Error::invalid_input};
@@ -83,15 +105,7 @@ H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
             return {{}, H264Error::malformed};
         }
         const u32 start = i;
-        u32 end = count;
-        // 00 00 00 and 00 00 01 never occur inside a NAL (emulation prevention);
-        // a third byte above 1 rules out a pattern at any of the three offsets.
-        for (u32 j = start; j + 2u < count;) {
-            const u8 third = data[j + 2u];
-            if (third > 1) { j += 3; continue; }
-            if (!data[j + 1u] && !data[j]) { end = j; break; }
-            ++j;
-        }
+        const u32 end = h264_annexb_zeros(data, start, count);
         u32 stop = end;
         while (stop > start && !data[stop - 1u]) --stop; // trailing_zero_8bits
         cursor->offset = end;
@@ -112,7 +126,7 @@ H264Error h264_parameter_sets_store(H264ParameterSets* sets, ConstSlice<u8> nal)
     if (!sets || !nal.data || nal.count < 2) return H264Error::invalid_input;
     const u8 type = nal.data[0] & 31u;
     if (type == 7) {
-        H264Sps sps{};
+        H264Sps sps;
         const H264Error error = h264_parse_sps(nal, &sps);
         if (error != H264Error::none) {
             u8 id = 0;
@@ -158,11 +172,9 @@ H264Error h264_parameter_sets_resolve(const H264ParameterSets& sets, u8 pps_id, 
         if (slot.valid && slot.parsed.id == picture->sps_id) sequence = &slot;
     if (!sequence) return sets.last_sps_error == H264Error::unsupported ? H264Error::unsupported
                                                                         : H264Error::malformed;
-    H264Pps parsed{};
-    const H264Error error = h264_parse_pps({picture->raw, picture->bytes}, sequence->parsed, &parsed);
+    const H264Error error = h264_parse_pps({picture->raw, picture->bytes}, sequence->parsed, pps);
     if (error != H264Error::none) return error;
     *sps = sequence->parsed;
-    copy_value(pps, parsed);
     return H264Error::none;
 }
 
@@ -214,7 +226,7 @@ H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scan
         case 5: {
             u8 id = 0;
             H264Error error = h264_slice_parameter_id(nal.bytes, &id);
-            H264Slice slice{};
+            H264Slice slice;
             H264Sps sps_local;
             H264Pps pps_local;
             const H264Sps* sps = &picture->sps;
@@ -313,8 +325,8 @@ void h264_stream_lost(H264StreamState* state) noexcept {
 H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPicture& picture,
                                      H264StreamDecode* decode) noexcept {
     if (!state || !decode || !picture.slice_count) return H264StreamAction::request_keyframe;
-    // Callers read *decode only after a decode action; it is built in place.
-    reset_value(decode);
+    // Callers read *decode only after a decode action; it is built in place: each field below, the plan by
+    // h264_reference_plan.
     H264StreamDecode& next = *decode;
     const H264Slice& first = picture.first;
     const H264Sps& sps = picture.sps;
@@ -352,6 +364,7 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
             return H264StreamAction::request_keyframe;
         }
         next.surfaces_needed = state->surfaces;
+        next.reinitialize = false;
     }
     const u8 capacity = next.reinitialize ? next.surfaces_needed : state->surfaces;
     state->output.leased = 255;

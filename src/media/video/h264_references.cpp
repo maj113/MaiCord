@@ -13,7 +13,7 @@ void erase(H264ReferenceState* state, u32 index) noexcept {
     for (u32 i = index + 1; i < state->count; ++i) state->pictures[i - 1] = state->pictures[i];
     reset_value(&state->pictures[--state->count]);
 }
-i32 short_index(const H264ReferenceState& state, i32 target, u32 frame, u32 modulus) noexcept {
+inline i32 short_index(const H264ReferenceState& state, i32 target, u32 frame, u32 modulus) noexcept {
     for (u32 i = 0; i < state.count; ++i)
         if (!state.pictures[i].long_term() && number(state.pictures[i], frame, modulus) == target)
             return static_cast<i32>(i);

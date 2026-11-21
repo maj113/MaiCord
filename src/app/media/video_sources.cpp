@@ -18,7 +18,7 @@ static_assert(sizeof(ApplicationVideo) <= 4096);
 
 namespace {
 
-CdnImageType audio_source_type(MediaAttachmentFormat format) noexcept {
+inline CdnImageType audio_source_type(MediaAttachmentFormat format) noexcept {
     if (format == MediaAttachmentFormat::mp3)
         return CdnImageType::mp3;
     if (format == MediaAttachmentFormat::wav)
@@ -120,7 +120,7 @@ bool video_session_available() noexcept {
 } // namespace video_detail
 namespace {
 
-bool video_viewer_hosted() noexcept {
+inline bool video_viewer_hosted() noexcept {
     return g_app.video && g_app.video->source.host == VideoHost::viewer && g_app.image_viewer.scene.active;
 }
 
@@ -284,13 +284,13 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
             continue;
         const auto& row = *selected_row;
         const auto* message = message_store_resolve(g_app.message_view.store, row.message);
-        const auto* rich = message ? (snapshot ? message_rich_store_snapshot(store, message->id)
-                                               : message_rich_store_find(store, message->id))
-                                   : nullptr;
-        if (!rich || !application_channel_readable(g_app, message->channel_id) ||
-            message->id != message_id || message->revision != revision ||
-            rich->message_revision != revision ||
-            message->channel_id != g_app.account_ui->active_channel_id)
+        if (!message || message->id != message_id || message->revision != revision)
+            continue;
+        const auto* rich = snapshot ? message_rich_store_snapshot(store, message->id)
+                                    : message_rich_store_find(store, message->id);
+        if (!rich || rich->message_revision != revision ||
+            message->channel_id != g_app.account_ui->active_channel_id ||
+            !application_channel_readable(g_app, message->channel_id))
             continue;
         const auto* node = message_scene_rich_item_layout_node(
             scene, row, embed ? MessageSceneRichItemKind::embed : MessageSceneRichItemKind::attachment,

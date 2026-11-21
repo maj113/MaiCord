@@ -108,8 +108,10 @@ struct ApplicationMediaPump {
                                     const AnimationVisualState& visual) noexcept;
     bool animation_advance_is_current(const AnimationFrameAdvance& advance,
                                       const AnimationVisualState& visual) noexcept;
+    // Releases the animation of `key` unless its visual belongs to this source and the source is current.
+    // source_current: the caller knows that the source is current (a shown picker cell), so no check runs.
     void retire_stale_message_animation(const MediaAssetKey& key, u64 source_message_id,
-                                        u32 source_message_revision) noexcept;
+                                        u32 source_message_revision, bool source_current = false) noexcept;
     __declspec(noinline) bool restore_cached_animation_frame(const AnimationFrameAdvance& advance,
                                                              AnimationVisualState* visual,
                                                              bool* repaint) noexcept;

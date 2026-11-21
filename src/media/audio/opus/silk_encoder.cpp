@@ -17,20 +17,21 @@ __forceinline i32 round_int(float x) noexcept {
 __forceinline i16 round_16(float x) noexcept {
     return static_cast<i16>(saturate_16(round_int(clamp_value(x, -40000.f, 40000.f))));
 }
-// The sample loops of the functions below that otherwise only decide.
-void to_float(float* out, const i16* in, u32 count) noexcept {
+// The sample loops of the functions below that otherwise only decide. No caller overlaps an output with an
+// input (__restrict): the vectorized loops need no run-time overlap test and no scalar copy for it.
+void to_float(float* __restrict out, const i16* in, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i)
         out[i] = static_cast<float>(in[i]);
 }
-void to_pcm16(i16* out, const float* in, u32 count) noexcept {
+void to_pcm16(i16* __restrict out, const float* in, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i)
         out[i] = round_16(in[i]);
 }
-void average_to_pcm16(i16* out, const float* a, const float* b, u32 count) noexcept {
+inline void average_to_pcm16(i16* __restrict out, const float* a, const float* b, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i)
         out[i] = round_16(0.5f * (a[i] + b[i]));
 }
-i32 magnitude_sum(const i8* pulses, u32 count) noexcept {
+inline i32 magnitude_sum(const i8* pulses, u32 count) noexcept {
     i32 sum = 0;
     for (u32 i = 0; i < count; ++i)
         sum += pulses[i] < 0 ? -pulses[i] : pulses[i];
@@ -399,7 +400,7 @@ constexpr u8 kTargetByRate[191]{
     216, 217, 218, 219, 219, 220, 221, 221, 222, 223, 224, 224, 225, 226, 226, 227, 228, 229, 229, 230,
     231, 232, 232, 233, 234, 234, 235, 236, 237, 237, 238, 239, 240, 240, 241, 242, 243, 243, 244, 245,
     246, 246, 247, 248, 249, 249, 250, 251, 252, 253, 255};
-i32 target_snr_q7(i32 rate) noexcept {
+inline i32 target_snr_q7(i32 rate) noexcept {
     const i32 index = minimum((rate + 200) / 400 - 10, 190);
     return index <= 0 ? 0 : kTargetByRate[index] * 21;
 }

@@ -79,7 +79,7 @@ struct ApplicationMediaPicker {
     u32 *filtered, filtered_count, filtered_capacity, section_count;
     u64 scope, account_id, channel_id, guild_id, submitted_id, submitted_generation;
     u64 due_at, blink_at, hover_at, edit_identity;
-    u32 generation, content_revision, edit_revision, held_key, retries;
+    u32 generation, held_key, retries;
     MediaCatalogOperation operation, submitted_operation;
     UiMediaPickerKind kind;
     UiMediaPickerPhase phase;
@@ -175,6 +175,8 @@ bool shown(const ApplicationMediaPicker* p) noexcept;
 void focus(ApplicationMediaPicker& p, bool value) noexcept;
 void cancel(ApplicationMediaPicker& p) noexcept;
 bool repaint(bool defer_text = false) noexcept;
+// A saved favourite is built whole in *temporary (favorite_item) and returned from there, so callers leave
+// *temporary unset.
 const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
                                 const CatalogBank** bank = nullptr, u32* local = nullptr,
                                 MediaCatalogItem* temporary = nullptr) noexcept;

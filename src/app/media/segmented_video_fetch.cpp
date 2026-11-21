@@ -87,7 +87,7 @@ bool live_locations(const HlsMediaPlaylist& playlist,bool youtube) noexcept {
             !live_location(youtube,segment.uri,false,playlist.transport)) return false;
     return true;
 }
-bool live_counts(const SegmentedVideoFetch& s, const HlsMediaPlaylist& p, u32* first, u32* count) noexcept {
+inline bool live_counts(const SegmentedVideoFetch& s, const HlsMediaPlaylist& p, u32* first, u32* count) noexcept {
     const u64 last = p.sequence + p.segments - 1;
     if (last < s.sequence_base || last - s.sequence_base >= ~u32{0}) return false;
     *first = p.sequence > s.sequence_base ? static_cast<u32>(p.sequence - s.sequence_base) : 0;

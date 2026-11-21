@@ -108,7 +108,7 @@ const MediaAssetKey& picture_key(const MediaPage& page) noexcept {
 Utf8View picture_url(const MediaPage& page) noexcept {
     return page.kind == MediaPageKind::audio ? Utf8View{page.url + page.url_bytes, page.art_bytes} : url_of(page);
 }
-bool has_picture(const MediaPage& page) noexcept {
+inline bool has_picture(const MediaPage& page) noexcept {
     return page.kind == MediaPageKind::image || (page.kind == MediaPageKind::audio && page.art_bytes);
 }
 // The picture cannot load: an image page is unavailable until Retry; an audio page goes without its artwork.
@@ -147,7 +147,7 @@ bool image_resident(const MediaPage& page) noexcept {
 // its decoder), it plays as on its card unless GIFs never play. Its timeline is observed in every visibility scan, so
 // it keeps playing while the chat under the page is hidden; a resident frame whose timeline went (the page was hidden)
 // is asked again, which publishes it anew. Until then the card's tier plays in its place.
-bool picture_settled(ApplicationMediaPump& pump, const MediaPage& page) noexcept {
+inline bool picture_settled(ApplicationMediaPump& pump, const MediaPage& page) noexcept {
     auto& renderer = pump.application.renderer;
     auto& timeline = pump.application.animations.timeline;
     const MediaAssetKey& key = picture_key(page);
@@ -177,14 +177,14 @@ void keep_view() noexcept {
 void retry(MediaPage* page) noexcept {
     page->missing = page->refreshed = false;
     media_asset_failure_clear(&g_app.media_failures, picture_key(*page));
-    const Utf8View url = picture_url(*page);
-    for (auto& entry : g_app.media_urls.entries)
-        if (entry.state == MediaUrlState::failed && entry.original_bytes == url.bytes &&
-            bytes_equal(entry.original, url.data, url.bytes)) {
+    if (const u32 slot = media_url_find(g_app.media_urls, picture_url(*page)); slot < 32) {
+        auto& entry = g_app.media_urls.entries[slot];
+        if (entry.state == MediaUrlState::failed) {
             entry.state = MediaUrlState::queued;
             entry.attempts = 0;
             entry.retry_at_ms = 0;
         }
+    }
     application_request_frame();
 }
 void activate(u32 index) noexcept {
@@ -459,7 +459,7 @@ void sync_player(const MediaPage& page) noexcept {
             char url[kTrackArtUrlBytes];
             copy_bytes(g_pages.videos[n], title.id.youtube, 11);
             const u32 bytes = track_art_url(title.id.youtube, false, url);
-            thumb = message_component_media_key(hash64_bytes(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg);
+            thumb = message_component_media_key(hash64_words(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg);
         }
         changed = changed || !media_asset_key_equal(thumb, item.thumb);
         item = {{stored, title_bytes},

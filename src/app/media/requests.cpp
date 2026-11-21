@@ -302,12 +302,13 @@ bool ApplicationMediaPump::request_catalog_previews() noexcept {
     const u32 count = minimum<u32>(scene.cell_count, kUiMediaPickerVisibleCells) +
                       minimum<u32>(scene.rail_count, kUiMediaPickerVisibleSections);
     for (u32 index = 0; index < count; ++index) {
-        AccountMediaCatalogPreviewRequest request{};
-        if (!application_media_picker_preview_request(index, &request) ||
-            !application_media_picker_preview_current(request.key, request.catalog_scope,
-                                                      request.catalog_generation))
+        // A request that the picker builds for a shown cell is current: the picker's scope, generation and
+        // cell made it.
+        AccountMediaCatalogPreviewRequest request; // filled only when the request is made
+        if (!application_media_picker_preview_request(index, &request))
             continue;
-        retire_stale_message_animation(request.key, request.catalog_scope, request.catalog_generation);
+        retire_stale_message_animation(request.key, request.catalog_scope, request.catalog_generation,
+                                       true);
         const bool observed =
             animation_timeline_observe_visible(&application.animations.timeline, request.key, now_us);
         const auto resident = media_atlas_find(application.renderer.preview_media_atlas, request.key);
@@ -370,7 +371,7 @@ bool profile_editor_key_current(const MediaAssetKey& key) noexcept {
         return true;
     if (const auto* dialog = application_profile_editor_dialog()) {
         ProfileMedia media;
-        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i)
+        for (u32 cursor = 0; ui_profile_dialog_next_media(*dialog, &cursor, &media);)
             if (media_asset_key_equal(key, media.key))
                 return true;
     }
@@ -646,11 +647,12 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
         return media_asset_key_equal(key, user_avatar_key(id, user_store_avatar_hash(*user)));
     };
     const auto& composer = application.message_composer_scene;
-    if (content_media_visible() && ui_rect_has_area(message_composer_scene_command_avatar(composer)) &&
+    const bool content_visible = content_media_visible();
+    if (content_visible && ui_rect_has_area(message_composer_scene_command_avatar(composer)) &&
         media_asset_key_equal(key, composer.command.avatar))
         return true;
     // Member rows count only while chat content (and so the sidebar) is shown.
-    if (content_media_visible() && application.member_list_scene.active &&
+    if (content_visible && application.member_list_scene.active &&
         member_plain_avatar_current(application.member_list_scene, key))
         return true;
     const auto* requests = application.renderer.friends_requests_scene;
@@ -724,7 +726,7 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
                 return true;
         }
     }
-    if (!content_media_visible())
+    if (!content_visible)
         return false;
     const auto& scene = application.message_scene;
     if (scene.active)
@@ -895,7 +897,7 @@ bool ApplicationMediaPump::request_friends_avatars(bool* stop) noexcept {
             *stop = true;
             break;
         }
-        if (!request_profile_media(media, stop, false, nullptr))
+        if (!request_profile_media(media, stop, false))
             return false;
     }
     return true;
@@ -941,15 +943,11 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
     // emoji by key.
     GuildCardMedia cards[kGuildCardMediaCapacity];
     const u32 card_count = application_guild_card_media(cards, kGuildCardMediaCapacity);
+    // Their URLs (at most 384 bytes) fit the request as they are.
     for (u32 i = 0; i < card_count && !*stop; ++i) {
-        ProfileMedia media{};
-        media.key = cards[i].key;
-        const u32 bytes = minimum<u32>(cards[i].url.bytes, sizeof(media.url.data));
-        copy_bytes(media.url.data, cards[i].url.data, bytes);
-        media.url.bytes = static_cast<u16>(bytes);
         AccountMediaRequestResult failure{};
         failure.state = AccountMediaRequestState::ready; // a resident image makes no request
-        if (!request_profile_media(media, stop, false, &failure))
+        if (!request_url_picture(cards[i].key, cards[i].url, stop, false, &failure))
             return false;
         application_guild_card_media_failed(cards[i].key, failure);
     }

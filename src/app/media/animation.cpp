@@ -99,8 +99,7 @@ __declspec(noinline) void ApplicationMediaPump::capture_animation_frame(
 }
 
 __declspec(noinline) bool ApplicationMediaPump::asset_backed_off(const MediaAssetKey& key) const noexcept {
-    return application.media_failures.count &&
-           media_asset_failure_blocked(application.media_failures, key, clock_monotonic_milliseconds());
+    return media_asset_failure_blocked(application.media_failures, key);
 }
 __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMediaPump::
     upload_account_media_frame(const AccountMediaFrame& frame) noexcept {
@@ -355,7 +354,8 @@ __declspec(noinline) void ApplicationMediaPump::release_animation_visual(MediaAs
 }
 
 void ApplicationMediaPump::retire_stale_message_animation(const MediaAssetKey& key, u64 source_message_id,
-                                                          u32 source_message_revision) noexcept {
+                                                          u32 source_message_revision,
+                                                          bool source_current) noexcept {
     const auto found = animation_timeline_find(&application.animations.timeline, key);
     if (!found.ok() || found.slot >= application.animations.timeline.capacity)
         return;
@@ -363,21 +363,22 @@ void ApplicationMediaPump::retire_stale_message_animation(const MediaAssetKey& k
     const auto* visual = find_animation_visual(key, generation);
     if (!visual || visual->source_scope != source_message_id ||
         visual->source_revision != source_message_revision ||
-        !message_image_source_is_current(key, visual->source_scope, visual->source_revision))
+        (!source_current &&
+         !message_image_source_is_current(key, visual->source_scope, visual->source_revision)))
         release_animation_visual(key, generation);
 }
 
+// Every caller passes the visual that find_animation_visual(advance.key, advance.generation) returned: it
+// is occupied with the advance's key and generation, and its slot is the timeline slot. So the entry needs
+// no second search. A slot that the timeline gave to another key fails the key check.
 bool ApplicationMediaPump::animation_advance_is_current(const AnimationFrameAdvance& advance,
                                                         const AnimationVisualState& visual) noexcept {
-    const auto found = animation_timeline_find(&application.animations.timeline, advance.key);
-    if (!found.ok() || found.slot >= application.animations.timeline.capacity)
-        return false;
-    const auto& entry = application.animations.timeline.entries[found.slot];
-    if (!(entry.flags & animation_timeline_entry_pending) || entry.generation != advance.generation ||
+    const auto& entry = application.animations.timeline.entries[&visual - application.animations.visuals];
+    if (!(entry.flags & animation_timeline_entry_occupied) ||
+        !media_asset_key_equal(entry.key, advance.key) ||
+        !(entry.flags & animation_timeline_entry_pending) || entry.generation != advance.generation ||
         entry.due_at_us != advance.scheduled_at_us || entry.pending_frame_index != advance.frame_index ||
-        entry.pending_play_index != advance.play_index || !visual.occupied ||
-        visual.generation != advance.generation || !media_asset_key_equal(visual.key, advance.key) ||
-        !visual.cache_generation)
+        entry.pending_play_index != advance.play_index || !visual.cache_generation)
         return false;
     return message_image_source_is_current(advance.key, visual.source_scope, visual.source_revision);
 }
@@ -509,12 +510,10 @@ __declspec(noinline) bool ApplicationMediaPump::apply_animation_frame(const Anim
 
 __declspec(noinline) bool ApplicationMediaPump::restore_cached_animation_frame(
     const AnimationFrameAdvance& advance, AnimationVisualState* visual, bool* repaint) noexcept {
-    if (!visual || !animation_advance_is_current(advance, *visual)) {
+    // The caller found the visual. A current advance has a nonzero cache generation.
+    if (!animation_advance_is_current(advance, *visual)) {
         release_animation_visual(advance.key, advance.generation);
         return true;
-    }
-    if (visual->cache_generation == 0) {
-        return false;
     }
     AnimationFrameCacheResult cached{};
     if (!renderer_restore_animation_frame(&application.renderer,
@@ -660,10 +659,8 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
 
     for (u32 index = 0; index < collected.advances; ++index) {
         const AnimationFrameAdvance advance = advances[index];
-        if (!media_key_is_current(advance.key)) {
-            release_animation_visual(advance.key, advance.generation);
-            continue;
-        }
+        // Each path below that finds the key not current (no visual, or the advance check in
+        // restore_cached_animation_frame) releases the visual, so no currency check runs first.
         AnimationVisualState* visual = find_animation_visual(advance.key, advance.generation);
         if (!visual || visual->cache_generation == 0) {
             release_animation_visual(advance.key, advance.generation);

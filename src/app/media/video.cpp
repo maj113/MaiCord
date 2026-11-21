@@ -1067,7 +1067,7 @@ void sync_art(ApplicationVideo& video) noexcept {
         char url[kTrackArtUrlBytes];
         const u32 bytes = track_art_url(id.data, !video.art_small, url);
         // The px2048 tier keeps the larger picture's size in the decoder. The small one has the queue row's key.
-        art = message_component_media_key(hash64_bytes(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg,
+        art = message_component_media_key(hash64_words(kHash64Seed, url, bytes), MediaAttachmentFormat::jpeg,
                                           video.art_small ? MediaResolutionTier::px512 : MediaResolutionTier::px2048);
     }
     if (!media_asset_key_equal(art, video.art)) {
@@ -1122,13 +1122,14 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
             ui_theme_audio_style(application_theme()), application_theme());
         video->presentation_wake_ms = 0;
         if (projected) {
-            if (video->input_focus && !video_input_focus_current(*video))
+            // A blur leaves the focus false, so one reading serves the whole projection.
+            const bool focus = video_input_focus_current(*video);
+            if (video->input_focus && !focus)
                 application_video_blur();
-            if (video_input_focus_current(*video) && video->ui.audio.focus == UiAudioControl::none)
+            if (focus && video->ui.audio.focus == UiAudioControl::none)
                 ui_audio_scene_focus(&video->ui.audio, UiAudioControl::play_pause,
                                      g_app.keyboard_focus_visible);
-            video->ui.audio.keyboard_focus =
-                video_input_focus_current(*video) && g_app.keyboard_focus_visible;
+            video->ui.audio.keyboard_focus = focus && g_app.keyboard_focus_visible;
             ui_audio_scene_hover(&video->ui.audio, video_pointer_position());
             if (!renderer_bind_audio_scene(&g_app.renderer, &video->ui.audio))
                 return false;
@@ -1187,13 +1188,14 @@ __attribute__((minsize)) bool project_video_scene(ApplicationVideo* video, const
                                                 application_theme());
     if (projected) {
         const u64 now_ms = clock_monotonic_milliseconds();
-        if (video->input_focus && !video_input_focus_current(*video))
+        const bool focus = video_input_focus_current(*video);
+        if (video->input_focus && !focus)
             application_video_blur();
-        if (video_input_focus_current(*video) && video->ui.video.focus == UiVideoControl::none) {
+        if (focus && video->ui.video.focus == UiVideoControl::none) {
             if (!ui_video_scene_focus(&video->ui.video, video->collection_focus, g_app.keyboard_focus_visible))
                 ui_video_scene_focus(&video->ui.video, UiVideoControl::play_pause, g_app.keyboard_focus_visible);
         }
-        video->ui.video.keyboard_focus = video_input_focus_current(*video) && g_app.keyboard_focus_visible;
+        video->ui.video.keyboard_focus = focus && g_app.keyboard_focus_visible;
         ui_video_scene_hover(&video->ui.video, video_pointer_position());
         const bool was_idle = video->ui.video.idle;
         ui_video_scene_tick(&video->ui.video, now_ms, application_reduced_motion());

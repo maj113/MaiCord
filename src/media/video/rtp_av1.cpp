@@ -70,7 +70,7 @@ void append(RtpVideoAssembly& a, const u8* data, u32 bytes) noexcept {
 }
 
 // Splits the payload after the aggregation header into OBU elements.
-u32 elements(ConstSlice<u8> payload, Element* list, u32 capacity) noexcept {
+inline u32 elements(ConstSlice<u8> payload, Element* list, u32 capacity) noexcept {
     const u32 declared = (payload[0] >> 4) & 3;
     u32 offset = 1, count = 0;
     while (offset < payload.count) {

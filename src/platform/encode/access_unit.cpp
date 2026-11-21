@@ -114,7 +114,7 @@ bool encoded_av1_unit(ConstSlice<u8> input, ConstSlice<u8> sequence_header, bool
     *found = {};
     bool has_sequence_header = false;
     u32 offset = 0;
-    Av1Obu obu{};
+    Av1Obu obu;
     while (offset < input.count) {
         if (av1_next_obu(input, &offset, &obu) != Av1Status::ok)
             return false;

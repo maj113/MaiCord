@@ -7,7 +7,7 @@
 namespace maicord {
 namespace {
 
-WebpAlphaDecodeResult alpha_failure(
+inline WebpAlphaDecodeResult alpha_failure(
     WebpAlphaDecodeResult result, WebpAlphaError error) noexcept {
     result.error = error;
     return result;

@@ -518,7 +518,7 @@ namespace {
 
 void item_media(UiProfileDialogItem* item, const Utf8View& url, bool png) noexcept {
     assign(&item->url, url);
-    item->key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
+    item->key = media_asset_embed(hash64_words(kHash64Seed, url.data, url.bytes), 1, 0,
                                   MediaEmbedResource::image,
                                   png ? MediaAttachmentFormat::png : MediaAttachmentFormat::webp, false,
                                   MediaResolutionTier::px512);

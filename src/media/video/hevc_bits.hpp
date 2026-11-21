@@ -104,10 +104,7 @@ inline HevcBits hevc_payload(ConstSlice<u8> nal, u8 type) noexcept {
     return b;
 }
 inline u32 hevc_ceil_log2(u32 value) noexcept {
-    u32 bits{};
-    for (u32 v = value > 0 ? value - 1 : 0; v; v >>= 1)
-        ++bits;
-    return bits;
+    return value > 1 ? 32u - static_cast<u32>(__builtin_clz(value - 1)) : 0u;
 }
 HevcError hevc_parse_reference_set(HevcBits&, const HevcReferenceSet*, u32 index, u32 count,
                                    HevcReferenceSet*, u8* reference_delta_count = nullptr) noexcept;

@@ -372,7 +372,9 @@ void test_dialogs(Check check) noexcept {
         dim.rotation = bright.rotation = 270;
         dim.playback_epoch = bright.playback_epoch = 123;
         dim.circular = bright.circular = true;
-        const bool media = ui_profile_dialog_media(scene, 0, &dim) && ui_profile_dialog_media(scene, 1, &bright);
+        u32 cursor = 0;
+        const bool media = ui_profile_dialog_next_media(scene, &cursor, &dim) &&
+                           ui_profile_dialog_next_media(scene, &cursor, &bright);
         check(media && dim.rotation == 0 && bright.rotation == 0 && dim.playback_epoch == 0 &&
                   bright.playback_epoch == 0 && !dim.circular && !bright.circular,
               "profile crop dialog: resolver overwrites reused output");
@@ -386,7 +388,8 @@ void test_dialogs(Check check) noexcept {
         content.crop = crop;
         ui_profile_dialog_update(&scene, content, viewport);
         ProfileMedia turned{};
-        check(ui_profile_dialog_media(scene, 1, &turned) && turned.rotation == 90 &&
+        cursor = 1; // the second media: the image inside the mask
+        check(ui_profile_dialog_next_media(scene, &cursor, &turned) && turned.rotation == 90 &&
                   close_to(ui_rect_height(turned.rectangle) / ui_rect_width(turned.rectangle), 1600.f / 1200.f, .01f),
               "profile crop dialog: a turned image is drawn in its turned shape");
         u32 source = 0;
@@ -403,6 +406,8 @@ void test_dialogs(Check check) noexcept {
     items[2].sku = 12;
     items[3].sku = 13;
     items[4].sku = 14;
+    for (u32 i = 0; i < 5; ++i)
+        items[i].key = media_asset_custom_emoji(i + 1, false);
     UiProfileDialogContent picker{};
     picker.kind = UiProfileDialogKind::decoration;
     picker.title = utf8_literal("Change Avatar Decoration");
@@ -410,6 +415,7 @@ void test_dialogs(Check check) noexcept {
     picker.items = {items, 5};
     picker.selected = 1;
     picker.preview_label = utf8_literal("Cat Ears");
+    picker.avatar.key = media_asset_custom_emoji(99, false);
     scene = {};
     const bool built = ui_profile_dialog_update(&scene, picker, {0, 0, 1280, 800});
     u32 tiles = 0;
@@ -428,6 +434,17 @@ void test_dialogs(Check check) noexcept {
     check(built && tiles == 5 && close_to(ui_rect_height(first), 80) && close_to(second.left, first.right + 12) &&
               ui_rect_width(scene.grid_viewport) < ui_rect_width(scene.rectangle) - 280,
           "profile picker: 80 DIP tiles in 12 DIP gutters beside the 280 DIP preview panel");
+    // One walk: the four tiles with a SKU (keys 2-5), then each of the five previews (the large one and four small
+    // ones) with the avatar (key 99) and the chosen decoration over it (key 2 again).
+    u32 walked = 0, seen[6]{}, avatars = 0;
+    ProfileMedia media{};
+    for (u32 cursor = 0; walked < 32 && ui_profile_dialog_next_media(scene, &cursor, &media); ++walked) {
+        avatars += media.key.id == 99 && media.circular;
+        if (media.key.id < 6)
+            ++seen[media.key.id];
+    }
+    check(walked == 14 && avatars == 5 && !seen[1] && seen[2] == 6 && seen[3] == 1 && seen[4] == 1 && seen[5] == 1,
+          "profile picker: one media walk visits each tile, then each preview's avatar and decoration");
     // The host rebuilds the dialog every frame, between a press and its release.
     const auto clicked = [&](UiProfileDialogAction wanted) noexcept {
         UiRect r{};

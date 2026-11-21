@@ -29,11 +29,9 @@ struct EncodedMediaCacheEntry {
 };
 
 struct EncodedMediaCacheCounters {
-    u64 erases;
     u64 bytes_copied;
     u64 lease_acquires;
     u64 lease_releases;
-    u64 pinned_rejections;
 };
 
 struct EncodedMediaCache {

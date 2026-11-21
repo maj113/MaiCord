@@ -103,7 +103,7 @@ struct GpuStream {
     // The decode thread's counters (the pushing thread's for a synchronous stream); `received` is in `published`.
     GpuStreamDecoderStats stats;
     // What gpu_stream_decoder_stats returns, under `lock`: the pusher counts `received` here, and publish_stats copies
-    // the rest of `stats` after every decode.
+    // the rest of `stats` after every decode. gpu_stream_decoder_unsupported reads `unsupported` without the lock.
     GpuStreamDecoderStats published;
     u64 last_request_ms;
     SRWLOCK lock;

@@ -58,6 +58,7 @@ u64 pass_row_bytes(const PngImage& image, u32 width) noexcept {
 
 u64 interlaced_bytes(const PngImage& image) noexcept {
     u64 total = 0;
+#pragma clang loop unroll(disable)
     for (const auto& pass : kAdam7) {
         const u32 width = pass_extent(image.width, pass[0], pass[2]);
         const u32 height = pass_extent(image.height, pass[1], pass[3]);
@@ -453,6 +454,7 @@ PngDecodeResult png_decode_parsed_scanlines(
     }
     if (image->interlace) {
         u8* pass = inflate_target;
+#pragma clang loop unroll(disable)
         for (const auto& geometry : kAdam7) {
             const u32 width = pass_extent(image->width, geometry[0], geometry[2]);
             const u32 height = pass_extent(image->height, geometry[1], geometry[3]);

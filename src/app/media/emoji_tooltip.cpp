@@ -37,7 +37,7 @@ u32 compose(Utf8View name, bool colons, Slice<char> output) noexcept {
     return w.ok ? w.used : 0;
 }
 // The name in a <:name:id> or <a:name:id> tag.
-Utf8View tag_name(Utf8View tag) noexcept {
+inline Utf8View tag_name(Utf8View tag) noexcept {
     u32 at = tag.bytes > 1 && tag.data[0] == '<' ? (tag.data[1] == 'a' ? 2u : 1u) : tag.bytes;
     if (at >= tag.bytes || tag.data[at] != ':')
         return {};
@@ -46,7 +46,7 @@ Utf8View tag_name(Utf8View tag) noexcept {
         ++at;
     return at < tag.bytes ? Utf8View{tag.data + first, at - first} : Utf8View{};
 }
-const MessageRecord* current_record(u64 message_id, u32 revision) noexcept {
+inline const MessageRecord* current_record(u64 message_id, u32 revision) noexcept {
     const auto* record = application_message_record(message_id);
     return record && record->revision == revision && record->channel_id == g_app.account_ui->active_channel_id
                ? record
@@ -124,8 +124,6 @@ bool application_message_expression_at(UiPoint point, MessageExpression* output)
 }
 
 u32 application_message_expression_name(const MessageExpression& e, const Slice<char>& output) noexcept {
-    if (!g_app.account_ui || !output.data)
-        return 0;
     const auto& ui = *g_app.account_ui;
     switch (e.kind) {
     case MessageExpressionKind::unicode_emoji:

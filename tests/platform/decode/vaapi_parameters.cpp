@@ -282,7 +282,7 @@ void h264_slices(const H264StreamPicture& p, const H264ReferenceState& dpb, cons
         if (parsed != H264Error::none || detailed != H264Error::none)
             return;
         SliceParameterH264 s;
-        const bool built = h264_slice_parameters(p.sps, p.pps, p.first, detail, dpb, order, g_ids, nal.count, &s);
+        const bool built = h264_slice_parameters(p.sps, p.first, detail, dpb, order, g_ids, nal.count, &s);
         SAME(built, 1);
         if (!built)
             return;

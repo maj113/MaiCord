@@ -58,9 +58,6 @@ inline constexpr u32 kGpuStreamSoftwareShift = 8;
 constexpr u32 video_decode_codecs_word(const VideoDecodeProbe& probe) noexcept {
     return video_decode_advertised(probe) | (video_decode_software_only(probe) << kGpuStreamSoftwareShift);
 }
-constexpr u32 gpu_stream_codecs_decodable(u32 word) noexcept {
-    return word & kVideoDecodeCodecMask;
-}
 constexpr u32 gpu_stream_codecs_software_only(u32 word) noexcept {
     return (word >> kGpuStreamSoftwareShift) & kVideoDecodeCodecMask;
 }

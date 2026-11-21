@@ -51,7 +51,7 @@ ProgressiveRange gap_from(const ProgressiveSource& s, u64 offset, u64 limit, u32
 bool refused(const ProgressiveSource& s, const ProgressiveReader& r) noexcept {
     return r.pending && (r.missing >= s.total_bytes || !bit(s.present, static_cast<u32>(r.missing / kBlock)));
 }
-bool intersects(ProgressiveRange r, u64 first, u64 end) noexcept {
+inline bool intersects(ProgressiveRange r, u64 first, u64 end) noexcept {
     return r.bytes && r.first < end && r.first + r.bytes > first;
 }
 bool decommit(ProgressiveSource* s, u32 b) noexcept {
@@ -70,7 +70,7 @@ bool decommit(ProgressiveSource* s, u32 b) noexcept {
 }
 bool reader_available(void* context, u64 offset, u64 bytes) noexcept {
     auto* reader = static_cast<ProgressiveReader*>(context);
-    if (!reader || !reader->source)
+    if (!reader->source)
         return false;
     const auto& s = *reader->source;
     reader->active = true;
@@ -92,7 +92,7 @@ ProgressiveProbe need(const ProgressiveSource& s, u64 offset, u64 end) noexcept 
 } // namespace
 
 bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes, bool audio_buffer) noexcept {
-    if (!s || !total_bytes || total_bytes > kMediaMaximumProgressiveVideoBytes)
+    if (!total_bytes || total_bytes > kMediaMaximumProgressiveVideoBytes)
         return false;
     reset_value(s);
     const u32 blocks = (total_bytes + kBlock - 1) / kBlock;
@@ -107,8 +107,6 @@ bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes, bool a
     return true;
 }
 void progressive_source_release(ProgressiveSource* s) noexcept {
-    if (!s)
-        return;
     if (s->base)
         pages_release(s->base, u64{s->block_count} * kBlock);
     reset_value(s);
@@ -117,7 +115,7 @@ ConstSlice<u8> progressive_source_bytes(const ProgressiveSource& s) noexcept {
     return s.base ? ConstSlice<u8>{s.base, s.total_bytes} : ConstSlice<u8>{};
 }
 bool progressive_source_write(ProgressiveSource* s, u64 offset, ConstSlice<u8> bytes) noexcept {
-    if (!s || !bytes.data || !bytes.count || !range_valid(*s, offset, bytes.count))
+    if (!bytes.data || !bytes.count || !range_valid(*s, offset, bytes.count))
         return false;
     const u64 end = offset + bytes.count;
     for (u32 b = static_cast<u32>(offset / kBlock); u64{b} * kBlock < end; ++b) {
@@ -154,7 +152,7 @@ u32 progressive_source_payload_blocks(const ProgressiveSource& s) noexcept {
     return s.resident_blocks - pinned_resident;
 }
 void progressive_source_pin(ProgressiveSource* s, u64 offset, u64 bytes) noexcept {
-    if (!s || !range_valid(*s, offset, bytes) || !bytes)
+    if (!range_valid(*s, offset, bytes) || !bytes)
         return;
     const u32 last = static_cast<u32>((offset + bytes + kBlock - 1) / kBlock);
     for (u32 b = static_cast<u32>(offset / kBlock); b < last; ++b) {
@@ -165,33 +163,27 @@ void progressive_source_pin(ProgressiveSource* s, u64 offset, u64 bytes) noexcep
     }
 }
 void progressive_source_set_duration(ProgressiveSource* s, u64 duration_us) noexcept {
-    if (!s)
-        return;
     const u64 ahead = duration_us ? u64{s->total_bytes} * kProgressiveAheadSeconds * 1'000'000ull / duration_us
                                   : kProgressiveMaximumAheadBytes;
     s->ahead_bytes = static_cast<u32>(minimum<u64>(s->audio_buffer ? 8 * kBlock : kProgressiveMaximumAheadBytes,
         maximum<u64>(s->audio_buffer ? 2 * kBlock : kProgressiveMinimumAheadBytes, ahead)));
 }
 Mp4SourceAvailability progressive_source_reader(ProgressiveSource* s, ProgressiveTrack track) noexcept {
-    if (!s)
-        return {};
     return {reader_available, &s->readers[track == ProgressiveTrack::audio ? 1 : 0]};
 }
 bool progressive_source_retain_metadata(ProgressiveSource* s, ProgressiveTrack track, u64 first, u32 bytes, bool seeking) noexcept {
-    if (!s || (bytes && !progressive_source_available(*s, first, bytes))) return false;
+    if (bytes && !progressive_source_available(*s, first, bytes)) return false;
     auto& reader = s->readers[track == ProgressiveTrack::audio ? 1 : 0];
     if (seeking) { reader.seek_metadata_first = bytes ? first : 0; reader.seek_metadata_bytes = bytes; }
     else { reader.metadata_first = bytes ? first : 0; reader.metadata_bytes = bytes; }
     return true;
 }
 void progressive_source_reset_readers(ProgressiveSource* s) noexcept {
-    if (!s)
-        return;
     for (auto& reader : s->readers)
         reader = {s, 0, 0, false, false};
 }
 u32 progressive_source_evict(ProgressiveSource* s, u32 budget_bytes) noexcept {
-    if (!s || !s->base)
+    if (!s->base)
         return 0;
     // Leave room for one more request, or a full budget could never advance.
     const u32 request_bytes = s->audio_buffer ? kBlock : kProgressiveRequestBytes;
@@ -233,7 +225,7 @@ u32 progressive_source_evict(ProgressiveSource* s, u32 budget_bytes) noexcept {
     return evicted;
 }
 u32 progressive_source_trim(ProgressiveSource* s) noexcept {
-    if (!s || !s->base)
+    if (!s->base)
         return 0;
     u32 evicted = 0;
     for (u32 b = 0; b < s->block_count; ++b)
@@ -242,7 +234,7 @@ u32 progressive_source_trim(ProgressiveSource* s) noexcept {
 }
 
 ProgressiveProbe progressive_mp4_probe(ProgressiveSource* s) noexcept {
-    if (!s || !s->base)
+    if (!s->base)
         return {{}, ProgressiveProbeState::malformed};
     u64 cursor = 0;
     bool moov = false;

@@ -328,7 +328,7 @@ namespace {
 
 bool inode_of(i32 fd, u64* inode) noexcept {
     constexpr u32 kStatxIno = 0x100; // STATX_INO
-    Statx statx{};
+    Statx statx; // The kernel writes all of it on success, the only case read.
     if (syscall_failed(sys_statx(fd, "", kAtEmptyPath, kStatxIno, &statx)) || !(statx.mask & kStatxIno))
         return false;
     *inode = statx.inode;

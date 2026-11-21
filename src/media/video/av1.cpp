@@ -43,9 +43,8 @@ struct Bits {
                               : static_cast<i32>(value);
     }
     __declspec(noinline) u32 ns(u32 n) noexcept {
-        u32 w = 0;
-        for (u32 x = n; x; x >>= 1)
-            ++w;
+        // The bit width of n is the index of the top set bit of 2n + 1 (0 for n = 0).
+        const u32 w = static_cast<u32>(63 - __builtin_clzll(u64{n} * 2 + 1));
         const u32 m = (1u << w) - n;
         const u32 v = f(w - 1);
         return v < m ? v : (v << 1) - m + f(1);

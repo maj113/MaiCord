@@ -15,7 +15,7 @@ ApngParseResult fail(ApngParseResult result, ApngError error) noexcept {
     return result;
 }
 
-void initialize_image(ApngImage* image,
+inline void initialize_image(ApngImage* image,
                       ApngWorkspace* workspace) noexcept {
     reset_value<ApngImage>(image);
     image->frames = workspace->frames;
@@ -63,7 +63,7 @@ bool frame_complete(const ApngFrame& frame) noexcept {
     return frame.span_count != 0 && frame.compressed_bytes >= 6;
 }
 
-u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
+inline u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
     const u32 denominator = frame.delay_den == 0 ? 100 : frame.delay_den;
     const u64 scaled = static_cast<u64>(frame.delay_num) * 1'000'000ull;
     u64 duration = scaled / denominator;
@@ -93,7 +93,7 @@ bool bind_spans(ConstSlice<u8> encoded, const ApngImage& image, u32 first, u32 c
     return out->compressed_bytes == compressed_bytes;
 }
 
-bool configure_frame_image(ConstSlice<u8> encoded, const ApngImage& image, const ApngFrame& frame,
+inline bool configure_frame_image(ConstSlice<u8> encoded, const ApngImage& image, const ApngFrame& frame,
                            PngImage* frame_image) noexcept {
     *frame_image = image.canvas;
     return png_image_configure(frame_image, frame.width, frame.height, image.canvas.bit_depth,
@@ -101,7 +101,7 @@ bool configure_frame_image(ConstSlice<u8> encoded, const ApngImage& image, const
            bind_spans(encoded, image, frame.first_span, frame.span_count, frame.compressed_bytes, frame_image);
 }
 
-bool configure_default_image(ConstSlice<u8> encoded, const ApngImage& image, PngImage* default_image) noexcept {
+inline bool configure_default_image(ConstSlice<u8> encoded, const ApngImage& image, PngImage* default_image) noexcept {
     *default_image = image.canvas;
     return bind_spans(encoded, image, image.default_first_span, image.default_span_count,
                       image.default_compressed_bytes, default_image);

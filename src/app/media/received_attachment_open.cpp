@@ -62,16 +62,14 @@ ReceivedAttachmentOpenResult received_attachment_open_begin(
     intent->force_refresh = force_refresh;
     // A new click may retry its failed result. Frame resume
     // never rearms failures, and other sources retain their attempts/deadlines.
-    for (auto& entry : resolver->entries) {
-        if ((entry.state == MediaUrlState::failed || (force_refresh && entry.state == MediaUrlState::ready)) &&
-            entry.original_bytes == source.bytes &&
-            bytes_equal(entry.original, source.data, source.bytes)) {
+    if (const u32 slot = media_url_find(*resolver, source); slot < 32) {
+        auto& entry = resolver->entries[slot];
+        if (entry.state == MediaUrlState::failed || (force_refresh && entry.state == MediaUrlState::ready)) {
             entry.state = MediaUrlState::queued;
             entry.attempts = 0;
             entry.retry_at_ms = 0;
             entry.refreshed_bytes = 0;
             entry.last_used_ms = now_ms;
-            break;
         }
     }
     return resolve(*intent, source, resolver, now_ms, now_seconds, output);

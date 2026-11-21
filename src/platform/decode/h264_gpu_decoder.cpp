@@ -43,8 +43,8 @@ static_assert(sizeof(State) <= 4'096);
 
 HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     const auto& picture = s->picture;
-    DXVA_PicParams_H264 p{};
-    DXVA_Qmatrix_H264 q{};
+    DXVA_PicParams_H264 p;
+    DXVA_Qmatrix_H264 q;
     h264_dxva_picture_parameters(picture.sps, picture.pps, picture.header.first, picture.header.all_intra,
                                  s->references, plan.decode_order, surface, s->feedback, &p, &q);
     D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
@@ -69,31 +69,25 @@ HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     const u64 slice_bytes = static_cast<u64>(picture.header.slice_count) * sizeof(DXVA_Slice_H264_Short);
     if (SUCCEEDED(status) && (!bit_data || !slice_data || aligned_bytes > bit_capacity || slice_bytes > slice_capacity))
         status = E_OUTOFMEMORY;
-    u32 offset = 0, count = 0;
     if (SUCCEEDED(status)) {
+        // h264_parse_picture walked these NAL units without an error: they hold slice_count slices (types 1 and
+        // 5) whose sizes plus start codes sum to bitstream_bytes.
         auto* bytes = static_cast<u8*>(bit_data);
         auto* slices = static_cast<DXVA_Slice_H264_Short*>(slice_data);
         H264NalCursor cursor{picture.unit.bytes, 0, picture.length_bytes};
+        u32 offset = 0, count = 0;
         for (;;) {
             const auto nal = h264_next_nal(&cursor);
-            if (nal.error == H264Error::end) break;
-            if (nal.error != H264Error::none) { status = E_INVALIDARG; break; }
+            if (nal.error != H264Error::none) break;
             if (nal.type != 1 && nal.type != 5) continue;
-            if (count >= picture.header.slice_count || offset > picture.header.bitstream_bytes ||
-                picture.header.bitstream_bytes - offset < 3u || nal.bytes.count > picture.header.bitstream_bytes - offset - 3u) {
-                status = E_INVALIDARG; break;
-            }
             slices[count++] = {offset, nal.bytes.count + 3u, 0};
             bytes[offset++] = 0; bytes[offset++] = 0; bytes[offset++] = 1;
             copy_bytes(bytes + offset, nal.bytes.data, nal.bytes.count);
             offset += nal.bytes.count;
         }
-        if (count != picture.header.slice_count || offset != picture.header.bitstream_bytes) status = E_INVALIDARG;
-        if (SUCCEEDED(status)) {
-            const u32 padding = static_cast<u32>(aligned_bytes) - offset;
-            clear_bytes(bytes + offset, padding);
-            slices[count - 1u].SliceBytesInBuffer += padding;
-        }
+        const u32 padding = static_cast<u32>(aligned_bytes) - offset;
+        clear_bytes(bytes + offset, padding);
+        slices[count - 1u].SliceBytesInBuffer += padding;
     }
     const HRESULT bit_released = s->context->ReleaseDecoderBuffer(s->decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM);
     const HRESULT slice_released = slice_acquired ? s->context->ReleaseDecoderBuffer(s->decoder,
@@ -239,10 +233,11 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
             h264_sps_output_reorder(a), maximum<u8>(h264_sps_dpb_frames(a), 1))) {
             return output_frame(s);
         }
-        Mp4Demuxer next; copy_value(&next, s->demux);
-        Mp4AccessUnit unit{};
+        // The unit is read only when it is ok, and the cursor copy only for a plain MP4.
+        Mp4Demuxer next;
+        Mp4AccessUnit unit;
         if (s->fragmented) unit.error = mp4_fragment_source_unit(s->fragmented, &unit);
-        else unit = mp4_demux_next(&next);
+        else { copy_value(&next, s->demux); unit = mp4_demux_next(&next); }
         if (unit.error == Mp4DemuxError::data_pending) { frame.error = Mp4DecodeError::data_pending; return frame; }
         if (unit.error == Mp4DemuxError::end_of_stream) {
             if (s->output.count) return output_frame(s);
@@ -259,7 +254,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
             frame.error = Mp4DecodeError::needs_service;
             return frame;
         }
-        H264Picture header{};
+        H264Picture header;
         probe->parse_error = unit.ok()
                                  ? h264_parse_picture(unit.bytes, s->picture.length_bytes, a,
                                                       s->picture.pps, &header, mp4_demux_avcc(s->demux))
@@ -279,7 +274,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
         }
         const u8 surface = h264_free_surface(s->output, header.first.idr ? 0 : reference_mask(*s),
             s->surfaces.count);
-        H264ReferencePlan plan{};
+        H264ReferencePlan plan;
         probe->parse_error = h264_reference_plan(s->references, a, header.first, surface, &plan);
         if (probe->parse_error != H264Error::none) {
             probe->status = E_INVALIDARG; frame.error = Mp4DecodeError::stream; return frame;

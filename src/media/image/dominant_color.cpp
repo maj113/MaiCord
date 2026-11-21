@@ -164,7 +164,7 @@ u32 mean(const u32* histogram, const Box& box) noexcept {
     return rgb;
 }
 // JavaScript's Math.round (halves up) and the floor it rests on, for the values below (well inside i64).
-double floor_of(double x) noexcept {
+inline double floor_of(double x) noexcept {
     const i64 i = static_cast<i64>(x);
     return static_cast<double>(i - (x < static_cast<double>(i)));
 }

@@ -137,7 +137,7 @@ void run() noexcept {
     received_attachment_open_begin(&intent, identity, source, &resolver, 11000, 100, &ready);
     const auto wrong = utf8_literal("https://cdn.discordapp.com/attachments/8/70/report.pdf?ex=ffff&is=1&hm="
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    copy_bytes(resolver.entries[0].refreshed, wrong.data, wrong.bytes);
+    copy_bytes(resolver.text[0].refreshed, wrong.data, wrong.bytes);
     resolver.entries[0].refreshed_bytes = static_cast<u16>(wrong.bytes);
     resolver.entries[0].state = MediaUrlState::ready;
     check(received_attachment_open_resume(&intent, identity, source, &resolver, 11001, 100, &ready) ==
@@ -199,7 +199,7 @@ void run() noexcept {
           "attachment forced retry: exact fresh response replaces rejected authority and consumes intent once");
     resolver.entries[0].attempts = 3; resolver.entries[0].retry_at_ms = 50000;
     resolver.entries[1].state = MediaUrlState::failed; resolver.entries[1].attempts = 3;
-    resolver.entries[1].retry_at_ms = 60000; resolver.entries[1].original_bytes = 1; resolver.entries[1].original[0] = 'x';
+    resolver.entries[1].retry_at_ms = 60000; resolver.entries[1].original_bytes = 1; resolver.text[1].original[0] = 'x';
     check(received_attachment_open_begin(&intent, identity, distant, &resolver, 13020, 100, &ready, true) ==
               ReceivedAttachmentOpenResult::pending && !ready.bytes && resolver.entries[0].state == MediaUrlState::queued &&
               !resolver.entries[0].attempts && !resolver.entries[0].retry_at_ms && !resolver.entries[0].refreshed_bytes &&
@@ -247,7 +247,7 @@ void run() noexcept {
               ReceivedAttachmentOpenResult::failed && !ready.bytes && !intent.pending && resolver.entries[0].state == MediaUrlState::empty,
           "attachment forced retry: evicted exact receipt ends intent without a frame-triggered replacement request");
     received_attachment_open_begin(&intent, identity, distant, &resolver, 18004, 100, &ready, true);
-    copy_bytes(resolver.entries[0].refreshed, fresh.data, fresh.bytes);
+    copy_bytes(resolver.text[0].refreshed, fresh.data, fresh.bytes);
     resolver.entries[0].refreshed_bytes = static_cast<u16>(fresh.bytes); resolver.entries[0].state = MediaUrlState::ready;
     check(received_attachment_open_resume(&intent, identity, distant, &resolver, 18005, 65535, &ready) ==
               ReceivedAttachmentOpenResult::failed && !ready.bytes && !intent.pending && resolver.entries[0].state == MediaUrlState::ready,

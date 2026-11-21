@@ -110,7 +110,7 @@ void differentiate(float* band, float* state) noexcept {
     *state = last;
 }
 // The energy of x / 8.
-float scaled_energy(const float* x, u32 count) noexcept {
+inline float scaled_energy(const float* x, u32 count) noexcept {
     float sum = 0;
     for (u32 i = 0; i < count; ++i) {
         const float value = x[i] * 0.125f;
@@ -520,7 +520,7 @@ void warped_autocorrelation(float* out, const float* x, float w, u32 length, u32
     for (u32 m = 1; m <= order; ++m)
         out[m] = sums[(m - 1) / 4][(m - 1) % 4];
 }
-float warped_gain(const float* a, float warping, u32 order) noexcept {
+inline float warped_gain(const float* a, float warping, u32 order) noexcept {
     const float lambda = -warping;
     float gain = a[order - 1];
     for (u32 i = order - 1; i-- > 0;)

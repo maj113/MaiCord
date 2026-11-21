@@ -73,7 +73,7 @@ E continuity(ConstSlice<u8> source, u32 at, const Packet& p, u32& previous, u8& 
     if (source.data[at+3]&16) { previous = at; counter = p.counter; repeated = false; }
     return E::none;
 }
-u32 crc(ConstSlice<u8> b) noexcept {
+inline u32 crc(ConstSlice<u8> b) noexcept {
     u32 value = ~u32{0};
     for (u32 i = 0; i < b.count; ++i) {
         value ^= u32{b.data[i]} << 24;

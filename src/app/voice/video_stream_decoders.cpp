@@ -34,6 +34,46 @@ VideoStreamDecoders::Stream* find(VideoStreamDecoders* decoders, u32 ssrc) noexc
     return nullptr;
 }
 
+// The undecodable SSRCs: read under the lock, changed under the exclusive lock.
+bool undecodable(const VideoStreamDecoders& decoders, u32 ssrc) noexcept {
+    for (const u32 entry : decoders.undecodable)
+        if (entry == ssrc) return true;
+    return false;
+}
+void mark_undecodable(VideoStreamDecoders* decoders, u32 ssrc) noexcept {
+    if (undecodable(*decoders, ssrc)) return;
+    for (auto& entry : decoders->undecodable)
+        if (!entry) {
+            entry = ssrc;
+            return;
+        }
+}
+void clear_undecodable(VideoStreamDecoders* decoders, u32 ssrc) noexcept {
+    for (auto& entry : decoders->undecodable)
+        if (entry == ssrc) entry = 0;
+}
+
+// Worker: nothing here decodes the stream. Logged once for its decoder, or once for an SSRC without a decoder for
+// its codec.
+void give_up(VideoStreamDecoders* decoders, u32 ssrc, VoiceVideoCodec codec, bool decoder) noexcept {
+    AcquireSRWLockExclusive(decoders->lock.native());
+    auto* stream = decoder ? find(decoders, ssrc) : nullptr;
+    const bool first = stream ? !stream->gave_up : !undecodable(*decoders, ssrc);
+    if (stream) stream->gave_up = true;
+    mark_undecodable(decoders, ssrc);
+    // Only hardware decodes H.265. After its decoder gives up, the next connection offers only the other codecs, so
+    // senders pick one that plays here. A new device (video_stream_decoders_set_device) probes again. Every writer of
+    // `decodable` holds the exclusive lock.
+    if (stream && codec == VoiceVideoCodec::h265) {
+        const LONG bits = read_acquire(&decoders->decodable);
+        InterlockedExchange(&decoders->decodable, bits & ~static_cast<LONG>(voice_video_codec_bit(codec)));
+    }
+    ReleaseSRWLockExclusive(decoders->lock.native());
+    if (first)
+        voice_log(VoiceLogLevel::warning, "video_decode_unsupported", "codec", static_cast<u64>(codec), "decoder",
+                  decoder);
+}
+
 void request(VideoStreamDecoders* decoders, u32 ssrc) noexcept {
     AcquireSRWLockShared(decoders->lock.native());
     const VideoKeyframeRequester requester = decoders->keyframes;
@@ -56,6 +96,7 @@ void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
         stream->display_height = frame.display_height;
         stream->keyframe = frame.keyframe;
         ++stream->sequence;
+        clear_undecodable(decoders, ssrc);
     }
     ReleaseSRWLockExclusive(decoders->lock.native());
     if (stream && decoders->frame_event) event_set(decoders->frame_event);
@@ -92,7 +133,7 @@ GpuStreamDecoder* detach(VideoStreamDecoders::Stream* stream) noexcept {
     return decoder;
 }
 
-bool decodable_codec(const VideoStreamDecoders& decoders, VoiceVideoCodec codec, GpuStreamCodec* output) noexcept {
+inline bool decodable_codec(const VideoStreamDecoders& decoders, VoiceVideoCodec codec, GpuStreamCodec* output) noexcept {
     const u32 bits = static_cast<u32>(read_acquire(&decoders.decodable));
     if (!(bits & voice_video_codec_bit(codec))) return false;
     *output = codec == VoiceVideoCodec::av1    ? GpuStreamCodec::av1
@@ -111,16 +152,25 @@ bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> f
     // push copies into the decoder queue; the worker is the only creator and
     // destroyer, so the decoder outlives this shared section.
     const bool pushed = current && gpu_stream_decoder_push(stream->decoder, frame, rtp_timestamp, intact);
+    // The decode thread publishes `unsupported` only when no software tier took the stream over.
+    const bool gave_up = current && !stream->gave_up && gpu_stream_decoder_unsupported(stream->decoder);
+    const bool marked = undecodable(*decoders, ssrc);
     GpuDevice* device = decoders->device;
     if (!current && device) gpu_retain(device);
     ReleaseSRWLockShared(decoders->lock.native());
-    if (current) return pushed;
+    if (current) {
+        if (gave_up) give_up(decoders, ssrc, codec, true);
+        return pushed;
+    }
     GpuStreamCodec decoder_codec{};
     const bool supported = device && decodable_codec(*decoders, codec, &decoder_codec);
+    // A device without a decoder for the codec: nothing here plays the stream.
+    const bool no_decoder = device && !supported;
     if (!supported || !keyframe) {
         // Decoding can only begin (or change codec) at a keyframe: ask for one
         // now and then at most every kGpuStreamKeyframeIntervalMs while waiting.
         if (device) gpu_release(device);
+        if (no_decoder && !marked) give_up(decoders, ssrc, codec, false);
         if (!supported) return false;
         const u64 now = clock_monotonic_milliseconds();
         u32 slot = 0;
@@ -166,6 +216,7 @@ void end_stream(void* context, u32 ssrc) noexcept {
     AcquireSRWLockExclusive(decoders->lock.native());
     auto* stream = find(decoders, ssrc);
     GpuStreamDecoder* decoder = stream ? detach(stream) : nullptr;
+    clear_undecodable(decoders, ssrc);
     ReleaseSRWLockExclusive(decoders->lock.native());
     gpu_stream_decoder_destroy(decoder);
 }
@@ -173,6 +224,22 @@ void end_stream(void* context, u32 ssrc) noexcept {
 u32 decodable(void* context) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
     return static_cast<u32>(read_acquire(&decoders->decodable));
+}
+
+bool decoded(void* context, u32 ssrc) noexcept {
+    auto* decoders = static_cast<VideoStreamDecoders*>(context);
+    AcquireSRWLockShared(decoders->lock.native());
+    const auto* stream = find(decoders, ssrc);
+    const bool any = stream && stream->sequence;
+    ReleaseSRWLockShared(decoders->lock.native());
+    return any;
+}
+
+void stalled(void* context, u32 ssrc) noexcept {
+    auto* decoders = static_cast<VideoStreamDecoders*>(context);
+    AcquireSRWLockExclusive(decoders->lock.native());
+    mark_undecodable(decoders, ssrc);
+    ReleaseSRWLockExclusive(decoders->lock.native());
 }
 
 } // namespace
@@ -211,23 +278,28 @@ void video_stream_decoders_set_requester(VideoStreamDecoders* decoders, VideoKey
 }
 
 VideoFrameSink video_stream_decoders_sink(VideoStreamDecoders* decoders) noexcept {
-    return {decoders, push_frame, end_stream, decodable};
+    return {decoders, push_frame, end_stream, decodable, decoded, stalled};
 }
 
 bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoStreamFrame* output) noexcept {
     if (!decoders || !ssrc || !output) return false;
     bool found = false;
     AcquireSRWLockShared(decoders->lock.native());
+    const bool failed = undecodable(*decoders, ssrc);
     if (const auto* stream = find(decoders, ssrc); stream && stream->latest.texture) {
         // Under the lock that orders on_frame: the decoder sees this hold
         // before it can pick a slice for its next picture.
         gpu_stream_decoder_hold(stream->decoder, stream->latest.subresource);
         retain_frame(stream->latest);
         *output = {stream->latest, ssrc, stream->rtp_timestamp, stream->sequence, stream->display_width,
-                   stream->display_height, stream->keyframe, {}};
+                   stream->display_height, stream->keyframe, false, {}};
         found = true;
     }
     ReleaseSRWLockShared(decoders->lock.native());
+    if (!found) {
+        reset_value(output);
+        output->undecodable = failed;
+    }
     return found;
 }
 
@@ -240,6 +312,7 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     GpuDevice* device = decoders->device;
     decoders->device = nullptr;
     InterlockedExchange(&decoders->decodable, 0);
+    clear_bytes(decoders->undecodable, static_cast<u32>(sizeof(decoders->undecodable)));
     ReleaseSRWLockExclusive(decoders->lock.native());
     for (auto* decoder : detached) gpu_stream_decoder_destroy(decoder);
     if (device) gpu_release(device);

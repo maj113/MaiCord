@@ -86,7 +86,7 @@ UiMediaPickerTarget inline_enter_target(const ApplicationMediaPicker& p) noexcep
     }
     const CatalogBank* bank = nullptr;
     u32 local = 0;
-    MediaCatalogItem temporary{};
+    MediaCatalogItem temporary;
     for (u32 i = 0; index == ~u32{0} && i < p.source.count; ++i) {
         const auto* item = item_at(p, i, &bank, &local, &temporary);
         if (item && item->available)
@@ -371,11 +371,10 @@ void application_media_picker_release() noexcept {
     auto* p = g_app.media_picker;
     if (!p)
         return;
+    // Closing released the scene and the emoji model.
     application_media_picker_close();
     application_composer_text_input_suspend();
     g_app.media_picker = nullptr;
-    ui_media_picker_scene_release(&p->scene);
-    reaction_picker_release(&p->emoji);
     message_composer_release(&p->edit);
     // Emptying the /gif cache frees every cached bank but the current results'.
     inline_cache_clear(*p);

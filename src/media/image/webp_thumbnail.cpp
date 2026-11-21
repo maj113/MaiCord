@@ -377,7 +377,7 @@ struct FilterStrength {
 };
 
 // ---- Container -----------------------------------------------------------
-u32 padded(u32 bytes) noexcept {
+inline u32 padded(u32 bytes) noexcept {
     return bytes + (bytes & 1u);
 }
 

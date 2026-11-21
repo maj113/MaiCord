@@ -125,8 +125,8 @@ bool h264_gpu_stream_submit(GpuStream* stream, const H264StreamPicture& picture,
             H264SliceDetail detail;
             SliceParameterH264 slice;
             ok = h264_parse_slice_detail(nal, picture.sps, picture.pps, &detail) == H264Error::none &&
-                 h264_slice_parameters(picture.sps, picture.pps, picture.first, detail, state.references,
-                                       decode.plan.decode_order, session->surface, nal.count, &slice) &&
+                 h264_slice_parameters(picture.sps, picture.first, detail, state.references, decode.plan.decode_order,
+                                       session->surface, nal.count, &slice) &&
                  picture_slice(session, &slice, sizeof(slice), nal.data, nal.count);
         }
         ok = picture_end(session) && ok;

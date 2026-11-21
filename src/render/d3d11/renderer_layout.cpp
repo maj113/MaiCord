@@ -1008,7 +1008,7 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
     if (dialog) {
         bool first = true;
         ProfileMedia media;
-        for (u32 i = 0; ui_profile_dialog_media(*scene, i, &media); ++i) {
+        for (u32 cursor = 0; ui_profile_dialog_next_media(*scene, &cursor, &media);) {
             const u32 before = renderer->media_quad_count;
             if (!queue_profile_part(renderer, media, {}, 0, first))
                 return false;

@@ -568,6 +568,9 @@ Utf8View media_url_resolve(MediaUrlResolver*, Utf8View source, u64, u64, bool fo
 MediaUrlState media_url_resolution_state(const MediaUrlResolver&, Utf8View) noexcept {
     return url_state;
 }
+u32 media_url_find(const MediaUrlResolver&, Utf8View) noexcept {
+    return 32;
+}
 MediaUrlEntry* media_url_next(MediaUrlResolver*, u64) noexcept {
     return nullptr;
 }
@@ -660,7 +663,7 @@ bool ApplicationMediaPump::request_url_picture(const MediaAssetKey& key, const U
                                                AccountMediaRequestResult*, const UiRect*, u64) noexcept {
     ++thumb_requests;
     thumb_url_ok = thumb_url_ok && url.bytes == 48 && utf8_starts_with(url, utf8_literal("https://i.ytimg.com/vi/abcdefghij")) &&
-                   media_asset_key_equal(key, message_component_media_key(hash64_bytes(kHash64Seed, url.data, url.bytes),
+                   media_asset_key_equal(key, message_component_media_key(hash64_words(kHash64Seed, url.data, url.bytes),
                                                                           MediaAttachmentFormat::jpeg));
     return true;
 }

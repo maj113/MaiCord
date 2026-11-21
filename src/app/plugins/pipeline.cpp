@@ -1,5 +1,6 @@
 #include "pipeline_internal.hpp"
 #include "maicord/app/plugins/keep.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
@@ -245,11 +246,12 @@ bool plugin_events_deliver() noexcept {
     return plugin_events_pending();
 }
 
+// An active timer's due time is never zero: api_timer sets it to the clock plus at least MC_TIMER_INTERVAL_MIN.
 u64 plugin_timers_next_due() noexcept {
     u64 next = 0;
     for (const auto& subscriber : subscribers(PluginHook::timer))
         for (const auto& timer : subscriber.binding->side.timers)
-            if (timer.active && (!next || timer.due_ms < next)) next = timer.due_ms;
+            if (timer.active) next = earliest_deadline(next, timer.due_ms);
     return next;
 }
 

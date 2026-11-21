@@ -66,7 +66,7 @@ void hash_stripe(ZstdStreamDecoder* d, const u8* p) noexcept {
     for (u32 i = 0; i < 4; ++i)
         d->hash_state[i] = hash_round(d->hash_state[i], byte_load_le64(p + 8 * i));
 }
-void hash_update(ZstdStreamDecoder* d, const u8* p, u32 bytes) noexcept {
+inline void hash_update(ZstdStreamDecoder* d, const u8* p, u32 bytes) noexcept {
     d->hash_length += bytes;
     if (d->hash_buffered) {
         const u32 take = minimum(bytes, 32 - d->hash_buffered);
@@ -725,7 +725,7 @@ MAICORD_HASWELL bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u3
     return true;
 }
 
-bool ensure_storage(ZstdStreamDecoder* d, u32 required) noexcept {
+inline bool ensure_storage(ZstdStreamDecoder* d, u32 required) noexcept {
     if (required <= d->storage.count)
         return true;
     if (!d->grow || required > d->maximum_storage)
@@ -737,7 +737,7 @@ bool ensure_storage(ZstdStreamDecoder* d, u32 required) noexcept {
     return true;
 }
 
-void start_frame_tables(ZstdStreamDecoder* d) noexcept {
+inline void start_frame_tables(ZstdStreamDecoder* d) noexcept {
     d->repeat[0] = 1;
     d->repeat[1] = 4;
     d->repeat[2] = 8;
@@ -814,7 +814,7 @@ ZstdDecodeResult fail(ZstdStreamDecoder* d, ZstdError error, u32 blocks) noexcep
     return {0, blocks, error};
 }
 
-void build_defaults(ZstdStreamDecoder* d) noexcept {
+inline void build_defaults(ZstdStreamDecoder* d) noexcept {
     build_table(d->default_literal_lengths, kDefaultLiteralLengths, 36, 6);
     build_table(d->default_match_lengths, kDefaultMatchLengths, 53, 6);
     build_table(d->default_offsets, kDefaultOffsets, 29, 5);

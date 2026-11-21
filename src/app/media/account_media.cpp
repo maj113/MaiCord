@@ -756,7 +756,7 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
 }
 // The lane's own scanline storage, reserved with nothing committed: the tail of the owned allocation, or a
 // separate reservation when the encoded cache is shared.
-u8* base_scanlines(AccountMedia* media) noexcept {
+inline u8* base_scanlines(AccountMedia* media) noexcept {
     if (media->owns_cache)
         return static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
     if (!media->allocation)

@@ -37,7 +37,8 @@ void gpu_decoder_surfaces_release(GpuDecoderSurfaces* surfaces) noexcept;
 HRESULT gpu_decoder_select_config(ID3D11VideoDevice* video, const D3D11_VIDEO_DECODER_DESC& description,
                                   u8 bitstream_raw, D3D11_VIDEO_DECODER_CONFIG* selected) noexcept;
 // Copies bytes into the driver's mapped decoder buffer of the given type and describes it for
-// SubmitDecoderBuffers; E_OUTOFMEMORY when the driver's buffer is smaller.
+// SubmitDecoderBuffers (BufferType and DataSize: the caller zeroes the other fields); E_OUTOFMEMORY when
+// the driver's buffer is smaller.
 HRESULT gpu_decoder_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecoder* decoder,
                                   D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
                                   D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept;

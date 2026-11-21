@@ -238,9 +238,10 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
             if (parent != Tag::period) return E::malformed;
             adaptation_mime = attribute(element, utf8_literal("mimeType"));
             adaptation_codec = attribute(element, utf8_literal("codecs"));
-            adaptation_image = equal(attribute(element, utf8_literal("contentType")), utf8_literal("image")) ||
+            const auto content = attribute(element, utf8_literal("contentType"));
+            adaptation_image = equal(content, utf8_literal("image")) ||
                 (adaptation_mime.bytes >= 6 && bytes_equal(adaptation_mime.data, "image/", 6));
-            audio_present |= equal(attribute(element, utf8_literal("contentType")), utf8_literal("audio")) ||
+            audio_present |= equal(content, utf8_literal("audio")) ||
                 (adaptation_mime.bytes >= 6 && bytes_equal(adaptation_mime.data, "audio/", 6));
         } else if (kind == Tag::representation) {
             if (parent != Tag::adaptation || representations == 64) return E::malformed;

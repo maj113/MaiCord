@@ -7,7 +7,7 @@
 
 namespace maicord {
 namespace {
-ProgressiveVideoAccept fail(ProgressiveVideoFetch* f) noexcept {
+inline ProgressiveVideoAccept fail(ProgressiveVideoFetch* f) noexcept {
     f->state = ProgressiveVideoFetchState::failed;
     return ProgressiveVideoAccept::failed;
 }

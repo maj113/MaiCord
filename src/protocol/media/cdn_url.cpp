@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 
@@ -14,6 +15,14 @@ bool image_size_valid(u32 size) noexcept {
 
 bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
     return bytes == c_string_length(literal) && bytes_equal(value, literal, bytes);
+}
+
+// The index of the exact text in `names` (a NameList); the name count when none matches.
+u32 name_index(const char* value, u32 bytes, const char* names) noexcept {
+    u32 index = 0;
+    for (NameList list{names}; list && !(list.bytes == bytes && bytes_equal(value, list.at, bytes)); list.next())
+        ++index;
+    return index;
 }
 
 bool bytes_begin_with(const ConstSlice<u8>& value, u32 bytes, const char* literal) noexcept {
@@ -202,58 +211,68 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
         const u32 name_bytes = equals - offset;
         const char* value = url.data + equals + 1;
         const u32 value_bytes = end - equals - 1;
-        if (ascii_equal(name, name_bytes, "ex")) {
+        const u32 known = name_index(name, name_bytes,
+                                     "ex\0is\0hm\0backend\0width\0height\0size\0format\0quality\0animated\0force_sdr\0"
+                                     "passthrough\0keep_aspect_ratio\0");
+        switch (known) {
+        case 0:
             if (has_expiry || !parse_hexadecimal(value, value_bytes, &expires_at))
                 return authority_failure(has_expiry, AttachmentUrlError::invalid_timestamp);
             has_expiry = true;
-        } else if (ascii_equal(name, name_bytes, "is")) {
+            break;
+        case 1:
             if (has_issued || !parse_hexadecimal(value, value_bytes, &issued_at))
                 return authority_failure(has_issued, AttachmentUrlError::invalid_timestamp);
             has_issued = true;
-        } else if (ascii_equal(name, name_bytes, "hm")) {
+            break;
+        case 2:
             if (has_signature || value_bytes != 64)
                 return authority_failure(has_signature, AttachmentUrlError::invalid_signature);
             for (u32 index = 0; index < value_bytes; ++index)
                 if (!ascii_is_hex_digit(value[index]))
                     return attachment_url_failure(AttachmentUrlError::invalid_signature);
             has_signature = true;
-        } else if (ascii_equal(name, name_bytes, "backend")) {
+            break;
+        case 3:
             // Routing hint selecting B2 storage; kept in the target. Any other
             // backend value or a repeat is refused.
             if (has_backend || !ascii_equal(value, value_bytes, "b2"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::backend_parameter);
             has_backend = true;
-        } else if (ascii_equal(name, name_bytes, "width") || ascii_equal(name, name_bytes, "height") ||
-                   ascii_equal(name, name_bytes, "size")) {
+            break;
+        case 4:
+        case 5:
+        case 6: {
             u64 dimension = 0;
             if (!parse_decimal(value, value_bytes, &dimension) || dimension == 0 || dimension > 4'096)
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::invalid_dimension);
-        } else if (ascii_equal(name, name_bytes, "format")) {
-            if (!ascii_equal(value, value_bytes, "png") && !ascii_equal(value, value_bytes, "webp") &&
-                !ascii_equal(value, value_bytes, "jpeg") && !ascii_equal(value, value_bytes, "jpg") &&
-                !ascii_equal(value, value_bytes, "avif"))
+            break;
+        }
+        case 7:
+            if (name_index(value, value_bytes, "png\0webp\0jpeg\0jpg\0avif\0") > 4)
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::unsupported_format);
-        } else if (ascii_equal(name, name_bytes, "quality")) {
+            break;
+        case 8:
             if (!ascii_equal(value, value_bytes, "lossless"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::unsupported_quality);
-        } else if (ascii_equal(name, name_bytes, "animated")) {
+            break;
+        case 9:
             // Boolean animated-preview hint; carries no signed-attachment authority.
-            if (!ascii_equal(value, value_bytes, "true") && !ascii_equal(value, value_bytes, "false"))
+            if (name_index(value, value_bytes, "true\0false\0") > 1)
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::animated_parameter);
-        } else {
-            const auto category = ascii_equal(name, name_bytes, "force_sdr")
-                                      ? AttachmentQueryError::force_sdr_parameter
-                                  : ascii_equal(name, name_bytes, "passthrough")
-                                      ? AttachmentQueryError::passthrough_parameter
-                                  : ascii_equal(name, name_bytes, "keep_aspect_ratio")
-                                      ? AttachmentQueryError::aspect_ratio_parameter
-                                      : AttachmentQueryError::unsupported_parameter;
-            return attachment_url_failure(AttachmentUrlError::invalid_query, category);
+            break;
+        default:
+            // force_sdr, passthrough and keep_aspect_ratio (10-12) name their own categories, in that order.
+            return attachment_url_failure(
+                AttachmentUrlError::invalid_query,
+                known < 13 ? static_cast<AttachmentQueryError>(
+                                 static_cast<u8>(AttachmentQueryError::force_sdr_parameter) + known - 10)
+                           : AttachmentQueryError::unsupported_parameter);
         }
         offset = end < url.bytes ? end + 1 : end;
     }
@@ -432,22 +451,14 @@ u32 catalog_proxy_query_bits(ConstSlice<u8> target) noexcept {
         const u32 name_bytes = equals - cursor;
         const char* value = reinterpret_cast<const char*>(target.data + equals + (equals < end));
         const u32 value_bytes = equals < end ? end - equals - 1 : 0;
-        u32 bit = 0;
-        bool valid = false;
-        if (ascii_equal(name, name_bytes, "format")) {
-            bit = 1;
-            valid = ascii_equal(value, value_bytes, "webp");
-        } else if (ascii_equal(name, name_bytes, "animated")) {
-            bit = 2;
-            valid = ascii_equal(value, value_bytes, "true");
-        } else if (ascii_equal(name, name_bytes, "width") || ascii_equal(name, name_bytes, "height")) {
-            bit = ascii_equal(name, name_bytes, "width") ? 4 : 8;
-            u64 dimension = 0;
-            valid = parse_decimal(value, value_bytes, &dimension) && dimension && dimension <= 512;
-        } else if (ascii_equal(name, name_bytes, "keep_aspect_ratio")) {
-            bit = 16;
-            valid = ascii_equal(value, value_bytes, "true") || ascii_equal(value, value_bytes, "false");
-        }
+        // The names' indexes are their bits; no match (5) is never valid.
+        const u32 known = name_index(name, name_bytes, "format\0animated\0width\0height\0keep_aspect_ratio\0");
+        const u32 bit = 1u << known;
+        u64 dimension = 0;
+        const bool valid = known == 0 ? ascii_equal(value, value_bytes, "webp")
+                           : known == 1 ? ascii_equal(value, value_bytes, "true")
+                           : known < 4  ? parse_decimal(value, value_bytes, &dimension) && dimension && dimension <= 512
+                                        : known == 4 && name_index(value, value_bytes, "true\0false\0") < 2;
         if (!valid || (seen & bit) || (end < target.count && end + 1 == target.count))
             return invalid;
         seen |= bit;
@@ -543,11 +554,10 @@ MediaUrlResult publish_provider(CdnHost host, const u8* target, u32 bytes,
     return {bytes, host, MediaUrlError::none};
 }
 bool tenor_host(const char* host, u32 bytes) noexcept {
-    return ascii_equal(host, bytes, "media.tenor.com") || ascii_equal(host, bytes, "media.tenor.co") ||
-           ascii_equal(host, bytes, "c.tenor.com") || ascii_equal(host, bytes, "media1.tenor.com");
+    return name_index(host, bytes, "media.tenor.com\0media.tenor.co\0c.tenor.com\0media1.tenor.com\0") < 4;
 }
 bool giphy_host(const char* host, u32 bytes) noexcept {
-    return ascii_equal(host, bytes, "media.giphy.com") || ascii_equal(host, bytes, "i.giphy.com") ||
+    return name_index(host, bytes, "media.giphy.com\0i.giphy.com\0") < 2 ||
            (bytes == 16 && ascii_equal(host, 5, "media") && host[5] >= '0' && host[5] <= '4' &&
             ascii_equal(host + 6, 10, ".giphy.com"));
 }
@@ -1005,14 +1015,10 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
         }
         bool proxy_hint = equals == cursor && equals + 1 == end;
         if (equals < end && equals != cursor) {
-            const Utf8View name{reinterpret_cast<const char*>(source_target.data + cursor),
-                                equals - cursor};
-            proxy_hint = ascii_equal(name.data, name.bytes, "width") ||
-                         ascii_equal(name.data, name.bytes, "height") ||
-                         ascii_equal(name.data, name.bytes, "size") ||
-                         ascii_equal(name.data, name.bytes, "format") ||
-                         (animated && ascii_equal(name.data, name.bytes, "animated")) ||
-                         ascii_equal(name.data, name.bytes, "quality");
+            // The client sets these itself; animated (5) only when it asks for animation.
+            const u32 known = name_index(reinterpret_cast<const char*>(source_target.data + cursor), equals - cursor,
+                                         "width\0height\0size\0format\0quality\0animated\0");
+            proxy_hint = known < 5 || (animated && known == 5);
         }
         if (!proxy_hint && end != cursor) {
             if (!protocol_write(&writer, has_query ? '&' : '?',

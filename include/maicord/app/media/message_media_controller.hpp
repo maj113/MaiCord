@@ -117,10 +117,7 @@ struct MessageMediaController {
     u64 capacity_log_at_ms;
     u64 source_rows_visited;
     u64 rows_collected;
-    u64 primary_candidates;
-    u64 decoration_candidates;
     u64 duplicate_assets_skipped;
-    u64 dedupe_saturations;
     u32 collections;
     u32 rejected;
     bool owns_storage;

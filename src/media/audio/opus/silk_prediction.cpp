@@ -323,7 +323,9 @@ void lpc_to_nlsf(i16* nlsf, const float* a_in) noexcept {
         }
     }
 }
-void interpolate_nlsf(i16* out, const i16* from, const i16* to, i32 factor_q2) noexcept {
+// No caller overlaps `out` with an input (__restrict): the vectorized loop needs no run-time overlap test
+// and no scalar copy of the loop for it.
+void interpolate_nlsf(i16* __restrict out, const i16* from, const i16* to, i32 factor_q2) noexcept {
     for (u32 i = 0; i < kOrder; ++i)
         out[i] = static_cast<i16>(from[i] + ((factor_q2 * (to[i] - from[i])) >> 2));
 }
@@ -352,8 +354,9 @@ void nlsf_weights(i16* weights, const i16* nlsf) noexcept {
 }
 
 // The input of the short-term analysis: `from` scaled by `gain`, without its long-term prediction where
-// there is one (b the five taps around `lagged`, which is `from` one pitch period earlier).
-void scale_input(float* to, const float* from, float gain, u32 count) noexcept {
+// there is one (b the five taps around `lagged`, which is `from` one pitch period earlier). `to` never
+// overlaps `from` (__restrict, as for interpolate_nlsf).
+inline void scale_input(float* __restrict to, const float* from, float gain, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i)
         to[i] = from[i] * gain;
 }

@@ -144,7 +144,7 @@ __forceinline u32 next_reversed_code(u32 code, u32 length) noexcept {
     return code | bit;
 }
 
-bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
+inline bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
     reset_value<SmallHuffmanCode>(code);
     if (!count_code(lengths, alphabet_size, code->counts, &code->symbol_count, &code->single_symbol)) {
         return false;
@@ -178,7 +178,7 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
 
 
 // The next code-length symbol: the table decode of decode_canonical's codeword.
-bool decode_length_symbol(BitReader* reader, const SmallHuffmanCode& code, u16* symbol) noexcept {
+inline bool decode_length_symbol(BitReader* reader, const SmallHuffmanCode& code, u16* symbol) noexcept {
     if (code.symbol_count == 1) {
         *symbol = code.single_symbol;
         return true;
@@ -332,7 +332,7 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
     workspace->lookup_count += size;
 }
 
-bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* code) noexcept {
+inline bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* code) noexcept {
     reset_value<Vp8lHuffmanCode>(code);
     if (!count_code(workspace->code_lengths, alphabet_size, code->counts, &code->symbol_count,
                     &code->single_symbol) ||
@@ -1084,7 +1084,7 @@ void predict_run(u32* pixels, u32 begin, u32 end, u32 width) noexcept {
     }
 }
 
-void predict_mode_run(u8 mode, u32* pixels, u32 begin, u32 end, u32 width) noexcept {
+inline void predict_mode_run(u8 mode, u32* pixels, u32 begin, u32 end, u32 width) noexcept {
     switch (mode) {
     case 0: predict_run<0>(pixels, begin, end, width); break;
     case 1: predict_left_run(pixels, begin, end); break;
@@ -1172,7 +1172,7 @@ void inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u
     }
 }
 
-void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
+inline void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
     const u32 count = transform.width * transform.height;
     // Green (byte 1 of each pixel) added to red (byte 2) and blue (byte 0).
     const __m128i spread = _mm_setr_epi8(1, -1, 1, -1, 5, -1, 5, -1, 9, -1, 9, -1, 13, -1, 13, -1);

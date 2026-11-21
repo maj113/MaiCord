@@ -463,13 +463,15 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
                                       : h264_output_ready(s->output, 0, 0, 1); // libopenh264 reordered already
         if (s->output.count && ready)
             return output_frame(s);
+        // The unit is read only when it is ok, and the cursor copy only for a plain MP4.
         Mp4Demuxer next;
-        copy_value(&next, s->demux);
-        Mp4AccessUnit unit{};
-        if (s->fragmented)
+        Mp4AccessUnit unit;
+        if (s->fragmented) {
             unit.error = mp4_fragment_source_unit(s->fragmented, &unit);
-        else
+        } else {
+            copy_value(&next, s->demux);
             unit = mp4_demux_next(&next);
+        }
         if (unit.error == Mp4DemuxError::data_pending) {
             frame.error = Mp4DecodeError::data_pending;
             return frame;
@@ -496,7 +498,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
             frame.error = Mp4DecodeError::needs_service;
             return frame;
         }
-        H264Picture header{};
+        H264Picture header;
         probe->parse_error = unit.ok() ? h264_parse_picture(unit.bytes, s->picture.length_bytes, a, s->picture.pps,
                                                             &header, mp4_demux_avcc(s->demux))
                                        : H264Error::malformed;
@@ -519,7 +521,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions
         s->picture.unit = unit;
         s->picture.header = header;
         u8 surface = 255;
-        H264ReferencePlan plan{};
+        H264ReferencePlan plan; // Written and read only with a hardware session.
         bool decoded = false;
         if (s->session) {
             surface = h264_free_surface(s->output, header.first.idr ? 0 : reference_mask(*s), static_cast<u8>(s->slots));

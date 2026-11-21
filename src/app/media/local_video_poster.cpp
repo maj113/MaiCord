@@ -30,7 +30,7 @@ LocalVideoPosterStep local_video_poster_read(ProgressiveSource* source, Progress
 }
 
 // Walks the top-level boxes until the moov is resident (progressive_mp4_probe).
-LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, LocalVideoPosterReader* reader) noexcept {
+inline LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, LocalVideoPosterReader* reader) noexcept {
     // Each probe step either finishes or names one missing range; the box
     // count and the 16 MiB moov bound keep this loop finite.
     constexpr u32 steps = 2 * kProgressiveMaximumTopLevelBoxes +

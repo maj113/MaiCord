@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/protocol/http/rest.hpp"
 
 namespace maicord {

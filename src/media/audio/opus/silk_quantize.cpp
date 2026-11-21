@@ -17,7 +17,7 @@ constexpr u32 kSurvivorsMaximum = 16;
 constexpr u32 kVectorsMaximum = 32;
 
 // The `keep` smallest of `values` in increasing order, with where they were.
-void smallest(i32* values, u32* where, u32 count, u32 keep) noexcept {
+inline void smallest(i32* values, u32* where, u32 count, u32 keep) noexcept {
     for (u32 i = 0; i < count; ++i) {
         const i32 value = values[i];
         u32 j = minimum(i, keep);

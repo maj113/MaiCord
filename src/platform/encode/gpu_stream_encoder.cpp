@@ -665,19 +665,17 @@ DWORD WINAPI encoder_main(void* parameter) noexcept {
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     for (;;) {
         AcquireSRWLockExclusive(&e->lock);
-        const bool stop = e->stop;
-        const bool open = !stop && (e->reopen || !e->mft.transform);
-        const GpuStreamEncoderSettings settings = e->options.settings;
-        Transform old = e->mft;
-        if (open) {
+        if (e->stop) {
+            ReleaseSRWLockExclusive(&e->lock);
+            break;
+        }
+        if (e->reopen || !e->mft.transform) {
+            const GpuStreamEncoderSettings settings = e->options.settings;
+            Transform old = e->mft;
             reset_value(&e->mft);
             e->reopen = false;
             e->need_input = 0;
-        }
-        ReleaseSRWLockExclusive(&e->lock);
-        if (stop)
-            break;
-        if (open) {
+            ReleaseSRWLockExclusive(&e->lock);
             transform_release(&old);
             Transform fresh{};
             const HRESULT h = transform_open(e->api, e->manager, e->adapter, e->options.codec, settings, &fresh);
@@ -701,6 +699,7 @@ DWORD WINAPI encoder_main(void* parameter) noexcept {
             }
             continue; // Picks up a stop or reconfiguration that came while opening.
         }
+        ReleaseSRWLockExclusive(&e->lock);
         IMFMediaEvent* event = nullptr;
         HRESULT h = e->mft.events->GetEvent(0, &event);
         MediaEventType type = 0;

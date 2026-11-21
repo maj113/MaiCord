@@ -11,14 +11,14 @@ H264Error repeated_parameter(const H264Nal& nal, ConstSlice<u8> avcc, const H264
     // Parse before comparison: malformed/truncated repeats are not silently
     // treated as an unsupported configuration change.
     if (nal.type == 7) {
-        H264Sps candidate{};
+        H264Sps candidate;
         const auto error = h264_parse_sps(nal.bytes, &candidate);
         if (error != H264Error::none)
             return error;
         if (candidate.id != sps.id)
             return H264Error::unsupported;
     } else {
-        H264Pps candidate{};
+        H264Pps candidate;
         const auto error = h264_parse_pps(nal.bytes, sps, &candidate);
         if (error != H264Error::none)
             return error;
@@ -94,7 +94,7 @@ H264Error h264_parse_picture(ConstSlice<u8> bytes, u8 length_bytes, const H264Sp
                 return error;
             continue;
         }
-        H264Slice slice{};
+        H264Slice slice;
         const auto error = h264_parse_slice(nal.bytes, sps, pps, &slice);
         if (error != H264Error::none)
             return error;

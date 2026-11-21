@@ -31,7 +31,7 @@ bool finish(TextWriter& w, MediaAttachmentFormat format, bool animated, UiGuildI
     if (!w.ok)
         return false;
     output->url_bytes = w.used;
-    output->key = media_asset_embed(hash64_bytes(kHash64Seed, output->url, w.used), 1, 0, MediaEmbedResource::image,
+    output->key = media_asset_embed(hash64_words(kHash64Seed, output->url, w.used), 1, 0, MediaEmbedResource::image,
                                     format, animated, MediaResolutionTier::px512);
     output->key.kind = MediaAssetKind::profile_image;
     return media_asset_key_valid(output->key);

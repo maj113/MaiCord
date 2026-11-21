@@ -331,7 +331,8 @@ void application_release_account_ui(Application& application) noexcept {
     application.details_request_id = 0;
     reset_value<AttachmentRefresh>(&application.attachment_refresh);
     reset_value<ReplyReferenceRefresh>(&application.reply_refresh);
-    reset_value<MediaUrlResolver>(&application.media_urls);
+    // Empty entries name no URL text, so the 128 KiB of text is not written (nor made resident) here.
+    clear_bytes(&application.media_urls, static_cast<u32>(offsetof(MediaUrlResolver, text)));
     reset_value<MessageDeleteRequest>(&application.message_delete);
     message_edit_runtime_release(&application.message_edit);
     application_thread_actions_release();

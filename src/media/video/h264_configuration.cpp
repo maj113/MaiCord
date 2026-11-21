@@ -41,7 +41,7 @@ H264Error h264_select_parameters(ConstSlice<u8> avcc, u8 pps_id,
         if (id == sps_id) selected_sps = nal.bytes;
     }
     if (!selected_sps.data) return H264Error::malformed;
-    H264Sps a{}; H264Pps b{};
+    H264Sps a; H264Pps b;
     H264Error error = h264_parse_sps(selected_sps, &a);
     if (error == H264Error::none) error = h264_parse_pps(selected_pps, a, &b);
     if (error == H264Error::none) { *sps = a; *pps = b; }

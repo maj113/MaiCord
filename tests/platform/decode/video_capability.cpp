@@ -61,7 +61,7 @@ void capability() noexcept {
         const VideoDecodeProbe probe{c.hardware, c.software};
         all = all && video_decode_advertised(probe) == c.advertised && video_decode_software_only(probe) == c.software_only;
         const u32 word = video_decode_codecs_word(probe);
-        all = all && gpu_stream_codecs_decodable(word) == c.advertised && gpu_stream_codecs_software_only(word) == c.software_only;
+        all = all && (word & kVideoDecodeCodecMask) == c.advertised && gpu_stream_codecs_software_only(word) == c.software_only;
     }
     check(all, "capability: advertised and software-only sets for every mocked probe result");
     check(video_decode_tier({kH264, kH264}, GpuStreamCodec::h264) == VideoDecodeTier::hardware &&
@@ -73,7 +73,7 @@ void capability() noexcept {
 
 // The decodable word of voice_video_decode_offers as video_stream_decoders.cpp builds it from a codecs word.
 u32 voice_word(u32 codecs_word) noexcept {
-    const u32 codecs = gpu_stream_codecs_decodable(codecs_word), software = gpu_stream_codecs_software_only(codecs_word);
+    const u32 codecs = codecs_word & kVideoDecodeCodecMask, software = gpu_stream_codecs_software_only(codecs_word);
     u32 bits = 0;
     if (codecs & kH264)
         bits |= voice_video_codec_bit(VoiceVideoCodec::h264);

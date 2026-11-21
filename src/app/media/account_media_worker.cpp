@@ -1,4 +1,5 @@
 #include "account_media_worker_internal.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/virtual_memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
@@ -7,7 +8,7 @@
 namespace maicord {
 namespace {
 
-bool stop_lane_media(AccountMediaWorkerLane* lane, u64 deadline_ms) noexcept {
+inline bool stop_lane_media(AccountMediaWorkerLane* lane, u64 deadline_ms) noexcept {
     const u64 now_ms = clock_monotonic_milliseconds();
     const u32 remaining =
         deadline_ms > now_ms ? static_cast<u32>(minimum<u64>(deadline_ms - now_ms, 0xFFFFFFFFull)) : 1;
@@ -512,12 +513,8 @@ u64 account_media_worker_next_wake_at_ms(const AccountMediaWorker* worker) noexc
     // for retry. Completed workers keep their output for frame leasing, so do not
     // cache a wake deadline in a worker: an expired deadline would stay live after
     // the worker goes idle and turn the application wait into a zero-timeout scan loop.
-    for (u32 index = 0; index < kAccountMediaWorkerRetryCapacity; ++index) {
-        const u64 wake = worker->retries[index].retry_at_ms;
-        if (wake != 0 && (earliest == 0 || wake < earliest)) {
-            earliest = wake;
-        }
-    }
+    for (u32 index = 0; index < kAccountMediaWorkerRetryCapacity; ++index)
+        earliest = earliest_deadline(earliest, worker->retries[index].retry_at_ms);
     return earliest;
 }
 

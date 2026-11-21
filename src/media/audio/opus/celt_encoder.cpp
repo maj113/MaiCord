@@ -173,7 +173,7 @@ void band_energies(const float* freq, float amplitude[2][kBands], float log_ener
         }
 }
 // Every band to unit norm.
-void normalize_bands(float* x, const float amplitude[2][kBands], u32 channels) noexcept {
+inline void normalize_bands(float* x, const float amplitude[2][kBands], u32 channels) noexcept {
     for (u32 c = 0; c < channels; ++c)
         for (u32 band = 0; band < kEnd; ++band) {
             float* const bins = x + c * kFrame + (static_cast<u32>(kBandEdges[band]) << kLm);
@@ -184,7 +184,7 @@ void normalize_bands(float* x, const float amplitude[2][kBands], u32 channels) n
         }
 }
 // Pre-emphasis of one channel's frame in place.
-void emphasize(float* x, float* state) noexcept {
+inline void emphasize(float* x, float* state) noexcept {
     float memory = *state;
     for (u32 i = 0; i < kFrame; ++i) {
         const float value = x[i];
@@ -193,7 +193,7 @@ void emphasize(float* x, float* state) noexcept {
     }
     *state = memory;
 }
-void add(float* out, const float* a, const float* b, u32 n) noexcept {
+inline void add(float* out, const float* a, const float* b, u32 n) noexcept {
     for (u32 i = 0; i < n; ++i)
         out[i] = a[i] + b[i];
 }
@@ -504,7 +504,7 @@ __attribute__((minsize)) void encode_time_frequency(RangeCoder& coder, i8* tf, b
 
 // Left and right apart rather than mid and side when that is the sparser pair, judged on the bands below 4
 // kHz.
-bool prefer_dual_stereo(const float* x) noexcept {
+inline bool prefer_dual_stereo(const float* x) noexcept {
     float sum_lr = 1e-15f, sum_ms = 1e-15f;
     const u32 bins = static_cast<u32>(kBandEdges[13]) << kLm;
     for (u32 j = 0; j < bins; ++j) {

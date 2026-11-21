@@ -21,7 +21,7 @@ bool finish(const TextWriter& w, GameImageMedia* output) noexcept {
         return false;
     output->url_bytes = w.used;
     const auto format = message_component_media_format(output->url_view());
-    output->key = message_component_media_key(hash64_bytes(kHash64Seed, output->url, w.used),
+    output->key = message_component_media_key(hash64_words(kHash64Seed, output->url, w.used),
                                               format == MediaAttachmentFormat::unknown ? MediaAttachmentFormat::png
                                                                                        : format);
     return media_asset_key_valid(output->key);

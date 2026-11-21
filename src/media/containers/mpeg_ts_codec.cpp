@@ -86,7 +86,7 @@ MpegTsError mpeg_ts_avc_configuration(ConstSlice<u8> input, MpegTsAvcConfigurati
     }
     if (!sps.count || !pps.count) return E::malformed;
     if (sps.count > 65535 || pps.count > 65535 || u64{sps.count}+pps.count+11 > sizeof(output->bytes)) return E::capacity;
-    H264Sps sequence{}; H264Pps picture{};
+    H264Sps sequence; H264Pps picture;
     auto error = h264_parse_sps(sps,&sequence);
     if (error != H264Error::none) return parsed(error);
     error = h264_parse_pps(pps,sequence,&picture);

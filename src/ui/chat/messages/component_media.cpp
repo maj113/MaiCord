@@ -60,7 +60,7 @@ bool message_component_media_resolve(const MessageRichStore& store, const Messag
     // Media proxy URLs without an extension still serve images.
     if (format == MediaAttachmentFormat::unknown)
         format = MediaAttachmentFormat::png;
-    *output = {message_component_media_key(hash64_bytes(kHash64Seed, url.data, url.bytes), format), url,
+    *output = {message_component_media_key(hash64_words(kHash64Seed, url.data, url.bytes), format), url,
                static_cast<u8>(format)};
     return true;
 }

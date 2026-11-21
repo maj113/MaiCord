@@ -29,7 +29,7 @@ void h264_iq_matrix(const H264Pps& pps, IqMatrixH264* output) noexcept;
 // One slice's parameters: its header detail, the reference lists built from `references` (8.2.4: initial order by
 // frame number or picture order count, then the header's changes) and the extent of its data in the slice data buffer
 // (the whole NAL unit at offset 0). False when a list change names a picture the DPB does not hold.
-bool h264_slice_parameters(const H264Sps& sps, const H264Pps& pps, const H264Slice& first,
+bool h264_slice_parameters(const H264Sps& sps, const H264Slice& first,
                            const H264SliceDetail& detail, const H264ReferenceState& references,
                            const H264PictureOrder& order, const SurfaceId* surfaces, u32 data_bytes,
                            SliceParameterH264* output) noexcept;

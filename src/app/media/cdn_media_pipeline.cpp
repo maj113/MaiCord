@@ -1376,7 +1376,7 @@ EncodedAudioError audio_error(Mp3Error error) noexcept {
                                E::truncated, E::capacity,      E::cancelled};
     return audio_error(table, error);
 }
-CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {
+inline CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {
     const auto format = media_asset_audio_format(key);
     return format == MediaAttachmentFormat::mp3   ? CdnImageType::mp3
            : format == MediaAttachmentFormat::wav ? CdnImageType::wav

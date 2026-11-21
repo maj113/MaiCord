@@ -31,6 +31,10 @@ struct H264AnnexBCursor {
     u32 offset;
 };
 H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept;
+// The first j >= from with bytes j and j + 1 zero and byte j + 2 at most one, below count: where a start code
+// or the zeros before one begin. Returns count when there is none. 00 00 00 and 00 00 01 never occur inside a
+// NAL (emulation prevention).
+u32 h264_annexb_zeros(const u8* data, u32 from, u32 count) noexcept;
 
 // Bounded SPS/PPS tables keyed by id with least-recently-stored eviction.
 // SPS are validated when stored; PPS keep raw bytes and are parsed against

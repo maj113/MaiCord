@@ -127,7 +127,7 @@ inline void resolve_media() noexcept {
         url.add(".webp?size=");
         url.number(ui_media_proxy_size((64u * dpi + 95u) / 96u));
         c.icon_url_bytes = url.used;
-        c.icon_key = media_asset_embed(hash64_bytes(kHash64Seed, c.icon_url, url.used), 1, 0, MediaEmbedResource::image,
+        c.icon_key = media_asset_embed(hash64_words(kHash64Seed, c.icon_url, url.used), 1, 0, MediaEmbedResource::image,
                                        MediaAttachmentFormat::webp, false, MediaResolutionTier::px512);
         c.icon_key.kind = MediaAssetKind::profile_image;
     }

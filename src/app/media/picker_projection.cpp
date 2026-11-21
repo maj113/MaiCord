@@ -318,7 +318,7 @@ CatalogBank* gif_bank(const ApplicationMediaPicker& p) noexcept {
 } // namespace picker_detail
 namespace {
 
-Utf8View favorite_detail(Utf8View value) noexcept {
+inline Utf8View favorite_detail(Utf8View value) noexcept {
     u32 bytes = minimum(value.bytes, 256u);
     while (bytes && !utf8_validate({value.data, bytes}).valid)
         --bytes;
@@ -626,7 +626,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     }
     const CatalogBank* bank = nullptr;
     u32 at = 0;
-    MediaCatalogItem temporary{};
+    MediaCatalogItem temporary;
     const auto* item = item_at(p, index, &bank, &at, &temporary);
     if (!item)
         return false;
@@ -985,7 +985,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         }
         if (p.reaction_message_id)
             return react(p, selection);
-        char insertion[128]{};
+        char insertion[128];
         Utf8View value = selection.name;
         if (selection.custom) {
             ProtocolWriter writer{{reinterpret_cast<u8*>(insertion), sizeof(insertion)}, 0};
@@ -1029,7 +1029,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
     }
     const CatalogBank* bank = nullptr;
     u32 local = 0;
-    MediaCatalogItem catalog_item{};
+    MediaCatalogItem catalog_item;
     const auto* item = item_at(p, target.source_index, &bank, &local, &catalog_item);
     if (!item || bank->first_id + local != target.item_id || !item->available)
         return true;

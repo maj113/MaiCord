@@ -39,7 +39,9 @@ bool available() noexcept {
            !g_app.image_viewer.scene.active && g_app.message_scene.active;
 }
 // The GIF whose media widget is `owner`, or without an owner, the GIF whose
-// visible star holds (x, y). Geometry matches message_presentation's.
+// visible star holds (x, y). Geometry matches message_presentation's. It fills
+// *out only when it returns true, so callers leave *out unset (its proxy URL
+// buffer is 2 KiB).
 bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
     if (!available())
         return false;
@@ -152,7 +154,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
 void application_gif_favorite_star_synchronize() noexcept {
     auto& renderer = g_app.renderer;
     const UiWidgetHandle hovered = g_app.message_scene.widgets.hovered;
-    GifStar gif{};
+    GifStar gif;
     const bool found = hovered.generation && find(hovered, 0, 0, &gif);
     // Refresh the source interest even when a scene reuses the same widget
     // handle after a channel or account transition.
@@ -165,12 +167,12 @@ void application_gif_favorite_star_synchronize() noexcept {
 }
 
 bool application_gif_favorite_star_target(float x, float y) noexcept {
-    GifStar gif{};
+    GifStar gif;
     return find({}, x, y, &gif);
 }
 
 bool application_gif_favorite_star_press(float x, float y) noexcept {
-    GifStar gif{};
+    GifStar gif;
     if (!find({}, x, y, &gif))
         return false;
     const auto state = application_gif_favorites_state(gif.url);

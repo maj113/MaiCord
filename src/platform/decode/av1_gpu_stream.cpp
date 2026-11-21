@@ -115,7 +115,7 @@ void av1_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_time
     u32 offset = 0;
     bool frame_header_seen = false; // Later copies are redundant frame headers.
     while (offset < bytes.count) {
-        Av1Obu obu{};
+        Av1Obu obu;
         if (av1_next_obu(bytes, &offset, &obu) != Av1Status::ok) {
             damaged(stream);
             return;
@@ -123,7 +123,7 @@ void av1_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_time
         if (state->have_sequence && !av1_stream_in_operating_point(state->sequence, obu))
             continue;
         if (obu.type == kAv1ObuSequenceHeader) {
-            Av1SequenceHeader sequence{};
+            Av1SequenceHeader sequence;
             if (av1_parse_sequence_header(obu.payload, &sequence) != Av1Status::ok) {
                 damaged(stream);
                 return;

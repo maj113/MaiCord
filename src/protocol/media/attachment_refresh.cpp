@@ -1,4 +1,5 @@
 #include "maicord/protocol/media/attachment_refresh.hpp"
+#include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"

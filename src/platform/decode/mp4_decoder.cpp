@@ -1,6 +1,5 @@
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/platform/decode/hevc_gpu_decoder.hpp"
 #include "maicord/media/containers/hevc_mp4_demux.hpp"
 #if defined(_WIN32)
@@ -91,10 +90,6 @@ bool mp4_decoder_acknowledge_frame(Mp4Decoder* decoder) noexcept {
 }
 Mp4DemuxError mp4_decoder_seek(Mp4Decoder* decoder, i64 target, Mp4SeekPoint* point) noexcept {
     if (!decoder || !decoder->ready || !point)
-        return Mp4DemuxError::invalid_input;
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point), sizeof(*point)};
-    if (!byte_range_valid(output) ||
-        byte_ranges_overlap(output, {reinterpret_cast<const u8*>(decoder), sizeof(*decoder)}))
         return Mp4DemuxError::invalid_input;
     const auto result = decoder->hevc ? hevc_gpu_decoder_seek(&decoder->native, target, point)
                                       : h264_gpu_decoder_seek(&decoder->native, target, point);

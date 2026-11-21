@@ -57,7 +57,7 @@ bool av1_warp_valid(const i32 (&p)[6]) noexcept {
 
 void av1_dxva_picture_parameters(const Av1SequenceHeader& s, const Av1FrameHeader& h,
                                  const u8 (&slot_surface)[kAv1RefFrames], const Av1References& references,
-                                 u8 surface, DXVA_PicParams_AV1* output) noexcept {
+                                 u8 surface, DXVA_PicParams_AV1* __restrict output) noexcept {
     DXVA_PicParams_AV1& p = *output;
     static_assert(sizeof(p.tiles.widths) == sizeof(h.tile_widths) &&
                   sizeof(p.frame_refs[0].wmmat) == sizeof(h.gm_params[0]) &&

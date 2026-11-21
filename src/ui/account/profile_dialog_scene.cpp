@@ -366,12 +366,13 @@ bool ui_profile_dialog_scroll(UiProfileDialogScene* s, float delta) noexcept {
     return ui_profile_dialog_update(s, content, s->viewport);
 }
 
-bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMedia* out) noexcept {
-    if (!s.active || !out)
+bool ui_profile_dialog_next_media(const UiProfileDialogScene& s, u32* cursor, ProfileMedia* out) noexcept {
+    if (!s.active || !cursor || !out)
         return false;
     reset_value(out);
     const auto& c = s.content;
     if (crop(s)) {
+        const u32 index = (*cursor)++;
         if (index > 1 || !c.image_ready || !media_asset_key_valid(c.image))
             return false;
         const auto editor = s.crop_viewport;
@@ -396,9 +397,9 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
             media.clip = ui_rect_intersection(editor, mask);
         return true;
     }
-    // Pickers: tile images, then the large and small previews.
-    u32 cursor = 0;
-    for (u32 i = 0; i < s.part_count; ++i) {
+    // Pickers: tile images, then the large and small previews. The cursor is the part to resume at, shifted up one,
+    // over a bit set when that part's avatar is done (its decoration comes next): each part is visited once a walk.
+    for (u32 i = *cursor >> 1, avatar_done = *cursor & 1; i < s.part_count; ++i, avatar_done = 0) {
         const auto& part = s.parts[i];
         const bool tile = part.role == role_tile && part.source < c.items.count && c.items[part.source].sku;
         const bool preview = part.role == role_preview || part.role == role_small_preview;
@@ -410,14 +411,12 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
         const auto r = n->rectangle;
         const auto clip = ui_rect_intersection(n->clip_rectangle, s.rectangle);
         const bool decoration = c.kind == UiProfileDialogKind::decoration;
+        ProfileMedia& media = *out;
+        u32 next = (i + 1) << 1;
         if (tile) {
-            if (cursor++ != index)
-                continue;
             const auto& item = c.items[part.source];
-            ProfileMedia& media = *out;
             media.key = item.key;
             copy_value(&media.url, item.url);
-            media.clip = clip;
             if (decoration) {
                 const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
                 media.rectangle = {cx - 32, cy - 32, cx + 32, cy + 32};
@@ -426,34 +425,32 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
                 media.mask = r;
                 media.mask_radius = 4;
             }
-            return true;
+        } else {
+            // Previews: the avatar, then the selected decoration over it.
+            const float scale = part.role == role_preview ? .6f : 1.f / 1.2f;
+            const float side = ui_rect_width(r) * scale;
+            const float cx = (r.left + r.right) * .5f, cy = part.role == role_preview
+                                                                ? r.top + ui_rect_height(r) * .45f
+                                                                : (r.top + r.bottom) * .5f;
+            const UiRect avatar{cx - side * .5f, cy - side * .5f, cx + side * .5f, cy + side * .5f};
+            if (!avatar_done) {
+                if (!media_asset_key_valid(c.avatar.key))
+                    return false;
+                copy_value(&media, c.avatar);
+                media.rectangle = avatar;
+                media.circular = true;
+                next = i << 1 | 1;
+            } else if (decoration && c.selected < c.items.count && c.items[c.selected].sku) {
+                const auto& item = c.items[c.selected];
+                copy_value(&media.key, item.key);
+                media.url = item.url;
+                media.rectangle = decoration_rect(avatar);
+            } else
+                continue;
         }
-        // Previews: the avatar, then the selected decoration over it.
-        const float scale = part.role == role_preview ? .6f : 1.f / 1.2f;
-        const float side = ui_rect_width(r) * scale;
-        const float cx = (r.left + r.right) * .5f, cy = part.role == role_preview ? r.top + ui_rect_height(r) * .45f
-                                                                                    : (r.top + r.bottom) * .5f;
-        const UiRect avatar{cx - side * .5f, cy - side * .5f, cx + side * .5f, cy + side * .5f};
-        const bool has_decoration = decoration && c.selected < c.items.count && c.items[c.selected].sku;
-        if (cursor++ == index) {
-            if (!media_asset_key_valid(c.avatar.key))
-                return false;
-            ProfileMedia& media = *out;
-            copy_value(&media, c.avatar);
-            media.rectangle = avatar;
-            media.clip = clip;
-            media.circular = true;
-            return true;
-        }
-        if (has_decoration && cursor++ == index) {
-            const auto& item = c.items[c.selected];
-            ProfileMedia& media = *out;
-            copy_value(&media.key, item.key);
-            media.url = item.url;
-            media.rectangle = decoration_rect(avatar);
-            media.clip = clip;
-            return true;
-        }
+        media.clip = clip;
+        *cursor = next;
+        return true;
     }
     return false;
 }

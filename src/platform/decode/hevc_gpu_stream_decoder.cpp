@@ -8,7 +8,7 @@ namespace {
 
 void present_ready(GpuStream* stream) noexcept {
     HevcStreamState* state = &stream->hevc.state;
-    H264StreamOutput output{};
+    H264StreamOutput output;
     while (hevc_stream_pop(state, &output))
         if (!stream_show(stream, output.surface, output.rtp_timestamp, output.keyframe, &state->unsupported))
             hevc_stream_lost(state);

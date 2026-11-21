@@ -87,33 +87,41 @@ void application_media_picker_tick(u64 now) noexcept {
         p->page_at = ui_media_picker_scene_paging(p->scene) ? deadline_after(now, kUiTransitionFrameMs) : 0;
     }
 }
+namespace {
+// The admitted catalog item of a grid cell, or of a sticker pack's rail icon past the cells; null for none.
+const MediaCatalogItem* preview_item(const ApplicationMediaPicker& p, u32 cell, const CatalogBank** bank, u32* local,
+                                     MediaCatalogItem* temporary) noexcept {
+    const MediaCatalogItem* item = nullptr;
+    if (cell >= p.scene.cell_count) {
+        // A sticker pack's rail icon: its cover sticker's preview.
+        UiMediaPickerRailMediaSlot rail{};
+        if (p.kind != UiMediaPickerKind::sticker || !p.packs ||
+            !ui_media_picker_scene_rail_media(p.scene, cell - p.scene.cell_count, &rail) || !rail.asset_id)
+            return nullptr;
+        for (u32 i = 0; !item && i < p.section_count; ++i)
+            if (p.sections[i].asset_id == rail.asset_id && p.section_cover[i] < p.packs->count) {
+                *bank = p.packs;
+                *local = p.section_cover[i];
+                item = &p.packs->items[*local];
+            }
+    } else {
+        UiMediaPickerMediaSlot slot{};
+        if (!ui_media_picker_scene_media(p.scene, cell, &slot) || slot.target.source_index >= p.source.count)
+            return nullptr;
+        item = item_at(p, slot.target.source_index, bank, local, temporary);
+    }
+    return item && preview_admitted(**bank, *local) ? item : nullptr;
+}
+} // namespace
 bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPreviewRequest* out) noexcept {
     const auto* p = g_app.media_picker;
     if (!shown(p) || p->kind == UiMediaPickerKind::emoji)
         return false;
     const CatalogBank* bank = nullptr;
     u32 local = 0;
-    MediaCatalogItem temporary{};
-    const MediaCatalogItem* item = nullptr;
-    if (cell >= p->scene.cell_count) {
-        // A sticker pack's rail icon: its cover sticker's preview.
-        UiMediaPickerRailMediaSlot rail{};
-        if (p->kind != UiMediaPickerKind::sticker || !p->packs ||
-            !ui_media_picker_scene_rail_media(p->scene, cell - p->scene.cell_count, &rail) || !rail.asset_id)
-            return false;
-        for (u32 i = 0; !item && i < p->section_count; ++i)
-            if (p->sections[i].asset_id == rail.asset_id && p->section_cover[i] < p->packs->count) {
-                bank = p->packs;
-                local = p->section_cover[i];
-                item = &bank->items[local];
-            }
-    } else {
-        UiMediaPickerMediaSlot slot{};
-        if (!ui_media_picker_scene_media(p->scene, cell, &slot) || slot.target.source_index >= p->source.count)
-            return false;
-        item = item_at(*p, slot.target.source_index, &bank, &local, &temporary);
-    }
-    if (!item || !preview_admitted(*bank, local))
+    MediaCatalogItem temporary;
+    const MediaCatalogItem* item = preview_item(*p, cell, &bank, &local, &temporary);
+    if (!item)
         return false;
     reset_value(out);
     out->url = item->preview_url;
@@ -141,12 +149,16 @@ bool application_media_picker_preview_current(const MediaAssetKey& key, u64 scop
 }
 bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
     const auto* p = g_app.media_picker;
-    if (!shown(p))
+    if (!shown(p) || p->kind == UiMediaPickerKind::emoji)
         return false;
     for (u32 i = 0; i < p->scene.cell_count + p->scene.rail_count; ++i) {
-        AccountMediaCatalogPreviewRequest request{};
-        if (application_media_picker_preview_request(i, &request) &&
-            media_asset_key_equal(request.key, key))
+        const CatalogBank* bank = nullptr;
+        u32 local = 0;
+        MediaCatalogItem temporary;
+        const MediaCatalogItem* item = preview_item(*p, i, &bank, &local, &temporary);
+        // The ID test first: only the cell with the key's ID needs its format.
+        if (item && bank->first_id + local == key.id &&
+            media_asset_key_equal(catalog_key(key.id, bank->generation, *item), key))
             return true;
     }
     return false;
@@ -169,7 +181,7 @@ bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope
         const u32 index = static_cast<u32>(key.id - bank->first_id);
         if (!preview_admitted(*bank, index))
             return false;
-        MediaCatalogItem temporary{};
+        MediaCatalogItem temporary;
         if (bank == &p->saved) {
             const auto saved = application_gif_favorites_view();
             if (index >= saved.records.count)
@@ -278,7 +290,7 @@ void revoke_capture(ApplicationMediaPicker& p) noexcept {
 } // namespace picker_detail
 namespace {
 
-UiMediaPickerTarget focused_target(const ApplicationMediaPicker& p) noexcept {
+inline UiMediaPickerTarget focused_target(const ApplicationMediaPicker& p) noexcept {
     const auto* node = ui_widget_manager_layout_node(p.scene.widgets, p.scene.widgets.focused);
     if (!node)
         return {};

@@ -2,6 +2,7 @@
 
 #include "maicord/protocol/media/embed_player.hpp"
 #include "../encoding/json_field_lists.hpp"
+#include "text_match.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/protocol/media/embed_provider.hpp"
 
@@ -45,7 +46,6 @@ bool bool_of(const Field& f, bool* out) noexcept;
 bool text(const Field& f, JsonString* out) noexcept;
 bool equal_chars(const Field& f, const char* value, u32 bytes) noexcept;
 bool equal(const Field& f, const Utf8View& value) noexcept;
-bool has_prefix_chars(const Utf8View& view, const char* prefix, u32 bytes) noexcept;
 bool is_text_chars(const Utf8View& view, const char* value, u32 bytes) noexcept;
 bool is_text_nocase_chars(const Utf8View& view, const char* value, u32 bytes) noexcept;
 JsonStringDecodeResult decode(const JsonString& value, char* out, u32 capacity) noexcept;
@@ -86,7 +86,7 @@ __forceinline bool fields(const JsonIndexedDocument& doc, FieldSet<Names...>& se
 // Literal operands travel as pointer and length instead of a view built on the stack.
 template <usize N> __forceinline bool equal(const Field& f, const char (&value)[N]) noexcept { return equal_chars(f, value, N - 1); }
 template <usize N> __forceinline bool has_prefix(const Utf8View& view, const char (&prefix)[N]) noexcept {
-    return has_prefix_chars(view, prefix, N - 1);
+    return media_detail::prefix_chars(view, prefix, N - 1);
 }
 template <usize N> __forceinline bool is_text(const Utf8View& view, const char (&value)[N]) noexcept {
     return is_text_chars(view, value, N - 1);

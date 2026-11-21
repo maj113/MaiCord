@@ -282,6 +282,11 @@ GpuStreamDecoderStats gpu_stream_decoder_stats(const GpuStreamDecoder* stream) n
     return stats;
 }
 
+bool gpu_stream_decoder_unsupported(const GpuStreamDecoder* stream) noexcept {
+    // One byte: a load sees the old or the new value of a publish_stats, as the locked copy did around it.
+    return *static_cast<const volatile bool*>(&stream->published.unsupported);
+}
+
 void gpu_stream_decoder_destroy(GpuStreamDecoder* stream) noexcept {
     if (!stream)
         return;

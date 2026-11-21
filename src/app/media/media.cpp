@@ -184,7 +184,9 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
                                   entry.key, visual->source_scope, visual->source_revision)))
             release_animation_visual(entry.key, entry.generation);
     }
-    if (!shell_hidden && !application.login.visible) {
+    // No step of this pump shows or hides the login: one reading serves it.
+    const bool login = application.login.visible, shell_shown = !shell_hidden && !login;
+    if (shell_shown) {
         visibility_only = true;
         const bool observed = scan_visible_media(visibility_now_us);
         visibility_only = false;
@@ -197,11 +199,11 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
     animation_timeline_end_visibility(&application.animations.timeline, visibility_now_us);
     // Queue cold picker sources before frame advances can occupy the download
     // workers. This limits first-paint latency while existing animations play.
-    if (!shell_hidden && !application.login.visible &&
+    if (shell_shown &&
         (!application_forum_preview_request(now_ms, now_seconds) ||
          !application_composer_preview_request(now_ms, now_seconds)))
         return false;
-    if (!shell_hidden && !application.login.visible &&
+    if (shell_shown &&
         (!request_catalog_previews() ||
          !request_picker_emoji()))
         return false;
@@ -274,11 +276,11 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
             *repaint = true;
         }
     }
-    if (settings_visible && !application.login.visible &&
+    if (settings_visible && !login &&
         (!request_inline_flags() ||
          !request_settings_avatars()))
         return false;
-    if (application.login.visible || shell_hidden)
+    if (!shell_shown)
         return true;
     return scan_visible_media(clock_microseconds(application.clock, application.process_start, clock_now()));
 }
@@ -415,7 +417,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
             return outcome;
     if (const auto* dialog = application_profile_editor_dialog()) {
         ProfileMedia media;
-        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i) {
+        for (u32 cursor = 0; ui_profile_dialog_next_media(*dialog, &cursor, &media);) {
             if (media.domain || !media.url.bytes)
                 continue;
             if (!proceed(request_profile_media(media, &stop)))
@@ -477,15 +479,11 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
     // commands module (or the game search's rows) keeps under the key.
     const auto request_app_picture = [&](const MediaAssetKey& key) noexcept {
         if (key.kind == MediaAssetKind::profile_image) {
-            ProfileMedia media{};
-            media.key = key;
-            media.url.bytes = static_cast<u16>(
-                application_commands_icon_url(key.id, {media.url.data, sizeof(media.url.data)}));
-            if (!media.url.bytes)
-                media.url.bytes = static_cast<u16>(
-                    application_game_search_icon_url(key.id, {media.url.data, sizeof(media.url.data)}));
-            return !media.url.bytes ||
-                   request_profile_media(media, &stop);
+            char url[sizeof(ProfileMedia{}.url.data)];
+            u32 bytes = application_commands_icon_url(key.id, {url, sizeof(url)});
+            if (!bytes)
+                bytes = application_game_search_icon_url(key.id, {url, sizeof(url)});
+            return !bytes || request_url_picture(key, {url, bytes}, &stop);
         }
         const auto* user =
             key.kind == MediaAssetKind::user_avatar ? user_store_find(application.account_ui->user_store, key.id)
@@ -957,7 +955,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                     if (!urls[icon].bytes || !ui_rect_has_area(ui_rect_intersection(icons[icon], scene.viewport)))
                         continue;
                     const auto key =
-                        message_component_media_key(hash64_bytes(kHash64Seed, urls[icon].data, urls[icon].bytes),
+                        message_component_media_key(hash64_words(kHash64Seed, urls[icon].data, urls[icon].bytes),
                                                     message_rich_embed_icon_format(urls[icon]));
                     if (!proceed(request_url_picture(key, urls[icon], &stop, true, nullptr, &icons[icon])))
                         return outcome;
@@ -979,17 +977,15 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 us) noexc
                 if ((!entry && !event) || !node ||
                     !ui_rect_has_area(ui_rect_intersection(node->rectangle, scene.viewport)))
                     continue;
-                ProfileMedia media{};
-                const u32 bytes = event ? message_event_cover_url(*event, {media.url.data, sizeof(media.url.data)})
-                                        : message_invite_icon_url(entry->invite, {media.url.data, sizeof(media.url.data)});
+                char url[sizeof(ProfileMedia{}.url.data)];
+                const u32 bytes = event ? message_event_cover_url(*event, {url, sizeof(url)})
+                                        : message_invite_icon_url(entry->invite, {url, sizeof(url)});
                 if (!bytes)
                     continue;
-                media.url.bytes = static_cast<u16>(bytes);
-                media.key = message_component_media_key(hash64_bytes(kHash64Seed, media.url.data, bytes),
-                                                        MediaAttachmentFormat::png);
-                media.rectangle = message_invite_card_geometry(node->rectangle).icon;
-                media.clip = scene.viewport;
-                if (!proceed(request_profile_media(media, &stop)))
+                const MediaAssetKey key =
+                    message_component_media_key(hash64_words(kHash64Seed, url, bytes), MediaAttachmentFormat::png);
+                const UiRect icon = message_invite_card_geometry(node->rectangle).icon;
+                if (!proceed(request_url_picture(key, {url, bytes}, &stop, true, nullptr, &icon)))
                     return outcome;
             }
         }

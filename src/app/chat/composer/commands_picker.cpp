@@ -300,7 +300,7 @@ MediaAssetKey url_picture(const Utf8View& url, MediaAttachmentFormat format) noe
     auto& c = *commands;
     if (!url.bytes || url.bytes > sizeof(c.icon_urls[0].url))
         return {};
-    const u64 hash = hash64_bytes(kHash64Seed, url.data, url.bytes);
+    const u64 hash = hash64_words(kHash64Seed, url.data, url.bytes);
     bool known = false;
     for (const auto& entry : c.icon_urls)
         known = known || (entry.hash == hash && entry.bytes);

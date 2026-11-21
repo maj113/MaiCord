@@ -106,8 +106,8 @@ UiProfileDialogAction ui_profile_dialog_action(const UiProfileDialogScene& scene
 // Zoom slider value in [0, 1] at a pointer x.
 float ui_profile_dialog_zoom_at(const UiProfileDialogScene& scene, float x) noexcept;
 bool ui_profile_dialog_scroll(UiProfileDialogScene* scene, float delta) noexcept;
-// Media in draw order: index runs from zero until false.
-bool ui_profile_dialog_media(const UiProfileDialogScene& scene, u32 index, ProfileMedia* output) noexcept;
+// Media in draw order, one per call: the cursor starts at 0 and the walk ends at false.
+bool ui_profile_dialog_next_media(const UiProfileDialogScene& scene, u32* cursor, ProfileMedia* output) noexcept;
 bool ui_profile_dialog_paint(const UiProfileDialogScene& scene, const Theme& theme, PaintStream* paint) noexcept;
 // Over the media: crop mask edge, slider and selection rings.
 bool ui_profile_dialog_foreground(const UiProfileDialogScene& scene, const Theme& theme,

@@ -128,7 +128,7 @@ inline constexpr u32 kCdnAnimatedWebpSizeLimit = 512, kCdnSquareSizeLimit = 640,
 // The key of an image fetched from `url`; an effect layer's is marked so its decode fits the effect slot.
 MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat format, bool animated,
                           bool effect_layer = false) noexcept {
-    auto key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1,
+    auto key = media_asset_embed(hash64_words(kHash64Seed, url.data, url.bytes), 1,
                                  effect_layer ? kMediaProfileEffectLayerIndex : 0, MediaEmbedResource::image, format,
                                  animated, MediaResolutionTier::px512);
     key.kind = MediaAssetKind::profile_image;

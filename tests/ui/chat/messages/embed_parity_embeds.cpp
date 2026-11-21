@@ -127,12 +127,12 @@ void test_fxtwitter_embed(Check check) noexcept {
             thumbnails += c.embed_resource == static_cast<u8>(MediaEmbedResource::thumbnail) ? 1u : 0u;
         } else if (c.kind == MessageMediaCommandKind::component) {
             const bool author_match =
-                c.id == message_component_media_key(hash64_bytes(kHash64Seed, author_url.data, author_url.bytes),
+                c.id == message_component_media_key(hash64_words(kHash64Seed, author_url.data, author_url.bytes),
                                                     MediaAttachmentFormat::jpeg)
                             .id &&
                 c.rectangle.left == author_icon.left && c.rectangle.top == author_icon.top && c.tile_radius == 12;
             const bool footer_match =
-                c.id == message_component_media_key(hash64_bytes(kHash64Seed, footer_url.data, footer_url.bytes),
+                c.id == message_component_media_key(hash64_words(kHash64Seed, footer_url.data, footer_url.bytes),
                                                     MediaAttachmentFormat::png)
                             .id &&
                 c.rectangle.left == footer_icon.left && c.rectangle.top == footer_icon.top && c.tile_radius == 10;

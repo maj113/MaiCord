@@ -9,7 +9,7 @@ namespace {
 bool supported_vcl(u8 type) noexcept {
     return type <= 9 || (type >= 16 && type <= 21);
 }
-void weights(HevcBits& b, u32 l0, u32 l1, bool bipred) noexcept {
+inline void weights(HevcBits& b, u32 l0, u32 l1, bool bipred) noexcept {
     const u32 luma = b.ue(7);
     const i32 chroma = static_cast<i32>(luma) + b.se(-7, 7);
     if (chroma < 0 || chroma > 7) {
@@ -293,7 +293,7 @@ HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration& c,
             return HevcError::unsupported;
         if (v.slice_count == kHevcMaximumSlices)
             return HevcError::unsupported;
-        HevcSlice parsed{};
+        HevcSlice parsed;
         const auto e = hevc_parse_slice(n, c, seen ? &v : nullptr, &parsed);
         if (e != HevcError::none)
             return e;

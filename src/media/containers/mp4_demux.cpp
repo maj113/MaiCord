@@ -245,32 +245,25 @@ bool load_ctts(Mp4Demuxer* demuxer) noexcept {
 }
 
 // The caller set the run indices to 0.
-bool initialize_runs(Mp4Demuxer* demuxer) noexcept {
+inline bool initialize_runs(Mp4Demuxer* demuxer) noexcept {
     const u8* stsc = demuxer->encoded.data + demuxer->stsc_offset;
     return demuxer->stts_count != 0 && demuxer->stsc_count != 0 && demuxer->chunk_count != 0 &&
            demuxer->sample_count != 0 && load_stts(demuxer) && (demuxer->ctts_count == 0 || load_ctts(demuxer)) &&
            read_u32(stsc) == 1u && read_u32(stsc + 4u) != 0u;
 }
 
-bool load_chunk(Mp4Demuxer* demuxer) noexcept {
+// initialize_tables checked the sample-to-chunk table: its first chunks rise from 1 and no entry is empty.
+inline bool load_chunk(Mp4Demuxer* demuxer) noexcept {
     if (demuxer->chunk_index >= demuxer->chunk_count) {
         return false;
     }
     const u8* encoded = demuxer->encoded.data;
-    while (demuxer->stsc_index + 1u < demuxer->stsc_count) {
-        const u32 next_first = read_u32(encoded + demuxer->stsc_offset +
-                                        (demuxer->stsc_index + 1u) * 12u);
-        if (next_first == 0 || next_first > demuxer->chunk_index + 1u) {
-            break;
-        }
+    while (demuxer->stsc_index + 1u < demuxer->stsc_count &&
+           read_u32(encoded + demuxer->stsc_offset + (demuxer->stsc_index + 1u) * 12u) <= demuxer->chunk_index + 1u)
         ++demuxer->stsc_index;
-    }
     const u8* mapping = encoded + demuxer->stsc_offset +
                         demuxer->stsc_index * 12u;
     demuxer->samples_left_in_chunk = read_u32(mapping + 4u);
-    if (demuxer->samples_left_in_chunk == 0) {
-        return false;
-    }
     const u8* chunk = encoded + demuxer->chunk_offset_table +
                       static_cast<u64>(demuxer->chunk_index) *
                           (demuxer->chunk_offsets_64 ? 8u : 4u);
@@ -289,11 +282,10 @@ bool load_chunk(Mp4Demuxer* demuxer) noexcept {
         demuxer->mdat_begin=box.payload;demuxer->mdat_end=box.end;
         if (demuxer->chunk_byte_offset < box.payload) return false;
     }
-    return demuxer->chunk_byte_offset >= demuxer->mdat_begin &&
-           demuxer->chunk_byte_offset < demuxer->mdat_end;
+    return true; // mdat_begin <= chunk_byte_offset < mdat_end
 }
 
-bool consume_stts(Mp4Demuxer* demuxer, u32* delta) noexcept {
+inline bool consume_stts(Mp4Demuxer* demuxer, u32* delta) noexcept {
     if (demuxer->stts_left == 0 && (++demuxer->stts_index >= demuxer->stts_count || !load_stts(demuxer)))
         return false;
     *delta = demuxer->stts_delta;
@@ -301,7 +293,7 @@ bool consume_stts(Mp4Demuxer* demuxer, u32* delta) noexcept {
     return true;
 }
 
-bool consume_ctts(Mp4Demuxer* demuxer, i64* delta) noexcept {
+inline bool consume_ctts(Mp4Demuxer* demuxer, i64* delta) noexcept {
     *delta = 0;
     if (demuxer->ctts_count == 0)
         return true;
@@ -512,6 +504,10 @@ bool sample_key_less(i64 pts,u32 index,i64 bound_pts,u32 bound_index) noexcept {
 }
 
 Mp4DemuxError seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point,SyncClassifier classify) noexcept {
+    if(!d||!point||!d->ready||target<0||static_cast<u64>(target)>d->duration_us)return Mp4DemuxError::invalid_input;
+    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point),sizeof(*point)};
+    if(!byte_range_valid(output)||byte_ranges_overlap(output,{reinterpret_cast<const u8*>(d),sizeof(*d)})||
+        byte_ranges_overlap(output,d->encoded))return Mp4DemuxError::invalid_input;
     Mp4Demuxer scan,selected{};copy_value(&scan,*d);mp4_demux_reset(&scan);
     const Mp4SourceAvailability availability=scan.availability;
     reset_value(&scan.availability);
@@ -605,9 +601,8 @@ Mp4DemuxError next_unit(Mp4Demuxer* demuxer, Mp4AccessUnit& result) noexcept {
             : read_u32(demuxer->encoded.data + demuxer->stsz_offset + demuxer->sample_index * 4u);
     u32 duration = 0;
     i64 composition_delta = 0;
-    if (sample_bytes == 0 || demuxer->chunk_byte_offset > demuxer->encoded.count ||
-        sample_bytes > demuxer->encoded.count - demuxer->chunk_byte_offset ||
-        demuxer->chunk_byte_offset > demuxer->mdat_end ||
+    // mdat_end <= encoded.count: the bounds of the mdat keep the sample inside the file.
+    if (sample_bytes == 0 || demuxer->chunk_byte_offset > demuxer->mdat_end ||
         sample_bytes > demuxer->mdat_end - demuxer->chunk_byte_offset || !consume_stts(demuxer, &duration) ||
         !consume_ctts(demuxer, &composition_delta))
         return Mp4DemuxError::malformed;
@@ -674,11 +669,7 @@ Mp4DemuxError mp4_demux_seek_sample(Mp4Demuxer* d,u32 sample) noexcept {
     *d=cursor;return Mp4DemuxError::none;
 }
 Mp4DemuxError mp4_demux_seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point) noexcept {
-    if(!d||!point||!d->ready||target<0||static_cast<u64>(target)>d->duration_us ||
-        (d->nal_length_bytes!=1&&d->nal_length_bytes!=2&&d->nal_length_bytes!=4))return Mp4DemuxError::invalid_input;
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point),sizeof(*point)};
-    if(!byte_range_valid(output)||byte_ranges_overlap(output,{reinterpret_cast<const u8*>(d),sizeof(*d)})||
-        byte_ranges_overlap(output,d->encoded))return Mp4DemuxError::invalid_input;
+    if(d&&d->nal_length_bytes!=1&&d->nal_length_bytes!=2&&d->nal_length_bytes!=4)return Mp4DemuxError::invalid_input;
     return seek_sync(d,target,point,[](ConstSlice<u8> bytes,u8 length_bytes) noexcept {
         u32 at{};bool idr=false,non_idr=false;
         while(at<bytes.count){if(bytes.count-at<length_bytes)return SyncKind::malformed;

@@ -64,7 +64,7 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
                const HevcReferencePlan& plan, u8 surface) noexcept {
     const auto& a = s.config.sps;
     DXVA_PicParams_HEVC p;
-    DXVA_Qmatrix_HEVC q{};
+    DXVA_Qmatrix_HEVC q; // Written and sent only with scaling lists.
     if (!hevc_dxva_picture_parameters(a, s.config.pps, picture, picture.slice_type == 2, s.references, plan, surface,
                                       s.feedback, &p, &q))
         return E_INVALIDARG;
@@ -88,20 +88,15 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
         return result;
     const u64 aligned = hevc_gpu_bitstream_extent(picture.bitstream_bytes);
     const u64 slice_bytes = u64{picture.slice_count} * sizeof(DXVA_Slice_HEVC_Short);
-    if (!bit_data || aligned > bit_capacity || !picture.slice_count ||
-        picture.slice_count > kHevcMaximumSlices)
+    if (!bit_data || aligned > bit_capacity)
         result = E_OUTOFMEMORY;
     if (SUCCEEDED(result)) {
+        // hevc_parse_picture made the spans from NAL units of unit (1 to kHevcMaximumSlices of them) and summed
+        // bitstream_bytes from them.
         auto* bytes = static_cast<u8*>(bit_data);
         u32 offset{};
         for (u32 i = 0; i < picture.slice_count; ++i) {
             const auto& span = picture.slices[i];
-            if (span.offset > unit.bytes.count || span.bytes > unit.bytes.count - span.offset ||
-                offset > picture.bitstream_bytes || picture.bitstream_bytes - offset < 3 ||
-                span.bytes > picture.bitstream_bytes - offset - 3) {
-                result = E_INVALIDARG;
-                break;
-            }
             slices[i] = {offset, span.bytes + 3, 0};
             bytes[offset++] = 0;
             bytes[offset++] = 0;
@@ -109,15 +104,11 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
             copy_bytes(bytes + offset, unit.bytes.data + span.offset, span.bytes);
             offset += span.bytes;
         }
-        if (SUCCEEDED(result) && offset != picture.bitstream_bytes)
-            result = E_INVALIDARG;
-        if (SUCCEEDED(result)) {
-            const u32 padding = static_cast<u32>(aligned) - offset;
-            clear_bytes(bytes + offset, padding);
-            slices[picture.slice_count - 1].SliceBytesInBuffer += padding;
-            buffers[buffer_count].BufferType = D3D11_VIDEO_DECODER_BUFFER_BITSTREAM;
-            buffers[buffer_count++].DataSize = static_cast<UINT>(aligned);
-        }
+        const u32 padding = static_cast<u32>(aligned) - offset;
+        clear_bytes(bytes + offset, padding);
+        slices[picture.slice_count - 1].SliceBytesInBuffer += padding;
+        buffers[buffer_count].BufferType = D3D11_VIDEO_DECODER_BUFFER_BITSTREAM;
+        buffers[buffer_count++].DataSize = static_cast<UINT>(aligned);
     }
     // Release the compressed buffer before mapping the separate slice buffer.
     // Drivers may reuse upload memory between decoder buffer types.

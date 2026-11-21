@@ -47,7 +47,6 @@ HRESULT gpu_decoder_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecode
     status = context->ReleaseDecoderBuffer(decoder, type);
     if (!fits)
         return E_OUTOFMEMORY;
-    reset_value(description);
     description->BufferType = type;
     description->DataSize = bytes;
     return status;
@@ -56,7 +55,7 @@ HRESULT gpu_decoder_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecode
 Mp4DecodedFrame gpu_decoder_output_frame(H264OutputQueue* output, GpuVideoFrame* frame,
                                          const GpuDecoderSurfaces& surfaces,
                                          const VideoDisplayExtent& display) noexcept {
-    H264Output picture{};
+    H264Output picture;
     Mp4DecodedFrame decoded{};
     if (!h264_output_pop(output, &picture)) {
         decoded.error = Mp4DecodeError::sample;

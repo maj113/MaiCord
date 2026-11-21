@@ -75,7 +75,7 @@ i32 silk_share(i32 rate, bool fec, i32 channels) noexcept {
 }
 
 // Second-order high-pass at 2^cutoff Hz of one channel of interleaved PCM16.
-void high_pass(float* state, float cutoff, const i16* in, u32 stride, float* out) noexcept {
+inline void high_pass(float* state, float cutoff, const i16* in, u32 stride, float* out) noexcept {
     const float frequency = 1.5f * 3.14159f / 48000.f * exp2_approximate(cutoff);
     const float r = 1.f - 0.92f * frequency;
     const float a0 = r * (frequency * frequency - 2.f), a1 = r * r;

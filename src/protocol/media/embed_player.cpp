@@ -37,9 +37,6 @@ bool equal_chars(const Field& f, const char* value, u32 bytes) noexcept {
     return text(f, &string) && json_string_equals_ascii_bytes(string.encoded.data, string.encoded.bytes, value, bytes);
 }
 bool equal(const Field& f, const Utf8View& value) noexcept { return equal_chars(f, value.data, value.bytes); }
-bool has_prefix_chars(const Utf8View& view, const char* prefix, u32 bytes) noexcept {
-    return view.bytes >= bytes && bytes_equal(view.data, prefix, bytes);
-}
 bool is_text_chars(const Utf8View& view, const char* value, u32 bytes) noexcept {
     return view.bytes == bytes && bytes_equal(view.data, value, bytes);
 }

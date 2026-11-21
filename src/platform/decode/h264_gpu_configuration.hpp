@@ -161,7 +161,7 @@ inline Mp4DemuxError h264_fragment_seek(Mp4FragmentSource& stream, H264FragmentS
             return error;
         }
         if (start || unit.presentation_time_us_signed <= target) {
-            H264Picture parsed{};
+            H264Picture parsed;
             const auto result = h264_parse_picture(unit.bytes, picture.length_bytes, picture.sps, picture.pps, &parsed,
                                                    stream.track.configuration);
             if (result != H264Error::none) {

@@ -2,6 +2,7 @@
 #include "maicord/app/media/account_video_commands.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
 #include "maicord/app/media/segmented_video_fetch.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
@@ -54,16 +55,17 @@ DWORD wait_video_events(const Waitable* events, DWORD count, Waitable timer, DWO
     }
     return wait_any(events, count, delay_ms);
 }
+// has_audio through volume_valid are eight adjacent flags: one 8-byte compare covers them.
+static_assert(offsetof(AccountVideoStatus, volume_valid) == offsetof(AccountVideoStatus, has_audio) + 7);
 bool changed(const AccountVideoStatus& a, const AccountVideoStatus& b) noexcept {
-    return a.kind != b.kind || a.live != b.live || a.duration_100ns != b.duration_100ns || a.has_audio != b.has_audio ||
-           a.desired_command != b.desired_command || a.observed_command != b.observed_command ||
-           a.playback_epoch != b.playback_epoch || a.error != b.error ||
-           a.native_error != b.native_error || a.playing != b.playing || a.paused != b.paused ||
-           a.seeking != b.seeking || a.buffering != b.buffering || a.ended != b.ended ||
-           a.muted != b.muted || a.volume_valid != b.volume_valid ||
-           a.rejected_command != b.rejected_command || a.rejected_error != b.rejected_error ||
-           a.rejected_native_error != b.rejected_native_error || a.applied_volume != b.applied_volume ||
-           a.release_pending != b.release_pending ||
+    return (a.desired_command != b.desired_command) | (a.observed_command != b.observed_command) |
+           (a.playback_epoch != b.playback_epoch) | (a.rejected_command != b.rejected_command) |
+           (a.rejected_native_error != b.rejected_native_error) | (a.duration_100ns != b.duration_100ns) |
+           (a.native_error != b.native_error) |
+           (byte_load_le64(reinterpret_cast<const u8*>(&a.has_audio)) !=
+            byte_load_le64(reinterpret_cast<const u8*>(&b.has_audio))) ||
+           a.rejected_error != b.rejected_error || a.error != b.error || a.applied_volume != b.applied_volume ||
+           a.release_pending != b.release_pending || a.kind != b.kind || a.live != b.live ||
            a.position_100ns / 10000000 != b.position_100ns / 10000000;
 }
 void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fetch = nullptr,

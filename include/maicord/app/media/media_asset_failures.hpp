@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/time.hpp"
 #include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
@@ -58,10 +59,11 @@ __declspec(noinline) inline bool media_asset_failure_record(MediaAssetFailures* 
     return first;
 }
 
-// True while `key` waits out its backoff: no request may fetch or decode it.
-inline bool media_asset_failure_blocked(const MediaAssetFailures& failures, const MediaAssetKey& key, u64 now_ms) noexcept {
+// True while `key` waits out its backoff: no request may fetch or decode it. The clock is read only for a key
+// with a record.
+inline bool media_asset_failure_blocked(const MediaAssetFailures& failures, const MediaAssetKey& key) noexcept {
     const MediaAssetFailure* entry = failures.count ? media_asset_failure_find(&failures, key) : nullptr;
-    return entry && now_ms < entry->retry_at_ms;
+    return entry && clock_monotonic_milliseconds() < entry->retry_at_ms;
 }
 
 // A later upload of `key` succeeded: its record goes.

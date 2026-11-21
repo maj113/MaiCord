@@ -64,8 +64,6 @@ struct State {
     // The projection's targets.
     u64 link_guild, view_pack;
     char title[kUiExpressionCardTitleBytes], description[kUiExpressionCardTextBytes], acronym[24];
-    MediaAssetKey previews[kUiExpressionCardPreviews];
-    u32 preview_count;
 };
 State* g_card;
 // The press that may become a click.
@@ -257,19 +255,17 @@ bool emoji_content(UiExpressionCardContent* content) noexcept {
 }
 
 // Up to three of the pack's first four stickers, without this one.
-void pack_previews(const Bank* bank, u64 pack_id, u64 sticker_id) noexcept {
-    auto& c = *g_card;
-    c.preview_count = 0;
+void pack_previews(const Bank* bank, u64 pack_id, u64 sticker_id, UiExpressionCardContent* out) noexcept {
     u32 seen = 0;
     for (u32 i = 0; bank && i < bank->count && seen < kPackPreviewWindow &&
-                    c.preview_count < kUiExpressionCardPreviews;
+                    out->preview_count < kUiExpressionCardPreviews;
          ++i) {
         const auto& item = bank->items[i];
         if (item.pack_id != pack_id)
             continue;
         ++seen;
         if (item.sticker_id != sticker_id)
-            c.previews[c.preview_count++] = media_asset_sticker(item.sticker_id, item.sticker_format);
+            out->previews[out->preview_count++] = media_asset_sticker(item.sticker_id, item.sticker_format);
     }
 }
 
@@ -301,10 +297,7 @@ bool sticker_content(UiExpressionCardContent* content) noexcept {
         if (!text.ok)
             return false;
         content->description = {c.description, text.used};
-        pack_previews(bank, sticker.pack_id, e.id);
-        for (u32 i = 0; i < c.preview_count; ++i)
-            content->previews[i] = c.previews[i];
-        content->preview_count = c.preview_count;
+        pack_previews(bank, sticker.pack_id, e.id, content);
         // Only an offered pack opens in the picker.
         if (view == StickerView::premium_pack) {
             content->button = utf8_literal("View More Stickers");
@@ -332,7 +325,6 @@ bool project() noexcept {
     if (!c.open || !available())
         return false;
     c.link_guild = c.view_pack = 0;
-    c.preview_count = 0;
     UiExpressionCardContent content{};
     const bool built =
         c.source.kind == MessageExpressionKind::sticker ? sticker_content(&content) : emoji_content(&content);

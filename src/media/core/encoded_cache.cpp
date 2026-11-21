@@ -14,6 +14,13 @@ namespace {
 constexpr u32 kInvalidIndex = kSlotIndexNone;
 volatile LONG64 next_content_identity = 0;
 
+// encoded_media_cache_initialize admits only a power-of-two index, so slot_index_wrap masks and never divides.
+__forceinline u32 bucket_capacity(const EncodedMediaCache& cache) noexcept {
+    const u32 capacity = cache.index_bucket_capacity;
+    __builtin_assume((capacity & (capacity - 1)) == 0);
+    return capacity;
+}
+
 void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
     for (u32 bucket = 0; bucket < cache->index_bucket_capacity; ++bucket) {
         cache->index_buckets[bucket] = kSlotIndexEmpty;
@@ -21,12 +28,12 @@ void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
     cache->index_tombstones = 0;
     for (u32 index = 0; index < cache->entry_capacity; ++index) {
         if (cache->entries[index].occupied)
-            slot_index_insert(cache->index_buckets, cache->index_bucket_capacity,
+            slot_index_insert(cache->index_buckets, bucket_capacity(*cache),
                               media_asset_hash(cache->entries[index].key), index);
     }
 }
 
-void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
+inline void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
     const u32 mask = cache->index_bucket_capacity - 1;
     u32 bucket = static_cast<u32>(media_asset_hash(cache->entries[index].key)) & mask;
     u32 tombstone = kInvalidIndex;
@@ -48,8 +55,8 @@ void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
 }
 
 // The index holds exactly the occupied entries: release_entry_locked removes an entry before freeing it.
-void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key, u32 index) noexcept {
-    const u32 bucket = slot_index_find(cache->index_buckets, cache->index_bucket_capacity, media_asset_hash(key),
+inline void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key, u32 index) noexcept {
+    const u32 bucket = slot_index_find(cache->index_buckets, bucket_capacity(*cache), media_asset_hash(key),
                                        [&](u32 slot) noexcept { return slot == index; });
     if (bucket != kSlotIndexNone) {
         cache->index_buckets[bucket] = kSlotIndexTombstone;
@@ -64,12 +71,12 @@ void maintain_index_locked(EncodedMediaCache* cache) noexcept {
 }
 
 u32 find_entry_locked(const EncodedMediaCache& cache, const MediaAssetKey& key) noexcept {
-    const u32 bucket = slot_index_find(cache.index_buckets, cache.index_bucket_capacity, media_asset_hash(key),
+    const u32 bucket = slot_index_find(cache.index_buckets, bucket_capacity(cache), media_asset_hash(key),
                                        [&](u32 slot) noexcept { return media_asset_key_equal(cache.entries[slot].key, key); });
     return bucket == kSlotIndexNone ? kInvalidIndex : cache.index_buckets[bucket] - 1;
 }
 
-u32 find_empty_entry_locked(const EncodedMediaCache& cache) noexcept {
+inline u32 find_empty_entry_locked(const EncodedMediaCache& cache) noexcept {
     for (u32 index = 0; index < cache.entry_capacity; ++index) {
         if (!cache.entries[index].occupied) {
             return index;
@@ -99,7 +106,6 @@ void touch_entry_locked(EncodedMediaCache* cache, EncodedMediaCacheEntry* entry)
 bool release_entry_locked(EncodedMediaCache* cache, u32 index) noexcept {
     EncodedMediaCacheEntry& entry = cache->entries[index];
     if (entry.leases != 0) {
-        ++cache->counters.pinned_rejections;
         return false;
     }
     remove_index_locked(cache, entry.key, index);
@@ -118,7 +124,7 @@ bool release_entry_locked(EncodedMediaCache* cache, u32 index) noexcept {
 }
 
 // required_pages is nonzero and at most the page capacity.
-u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noexcept {
+inline u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noexcept {
     u32 begin = 0;
     u32 run = 0;
     for (u32 page = 0; page < cache.page_capacity; ++page) {
@@ -138,7 +144,7 @@ u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noe
 
 // Commits reserved storage through `end_page`, 64 KiB at a time. Pages are taken lowest first, so the committed
 // prefix reaches only the highest page the cache has used.
-bool commit_storage_locked(EncodedMediaCache* cache, u32 end_page) noexcept {
+inline bool commit_storage_locked(EncodedMediaCache* cache, u32 end_page) noexcept {
     constexpr u32 kStepPages = 64u * 1024u / kEncodedMediaCachePageBytes;
     const u32 target = minimum(cache->page_capacity, (end_page + kStepPages - 1) & ~(kStepPages - 1));
     if (!pages_commit_at(cache->storage + cache->committed_pages * kEncodedMediaCachePageBytes,
@@ -243,7 +249,6 @@ EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, con
             lease.generation = entry.generation;
             lease.acquired = true;
         } else {
-            ++cache->counters.pinned_rejections;
             lease.lookup = EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::invalid};
         }
     }
@@ -265,7 +270,6 @@ bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLeas
         if (entry.retiring && entry.leases == 0) {
             release_entry_locked(cache, lease->entry_index);
             maintain_index_locked(cache);
-            ++cache->counters.erases;
         }
     }
     ReleaseSRWLockExclusive(cache->lock.native());
@@ -413,7 +417,6 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& 
     }
     EncodedMediaCacheEntry& entry = cache->entries[index];
     if (entry.leases != 0) {
-        ++cache->counters.pinned_rejections;
         ReleaseSRWLockExclusive(cache->lock.native());
         return false;
     }
@@ -440,7 +443,6 @@ bool encoded_media_cache_erase(EncodedMediaCache* cache, const MediaAssetKey& ke
         return false;
     }
     maintain_index_locked(cache);
-    ++cache->counters.erases;
     ReleaseSRWLockExclusive(cache->lock.native());
     return true;
 }
@@ -462,7 +464,6 @@ bool encoded_media_cache_retire(EncodedMediaCache* cache, const MediaAssetKey& k
     if (entry.leases == 0) {
         release_entry_locked(cache, index);
         maintain_index_locked(cache);
-        ++cache->counters.erases;
     }
     ReleaseSRWLockExclusive(cache->lock.native());
     return true;

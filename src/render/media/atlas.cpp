@@ -46,10 +46,10 @@ MediaAtlasResult result_from(const MediaAtlasEntry& entry,
     };
 }
 
+// A bucket holds a slot that find_free_slot or the rebuild took, so the slot is below entry_capacity.
 u32 find_bucket(const MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     return slot_index_find(atlas->buckets, atlas->bucket_capacity, media_asset_hash(key), [&](u32 slot) noexcept {
-        return slot < atlas->entry_capacity && atlas->entries[slot].occupied &&
-               media_asset_key_equal(atlas->entries[slot].key, key);
+        return atlas->entries[slot].occupied && media_asset_key_equal(atlas->entries[slot].key, key);
     });
 }
 

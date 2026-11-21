@@ -20,28 +20,18 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     if (!supported_key(key)) {
         return result(AccountMediaRequestState::unsupported);
     }
-    u8 target[kCdnMaximumTargetBytes];
-    CdnTargetResult written{};
     const bool hashed_identity = key.kind == MediaAssetKind::guild_icon ||
                                  key.kind == MediaAssetKind::user_avatar ||
                                  key.kind == MediaAssetKind::channel_icon;
     if (hashed_identity) {
         const bool animated = asset_hash_animated(guild_icon_hash);
         const bool animated_key = key.flags == media_asset_flag_animated;
-        const u32 size = identity_size ? identity_size : kCdnIdentityDefaultSize;
-        const Slice<u8> output{target, sizeof(target)};
-        written =
-            key.kind == MediaAssetKind::guild_icon
-                ? write_guild_icon_cdn_target(key.id, guild_icon_hash, size, output, animated_key)
-            : key.kind == MediaAssetKind::user_avatar
-                ? write_user_avatar_cdn_target(key.id, guild_icon_hash, size, output)
-                : write_channel_icon_cdn_target(key.id, guild_icon_hash, size, output);
         // A server icon's still key also names an a_ hash: the official rail
         // fetches the CDN's still (.webp without animated=true) until hovered.
         const bool flags_match = key.kind == MediaAssetKind::guild_icon ? !animated_key || animated
                                                                          : animated == animated_key;
-        if (!written.ok() || cdn_guild_icon_variant(guild_icon_hash) != key.variant ||
-            !flags_match) {
+        // An invalid hash has variant 0 and a valid key's variant is not 0: the target write below cannot fail.
+        if (cdn_guild_icon_variant(guild_icon_hash) != key.variant || !flags_match) {
             return result(AccountMediaRequestState::failed, AccountMediaError::target);
         }
     } else if (guild_icon_hash.bytes != 0 || guild_icon_hash.data) {
@@ -105,15 +95,22 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         if (probe_static_png(media, &probe, &settled))
             return settled;
     }
-    if (!hashed_identity) {
-        written =
-            key.kind == MediaAssetKind::custom_emoji
-                ? write_custom_emoji_cdn_target(key.id, key.flags == media_asset_flag_animated, 64,
-                                                Slice<u8>{target, sizeof(target)})
-                : write_sticker_cdn_target(key.id, key.variant, Slice<u8>{target, sizeof(target)});
-        if (!written.ok())
-            return result(AccountMediaRequestState::failed, AccountMediaError::target);
-    }
+    u8 target[kCdnMaximumTargetBytes];
+    const Slice<u8> output{target, sizeof(target)};
+    const u32 size = identity_size ? identity_size : kCdnIdentityDefaultSize;
+    const CdnTargetResult written =
+        key.kind == MediaAssetKind::guild_icon
+            ? write_guild_icon_cdn_target(key.id, guild_icon_hash, size, output,
+                                          key.flags == media_asset_flag_animated)
+        : key.kind == MediaAssetKind::user_avatar
+            ? write_user_avatar_cdn_target(key.id, guild_icon_hash, size, output)
+        : key.kind == MediaAssetKind::channel_icon
+            ? write_channel_icon_cdn_target(key.id, guild_icon_hash, size, output)
+        : key.kind == MediaAssetKind::custom_emoji
+            ? write_custom_emoji_cdn_target(key.id, key.flags == media_asset_flag_animated, 64, output)
+            : write_sticker_cdn_target(key.id, key.variant, output);
+    if (!written.ok())
+        return result(AccountMediaRequestState::failed, AccountMediaError::target);
     const AccountMediaRequestResult client = ensure_client_started(media);
     if (!client.ok()) {
         return remember_failure(media, key, monotonic_now_ms, client);
@@ -436,7 +433,7 @@ AccountMediaRequestResult request_url_media(AccountMedia* media,
          ((request.image_type == CdnImageType::m4a || request.image_type == CdnImageType::mp4) &&
           apple_music_track_locator(request.url).id.bytes)))
         return request_provider_media(media, request, monotonic_now_ms, unix_now_seconds);
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     u8 proxy_target[kCdnMaximumTargetBytes];
     u32 target_bytes = 0;
     CdnHost target_host = CdnHost::none;

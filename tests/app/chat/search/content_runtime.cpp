@@ -106,8 +106,8 @@ void mutate() noexcept {
     case Mutation::publication: ++publication; break;
     case Mutation::release: application_search_content_release(); break;
     case Mutation::resolver:
-        for (auto& entry : g_app.media_urls.entries)
-            if (entry.refreshed_bytes) entry.refreshed[0] = 'x';
+        for (u32 i = 0; i < 32; ++i)
+            if (g_app.media_urls.entries[i].refreshed_bytes) g_app.media_urls.text[i].refreshed[0] = 'x';
         break;
     default: break;
     }

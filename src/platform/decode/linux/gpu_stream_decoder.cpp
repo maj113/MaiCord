@@ -69,7 +69,7 @@ bool stream_surfaces_create_cpu(GpuStream* stream, u32 count, u32 coded_width, u
 bool stream_unit_is_keyframe(GpuStreamCodec codec, ConstSlice<u8> bytes) noexcept {
     if (codec == GpuStreamCodec::av1) {
         u32 offset = 0;
-        Av1Obu obu{};
+        Av1Obu obu;
         while (offset < bytes.count && av1_next_obu(bytes, &offset, &obu) == Av1Status::ok)
             if (obu.type == kAv1ObuSequenceHeader)
                 return true;

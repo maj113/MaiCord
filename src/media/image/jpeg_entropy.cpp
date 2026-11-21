@@ -156,9 +156,10 @@ void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcD
 
 // Bit-serial canonical match over a 16-bit window: length << 8 | symbol, or 0
 // if no codeword of up to 16 bits matches. Table symbol indices are in range:
-// the code ranges come from build_huffman_table.
+// the code ranges come from build_huffman_table. The caller's lookahead found
+// no codeword of kJpegLookaheadBits bits or fewer, so the match starts past them.
 __declspec(noinline) u32 canonical_entry(const JpegHuffmanTable& table, u32 window) noexcept {
-    for (u32 length = 0; length < 16; ++length) {
+    for (u32 length = kJpegLookaheadBits; length < 16; ++length) {
         const i32 code = static_cast<i32>(window >> (15u - length));
         if (code >= table.minimum_code[length] && code <= table.maximum_code[length]) {
             return (length + 1u) << 8 | table.symbols[table.value_offset[length] + code];

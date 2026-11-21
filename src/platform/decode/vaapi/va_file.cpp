@@ -33,7 +33,7 @@ bool submit_h264_sample(Session* session, const H264Sps& sps, const H264Pps& pps
         SliceParameterH264 slice;
         ok = slices++ < picture.slice_count &&
              h264_parse_slice_detail(nal.bytes, sps, pps, &detail) == H264Error::none &&
-             h264_slice_parameters(sps, pps, picture.first, detail, references, order, session->surface, nal.bytes.count,
+             h264_slice_parameters(sps, picture.first, detail, references, order, session->surface, nal.bytes.count,
                                    &slice) &&
              picture_slice(session, &slice, sizeof(slice), nal.bytes.data, nal.bytes.count);
     }

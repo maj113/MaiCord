@@ -299,7 +299,7 @@ void refused(GpuDevice* device, GpuContext* context, const VideoFixture& f) noex
 
 void capability(GpuDevice* device) noexcept {
     const u32 word = gpu_stream_decoder_codecs(device);
-    const u32 codecs = gpu_stream_codecs_decodable(word), software = gpu_stream_codecs_software_only(word);
+    const u32 codecs = word & kVideoDecodeCodecMask, software = gpu_stream_codecs_software_only(word);
     check((codecs & gpu_stream_codec_bit(GpuStreamCodec::h264)) && (codecs & gpu_stream_codec_bit(GpuStreamCodec::av1)),
           "capability: H.264 and AV1 are advertised with the software libraries");
     check(!(codecs & gpu_stream_codec_bit(GpuStreamCodec::h265)), "capability: HEVC needs hardware");

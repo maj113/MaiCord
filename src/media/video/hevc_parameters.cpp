@@ -54,7 +54,7 @@ u8* scaling_list(HevcScaling& s, u32 size, u32 matrix) noexcept {
            : size == 2 ? s.list16x16[matrix]
                        : s.list32x32[matrix / 3];
 }
-void scaling_defaults(HevcScaling& s) noexcept {
+inline void scaling_defaults(HevcScaling& s) noexcept {
     for (u32 m = 0; m < 6; ++m) {
         for (auto& v : s.list4x4[m])
             v = 16;
@@ -527,7 +527,6 @@ HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) 
     if (!output || !s.coded_width || !s.coded_height)
         return HevcError::invalid_input;
     HevcPps p{};
-    clear_bytes(&p, sizeof(p));
     copy_value(&p.scaling, s.scaling);
     auto b = hevc_payload(nal, 34);
     p.id = static_cast<u8>(b.ue(63));

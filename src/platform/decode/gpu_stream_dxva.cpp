@@ -217,19 +217,15 @@ HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submissi
     return FAILED(status) ? status : ended;
 }
 
-// H.264/HEVC short slices (one entry layout) from Annex B NAL ranges of source.
+// H.264/HEVC short slices (one entry layout) from Annex B NAL ranges of source. The stream scanner made the ranges
+// from NAL units of these bytes: each is inside them and not empty.
 HRESULT gpu_stream_submit_slices(GpuStream* stream, u8 surface, ConstSlice<u8> parameters,
-                                 ConstSlice<u8> matrix, ConstSlice<u8> source,
+                                 ConstSlice<u8> matrix, const u8* source,
                                  const H264StreamNalRange* slices, u32 slice_count) noexcept {
-    for (u32 i = 0; i < slice_count; ++i) {
-        const auto range = slices[i];
-        if (!range.size || range.offset > source.count || range.size > source.count - range.offset)
-            return E_INVALIDARG;
-    }
     struct Source {
         const u8* data;
         const H264StreamNalRange* slices;
-    } const context{source.data, slices};
+    } const context{source, slices};
     // Each slice behind a start code; a zero tail pads the batch to 128 bytes (DXVA HEVC).
     const auto fill = [](const void* opaque, u32 first, u8* bytes, u32 capacity, void* control, u32 limit,
                          u32* written) noexcept -> u32 {
@@ -281,14 +277,14 @@ bool h264_gpu_stream_create(GpuStream* stream, const H264Sps& sps, u8 surfaces) 
 
 bool h264_gpu_stream_submit(GpuStream* stream, const H264StreamPicture& picture, const H264StreamDecode& decode,
                             ConstSlice<u8> bytes) noexcept {
-    DXVA_PicParams_H264 parameters{};
-    DXVA_Qmatrix_H264 matrix{};
+    DXVA_PicParams_H264 parameters;
+    DXVA_Qmatrix_H264 matrix;
     h264_dxva_picture_parameters(picture.sps, picture.pps, picture.first, picture.all_intra,
                                  stream->h264.state.references, decode.plan.decode_order, decode.surface,
                                  stream->feedback, &parameters, &matrix);
     const HRESULT status = gpu_stream_submit_slices(
         stream, decode.surface, {reinterpret_cast<const u8*>(&parameters), sizeof(parameters)},
-        {reinterpret_cast<const u8*>(&matrix), sizeof(matrix)}, bytes, picture.slices, picture.slice_count);
+        {reinterpret_cast<const u8*>(&matrix), sizeof(matrix)}, bytes.data, picture.slices, picture.slice_count);
     return succeeded(stream, status);
 }
 
@@ -304,7 +300,7 @@ bool hevc_gpu_stream_submit(GpuStream* stream, const HevcStreamPicture& picture,
     HevcStreamState* state = &stream->hevc.state;
     const HevcConfiguration& config = state->sets.active;
     DXVA_PicParams_HEVC parameters;
-    DXVA_Qmatrix_HEVC matrix{};
+    DXVA_Qmatrix_HEVC matrix; // Written and sent only with scaling lists.
     const HevcReferenceState none{};
     if (!hevc_dxva_picture_parameters(config.sps, config.pps, picture.header, picture.intra,
                                       decode.restart ? none : state->references, decode.plan, decode.surface,
@@ -314,7 +310,7 @@ bool hevc_gpu_stream_submit(GpuStream* stream, const HevcStreamPicture& picture,
     }
     const HRESULT status = gpu_stream_submit_slices(
         stream, decode.surface, {reinterpret_cast<const u8*>(&parameters), sizeof(parameters)},
-        {reinterpret_cast<const u8*>(&matrix), config.sps.scaling_enabled ? u32{sizeof(matrix)} : 0u}, bytes,
+        {reinterpret_cast<const u8*>(&matrix), config.sps.scaling_enabled ? u32{sizeof(matrix)} : 0u}, bytes.data,
         picture.slices, picture.slice_count);
     return succeeded(stream, status);
 }

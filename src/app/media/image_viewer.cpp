@@ -356,7 +356,7 @@ void activate(u32 index) noexcept {
                                                                          : UiImageViewerCommand::fit);
     }
 }
-u32 find_item(MessageSceneRichItemKind kind, u32 index, MediaEmbedResource resource) noexcept {
+inline u32 find_item(MessageSceneRichItemKind kind, u32 index, MediaEmbedResource resource) noexcept {
     const auto& viewer = g_app.image_viewer;
     for (u32 i = 0; i < viewer.item_count; ++i)
         if (viewer.items[i].kind == kind && viewer.items[i].index == index &&

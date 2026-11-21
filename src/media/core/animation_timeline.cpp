@@ -29,7 +29,7 @@ u64 presentation_time(const AnimationTimeline& timeline, u64 now_us) noexcept {
     return timeline.suspended ? timeline.suspended_at_us : now_us;
 }
 
-bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noexcept {
+inline bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noexcept {
     return descriptor.generation != 0 && descriptor.frame_count != 0 &&
            descriptor.frame_count <= kAnimationTimelineFrameMaximum &&
            descriptor.first_frame_duration_us != 0 &&
@@ -53,7 +53,7 @@ u32 find_slot(const AnimationTimeline* timeline, const MediaAssetKey& key) noexc
     return bucket == kSlotIndexNone ? kSlotIndexNone : timeline->buckets[bucket] - 1;
 }
 
-u32 find_free_slot(AnimationTimeline* timeline) noexcept {
+inline u32 find_free_slot(AnimationTimeline* timeline) noexcept {
     return slot_table_take_free(timeline->entry_count, timeline->capacity, &timeline->free_cursor,
                                 [&](u32 slot) noexcept { return occupied(timeline->entries[slot]); });
 }
@@ -85,7 +85,7 @@ AnimationTimelineResult find_pending(AnimationTimeline* timeline, const Animatio
     return {AnimationTimelineError::none, slot};
 }
 
-bool next_position(const AnimationTimelineEntry& entry, u32* frame_index, u32* play_index) noexcept {
+inline bool next_position(const AnimationTimelineEntry& entry, u32* frame_index, u32* play_index) noexcept {
     if (entry.flags & animation_timeline_entry_restart) {
         *frame_index = 0;
         *play_index = 0;
@@ -358,12 +358,14 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
     if (timeline->capacity == 0 || timeline->suspended) {
         return result;
     }
-    const u32 first = timeline->scan_cursor % timeline->capacity;
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
     constexpr u32 kRejectedFlags = animation_timeline_entry_pending | animation_timeline_entry_finished;
     u32 live = timeline->entry_count;
+    // The walk starts at the scan cursor and wraps once: a compare per entry, not a division.
+    u32 next = timeline->scan_cursor % timeline->capacity;
     for (u32 offset = 0; live && offset < timeline->capacity; ++offset) {
-        const u32 index = (first + offset) % timeline->capacity;
+        const u32 index = next;
+        next = index + 1 == timeline->capacity ? 0 : index + 1;
         AnimationTimelineEntry& entry = timeline->entries[index];
         if (!occupied(entry))
             continue;
@@ -397,7 +399,7 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
         entry.pending_play_index = next_play;
         entry.flags |= animation_timeline_entry_pending;
         ++timeline->counters.due_advances;
-        timeline->scan_cursor = (index + 1) % timeline->capacity;
+        timeline->scan_cursor = next;
     }
     return result;
 }
@@ -469,13 +471,10 @@ u64 animation_timeline_next_wake_at_us(const AnimationTimeline* timeline) noexce
             continue;
         --live;
         const u32 flags = entry.flags;
-        if ((flags & kRequiredFlags) != kRequiredFlags || (flags & kRejectedFlags) != 0 ||
-            entry.due_at_us == 0) {
+        if ((flags & kRequiredFlags) != kRequiredFlags || (flags & kRejectedFlags) != 0) {
             continue;
         }
-        if (next == 0 || entry.due_at_us < next) {
-            next = entry.due_at_us;
-        }
+        next = earliest_deadline(next, entry.due_at_us);
     }
     return next;
 }

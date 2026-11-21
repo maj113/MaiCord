@@ -101,7 +101,7 @@ bool art_asks(const char* video, bool large) noexcept {
     const MediaAssetKey shown = application_video_art();
     return application_video_art_pump(media, &stop) && art_requests == before + 1 && art_url_bytes == bytes &&
            bytes_equal(art_url, expected, bytes) && media_asset_key_equal(art_key, shown) &&
-           media_asset_key_equal(shown, message_component_media_key(hash64_bytes(kHash64Seed, expected, bytes),
+           media_asset_key_equal(shown, message_component_media_key(hash64_words(kHash64Seed, expected, bytes),
                                                                     MediaAttachmentFormat::jpeg,
                                                                     large ? MediaResolutionTier::px2048
                                                                           : MediaResolutionTier::px512));

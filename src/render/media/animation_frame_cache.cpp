@@ -53,12 +53,12 @@ AnimationFrameCacheError translate_error(GlyphAtlasError error) noexcept {
     }
 }
 
-// Erased buckets are back-shifted (erase_bucket): the index holds no tombstones.
+// Erased buckets are back-shifted (erase_bucket): the index holds no tombstones. A bucket holds a slot below
+// entry_capacity: find_free_slot took it, or grow_storage kept it, and the capacity only grows.
 u32 find_bucket(const AnimationFrameCache* cache,
                 const AnimationFrameCacheKey& key) noexcept {
     return slot_index_find(cache->buckets, cache->bucket_capacity, key_hash(key), [&](u32 slot) noexcept {
-        return slot < cache->entry_capacity && cache->entries[slot].occupied &&
-               key_equal(cache->entries[slot].key, key);
+        return cache->entries[slot].occupied && key_equal(cache->entries[slot].key, key);
     });
 }
 

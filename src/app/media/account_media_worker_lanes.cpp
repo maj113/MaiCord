@@ -419,7 +419,7 @@ AccountMediaRequestResult asynchronous_failure(const AccountMediaWorkerLane* lan
     return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
 }
 
-bool wait_for_network(AccountMediaWorkerLane* lane, AccountMediaRequestResult* result) noexcept {
+inline bool wait_for_network(AccountMediaWorkerLane* lane, AccountMediaRequestResult* result) noexcept {
     while (lane->media.active) {
         const HANDLE notification = account_media_notification_handle(&lane->media);
         if (!notification) {
@@ -449,7 +449,7 @@ bool wait_for_network(AccountMediaWorkerLane* lane, AccountMediaRequestResult* r
     return false;
 }
 
-void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed,
+inline void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed,
              AccountMediaRequestResult result) noexcept {
     if (completed.kind == AccountMediaWorkKind::local_draft_preview) {
         release_local_source(lane);

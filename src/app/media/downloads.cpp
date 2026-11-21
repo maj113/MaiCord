@@ -184,7 +184,7 @@ bool media_downloadable(const Utf8View& url) noexcept {
 }
 // The saved name of embed media: the last path segment of its original URL,
 // with an extension for its format when the segment has none.
-bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadSource* out) noexcept {
+inline bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadSource* out) noexcept {
     u32 start = 0, end = url.bytes, slashes = 0;
     for (u32 i = 0; i < url.bytes; ++i) {
         if (url.data[i] == '?' || url.data[i] == '#') {
@@ -200,7 +200,7 @@ bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadSource* 
                             : format == MediaAttachmentFormat::jpeg ? ".jpg"
                             : format == MediaAttachmentFormat::webp ? ".webp"
                                                                     : "";
-    char name[sizeof(out->filename)]{};
+    char name[sizeof(out->filename)];
     u32 bytes = slashes >= 3 && end > start ? minimum<u32>(end - start, sizeof(name) - 8) : 0;
     copy_bytes(name, url.data + start, bytes);
     if (!bytes) {
@@ -759,7 +759,7 @@ bool chosen_risky(ConstSlice<wchar_t> path) noexcept {
         if (path.data[i] == L'\\' || path.data[i] == L'/')
             start = i + 1;
     start = maximum(start, path.count > 128 ? path.count - 128 : 0u);
-    char tail[513]{};
+    char tail[513];
     const int bytes =
         utf16_to_utf8(path.data + start, static_cast<int>(path.count - start), tail, sizeof(tail) - 1, true);
     return bytes <= 0 || attachment_download_risk_extension({tail, static_cast<u32>(bytes)});
@@ -799,7 +799,7 @@ void picker_complete(ApplicationDownloads& q) noexcept {
                     for (u32 n = 0; n < units; ++n)
                         if (j.path[n] == L'\\' || j.path[n] == L'/')
                             basename = n + 1;
-                    char name[2048]{};
+                    char name[2048];
                     const int name_bytes = utf16_to_utf8(j.path + basename, static_cast<int>(units - basename), name, sizeof(name), true);
                     if (name_bytes > 0) {
                         const auto safe = attachment_download_safe_filename(
@@ -1189,7 +1189,7 @@ bool open_sticker_context(const DownloadSource& source, const UiRect& anchor) no
 namespace {
 
 // What embed media is, for its menu labels: an animation, a video or an image.
-ReceivedAttachmentKind embed_kind(const DownloadSource& source) noexcept {
+inline ReceivedAttachmentKind embed_kind(const DownloadSource& source) noexcept {
     const auto& store = g_app.account_ui->message_rich_store;
     const auto* rich = rich_of(store, source.message, source.snapshot);
     MessageRichEmbedMediaSelection selected{};

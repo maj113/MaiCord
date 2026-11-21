@@ -12,7 +12,7 @@ bool same(const ApplicationUploadLease& lease) noexcept {
         lease.owner == upload_lane.owner && lease.scope == upload_lane.scope &&
         lease.profile == upload_lane.profile && lease.self == upload_lane.self;
 }
-bool actor(const ApplicationUploadLease& lease) noexcept {
+inline bool actor(const ApplicationUploadLease& lease) noexcept {
     return g_app.account_ui && lease.scope == g_app.plugin_account_scope_serial &&
         lease.profile == g_app.account.status.profile_id && lease.self == g_app.account_ui->chat_state.self_user_id;
 }

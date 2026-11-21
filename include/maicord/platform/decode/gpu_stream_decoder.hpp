@@ -91,6 +91,8 @@ void gpu_stream_decoder_hold(GpuStreamDecoder* decoder, u32 subresource) noexcep
 // Synchronous decoders only: threaded decoders own their GPU objects.
 bool gpu_stream_decoder_release_idle(GpuStreamDecoder* decoder) noexcept;
 GpuStreamDecoderStats gpu_stream_decoder_stats(const GpuStreamDecoder* decoder) noexcept;
+// The `unsupported` of the published stats, one byte read without the lock: the pusher checks it after each frame.
+bool gpu_stream_decoder_unsupported(const GpuStreamDecoder* decoder) noexcept;
 // Joins the decode thread, then releases every GPU object and buffer.
 void gpu_stream_decoder_destroy(GpuStreamDecoder* decoder) noexcept;
 

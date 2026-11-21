@@ -476,7 +476,7 @@ i32 clamp_quantizer(i32 value, i32 upper) noexcept {
     return value < 0 ? 0 : value > upper ? upper : value;
 }
 
-Vp8QuantMatrix make_quant_matrix(const Vp8ControlHeader& header, u32 segment_id) noexcept {
+inline Vp8QuantMatrix make_quant_matrix(const Vp8ControlHeader& header, u32 segment_id) noexcept {
     i32 quantizer = header.quantization.base_quantizer;
     if (header.segmentation.enabled) {
         quantizer = header.segmentation.quantizer[segment_id];
@@ -536,13 +536,14 @@ MAICORD_HASWELL __forceinline u32 read_large_coefficient(WindowReader* reader, c
 }
 
 // The tokens of one block, dequantized into `output` in raster order. `first` is 1 for luma after a Y2 block,
-// which starts at its first AC coefficient. The caller's reader stays in registers.
+// which starts at its first AC coefficient. The caller's reader stays in registers. A failed read returns 0 and each
+// later read fails again, so the end-of-block read ends the loop after a failure. The caller checks the reader.
 MAICORD_HASWELL __forceinline Vp8DecodedCoefficientBlock decode_coefficient_block(
     WindowReader* reader, const u8* probabilities, const u16* factors, u32 first, u32 context, i16* output) noexcept {
     u32 coefficient = first;
     u32 coefficient_context = context;
     bool has_nonzero = false;
-    while (coefficient < 16 && reader->ok()) {
+    while (coefficient < 16) {
         const u8* probability = coefficient_probability(probabilities, coefficient, coefficient_context);
         if (window_read(reader, probability[0]) == 0) {
             break;
@@ -572,37 +573,42 @@ MAICORD_HASWELL __forceinline Vp8DecodedCoefficientBlock decode_coefficient_bloc
     return Vp8DecodedCoefficientBlock{coefficient, has_nonzero, false};
 }
 
+// The Y2 block's inverse Walsh-Hadamard transform (RFC 6386 section 14.3) into the DC of the 16 luma blocks, on
+// 32-bit lanes. False when a result does not fit 16 bits.
 bool inverse_wht(const i16* input, Vp8MacroblockCoefficients* output) noexcept {
-    i32 temporary[16]{};
-    for (u32 column = 0; column < 4; ++column) {
-        const i32 a0 = input[column] + input[12u + column];
-        const i32 a1 = input[4u + column] + input[8u + column];
-        const i32 a2 = input[4u + column] - input[8u + column];
-        const i32 a3 = input[column] - input[12u + column];
-        temporary[column] = a0 + a1;
-        temporary[8u + column] = a0 - a1;
-        temporary[4u + column] = a3 + a2;
-        temporary[12u + column] = a3 - a2;
+    const auto row = [&](u32 index) noexcept {
+        return _mm_cvtepi16_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(input + index * 4u)));
+    };
+    // The vertical pass: a lane for each column.
+    const __m128i a0 = _mm_add_epi32(row(0), row(3)), a1 = _mm_add_epi32(row(1), row(2));
+    const __m128i a2 = _mm_sub_epi32(row(1), row(2)), a3 = _mm_sub_epi32(row(0), row(3));
+    const __m128i t0 = _mm_add_epi32(a0, a1), t1 = _mm_add_epi32(a3, a2);
+    const __m128i t2 = _mm_sub_epi32(a0, a1), t3 = _mm_sub_epi32(a3, a2);
+    // The horizontal pass: a lane for each row, the columns transposed into c0 to c3.
+    const __m128i low01 = _mm_unpacklo_epi32(t0, t1), high01 = _mm_unpackhi_epi32(t0, t1);
+    const __m128i low23 = _mm_unpacklo_epi32(t2, t3), high23 = _mm_unpackhi_epi32(t2, t3);
+    const __m128i dc = _mm_add_epi32(_mm_unpacklo_epi64(low01, low23), _mm_set1_epi32(3));
+    const __m128i c1 = _mm_unpackhi_epi64(low01, low23), c2 = _mm_unpacklo_epi64(high01, high23);
+    const __m128i c3 = _mm_unpackhi_epi64(high01, high23);
+    const __m128i b0 = _mm_add_epi32(dc, c3), b1 = _mm_add_epi32(c1, c2);
+    const __m128i b2 = _mm_sub_epi32(c1, c2), b3 = _mm_sub_epi32(dc, c3);
+    // results[k] holds column k of each row.
+    const __m128i results[4] = {_mm_srai_epi32(_mm_add_epi32(b0, b1), 3), _mm_srai_epi32(_mm_add_epi32(b3, b2), 3),
+                                _mm_srai_epi32(_mm_sub_epi32(b0, b1), 3), _mm_srai_epi32(_mm_sub_epi32(b3, b2), 3)};
+    // A value fits 16 bits when it plus 2^15 sets no bit from 16 up.
+    __m128i high = _mm_setzero_si128();
+    for (const __m128i& result : results)
+        high = _mm_or_si128(high, _mm_add_epi32(result, _mm_set1_epi32(0x8000)));
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(_mm_srli_epi32(high, 16), _mm_setzero_si128())) != 0xFFFF) {
+        return false;
     }
-    for (u32 row = 0; row < 4; ++row) {
-        const u32 base = row * 4u;
-        const i32 dc = temporary[base] + 3;
-        const i32 a0 = dc + temporary[base + 3u];
-        const i32 a1 = temporary[base + 1u] + temporary[base + 2u];
-        const i32 a2 = temporary[base + 1u] - temporary[base + 2u];
-        const i32 a3 = dc - temporary[base + 3u];
-        const i32 transformed[4] = {
-            (a0 + a1) >> 3,
-            (a3 + a2) >> 3,
-            (a0 - a1) >> 3,
-            (a3 - a2) >> 3,
-        };
-        for (u32 column = 0; column < 4; ++column) {
-            if (transformed[column] < -32'768 || transformed[column] > 32'767) {
-                return false;
-            }
-            output->values[base + column][0] = static_cast<i16>(transformed[column]);
-        }
+    i16 values[16];
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(values), _mm_packs_epi32(results[0], results[1]));
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(values + 8), _mm_packs_epi32(results[2], results[3]));
+    // Block 4 * row + column takes values[4 * column + row].
+#pragma clang loop unroll(disable)
+    for (u32 block = 0; block < 16; ++block) {
+        output->values[block][0] = values[(block & 3u) * 4u + (block >> 2)];
     }
     return true;
 }

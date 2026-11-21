@@ -73,7 +73,7 @@ struct WebpParts {
     bool animated;
 };
 
-bool bitstream_size(ConstSlice<u8> lossy, ConstSlice<u8> lossless, u32* width, u32* height) noexcept {
+inline bool bitstream_size(ConstSlice<u8> lossy, ConstSlice<u8> lossless, u32* width, u32* height) noexcept {
     if (lossy.data) {
         if (lossy.count < 10 || lossy[3] != 0x9D || lossy[4] != 0x01 || lossy[5] != 0x2A)
             return false;
@@ -917,7 +917,7 @@ void lzw_encode(Writer* w, const u8* pixels, u32 count, u32 minimum_code_size, L
         w->byte(0);
 }
 
-u64 lzw_bound(u64 pixels) noexcept {
+inline u64 lzw_bound(u64 pixels) noexcept {
     const u64 bytes = (pixels + 3 + pixels / 2000) * 12 / 8 + 2;
     return bytes + bytes / 255 + 3;
 }

@@ -35,7 +35,7 @@ Mp4DemuxError initialize_tables(Mp4Demuxer*,ConstSlice<u8>,u32 handler,Box* desc
 // Codec-specific random-access classification of one resident sync sample.
 enum class SyncKind : u8 { random_access, other, malformed, unsupported };
 using SyncClassifier = SyncKind (*)(ConstSlice<u8> unit, u8 nal_length_bytes) noexcept;
-// Shared seek scan; callers validate their own arguments first. A complete
+// Shared seek scan. It checks the arguments that both codecs share, and callers check their own first. A complete
 // source classifies every candidate. A progressive source classifies lazily
 // from the latest candidate and reports data_pending for a missing payload.
 Mp4DemuxError seek_sync(Mp4Demuxer*,i64 target,Mp4SeekPoint*,SyncClassifier) noexcept;

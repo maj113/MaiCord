@@ -297,7 +297,7 @@ void run_codec(GpuDevice* device, GpuContext* context, const Buffer& buffer, Gpu
         }
     }
     // MaiCord's own decoder: a codec it has no decoder for on this machine is checked for framing only.
-    if (!(gpu_stream_codecs_decodable(gpu_stream_decoder_codecs(device)) & gpu_stream_codec_bit(codec))) {
+    if (!(gpu_stream_decoder_codecs(device) & gpu_stream_codec_bit(codec))) {
         test_write_line("no decoder for this codec here: pictures not compared");
         return;
     }

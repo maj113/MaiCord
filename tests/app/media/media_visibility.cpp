@@ -1392,7 +1392,7 @@ void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
         const bool refused = pump.pass(now, clock_unix_milliseconds() / 1000, 0, &repaint).request_profile_media(media, &stop, false);
         check(refused && fixture_mailbox_taken == 1 && attachment_requests == requests + 1 &&
                   g_app.media_failures.count == 1 && g_app.media_failures.recorded == 1 &&
-                  media_asset_failure_blocked(g_app.media_failures, art, clock_monotonic_milliseconds()) &&
+                  media_asset_failure_blocked(g_app.media_failures, art) &&
                   g_app.account.instance == instance && g_app.account.status.coordinator_phase == phase &&
                   g_app.account.status.running == running,
               "upload refusal: a refused asset fails alone; the pump and the account session go on");

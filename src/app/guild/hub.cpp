@@ -211,7 +211,7 @@ u32 add_banner() noexcept {
     url.add(".webp?size=");
     url.number(size);
     image.url_bytes = url.ok ? url.used : 0;
-    image.key = message_component_media_key(hash64_bytes(kHash64Seed, image.url, image.url_bytes),
+    image.key = message_component_media_key(hash64_words(kHash64Seed, image.url, image.url_bytes),
                                             MediaAttachmentFormat::webp);
     return image.url_bytes ? add_image(&image) : 0;
 }

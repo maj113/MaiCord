@@ -45,7 +45,7 @@ bool slice_start(ConstSlice<u8> nal, u8 type, bool* first, u8* pps_id) noexcept 
     return b.error == HevcError::none;
 }
 
-bool stream_supported(const HevcSps& sps) noexcept {
+inline bool stream_supported(const HevcSps& sps) noexcept {
     return sps.coded_width <= 4096 && sps.coded_height <= 4096 && sps.max_buffering &&
            sps.max_buffering <= 15 && sps.max_reorder < sps.max_buffering &&
            video_display_extent(sps.width, sps.height, sps.sar_width, sps.sar_height).width != 0;
@@ -207,7 +207,7 @@ HevcScanStatus hevc_stream_scan(HevcParameterSets* sets, HevcStreamScanner* scan
                 error = hevc_parameter_sets_resolve(sets, pps_id);
             else if (pps_id != picture->header.pps_id)
                 error = HevcError::malformed; // One PPS per picture.
-            HevcSlice slice{};
+            HevcSlice slice;
             const HevcNal parsed{nal.bytes, HevcError::none, type,
                                  static_cast<u8>((nal.bytes[1] & 7u) - 1u)};
             if (error == HevcError::none && parsed.temporal_id > sets->active.sps.max_sub_layers)
@@ -282,8 +282,8 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     const HevcPictureHeader& header = picture.header;
     const HevcSps& sps = state->sets.active.sps;
     const u8 type = header.nal_type;
-    // Callers read *decode only after a decode action; it is built in place.
-    reset_value(decode);
+    // Callers read *decode only after a decode action; it is built in place: each field below, the plan by
+    // hevc_reference_plan.
     HevcStreamDecode& next = *decode;
     if (header.irap) {
         if (!stream_supported(sps)) {
@@ -313,6 +313,7 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
             return HevcStreamAction::request_keyframe;
         }
         next.surfaces_needed = state->surfaces;
+        next.reinitialize = next.restart = false;
     }
     const u8 capacity = next.reinitialize ? next.surfaces_needed : state->surfaces;
     const HevcReferenceState none{};

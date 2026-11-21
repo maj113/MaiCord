@@ -1,4 +1,5 @@
 #include "maicord/media/video/h264_output_queue.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 // Output bookkeeping, once per picture: compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -21,9 +22,7 @@ bool h264_output_ready(const H264OutputQueue& queue, u32 references,
     u8 max_reorder, u8 max_buffering) noexcept {
     if (!queue.count) return false;
     if (queue.count > max_reorder) return true;
-    u32 mask = references | h264_pending_surfaces(queue), count = 0;
-    while (mask) { mask &= mask - 1u; ++count; }
-    return count > max_buffering;
+    return population_count(references | h264_pending_surfaces(queue)) > max_buffering;
 }
 bool h264_output_push(H264OutputQueue* queue, H264Output picture) noexcept {
     if (!queue || queue->count >= 17 || picture.surface >= 32 || picture.surface == queue->leased ||

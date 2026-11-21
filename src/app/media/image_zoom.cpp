@@ -107,11 +107,6 @@ bool application_image_zoom_message(const WindowEvent& event) noexcept {
         application_image_zoom_end();
         return false;
     case EventType::focus_changed:
-        if (!event.focus.gained) {
-            zoom.ctrl = false;
-            application_image_zoom_end();
-        }
-        return false;
     case EventType::activation_changed:
         if (!event.focus.gained) {
             zoom.ctrl = false;

@@ -3,7 +3,7 @@
 
 namespace maicord {
 namespace {
-bool type_is(const u8* header, const char* type) noexcept {
+inline bool type_is(const u8* header, const char* type) noexcept {
     return header[4] == static_cast<u8>(type[0]) && header[5] == static_cast<u8>(type[1]) &&
            header[6] == static_cast<u8>(type[2]) && header[7] == static_cast<u8>(type[3]);
 }
