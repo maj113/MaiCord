@@ -84,6 +84,55 @@ struct PropertySegment {
     bool raw;
 };
 
+// A member of the properties, in the live client's order: os_version, os_version_is_release, then on Windows
+// os_sdk_version, os_arch ... browser_version, os_build_revision. The Linux desktop client sends no os_sdk_version
+// and adds the host's window manager, distro, runtime environment and display server after browser_version. The
+// members up to browser_version are required; the later ones are omitted when empty. A row without a member is the
+// literal true.
+enum PropertyFlags : u8 { property_windows = 1, property_linux = 2, property_both = 3, property_optional = 4 };
+struct PropertyRow {
+    Utf8View key;
+    Utf8View GatewayUserProperties::*value;
+    u32 maximum;
+    u8 flags;
+};
+constexpr PropertyRow kPropertyRows[] = {
+    {utf8_literal("{\"os\":"), &GatewayUserProperties::operating_system, kGatewayUserMaximumOperatingSystemBytes,
+     property_both},
+    {utf8_literal(",\"browser\":"), &GatewayUserProperties::browser, kGatewayUserMaximumBrowserBytes, property_both},
+    {utf8_literal(",\"release_channel\":"), &GatewayUserProperties::release_channel,
+     kGatewayUserMaximumReleaseChannelBytes, property_both},
+    {utf8_literal(",\"client_version\":"), &GatewayUserProperties::client_version, kGatewayUserMaximumVersionBytes,
+     property_both},
+    {utf8_literal(",\"os_version\":"), &GatewayUserProperties::os_version, kGatewayUserMaximumVersionBytes,
+     property_both},
+    {utf8_literal(",\"os_version_is_release\":"), nullptr, 0, property_both},
+    {utf8_literal(",\"os_sdk_version\":"), &GatewayUserProperties::os_sdk_version, kGatewayUserMaximumVersionBytes,
+     property_windows},
+    {utf8_literal(",\"os_arch\":"), &GatewayUserProperties::os_arch, kGatewayUserMaximumArchitectureBytes,
+     property_both},
+    {utf8_literal(",\"app_arch\":"), &GatewayUserProperties::app_arch, kGatewayUserMaximumArchitectureBytes,
+     property_both},
+    {utf8_literal(",\"system_locale\":"), &GatewayUserProperties::system_locale, kGatewayUserMaximumLocaleBytes,
+     property_both},
+    {utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), &GatewayUserProperties::client_launch_id,
+     kGatewayUserLaunchIdBytes, property_both},
+    {utf8_literal(",\"browser_user_agent\":"), &GatewayUserProperties::browser_user_agent,
+     kGatewayUserMaximumUserAgentBytes, property_both},
+    {utf8_literal(",\"browser_version\":"), &GatewayUserProperties::browser_version, kGatewayUserMaximumVersionBytes,
+     property_both},
+    {utf8_literal(",\"window_manager\":"), &GatewayUserProperties::window_manager, kGatewayUserMaximumHostBytes,
+     property_linux | property_optional},
+    {utf8_literal(",\"distro\":"), &GatewayUserProperties::distro, kGatewayUserMaximumHostBytes,
+     property_linux | property_optional},
+    {utf8_literal(",\"runtime_environment\":"), &GatewayUserProperties::runtime_environment,
+     kGatewayUserMaximumRuntimeBytes, property_linux | property_optional},
+    {utf8_literal(",\"display_server\":"), &GatewayUserProperties::display_server, kGatewayUserMaximumRuntimeBytes,
+     property_linux | property_optional},
+    {utf8_literal(",\"os_build_revision\":"), &GatewayUserProperties::os_build_revision,
+     kGatewayUserMaximumVersionBytes, property_windows | property_optional},
+};
+
 // Properties of a user identify, or with identify null of the request-time
 // header. A fast-connect identify carries the page's reduced object.
 GatewayCommandWriteResult write_properties(const GatewayUserProperties& properties,
@@ -120,43 +169,17 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
                                             kGatewayUserMaximumAppStateBytes, false};
     const PropertySegment heartbeat_segment{utf8_literal(",\"client_heartbeat_session_id\":"), heartbeat,
                                             kGatewayUserLaunchIdBytes, heartbeat_null};
-    // The live client's order: os_version, os_version_is_release, then on Windows os_sdk_version, os_arch ...
-    // browser_version, os_build_revision, client_build_number. The Linux desktop client sends no os_sdk_version and
-    // adds the host's window manager, distro, runtime environment and display server after browser_version.
     constexpr u32 segment_capacity = 24;
     PropertySegment segments[segment_capacity];
-    u32 segment_count = 0;
+    u32 segment_count = 0, required_count = 0;
     const auto add = [&](const PropertySegment& segment) { segments[segment_count++] = segment; };
-    add({utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes, false});
-    add({utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes, false});
-    add({utf8_literal(",\"release_channel\":"), properties.release_channel, kGatewayUserMaximumReleaseChannelBytes,
-         false});
-    add({utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes, false});
-    add({utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes, false});
-    add({utf8_literal(",\"os_version_is_release\":"), utf8_literal("true"), 0, true});
-    if (!properties.linux_desktop)
-        add({utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
-             false});
-    add({utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes, false});
-    add({utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes, false});
-    add({utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes, false});
-    add({utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), properties.client_launch_id,
-         kGatewayUserLaunchIdBytes, false});
-    add({utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent, kGatewayUserMaximumUserAgentBytes,
-         false});
-    add({utf8_literal(",\"browser_version\":"), properties.browser_version, kGatewayUserMaximumVersionBytes, false});
-    // Fields up to browser_version are required; later ones are omitted when empty.
-    const u32 required_count = segment_count;
-    if (properties.linux_desktop) {
-        add({utf8_literal(",\"window_manager\":"), properties.window_manager, kGatewayUserMaximumHostBytes, false});
-        add({utf8_literal(",\"distro\":"), properties.distro, kGatewayUserMaximumHostBytes, false});
-        add({utf8_literal(",\"runtime_environment\":"), properties.runtime_environment,
-             kGatewayUserMaximumRuntimeBytes, false});
-        add({utf8_literal(",\"display_server\":"), properties.display_server, kGatewayUserMaximumRuntimeBytes,
-             false});
-    } else {
-        add({utf8_literal(",\"os_build_revision\":"), properties.os_build_revision, kGatewayUserMaximumVersionBytes,
-             false});
+    const u8 host = properties.linux_desktop ? property_linux : property_windows;
+    for (const PropertyRow& row : kPropertyRows) {
+        if (!(row.flags & host))
+            continue;
+        add({row.key, row.value ? properties.*row.value : utf8_literal("true"), row.maximum, !row.value});
+        if (!(row.flags & property_optional))
+            required_count = segment_count;
     }
     add({utf8_literal(",\"client_build_number\":"), build_text, 0, true});
     add({utf8_literal(",\"native_build_number\":"), native_text, 0, true});

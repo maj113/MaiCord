@@ -816,9 +816,9 @@ bool visit_handoff_request(void* opaque, JsonString name, JsonValue value) noexc
 bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> scratch, u32 maximum_depth) noexcept {
     if (!body.data || !body.bytes || body.bytes > kBrowserSignInMaximumBodyBytes || !scratch.data ||
         !scratch.count || scratch.count > ~0u / sizeof(u32) || !maximum_depth) return false;
-    const ConstSlice<u8> input{reinterpret_cast<const u8*>(body.data), body.bytes};
-    const ConstSlice<u8> index{reinterpret_cast<const u8*>(scratch.data), static_cast<u32>(scratch.count * sizeof(u32))};
-    if (!byte_range_valid(input) || !byte_range_valid(index) || byte_ranges_overlap(input, index)) return false;
+    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(body.data), body.bytes},
+        {reinterpret_cast<const u8*>(scratch.data), static_cast<u32>(scratch.count * sizeof(u32))}};
+    if (!byte_ranges_all_disjoint({ranges, 2})) return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok()) return false;
     HandoffRequestContext context{};

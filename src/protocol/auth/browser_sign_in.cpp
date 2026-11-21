@@ -95,13 +95,11 @@ bool payload_member(void* opaque, JsonString name, JsonValue value) noexcept {
 
 BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16 port,
     Slice<u8> decoded_query, Slice<u32> structural_scratch) noexcept {
-    const ConstSlice<u8> decoded{decoded_query.data, decoded_query.count};
-    const ConstSlice<u8> index{reinterpret_cast<const u8*>(structural_scratch.data), structural_scratch.count * static_cast<u32>(sizeof(u32))};
-    if (!port_valid(port) || !input.data || !byte_range_valid(input) || !decoded_query.data ||
-        decoded_query.count < kBrowserSignInMaximumBodyBytes || !byte_range_valid(decoded) ||
+    const ConstSlice<u8> ranges[]{input, {decoded_query.data, decoded_query.count},
+        {reinterpret_cast<const u8*>(structural_scratch.data), structural_scratch.count * static_cast<u32>(sizeof(u32))}};
+    if (!port_valid(port) || !input.data || !decoded_query.data || decoded_query.count < kBrowserSignInMaximumBodyBytes ||
         !structural_scratch.data || structural_scratch.count < kBrowserSignInStructuralCount ||
-        structural_scratch.count > ~u32{0} / sizeof(u32) || !byte_range_valid(index) ||
-        byte_ranges_overlap(input, decoded) || byte_ranges_overlap(input, index) || byte_ranges_overlap(decoded, index))
+        structural_scratch.count > ~u32{0} / sizeof(u32) || !byte_ranges_all_disjoint({ranges, 3}))
         return reject(BrowserSignInError::invalid_input);
     if (input.count > kBrowserSignInMaximumHeaderBytes + kBrowserSignInMaximumBodyBytes) return reject(BrowserSignInError::capacity);
     HttpRequestHead head;
@@ -208,8 +206,7 @@ BrowserSignInWriteResult browser_sign_in_write_exchange(Utf8View key, Utf8View t
     if (!key_valid(key) || !encoded_string(key, kBrowserSignInKeyBytes, &key_string) ||
         !encoded_string(token, kBrowserSignInMaximumTokenBytes, &token_string) || !destination(output, key, token)) return {0, BrowserSignInError::invalid_input};
     const u32 required = sizeof("{\"key\":,\"handoff_token\":}") - 1 + key_string.bytes + token_string.bytes;
-    if (required > kBrowserSignInMaximumBodyBytes) return {required, BrowserSignInError::capacity};
-    if (required > output.count) return {required, BrowserSignInError::capacity};
+    if (required > kBrowserSignInMaximumBodyBytes || required > output.count) return {required, BrowserSignInError::capacity};
     u32 cursor = 0; write_literal(output.data, &cursor, "{\"key\":"); write_encoded(output.data, &cursor, key_string);
     write_literal(output.data, &cursor, ",\"handoff_token\":"); write_encoded(output.data, &cursor, token_string); output[cursor++] = '}';
     return {cursor, BrowserSignInError::none};

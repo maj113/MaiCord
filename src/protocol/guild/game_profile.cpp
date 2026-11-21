@@ -162,13 +162,21 @@ bool list(Parse& p, Field field, JsonValue value, JsonArrayVisitor visitor, void
 bool visit_game(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(opaque);
     auto& g = *p.game;
-    if (name_is(name, "id")) {
+    const u32 member = member_index<"id", "summary_localized", "summary", "description", "genres", "platforms",
+                                    "companies", "publisher_names", "developer_names", "first_release_date",
+                                    "websites", "supplemental_game_data">(name);
+    switch (member) {
+    case 0: {
         u64 id = 0;
         if (json_value_to_snowflake(value, &id) || json_value_to_u64(value, &id))
             g.id = id;
-    } else if (name_is(name, "summary_localized") || name_is(name, "summary") || name_is(name, "description")) {
+        break;
+    }
+    case 1:
+    case 2:
+    case 3: {
         // summary_localized before summary or description, each source's ahead of the next.
-        const u8 rank = static_cast<u8>(p.current * 2 + (name_is(name, "summary_localized") ? 1 : 0));
+        const u8 rank = static_cast<u8>(p.current * 2 + (member == 1 ? 1 : 0));
         if (value.kind == JsonValueKind::string && rank > p.rank[summary]) {
             const u32 bytes =
                 copy_text_truncated<kGameProfileSummaryBytes * 2>(value, g.summary, kGameProfileSummaryBytes);
@@ -177,11 +185,11 @@ bool visit_game(void* opaque, JsonString name, JsonValue value) noexcept {
                 p.rank[summary] = rank;
             }
         }
-    } else if (name_is(name, "genres")) {
-        list(p, genres, value, visit_genre, &p);
-    } else if (name_is(name, "platforms")) {
-        list(p, platforms, value, visit_platform, &p);
-    } else if (name_is(name, "companies")) {
+        break;
+    }
+    case 4: list(p, genres, value, visit_genre, &p); break;
+    case 5: list(p, platforms, value, visit_platform, &p); break;
+    case 6:
         if (value.kind == JsonValueKind::array && p.rank[publishers] <= p.current &&
             p.rank[developers] <= p.current) {
             take(p, publishers);
@@ -190,23 +198,29 @@ bool visit_game(void* opaque, JsonString name, JsonValue value) noexcept {
             g.publisher_count = g.developer_count = 0;
             json_visit_indexed_array(*p.document, value, kDepth, visit_company, &p);
         }
-    } else if (name_is(name, "publisher_names")) {
-        NameList names{&g, true};
-        list(p, publishers, value, visit_name, &names);
-    } else if (name_is(name, "developer_names")) {
-        NameList names{&g, false};
-        list(p, developers, value, visit_name, &names);
-    } else if (name_is(name, "first_release_date")) {
+        break;
+    case 7:
+    case 8: {
+        NameList names{&g, member == 7};
+        list(p, member == 7 ? publishers : developers, value, visit_name, &names);
+        break;
+    }
+    case 9: {
         u64 ms = 0;
         if (json_value_to_timestamp(value, &ms) && take(p, release))
             g.release_ms = ms;
-    } else if (name_is(name, "websites")) {
-        list(p, links, value, visit_website, &p);
-    } else if (name_is(name, "supplemental_game_data") && value.kind == JsonValueKind::object) {
-        const u8 outer = p.current;
-        p.current = 1;
-        json_visit_indexed_object(*p.document, value, kDepth, visit_game, &p);
-        p.current = outer;
+        break;
+    }
+    case 10: list(p, links, value, visit_website, &p); break;
+    case 11:
+        if (value.kind == JsonValueKind::object) {
+            const u8 outer = p.current;
+            p.current = 1;
+            json_visit_indexed_object(*p.document, value, kDepth, visit_game, &p);
+            p.current = outer;
+        }
+        break;
+    default: break;
     }
     return true;
 }

@@ -451,7 +451,7 @@ u32 format_double(u64 bits, char* out) noexcept {
 }
 
 // FLOAT_EXT: "%.20e" text, NUL padded; it must already be a JSON number.
-bool float_text(const u8* p, u32* length) noexcept {
+inline bool float_text(const u8* p, u32* length) noexcept {
     u32 n = 0;
     while (n < 31 && p[n])
         ++n;

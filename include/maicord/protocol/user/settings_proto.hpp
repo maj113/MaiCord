@@ -110,7 +110,8 @@ ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) no
 // "required_data_version" when nonzero or `required` (an edit made offline
 // pins the data version it was made against, which may be 0). The partial message may contain only
 // length-delimited top-level groups 2..31 other than status; guild folders
-// (group 14) travel alone, from their own owner.
+// (group 14) travel alone, from their own owner. The writer takes a partial message that passed
+// user_settings_proto_patch_valid and a valid output range (account_settings_write_request checks both).
 bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept;
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
                                          Slice<u8> output, bool required = false) noexcept;

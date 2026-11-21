@@ -93,6 +93,8 @@ bool gateway_visit_member_object(void* opaque, JsonString name, JsonValue value)
 // A member's presence: its status, client_status and activities, and for a thread member the user object it carries.
 // activities_repeated: the presence holds `activities` two times, and `activities` is the first.
 struct GatewayMemberPresence {
+    // The parsed document that holds the presence: client_status is read through it.
+    const JsonIndexedDocument* document;
     JsonValue user;
     JsonValue activities;
     JsonString status;

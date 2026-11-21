@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
@@ -38,6 +39,22 @@ __forceinline u32 byte_sum(__m128i bytes) noexcept {
     const __m128i sums = _mm_sad_epu8(bytes, _mm_setzero_si128());
     return static_cast<u32>(_mm_cvtsi128_si32(sums) + _mm_cvtsi128_si32(_mm_srli_si128(sums, 8)));
 }
+// Whether a and b, `bytes` long each, hold the same bytes: two overlapping loads of the widest word that fits,
+// after eight bytes at a time for a longer name. No byte outside either name is read.
+__forceinline bool same_text(const char* left, const char* right, u32 bytes) noexcept {
+    const u8* a = reinterpret_cast<const u8*>(left);
+    const u8* b = reinterpret_cast<const u8*>(right);
+    if (bytes >= 8) {
+        for (u32 at = 0; bytes - at > 8; at += 8)
+            if (byte_load_le64(a + at) != byte_load_le64(b + at)) return false;
+        return byte_load_le64(a + bytes - 8) == byte_load_le64(b + bytes - 8);
+    }
+    if (bytes >= 4)
+        return ((byte_load_le32(a) ^ byte_load_le32(b)) | (byte_load_le32(a + bytes - 4) ^ byte_load_le32(b + bytes - 4))) == 0;
+    if (bytes >= 2)
+        return ((byte_load_le16(a) ^ byte_load_le16(b)) | (byte_load_le16(a + bytes - 2) ^ byte_load_le16(b + bytes - 2))) == 0;
+    return !bytes || *a == *b;
+}
 // Position of the first table name equal to name, or the table's count when none is. A name the reader marked
 // as holding no backslash (its has_escapes is exact) equals a listed name only byte for byte.
 __declspec(noinline) inline u32 table_index(const JsonString& name, const u8* table) noexcept {
@@ -58,10 +75,7 @@ __declspec(noinline) inline u32 table_index(const JsonString& name, const u8* ta
                 _BitScanForward(&k, same);
                 // The name starts after the names of the earlier blocks and the first k names of this block.
                 const __m128i before = _mm_loadu_si128(reinterpret_cast<const __m128i*>(kLowBytes + 16 - k));
-                const char* listed = text + byte_sum(_mm_and_si128(block, before));
-                u32 at = 0;
-                while (at < bytes && data[at] == listed[at]) ++at;
-                if (at == bytes) return i + k;
+                if (same_text(data, text + byte_sum(_mm_and_si128(block, before)), bytes)) return i + k;
             }
             text += byte_sum(block);
         }
@@ -107,13 +121,10 @@ struct NamedVisit { FieldValue* field; const char* text; u32 bytes; };
 __declspec(noinline) inline bool named_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& f = *static_cast<NamedVisit*>(opaque);
     const char* data = name.encoded.data;
-    u32 k = 0;
     if (!data || name.has_escapes) {
         if (!json_string_equals_ascii_bytes(data, name.encoded.bytes, f.text, f.bytes)) return true;
-    } else {
-        if (name.encoded.bytes != f.bytes) return true;
-        while (k < f.bytes && data[k] == f.text[k]) ++k;
-        if (k != f.bytes) return true;
+    } else if (name.encoded.bytes != f.bytes || !same_text(data, f.text, f.bytes)) {
+        return true;
     }
     if (f.field->seen) return false;
     *f.field = {value, true};

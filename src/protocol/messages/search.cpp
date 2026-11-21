@@ -285,8 +285,7 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
                   context->rich_scratch->mention_users, context->rich_scratch->rich, 0, &message)
             : gateway_decode_message_create(
                   context->document, value, context->maximum_depth,
-                  {context->text.data ? context->text.data + page.text_bytes : nullptr,
-                   context->text.count - page.text_bytes},
+                  {context->text.data + page.text_bytes, context->text.count - page.text_bytes},
                   {mention_roles, kGatewayMessageMentionRoleMaximumIds},
                   {mention_users, kGatewayMessageMentionUserMaximum}, 0, &message);
     if (!decoded.ok()) {

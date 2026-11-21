@@ -157,7 +157,7 @@ StageWriteResult stage_write_body(const StageRequest& r, Slice<u8> output) noexc
         ok = ok && protocol_write(&w, "\"topic\":", json_text(r.topic), ",\"privacy_level\":", privacy(r));
         break;
     case StageOperation::voice_status:
-        ok = ok && protocol_write(&w, "\"status\":", json_text(r.topic.bytes ? r.topic : utf8_literal("")));
+        ok = ok && protocol_write(&w, "\"status\":", json_text(r.topic));
         break;
     default:
         ok = false;
@@ -224,7 +224,7 @@ GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, const Sli
         return {data.source_offset + read.error_offset,
                 d.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json : d.error,
                 JsonScanError::none, read.error};
-    if ((d.seen & 4) == 0 || !d.value.channel_id)
+    if (!d.value.channel_id)
         return {data.source_offset, GatewayEventDecodeError::missing_required_field};
     *output = d.value;
     return {};

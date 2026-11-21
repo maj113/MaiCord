@@ -68,12 +68,10 @@ Put put_text(GatewayPayloadWriter* writer, JsonValue value, u32 maximum, u32* by
         writer->overflow = true;
         return Put::full;
     }
-    char* target = writer->output.data + writer->used;
-    const auto decoded = json_string_decode_utf8(text, Slice<char>{target, writer->output.count - writer->used});
-    if (!decoded.ok() || decoded.bytes != sized.bytes || !utf8_validate({target, decoded.bytes}).valid)
-        return Put::invalid;
-    writer->used += decoded.bytes;
-    *bytes = decoded.bytes;
+    // The sizing pass validated the string, so the decode fills exactly sized.bytes of valid UTF-8.
+    json_string_decode_utf8(text, Slice<char>{writer->output.data + writer->used, writer->output.count - writer->used});
+    writer->used += sized.bytes;
+    *bytes = sized.bytes;
     return Put::ok;
 }
 

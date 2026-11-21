@@ -190,12 +190,12 @@ enum class ChunkSizeParse : u8 {
     overflow,
 };
 
-bool is_quoted_text(u8 value) noexcept {
+inline bool is_quoted_text(u8 value) noexcept {
     return value == '\t' || value == ' ' || value == 0x21 || (value >= 0x23 && value <= 0x5B) ||
            (value >= 0x5D && value <= 0x7E) || value >= 0x80;
 }
 
-bool is_quoted_pair_value(u8 value) noexcept {
+inline bool is_quoted_pair_value(u8 value) noexcept {
     return value == '\t' || value == ' ' || (value >= 0x21 && value <= 0x7E) || value >= 0x80;
 }
 
@@ -620,11 +620,11 @@ bool decoder_copy_body(HttpResponseDecoder* decoder, ConstSlice<u8> bytes) noexc
     return true;
 }
 
-bool decoder_connection_reusable(const HttpResponseHead& head) noexcept {
+inline bool decoder_connection_reusable(const HttpResponseHead& head) noexcept {
     return head.version_major == 1 && head.version_minor >= 1 && !head.connection_close;
 }
 
-HttpHeadResult decoder_parse_head(HttpResponseDecoder* decoder, ConstSlice<u8> input) noexcept {
+inline HttpHeadResult decoder_parse_head(HttpResponseDecoder* decoder, ConstSlice<u8> input) noexcept {
     return decoder->head_parser
                ? decoder->head_parser(decoder->head_parser_context, input, decoder->maximum_header_bytes,
                                       decoder->maximum_fields)
@@ -632,7 +632,7 @@ HttpHeadResult decoder_parse_head(HttpResponseDecoder* decoder, ConstSlice<u8> i
                                           nullptr, nullptr);
 }
 
-bool retain_final_head(HttpResponseDecoder* decoder, ConstSlice<u8> head) noexcept {
+inline bool retain_final_head(HttpResponseDecoder* decoder, ConstSlice<u8> head) noexcept {
     if (!decoder->retained_head.data && decoder->retained_head.count == 0) {
         decoder->final_head_bytes = 0;
         return true;

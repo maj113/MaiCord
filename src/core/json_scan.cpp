@@ -164,11 +164,11 @@ MAICORD_HASWELL __forceinline ChunkResult scan_chunk(const char* chunk, u64 vali
     return ChunkResult::overflow;
 }
 
-// The document json_scan_source_set registered: input, its exact structural index, and the thread that owns it.
-// Only the owner reads the other fields, so another thread's scans never see them half written.
 // Containers shorter than this are cheaper to scan than to look up.
 constexpr u32 kServedMinimumBytes = 256;
 
+// The document json_scan_source_set registered: input, its exact structural index, and the thread that owns it.
+// Only the owner reads the other fields, so another thread's scans never see them half written.
 struct ScanSource {
     const char* input;
     u32 bytes;
@@ -269,7 +269,7 @@ void json_scan_source_clear() noexcept {
         g_source.owner = 0;
 }
 
-// 64-byte chunks: quote, backslash, structural and control masks from SSSE3
+// 64-byte chunks: quote, backslash, structural and control masks from AVX2
 // lookups, odd backslash runs resolved with carries, string interiors from a
 // carry-less prefix XOR. Malformed input (a control character inside a string
 // or an unterminated string) is rescanned by the scalar reference so results

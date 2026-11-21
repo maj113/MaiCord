@@ -311,7 +311,7 @@ u64 number(const JsonValue& v) noexcept {
         return json_value_to_snowflake(v, &n) ? n : 0;
     return json_value_to_u64(v, &n) ? n : 0;
 }
-// Decoded, validated and bounded; oversized or malformed strings are empty.
+// Decoded, bounded and trimmed; oversized or malformed strings are empty. The decoder's output is valid UTF-8.
 u32 decode(const JsonValue& v, char* output, u32 budget, bool whole) noexcept {
     JsonString s{};
     if (!present(v) || v.kind != JsonValueKind::string || !json_value_as_string(v, &s))
@@ -321,8 +321,6 @@ u32 decode(const JsonValue& v, char* output, u32 budget, bool whole) noexcept {
     if (!result.ok())
         return 0;
     const Utf8View text{scratch, result.bytes};
-    if (!utf8_validate(text).valid)
-        return 0;
     if (whole && text.bytes > budget)
         return 0;
     u32 begin = 0, end = text.bytes;
@@ -461,7 +459,8 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     Members party{{}, {}, {}, {}, utf8_literal("size"), utf8_literal("id")};
     if (!object(*c.doc, f.v[activity_party], &party))
         return false;
-    if (present(f.v[activity_party]) && f.v[activity_party].kind == JsonValueKind::object) {
+    // object() accepted it, so a present party is an object.
+    if (present(f.v[activity_party])) {
         a.detail |= user_activity_has_party;
         char id[16];
         if (decode(party.b, id, sizeof(id), false) >= 8 && bytes_equal(id, "spotify:", 8))

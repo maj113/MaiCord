@@ -572,13 +572,8 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
         {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
         {reinterpret_cast<const u8*>(items.data), items.count * static_cast<u32>(sizeof(MediaCatalogItem))},
         {reinterpret_cast<const u8*>(text.data), text.count}};
-    for (u32 i = 0; i < 4; ++i) {
-        if (!byte_range_valid(ranges[i]))
-            return invalid;
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(ranges[i], ranges[j]))
-                return invalid;
-    }
+    if (!byte_ranges_all_disjoint({ranges, 4}))
+        return invalid;
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok()) {
         invalid.error = E::scan;

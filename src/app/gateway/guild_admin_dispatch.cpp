@@ -147,19 +147,10 @@ bool gateway_client_event_guild_membership(const GatewayClientEvent& event, Cons
     return true;
 }
 
-bool gateway_client_publish_guild_stickers(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
+bool gateway_client_publish_guild_stickers(JsonValue stickers, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
                                            u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
                                            void* context) noexcept {
-    if (!publish || !guild_id || !scratch.data || scratch.count < 64 || !payload.data ||
-        payload.count < kGatewayClientDispatchPayloadCapacity || guild.kind != JsonValueKind::object)
-        return true;
-    JsonValue found{};
-    GatewayNamedMember target{utf8_literal("stickers"), &found};
-    const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-    if (!scan.ok() ||
-        !json_visit_value_object(guild, {scratch.data, scan.count}, 32, gateway_store_named_member, &target).ok())
-        return true;
-    const JsonValue list = sticker_array(found, scratch);
+    const JsonValue list = sticker_array(stickers, scratch);
     if (list.kind != JsonValueKind::array || !list.source.bytes ||
         list.source.bytes > kGatewayClientDispatchPayloadCapacity)
         return true;

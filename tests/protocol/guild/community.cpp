@@ -954,15 +954,15 @@ void test_gateway() noexcept {
     published = {};
     const Utf8View guild = utf8_literal(
         R"({"id":"10","name":"G","guild_scheduled_events":[{"id":"1","guild_id":"10","name":"E",)"
-        R"("scheduled_start_time":"2030-01-01T00:00:00Z","status":1,"entity_type":3}],"stage_instances":[]})");
+        R"("scheduled_start_time":"2030-01-01T00:00:00Z","status":1,"entity_type":3}]})");
     static char snapshot[kGatewayClientDispatchPayloadCapacity];
-    gateway_client_publish_scheduled_events({guild, 0, JsonValueKind::object}, 10, {scratch, 16384},
-                                            {snapshot, sizeof(snapshot)}, 3, 0, publish, &published);
+    gateway_client_publish_guild_arrays({guild, 0, JsonValueKind::object}, 10, {scratch, 16384},
+                                        {snapshot, sizeof(snapshot)}, 3, 0, publish, &published);
     const bool none = [] {
         static Published empty;
         empty = {};
-        gateway_client_publish_scheduled_events({utf8_literal(R"({"id":"10"})"), 0, JsonValueKind::object}, 10,
-                                                {scratch, 16384}, {snapshot, sizeof(snapshot)}, 3, 0, publish, &empty);
+        gateway_client_publish_guild_arrays({utf8_literal(R"({"id":"10"})"), 0, JsonValueKind::object}, 10,
+                                            {scratch, 16384}, {snapshot, sizeof(snapshot)}, 3, 0, publish, &empty);
         return empty.count == 0;
     }();
     check(published.count == 1 &&

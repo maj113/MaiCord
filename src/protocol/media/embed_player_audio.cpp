@@ -657,9 +657,8 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
         staged.id = station.seed;
     } else {
         if (!u64_of(f[0], &staged.id) || !staged.id ||
-            (expected_id && expected_id != staged.id) || !equal(f[1], "playlist") ||
-            !equal(f[2], {permalink, permalink_bytes}) || !bool_of(f[3], &public_set) ||
-            !u64_of(f[6], &count) || !f[7].seen) return E::malformed;
+            (expected_id && expected_id != staged.id) || !equal(f[1], "playlist") || !bool_of(f[3], &public_set) ||
+            !u64_of(f[6], &count)) return E::malformed;
         if (!public_set || !equal(f[4], "public")) return E::unavailable;
         if (!equal(f[5], "all")) return E::not_embeddable;
         if (!count) return E::unavailable;

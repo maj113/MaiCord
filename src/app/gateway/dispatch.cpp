@@ -776,30 +776,22 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         return {};
     }
 
-    bool state_handled = false;
-    const GatewayClientDispatchRouteResult state =
+    // The state and thread member routes end the same way: one copy of that tail serves both.
+    bool handled = false;
+    GatewayClientDispatchRouteResult routed =
         gateway_client_route_state_dispatch(envelope, structural_scratch, maximum_depth, content_scratch,
-                                            self_user_id, event, payload, &state_handled);
-    if (state_handled) {
-        if (state.ok()) {
+                                            self_user_id, event, payload, &handled);
+    if (!handled)
+        routed = gateway_client_route_thread_member_dispatch(envelope, structural_scratch, maximum_depth,
+                                                             content_scratch, self_user_id, event, payload,
+                                                             &handled);
+    if (handled) {
+        if (routed.ok()) {
             event->dispatch_payload_bytes = payload->count;
             gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
                                                        self_user_id, event, payload);
         }
-        return state;
-    }
-
-    bool thread_handled = false;
-    const auto thread_result = gateway_client_route_thread_member_dispatch(
-        envelope, structural_scratch, maximum_depth, content_scratch, self_user_id, event, payload,
-        &thread_handled);
-    if (thread_handled) {
-        if (thread_result.ok()) {
-            event->dispatch_payload_bytes = payload->count;
-            gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
-                                                       self_user_id, event, payload);
-        }
-        return thread_result;
+        return routed;
     }
     bool admin_handled = false;
     const auto admin = gateway_client_route_guild_admin_dispatch(envelope, structural_scratch, maximum_depth,
@@ -1043,9 +1035,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
                        f.entries.kind == JsonValueKind::array;
     s.doc = &doc;
     s.entries = f.entries;
-    s.entries_walk = valid && json_visit_indexed_array(doc, f.entries, 64,
-                                                       +[](void*, u32, JsonValue) noexcept { return true; }, nullptr)
-                                  .ok();
+    s.entries_walk = valid && json_visit_indexed_array(doc, f.entries, 64, nullptr, nullptr).ok();
     s.incomplete |= !valid;
     auto begin = gateway_dispatch_event(GatewayClientDispatchKind::notification_snapshot_begin, s.sequence,
                                         s.now);

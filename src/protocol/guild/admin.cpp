@@ -573,7 +573,7 @@ void write_channel(JsonBody& b, const ChannelPatch& p) noexcept {
     b.end_object();
 }
 
-void write_positions(JsonBody& b, ConstSlice<GuildAdminPosition> positions, bool channels) noexcept {
+inline void write_positions(JsonBody& b, ConstSlice<GuildAdminPosition> positions, bool channels) noexcept {
     b.begin_array();
     for (u32 i = 0; i < positions.count; ++i) {
         const auto& p = positions[i];

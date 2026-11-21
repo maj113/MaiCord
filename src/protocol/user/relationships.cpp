@@ -16,7 +16,7 @@ namespace {
 using protocol_detail::decode_text;
 RelationshipsDecodeResult failure(RelationshipsDecodeError error) noexcept { return {error}; }
 struct Parse {
-    RelationshipMutation mutation;
+    RelationshipMutation& mutation;
     JsonValue user;
     u32 seen, user_seen;
     bool nickname_null;
@@ -97,10 +97,12 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     if (!valid) parse.error = RelationshipsDecodeError::record;
     return valid;
 }
+// Writes the record into output as it decodes; the output of a failed decode is not read.
 RelationshipsDecodeError decode_record(const JsonIndexedDocument& document, JsonValue value,
     RelationshipEvent event, RelationshipMutation* output) noexcept {
     if (value.kind != JsonValueKind::object) return RelationshipsDecodeError::record;
-    Parse parse{};
+    reset_value(output);
+    Parse parse{*output};
     parse.mutation.record.presence = RelationshipPresence::unknown;
     const auto read = json_visit_indexed_object(document, value, 64, visit_member, &parse);
     if (!read.ok()) return parse.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : parse.error;
@@ -116,7 +118,6 @@ RelationshipsDecodeError decode_record(const JsonIndexedDocument& document, Json
     }
     parse.mutation.preserve_nickname = event == RelationshipEvent::add &&
         (!(parse.seen & 4) || parse.nickname_null);
-    copy_value(output, parse.mutation);
     return RelationshipsDecodeError::none;
 }
 bool scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* document) noexcept {
@@ -148,6 +149,14 @@ bool visit_snapshot(void* opaque, u32, JsonValue value) noexcept {
     if (snapshot.error != RelationshipsDecodeError::none) return false;
     if (const auto* old = relationship_store_find(*snapshot.store, decoded.record.user_id)) decoded.record.presence = old->presence;
     snapshot.records[snapshot.count++] = decoded.record;
+    return true;
+}
+// Valid UTF-8 of at most `codepoints` characters and no control characters (one line).
+bool one_line(const Utf8View& text, u32 codepoints) noexcept {
+    const auto checked = utf8_validate(text);
+    if (!checked.valid || checked.codepoints > codepoints) return false;
+    for (u32 i = 0; i < text.bytes; ++i)
+        if (static_cast<u8>(text.data[i]) < 0x20) return false;
     return true;
 }
 } // namespace
@@ -188,21 +197,15 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
     if (operation > RelationshipOperation::nickname || !byte_range_valid({output.data, output.count}) ||
         !byte_range_valid({reinterpret_cast<const u8*>(username.data), username.bytes}) ||
         (!text && username.bytes)) return {0, RelationshipWriteError::invalid_input};
+    u8 staged[kRelationshipBodyMaximumBytes];
+    ProtocolWriter writer{{staged, sizeof(staged)}, 0};
+    bool written;
     if (operation == RelationshipOperation::nickname) {
         // 1-32 characters on one line; empty text clears the nickname (null).
-        const auto checked = utf8_validate(username);
-        if (!checked.valid || checked.codepoints > kRelationshipNicknameMaximumCodepoints)
+        if (!one_line(username, kRelationshipNicknameMaximumCodepoints))
             return {0, RelationshipWriteError::invalid_input};
-        for (u32 i = 0; i < username.bytes; ++i)
-            if (static_cast<u8>(username.data[i]) < 0x20) return {0, RelationshipWriteError::invalid_input};
-        u8 staged[224];
-        ProtocolWriter writer{{staged, sizeof(staged)}, 0};
-        if (!protocol_write(&writer, "{\"nickname\":", nullable_json(username), '}') || writer.used > output.count)
-            return {0, RelationshipWriteError::output_too_small};
-        copy_bytes(output.data, staged, writer.used);
-        return {writer.used, RelationshipWriteError::none};
-    }
-    if (operation == RelationshipOperation::request) {
+        written = protocol_write(&writer, "{\"nickname\":", nullable_json(username), '}');
+    } else if (operation == RelationshipOperation::request) {
         // The username, then optionally a line feed and the note (one line of up to 120 characters).
         u32 name = 0;
         while (name < username.bytes && username.data[name] != '\n') ++name;
@@ -214,34 +217,25 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
             if (!(ascii_is_alnum(c) || c == '_' || c == '.'))
                 return {0, RelationshipWriteError::invalid_input};
         }
-        const auto checked = utf8_validate(note);
-        if (!checked.valid || checked.codepoints > kRelationshipNoteMaximumCodepoints)
+        if (!one_line(note, kRelationshipNoteMaximumCodepoints))
             return {0, RelationshipWriteError::invalid_input};
-        for (u32 i = 0; i < note.bytes; ++i)
-            if (static_cast<u8>(note.data[i]) < 0x20) return {0, RelationshipWriteError::invalid_input};
-        u8 staged[kRelationshipBodyMaximumBytes];
-        ProtocolWriter writer{{staged, sizeof(staged)}, 0};
         const Utf8View user{username.data, name};
-        const bool written = note.bytes
+        written = note.bytes
             ? protocol_write(&writer, "{\"username\":", nullable_json(user), ",\"discriminator\":null,\"note\":",
                              nullable_json(note), '}')
             : protocol_write(&writer, "{\"username\":", nullable_json(user), ",\"discriminator\":null}");
-        if (!written || writer.used > output.count) return {0, RelationshipWriteError::output_too_small};
-        copy_bytes(output.data, staged, writer.used);
-        return {writer.used, RelationshipWriteError::none};
+    } else {
+        // A fixed body, or none.
+        const char* body = "";
+        if (operation == RelationshipOperation::accept) body = "{}";
+        else if (operation == RelationshipOperation::block) body = "{\"type\":2}";
+        else if (operation == RelationshipOperation::accept_stranger) body = "{\"confirm_stranger_request\":true}";
+        else if (operation == RelationshipOperation::clear_hidden) body = "{\"filters\":[1,2]}";
+        written = protocol_write(&writer, body);
     }
-    char temporary[128];
-    RouteWriter writer{};
-    route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
-    if (operation == RelationshipOperation::accept) route_write(&writer, "{}");
-    else if (operation == RelationshipOperation::block) route_write(&writer, "{\"type\":2}");
-    else if (operation == RelationshipOperation::accept_stranger)
-        route_write(&writer, "{\"confirm_stranger_request\":true}");
-    else if (operation == RelationshipOperation::clear_hidden)
-        route_write(&writer, "{\"filters\":[1,2]}");
-    if (!writer.valid || writer.bytes > output.count) return {0, RelationshipWriteError::output_too_small};
-    copy_bytes(output.data, temporary, writer.bytes);
-    return {writer.bytes, RelationshipWriteError::none};
+    if (!written || writer.used > output.count) return {0, RelationshipWriteError::output_too_small};
+    copy_bytes(output.data, staged, writer.used);
+    return {writer.used, RelationshipWriteError::none};
 }
 RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> scratch,
     RelationshipEvent event, RelationshipMutation* output) noexcept {
@@ -275,8 +269,8 @@ RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     }
     return relationship_store_upsert(store, record);
 }
-RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
-    Slice<u32> scratch, Slice<RelationshipRecord> candidate, RelationshipsAdmission admission) noexcept {
+RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input, Slice<u32> scratch,
+    Slice<RelationshipRecord> candidate, RelationshipsAdmission admission, JsonIndexedDocument* indexed) noexcept {
     if (!store->records.data || !store->records.count || store->records.count > kRelationshipMaximumRecords ||
         store->count > store->records.count || !valid_input(input, scratch) || !candidate.data || !candidate.count ||
         candidate.count > kRelationshipMaximumRecords)
@@ -287,12 +281,14 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
         {reinterpret_cast<const u8*>(candidate.data), candidate.count * static_cast<u32>(sizeof(*candidate.data))},
         {reinterpret_cast<const u8*>(store), sizeof(*store)},
         {reinterpret_cast<const u8*>(store->records.data), store->records.count * static_cast<u32>(sizeof(*store->records.data))}};
-    for (u32 i = 0; i < sizeof(ranges) / sizeof(ranges[0]); ++i) {
-        if (!byte_range_valid(ranges[i])) return failure(RelationshipsDecodeError::invalid_input);
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return failure(RelationshipsDecodeError::invalid_input);
-    }
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}))
+        return failure(RelationshipsDecodeError::invalid_input);
     JsonIndexedDocument document{};
     if (!scan_document(input, scratch, &document)) return failure(RelationshipsDecodeError::scan);
+    // The count visit writes the table of bracket ends when the scratch holds it. The record visits then step over
+    // nested values.
+    u32* const ends = json_ends_room(scratch, document.structurals.count);
+    document.ends = ends;
     struct Count { u32 count, capacity; bool exhausted; } count{0, candidate.count};
     const auto preflight = json_visit_root_array(input, document.structurals, 64,
         +[](void* opaque, u32, JsonValue) noexcept {
@@ -300,30 +296,25 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
             if (count.count == count.capacity) { count.exhausted = true; return false; }
             ++count.count;
             return true;
-        }, &count);
+        }, &count, ends);
     if (!preflight.ok()) return failure(count.exhausted ? RelationshipsDecodeError::capacity : RelationshipsDecodeError::json);
     if (count.count > store->records.count) return failure(RelationshipsDecodeError::capacity);
     if (admission.admit && !admission.admit(admission.context, count.count, false))
         return failure(RelationshipsDecodeError::capacity);
     Snapshot snapshot{&document, store, candidate};
-    const auto read = json_visit_root_array(input, document.structurals, 64, visit_snapshot, &snapshot);
+    // The count visit validated the array, so this visit does not validate it again.
+    const auto read = json_visit_indexed_array(document, {input, 0, JsonValueKind::array, true}, 64, visit_snapshot, &snapshot);
     if (!read.ok()) return failure(snapshot.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : snapshot.error);
     heap_sort_shared(candidate.data, snapshot.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
     for (u32 i = 1; i < snapshot.count; ++i) if (candidate[i - 1].user_id == candidate[i].user_id) return failure(RelationshipsDecodeError::duplicate);
-    // Apply the store's own validity checks before the owner commits its
-    // destination; presence may be inherited from the previous store.
-    for (u32 i = 0; i < snapshot.count; ++i) {
-        const auto& record = candidate[i];
-        if (!record.user_id || record.type > RelationshipType::suggestion ||
-            record.presence > RelationshipPresence::unknown || record.nickname_bytes > kRelationshipNicknameMaximumBytes ||
-            !utf8_validate({record.nickname, record.nickname_bytes}).valid)
-            return failure(RelationshipsDecodeError::store);
-    }
+    // Each record passes the store's checks: the decode gives a nonzero ID, a known type and a nickname of valid
+    // UTF-8 that fits, and a presence comes from the store or is unknown.
     if (admission.admit && !admission.admit(admission.context,
             snapshot.count > store->count ? snapshot.count : store->count, true))
         return failure(RelationshipsDecodeError::capacity);
     const auto applied = relationship_store_replace(store, {candidate.data, snapshot.count});
     if (!applied.ok()) return failure(applied.error == RelationshipStoreError::capacity ? RelationshipsDecodeError::capacity : RelationshipsDecodeError::store);
+    if (indexed) *indexed = document;
     return {RelationshipsDecodeError::none};
 }
 RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlice<RelationshipUser> snapshots) noexcept {
@@ -334,9 +325,10 @@ RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlic
         const auto& snapshot = snapshots[i];
         if (!snapshot.id || snapshot.username_bytes > sizeof(snapshot.username) || snapshot.display_name_bytes > sizeof(snapshot.display_name) ||
             snapshot.avatar_bytes > sizeof(snapshot.avatar)) return {UserStoreError::invalid_input, i};
-        const auto* old = user_store_find(*users, snapshot.id);
-        const Utf8View name = snapshot.display_name_bytes ? Utf8View{snapshot.display_name, snapshot.display_name_bytes} :
-            old ? user_store_name(*users, *old) : Utf8View{};
+        // The stored name stays when the snapshot has none.
+        Utf8View name{};
+        if (snapshot.display_name_bytes) name = {snapshot.display_name, snapshot.display_name_bytes};
+        else if (const auto* old = user_store_find(*users, snapshot.id)) name = user_store_name(*users, *old);
         const auto upserted = user_store_upsert(users, snapshot.id, name, {snapshot.username, snapshot.username_bytes});
         if (!upserted.ok()) return {upserted.error, i};
         if (snapshot.avatar_seen && !user_store_set_avatar(users, snapshot.id, {snapshot.avatar, snapshot.avatar_bytes}))
@@ -344,25 +336,21 @@ RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlic
     }
     return {UserStoreError::none, snapshots.count};
 }
-RelationshipUserApplyResult relationships_hydrate(UserStore* users, Utf8View input, Slice<u32> scratch) noexcept {
-    if (!valid_input(input, scratch)) return {UserStoreError::invalid_input, 0};
-    JsonIndexedDocument document{};
-    if (!scan_document(input, scratch, &document)) return {UserStoreError::invalid_input, 0};
+RelationshipUserApplyResult relationships_hydrate(UserStore* users, const JsonIndexedDocument& document) noexcept {
     struct Hydrate { const JsonIndexedDocument* document; UserStore* users; RelationshipUserApplyResult result; } context{&document, users, {}};
-    const auto read = json_visit_root_array(input, document.structurals, 64, +[](void* opaque, u32, JsonValue value) noexcept {
+    // relationships_replace validated the array, wrote its table of bracket ends and decoded each record without
+    // an error. This visit fails only when the store rejects a user.
+    json_visit_indexed_array(document, {document.input, 0, JsonValueKind::array, true}, 64,
+        +[](void* opaque, u32, JsonValue value) noexcept {
         auto& context = *static_cast<Hydrate*>(opaque);
         RelationshipMutation decoded;
-        if (decode_record(*context.document, value, RelationshipEvent::update, &decoded) != RelationshipsDecodeError::none) {
-            context.result.error = UserStoreError::invalid_input;
-            return false;
-        }
+        decode_record(*context.document, value, RelationshipEvent::update, &decoded);
         if (!decoded.user.id) return true;
         const auto applied = relationship_users_apply(context.users, {&decoded.user, 1});
         if (!applied.ok()) { context.result.error = applied.error; return false; }
         ++context.result.applied;
         return true;
     }, &context);
-    if (!read.ok() && context.result.error == UserStoreError::none) context.result.error = UserStoreError::invalid_input;
     return context.result;
 }
 } // namespace maicord

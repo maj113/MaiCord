@@ -82,6 +82,9 @@ struct ApplicationFriends {
     RelationshipRecord* records;
     RelationshipRecord* candidate;
     u32* indices;
+    // The display name of each record that a projection sorts. The projection finds a name one time: a sort
+    // compares each name many times.
+    Utf8View* names;
     StableStorage requests_indices;
     UiFriendsSource source, requests_source;
     UiFriendsSections sections, requests_sections;
@@ -172,7 +175,7 @@ void invalidate_sources(ApplicationFriends& friends) noexcept {
     ++friends.source.revision;++friends.requests_source.revision;
 }
 // Relationship presence as a UI dot; an unreported presence shows as unknown.
-UiPresence presence_dot(RelationshipPresence value) noexcept {
+inline UiPresence presence_dot(RelationshipPresence value) noexcept {
     return value == RelationshipPresence::online    ? UiPresence::online
            : value == RelationshipPresence::idle    ? UiPresence::idle
            : value == RelationshipPresence::dnd     ? UiPresence::busy
@@ -215,7 +218,7 @@ void sort_snapshot(ApplicationFriends& friends) noexcept {
 // The status line of a row, in the order of status_text's chain below.
 constexpr char kStatusTexts[] = "Ignored\0Potential spam\0Incoming friend request\0Outgoing friend request\0Blocked\0"
                                 "Online\0Idle\0Do Not Disturb\0Offline\0Status unavailable\0";
-Utf8View status_text(const RelationshipRecord& record, bool hidden) noexcept {
+inline Utf8View status_text(const RelationshipRecord& record, bool hidden) noexcept {
     const u32 index = hidden ? (record.ignored ? 0u : 1u)
                       : record.type == RelationshipType::incoming ? 2u
                       : record.type == RelationshipType::outgoing ? 3u
@@ -285,7 +288,7 @@ bool dm_find(void* opaque, u64 id, u32* index) noexcept {
     return false;
 }
 // The request DM a Message Requests row stands for.
-u64 dm_channel(const ApplicationFriends& friends, u64 user_id) noexcept {
+inline u64 dm_channel(const ApplicationFriends& friends, u64 user_id) noexcept {
     u32 index = 0;
     return dm_find(const_cast<ApplicationFriends*>(&friends), user_id, &index) ? friends.dm_channels[index] : 0;
 }
@@ -349,6 +352,7 @@ ApplicationFriends* ensure() noexcept {
     friends->records = stable_storage_data<RelationshipRecord>(friends->storage.active);
     friends->candidate = stable_storage_data<RelationshipRecord>(friends->storage.candidate);
     friends->indices = stable_storage_data<u32>(friends->storage.indices);
+    friends->names = stable_storage_data<Utf8View>(friends->storage.names);
     // The usual model initializer clears its entire slice. These caller-owned
     // stores instead advertise a reserved bound, with every writer admitted
     // before use; empty lookup/replacement never dereferences uncommitted rows.
@@ -364,13 +368,10 @@ ApplicationFriends* ensure() noexcept {
     g_app.friends = friends;
     return friends;
 }
-// The display name of each record that a projection sorts. The projection finds a name one time: a sort
-// compares each name many times.
-Utf8View g_sort_names[relationship_capacity];
 bool before(const ApplicationFriends& friends, u32 left, u32 right) noexcept {
     if (friends.records[left].type != friends.records[right].type)
         return friends.records[left].type < friends.records[right].type;
-    const auto compared = friend_name_compare(g_sort_names[left], g_sort_names[right]);
+    const auto compared = friend_name_compare(friends.names[left], friends.names[right]);
     return compared.ok() && compared.order ? compared.order < 0 : friends.records[left].user_id < friends.records[right].user_id;
 }
 void project(ApplicationFriends& friends, bool force = false) noexcept {
@@ -405,7 +406,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
                 if (!query.bytes || (user && friend_search(query, user_store_username(users, *user),
                     {friends.records[i].nickname, friends.records[i].nickname_bytes},
                     user_store_name(users, *user)).matched)) {
-                    g_sort_names[i] = relationship_display_name(friends.records[i], users);
+                    friends.names[i] = relationship_display_name(friends.records[i], users);
                     friends.indices[friends.source.count++] = i;
                 }
             }
@@ -437,7 +438,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
                 const auto& row = friends.records[i];
                 if (row.type != RelationshipType::incoming || !(pass == 0 ? row.ignored : row.spam && !row.ignored))
                     continue;
-                g_sort_names[i] = relationship_display_name(row, users);
+                friends.names[i] = relationship_display_name(row, users);
                 indices[count++] = i;
             }
             heap_sort_shared(indices + first, count - first,
@@ -578,7 +579,7 @@ bool active_image(const UserActivity& activity, const UiActivityCardItem& item, 
     const u32 bytes = user_activity_image_url(activity, large, {out->url.data, sizeof(out->url.data)}, &format);
     if (!bytes) return false;
     out->url.bytes = static_cast<u16>(bytes);
-    out->key = media_asset_embed(hash64_bytes(kHash64Seed, out->url.data, bytes), 1, 0, MediaEmbedResource::image,
+    out->key = media_asset_embed(hash64_words(kHash64Seed, out->url.data, bytes), 1, 0, MediaEmbedResource::image,
                                  format, false, MediaResolutionTier::px512);
     out->key.kind = MediaAssetKind::profile_image;
     out->rectangle = out->mask = item.rect;
@@ -724,7 +725,7 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
     if (!ui_friends_scene_activation(scene, {UiFriendsAction::more, target.user_id, friends.tab}, &checked)) return false;
     const auto* relationship = relationship_store_find(friends.store, target.user_id);
     if (!relationship) return false;
-    PopupItem items[6 + kApplicationPluginMenuRows]{};u32 count = 0;
+    PopupItem items[6 + kApplicationPluginMenuRows];u32 count = 0;
     popup_item_set(&items[count++], utf8_literal("Profile"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::profile), popup_item_enabled);
     if (relationship->type == RelationshipType::friend_) {
         popup_item_set(&items[count++], utf8_literal("Start Voice Call"),
@@ -874,7 +875,7 @@ bool nickname_valid(TextFormOwnerKey key) noexcept {
 bool nickname_save(TextFormOwnerKey key, Utf8View text) noexcept {
     return nickname_valid(key) && queue(RelationshipOperation::nickname, key.item, trimmed(text));
 }
-bool open_nickname(ApplicationFriends& friends, u64 user_id) noexcept {
+inline bool open_nickname(ApplicationFriends& friends, u64 user_id) noexcept {
     const auto* current = relationship_store_find(friends.store, user_id);
     if (!current || current->type != RelationshipType::friend_ || request_busy(friends) || g_app.text_form) return false;
     search_focus(friends, false);
@@ -1072,7 +1073,7 @@ bool activate(const UiFriendsTarget& target) noexcept {
         checked.action == UiFriendsAction::block ? RelationshipOperation::block : RelationshipOperation::remove;
     return queue(operation, checked.user_id, {}, friends->requests_visible);
 }
-bool search_host_ready(const TextInputTarget& target) noexcept {
+inline bool search_host_ready(const TextInputTarget& target) noexcept {
     return application_friends_search_focused() && target.context == application_friends_search_model();
 }
 using SearchInput = ForwardedInput<search_host_ready, text_input_single_line_forbidden, true>;
@@ -1526,6 +1527,10 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         friends->status = utf8_literal("You're doing that too fast. Try again in a moment.");return repaint();
     }
     bool ok = response.succeeded();
+    // A failed load keeps the old list. A reply over its cap (kRelationshipsMaximumBytes) ends as a response error.
+    if (!ok && request.operation == RelationshipOperation::list)
+        log_u64(LogLevel::warning, "friends", response.transport_ok() ? "list_status" : "list_rest_error",
+                response.transport_ok() ? response.status_code : static_cast<u64>(response.error));
     const bool bulk = request.operation == RelationshipOperation::clear_incoming || request.operation == RelationshipOperation::clear_hidden;
     if (ok && bulk) {
         // Server filter algebra is not assumed. The shared GET lane reconciles
@@ -1541,22 +1546,29 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
             if (friends->incomplete) recovery(*friends, nullptr, 0);else friends->status = status;
             return repaint();
         }
-        const auto decoded = relationships_replace(&friends->store, body,
-            {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
+        // The index of a list needs at most one entry for each two bytes, and as many again for the table of bracket
+        // ends. It lives for this load only.
+        const u32 entries = body.bytes / 2 + 1;
+        const usize scratch_bytes = usize{entries} * 2 * sizeof(u32);
+        u32* const structurals = commit_pages<u32>(scratch_bytes);
+        const Slice<u32> scratch{structurals, structurals ? entries * 2 : 0};
+        JsonIndexedDocument indexed;
+        const auto decoded = relationships_replace(&friends->store, body, scratch,
             {friends->candidate, relationship_capacity}, {&friends->storage,
                 +[](void* opaque, u32 count, bool active) noexcept {
                     auto* storage = static_cast<FriendsRelationshipStorage*>(opaque);
                     return active ? friends_relationship_storage_active(storage, count) :
                         friends_relationship_storage_candidate(storage, count);
-                }});
+                }}, &indexed);
         ok = decoded.ok();
         if (ok) {
-            const auto hydrated = relationships_hydrate(&g_app.account_ui->user_store, body,
-                {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount});
+            const auto hydrated = relationships_hydrate(&g_app.account_ui->user_store, indexed);
             if (!hydrated.ok()) log_u64(LogLevel::warning, "friends", "user_hydration_error", static_cast<u64>(hydrated.error));
             friends->ready = true;friends->incomplete = false;++friends->membership_epoch;
             publish_dm_names();
-        }
+        } else
+            log_u64(LogLevel::warning, "friends", "list_decode_error", static_cast<u64>(decoded.error));
+        if (structurals) pages_release(structurals, scratch_bytes);
     } else if (ok && request.user_id && request.membership_epoch == friends->membership_epoch) {
         if (request.operation == RelationshipOperation::remove) ok = relationship_store_remove(&friends->store, request.user_id).ok();
         else {

@@ -108,8 +108,8 @@ void gateway_cases(Check check) noexcept {
     constexpr auto guild = utf8_literal(
         R"({"id":"5","name":"g","stage_instances":[{"id":"900","guild_id":"5","channel_id":"7","topic":"A",)"
         R"("privacy_level":2},{"id":"901","channel_id":"8","topic":"B","privacy_level":1},{"id":"x"}]})");
-    check(gateway_client_publish_stage_instances(object(guild), 5, {scratch, 8192}, {storage, sizeof(storage)}, 3, 4,
-                                                 capture, &published) &&
+    check(gateway_client_publish_guild_arrays(object(guild), 5, {scratch, 8192}, {storage, sizeof(storage)}, 3, 4,
+                                              capture, &published) &&
               published.count == 1 &&
               published.events[0].dispatch_kind == GatewayClientDispatchKind::stage_instance_snapshot &&
               published.events[0].voice_states.replace && published.events[0].voice_states.guild_id == 5 &&
@@ -118,8 +118,8 @@ void gateway_cases(Check check) noexcept {
               stage_record(published.payloads[0], 1).channel_id == 8,
           "stage gateway: GUILD_CREATE stage_instances replace the guild's stages, skipping malformed rows");
     published = {};
-    check(gateway_client_publish_stage_instances(object(utf8_literal(R"({"id":"5","name":"g"})")), 5, {scratch, 8192},
-                                                 {storage, sizeof(storage)}, 3, 4, capture, &published) &&
+    check(gateway_client_publish_guild_arrays(object(utf8_literal(R"({"id":"5","name":"g"})")), 5, {scratch, 8192},
+                                              {storage, sizeof(storage)}, 3, 4, capture, &published) &&
               !published.count,
           "stage gateway: a guild without stage_instances publishes nothing");
 

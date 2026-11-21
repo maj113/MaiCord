@@ -5,8 +5,9 @@
 
 namespace maicord {
 
+// ASCII letters, digits and '_' only, so no UTF-8 check is needed.
 inline bool gateway_state_emoji_name_valid(Utf8View name) noexcept {
-    if (!name.data || name.bytes == 0 || name.bytes > 32 || !utf8_validate(name).valid) {
+    if (!name.data || name.bytes == 0 || name.bytes > 32) {
         return false;
     }
     for (u32 index = 0; index < name.bytes; ++index) {

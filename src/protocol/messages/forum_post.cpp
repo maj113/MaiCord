@@ -56,14 +56,7 @@ bool ranges_valid(const Utf8View& input, const Slice<u32>& scratch, const void* 
         {reinterpret_cast<const u8*>(input.data), input.bytes},
         {reinterpret_cast<const u8*>(scratch.data), static_cast<u32>(u64{scratch.count} * sizeof(u32))},
         {reinterpret_cast<const u8*>(output), output_bytes}};
-    for (u32 at = 0; at < 3; ++at) {
-        if (!byte_range_valid(ranges[at]))
-            return false;
-        for (u32 before = 0; before < at; ++before)
-            if (byte_ranges_overlap(ranges[at], ranges[before]))
-                return false;
-    }
-    return utf8_validate(input).valid;
+    return byte_ranges_all_disjoint({ranges, 3}) && utf8_validate(input).valid;
 }
 ForumPostResult scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* document) noexcept {
     const auto scanned = json_scan_structurals_avx1(input, scratch);

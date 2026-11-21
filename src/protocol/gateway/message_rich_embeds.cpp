@@ -6,6 +6,12 @@ namespace message_rich_detail {
 
 bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmbedContext*>(opaque);
+    // A member kept as a raw value of one kind. The cases share one copy of the check.
+    struct Kept {
+        u64 bit;
+        JsonValueKind kind;
+        JsonValue* slot;
+    } kept;
     switch (member_index<"title", "description", "url", "type", "color", "author", "footer", "fields", "image",
                          "thumbnail", "video", "flags", "provider", "timestamp", "components">(name)) {
     case 0:
@@ -24,37 +30,12 @@ bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
         return accept_member(&context->seen, 1ull << 4,
                              value_u32(value, &context->color) && context->color <= 0xFFFFFFu,
                              &context->error);
-    case 5:
-        if (!accept_member(&context->seen, 1ull << 5, value.kind == JsonValueKind::object, &context->error))
-            return false;
-        context->author = value;
-        break;
-    case 6:
-        if (!accept_member(&context->seen, 1ull << 6, value.kind == JsonValueKind::object, &context->error))
-            return false;
-        context->footer = value;
-        break;
-    case 7:
-        if (!accept_member(&context->seen, 1ull << 7, value.kind == JsonValueKind::array, &context->error))
-            return false;
-        context->fields = value;
-        break;
-    case 8:
-        if (!accept_member(&context->seen, 1ull << 8, value.kind == JsonValueKind::object, &context->error))
-            return false;
-        context->image = value;
-        break;
-    case 9:
-        if (!accept_member(&context->seen, 1ull << 9, value.kind == JsonValueKind::object, &context->error))
-            return false;
-        context->thumbnail = value;
-        break;
-    case 10:
-        if (!accept_member(&context->seen, 1ull << 10, value.kind == JsonValueKind::object,
-                           &context->error))
-            return false;
-        context->video = value;
-        break;
+    case 5: kept = {1ull << 5, JsonValueKind::object, &context->author}; break;
+    case 6: kept = {1ull << 6, JsonValueKind::object, &context->footer}; break;
+    case 7: kept = {1ull << 7, JsonValueKind::array, &context->fields}; break;
+    case 8: kept = {1ull << 8, JsonValueKind::object, &context->image}; break;
+    case 9: kept = {1ull << 9, JsonValueKind::object, &context->thumbnail}; break;
+    case 10: kept = {1ull << 10, JsonValueKind::object, &context->video}; break;
     case 11:
         return accept_member(&context->seen, 1ull << 11,
                              value.kind == JsonValueKind::null_value || value_u32(value, &context->flags),
@@ -63,10 +44,7 @@ bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
         if (value.kind == JsonValueKind::null_value) {
             return true;
         }
-        if (!accept_member(&context->seen, 1ull << 12, value.kind == JsonValueKind::object,
-                           &context->error))
-            return false;
-        context->provider = value;
+        kept = {1ull << 12, JsonValueKind::object, &context->provider};
         break;
     case 13:
         if (value.kind == JsonValueKind::null_value) {
@@ -79,9 +57,12 @@ bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
             context->seen |= 1ull << 14;
             context->components = value;
         }
-        break;
-    default: break;
+        return true;
+    default: return true;
     }
+    if (!accept_member(&context->seen, kept.bit, value.kind == kept.kind, &context->error))
+        return false;
+    *kept.slot = value;
     return true;
 }
 
@@ -656,12 +637,47 @@ bool component_value(ComponentContext* context, u64 bit, JsonValue value, JsonVa
     return true;
 }
 
+// The string members (positions 5-12) and the members kept as raw values (13-19): each one's seen bit, the slot
+// it fills and, for a kept value, its kind. One copy of each check serves them.
+// The seen bits of components fit 32 bits.
+static_assert(component_seen_default <= ~0u);
+struct ComponentText {
+    u32 bit;
+    JsonString ComponentContext::*slot;
+};
+constexpr ComponentText kComponentTexts[] = {
+    {component_seen_label, &ComponentContext::label},
+    {component_seen_content, &ComponentContext::content},
+    {component_seen_custom_id, &ComponentContext::custom_id},
+    {component_seen_url, &ComponentContext::url},
+    {component_seen_placeholder, &ComponentContext::placeholder},
+    {component_seen_description, &ComponentContext::description},
+    {component_seen_value, &ComponentContext::value},
+    {component_seen_name, &ComponentContext::name},
+};
+struct ComponentKept {
+    u32 bit;
+    JsonValueKind kind;
+    JsonValue ComponentContext::*slot;
+};
+constexpr ComponentKept kComponentKept[] = {
+    {component_seen_children, JsonValueKind::array, &ComponentContext::children},
+    {component_seen_accessory, JsonValueKind::object, &ComponentContext::accessory},
+    {component_seen_media, JsonValueKind::object, &ComponentContext::media},
+    {component_seen_file, JsonValueKind::object, &ComponentContext::file},
+    {component_seen_emoji, JsonValueKind::object, &ComponentContext::emoji},
+    {component_seen_options, JsonValueKind::array, &ComponentContext::options},
+    {component_seen_items, JsonValueKind::array, &ComponentContext::items},
+};
+
 bool visit_component(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ComponentContext*>(opaque);
-    switch (member_index<"accent_color", "type", "id", "style", "disabled", "label", "content", "custom_id", "url",
-                         "placeholder", "description", "value", "name", "components", "accessory", "media", "file",
-                         "emoji", "options", "items", "min_values", "max_values", "spacing", "spoiler", "divider",
-                         "default">(name)) {
+    const u32 index =
+        member_index<"accent_color", "type", "id", "style", "disabled", "label", "content", "custom_id", "url",
+                     "placeholder", "description", "value", "name", "components", "accessory", "media", "file",
+                     "emoji", "options", "items", "min_values", "max_values", "spacing", "spoiler", "divider",
+                     "default">(name);
+    switch (index) {
     case 0:
         context->has_accent_color = value.kind != JsonValueKind::null_value;
         return accept_member(&context->seen, component_seen_accent,
@@ -682,36 +698,35 @@ bool visit_component(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     case 3: return component_number(context, component_seen_style, value, &context->style, 0xFFFFu);
     case 4: return component_bool(context, component_seen_disabled, value, &context->disabled);
-    case 5: return component_text(context, component_seen_label, value, &context->label);
-    case 6: return component_text(context, component_seen_content, value, &context->content);
-    case 7: return component_text(context, component_seen_custom_id, value, &context->custom_id);
-    case 8: return component_text(context, component_seen_url, value, &context->url);
-    case 9: return component_text(context, component_seen_placeholder, value, &context->placeholder);
-    case 10: return component_text(context, component_seen_description, value, &context->description);
-    case 11: return component_text(context, component_seen_value, value, &context->value);
-    case 12: return component_text(context, component_seen_name, value, &context->name);
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12: {
+        const ComponentText& text = kComponentTexts[index - 5];
+        return component_text(context, text.bit, value, &(context->*text.slot));
+    }
     case 13:
-        return component_value(context, component_seen_children, value, JsonValueKind::array,
-                               &context->children);
     case 14:
-        return component_value(context, component_seen_accessory, value, JsonValueKind::object,
-                               &context->accessory);
-    case 15: return component_value(context, component_seen_media, value, JsonValueKind::object, &context->media);
-    case 16: return component_value(context, component_seen_file, value, JsonValueKind::object, &context->file);
-    case 17: return component_value(context, component_seen_emoji, value, JsonValueKind::object, &context->emoji);
+    case 15:
+    case 16:
+    case 17:
     case 18:
-        return component_value(context, component_seen_options, value, JsonValueKind::array,
-                               &context->options);
-    case 19: return component_value(context, component_seen_items, value, JsonValueKind::array, &context->items);
+    case 19: {
+        const ComponentKept& kept = kComponentKept[index - 13];
+        return component_value(context, kept.bit, value, kept.kind, &(context->*kept.slot));
+    }
     case 20: return component_number(context, component_seen_min, value, &context->min_values, 25);
     case 21: return component_number(context, component_seen_max, value, &context->max_values, 25);
     case 22: return component_number(context, component_seen_spacing, value, &context->spacing, 0xFFFFu);
     case 23: return component_bool(context, component_seen_spoiler, value, &context->spoiler);
     case 24: return component_bool(context, component_seen_divider, value, &context->divider);
     case 25: return component_bool(context, component_seen_default, value, &context->selected_default);
-    default: break;
+    default: return true;
     }
-    return true;
 }
 
 struct ComponentEmojiContext {

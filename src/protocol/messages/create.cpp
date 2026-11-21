@@ -53,7 +53,6 @@ MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
     if (content.bytes && !utf8_validate(content).valid) {
         return error(MessageCreateWriteError::invalid_utf8);
     }
-    if (!content.bytes) content = utf8_literal("");
     ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "{\"content\":", json_text(content), ",\"nonce\":", snowflake_text(nonce))) {
         return error(MessageCreateWriteError::output_too_small);
@@ -173,7 +172,6 @@ MessageCreateWriteResult write_message_forward_body(Utf8View caption, u64 nonce,
         return error(MessageCreateWriteError::invalid_input);
     if (caption.bytes && !utf8_validate(caption).valid)
         return error(MessageCreateWriteError::invalid_utf8);
-    if (!caption.bytes) caption = utf8_literal("");
     ProtocolWriter writer{output, 0};
     if (!protocol_write(&writer, "{\"content\":", json_text(caption), ",\"nonce\":", snowflake_text(nonce),
                         ",\"message_reference\":{\"type\":1,\"message_id\":", snowflake_text(source.message_id),

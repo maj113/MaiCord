@@ -44,9 +44,9 @@ constexpr ClientPlatformStatus client_status_overall(u8 packed) noexcept {
     return best;
 }
 
-// Reads a client_status object. Unknown platforms and values are ignored (a
-// future platform never rejects the presence); null or a non-object is empty.
-// False only for a malformed object or a duplicated platform.
-bool client_status_decode(JsonValue value, u8* packed) noexcept;
+// Reads a client_status object through `document`, the parsed document that holds it, so nothing is scanned again.
+// Unknown platforms and values are ignored (a future platform never rejects the presence). Null or a non-object is
+// empty. False only for a malformed object or a duplicated platform.
+bool client_status_decode(const JsonIndexedDocument& document, JsonValue value, u8* packed) noexcept;
 
 } // namespace maicord

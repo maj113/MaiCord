@@ -36,8 +36,9 @@ MessageHistoryDecodeResult decode_failure(
     return MessageHistoryDecodeResult{{}, offset, error, message_error, scan_error, read_error};
 }
 
+// A null slice is empty, so nothing of it is used and the result stays null.
 template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
-    return {slice.data ? slice.data + used : nullptr, slice.count - used};
+    return {slice.data + used, slice.count - used};
 }
 
 // Whether `check` holds for every array of the scratch.

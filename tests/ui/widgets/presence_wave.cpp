@@ -225,9 +225,11 @@ void activities() noexcept {
 // Per-platform presence: client_status decoding, packing and routing.
 u8 platforms(Utf8View json, bool* ok) noexcept {
     u8 packed = 0xFF;
-    *ok = client_status_decode({json, 0, json.bytes && json.data[0] == '{' ? JsonValueKind::object
-                                                                            : JsonValueKind::null_value},
-                               &packed);
+    const auto scan = json_scan_structurals_avx1(json, {scratch, 16384});
+    const JsonIndexedDocument document{json, {scratch, scan.ok() ? scan.count : 0}};
+    *ok = client_status_decode(
+        document, {json, 0, json.bytes && json.data[0] == '{' ? JsonValueKind::object : JsonValueKind::null_value},
+        &packed);
     return packed;
 }
 void client_status() noexcept {
@@ -247,6 +249,13 @@ void client_status() noexcept {
     check(!odd && ok && !none && !duplicate_ok &&
               client_status_with(client_status_with(0, P::web, S::dnd), P::web, S::offline) == 0,
           "client status: unknown values read as offline, null is empty and a repeated platform is refused");
+    // More members than the former 64-entry index and values of other shapes: the known platforms still decode.
+    const u8 wide = platforms(
+        utf8_literal(R"({"a":"1","b":"2","c":"3","d":"4","e":"5","f":"6","g":"7","h":"8","i":"9","j":"10","k":"11",)"
+                     R"("l":"12","desktop":{"nested":[1,null]},"web":"idle","mobile":["online"]})"),
+        &ok);
+    check(ok && wide == client_status_with(0, P::web, S::idle),
+          "client status: a long object with odd values keeps its known platforms");
     check(client_status_mobile_online(client_status_with(0, P::mobile, S::online)) &&
               !client_status_mobile_online(client_status_with(client_status_with(0, P::mobile, S::online), P::desktop,
                                                               S::online)) &&

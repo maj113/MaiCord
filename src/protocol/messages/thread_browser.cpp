@@ -453,18 +453,13 @@ ThreadBrowserResult decode(
         u64{post_scratch.count} * sizeof(ThreadBrowserPost) > 0xffffffffull ||
         (post_output && (!post_scratch.data || (text_scratch.count && !text_scratch.data))))
         return {0, ThreadBrowserError::input};
-    const u32 span_count = post_output ? 8 : 5;
     const ConstSlice<u8> spans[]{
         {reinterpret_cast<const u8*>(input.data), input.bytes}, bytes(structural_scratch), bytes(row_scratch),
         bytes(name_scratch), {reinterpret_cast<const u8*>(output), sizeof(*output)},
         bytes(post_scratch), bytes(text_scratch),
         {reinterpret_cast<const u8*>(post_output), post_output ? static_cast<u32>(sizeof(*post_output)) : 0u}};
-    for (u32 at = 0; at < span_count; ++at) {
-        if (!byte_range_valid(spans[at])) return {0, ThreadBrowserError::input};
-        for (u32 before = 0; before < at; ++before)
-            if (byte_ranges_overlap(spans[at], spans[before])) return {0, ThreadBrowserError::input};
-    }
-    if (!utf8_validate(input).valid) return {0, ThreadBrowserError::input};
+    if (!byte_ranges_all_disjoint({spans, post_output ? 8u : 5u}) || !utf8_validate(input).valid)
+        return {0, ThreadBrowserError::input};
     const auto scanned = json_scan_structurals_avx1(input, structural_scratch);
     if (!scanned.ok()) return {0, scanned.error == JsonScanError::output_overflow
         ? ThreadBrowserError::capacity : ThreadBrowserError::json};

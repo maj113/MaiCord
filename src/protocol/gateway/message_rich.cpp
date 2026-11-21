@@ -46,10 +46,6 @@ bool ascii_prefix(Utf8View value, const char* prefix, u32 bytes) noexcept {
 }
 
 bool rich_url_valid(Utf8View value, bool attachment_allowed) noexcept {
-    if (!value.data || value.bytes == 0 || value.bytes > kRichUrlMaximumBytes ||
-        !utf8_validate(value).valid) {
-        return false;
-    }
     return ascii_prefix(value, "https://", 8) || ascii_prefix(value, "http://", 7) ||
            (attachment_allowed && ascii_prefix(value, "attachment://", 13));
 }

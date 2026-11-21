@@ -117,7 +117,7 @@ void merge_appearance(UserAppearance* target, const UserAppearance& other) noexc
 }
 bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
     JsonValue presence_value, bool has_presence) noexcept {
-    GatewayMemberObject member{}; UserObject user{}, presence_user{}; GatewayMemberPresence presence{};
+    GatewayMemberObject member{}; UserObject user{}, presence_user{}; GatewayMemberPresence presence{a->document};
     member.thread = presence.thread = true;
     if (has_member && !gateway_visit_object(member_value, *a->document, a->depth, gateway_visit_member_object, &member, &member.error)) return reject(&a->error, member.error);
     if (member.user_seen && (!gateway_visit_object(member.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen || user.id != id)) return reject(&a->error);
@@ -182,7 +182,7 @@ bool visit_entry(void* opaque, u32, JsonValue value) noexcept {
         return json_value_to_snowflake(value, &id) ? append_record(a, id, {}, false, {}, false) : reject(&a->error);
     }
     if (a->operation == GatewayClientMemberListOperation::update) {
-        GatewayMemberPresence p{}; UserObject user{};
+        GatewayMemberPresence p{a->document}; UserObject user{};
         p.thread = true;
         if (!gateway_visit_object(value, *a->document, a->depth, gateway_visit_member_presence, &p, &p.error) || !p.user_seen ||
             !gateway_visit_object(p.user, *a->document, a->depth, gateway_visit_member_user, &user, &user.error) || !user.id_seen) return reject(&a->error);
@@ -286,8 +286,9 @@ bool gateway_client_event_thread_member_record(const GatewayClientEvent& event,
     *username = {reinterpret_cast<const char*>(payload.data + at), m->username_bytes}; at += m->username_bytes;
     *global_extra = {payload.data + at, m->user_appearance_bytes}; at += m->user_appearance_bytes;
     *guild_extra = {payload.data + at, m->member_appearance_bytes}; at += m->member_appearance_bytes;
-    if (!utf8_validate(*nickname).valid || !utf8_validate(*name).valid || !utf8_validate(*avatar).valid || !utf8_validate(*username).valid) return false;
-    if (!gateway_avatar_hash_valid(*avatar)) return false;
+    // gateway_avatar_hash_valid accepts hex digits only, so the avatar needs no UTF-8 check.
+    if (!utf8_validate(*nickname).valid || !utf8_validate(*name).valid || !utf8_validate(*username).valid ||
+        !gateway_avatar_hash_valid(*avatar)) return false;
     UserAppearance decoded;
     if (!user_appearance_read(*global_extra, m->user_id, 0, &decoded) || !user_appearance_read(*guild_extra, m->user_id, event.thread_members.guild_id, &decoded)) return false;
     for (u32 i = 0; i < m->role_count; ++i) {

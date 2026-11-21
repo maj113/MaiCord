@@ -283,14 +283,11 @@ RtcpTransportFeedbackWrite rtcp_write_transport_feedback(Slice<u8> output, u32 o
 }
 
 void rtcp_transport_feedback_reset(RtcpTransportFeedbackState* state) noexcept {
-    if (state)
-        reset_value(state);
+    reset_value(state);
 }
 
 void rtcp_transport_feedback_record(RtcpTransportFeedbackState* state, u16 sequence, u32 media_ssrc,
                                     u64 arrival_us) noexcept {
-    if (!state)
-        return;
     if (!state->started) {
         for (auto& arrival : state->arrivals)
             arrival = 0;
@@ -331,8 +328,6 @@ u64 rtcp_transport_feedback_deadline(const RtcpTransportFeedbackState& state) no
 
 u32 rtcp_transport_feedback_build(RtcpTransportFeedbackState* state, Slice<u8> output, u32 offset,
                                   u32 sender_ssrc, u64 now_us) noexcept {
-    if (!state)
-        return offset;
     const u64 due = rtcp_transport_feedback_deadline(*state);
     if (!due || now_us < due)
         return offset;

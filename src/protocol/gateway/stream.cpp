@@ -31,14 +31,14 @@ GatewayCommandWriteResult keyed(const char (&prefix)[Count], const GatewayStream
 }
 
 struct StreamDecode {
-    GatewayStreamCreate create{};
-    GatewayStreamServer server{};
-    GatewayStreamUpdate update{};
-    GatewayStreamDelete removal{};
-    JsonIndexedDocument document{};
-    u32 seen = 0;
-    u8 kind = 0; // 0 create, 1 server, 2 update, 3 delete
-    GatewayEventDecodeError error = GatewayEventDecodeError::none;
+    GatewayStreamCreate create;
+    GatewayStreamServer server;
+    GatewayStreamUpdate update;
+    GatewayStreamDelete removal;
+    JsonIndexedDocument document;
+    u32 seen;
+    u8 kind; // 0 create, 1 server, 2 update, 3 delete
+    GatewayEventDecodeError error;
 };
 constexpr u32 f_key = 1, f_server = 2, f_channel = 4, f_region = 8, f_viewers = 16, f_paused = 32, f_token = 64,
               f_endpoint = 128, f_reason = 256, f_unavailable = 512;
@@ -318,17 +318,15 @@ u32 gateway_stream_preview_target(const GatewayStreamKey& key, u64 version, Slic
 
 namespace {
 struct PreviewDecode {
-    JsonString url{};
-    bool seen = false, valid = true;
+    JsonString url;
+    bool seen;
 };
 bool visit_preview(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<PreviewDecode*>(opaque);
     if (!json_name_is(name, utf8_literal("url")))
         return true;
-    if (d.seen || !json_value_as_string(value, &d.url)) {
-        d.valid = false;
+    if (d.seen || !json_value_as_string(value, &d.url))
         return false;
-    }
     d.seen = true;
     return true;
 }
@@ -341,7 +339,7 @@ u32 gateway_stream_preview_url(Utf8View body, Slice<u32> scratch, Slice<char> ou
     if (!scan.ok())
         return 0;
     PreviewDecode d{};
-    if (!json_visit_root_object(body, {scratch.data, scan.count}, 8, visit_preview, &d).ok() || !d.seen || !d.valid)
+    if (!json_visit_root_object(body, {scratch.data, scan.count}, 8, visit_preview, &d).ok() || !d.seen)
         return 0;
     const u32 limit = output.count < kGatewayStreamPreviewMaximumUrlBytes ? output.count
                                                                           : kGatewayStreamPreviewMaximumUrlBytes;

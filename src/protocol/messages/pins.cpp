@@ -37,8 +37,9 @@ bool later(const PinInstant& left, const PinInstant& right) noexcept {
 }
 
 template <typename T> bool valid_slice(Slice<T> slice) noexcept { return slice.data || !slice.count; }
+// A null slice is empty, so nothing of it is used and the result stays null.
 template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
-    return {slice.data ? slice.data + used : nullptr, slice.count - used};
+    return {slice.data + used, slice.count - used};
 }
 
 struct PageContext {

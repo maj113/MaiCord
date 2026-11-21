@@ -171,14 +171,7 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
                                   {reinterpret_cast<const u8*>(structural_scratch.data),
                                    static_cast<u32>(u64{structural_scratch.count} * sizeof(u32))},
                                   {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    for (u32 at = 0; at < 3; ++at) {
-        if (!byte_range_valid(ranges[at]))
-            return {0, ThreadCreationError::input};
-        for (u32 before = 0; before < at; ++before)
-            if (byte_ranges_overlap(ranges[at], ranges[before]))
-                return {0, ThreadCreationError::input};
-    }
-    if (!utf8_validate(input).valid)
+    if (!byte_ranges_all_disjoint({ranges, 3}) || !utf8_validate(input).valid)
         return {0, ThreadCreationError::input};
     const auto scanned = json_scan_structurals_avx1(input, structural_scratch);
     if (!scanned.ok())

@@ -449,29 +449,22 @@ struct AttachmentContext {
 
 bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AttachmentContext*>(opaque);
-    switch (member_index<"id", "filename", "title", "description", "content_type", "size", "url", "width", "height",
-                         "flags", "ephemeral", "duration_secs", "waveform">(name)) {
+    // A string member, seen as bit `index`. The cases share one copy of the check.
+    JsonString* text;
+    const u32 index = member_index<"id", "filename", "title", "description", "content_type", "size", "url", "width",
+                                   "height", "flags", "ephemeral", "duration_secs", "waveform">(name);
+    switch (index) {
     case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->value.id),
                              &context->error);
-    case 1:
-        return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->filename),
-                             &context->error);
-    case 2:
-        return accept_member(&context->seen, 1ull << 2, json_value_as_string(value, &context->title),
-                             &context->error);
-    case 3:
-        return accept_member(&context->seen, 1ull << 3, json_value_as_string(value, &context->description),
-                             &context->error);
-    case 4:
-        return accept_member(&context->seen, 1ull << 4, json_value_as_string(value, &context->content_type),
-                             &context->error);
+    case 1: text = &context->filename; break;
+    case 2: text = &context->title; break;
+    case 3: text = &context->description; break;
+    case 4: text = &context->content_type; break;
     case 5:
         return accept_member(&context->seen, 1ull << 5, json_value_to_u64(value, &context->value.size),
                              &context->error);
-    case 6:
-        return accept_member(&context->seen, 1ull << 6, json_value_as_string(value, &context->url),
-                             &context->error);
+    case 6: text = &context->url; break;
     case 7:
         if (!accept_member(&context->seen, 1ull << 7,
                            value.kind == JsonValueKind::null_value ||
@@ -479,7 +472,7 @@ bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
                            &context->error))
             return false;
         context->value.has_width = context->value.width != 0;
-        break;
+        return true;
     case 8:
         if (!accept_member(&context->seen, 1ull << 8,
                            value.kind == JsonValueKind::null_value ||
@@ -487,7 +480,7 @@ bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
                            &context->error))
             return false;
         context->value.has_height = context->value.height != 0;
-        break;
+        return true;
     case 9:
         return accept_member(&context->seen, 1ull << 9, value_u32(value, &context->value.flags),
                              &context->error);
@@ -501,16 +494,16 @@ bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
                            &context->error))
             return false;
         context->value.has_duration = !null;
-        break;
+        return true;
     }
     case 12:
         return accept_member(&context->seen, 1ull << 12,
                              value.kind == JsonValueKind::null_value ||
                                  json_value_as_string(value, &context->waveform),
                              &context->error);
-    default: break;
+    default: return true;
     }
-    return true;
+    return accept_member(&context->seen, 1ull << index, json_value_as_string(value, text), &context->error);
 }
 
 GatewayEventDecodeResult decode_attachments(JsonValue array, const JsonIndexedDocument& scratch,

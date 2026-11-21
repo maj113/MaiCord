@@ -7,9 +7,9 @@ namespace maicord {
 namespace {
 struct Writer {
     Slice<u8> output;
-    u32 used = 0;
-    MlsWireError error = MlsWireError::none;
-    bool emit = false;
+    u32 used;
+    MlsWireError error;
+    bool emit;
     void fail(MlsWireError value) noexcept {
         if (error == MlsWireError::none)
             error = value;

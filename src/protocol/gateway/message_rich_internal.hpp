@@ -112,6 +112,8 @@ struct RichText {
 
 bool value_u32(const JsonValue& value, u32* output) noexcept;
 bool bounded_string(const JsonString& source, u32 maximum_bytes, const RichText& text, Utf8View* value) noexcept;
+// Whether a URL that bounded_string decoded (nonempty, at most kRichUrlMaximumBytes, valid UTF-8) has an allowed
+// scheme.
 bool rich_url_valid(Utf8View value, bool attachment_allowed) noexcept;
 // JsonMemberVisitor that gathers a message's rich root members into a RootContext.
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept;

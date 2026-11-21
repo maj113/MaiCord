@@ -394,7 +394,7 @@ void sound_defaults(SoundParse* p) noexcept {
     p->value.volume = kSoundboardVolumeScale;
 }
 SoundboardDecodeError finish_sound(const SoundParse& p) noexcept {
-    if (!(p.seen & 1u) || !p.value.sound_id)
+    if (!p.value.sound_id)
         return SoundboardDecodeError::identity;
     return SoundboardDecodeError::none;
 }

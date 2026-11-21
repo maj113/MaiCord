@@ -1,6 +1,5 @@
 #include "maicord/protocol/gateway/client_status.hpp"
 
-#include "maicord/core/json_scan.hpp"
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
@@ -37,19 +36,12 @@ bool visit_platform(void* opaque, JsonString name, JsonValue value) noexcept {
 
 } // namespace
 
-bool client_status_decode(JsonValue value, u8* packed) noexcept {
+bool client_status_decode(const JsonIndexedDocument& document, JsonValue value, u8* packed) noexcept {
     *packed = 0;
     if (value.kind != JsonValueKind::object || !value.source.data)
         return value.kind != JsonValueKind::object;
-    // Four platforms and their values: a small fixed index suffices; a larger
-    // object is not a client_status the server sends.
-    u32 structurals[64];
-    const JsonScanResult scan = json_scan_structurals_avx1(value.source, Slice<u32>{structurals, 64});
-    if (!scan.ok())
-        return false;
     ClientStatusContext context{};
-    if (!json_visit_value_object(value, ConstSlice<u32>{structurals, scan.count}, 4, visit_platform, &context)
-             .ok())
+    if (!json_visit_indexed_object(document, value, 4, visit_platform, &context).ok())
         return false;
     *packed = context.packed;
     return true;

@@ -469,7 +469,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
             content_flags |= gateway_reference_poll_question;
     }
     u8 quote_flags = 0;
-    if (referenced.message_reference.source.data && referenced.message_reference.kind == JsonValueKind::object) {
+    if (referenced.message_reference.source.data) {
         u32 quoted_type = 0;
         json_visit_indexed_object(scratch, referenced.message_reference, maximum_depth, visit_quote_reference_type,
                                   &quoted_type);
@@ -477,7 +477,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
             quote_flags |= gateway_quote_forwarded;
     }
     // A clip mention replaces the quoted text by the clip's title and the moment: "<title>\x1f@<time>".
-    if (root.media_mention.source.data && root.media_mention.kind == JsonValueKind::object && text.output.data) {
+    if (root.media_mention.source.data && text.output.data) {
         MediaMentionProbe mention{};
         json_visit_indexed_object(scratch, root.media_mention, maximum_depth, visit_media_mention, &mention);
         QuotedAttachmentProbe attachment{&scratch, maximum_depth, mention.attachment_id, {}, 0, 0, false};

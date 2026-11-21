@@ -45,28 +45,11 @@ bool guild_row(void* opaque, u32, JsonValue value) noexcept {
     copy_bytes(pass.records + pass.count++, &record, sizeof(record));
     return true;
 }
-bool instances_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("stage_instances")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
 } // namespace
 
-bool gateway_client_publish_stage_instances(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
-                                            u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                            void* context, const JsonValue* located) noexcept {
-    if (!publish || !guild_id || !scratch.data || scratch.count < 64 || !payload.data ||
-        payload.count < kGatewayClientDispatchPayloadCapacity || guild.kind != JsonValueKind::object)
-        return true;
-    JsonValue instances{};
-    if (located) {
-        instances = *located;
-    } else {
-        const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-        if (!scan.ok() ||
-            !json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, instances_field, &instances).ok())
-            return true;
-    }
+bool gateway_client_publish_stage_instances(JsonValue instances, u64 guild_id, Slice<u32> scratch,
+                                            Slice<char> payload, u64 sequence, u64 now_ms,
+                                            GatewayRelationshipPublish publish, void* context) noexcept {
     if (instances.kind != JsonValueKind::array)
         return true;
     const u32 half = scratch.count / 2;

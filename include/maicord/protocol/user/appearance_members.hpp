@@ -34,7 +34,9 @@ struct UserAppearanceMembers {
 bool user_appearance_decode(const JsonIndexedDocument& doc, const UserAppearanceMembers& members, u64 user_id,
                             u64 guild_id, UserAppearance* output) noexcept;
 // activity_decode and user_activities_decode for the `activities` member of a presence. A value without source text:
-// the presence does not hold the member. user_activities_decode_list leaves the items past the count as they were.
+// the presence does not hold the member. activity_decode and activity_decode_list take an appearance that holds no
+// activity text or status emoji (a cleared or freshly decoded one). user_activities_decode_list leaves the items past
+// the count as they were.
 bool activity_decode_list(const JsonIndexedDocument& doc, const JsonValue& activities,
                           UserAppearance* output) noexcept;
 bool user_activities_decode_list(const JsonIndexedDocument& doc, const JsonValue& activities, u64 user_id,

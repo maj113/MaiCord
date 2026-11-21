@@ -84,7 +84,7 @@ Utf8View request_path(Utf8View target) noexcept {
 }
 
 // RFC 6265 5.1.4: the request path up to its last '/', or "/".
-Utf8View default_path(Utf8View target) noexcept {
+inline Utf8View default_path(Utf8View target) noexcept {
     const Utf8View path = request_path(target);
     u32 last = 0;
     for (u32 i = 0; i < path.bytes; ++i)
@@ -93,7 +93,7 @@ Utf8View default_path(Utf8View target) noexcept {
     return last ? Utf8View{path.data, last} : utf8_literal("/");
 }
 
-bool path_match(Utf8View request, Utf8View cookie) noexcept {
+inline bool path_match(Utf8View request, Utf8View cookie) noexcept {
     if (cookie.bytes > request.bytes || !bytes_equal(request.data, cookie.data, cookie.bytes))
         return false;
     return cookie.bytes == request.bytes || cookie.data[cookie.bytes - 1] == '/' ||
@@ -180,7 +180,7 @@ bool parse_date(Utf8View text, i64* unix_ms) noexcept {
     return true;
 }
 
-bool parse_max_age(Utf8View text, i64* seconds) noexcept {
+inline bool parse_max_age(Utf8View text, i64* seconds) noexcept {
     bool negative = false;
     u32 at = 0;
     if (text.bytes && text.data[0] == '-') {
@@ -416,7 +416,7 @@ bool store(CookieJar* jar, const ParsedCookie& cookie, u64 created_ms, u64 now_m
     return true;
 }
 
-bool set_locked(CookieJar* jar, const CookieRequest& request, Utf8View line, u64 now_ms) noexcept {
+inline bool set_locked(CookieJar* jar, const CookieRequest& request, Utf8View line, u64 now_ms) noexcept {
     ParsedCookie cookie{};
     if (!request.host.data || !request.host.bytes || !line.data ||
         !parse_set_cookie(line, request, now_ms, &cookie))

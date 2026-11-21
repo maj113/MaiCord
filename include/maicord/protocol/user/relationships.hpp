@@ -3,6 +3,7 @@
 
 namespace maicord {
 enum class RestMethod : u8;
+struct JsonIndexedDocument;
 inline constexpr u64 kRelationshipsRouteId = 0x52454C4154494F4Eull;
 inline constexpr u32 kRelationshipUsernameMaximumBytes = 32;
 // A friend nickname: 1-32 characters (PATCH /users/@me/relationships/{id}).
@@ -66,10 +67,11 @@ struct RelationshipsAdmission {
 };
 // Parses a complete REST/READY relationships array into caller scratch, sorts,
 // rejects duplicate IDs and only then replaces the active rows. Every embedded user is validated; user
-// names reach the user store through relationships_hydrate.
+// names reach the user store through relationships_hydrate. On success `indexed` (when not null) receives the
+// validated array's index in the scratch.
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
     Slice<u32> structural_scratch, Slice<RelationshipRecord> candidate,
-    RelationshipsAdmission admission = {}) noexcept;
+    RelationshipsAdmission admission = {}, JsonIndexedDocument* indexed = nullptr) noexcept;
 // Apply only after successful decode. Reports the first user-store error and the
 // count applied; relationship decode never silently drops rows on name capacity.
 struct RelationshipUserApplyResult {
@@ -78,8 +80,7 @@ struct RelationshipUserApplyResult {
     constexpr bool ok() const noexcept { return error == UserStoreError::none; }
 };
 RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlice<RelationshipUser> snapshots) noexcept;
-// Call with the same array that already decoded successfully as a snapshot.
+// Takes the index that relationships_replace gave for the same array, while its scratch is unchanged.
 // Streams one user snapshot at a time instead of duplicating every cached name.
-RelationshipUserApplyResult relationships_hydrate(UserStore* users,
-    Utf8View validated_array, Slice<u32> structural_scratch) noexcept;
+RelationshipUserApplyResult relationships_hydrate(UserStore* users, const JsonIndexedDocument& indexed) noexcept;
 } // namespace maicord

@@ -8,29 +8,31 @@
 namespace maicord {
 namespace {
 using namespace media_detail;
-struct Url { Utf8View host, path, query, fragment; };
+using Url = EmbedUrl;
+// Writes the parts only for a valid URL, so a failed parse leaves them empty. One pass over the text: the host's
+// character test admits only printable bytes, and one loop tests the rest and finds its first '?' and '#'.
 bool parse(Utf8View text, Url* out) noexcept {
     if (!text.data || text.bytes > 2048 || text.bytes < 9 ||
         !ascii_equal_ignore_case({text.data, 8}, utf8_literal("https://"))) return false;
-    for (u32 i = 8; i < text.bytes; ++i)
-        if (static_cast<u8>(text.data[i]) <= 32 || static_cast<u8>(text.data[i]) >= 127 ||
-            text.data[i] == '\\') return false;
-    u32 end = 8;
-    while (end < text.bytes && text.data[end] != '/' && text.data[end] != '?' && text.data[end] != '#') {
-        const char c = text.data[end++];
+    u32 path = 8;
+    while (path < text.bytes && text.data[path] != '/' && text.data[path] != '?' && text.data[path] != '#') {
+        const char c = text.data[path++];
         if (!ascii_is_alnum(c) && c != '-' && c != '.') return false;
     }
-    if (end == 8) return false;
-    out->host = {text.data + 8, end - 8};
-    const u32 begin = end;
-    while (end < text.bytes && text.data[end] != '?' && text.data[end] != '#') ++end;
-    out->path = {text.data + begin, end - begin};
-    if (end < text.bytes && text.data[end] == '?') {
-        const u32 query = ++end;
-        while (end < text.bytes && text.data[end] != '#') ++end;
-        out->query = {text.data + query, end - query};
+    if (path == 8) return false;
+    // Positions of the query's '?' and the fragment's '#', or zero for none. Both come after the host.
+    u32 query = 0, fragment = 0;
+    for (u32 i = path; i < text.bytes; ++i) {
+        const char c = text.data[i];
+        if (static_cast<u8>(c) <= 32 || static_cast<u8>(c) >= 127 || c == '\\') return false;
+        if (c == '#' && !fragment) fragment = i;
+        else if (c == '?' && !query && !fragment) query = i;
     }
-    if (end < text.bytes && text.data[end] == '#') out->fragment = {text.data + end + 1, text.bytes - end - 1};
+    const u32 fragment_at = fragment ? fragment : text.bytes;
+    out->host = {text.data + 8, path - 8};
+    out->path = {text.data + path, (query ? query : fragment_at) - path};
+    if (query) out->query = {text.data + query + 1, fragment_at - query - 1};
+    if (fragment) out->fragment = {text.data + fragment + 1, text.bytes - fragment - 1};
     return true;
 }
 bool host_chars(const Url& u, const char* value, u32 bytes) noexcept { return ascii_equal_ignore_case(u.host, {value, bytes}); }
@@ -74,7 +76,7 @@ constexpr auto kHosts = table(
     row(P::apple_music, "music.apple.com"), row(P::apple_music, "embed.music.apple.com"),
     row(P::playstation, "session-share.playstation.com"),
     row(P::playstation, "sessionshare.sp-int.playstation.com"));
-EmbedProvider provider(const Url& u) noexcept {
+EmbedProvider host_provider(const Url& u) noexcept {
     for (const char* at = kHosts.bytes; *at;) {
         const u32 bytes = static_cast<u8>(at[1]);
         if (bytes == u.host.bytes && ascii_equal_ignore_case(u.host, {at + 2, bytes})) return static_cast<EmbedProvider>(*at);
@@ -157,9 +159,12 @@ bool seconds(Utf8View input, u32* out) noexcept {
     return true;
 }
 } // namespace
+EmbedUrl::EmbedUrl(Utf8View url) noexcept {
+    if (parse(url, this))
+        provider = host_provider(*this);
+}
 EmbedProvider embed_provider(Utf8View url) noexcept {
-    Url parsed{};
-    return parse(url, &parsed) ? provider(parsed) : EmbedProvider::none;
+    return EmbedUrl{url}.provider;
 }
 SoundcloudStation soundcloud_station_locator(const Utf8View& path) noexcept {
     if (!path.data) return {};
@@ -171,9 +176,8 @@ SoundcloudStation soundcloud_station_locator(const Utf8View& path) noexcept {
     if (!snowflake_parse({path.data + station.bytes, path.bytes - station.bytes}, &id)) return {};
     return {id,from_track};
 }
-static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
-    Url u{};
-    if (!parse(url, &u) || (!host(u, utf8_literal("soundcloud.com")) && !host(u, utf8_literal("www.soundcloud.com")))) return {};
+static Utf8View soundcloud_path(const Url& u, bool collection) noexcept {
+    if (!host(u, utf8_literal("soundcloud.com")) && !host(u, utf8_literal("www.soundcloud.com"))) return {};
     auto path = u.path;
     if (path.bytes && path.data[path.bytes - 1] == '/') --path.bytes;
     Utf8View secret{};
@@ -199,12 +203,12 @@ static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
     }
     return path;
 }
-Utf8View soundcloud_track_path(const Utf8View& url) noexcept { return soundcloud_path(url, false); }
-Utf8View soundcloud_collection_path(const Utf8View& url) noexcept { return soundcloud_path(url, true); }
-static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> decoded, bool collection) noexcept {
-    if (const auto path = soundcloud_path(url, collection); path.bytes) return {path};
-    Url widget{}; Utf8View nested{};
-    if (!parse(url, &widget) || !host(widget, utf8_literal("w.soundcloud.com")) ||
+Utf8View soundcloud_track_path(const Utf8View& url) noexcept { return soundcloud_path(Url{url}, false); }
+Utf8View soundcloud_collection_path(const Utf8View& url) noexcept { return soundcloud_path(Url{url}, true); }
+static SoundcloudCollectionLocator soundcloud_locator(const Url& widget, Slice<char> decoded, bool collection) noexcept {
+    if (const auto path = soundcloud_path(widget, collection); path.bytes) return {path};
+    Utf8View nested{};
+    if (!host(widget, utf8_literal("w.soundcloud.com")) ||
         (!equal(widget.path, utf8_literal("/player/")) && !equal(widget.path, utf8_literal("/player"))) ||
         !parameter(widget.query, utf8_literal("url"), &nested) || !nested.bytes || !decoded.data) return {};
     u32 bytes = 0;
@@ -218,38 +222,38 @@ static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> 
             start = start * 10 + static_cast<u32>(index.data[i] - '0');
         }
     }
-    const Utf8View target{decoded.data, bytes};
+    const Url target{{decoded.data, bytes}};
     if (const auto path = soundcloud_path(target, collection); path.bytes) return {path, 0, start};
-    Url api{};
     const auto prefix = collection ? utf8_literal("/playlists/") : utf8_literal("/tracks/");
-    if (!parse(target, &api) || !host(api, utf8_literal("api.soundcloud.com")) || api.query.bytes ||
-        !utf8_starts_with(api.path, prefix)) return {};
-    const Utf8View id{api.path.data + prefix.bytes, api.path.bytes - prefix.bytes};
+    if (!host(target, utf8_literal("api.soundcloud.com")) || target.query.bytes ||
+        !utf8_starts_with(target.path, prefix)) return {};
+    const Utf8View id{target.path.data + prefix.bytes, target.path.bytes - prefix.bytes};
     u64 value = 0;
     if (!snowflake_parse(id, &value)) return {};
     return {{}, value, start};
 }
 SoundcloudTrackLocator soundcloud_track_locator(const Utf8View& url, const Slice<char>& decoded) noexcept {
-    const auto result = soundcloud_locator(url, decoded, false);
+    const auto result = soundcloud_locator(Url{url}, decoded, false);
     return {result.path, result.id};
 }
 SoundcloudCollectionLocator soundcloud_collection_locator(const Utf8View& url,
                                                           const Slice<char>& decoded) noexcept {
-    return soundcloud_locator(url, decoded, true);
+    return soundcloud_locator(Url{url}, decoded, true);
 }
-bool soundcloud_collection_url(const Utf8View& url) noexcept {
+bool soundcloud_collection_url(const EmbedUrl& url) noexcept {
     char decoded[1024];
-    const auto locator = soundcloud_collection_locator(url, {decoded, sizeof(decoded)});
+    const auto locator = soundcloud_locator(url, {decoded, sizeof(decoded)}, true);
     return locator.path.bytes || locator.id;
 }
-bool soundcloud_track_url(const Utf8View& url) noexcept {
+bool soundcloud_collection_url(const Utf8View& url) noexcept { return soundcloud_collection_url(Url{url}); }
+bool soundcloud_track_url(const EmbedUrl& url) noexcept {
     char decoded[1024];
-    const auto locator = soundcloud_track_locator(url, {decoded, sizeof(decoded)});
+    const auto locator = soundcloud_locator(url, {decoded, sizeof(decoded)}, false);
     return locator.path.bytes || locator.id;
 }
-Utf8View spotify_audio_locator(Utf8View url, bool* episode) noexcept {
-    Url u{};
-    if (!parse(url, &u) || provider(u) != EmbedProvider::spotify) return {};
+bool soundcloud_track_url(const Utf8View& url) noexcept { return soundcloud_track_url(Url{url}); }
+Utf8View spotify_audio_locator(const EmbedUrl& u, bool* episode) noexcept {
+    if (u.provider != EmbedProvider::spotify) return {};
     auto path = u.path;
     if (prefix(path, utf8_literal("/intl-"))) {
         u32 end = 6;
@@ -270,9 +274,9 @@ Utf8View spotify_audio_locator(Utf8View url, bool* episode) noexcept {
     if (episode) *episode = podcast;
     return id;
 }
-AmazonMusicTrackLocator amazon_music_track_locator(Utf8View url) noexcept {
-    Url outer{};
-    if(!parse(url,&outer) || provider(outer)!=EmbedProvider::amazon_music) return {};
+Utf8View spotify_audio_locator(Utf8View url, bool* episode) noexcept { return spotify_audio_locator(Url{url}, episode); }
+AmazonMusicTrackLocator amazon_music_track_locator(const EmbedUrl& outer) noexcept {
+    if(outer.provider!=EmbedProvider::amazon_music) return {};
     const auto identify=[](const Url& u) noexcept -> Utf8View {
         auto path=u.path;
         if(path.bytes && path.data[path.bytes-1]=='/') --path.bytes;
@@ -295,15 +299,15 @@ AmazonMusicTrackLocator amazon_music_track_locator(Utf8View url) noexcept {
     if(frame.bytes) {
         char decoded[2048];u32 count=0;
         if(!percent_decode(frame, decoded, sizeof(decoded), &count)) return {};
-        Url nested{};Utf8View recursive{};
-        if(!parse({decoded,count},&nested) || !ascii_equal_ignore_case(outer.host,nested.host) ||
+        const Url nested{{decoded,count}}; Utf8View recursive{};
+        if(!ascii_equal_ignore_case(outer.host,nested.host) ||
             !equal(identify(nested),id) || !parameter(nested.query,utf8_literal("iframe_url"),&recursive) || recursive.bytes) return {};
     }
     return {id,outer.host};
 }
-static AppleMusicTrackLocator apple_music_locator(Utf8View url, bool collection) noexcept {
-    Url u{};
-    if (!parse(url, &u) || provider(u) != EmbedProvider::apple_music || u.path.bytes < 10 ||
+AmazonMusicTrackLocator amazon_music_track_locator(Utf8View url) noexcept { return amazon_music_track_locator(Url{url}); }
+static AppleMusicTrackLocator apple_music_locator(const Url& u, bool collection) noexcept {
+    if (u.provider != EmbedProvider::apple_music || u.path.bytes < 10 ||
         u.path.data[0] != '/' || u.path.data[3] != '/') return {};
     const Utf8View country{u.path.data + 1, 2};
     for (u32 i = 0; i < country.bytes; ++i)
@@ -325,16 +329,19 @@ static AppleMusicTrackLocator apple_music_locator(Utf8View url, bool collection)
     }
     return apple_music_track_id(track) ? AppleMusicTrackLocator{track, country, video} : AppleMusicTrackLocator{};
 }
-AppleMusicTrackLocator apple_music_track_locator(const Utf8View& url) noexcept {
+AppleMusicTrackLocator apple_music_track_locator(const EmbedUrl& url) noexcept {
     return apple_music_locator(url, false);
 }
-AppleMusicTrackLocator apple_music_album_locator(const Utf8View& url) noexcept {
-    return apple_music_locator(url, true);
+AppleMusicTrackLocator apple_music_track_locator(const Utf8View& url) noexcept {
+    return apple_music_locator(Url{url}, false);
 }
-AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcept {
-    if (const auto album=apple_music_album_locator(url); album.id.bytes) return {album.id,album.country,false};
-    Url u{}; Utf8View song{};
-    if (!parse(url,&u) || provider(u)!=EmbedProvider::apple_music || u.path.bytes<14 || u.path.data[0]!='/' || u.path.data[3]!='/' ||
+AppleMusicTrackLocator apple_music_album_locator(const Utf8View& url) noexcept {
+    return apple_music_locator(Url{url}, true);
+}
+AppleMusicCollectionLocator apple_music_collection_locator(const EmbedUrl& u) noexcept {
+    if (const auto album=apple_music_locator(u, true); album.id.bytes) return {album.id,album.country,false};
+    Utf8View song{};
+    if (u.provider!=EmbedProvider::apple_music || u.path.bytes<14 || u.path.data[0]!='/' || u.path.data[3]!='/' ||
         !parameter(u.query,utf8_literal("i"),&song) || song.bytes) return {};
     const Utf8View country{u.path.data+1,2},path{u.path.data+3,u.path.bytes-3};
     for (u32 i=0;i<country.bytes;++i) if (ascii_lower(country.data[i])<'a' || ascii_lower(country.data[i])>'z') return {};
@@ -345,13 +352,16 @@ AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcep
     for (u32 n=3;n<id.bytes;++n) if (!ascii_is_alnum(id.data[n]) && id.data[n]!='-' && id.data[n]!='_') return {};
     return {id,country,true,u.path};
 }
-bool embed_collection_url(const Utf8View& url) noexcept {
-    return soundcloud_collection_url(url) || youtube_collection_locator(url).list.bytes ||
-           apple_music_collection_locator(url).id.bytes;
+AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcept {
+    return apple_music_collection_locator(Url{url});
 }
-SteamVideoLocator steam_video_locator(Utf8View url) noexcept {
-    Url u{};
-    if (!parse(url, &u) || provider(u) != EmbedProvider::steam) return {};
+bool embed_collection_url(const Utf8View& url) noexcept {
+    const Url u{url};
+    return soundcloud_collection_url(u) || youtube_collection_locator(u).list.bytes ||
+           apple_music_collection_locator(u).id.bytes;
+}
+static SteamVideoLocator steam_locator(const Url& u) noexcept {
+    if (u.provider != EmbedProvider::steam) return {};
     const bool video = prefix(u.path, utf8_literal("/video/"));
     const u32 begin = video ? 7 : prefix(u.path, utf8_literal("/app/")) ? 5 : 0;
     if (!begin) return {};
@@ -371,9 +381,9 @@ SteamVideoLocator steam_video_locator(Utf8View url) noexcept {
     }
     return result;
 }
-TwitterVideoLocator twitter_video_locator(Utf8View url) noexcept {
-    Url u{};
-    if (!parse(url,&u) || provider(u)!=EmbedProvider::twitter) return {};
+SteamVideoLocator steam_video_locator(Utf8View url) noexcept { return steam_locator(Url{url}); }
+static TwitterVideoLocator twitter_locator(const Url& u) noexcept {
+    if (u.provider!=EmbedProvider::twitter) return {};
     TwitterVideoLocator out{};
     if (host(u,utf8_literal("platform.twitter.com"))) {
         if (!equal(u.path,utf8_literal("/embed/Tweet.html")) ||
@@ -400,15 +410,14 @@ TwitterVideoLocator twitter_video_locator(Utf8View url) noexcept {
     }
     return twitter_post_id(out.id) ? out : TwitterVideoLocator{};
 }
+TwitterVideoLocator twitter_video_locator(Utf8View url) noexcept { return twitter_locator(Url{url}); }
 bool vimeo_privacy_hash(Utf8View value) noexcept {
     if (!value.data || value.bytes != 10) return false;
     for (u32 i = 0; i < value.bytes; ++i) if (!ascii_is_hex_digit(value.data[i])) return false;
     return true;
 }
-Utf8View vimeo_video_id(Utf8View url, Utf8View* privacy_hash) noexcept {
-    Url parsed{};
-    if (!parse(url, &parsed)) return {};
-    if (provider(parsed) == EmbedProvider::vimeo) {
+static Utf8View vimeo_id(const Url& parsed, Utf8View* privacy_hash) noexcept {
+    if (parsed.provider == EmbedProvider::vimeo) {
         const bool player = host(parsed, utf8_literal("player.vimeo.com"));
         Utf8View parts[4]{}; u32 count = 0;
         if (!parsed.path.bytes || parsed.path.data[0] != '/') return {};
@@ -441,11 +450,10 @@ Utf8View vimeo_video_id(Utf8View url, Utf8View* privacy_hash) noexcept {
     }
     return {};
 }
-YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
-    Url u{}; if (!parse(url, &u)) return {};
-    const auto p = provider(u);
-    if (p != EmbedProvider::youtube && p != EmbedProvider::youtube_music) return {};
-    const auto video = embed_video_locator(url);
+Utf8View vimeo_video_id(Utf8View url, Utf8View* privacy_hash) noexcept { return vimeo_id(Url{url}, privacy_hash); }
+YoutubeCollectionLocator youtube_collection_locator(const EmbedUrl& u) noexcept {
+    if (u.provider != EmbedProvider::youtube && u.provider != EmbedProvider::youtube_music) return {};
+    const auto video = embed_video_locator(u);
     if (!equal(u.path, utf8_literal("/watch")) && !equal(u.path, utf8_literal("/playlist")) && !equal(u.path, utf8_literal("/embed/videoseries")) && !video.id.bytes) return {};
     YoutubeCollectionLocator result{};
     if (!parameter(u.query, utf8_literal("list"), &result.list) || result.list.bytes < 3 || result.list.bytes > 128) return {};
@@ -459,9 +467,13 @@ YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
     if (prefix(result.list, utf8_literal("RD")) && !result.video.bytes) return {};
     return result;
 }
+YoutubeCollectionLocator youtube_collection_locator(Utf8View url) noexcept {
+    return youtube_collection_locator(Url{url});
+}
 Utf8View youtube_message_source(Utf8View source, Utf8View content) noexcept {
-    if (youtube_collection_locator(source).list.bytes) return source;
-    const auto video = embed_video_locator(source);
+    const Url source_url{source};
+    if (youtube_collection_locator(source_url).list.bytes) return source;
+    const auto video = embed_video_locator(source_url);
     if ((video.provider != EmbedProvider::youtube && video.provider != EmbedProvider::youtube_music) ||
         video.id.bytes != 11 || !content.data) return source;
     const auto boundary = [](u8 c) noexcept {
@@ -479,13 +491,14 @@ Utf8View youtube_message_source(Utf8View source, Utf8View content) noexcept {
         while (trimmed > at && (content.data[trimmed - 1] == '.' || content.data[trimmed - 1] == ',' ||
                                content.data[trimmed - 1] == '!' || content.data[trimmed - 1] == ';')) --trimmed;
         const Utf8View candidate{content.data + at, trimmed - at};
-        const auto queue = youtube_collection_locator(candidate);
+        const Url candidate_url{candidate};
+        const auto queue = youtube_collection_locator(candidate_url);
         if (queue.list.bytes && equal(queue.video, video.id)) {
             if (found.bytes && !equal(list, queue.list)) return source;
             found = candidate;
             list = queue.list;
         } else if (!queue.list.bytes) {
-            const auto single = embed_video_locator(candidate);
+            const auto single = embed_video_locator(candidate_url);
             if (equal(single.id, video.id)) {
                 if (single.provider == EmbedProvider::youtube_music) music = candidate;
                 else if (single.provider == EmbedProvider::youtube) youtube = true;
@@ -496,12 +509,11 @@ Utf8View youtube_message_source(Utf8View source, Utf8View content) noexcept {
     // A youtube.com link of the same video makes the host unclear. The embed URL then stays.
     return found.bytes ? found : music.bytes && !youtube ? music : source;
 }
-EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
-    Url parsed{};
-    if (!parse(url, &parsed)) return {};
-    EmbedVideoLocator out{{}, 0, provider(parsed)};
+EmbedVideoLocator embed_video_locator(Utf8View url) noexcept { return embed_video_locator(Url{url}); }
+EmbedVideoLocator embed_video_locator(const EmbedUrl& parsed) noexcept {
+    EmbedVideoLocator out{{}, 0, parsed.provider};
     if (out.provider == EmbedProvider::vimeo) {
-        out.id = vimeo_video_id(url); Utf8View time{};
+        out.id = vimeo_id(parsed, nullptr); Utf8View time{};
         if (!parameter(parsed.fragment, utf8_literal("t"), &time) || (time.data && !time.bytes) ||
             !seconds(time, &out.start_seconds)) return {};
         return out;
@@ -514,7 +526,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
         if (!pornhub_video_id(out.id)) reset_value(&out.id);
         return out;
     }
-    if (out.provider == EmbedProvider::twitter) { out.id=twitter_video_locator(url).id; return out; }
+    if (out.provider == EmbedProvider::twitter) { out.id=twitter_locator(parsed).id; return out; }
     if (out.provider == EmbedProvider::imgur) {
         auto path=parsed.path;
         if(path.bytes && path.data[0]=='/') {
@@ -528,7 +540,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
         }
         return out;
     }
-    if (out.provider == EmbedProvider::steam) { out.id = steam_video_locator(url).app; return out; }
+    if (out.provider == EmbedProvider::steam) { out.id = steam_locator(parsed).app; return out; }
     if (out.provider == EmbedProvider::streamable) {
         const u32 prefix_bytes = prefix(parsed.path, utf8_literal("/e/")) || prefix(parsed.path, utf8_literal("/o/")) ? 3 : 1;
         if (parsed.path.bytes > prefix_bytes) out.id = {parsed.path.data + prefix_bytes, parsed.path.bytes - prefix_bytes};

@@ -43,7 +43,10 @@ struct Attribute { Utf8View name, value; };
 struct Element { Utf8View name, text; Attribute attributes[20]; u32 count; bool closing, empty; };
 struct Reader { Utf8View input; u32 at{}, tokens{}; };
 E next(Reader& r, Element& e) noexcept {
-    reset_value(&e);
+    // Readers stop at count, so the attributes past it keep the previous element's views.
+    e.name = e.text = {};
+    e.count = 0;
+    e.closing = e.empty = false;
     if (++r.tokens > 4096) return E::capacity;
     const auto s = r.input;
     if (s.data[r.at] != '<') {

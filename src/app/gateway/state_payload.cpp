@@ -214,12 +214,17 @@ bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, Co
 
 bool gateway_client_event_guild_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 offset,
                                         GatewayClientRoleMutation* role, Utf8View* name) noexcept {
-    if (!role || !name || !guild_event_payload(event, payload) ||
-        gateway_client_guild_strings_bytes(event.state) > payload.count ||
-        offset < gateway_client_guild_strings_bytes(event.state) ||
-        (!payload.data && payload.count != 0)) return false;
-    u32 next = 0;
-    return read_guild_role(payload, offset, role, name, &next);
+    // The offsets scan of this packet validated the record at offset, its name's UTF-8 included. Only the bounds
+    // are checked again.
+    if (offset < gateway_client_guild_strings_bytes(event.state) || offset > payload.count ||
+        sizeof(*role) > payload.count - offset)
+        return false;
+    copy_bytes(role, payload.data + offset, sizeof(*role));
+    offset += sizeof(*role);
+    if (role->id == 0 || role->name_bytes > payload.count - offset)
+        return false;
+    *name = Utf8View{reinterpret_cast<const char*>(payload.data + offset), role->name_bytes};
+    return true;
 }
 
 bool gateway_client_event_guild_emojis_begin(const GatewayClientEvent& event, ConstSlice<u8> payload,

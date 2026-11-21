@@ -9,6 +9,7 @@
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/sys/crt.hpp"
+#include "../../model/guild/activity.hpp"
 
 // Not machine-outlined: the outliner made the state apply of READY 26 % slower (this file, the chat state store
 // and the permission files together).
@@ -218,14 +219,28 @@ struct GuildChannelInputContext {
     mutable u32 index;
 };
 
+// The next channel record of a guild create. The validation pass of the same payload read every record from the
+// same offsets (its bounds, UTF-8 names and overwrite spans), and the payload lies outside the store, so the later
+// passes read them without those checks.
+void read_checked_channel(ConstSlice<u8> payload, u32* cursor, GatewayClientStateMutation* channel, Utf8View* name,
+                          ConstSlice<u8>* overwrites) noexcept {
+    copy_bytes(channel, payload.data + *cursor, sizeof(*channel));
+    *cursor += sizeof(*channel);
+    *name = Utf8View{reinterpret_cast<const char*>(payload.data + *cursor), channel->name_bytes};
+    *cursor += channel->name_bytes;
+    const u32 overwrite_bytes = channel->overwrite_count * u32{sizeof(GatewayClientPermissionOverwriteMutation)};
+    *overwrites = ConstSlice<u8>{payload.data + *cursor, overwrite_bytes};
+    *cursor += overwrite_bytes;
+}
+
 bool read_guild_channel_input(const void* opaque, u32 index, ChannelInput* output) noexcept {
     const auto& context = *static_cast<const GuildChannelInputContext*>(opaque);
-    if (index != context.index) return false;
+    if (index != context.index || index >= context.event->state.record_count) return false;
     GatewayClientStateMutation channel{};
     Utf8View name{};
     ConstSlice<u8> overwrites{};
-    if (!gateway_client_event_next_guild_channel(*context.event, context.payload,
-        &context.cursor, &context.index, &channel, &name, &overwrites)) return false;
+    read_checked_channel(context.payload, &context.cursor, &channel, &name, &overwrites);
+    ++context.index;
     *output = channel_input(channel, name);
     return true;
 }
@@ -431,12 +446,10 @@ u32 resident_guild_channels(const ChatStateStore& store, u64 guild_id, u32* over
     return count;
 }
 
+// The guild's resident roles: one run of the role table, which is sorted by (guild_id, id).
 u32 resident_guild_roles(const ChatStateStore& store, u64 guild_id) noexcept {
-    u32 count = 0;
-    for (u32 index = 0; index < store.role_count; ++index) {
-        count += store.roles[index].guild_id == guild_id ? 1u : 0u;
-    }
-    return count;
+    const auto run = chat_activity_detail::guild_role_run(store, guild_id);
+    return run.end - run.first;
 }
 
 } // namespace
@@ -1007,15 +1020,11 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                                                          read_guild_role_input, &role_input))
                     return apply_error(ChatStateApplyError::capacity);
                 cursor = channels_begin;
-                index = 0;
-                while (index < event.state.record_count) {
+                for (index = 0; index < event.state.record_count; ++index) {
                     GatewayClientStateMutation channel{};
                     Utf8View channel_name{};
                     ConstSlice<u8> overwrites{};
-                    if (!gateway_client_event_next_guild_channel(event, payload, &cursor, &index, &channel,
-                                                                 &channel_name, &overwrites)) {
-                        return apply_error(ChatStateApplyError::invalid_payload);
-                    }
+                    read_checked_channel(payload, &cursor, &channel, &channel_name, &overwrites);
                     const ChatStateStoreResult applied =
                         chat_state_store_upsert_channel(store, channel_input(channel, channel_name));
                     if (!applied.ok()) {

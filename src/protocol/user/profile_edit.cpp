@@ -616,7 +616,7 @@ bool profile_edit_decode_errors(Utf8View body, Slice<u32> structurals, ProfileEd
     if (!object(doc, {body, 0, JsonValueKind::object}, f) || !number(f[0].value, &output->code) ||
         !string(f[1].value, &output->message))
         return false;
-    output->username = output->username || filled(f[3].value);
+    output->username = filled(f[3].value);
     if (filled(f[2].value)) {
         if (f[2].value.kind != JsonValueKind::object)
             return false;

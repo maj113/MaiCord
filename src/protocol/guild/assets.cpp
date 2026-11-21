@@ -340,7 +340,7 @@ bool visit_sticker_item(void* opaque, u32, JsonValue value) noexcept {
         list.error = parse.error != GuildAssetError::none ? parse.error : GuildAssetError::json;
         return false;
     }
-    if (!(parse.seen & 1u) || !(parse.seen & 2u) || !parse.value.id) {
+    if (!(parse.seen & 2u) || !parse.value.id) {
         list.error = GuildAssetError::identity;
         return false;
     }

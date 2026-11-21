@@ -506,22 +506,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 AcquireSRWLockExclusive(&runtime->subscription_lock);
                 gateway_channel_info_forget(&runtime->channel_info, dispatch.state.id);
                 ReleaseSRWLockExclusive(&runtime->subscription_lock);
-                if (!gateway_client_publish_stage_instances(
-                        event.envelope.data, dispatch.state.id, index,
-                        scratch, event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &binding) ||
-                    !gateway_client_publish_scheduled_events(
-                        event.envelope.data, dispatch.state.id, index,
-                        scratch, event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &binding) ||
-                    !gateway_client_publish_voice_states(
-                        event.envelope.data, GatewayVoiceStateSource::guild, dispatch.state.id,
-                        index, scratch, event.envelope.sequence,
-                        now_ms, publish_relationship_stream, &binding) ||
-                    !gateway_client_publish_guild_stickers(
-                        event.envelope.data, dispatch.state.id, index,
-                        scratch, event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &binding))
+                if (!gateway_client_publish_guild_arrays(event.envelope.data, dispatch.state.id, index, scratch,
+                                                         event.envelope.sequence, now_ms,
+                                                         publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
             }
             checkpoint_resume_sequence(runtime);

@@ -353,22 +353,29 @@ namespace {
 bool embed_media_valid(const MessageRichEmbedMedia& media) noexcept {
     return media.url.bytes != 0 || media.proxy_url.bytes != 0;
 }
+// The page and player URLs of an embed, each parsed once for all the URL tests of one selection.
+struct EmbedPages {
+    Utf8View page, player;
+    EmbedUrl page_url, player_url;
+};
+EmbedPages embed_pages(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    const Utf8View page = message_rich_store_string(store, embed.url);
+    const Utf8View player = message_rich_store_string(store, embed.video.url);
+    return {page, player, EmbedUrl{page}, EmbedUrl{player}};
+}
 // PH embeds can carry signed media captured when the message was posted.
 // Resolve the stable video identity on activation; never fetch that stale MP4
 // merely to paint its poster.
-Utf8View renewable_embed_video(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    const auto page = message_rich_store_string(store, embed.url);
-    const auto page_video = embed_video_locator(page);
+Utf8View renewable_embed_video(const EmbedPages& urls) noexcept {
+    const auto page_video = embed_video_locator(urls.page_url);
     if (page_video.provider == EmbedProvider::pornhub && page_video.id.bytes)
-        return page;
-    const auto frame = message_rich_store_string(store, embed.video.url);
-    const auto frame_video = embed_video_locator(frame);
-    return frame_video.provider == EmbedProvider::pornhub && frame_video.id.bytes ? frame : Utf8View{};
+        return urls.page;
+    const auto frame_video = embed_video_locator(urls.player_url);
+    return frame_video.provider == EmbedProvider::pornhub && frame_video.id.bytes ? urls.player : Utf8View{};
 }
-Utf8View live_channel_video(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    const auto page = message_rich_store_string(store, embed.url);
-    const auto locator = embed_video_locator(page);
-    return locator.provider == EmbedProvider::twitch_live && locator.id.bytes ? page : Utf8View{};
+Utf8View live_channel_video(const EmbedPages& urls) noexcept {
+    const auto locator = embed_video_locator(urls.page_url);
+    return locator.provider == EmbedProvider::twitch_live && locator.id.bytes ? urls.page : Utf8View{};
 }
 bool embed_playback_poster(const MessageRichStore& store, const MessageRichEmbed& embed,
                          MessageRichEmbedMediaSelection* out) noexcept {
@@ -390,46 +397,52 @@ bool embed_thumbnail_is_image(const MessageRichEmbed& embed) noexcept {
     return (embed.type == GatewayMessageEmbedType::article || embed.type == GatewayMessageEmbedType::image) &&
            !embed_media_valid(embed.image) && embed_media_valid(embed.thumbnail);
 }
-Utf8View soundcloud_audio_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    const auto page = message_rich_store_string(store, embed.url);
-    if (soundcloud_track_url(page) || soundcloud_collection_url(page)) return page;
-    const auto player = message_rich_store_string(store, embed.video.url);
-    return soundcloud_track_url(player) || soundcloud_collection_url(player) ? player : Utf8View{};
+bool soundcloud_audio(const EmbedUrl& value) noexcept {
+    return soundcloud_track_url(value) || soundcloud_collection_url(value);
 }
-bool apple_collection(Utf8View value) noexcept {
+bool apple_collection(const EmbedUrl& value) noexcept {
     return apple_music_collection_locator(value).id.bytes != 0;
 }
-bool youtube_queue(Utf8View value) noexcept {
+bool youtube_queue(const EmbedUrl& value) noexcept {
     return youtube_collection_locator(value).list.bytes != 0;
 }
 // The embed page, else its player, when `match` accepts it.
-Utf8View page_or_player(const MessageRichStore& store, const MessageRichEmbed& embed,
-                        bool (*match)(Utf8View) noexcept) noexcept {
-    const auto page = message_rich_store_string(store, embed.url),
-               player = message_rich_store_string(store, embed.video.url);
-    return match(page) ? page : match(player) ? player : Utf8View{};
+Utf8View page_or_player(const EmbedPages& urls, bool (*match)(const EmbedUrl&) noexcept) noexcept {
+    return match(urls.page_url) ? urls.page : match(urls.player_url) ? urls.player : Utf8View{};
 }
-Utf8View apple_collection_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    return page_or_player(store, embed, apple_collection);
+bool music_preview(const MessageRichEmbed& embed, const EmbedUrl& page) noexcept {
+    if (!embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail))
+        return false;
+    return spotify_audio_locator(page).bytes != 0 || amazon_music_track_locator(page).id.bytes != 0 ||
+           apple_music_track_locator(page).id.bytes != 0 || apple_music_collection_locator(page).id.bytes != 0;
 }
-Utf8View youtube_queue_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    return page_or_player(store, embed, youtube_queue);
+// The media of an embed without a live channel, SoundCloud, Apple Music collection or YouTube queue URL. `poster`:
+// a music preview or a renewable video shows its thumbnail. The playback selection knows both tests already.
+bool select_embed_media_tail(const MessageRichStore& store, const MessageRichEmbed& embed, bool poster,
+                             MessageRichEmbedMediaSelection* selection) noexcept {
+    if (poster)
+        return select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false, selection);
+    if (embed_media_valid(embed.video) &&
+        (select_embed_media_candidate(store, embed.video, MediaEmbedResource::video, false, selection) ||
+         select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false, selection))) {
+        return true;
+    }
+    return select_embed_media_candidate(store, embed.image, MediaEmbedResource::image, false, selection) ||
+           ((embed_thumbnail_is_image(embed) || message_rich_embed_media_only(embed)) &&
+            select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false,
+                                         selection));
 }
 } // namespace
 
 bool message_rich_embed_music_preview(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    if (!embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail))
-        return false;
-    const Utf8View page = message_rich_store_string(store, embed.url);
-    return spotify_audio_locator(page).bytes != 0 || amazon_music_track_locator(page).id.bytes != 0 ||
-           apple_music_track_locator(page).id.bytes != 0 ||
-           apple_music_collection_locator(page).id.bytes != 0;
+    return music_preview(embed, EmbedUrl{message_rich_store_string(store, embed.url)});
 }
 Utf8View message_rich_embed_provider_label(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    if (apple_collection_url(store,embed).bytes) return utf8_literal("Apple Music · Preview");
-    if (!message_rich_embed_music_preview(store, embed))
+    const EmbedPages urls = embed_pages(store, embed);
+    if (page_or_player(urls, apple_collection).bytes) return utf8_literal("Apple Music · Preview");
+    if (!music_preview(embed, urls.page_url))
         return message_rich_store_string(store, embed.provider_name);
-    const EmbedProvider provider = embed_provider(message_rich_store_string(store, embed.url));
+    const EmbedProvider provider = urls.page_url.provider;
     return provider == EmbedProvider::apple_music    ? utf8_literal("Apple Music · Preview")
            : provider == EmbedProvider::amazon_music ? utf8_literal("Amazon Music · Preview")
                                                      : utf8_literal("Spotify · Preview");
@@ -450,21 +463,12 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
         select_embed_media_candidate(store, embed.video, MediaEmbedResource::video, true, selection)) {
         return true;
     }
-    if (live_channel_video(store, embed).bytes || soundcloud_audio_url(store, embed).bytes ||
-        apple_collection_url(store,embed).bytes || youtube_queue_url(store,embed).bytes)
+    const EmbedPages urls = embed_pages(store, embed);
+    if (live_channel_video(urls).bytes || page_or_player(urls, soundcloud_audio).bytes ||
+        page_or_player(urls, apple_collection).bytes || page_or_player(urls, youtube_queue).bytes)
         return embed_playback_poster(store, embed, selection);
-    if (message_rich_embed_music_preview(store, embed) || renewable_embed_video(store, embed).bytes)
-        return select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false, selection);
-    if (embed_media_valid(embed.video) &&
-        (select_embed_media_candidate(store, embed.video, MediaEmbedResource::video, false, selection) ||
-         select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false,
-                                      selection))) {
-        return true;
-    }
-    return select_embed_media_candidate(store, embed.image, MediaEmbedResource::image, false, selection) ||
-           ((embed_thumbnail_is_image(embed) || message_rich_embed_media_only(embed)) &&
-            select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false,
-                                         selection));
+    return select_embed_media_tail(store, embed, music_preview(embed, urls.page_url) || renewable_embed_video(urls).bytes,
+                                   selection);
 }
 
 bool message_rich_embed_playback_select(const MessageRichStore& store, const MessageRichEmbed& embed,
@@ -472,43 +476,46 @@ bool message_rich_embed_playback_select(const MessageRichStore& store, const Mes
     if (!out) return false;
     reset_value(out);
     if (!g_display.embed_media || embed.type == GatewayMessageEmbedType::gifv) return false;
-    if (const auto queue_url = youtube_queue_url(store,embed); queue_url.bytes) {
+    const EmbedPages urls = embed_pages(store, embed);
+    if (const auto queue_url = page_or_player(urls, youtube_queue); queue_url.bytes) {
         embed_playback_poster(store, embed, out);
         *out = {out->media, queue_url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
         return true;
     }
-    if (const auto album_url=apple_collection_url(store,embed); album_url.bytes) {
+    if (const auto album_url=page_or_player(urls, apple_collection); album_url.bytes) {
         embed_playback_poster(store,embed,out);
         *out={out->media,album_url,{},MediaEmbedResource::video,MediaAttachmentFormat::m4a,true,true}; return true;
     }
-    const auto audio_url = soundcloud_audio_url(store, embed);
+    const auto audio_url = page_or_player(urls, soundcloud_audio);
     if (audio_url.bytes) {
         embed_playback_poster(store, embed, out);
         *out = {out->media, audio_url, {}, MediaEmbedResource::video, MediaAttachmentFormat::m4a, false, true};
         return true;
     }
-    if (const auto url = live_channel_video(store, embed); url.bytes) {
+    if (const auto url = live_channel_video(urls); url.bytes) {
         embed_playback_poster(store, embed, out);
         *out = {out->media, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
         return true;
     }
-    if (const auto url = renewable_embed_video(store, embed); url.bytes &&
-        embed.thumbnail.width && embed.thumbnail.height && embed_media_valid(embed.thumbnail)) {
-        *out = {&embed.thumbnail, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+    const auto renewable = renewable_embed_video(urls);
+    if (renewable.bytes && embed.thumbnail.width && embed.thumbnail.height && embed_media_valid(embed.thumbnail)) {
+        *out = {&embed.thumbnail, renewable, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
         return true;
     }
-    if (message_rich_embed_media_select(store, embed, out) && out->format == MediaAttachmentFormat::mp4)
+    // The four player URL tests above failed, so the media selection reduces to its tail.
+    const bool preview = music_preview(embed, urls.page_url);
+    if (select_embed_media_tail(store, embed, preview || renewable.bytes, out) &&
+        out->format == MediaAttachmentFormat::mp4)
         return true;
-    if (message_rich_embed_music_preview(store, embed)) {
-        const auto url = message_rich_store_string(store, embed.url);
-        const auto apple = apple_music_track_locator(url);
-        *out = {&embed.thumbnail, message_rich_store_string(store, embed.url), {}, MediaEmbedResource::video,
+    if (preview) {
+        const auto apple = apple_music_track_locator(urls.page_url);
+        *out = {&embed.thumbnail, urls.page, {}, MediaEmbedResource::video,
                 apple.id.bytes ? (apple.video ? MediaAttachmentFormat::mp4 : MediaAttachmentFormat::m4a)
                                : MediaAttachmentFormat::mp3, apple.video, true};
         return true;
     }
-    const auto url = message_rich_store_string(store, embed.video.url);
-    const auto locator = embed_video_locator(url);
+    const auto url = urls.player;
+    const auto locator = embed_video_locator(urls.player_url);
     if (embed.video.proxy_url.bytes || !locator.id.bytes ||
         !embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail)) {
         reset_value(out);
@@ -516,9 +523,9 @@ bool message_rich_embed_playback_select(const MessageRichStore& store, const Mes
     }
     // The player URL of a YouTube Music link is a YouTube one. Only the link tells the player to ask YouTube Music
     // for the kind of the track. The link is the source when it names the same video.
-    const auto page = embed_video_locator(message_rich_store_string(store, embed.url));
+    const auto page = embed_video_locator(urls.page_url);
     const bool music = page.provider == EmbedProvider::youtube_music && utf8_equal(page.id, locator.id);
-    *out = {&embed.video, music ? message_rich_store_string(store, embed.url) : url, {}, MediaEmbedResource::video,
+    *out = {&embed.video, music ? urls.page : url, {}, MediaEmbedResource::video,
             MediaAttachmentFormat::mp4, true, true};
     out->start_seconds = locator.start_seconds;
     // Vimeo oEmbed may retain the iframe's canonical video URL but omit the shared
@@ -551,11 +558,17 @@ MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore& store, cons
                        type != GatewayMessageEmbedType::gifv;
     // A poll result shows its own card text, never its raw fields.
     plan.fields = rich;
-    const bool video = embed_media_valid(embed.video) || message_rich_embed_music_preview(store, embed) ||
-                       live_channel_video(store, embed).bytes || youtube_queue_url(store,embed).bytes;
-    const bool large = video || embed_media_valid(embed.image) || embed_thumbnail_is_image(embed);
-    plan.corner_thumbnail = !plan.media_only && embed_media_valid(embed.thumbnail) &&
-                            !embed_thumbnail_is_image(embed) && (rich || components ? !video : !large);
+    // A corner thumbnail needs a valid thumbnail that is not the embed's image. Only then does the plan run the
+    // video test, which parses the embed's URLs.
+    if (!plan.media_only && embed_media_valid(embed.thumbnail) && !embed_thumbnail_is_image(embed)) {
+        bool video = embed_media_valid(embed.video);
+        if (!video) {
+            const EmbedPages urls = embed_pages(store, embed);
+            video = music_preview(embed, urls.page_url) || live_channel_video(urls).bytes ||
+                    page_or_player(urls, youtube_queue).bytes;
+        }
+        plan.corner_thumbnail = !video && (rich || components || !embed_media_valid(embed.image));
+    }
     return plan;
 }
 

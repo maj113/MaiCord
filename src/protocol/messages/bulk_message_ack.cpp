@@ -13,20 +13,13 @@ BulkMessageAckWriteResult write_bulk_message_ack_body(const ConstSlice<BulkMessa
                                                       const Slice<u8>& output) noexcept {
     if (!entries.data || !entries.count || entries.count > kBulkMessageAckMaximumEntries || !output.data)
         return fail(BulkMessageAckWriteError::invalid_input);
-    const ConstSlice<u8> sources[]{{reinterpret_cast<const u8*>(entries.data),
-                                    entries.count * static_cast<u32>(sizeof(BulkMessageAckEntry))},
-                                   {reinterpret_cast<const u8*>(&entries), sizeof(entries)},
-                                   {reinterpret_cast<const u8*>(&output), sizeof(output)}};
-    const ConstSlice<u8> destination{output.data, output.count};
-    if (!byte_range_valid(destination))
+    const ConstSlice<u8> ranges[]{{output.data, output.count},
+                                  {reinterpret_cast<const u8*>(entries.data),
+                                   entries.count * static_cast<u32>(sizeof(BulkMessageAckEntry))},
+                                  {reinterpret_cast<const u8*>(&entries), sizeof(entries)},
+                                  {reinterpret_cast<const u8*>(&output), sizeof(output)}};
+    if (!byte_ranges_all_disjoint({ranges, 4}))
         return fail(BulkMessageAckWriteError::invalid_input);
-    for (u32 i = 0; i < 3; ++i) {
-        if (!byte_range_valid(sources[i]) || byte_ranges_overlap(sources[i], destination))
-            return fail(BulkMessageAckWriteError::invalid_input);
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(sources[i], sources[j]))
-                return fail(BulkMessageAckWriteError::invalid_input);
-    }
     constexpr u32 envelope_bytes = sizeof("{\"read_states\":[]}") - 1;
     constexpr u32 entry_literal_bytes =
         sizeof("{\"channel_id\":\"\",\"message_id\":\"\",\"read_state_type\":0}") - 1;

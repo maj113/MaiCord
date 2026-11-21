@@ -143,31 +143,26 @@ bool visit_ids(const Wire& w, u32 number, Visit&& visit) noexcept {
     }
     return true;
 }
-// Concatenated contents of every occurrence of `number` in [p, end).
-u32 group_bytes(const Wire& w, u32 p, u32 end, u32 number, bool* present) noexcept {
-    u32 total = 0;
-    Field f{};
-    while (p < end && next(w, p, end, &f))
-        if (f.number == number && f.type == 2) {
-            total += f.stop - f.body;
-            *present = true;
-        }
-    return total;
-}
 UserSettingsExtractResult extract(const Wire& w, u32 mask, Utf8View hash, Slice<u8> output) noexcept {
     UserSettingsExtractResult result{};
-    if (!valid(w, 0, w.size)) {
-        result.error = E::protobuf;
-        return result;
+    // One walk validates the message and sums the contents of each group's occurrences.
+    u32 totals[32]{}, present = 0;
+    Field f{};
+    for (u32 p = 0; p < w.size;) {
+        if (!next(w, p, w.size, &f)) {
+            result.error = E::protobuf;
+            return result;
+        }
+        if (f.type == 2 && f.number < 32) {
+            totals[f.number] += f.stop - f.body;
+            present |= 1u << f.number;
+        }
     }
     ProtoWriter out{output, 0, true};
     for (u32 group = 1; group < 32; ++group) {
-        if (!(mask & (1u << group)))
+        if (!(mask & present & (1u << group)))
             continue;
-        bool present = false;
-        const u32 bytes = group_bytes(w, 0, w.size, group, &present);
-        if (!present)
-            continue;
+        const u32 bytes = totals[group];
         if (bytes > kUserSettingsProtoMaximumGroupBytes) {
             result.error = E::capacity;
             return result;
@@ -176,7 +171,6 @@ UserSettingsExtractResult extract(const Wire& w, u32 mask, Utf8View hash, Slice<
         out.tag(group, 2);
         out.varint(bytes);
         u32 p = 0;
-        Field f{};
         while (p < w.size && next(w, p, w.size, &f))
             if (f.number == group && f.type == 2)
                 out.copy(w, f.body, f.stop);
@@ -422,8 +416,7 @@ bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept {
 
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 version, Slice<u8> output,
                                          bool required) noexcept {
-    if (!user_settings_proto_patch_valid(partial) || !range_valid(output) ||
-        byte_ranges_overlap(partial, {output.data, output.count}))
+    if (byte_ranges_overlap(partial, {output.data, output.count}))
         return 0;
     const u32 bytes = proto_settings_patch_bytes(partial.count, version, required);
     if (output.count < bytes || !proto_write_settings_patch(partial, version, output, required))
@@ -502,14 +495,11 @@ bool user_settings_store_apply(UserSettingsStore* store, ConstSlice<u8> extracte
     for (u32 group = 1; group < 32; ++group) {
         if (!(kUserSettingsStoredGroups & (1u << group)))
             continue;
-        bool incoming = false;
-        group_bytes(proto_source(extracted), 0, extracted.count, group, &incoming);
-        const ConstSlice<u8> source = incoming ? user_settings_proto_group(extracted, group)
-                                      : partial ? user_settings_store_server_group(*store, group)
-                                                : ConstSlice<u8>{};
-        const bool kept = incoming || (partial && (store->present_mask & (1u << group)));
-        if (!kept)
+        // The message passed `valid`, so a group it holds has a slice inside it (data is not null).
+        const ConstSlice<u8> incoming = user_settings_proto_group(extracted, group);
+        if (!incoming.data && !(partial && (store->present_mask & (1u << group))))
             continue;
+        const ConstSlice<u8> source = incoming.data ? incoming : user_settings_store_server_group(*store, group);
         present |= 1u << group;
         out.tag(group, 2);
         out.varint(source.count);

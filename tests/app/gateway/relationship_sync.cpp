@@ -243,12 +243,14 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         records[1].presence == RelationshipPresence::online && records[2].type == RelationshipType::outgoing,
         "friends: full decoded snapshot commits sorted owned rows, escaped nickname and preserved known presence");
     const u32 accepted_revision = store.revision;
-    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}).ok() && store.revision == accepted_revision,
+    JsonIndexedDocument indexed{};
+    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {}, &indexed).ok() &&
+        store.revision == accepted_revision,
         "friends: unchanged snapshot validates users without retaining duplicate name arrays or bumping revision");
     UserRecord users_storage[8]{}; u32 user_order[8]{}; u8 names[2048]{};
     UserStore users{};
     check(user_store_initialize(&users, {users_storage, 8}, {user_order, 8}, {names, 2048}) &&
-        relationships_hydrate(&users, array, {scratch, 1024}).ok() &&
+        relationships_hydrate(&users, indexed).ok() &&
         utf8_equal(relationship_display_name(records[1], users), utf8_literal("Friend ☃")) &&
         utf8_equal(user_store_username(users, *user_store_find(users, 30)), utf8_literal("outgoing")),
         "friends: streaming hydration reuses existing user store while relationship nickname owns display precedence");
@@ -339,8 +341,9 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     }
     UserRecord small_users[2]{}; u32 small_order[2]{}; u8 small_names[4]{}; UserStore small{};
     user_store_initialize(&small, {small_users, 2}, {small_order, 2}, {small_names, 4});
-    const auto hydrated = relationships_hydrate(&small, array, {scratch, 1024});
-    check(!hydrated.ok() && hydrated.applied == 0,
+    const bool indexed_again = relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {}, &indexed).ok();
+    const auto hydrated = relationships_hydrate(&small, indexed);
+    check(indexed_again && !hydrated.ok() && hydrated.applied == 0,
         "friends: bounded user-name hydration reports explicit failure rather than dropping relationship rows");
 
     u8 output[128]{};

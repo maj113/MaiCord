@@ -5,12 +5,12 @@
 namespace maicord {
 namespace {
 struct Decode {
-    GatewayVoiceState state{};
-    GatewayVoiceServer server{};
-    u32 seen = 0;
-    GatewayEventDecodeError error = GatewayEventDecodeError::none;
-    bool server_event = false;
-    bool session_optional = false;
+    GatewayVoiceState state;
+    GatewayVoiceServer server;
+    u32 seen;
+    GatewayEventDecodeError error;
+    bool server_event;
+    bool session_optional;
 };
 constexpr u32 guild = 1u, channel = 2u, user = 4u, session = 8u, token = 16u, endpoint = 32u;
 

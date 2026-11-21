@@ -639,7 +639,7 @@ GatewayEventDecodeResult decode_member(MessageContext* context, const JsonIndexe
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult decode_mentions(MessageContext* context, const JsonIndexedDocument& document,
+inline GatewayEventDecodeResult decode_mentions(MessageContext* context, const JsonIndexedDocument& document,
                                          u32 maximum_depth, Slice<u64> mention_role_scratch,
                                          Slice<GatewayMessageNamedUser> mention_user_scratch,
                                          Slice<char> name_output, u32* used, u64 current_user_id,
@@ -879,7 +879,7 @@ GatewayEventDecodeResult decode_plain(const JsonIndexedDocument& document, JsonV
 }
 
 // Indexes `data` as a document of its own; a failure leaves `output` reset.
-GatewayEventDecodeResult index_message(JsonValue data, Slice<u32> structural_scratch,
+inline GatewayEventDecodeResult index_message(JsonValue data, Slice<u32> structural_scratch,
                                        JsonIndexedDocument* document, GatewayMessageEvent* output) noexcept {
     reset_value<GatewayMessageEvent>(output);
     if (data.kind != JsonValueKind::object) {

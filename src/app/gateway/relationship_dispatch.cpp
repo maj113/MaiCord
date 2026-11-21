@@ -55,6 +55,7 @@ bool publish_relationship(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 struct Presence {
+    const JsonIndexedDocument* document;
     GatewayClientPresenceUpdate value;
     JsonValue user;
     u32 seen;
@@ -73,7 +74,8 @@ bool presence_member(void* opaque, JsonString name, JsonValue value) noexcept {
     if (bit == 8) return presence.valid = value.kind == JsonValueKind::null_value;
     if (bit == 32) {
         // Advisory per-platform detail: a malformed object reads as offline.
-        if (!client_status_decode(value, &presence.value.client_status)) presence.value.client_status = 0;
+        if (!client_status_decode(*presence.document, value, &presence.value.client_status))
+            presence.value.client_status = 0;
         return true;
     }
     JsonString status{};
@@ -99,7 +101,7 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     const auto scan = json_scan_structurals_avx1(value.source, stream.object_scratch);
     if (!scan.ok()) { stream.error = fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed); return false; }
     const JsonIndexedDocument document{value.source, {stream.object_scratch.data, scan.count}};
-    Presence presence{};
+    Presence presence{&document};
     const auto read = json_visit_value_object(value, document.structurals, 64, presence_member, &presence);
     // Malformed rows are skipped, never fatal: a guild row is advisory and a friend's stays unknown.
     if (!read.ok() || !presence.valid || !(presence.seen & 4)) return true;

@@ -106,9 +106,9 @@ void test_membership() noexcept {
     static char payload_scratch[kGatewayClientDispatchPayloadCapacity];
     const auto publish_guild = [&](Utf8View json) noexcept {
         published = {};
-        return gateway_client_publish_guild_stickers({json, 0, JsonValueKind::object}, 100, {scratch, 8192},
-                                                     {payload_scratch, sizeof(payload_scratch)}, 5, 1, publish,
-                                                     &published);
+        return gateway_client_publish_guild_arrays({json, 0, JsonValueKind::object}, 100, {scratch, 8192},
+                                                   {payload_scratch, sizeof(payload_scratch)}, 5, 1, publish,
+                                                   &published);
     };
     const bool plain = publish_guild(utf8_literal(R"({"id":"100","stickers":[{"id":"9","name":"wave","tags":"wave","format_type":1}]})")) &&
                        published.count == 1 && published.bytes == list.bytes &&

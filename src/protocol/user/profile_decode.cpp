@@ -86,6 +86,14 @@ bool style(const JsonIndexedDocument& doc, const JsonValue& v, NameStyle* out) n
     out->color_count = static_cast<u8>(count);
     return true;
 }
+// A short JSON string as text in `buffer`; empty when it is not a string or does not fit.
+Utf8View short_text(const JsonValue& v, char* buffer, u32 capacity) noexcept {
+    JsonString input{};
+    if (v.kind != JsonValueKind::string || !json_value_as_string(v, &input))
+        return {};
+    const auto result = json_string_decode_utf8(input, {buffer, capacity});
+    return result.ok() ? Utf8View{buffer, result.bytes} : Utf8View{};
+}
 struct Activities {
     const JsonIndexedDocument* doc;
     UserAppearance* out;
@@ -104,20 +112,20 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     if (c.custom || (type != 4 && c.out->activity.bytes) || type > 5)
         return true;
     if (type != 4) {
-        // One-line status such as "Playing X" or "Listening to X".
-        ProfileString<256> name, details;
-        if (!string(f[1].value, &name) || !name.bytes)
-            return true; // Oversized or missing names do not invalidate the presence.
-        string(f[4].value, &details);
-        const u32 bytes = user_activity_summary(static_cast<UserActivityType>(type), name.view(), details.view(),
+        // One-line status such as "Playing X" or "Listening to X". Oversized or missing names do not invalidate the
+        // presence.
+        char name_text[256], details_text[256];
+        const Utf8View name = short_text(f[1].value, name_text, sizeof(name_text));
+        if (!name.bytes)
+            return true;
+        const u32 bytes = user_activity_summary(static_cast<UserActivityType>(type), name,
+                                                short_text(f[4].value, details_text, sizeof(details_text)),
                                                 {c.out->activity.data, sizeof(c.out->activity.data)});
         c.out->activity.bytes = static_cast<u16>(bytes);
         return true;
     }
-    ProfileString<256> text;
-    if (!string(f[2].value, &text))
+    if (!string(f[2].value, &c.out->activity))
         return false;
-    copy_value(&c.out->activity, text);
     c.out->fields |= appearance_custom_status;
     c.custom = true;
     FieldSet<"id", "name", "animated"> emoji;
@@ -138,12 +146,11 @@ bool badge_item(void* opaque, u32, JsonValue v) noexcept {
     auto& b = c.profile->badges[c.profile->badge_count];
     if (!object(*c.doc, v, f))
         return false;
-    // A badge whose id or description does not fit is left out, not the
-    // profile; an oversized icon draws nothing, and only https links are kept.
+    // A badge whose id or description does not fit is left out, not the profile. An oversized icon draws nothing
+    // (`string` leaves a text that does not read empty), and only https links are kept.
     if (!string(f[0].value, &b.id) || !string(f[2].value, &b.description) || !b.id.bytes)
         return true;
-    if (!string(f[1].value, &b.icon))
-        reset_value(&b.icon);
+    string(f[1].value, &b.icon);
     constexpr auto https = utf8_literal("https://");
     if (!string(f[3].value, &b.link) || b.link.bytes <= https.bytes ||
         !utf8_equal({b.link.data, https.bytes}, https))
@@ -168,23 +175,13 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
     JsonValue name = c.friends ? f[4].value : f[2].value;
     if (!filled(name))
         name = c.friends ? f[3].value : JsonValue{};
-    // An oversized name or icon drops that field, not the profile.
-    if (!string(name, &b.name))
-        reset_value(&b.name);
-    if (!string(c.friends ? f[5].value : f[6].value, &b.icon))
-        reset_value(&b.icon);
-    if (!c.friends && !string(f[1].value, &b.nick))
-        reset_value(&b.nick);
+    // An oversized name or icon drops that field (it reads empty), not the profile.
+    string(name, &b.name);
+    string(c.friends ? f[5].value : f[6].value, &b.icon);
+    if (!c.friends)
+        string(f[1].value, &b.nick);
     ++*c.count;
     return true;
-}
-// A short JSON string as text in `buffer`; empty when it is not a string or does not fit.
-Utf8View short_text(const JsonValue& v, char* buffer, u32 capacity) noexcept {
-    JsonString input{};
-    if (v.kind != JsonValueKind::string || !json_value_as_string(v, &input))
-        return {};
-    const auto result = json_string_decode_utf8(input, {buffer, capacity});
-    return result.ok() ? Utf8View{buffer, result.bytes} : Utf8View{};
 }
 struct MetadataContext {
     ProfileConnection* out;
@@ -226,10 +223,8 @@ bool metadata_member(void* opaque, JsonString key, JsonValue value) noexcept {
         return true;
     const Utf8View name{buffer, decoded.bytes};
     if (utf8_equal(name, utf8_literal("created_at"))) {
-        if (!string(value, &b.created_at))
-            reset_value(&b.created_at);
-        // Some services leave the zone out (Reddit); the date is then read as UTC.
-        else if (b.created_at.bytes == 19)
+        // Some services leave the zone out (Reddit); the date is then read as UTC. A date that does not read is empty.
+        if (string(value, &b.created_at) && b.created_at.bytes == 19)
             b.created_at.data[b.created_at.bytes++] = 'Z';
         return true;
     }
@@ -251,16 +246,16 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
     auto& b = c.profile->connections[c.profile->connection_count];
     if (!object(*c.doc, v, f))
         return false;
-    if (!string(f[0].value, &b.type) || !string(f[2].value, &b.name) || !boolean(f[3].value, &b.verified) ||
-        profile_connection_kind(b.type.view()) == ProfileConnectionKind::unknown) {
+    const ProfileConnectionKind kind = string(f[0].value, &b.type) ? profile_connection_kind(b.type.view())
+                                                                   : ProfileConnectionKind::unknown;
+    if (kind == ProfileConnectionKind::unknown || !string(f[2].value, &b.name) || !boolean(f[3].value, &b.verified)) {
         reset_value(&b);
         return true;
     }
-    // An ID that does not fit only costs the link.
-    if (!string(f[1].value, &b.id))
-        reset_value(&b.id);
+    // An ID that does not fit only costs the link (it reads empty).
+    string(f[1].value, &b.id);
     // Metadata is loosely typed: a field that does not read is left out.
-    MetadataContext metadata{&b, profile_connection_kind(b.type.view())};
+    MetadataContext metadata{&b, kind};
     if (f[4].value.kind == JsonValueKind::object)
         static_cast<void>(json_visit_indexed_object(*c.doc, f[4].value, 64, metadata_member, &metadata));
     ++c.profile->connection_count;
@@ -562,11 +557,8 @@ bool activity_decode_list(const JsonIndexedDocument& doc, const JsonValue& activ
                           UserAppearance* output) noexcept {
     if (!present(activities))
         return true;
-    output->fields = (output->fields | appearance_activity) & ~u32{appearance_custom_status};
-    reset_value(&output->activity);
-    reset_value(&output->status_emoji);
-    output->status_emoji_id = 0;
-    output->emoji_animated = false;
+    // Every caller passes a cleared or freshly decoded appearance, so no activity text or status emoji is set yet.
+    output->fields |= appearance_activity;
     Activities context{&doc, output, false};
     return activities.kind == JsonValueKind::null_value ||
            json_visit_indexed_array(doc, activities, 64, activity_item, &context).ok();

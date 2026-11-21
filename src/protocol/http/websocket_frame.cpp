@@ -22,7 +22,7 @@ WebSocketParseResult need_more() noexcept {
     return WebSocketParseResult{{}, 0, WebSocketError::none, WebSocketParseState::need_more};
 }
 
-bool close_code_valid(u16 code) noexcept {
+inline bool close_code_valid(u16 code) noexcept {
     if (code >= 3000 && code <= 4999) {
         return true;
     }

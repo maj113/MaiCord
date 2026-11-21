@@ -19,11 +19,14 @@ struct Entry {
     u32 width, height, order;
     GifFavoriteFormat format;
 };
+// Each read of the source is a call (and a base64 decode for a base64 source). An ASCII lead byte is read alone, so a
+// URL costs one read for each byte. A lead byte of a longer sequence reads up to three bytes after it.
 bool utf8(const ProtoSource& w, u32 begin, u32 end) noexcept {
     while (begin < end) {
         char scalar[4]{};
-        const u32 available = minimum(4u, end - begin);
-        for (u32 i = 0; i < available; ++i)
+        scalar[0] = static_cast<char>(w.at(begin));
+        const u32 available = static_cast<u8>(scalar[0]) < 0x80 ? 1 : minimum(4u, end - begin);
+        for (u32 i = 1; i < available; ++i)
             scalar[i] = static_cast<char>(w.at(begin + i));
         const auto decoded = utf8_decode_one(scalar, available);
         if (!decoded.valid)
@@ -378,14 +381,7 @@ bool outputs_valid(ConstSlice<u8> input, Slice<u8> output, Slice<GifFavoriteReco
         scratch.count > gif_favorites_index_words(kGifFavoritesMaximumEntries))
         return false;
     const ConstSlice<u8> ranges[]{input, range(output), range(records), range(scratch)};
-    for (u32 i = 0; i < 4; ++i) {
-        if (!byte_range_valid(ranges[i]))
-            return false;
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(ranges[i], ranges[j]))
-                return false;
-    }
-    return true;
+    return byte_ranges_all_disjoint({ranges, 4});
 }
 } // namespace
 GifFavoritesResult gif_favorites_measure_base64(Utf8View input) noexcept {

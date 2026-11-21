@@ -459,7 +459,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
                                      : ((!user.id_seen ? 1u : 2u) << 8) | 0xFFu;
         return reject_visited(error, user.error, GatewayEventDecodeError::missing_required_field);
     }
-    GatewayMemberPresence presence{};
+    GatewayMemberPresence presence{&document};
     // A member profile is complete without a presence. Null, like an omitted
     // field, must not discard its identity or clear an existing status/activity.
     const bool has_presence = member.presence_seen && member.presence.kind == JsonValueKind::object;
@@ -781,7 +781,7 @@ bool gateway_visit_member_presence(void* opaque, JsonString name, JsonValue valu
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         context->client_status_seen = true;
         // Advisory per-platform detail: a malformed object reads as offline.
-        if (!client_status_decode(value, &context->client_status))
+        if (!client_status_decode(*context->document, value, &context->client_status))
             context->client_status = 0;
         break;
     case 2:
@@ -1116,11 +1116,9 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
         *user_appearance = global_extra;
     if (member_appearance)
         *member_appearance = guild_extra;
+    // The avatar hash needs no UTF-8 check: gateway_avatar_hash_valid accepts hex digits only.
     if (!utf8_validate(*nickname).valid || !utf8_validate(*display_name).valid ||
-        !utf8_validate(*avatar_hash).valid || !utf8_validate(login_name).valid) {
-        return false;
-    }
-    if (!gateway_avatar_hash_valid(*avatar_hash))
+        !utf8_validate(login_name).valid || !gateway_avatar_hash_valid(*avatar_hash))
         return false;
     for (u32 role = 0; role < mutation->role_count; ++role) {
         const u64 id = byte_load_le64(role_payload->data + role * 8);

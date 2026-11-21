@@ -11,6 +11,7 @@ namespace maicord {
 namespace {
 
 struct PresenceContext {
+    const JsonIndexedDocument* document;
     GatewayClientPresenceUpdate value;
     JsonValue user;
     // The first `activities` member. activities_repeated: the presence holds a second one.
@@ -55,7 +56,8 @@ bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
         if (!mark(context, 16)) return false;
         // Per-platform detail is advisory: a malformed object leaves every
         // platform offline rather than dropping the presence.
-        if (!client_status_decode(value, &context->value.client_status)) context->value.client_status = 0;
+        if (!client_status_decode(*context->document, value, &context->value.client_status))
+            context->value.client_status = 0;
         break;
     case 4:
         if (context->activities.source.data) context->activities_repeated = true;
@@ -94,7 +96,7 @@ GatewayEventDecodeResult gateway_client_decode_presence(
     if (maximum_depth == 0 || !data.source.data || data.source.bytes == 0)
         return {0, GatewayEventDecodeError::invalid_input};
     reset_value(output);
-    PresenceContext context{};
+    PresenceContext context{&document};
     auto decoded = read_object(document, data, maximum_depth, false, &context);
     if (!decoded.ok()) return decoded;
     if ((context.fields & 6) != 6) return {0, GatewayEventDecodeError::missing_required_field};
