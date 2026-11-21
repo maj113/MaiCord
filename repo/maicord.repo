@@ -1,0 +1,7 @@
+[maicord]
+name=MaiCord
+baseurl=https://maj113.github.io/MaiCord/repo/rpm
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://maj113.github.io/MaiCord/repo/maicord.asc

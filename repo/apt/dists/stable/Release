@@ -1,0 +1,28 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Sat, 21 Nov 2026 16:37:58 +0000
+Description: MaiCord, an unofficial native Discord client
+Label: MaiCord
+Origin: MaiCord
+Suite: stable
+MD5Sum:
+ 618a7b373f8666c15e059aaede4f29f3             1966 Release
+ 39b980eb3d3b439743b7c5ca76c793de             3883 main/binary-amd64/Packages
+ 4b7488c7b230784361d21fd915e886f1             1267 main/binary-amd64/Packages.gz
+ ce915271ae9802640b30baed659a3c7a             1284 main/binary-amd64/Packages.xz
+SHA1:
+ 37266241227cc7d02a8b991964b3e6abc3211e7c             1966 Release
+ 113bbafd036075a8ecdf3a945156b1a660a55e28             3883 main/binary-amd64/Packages
+ cabaea27b84ef10ae0316e7f4aba790f41d0ee4d             1267 main/binary-amd64/Packages.gz
+ de6fc740b5812ef14a3673397d95f84b6efa6ae7             1284 main/binary-amd64/Packages.xz
+SHA256:
+ 60fe85906641348161d6a7b8d32fef783c691929cf7c7a70126d22f4db285c2b             1966 Release
+ 832a4f9c9a5b09d83fc20fec3ccde629c3094d9d760a64f90be4a75ebfa91454             3883 main/binary-amd64/Packages
+ cb81831214ea9fa64efafc7ca0379f7e7f180b65222a9a5256d86bd3e8fda269             1267 main/binary-amd64/Packages.gz
+ ff41d47a411481cfdd0260c90eb66e1960c490fa4f1cfab9f77648c4effdf022             1284 main/binary-amd64/Packages.xz
+SHA512:
+ 659b947906b3f7de800e73d04784393f980a3758630b5701689ee30c769501e0317c5a285f6eb578a7edabdee0bd2b352255755145af0e6c1cf10364a40adbd1             1966 Release
+ 53f2eaaf5aa40f79929ebdbdf6b6e322d5dbfbb08a0e265720ff3a1ce50f89c0708bb6a76952f8f6fcaee95d0f7fe656c162b534862946cefe1d0689a7c2984a             3883 main/binary-amd64/Packages
+ 051b6547123cab0d582647b0d6160fb750bed358c8cc4a1a8d89d69ecaf88c2af1e98a73b496a880c0332c9225e3038945ebe192766340e61efad5e3a83a6e63             1267 main/binary-amd64/Packages.gz
+ 59a0490f39a4502626001ddffbc917087315cf7d13b8e1c756044978f897838d776a78f0bfc108e062312bfe68f917a7cea137c03e1029a68421f2f1e2cb83e9             1284 main/binary-amd64/Packages.xz
