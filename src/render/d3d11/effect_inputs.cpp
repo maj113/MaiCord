@@ -5,7 +5,7 @@
 namespace maicord {
 namespace {
 
-// 64x64 tiling blue noise, one byte per texel (tools/generate_blue_noise.py).
+// 64x64 tiling blue noise, one byte per texel (checked in).
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++26-extensions"
 constexpr u8 kBlueNoise[4096] = {

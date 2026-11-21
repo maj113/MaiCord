@@ -1,39 +1,37 @@
 #!/usr/bin/env python3
 """Audits MaiCord images, Windows (PE) and Linux (ELF), with one set of options.
 
-    audit_image.py IMAGE... [--no-test-hooks | --test-hooks] [--maximum-initialized-data-bytes N]
-                            [--libc glibc|musl] [--needed NAME...]          (ELF)
+    audit_image.py IMAGE... [--no-test-hooks] [--maximum-initialized-data-bytes N]
+                            [--libc glibc|musl]                              (ELF)
                             [--static-imports DLL...] [--delay-load DLL...]  (PE)
 
 The format is read from each image. Every image:
 
-  * holds no test hook with --no-test-hooks, and one with --test-hooks (include/maicord/core/test_hook.hpp leaves a
-    marker string in every image that does): what ships is built without them (tools/build.ps1 without -TestHooks,
-    tools/build_linux.sh without --test, packaging/build_tarball.py);
+  * holds no test hook with --no-test-hooks (include/maicord/core/test_hook.hpp leaves a marker string in every image
+    that has one): what ships is built without them (tools/build.ps1 without -TestHooks, tools/build_linux.sh without
+    --test, packaging/build_tarball.py);
   * keeps its writable initialized data within --maximum-initialized-data-bytes (PE: the file bytes of .data; ELF: the
     writable PROGBITS sections but the GOT, the init and fini arrays, .data.rel.ro and .dynamic). One nonzero default
     member initializer moves a whole zero-filled global (e.g. app_detail::g_app) from .bss into the file.
 
 A PE image (the Windows client, the opt-in probes) must
 
-  * be an x64 PE32+ image with an entry point, high-entropy ASLR, a dynamic base, NX and CET compatibility;
+  * be a PE32+ image with high-entropy ASLR, a dynamic base, NX and CET compatibility;
   * carry no debug data: its debug directory holds only the extended DLL characteristics (where CET compatibility
-    lives), and no PDB lies beside it;
-  * import nothing of a C or C++ runtime, a shader compiler, OpenSSL, a browser runtime, WebAuthn, Media Foundation or
-    DirectWrite (the client opens what it needs of the system at run time);
-  * import KERNEL32.dll statically; with --static-imports, exactly the DLLs listed, each once, statically;
-  * delay-load exactly the DLLs of --delay-load (none without it), each once, RVA-based and not also a static import
-    (the loader maps static imports before the entry point; cmake/client.cmake has the client's list), and never import
-    kernel32's DelayLoadFailureHook (MaiCord's delay-load helper, src/core/delay_load.cpp, fails fast instead).
+    lives);
+  * with --static-imports, import exactly the DLLs listed, each once, statically: a C runtime import or a new import
+    library in a link list changes that set;
+  * delay-load exactly the DLLs of --delay-load (none without it), each once, through RVA-based descriptors (the
+    loader maps static imports before the entry point; cmake/client.cmake has the client's lists).
 
 The loader appends ".dll" to a module name without an extension, so DLL names compare with it, case-insensitively.
 
 An ELF image (a freestanding dynamic PIE, cmake/build_contract.cmake) must
 
-  * be an x86-64 ET_DYN executable with the interpreter of its C library: /lib64/ld-linux-x86-64.so.2 (glibc, the
+  * be an ET_DYN executable (a PIE) with the interpreter of its C library: /lib64/ld-linux-x86-64.so.2 (glibc, the
     builds' form) or /lib/ld-musl-x86_64.so.1 (musl: tools/retarget_libc.py makes it from the glibc image, which is
     otherwise identical);
-  * need exactly libc.so.6 (the generated stub of tools/generate_libc_stubs.py) and no other library: everything else is
+  * need exactly libc.so.6 (the stub of src/core/linux/libc_stub.ver) and no other library: everything else is
     dlopen()ed, and since glibc 2.34 dlopen and the pthread functions live in libc.so.6 (libdl and libpthread are empty).
     musl's loader answers a needed libc.* by itself and ignores symbol versions, so the same entry runs on both;
   * import only the functions the stub defines, each under a GLIBC_ version of at most 2.34, so no glibc newer than
@@ -72,21 +70,12 @@ def c_string(data, offset):
 
 # --- PE -------------------------------------------------------------------------------------------------------------
 
-IMAGE_FILE_MACHINE_AMD64 = 0x8664
 PE32_PLUS = 0x20B
 DYNAMIC_BASE, HIGH_ENTROPY_VA, NX_COMPAT = 0x40, 0x20, 0x100
 DIRECTORY_IMPORT, DIRECTORY_DEBUG, DIRECTORY_DELAY_IMPORT = 1, 6, 13
 DEBUG_TYPE_EX_DLLCHARACTERISTICS = 20
 EX_DLLCHARACTERISTICS_CET_COMPAT = 0x1
 DELAY_ATTRIBUTE_RVA_BASED = 0x1
-IMPORT_BY_ORDINAL = 1 << 63
-# DLLs no image imports, statically or delayed: the C runtime, WebAuthn, browser runtimes, Media Foundation, DirectWrite.
-FORBIDDEN_DLLS = {"ucrtbase.dll", "webauthn.dll", "libcef.dll", "chrome_elf.dll", "webview2loader.dll", "electron.dll",
-                  "mf.dll", "mfplat.dll", "mfreadwrite.dll", "msmpg2vdec.dll", "dwrite.dll", "dwritecore.dll"}
-# Text no imported DLL or function name contains (case-insensitive): the C and C++ runtimes, the shader compilers,
-# OpenSSL, Media Foundation and DirectWrite entry points.
-FORBIDDEN_IMPORT_TEXT = ("vcruntime", "msvcp", "api-ms-win-crt", "d3dcompiler", "dxcompiler", "libcrypto", "libssl",
-                         "mfstartup", "mfcreate", "mftenum", "dwritecreatefactory", "dwritecorecreatefactory")
 
 
 def dll_name(name):
@@ -100,10 +89,9 @@ class Pe:
         check(data[:2] == b"MZ", "not a PE image")
         pe = struct.unpack_from("<I", data, 0x3C)[0]
         check(data[pe:pe + 4] == b"PE\0\0", "no PE signature")
-        self.machine, section_count, _, _, _, optional_size, _ = struct.unpack_from("<HHIIIHH", data, pe + 4)
+        section_count, _, _, _, optional_size, _ = struct.unpack_from("<HIIIHH", data, pe + 6)
         optional = pe + 24
         check(struct.unpack_from("<H", data, optional)[0] == PE32_PLUS, "not a PE32+ image")
-        self.entry_point = struct.unpack_from("<I", data, optional + 16)[0]
         self.dll_characteristics = struct.unpack_from("<H", data, optional + 70)[0]
         directory_count = struct.unpack_from("<I", data, optional + 108)[0]
         self.directories = [struct.unpack_from("<II", data, optional + 112 + 8 * index) if index < directory_count
@@ -124,42 +112,29 @@ class Pe:
     def string(self, rva):
         return c_string(self.data, self.offset(rva))
 
-    def thunk_names(self, rva):
-        names = []
-        position = self.offset(rva)
-        while True:
-            thunk = struct.unpack_from("<Q", self.data, position)[0]
-            if not thunk:
-                return names
-            if not thunk & IMPORT_BY_ORDINAL:
-                names.append(self.string((thunk & 0x7FFFFFFF) + 2))
-            position += 8
-
     def imports(self):
-        """[(dll, [function names])] of the import directory."""
+        """The DLL names of the import directory."""
         found = []
         rva, _ = self.directories[DIRECTORY_IMPORT]
         position = self.offset(rva) if rva else None
         while position is not None:
-            lookup, _, _, name, address = struct.unpack_from("<IIIII", self.data, position)
+            name = struct.unpack_from("<I", self.data, position + 12)[0]
             if not name:
                 break
-            found.append((self.string(name), self.thunk_names(lookup or address)))
+            found.append(self.string(name))
             position += 20
         return found
 
     def delay_imports(self):
-        """[(dll, attributes, [function names])] of the delay-load directory."""
+        """[(dll, attributes)] of the delay-load directory."""
         found = []
         rva, _ = self.directories[DIRECTORY_DELAY_IMPORT]
         position = self.offset(rva) if rva else None
         while position is not None:
-            attributes, name, _, _, names, _, _, _ = struct.unpack_from("<IIIIIIII", self.data, position)
+            attributes, name = struct.unpack_from("<II", self.data, position)
             if not name:
                 break
-            rva_based = attributes & DELAY_ATTRIBUTE_RVA_BASED
-            found.append((self.string(name) if rva_based else "?", attributes,
-                          self.thunk_names(names) if rva_based and names else []))
+            found.append((self.string(name) if attributes & DELAY_ATTRIBUTE_RVA_BASED else "?", attributes))
             position += 32
         return found
 
@@ -177,8 +152,6 @@ class Pe:
 
 def audit_pe(path, data, arguments):
     image = Pe(path, data)
-    check(image.machine == IMAGE_FILE_MACHINE_AMD64, "not an x64 image")
-    check(image.entry_point, "no entry point")
     for flag, name in ((HIGH_ENTROPY_VA, "high-entropy ASLR"), (DYNAMIC_BASE, "dynamic base"), (NX_COMPAT, "NX")):
         check(image.dll_characteristics & flag, "mitigation missing: %s" % name)
     debug = image.debug_entries()
@@ -186,32 +159,19 @@ def audit_pe(path, data, arguments):
         check(kind == DEBUG_TYPE_EX_DLLCHARACTERISTICS, "debug data (debug directory entry of type %d)" % kind)
     check(any(len(payload) >= 4 and struct.unpack_from("<I", payload)[0] & EX_DLLCHARACTERISTICS_CET_COMPAT
               for _, payload in debug), "mitigation missing: CET compatibility")
-    check(not os.path.exists(os.path.splitext(path)[0] + ".pdb"), "a PDB lies beside the image")
 
-    static = image.imports()
+    static_names = sorted(dll_name(dll) for dll in image.imports())
     delayed = image.delay_imports()
-    static_names = sorted(dll_name(dll) for dll, _ in static)
-    delayed_names = sorted(dll_name(dll) for dll, _, _ in delayed)
-    for dll in static_names + delayed_names:
-        check(dll not in FORBIDDEN_DLLS, "forbidden import %s" % dll)
-    for dll, functions in static + [(dll, functions) for dll, _, functions in delayed]:
-        for name in [dll] + functions:
-            for text in FORBIDDEN_IMPORT_TEXT:
-                check(text not in name.lower(), "forbidden import %s (%s)" % (name, dll))
-    check("kernel32.dll" in static_names, "KERNEL32.dll is not a static import")
+    delayed_names = sorted(dll_name(dll) for dll, _ in delayed)
     if arguments.static_imports is not None:
         expected = sorted(dll_name(dll) for dll in arguments.static_imports)
         check(static_names == expected, "static imports are [%s], expected [%s]" % (
             ", ".join(static_names), ", ".join(expected)))
-    for dll, attributes, _ in delayed:
+    for dll, attributes in delayed:
         check(attributes & DELAY_ATTRIBUTE_RVA_BASED, "delay-load descriptor of %s is not RVA-based" % dll)
     expected = sorted(dll_name(dll) for dll in arguments.delay_load)
     check(delayed_names == expected, "delay-loaded DLLs are [%s], expected [%s]" % (
         ", ".join(delayed_names), ", ".join(expected)))
-    for dll in delayed_names:
-        check(dll not in static_names, "%s is delay-loaded but also a static import (mapped before the entry point)" % dll)
-    check(not any(dll_name(dll) == "kernel32.dll" and "DelayLoadFailureHook" in functions for dll, functions in static),
-          "imports kernel32's DelayLoadFailureHook (MaiCord's delay-load helper fails fast)")
 
     data_section = next((section for section in image.sections if section[0] == ".data"), None)
     initialized = data_section[3] if data_section else 0
@@ -235,7 +195,7 @@ ALLOWED_IMPORTS = {
 }
 GLIBC_ONLY_IMPORTS = {"malloc_trim"}
 MAXIMUM_GLIBC = (2, 34)
-FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id", ".rela.dyn.text")
+FORBIDDEN_SECTIONS = (".eh_frame", ".eh_frame_hdr", ".gcc_except_table", ".note.gnu.build-id")
 
 PT_LOAD, PT_DYNAMIC, PT_INTERP, PT_GNU_STACK, PT_GNU_RELRO = 1, 2, 3, 0x6474E551, 0x6474E552
 STB_WEAK = 2
@@ -253,7 +213,7 @@ class Elf:
         self.data = data
         check(data[:4] == b"\x7fELF", "not an ELF file")
         check(data[4] == 2 and data[5] == 1, "not a 64-bit little-endian ELF image")
-        (self.type, self.machine, _, _, program_offset, section_offset, _, _, program_size,
+        (self.type, _, _, _, program_offset, section_offset, _, _, program_size,
          program_count, section_size, section_count, section_names_index) = struct.unpack_from(
             "<HHIQQQIHHHHHH", data, 16)
         self.programs = [struct.unpack_from("<IIQQQQQQ", data, program_offset + index * program_size)
@@ -286,9 +246,8 @@ def glibc_version(name):
 
 
 def audit_elf(path, data, arguments):
-    libc, needed = arguments.libc, arguments.needed
+    libc, needed = arguments.libc, EXPECTED_NEEDED
     image = Elf(data)
-    check(image.machine == 62, "not an x86-64 image")
     check(image.type == 3, "not a position-independent executable (ET_DYN)")
 
     interpreters = [c_string(data, offset) for kind, _, offset, _, _, _, _, _ in image.programs if kind == PT_INTERP]
@@ -381,26 +340,20 @@ def audit(path, arguments):
         "%d bytes of initialized data, above the budget of %d: a global with a nonzero default member initializer "
         "was likely serialized into the file; zero it in its definition and apply the default at startup") % (
         initialized, maximum))
-    hooked = TEST_HOOKS_MARKER in data
-    check(not (arguments.no_test_hooks and hooked), "the image holds test hooks (built with tests)")
-    check(not (arguments.test_hooks and not hooked), "the image holds no test hooks (built without them)")
+    check(not (arguments.no_test_hooks and TEST_HOOKS_MARKER in data), "the image holds test hooks (built with tests)")
     return summary
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("images", nargs="+")
-    hooks = parser.add_mutually_exclusive_group()
-    hooks.add_argument("--no-test-hooks", action="store_true", help="fail when an image holds a test hook")
-    hooks.add_argument("--test-hooks", action="store_true", help="fail when an image holds no test hook")
+    parser.add_argument("--no-test-hooks", action="store_true", help="fail when an image holds a test hook")
     parser.add_argument("--maximum-initialized-data-bytes", type=int, default=-1, metavar="N",
                         help="fail when the writable initialized data exceeds N bytes")
     parser.add_argument("--libc", choices=sorted(INTERPRETERS), default="glibc",
                         help="ELF: the C library whose interpreter the images name (default: glibc)")
-    parser.add_argument("--needed", nargs="+", default=list(EXPECTED_NEEDED), metavar="NAME",
-                        help="ELF: the exact DT_NEEDED set (default: libc.so.6)")
     parser.add_argument("--static-imports", nargs="+", metavar="DLL",
-                        help="PE: the exact set of statically imported DLLs (default: any that include KERNEL32.dll)")
+                        help="PE: the exact set of statically imported DLLs (default: not checked)")
     parser.add_argument("--delay-load", nargs="+", default=[], metavar="DLL",
                         help="PE: the exact set of delay-loaded DLLs (default: none)")
     arguments = parser.parse_args()

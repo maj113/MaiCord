@@ -6,8 +6,8 @@
 # differ.
 #
 # A Linux image is a dynamic position-independent executable with its own _start (src/core/linux/start.cpp). It links
-# libc.so.6 as a generated stub library that pins the oldest symbol versions glibc 2.34's libc.so.6 exports
-# (tools/generate_libc_stubs.py), so no glibc newer than 2.34 is ever required (dlopen and pthread live in libc.so.6
+# libc.so.6 as a stub library that pins the oldest symbol versions glibc 2.34's libc.so.6 exports
+# (src/core/linux/libc_stub.ver), so no glibc newer than 2.34 is ever required (dlopen and pthread live in libc.so.6
 # since then, and the Linux floor admits no older glibc); everything else is dlopen()ed. The same image is the musl one
 # once tools/retarget_libc.py has changed its program interpreter (src/core/linux/README.md). tools/audit_image.py checks
 # the images of both systems.
@@ -108,9 +108,9 @@ if(NOT MAICORD_UNWIND_TABLES AND NOT DEFINED MAICORD_LLVM_FORK_OPTIONS)
     endblock()
 endif()
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${MAICORD_OUTPUT_DIRECTORY}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${MAICORD_OUTPUT_DIRECTORY}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${MAICORD_OUTPUT_DIRECTORY}")
 
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 # Every system library is declared by the target that owns it. Suppress CMake's
@@ -151,6 +151,17 @@ else()
         set(CMAKE_${lang}_CREATE_WIN32_EXE "")
         set(CMAKE_${lang}_CREATE_CONSOLE_EXE "")
     endforeach()
+    # The link rules start lld-link directly. CMake's rules start `cmake -E vs_link_exe` (vs_link_dll) for each link,
+    # which adds only /MANIFEST:EMBED,ID=1 (a DLL: ID=2) and a /MANIFESTINPUT: for each .manifest source. The rules
+    # below add the same options, so the images do not change.
+    set(maicord_link_rule "<CMAKE_LINKER> /nologo <OBJECTS> /out:<TARGET> /implib:<TARGET_IMPLIB> /pdb:<TARGET_PDB>")
+    set(maicord_link_inputs "/version:<TARGET_VERSION_MAJOR>.<TARGET_VERSION_MINOR> <LINK_FLAGS> <LINK_LIBRARIES>")
+    foreach(lang C CXX)
+        set(CMAKE_${lang}_LINK_EXECUTABLE "${maicord_link_rule} ${maicord_link_inputs} /MANIFEST:EMBED,ID=1 <MANIFESTS>")
+        set(CMAKE_${lang}_CREATE_SHARED_LIBRARY "${maicord_link_rule} /dll ${maicord_link_inputs} /MANIFEST:EMBED,ID=2 <MANIFESTS>")
+        set(CMAKE_${lang}_CREATE_SHARED_MODULE "${CMAKE_${lang}_CREATE_SHARED_LIBRARY}")
+        set(CMAKE_${lang}_LINKER_MANIFEST_FLAG "/MANIFESTINPUT:")
+    endforeach()
 endif()
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "")
@@ -188,14 +199,18 @@ find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
 # link contract.
 add_library(maicord_link_contract INTERFACE)
 if(MAICORD_LINUX)
-    # The libc stub: libc.so.6 carrying the pinned symbol versions.
+    # The libc stub: libc.so.6 carrying the pinned symbol versions of src/core/linux/libc_stub.ver.
     set(MAICORD_LIBC_STUB_DIRECTORY "${CMAKE_BINARY_DIR}/libc-stubs")
     set(maicord_libc_stub_files "${MAICORD_LIBC_STUB_DIRECTORY}/libc.so.6")
+    file(MAKE_DIRECTORY "${MAICORD_LIBC_STUB_DIRECTORY}")
     add_custom_command(OUTPUT ${maicord_libc_stub_files}
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
-            --compiler "${CMAKE_C_COMPILER}" --output-directory "${MAICORD_LIBC_STUB_DIRECTORY}"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_libc_stubs.py"
-        COMMENT "Generating the libc stub library"
+        COMMAND "${CMAKE_C_COMPILER}" -shared -fPIC -O0 -nostdlib -nostdinc -fuse-ld=lld
+            -fno-asynchronous-unwind-tables -fno-unwind-tables
+            -Wl,-soname,libc.so.6 "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/core/linux/libc_stub.ver"
+            -Wl,--build-id=none -Wl,-z,noexecstack
+            -o ${maicord_libc_stub_files} "${CMAKE_CURRENT_SOURCE_DIR}/src/core/linux/libc_stub.c"
+        DEPENDS src/core/linux/libc_stub.c src/core/linux/libc_stub.ver
+        COMMENT "Linking the libc stub library"
         VERBATIM)
     add_custom_target(maicord_libc_stubs DEPENDS ${maicord_libc_stub_files})
     target_link_options(maicord_link_contract INTERFACE

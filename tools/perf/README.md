@@ -125,7 +125,7 @@ focused window (it pauses media animations only after a real deactivation).
   The existing CPU-millisecond columns divide those counts by the calibrated TSC rate.
 - **Retained work:** Markdown parser runs against cache hits, content text streams
   built (and how many kept the shell's glyphs), paint streams built.
-- **Uploads:** paint, glyph and media instance bytes written to the GPU per
+- **Uploads:** paint and glyph instance bytes written to the GPU per
   presented frame; member list rows resolved for media; shell segments replayed
   instead of built.
 - **GPU:** immediate-context calls per painted frame, counted through the context's

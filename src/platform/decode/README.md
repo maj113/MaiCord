@@ -75,8 +75,8 @@ of the buffer seen through the same planes, and the per-frame cost of importing 
 `maicord_video_playback_audio`. The dma-buf tests use the dumb buffers of `/dev/dri/card0` (`tests/support/dumb_dmabuf.hpp`:
 vgem in a VM or WSL, writable by the `video` group) and skip without it or an EGL that imports. `python
 tools/check_video_abi.py` compares `include/maicord/platform/decode/vaapi/abi.hpp` and `software/abi.hpp` with libva-dev,
-libdav1d-dev and libopenh264-dev. `tools/generate_video_fixtures.py` and `tools/generate_mp4_fixtures.py` (WSL, libavcodec,
-not run by the build) write the fixtures.
+libdav1d-dev and libopenh264-dev. The fixtures are libavcodec's encodes and decodes (libx264, libx265, libaom and the MP4
+muxer).
 
 No test decodes through a real VA-API driver (vgem has none; Mesa's d3d12 VA driver does not initialize on WSL's vgem node
 here). To validate on hardware: decode on Intel (iHD, Gen9 and Gen12+ with media compression), AMD (radeonsi) and NVIDIA

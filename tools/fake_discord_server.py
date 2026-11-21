@@ -8,7 +8,7 @@ tools/test_discord_wayland.sh points discord.com, gateway.discord.gg and the CDN
 in a private network namespace), trusts CERT through SSL_CERT_FILE and runs this server. The client then signs in with
 any e-mail and password (POST /api/v9/auth/login answers with a token), opens the user gateway (wss://gateway.discord.gg,
 ETF, one zstd frame per message) and gets one account, one guild with one text channel and a few messages. With --site the
-plugin catalog (tools/catalog_site_server.py's job) is served on --catalog-host too, so the Plugins page works signed in.
+plugin catalog is served on --catalog-host too, so the Plugins page works signed in.
 The guild also has a voice channel and a stage; joining either answers the voice state and server updates, and the voice
 server (us-qa.discord.media: the voice gateway v9 and a UDP port its Ready names) accepts the stage's transport-only session
 (no DAVE, which the voice channel demands) and echoes the client's Opus packets back as another participant. Go Live (ops

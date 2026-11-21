@@ -32,6 +32,7 @@ packaging/void/*/template text eol=lf
 packaging/rpm/_service text eol=lf
 packaging/rpm/.copr/Makefile text eol=lf
 packaging/debian/debian/* text eol=lf
+assets/desktop/applications/*.desktop text eol=lf
 
 # Binary assets: never touch line endings or attempt textual diffs.
 *.ttf binary

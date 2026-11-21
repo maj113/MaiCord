@@ -17,7 +17,6 @@ on:
       - .github/workflows/labeler.yml
       - .github/workflows/manifest-refresh.yml
       - .github/workflows/release.yml
-      - .github/workflows/text-reference.yml
       - .github/workflows/workflow-lint.yml
   pull_request:
     branches: [master]
@@ -181,7 +180,7 @@ jobs:
                 if ($LASTEXITCODE -eq 0 -and "$client".Trim() -and "$client".Trim() -ne 'success') { "The client job ended without binaries ($client)."; return }
                 Start-Sleep -Seconds 15
               }
-              while (!(Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) { Start-Sleep -Seconds 5 }
+              while (!(Test-Path -LiteralPath (Join-Path $build 'cmake\CMakeCache.txt'))) { Start-Sleep -Seconds 5 }
               # build.ps1 waits for the client; it appears complete.
               Copy-Item -LiteralPath (Join-Path $download 'MaiCord.exe') -Destination (Join-Path $build 'MaiCord.exe.partial') -ErrorAction Stop
               Move-Item -LiteralPath (Join-Path $build 'MaiCord.exe.partial') -Destination (Join-Path $build 'MaiCord.exe') -Force -ErrorAction Stop
@@ -306,16 +305,12 @@ jobs:
       matrix:
         part: [suite, portable]
     steps:
+      # Full history: the configure numbers the build as the client job does (cmake/update_config.cmake), and the
+      # updater's tests read that identity.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      # The tests build with the identity the client gets (the updater's tests read it).
-      - name: Build identity
-        id: identity
-        run: |
-          python3 -B tools/release/maicord_release.py identity --repository . || echo '::warning::No build identity; building as the project version without the updater.'
 
       # The runtime libraries, fonts, dictionaries and headers the suite uses; the portable part also runs the integration
       # scripts and so takes their tools.
@@ -329,8 +324,6 @@ jobs:
       - name: Build, audit and test
         env:
           PART: ${{ matrix.part }}
-          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
-          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
           MAICORD_LINUX_RELEASES: ${{ vars.MAICORD_LINUX_RELEASES }}
           MAICORD_REQUIRE_DEFLATE_CACHE: "1"
         run: |

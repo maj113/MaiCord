@@ -275,7 +275,6 @@ void report_phase(Phase phase) noexcept {
     o.kv("paint_builds", delta(stats.text_end.paint_builds, stats.text_begin.paint_builds));
     o.kv("up_paint_b", delta(stats.text_end.paint_upload_bytes, stats.text_begin.paint_upload_bytes));
     o.kv("up_text_b", delta(stats.text_end.text_upload_bytes, stats.text_begin.text_upload_bytes));
-    o.kv("up_media_b", delta(stats.text_end.media_upload_bytes, stats.text_begin.media_upload_bytes));
     o.kv("member_resolves", delta(stats.text_end.member_media_resolves, stats.text_begin.member_media_resolves));
     o.kv("shell_replays", delta(stats.text_end.shell_replays, stats.text_begin.shell_replays));
     o.kv("anim_entries", stats.anim_entries);

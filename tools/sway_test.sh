@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A function for the scripts that run a test or the client on their own sway (tools/test_wayland_window.sh,
-# test_gpu_surface.sh, test_client_wayland.sh, test_atspi.sh, test_dbus_tray.sh): source this file, then call
+# test_gpu_surface.sh, test_client_wayland.sh, test_atspi.sh): source this file, then call
 #
 #   sway_test_start CONFIG LOG [COMPOSITOR]   starts sway with CONFIG, logging to LOG, headless (the default) or nested
 #                                             as a window of the running compositor (nested), and waits until it serves;

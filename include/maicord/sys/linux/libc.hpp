@@ -3,7 +3,7 @@
 // The C library functions MaiCord imports, declared as glibc and musl declare them (the two agree on x86-64; types
 // without the headers). These are the only imports of a Linux image besides what it dlopens: it needs libc.so.6 alone
 // (glibc 2.34 moved dlopen and the pthread functions into it, and kernel 6.1 admits no older glibc), linked as a stub
-// library (tools/generate_libc_stubs.py) that carries the oldest symbol versions libc.so.6 exports, so the image never
+// library (src/core/linux/libc_stub.ver) that carries the oldest symbol versions libc.so.6 exports, so the image never
 // requires a newer glibc than 2.34; musl's loader answers libc.so.6 itself and ignores the versions
 // (tools/retarget_libc.py makes the musl image). Add a function only together with its stub entry there, and only if
 // musl defines it too (or import it weakly, as malloc_trim). tools/check_libc_abi.py compares the types and constants

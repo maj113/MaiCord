@@ -30,8 +30,8 @@ rewrites each generator's own lines; commit the result.
 
 The cache also holds zstd frames, for data that repeats over more than the 32 KB
 window of deflate (the regional flags). The update target makes a missing frame
-with the third-party Python module ``zstandard`` (pip install zstandard). A build
-needs no module: it reads the cached frame, or falls back to zlib.
+with the standard library module ``compression.zstd`` (Python 3.14). A build
+needs neither: it reads the cached frame, or falls back to zlib.
 """
 import base64
 import hashlib
@@ -450,12 +450,15 @@ def zlib_best(data):
 
 def zstd_frame(data):
     """The zstd frame of ``data`` at the highest level, without content size or checksum. Only update mode calls
-    this: it needs the third-party ``zstandard`` module, and a build does not."""
-    import zstandard
-    parameters = zstandard.ZstdCompressionParameters.from_level(
-        22, source_size=len(data), write_content_size=False, write_checksum=False, write_dict_id=False)
-    frame = zstandard.ZstdCompressor(compression_params=parameters).compress(data)
-    assert zstandard.ZstdDecompressor().decompress(frame, max_output_size=len(data)) == data
+    this: it needs Python 3.14 (``compression.zstd``), and a build does not."""
+    from compression.zstd import CompressionParameter, ZstdCompressor, decompress
+    compressor = ZstdCompressor(options={CompressionParameter.compression_level: 22,
+                                         CompressionParameter.content_size_flag: 0,
+                                         CompressionParameter.checksum_flag: 0, CompressionParameter.dict_id_flag: 0})
+    # The pledged size picks the parameters of level 22 for this size, as the frames in the cache were made.
+    compressor.set_pledged_input_size(len(data))
+    frame = compressor.compress(data, mode=ZstdCompressor.FLUSH_FRAME)
+    assert decompress(frame) == data
     return frame
 
 

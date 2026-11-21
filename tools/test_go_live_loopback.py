@@ -1,19 +1,21 @@
 """Go Live loopback: MaiCord's sender streams to MaiCord's receive path through tools/fake_discord_server.py's stream server.
 
-    tools/test_go_live_loopback.py LOOPBACK_EXE WORK_DIR [CASE,...]
+    tools/test_go_live_loopback.py LOOPBACK_EXE [CASE,...]
 
 A case is a codec (h264, h265, av1), optionally with a picture height (h264-1440: Go Live at 1440p 60 fps from a
 2560x1440 window; h264-2160: Source from a 3840x2160 one; MAICORD_LOOPBACK_SIZE). Each case has its own fake server (its
-UDP ports are ephemeral) with a throwaway certificate for its stream server's name (made once with openssl, Git's on
-Windows) and its own LOOPBACK_EXE process (tests/app/voice/go_live_loopback.cpp) pointed at it with the test hooks
+UDP ports are ephemeral) with a throwaway certificate for its stream server's name (made for each run with openssl, Git's
+on Windows) and its own LOOPBACK_EXE process (tests/app/voice/go_live_loopback.cpp) pointed at it with the test hooks
 (MAICORD_TEST_SERVER, MAICORD_TEST_CA_FILE); they run side by side, as each is paced by the wall clock. It checks the
 server saw the DAVE group of the two and media both ways. Exit 77 (skipped) without openssl or a hardware video device.
+The certificate and the server logs are in a directory under TEMP that the run removes.
 """
 import concurrent.futures
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,10 +32,9 @@ def openssl():
 
 def certificate(work, tool):
     cert, key = (os.path.join(work, name) for name in ("cert.pem", "key.pem"))
-    if not os.path.exists(cert):
-        subprocess.run([tool, "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
-                        "-subj", f"/CN={HOST}", "-addext", f"subjectAltName=DNS:{HOST}", "-days", "30",
-                        "-keyout", key, "-out", cert], check=True, capture_output=True)
+    subprocess.run([tool, "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
+                    "-subj", f"/CN={HOST}", "-addext", f"subjectAltName=DNS:{HOST}", "-days", "30",
+                    "-keyout", key, "-out", cert], check=True, capture_output=True)
     return cert, key
 
 
@@ -75,17 +76,17 @@ def run(exe, work, cert, key, case):
 
 
 def main():
-    exe, work = sys.argv[1], sys.argv[2]
-    os.makedirs(work, exist_ok=True)
+    exe = sys.argv[1]
     tool = openssl()
     if not tool:
         print("go live loopback: no openssl; skipped")
         return 77
     started = time.time()
-    cases = sys.argv[3].split(",") if len(sys.argv) > 3 else ("h264", "h265", "av1", "h264-1440", "h264-2160")
-    cert, key = certificate(work, tool)
-    with concurrent.futures.ThreadPoolExecutor(len(cases)) as pool:
-        runs = list(pool.map(lambda case: run(exe, work, cert, key, case), cases))
+    cases = sys.argv[2].split(",") if len(sys.argv) > 2 else ("h264", "h265", "av1", "h264-1440", "h264-2160")
+    with tempfile.TemporaryDirectory(prefix="maicord-go-live-", ignore_cleanup_errors=True) as work:
+        cert, key = certificate(work, tool)
+        with concurrent.futures.ThreadPoolExecutor(len(cases)) as pool:
+            runs = list(pool.map(lambda case: run(exe, work, cert, key, case), cases))
     for _, shown in runs:
         print("\n".join(shown))
     results = [result for result, _ in runs]

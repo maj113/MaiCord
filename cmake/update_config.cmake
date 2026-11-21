@@ -34,9 +34,11 @@ set(maicord_update_commit "${MAICORD_UPDATE_COMMIT}")
 set(maicord_update_repository "${MAICORD_UPDATE_REPOSITORY}")
 set(maicord_update_public_key "${MAICORD_UPDATE_PUBLIC_KEY}")
 if(NOT maicord_update_version)
+    # The identity command also writes its values to the file that GITHUB_OUTPUT names. A configure in CI must not
+    # write them, so the configure removes the variable from its own environment.
+    unset(ENV{GITHUB_OUTPUT})
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E env --unset=GITHUB_OUTPUT
-            "${Python3_EXECUTABLE}" -B tools/release/maicord_release.py identity --repository .
+        COMMAND "${Python3_EXECUTABLE}" -B tools/release/maicord_release.py identity --repository .
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         RESULT_VARIABLE maicord_identity_result
         OUTPUT_VARIABLE maicord_identity

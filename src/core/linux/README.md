@@ -8,8 +8,8 @@ bundles one.
 
 ## C library: glibc and musl, one image
 
-- The build links the glibc form: interpreter `/lib64/ld-linux-x86-64.so.2`, `DT_NEEDED` `libc.so.6` alone (one generated
-  stub library, `tools/generate_libc_stubs.py`, pinning each import at the oldest default version glibc 2.34's `libc.so.6`
+- The build links the glibc form: interpreter `/lib64/ld-linux-x86-64.so.2`, `DT_NEEDED` `libc.so.6` alone (one stub
+  library, `libc_stub.c` and `libc_stub.ver`, pinning each import at the oldest default version glibc 2.34's `libc.so.6`
   exports: `GLIBC_2.2.5` (`malloc` family, `getaddrinfo`, `pthread_attr_init`/`pthread_attr_destroy`), `GLIBC_2.17`
   (`clock_gettime`) and `GLIBC_2.34` (`dlopen` family, `pthread_create`/`join`/`detach`/`attr_setstacksize`), so glibc 2.34+
   runs it). glibc 2.34 moved `dlopen` and the pthread functions out of `libdl.so.2` and `libpthread.so.0` (empty since) into
@@ -32,7 +32,7 @@ bundles one.
   musl): `struct addrinfo` layout, `pthread_attr_t` (56 bytes, 8-aligned) and `pthread_t`, the `RTLD_*` values and
   `RTLD_DEFAULT == 0`, `CLOCK_*`, every `E*` number the code uses (and `EWOULDBLOCK == EAGAIN`, `ENOTSUP == EOPNOTSUPP`), the
   `EAI_*` codes `src/platform/net/linux/resolver.cpp` maps.
-- Adding a libc import: declare it in `libc.hpp`, add it to `tools/generate_libc_stubs.py` and the allow-list of
+- Adding a libc import: declare it in `libc.hpp`, add it to `libc_stub.c` and `libc_stub.ver` and the allow-list of
   `tools/audit_image.py`, and make sure musl defines it (else import it weakly and test the pointer, as `heap_trim` does).
 - Not done: a separate musl link (the extra full-LTO link would only differ in PT_INTERP), a static or self-loading
   image (a static-PIE launcher that `execve`s the system loader changes `/proc/self/exe`, the process name and the

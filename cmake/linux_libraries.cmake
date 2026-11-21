@@ -134,7 +134,7 @@ maicord_library(maicord_audio_pulse
 
 # The AAC decoder interface of include/maicord/platform/decode/aac_decoder.hpp on Linux (Windows decodes AAC through
 # Media Foundation, src/platform/decode/aac_decoder.cpp): an in-house AAC-LC core in src/media/audio/aac_lc.cpp with
-# the Huffman codebooks and band tables of aac_tables.inc (tools/generate_aac_tables.py), and the adapter that
+# the Huffman codebooks and band tables of aac_tables.inc (checked in), and the adapter that
 # answers submit/read/drain/flush with it.
 maicord_library(maicord_aac_decoder
     src/media/audio/aac_lc.cpp src/platform/decode/linux/aac_decoder.cpp
@@ -242,7 +242,7 @@ set_target_properties(maicord_gpu_gles_video PROPERTIES EXCLUDE_FROM_ALL TRUE)
 # the actions it routes (accessibility_actions.cpp) and the announcements (accessibility_status.cpp) are shared.
 # src/app/update/package.cpp, the zip and PE reader of the Windows updater, is not here either:
 # src/app/update/linux/package.cpp (in maicord_app_update) reads the Linux tarball instead.
-file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
+file(GLOB_RECURSE MAICORD_APP_CLIENT_SOURCES RELATIVE "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/src/app/*.cpp")
 list(FILTER MAICORD_APP_CLIENT_SOURCES EXCLUDE REGEX
     "^src/app/shell/|^src/app/windows/|^src/app/linux/|^src/app/accessibility/accessibility\\.cpp$|^src/app/update/package\\.cpp$")

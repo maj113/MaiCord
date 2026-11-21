@@ -24,8 +24,8 @@
 # a failed one an annotation; the table is also written to the job summary.
 #
 # Not here: tools/test_dbus_real.sh (the real xdg-desktop-portal and gnome-keyring need a graphical session and FUSE) and the
-# fake Discord runs (tools/test_discord_wayland.sh, test_signin_wayland.sh, test_voice_wayland.sh, test_catalog_wayland.sh:
-# they need a user and network namespace and a built client with the catalog test key).
+# fake Discord runs (tools/test_discord_wayland.sh and the scripts built on it: they need a user and network namespace and
+# a built client with the catalog test key).
 
 set -uo pipefail
 

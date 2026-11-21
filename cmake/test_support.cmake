@@ -52,8 +52,8 @@ endfunction()
 # tools that run it directly.
 function(maicord_test target)
     list(FIND ARGN TEST first)
-    foreach(keyword IN ITEMS TIMEOUT COST LABELS RESOURCE_LOCK ENVIRONMENT ENV WORKING_DIRECTORY PASS_REGULAR_EXPRESSION
-            SKIP_RETURN_CODE)
+    foreach(keyword IN ITEMS TIMEOUT COST LABELS RESOURCE_LOCK ENVIRONMENT ENVIRONMENT_MODIFICATION WORKING_DIRECTORY
+            PASS_REGULAR_EXPRESSION SKIP_RETURN_CODE)
         list(FIND ARGN ${keyword} index)
         if(index GREATER_EQUAL 0 AND (first LESS 0 OR index LESS first))
             set(first ${index})
@@ -111,14 +111,13 @@ function(maicord_test target)
 endfunction()
 
 # maicord_add_tests(<target> [ONLY WINDOWS|LINUX] [TIMEOUT <seconds>] [COST <n>] [LABELS <label>...]
-#                   [RESOURCE_LOCK <lock>...] [ENVIRONMENT <VAR=value>...]
+#                   [RESOURCE_LOCK <lock>...] [ENVIRONMENT <VAR=value>...] [ENVIRONMENT_MODIFICATION <VAR=op:value>...]
 #                   [WORKING_DIRECTORY <dir>] [PASS_REGULAR_EXPRESSION <regex>] [SKIP_RETURN_CODE <status>]
-#                   [ENV <VAR=value>...] TEST <name> [<argument>...] [TEST ...]...)
+#                   TEST <name> [<argument>...] [TEST ...]...)
 # One CTest case per TEST row, running <target> with the row's arguments and
-# the shared properties. ENV runs the target through `cmake -E env`. The test
-# manifest (maicord_write_test_manifest) records <target> for each case. Rows of
-# a target registered on the other system only (maicord_test ONLY), or marked
-# ONLY for the other system, register nothing.
+# the shared properties. The test manifest (maicord_write_test_manifest) records
+# <target> for each case. Rows of a target registered on the other system only
+# (maicord_test ONLY), or marked ONLY for the other system, register nothing.
 function(maicord_add_tests target)
     get_property(other GLOBAL PROPERTY MAICORD_TEST_OTHER_SYSTEM_${target})
     if(other)
@@ -138,25 +137,21 @@ function(maicord_add_tests target)
     list(SUBLIST ARGN 0 ${first} options)
     list(SUBLIST ARGN ${first} -1 rows)
     cmake_parse_arguments(ARG "" "TIMEOUT;COST;WORKING_DIRECTORY;PASS_REGULAR_EXPRESSION;SKIP_RETURN_CODE"
-        "LABELS;RESOURCE_LOCK;ENVIRONMENT;ENV" ${options})
+        "LABELS;RESOURCE_LOCK;ENVIRONMENT;ENVIRONMENT_MODIFICATION" ${options})
     get_property(bundle GLOBAL PROPERTY MAICORD_BUNDLE_OF_${target})
     if(bundle)
         get_property(entry GLOBAL PROPERTY MAICORD_BUNDLE_ENTRY_${target})
         list(APPEND ARG_ENVIRONMENT MAICORD_TEST_ENTRY=${entry})
         set(target ${bundle})
     endif()
-    set(command ${target})
-    if(ARG_ENV)
-        set(command "${CMAKE_COMMAND}" -E env ${ARG_ENV} "$<TARGET_FILE:${target}>")
-    endif()
     set(name "")
     foreach(word IN LISTS rows ITEMS TEST)
         if(word STREQUAL "TEST")
             if(NOT name STREQUAL "")
-                add_test(NAME ${name} COMMAND ${command} ${arguments})
+                add_test(NAME ${name} COMMAND ${target} ${arguments})
                 set_property(GLOBAL PROPERTY MAICORD_TEST_TARGET_${name} ${target})
                 foreach(property IN ITEMS TIMEOUT COST WORKING_DIRECTORY PASS_REGULAR_EXPRESSION SKIP_RETURN_CODE
-                        LABELS RESOURCE_LOCK ENVIRONMENT)
+                        LABELS RESOURCE_LOCK ENVIRONMENT ENVIRONMENT_MODIFICATION)
                     if(DEFINED ARG_${property})
                         set_property(TEST ${name} PROPERTY ${property} ${ARG_${property}})
                     endif()
@@ -349,7 +344,7 @@ function(maicord_ui_probe_test test variable)
     if(ARG_WARP)
         list(APPEND environment MAICORD_UI_PROBE_WARP=1)
     endif()
-    maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENV ${environment}
+    maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENVIRONMENT ${environment}
         TEST ${test})
 endfunction()
 

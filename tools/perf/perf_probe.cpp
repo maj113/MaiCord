@@ -146,7 +146,6 @@ TextWork sample_text_work() noexcept {
     work.paint_builds = g_app.renderer.paint_stream_builds;
     work.paint_upload_bytes = g_app.renderer.paint_upload_bytes;
     work.text_upload_bytes = g_app.renderer.text_upload_bytes;
-    work.media_upload_bytes = g_app.renderer.media_upload_bytes;
     if (g_app.account_ui)
         work.member_media_resolves = g_app.account_ui->member_media_cache.resolves;
     work.shell_replays = g_app.renderer.shell_segment.replays;

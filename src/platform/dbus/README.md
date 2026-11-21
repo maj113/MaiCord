@@ -21,8 +21,8 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
 ## Rules
 
 - The application id is `io.github.maj113.MaiCord`; it is also the window's `app_id` and the `.desktop` file's name.
-  `tools/generate_desktop_entry.py` writes the `.desktop` file (`MimeType=x-scheme-handler/discord`) and the hicolor icons
-  into `<build>/packaging` (target `maicord_desktop_entry`).
+  The `.desktop` file (`MimeType=x-scheme-handler/discord`) and the hicolor icons are checked in under `assets/desktop`, in
+  the layout of an install prefix's `share` directory; the packages copy them.
 - Portal dialogs (file chooser, OpenURI, global shortcuts, the colour picker's eyedropper: Screenshot.PickColor in
   `src/platform/desktop/screen_color.cpp`) send the window's `xdg-foreign` handle as `parent_window`
   (`portal_set_parent_window`, set by the Wayland window; empty without it).
@@ -48,6 +48,4 @@ An in-house D-Bus client: no libdbus, no sd-bus. Headers are in `include/maicord
   `MAICORD_NOTIFICATION_BACKEND` and the test-only `MAICORD_INSTANCE_BACKEND=socket|bus` are set by the script.
 - `tools/test_dbus_real.sh`: the clients against xdg-desktop-portal with its GTK backend and gnome-keyring on a private bus
   (needs a graphical session; not in CI).
-- `tools/test_dbus_tray.sh`: the tray against swaybar's real watcher and host (a screenshot of its bar, `busctl` on the item and
-  its menu) and single instance with `gdbus call`.
 - `tools/test_wayland_window.sh` also starts the mock bus for the lifecycle test's settings stage.

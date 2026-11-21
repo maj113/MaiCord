@@ -1,5 +1,5 @@
 # Sourced by the scripts that serve TLS on this machine to a client that trusts only their certificate (POSIX sh):
-# tests/platform/net/tls_smoke.sh, tls_stream_smoke.sh, tools/test_catalog_wayland.sh, tools/test_discord_wayland.sh.
+# tests/platform/net/tls_smoke.sh, tls_stream_smoke.sh, tools/test_discord_wayland.sh.
 #
 # certificate <key file> <certificate file> <common name> [<subjectAltName>]: a P-256 key and a self-signed certificate
 # under that subject for the names given (default DNS:localhost,IP:127.0.0.1), with the extensions `openssl req -x509`

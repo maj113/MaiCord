@@ -3,7 +3,7 @@ PyThaiNLP Thai word-list data
 MaiCord's Thai word-break lexicon
 (src/text/unicode/generated/thai_lexical_data.inc)
 includes the words of the PyThaiNLP project's words_th.txt that are not
-compounds of other listed words, re-encoded by tools/unicode/thai_break_data.py.
+compounds of other listed words, re-encoded by MaiCord as a word graph.
 No PyThaiNLP library or implementation code is included in the application.
 
 The upstream corpus license identifies words_th.txt as created by the PyThaiNLP

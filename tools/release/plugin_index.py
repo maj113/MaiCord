@@ -687,7 +687,7 @@ def parse_index(document: bytes, now: int | None, accept_expired: bool = False, 
 
 def verify_index(document: bytes, signature: bytes, public_point: bytes, now: int | None,
                  accept_expired: bool = False, reader: int = 3) -> dict:
-    """plugin_index_verify: size, then the signature under the index domain, then the schema."""
+    """catalog_index_verify: size, then the signature under the index domain, then the schema."""
     if not document or len(document) > MAX_BYTES:
         raise PluginIndexError("size")
     if len(signature) != 64 or not cng_p256.verify_digest(public_point, hashlib.sha256(DOMAIN + document).digest(), signature):
@@ -876,7 +876,9 @@ def _quoted(text: str) -> str:
 
 
 def install_record(index: dict, kind: str, slug: str, version: str | None = None) -> bytes:
-    """plugin_index_manifest: the canonical record of one listed file: where it lives and what the client checks.
+    """The canonical record of one listed file: where it lives and what the client checks.
+
+    tests/app/plugins/catalog_index.cpp rebuilds the same record from the parsed index.
 
     version selects a plugin's version (default: the newest); themes and effects have one."""
     item = next((i for i in index["items"] if i["kind"] == kind and i["slug"] == slug), None)

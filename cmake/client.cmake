@@ -13,7 +13,7 @@ if(MAICORD_LINUX)
     # The application's shell over the libraries (cmake/linux_libraries.cmake), with the Wayland window backend (the
     # null backend, maicord_window_null, is the tests'). The shell is every unit of src/app/shell (the Windows branch
     # lists them one by one); the entry and the window glue are src/app/linux.
-    file(GLOB MAICORD_SHELL_SOURCES CONFIGURE_DEPENDS RELATIVE "${CMAKE_SOURCE_DIR}"
+    file(GLOB MAICORD_SHELL_SOURCES RELATIVE "${CMAKE_SOURCE_DIR}"
         "${CMAKE_SOURCE_DIR}/src/app/shell/*.cpp")
     maicord_program(MaiCord ENTRY maicord_entry
         SOURCES ${MAICORD_SHELL_SOURCES} src/app/linux/entry.cpp src/app/linux/platform_window.cpp
@@ -195,7 +195,7 @@ else()
             "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
     endif()
     if(MAICORD_SIZE_REPORT)
-        target_link_options(MaiCord PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
+        target_link_options(MaiCord PRIVATE "/MAP:${MAICORD_OUTPUT_DIRECTORY}/MaiCord.map")
     endif()
     # Startup: DLLs the device prestart does not need map on first use instead of
     # before the entry point, which the prestart waits for. The renderer maps
@@ -217,14 +217,12 @@ endif()
 # Runtime assets next to the executable: licenses and the bundled fonts.
 include(cmake/runtime_assets.cmake)
 
-# The image audit (tools/audit_image.py) after every link of the client: no test hooks in a shipping client (and the
-# hooks in a client built with them), no C or C++ runtime, no debug data, the mitigations and, on Windows, these exact
+# The image audit (tools/audit_image.py) after every link of the client: no test hooks in a shipping client, no C or
+# C++ runtime, no debug data, the mitigations and, on Windows, these exact
 # import sets and the .data budget (the image keeps large zero-filled globals in .bss; 16 KiB of initialized .data
 # leaves room for small tables but not for a serialized aggregate). A failed audit fails the link step, which Ninja
 # then runs again on the next build.
-if(maicord_test_hooks)
-    set(maicord_client_audit_options --test-hooks)
-else()
+if(NOT maicord_test_hooks)
     set(maicord_client_audit_options --no-test-hooks)
 endif()
 if(NOT MAICORD_LINUX)

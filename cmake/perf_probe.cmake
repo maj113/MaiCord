@@ -33,6 +33,6 @@ target_include_directories(MaiCordPerfProbe PRIVATE "${MAICORD_GENERATED_DIRECTO
 target_compile_definitions(MaiCordPerfProbe PRIVATE MAICORD_PERF_PROBE=1)
 # run_perf.ps1 resolves allocation call stacks through the map.
 target_link_options(MaiCordPerfProbe PRIVATE /ENTRY:maicord_entry /SUBSYSTEM:WINDOWS,6.02
-    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordPerfProbe.map" ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
+    "/MAP:${MAICORD_OUTPUT_DIRECTORY}/MaiCordPerfProbe.map" ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 set_target_properties(MaiCordPerfProbe PROPERTIES CXX_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 add_dependencies(MaiCordPerfProbe MaiCordPerfAccount)

@@ -9,6 +9,9 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 if (!(Test-Path -LiteralPath $releaseRoot)) { Write-Output 'No Release build exists.'; return }
+# The CMake tree (CMakePresets.json). A cleanup keeps its cache and the compiler descriptions, so that the next
+# configure does not detect the compilers again. It removes everything else that a run made.
+$cmakeRoot = Join-Path $releaseRoot 'cmake'
 
 function Enter-ReleaseCleanupLock([string]$Name) {
     $mutex = [Threading.Mutex]::new($false, $Name)
@@ -29,11 +32,9 @@ try {
     # cannot classify or remove outputs while another wrapper owns the cache.
     if ($Apply) { $cleanupMutex = Enter-ReleaseCleanupLock (& "$PSScriptRoot\build_lock_name.ps1" $releaseRoot) }
 
-# Whether an existing file or directory is a reparse point (missing: -1, false).
-function Test-ReparsePoint([string]$Path) {
-    $attributes = [int][IO.FileInfo]::new($Path).Attributes
-    return $attributes -ne -1 -and ($attributes -band [int][IO.FileAttributes]::ReparsePoint)
-}
+# The attribute bit of a reparse point. A missing path has the attributes -1, which the checks skip. The checks call no
+# function: a PowerShell call costs about 40 us, and they run several times for each file of the build directory.
+$reparsePoint = [int][IO.FileAttributes]::ReparsePoint
 $validatedAncestors = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 function Assert-ReleasePath([string]$Path) {
     $absolute = [IO.Path]::GetFullPath($Path)
@@ -43,7 +44,8 @@ function Assert-ReleasePath([string]$Path) {
     }
     $ancestor = $absolute
     while ($ancestor -and !$validatedAncestors.Contains($ancestor)) {
-        if (Test-ReparsePoint $ancestor) { throw "Reparse point in build path: $ancestor" }
+        $attributes = [int][IO.FileInfo]::new($ancestor).Attributes
+        if ($attributes -ne -1 -and ($attributes -band $reparsePoint)) { throw "Reparse point in build path: $ancestor" }
         [void]$validatedAncestors.Add($ancestor)
         $ancestor = [IO.Path]::GetDirectoryName($ancestor)
     }
@@ -53,9 +55,9 @@ function Assert-ReleasePath([string]$Path) {
 $scratchDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $targets = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $ownedTestRoots = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-# Registers every directory under $Root as removable once empty and every file $Keep accepts as a target; reparse points are
-# rejected, never followed.
-function Add-Tree([string]$Root, [scriptblock]$Keep = { $true }) {
+# Registers every directory under $Root as removable once empty and every file whose name matches $Files (a case-sensitive
+# pattern; $null takes none) as a target; reparse points are rejected, never followed.
+function Add-Tree([string]$Root, [regex]$Files = '') {
     $rootPath = Assert-ReleasePath $Root
     if (![IO.Directory]::Exists($rootPath)) { return }
     $pending = [Collections.Generic.Queue[string]]::new()
@@ -66,7 +68,7 @@ function Add-Tree([string]$Root, [scriptblock]$Keep = { $true }) {
         foreach ($child in ([IO.DirectoryInfo]$directory).EnumerateFileSystemInfos()) {
             $childPath = Assert-ReleasePath $child.FullName
             if ($child -is [IO.DirectoryInfo]) { $pending.Enqueue($childPath) }
-            elseif (& $Keep $child) { [void]$targets.Add($childPath) }
+            elseif ($Files -and $Files.IsMatch($child.Name)) { [void]$targets.Add($childPath) }
         }
     }
 }
@@ -75,17 +77,17 @@ function Add-File([string]$Path) {
     if (Test-Path -LiteralPath $absolute -PathType Leaf) { [void]$targets.Add($absolute) }
 }
 function Get-CMakeVersionDirectories {
-    Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'CMakeFiles') -Directory -Force | Where-Object { $_.Name -match '^\d+\.\d+(?:\.\d+)?$' }
+    Get-ChildItem -LiteralPath (Join-Path $cmakeRoot 'CMakeFiles') -Directory -Force | Where-Object { $_.Name -match '^\d+\.\d+(?:\.\d+)?$' }
 }
 # CTest overwrites these files, so they are cleaned by directory, not as new outputs.
-$testingRoot = Assert-ReleasePath (Join-Path $releaseRoot 'Testing')
+$testingRoot = Assert-ReleasePath (Join-Path $cmakeRoot 'Testing')
 if (Test-Path -LiteralPath $testingRoot -PathType Container) {
     [void]$ownedTestRoots.Add($testingRoot)
     Add-Tree $testingRoot
 }
 # The runner's profile (test-profile, and the GUID names of older runs) is explicitly authorized runner-owned cleanup.
 # Any surviving marker must still match this repository, including old runs.
-foreach ($profile in Get-ChildItem -LiteralPath $releaseRoot -Directory -Force) {
+foreach ($profile in Get-ChildItem -LiteralPath $cmakeRoot -Directory -Force -ErrorAction SilentlyContinue) {
     if ($profile.Name -notmatch '^\.?test-profile(-[0-9a-f]{32})?$') { continue }
     $candidateProfile = Assert-ReleasePath $profile.FullName
     $marker = Assert-ReleasePath (Join-Path $candidateProfile '.maicord-test-profile')
@@ -99,10 +101,10 @@ foreach ($profile in Get-ChildItem -LiteralPath $releaseRoot -Directory -Force) 
 # Test-only files the ownership manifest omits: configure_file() resources (found in the build definition, removed even
 # when a failed run left them).
 foreach ($match in Select-String -Path "$repository\CMakeLists.txt", "$repository\cmake\*.cmake" -Pattern 'configure_file\(tests/[^\s")]+\.rc\.in\s+"\$\{CMAKE_CURRENT_BINARY_DIR\}/([^"/\\]+\.rc)"') {
-    Add-File (Join-Path $releaseRoot $match.Matches[0].Groups[1].Value)
+    Add-File (Join-Path $cmakeRoot $match.Matches[0].Groups[1].Value)
 }
 if ($RuntimeOnly) {
-    $ownership = Assert-ReleasePath (Join-Path $releaseRoot 'maicord-build-outputs.txt')
+    $ownership = Assert-ReleasePath (Join-Path $cmakeRoot 'maicord-build-outputs.txt')
     if (!(Test-Path -LiteralPath $ownership -PathType Leaf)) {
         throw 'Runtime-only cleanup requires the CMake build-output ownership manifest.'
     }
@@ -131,41 +133,43 @@ if ($RuntimeOnly) {
             }
         } else {
             if ($path -notmatch '\\CMakeFiles\\[A-Za-z0-9_.+-]+\.dir$') { throw 'Invalid build object directory.' }
-            Add-Tree $path { param($file)
-                $file.Extension -match '^\.(obj|res|rsp|pdb|idb|iobj|ipdb|ilk|exp|lib|pch|i)$' -or $file.Name -cmatch '^application_pch_O(?:2|s)\.cpp$'
-            }
+            Add-Tree $path '(?i:\.(obj|res|rsp|pdb|idb|iobj|ipdb|ilk|exp|lib|pch|i))$|^application_pch_O(?:2|s)\.cpp$'
         }
     }
-    foreach ($name in @('CMakeCache.txt', 'build.ninja', 'cmake_install.cmake', 'compile_commands.json', '.ninja_deps', '.ninja_log', '.ninja_lock',
+    foreach ($name in @('build.ninja', 'cmake_install.cmake', 'compile_commands.json', '.ninja_deps', '.ninja_log', '.ninja_lock',
             'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-tests.txt', 'notification_sounds.rc',
             'CMakeFiles\cmake.check_cache', 'CMakeFiles\cmake.verify_globs', 'CMakeFiles\InstallScripts.json',
             'CMakeFiles\rules.ninja', 'CMakeFiles\TargetDirectories.txt', 'CMakeFiles\VerifyGlobs.cmake',
             'CMakeFiles\feature_tests.bin',
             'CMakeFiles\ShowIncludes\foo.h', 'CMakeFiles\ShowIncludes\main.c', 'CMakeFiles\ShowIncludes\main.obj')) {
-        Add-File (Join-Path $releaseRoot $name)
+        Add-File (Join-Path $cmakeRoot $name)
+    }
+    # CMake writes a custom command too long for one command line to CMakeFiles\<target>-<hash>.bat at each configure
+    # (maicord_update_deflate_cache in cmake/generated_sources.cmake).
+    foreach ($script in Get-ChildItem -LiteralPath (Join-Path $cmakeRoot 'CMakeFiles') -Filter '*.bat' -File -Force -ErrorAction SilentlyContinue) {
+        if ($script.Name -cmatch '^[A-Za-z0-9_]+-[0-9a-f]{7}\.bat$') { Add-File $script.FullName }
     }
     foreach ($version in Get-CMakeVersionDirectories) {
-        foreach ($name in @('CMakeASM_MASMCompiler.cmake', 'CMakeCCompiler.cmake', 'CMakeCXXCompiler.cmake',
-                'CMakeRCCompiler.cmake', 'CMakeSystem.cmake', 'CMakeDetermineCompilerABI_C.bin', 'CMakeDetermineCompilerABI_CXX.bin')) {
+        foreach ($name in @('CMakeDetermineCompilerABI_C.bin', 'CMakeDetermineCompilerABI_CXX.bin')) {
             Add-File (Join-Path $version.FullName $name)
         }
     }
     [void]$targets.Add($ownership)
     # Include empty configure-created directories without treating unknown
     # files in them as disposable products.
-    foreach ($name in @('generated', 'CMakeFiles')) { Add-Tree (Join-Path $releaseRoot $name) { $false } }
+    foreach ($name in @('generated', 'CMakeFiles')) { Add-Tree (Join-Path $cmakeRoot $name) $null }
     # Test bundle dispatchers (maicord_finish_test_bundles); every configure writes them again.
-    Add-Tree (Join-Path $releaseRoot 'test_bundles') { param($file) $file.Name -cmatch '^MaiCord[A-Za-z0-9]+\.cpp$' }
+    Add-Tree (Join-Path $cmakeRoot 'test_bundles') '^MaiCord[A-Za-z0-9]+\.cpp$'
     # The resource editor's precompiled cache is not a build input or runtime asset.
-    Add-File (Join-Path $releaseRoot 'notification_sounds.aps')
+    Add-File (Join-Path $cmakeRoot 'notification_sounds.aps')
     # Interrupted atomic configuration writes are disposable only after the
     # canonical replacement exists and is at least as new. Never scan other
     # locations or classify arbitrary .tmp files as configure output.
-    foreach ($location in @($releaseRoot, (Join-Path $releaseRoot 'CMakeFiles'))) {
+    foreach ($location in @($cmakeRoot, (Join-Path $cmakeRoot 'CMakeFiles'))) {
         $location = Assert-ReleasePath $location
         if (!(Test-Path -LiteralPath $location -PathType Container)) { continue }
         foreach ($file in Get-ChildItem -LiteralPath $location -File -Force) {
-            $pattern = if ($location -eq $releaseRoot) {
+            $pattern = if ($location -eq $cmakeRoot) {
                 '^(build\.ninja|CMakeCache\.txt)\.tmp[A-Za-z0-9]+$'
             } else { '^(rules\.ninja)\.tmp[A-Za-z0-9]+$' }
             if ($file.Name -cnotmatch $pattern) { continue }
@@ -176,7 +180,7 @@ if ($RuntimeOnly) {
             [void]$targets.Add($temporary)
         }
     }
-    Add-File (Join-Path $releaseRoot 'CMakeFiles\CMakeConfigureLog.yaml')
+    Add-File (Join-Path $cmakeRoot 'CMakeFiles\CMakeConfigureLog.yaml')
     foreach ($version in Get-CMakeVersionDirectories) {
         foreach ($identity in @('CompilerIdC', 'CompilerIdCXX', 'CompilerIdASM_MASM')) {
             $scratch = Assert-ReleasePath (Join-Path $version.FullName $identity)
@@ -279,13 +283,16 @@ if ($Apply) {
 $parents = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($directory in $scratchDirectories) { [void]$parents.Add($directory) }
 $removedBytes = 0L
+# Every path that this checks passed Assert-ReleasePath. Just before it is removed, neither it nor its directory may have
+# become a reparse point.
 function Assert-CurrentPlain([string]$Path) {
-    [void](Assert-ReleasePath $Path)
-    foreach ($current in @($Path, [IO.Path]::GetDirectoryName($Path))) {
-        if (Test-ReparsePoint $current) { throw "Reparse point appeared during cleanup: $current" }
+    foreach ($current in $Path, [IO.Path]::GetDirectoryName($Path)) {
+        $attributes = [int][IO.FileInfo]::new($current).Attributes
+        if ($attributes -ne -1 -and ($attributes -band $reparsePoint)) { throw "Reparse point appeared during cleanup: $current" }
     }
 }
-$orderedTargets = @($targets | Where-Object { !$RuntimeOnly -or $_ -ne $ownership })
+$orderedTargets = @(foreach ($target in $targets) { if (!$RuntimeOnly -or $target -ne $ownership) { $target } })
+$walked = $null
 foreach ($path in $orderedTargets) {
     Assert-CurrentPlain $path
     $file = [IO.FileInfo]::new($path)
@@ -294,7 +301,10 @@ foreach ($path in $orderedTargets) {
         if ($file.IsReadOnly) { $file.IsReadOnly = $false }
         $file.Delete()
     }
-    $parent = [IO.Path]::GetDirectoryName($path)
+    # A walk up from the directory of the previous file adds nothing new.
+    $directory = [IO.Path]::GetDirectoryName($path)
+    if ($directory.Equals($walked)) { continue }
+    $walked = $parent = $directory
     while ($parent -and !$parent.Equals($releaseRoot, [StringComparison]::OrdinalIgnoreCase)) {
         [void]$parents.Add($parent)
         $parent = [IO.Path]::GetDirectoryName($parent)

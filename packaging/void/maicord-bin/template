@@ -16,6 +16,9 @@ homepage="https://maicord.com/"
 # The image's shared-library scan would name libc.so.6 and friends, which musl serves from its loader; the program opens
 # everything else by soname (dlopen), so the dependencies are listed here.
 depends="openssl wayland libxkbcommon libglvnd"
+# xbps has no optional dependencies. Call and Go Live video use these packages when they are installed: libva with a
+# VA-API driver (mesa-vaapi for AMD, intel-media-driver for Intel) for hardware decoding and Go Live encoding, libdav1d
+# for AV1 and openh264 for H.264 when the GPU does not decode them, and libpipewire for Go Live capture and stream audio.
 nostrip=yes
 nopie=yes
 nodebug=yes

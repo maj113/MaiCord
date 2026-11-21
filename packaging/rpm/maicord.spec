@@ -47,6 +47,9 @@ BuildRequires:  update-desktop-files
 Recommends:     Mesa-dri
 Recommends:     libpulse0
 Recommends:     libpipewire-0_3-0
+Recommends:     libva2
+Recommends:     libva-drm2
+Recommends:     libdav1d7
 Recommends:     libfontconfig1
 Recommends:     google-noto-coloremoji-fonts
 Recommends:     libhunspell-1_7-0
@@ -57,6 +60,10 @@ Suggests:       libfido2-1
 Recommends:     mesa-dri-drivers
 Recommends:     pulseaudio-libs
 Recommends:     pipewire-libs
+Recommends:     libva
+Recommends:     (mesa-va-drivers or libva-intel-media-driver)
+Recommends:     libdav1d
+Recommends:     openh264
 Recommends:     fontconfig
 Recommends:     google-noto-color-emoji-fonts
 Recommends:     hunspell

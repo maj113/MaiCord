@@ -57,9 +57,10 @@ else()
     # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
     # temporaries are about 130 KB each), stays optimized, and so does the reference
     # driver of MaiCordNativeAppLineTests, the largest share of the suite's CPU time
-    # (its cases ran about 15% faster with it optimized). The test code of the background theme probe, the Arabic plan
-    # test and the glyph topology probe compares pixels or shaping plans in its own loops: unoptimized it took most of
-    # their time (the background probe ran on the suite's longest GPU chain).
+    # (its cases ran about 15% faster with it optimized). The test code of the background theme probe, the frame damage
+    # probe, the profile media fit test, the Arabic plan test, the glyph topology probe and the GPU stream encoder test
+    # compares pixels or shaping plans in its own loops, and the media fixture encodes its pictures in its own loops:
+    # unoptimized it took most of their time (the background probe ran on the suite's longest GPU chain).
     set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_test.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/ui/text/native_app_line_scripts.cpp"
@@ -68,8 +69,13 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_theme_probe.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_theme_pixels.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/background_effect_pixels.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/frame_damage_probe.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/text/scripts/arabic_plan_test.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/glyph_topology_probe.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/glyph_topology_probe.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/platform/encode/stream_encoder_gpu_test.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/profile_media_fit.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/media_fixture.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/support/media_fixture_encoders.cpp")
     set(maicord_unoptimized_sources)
     foreach(target IN LISTS maicord_test_targets)
         get_target_property(sources ${target} SOURCES)

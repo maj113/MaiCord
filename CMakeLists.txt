@@ -1,17 +1,20 @@
 cmake_minimum_required(VERSION 3.28)
 
-# The Windows build: one Release configuration in the sibling MaiCord-build/Release directory,
-# checked before compiler discovery writes anything. The Linux build (tools/build_linux.sh) is
-# configured by the script into its own directory.
+# The Windows build: one Release configuration. The CMake tree (the cache, CMakeFiles, build.ninja) is
+# MaiCord-build/Release/cmake, and the images and runtime assets go to MaiCord-build/Release (MAICORD_OUTPUT_DIRECTORY).
+# The name has no leading dot: the plugin loader refuses such a path component, and test profiles live in the tree.
+# The binary directory is checked before compiler discovery writes anything. The Linux build (tools/build_linux.sh) is
+# configured by the script into its own directory, which also holds the images.
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     set(MAICORD_LINUX ON)
+    set(MAICORD_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 else()
-    file(REAL_PATH "${CMAKE_SOURCE_DIR}/../MaiCord-build/Release" maicord_release_directory)
+    file(REAL_PATH "${CMAKE_SOURCE_DIR}/../MaiCord-build/Release" MAICORD_OUTPUT_DIRECTORY)
     file(REAL_PATH "${CMAKE_BINARY_DIR}" maicord_binary_directory)
-    string(TOLOWER "${maicord_release_directory}" maicord_release_directory)
+    string(TOLOWER "${MAICORD_OUTPUT_DIRECTORY}/cmake" maicord_expected_directory)
     string(TOLOWER "${maicord_binary_directory}" maicord_binary_directory)
-    if(NOT maicord_release_directory STREQUAL maicord_binary_directory)
-        message(FATAL_ERROR "Use the single MaiCord-build/Release build directory.")
+    if(NOT maicord_expected_directory STREQUAL maicord_binary_directory)
+        message(FATAL_ERROR "Use the single MaiCord-build/Release/cmake build directory (CMakePresets.json).")
     endif()
 endif()
 if(CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -49,18 +52,14 @@ endif()
 # production targets. Their intermediate products are removed by runtime-only
 # finalization after the build script finishes.
 include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
-include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds, Wayland bindings
+include(cmake/generated_sources.cmake)  # packed UI data, shaders, sounds, Wayland bindings
 include(cmake/libraries.cmake)          # shipping static libraries
 include(cmake/client.cmake)             # MaiCord, updater identity, image audit, cold-code size policy
 
-# Temporary and opt-in targets.
-if(NOT MAICORD_LINUX)
-    include(cmake/reference_tools.cmake)    # opt-in: MAICORD_BUILD_FONT_REFERENCE
-endif()
+# Opt-in targets.
 include(cmake/tests.cmake)              # MAICORD_BUILD_TESTS (tools/build.ps1 -Test, tools/build_linux.sh --test)
 if(MAICORD_LINUX)
     return()
 endif()
 include(cmake/perf_probe.cmake)         # MAICORD_BUILD_PERF_PROBE (tools/build.ps1 -PerfProbe)
-include(cmake/integration.cmake)        # MAICORD_BUILD_INTEGRATION_TESTS (tools/probe_network.ps1, tools/opus_conformance.ps1)
 include(cmake/build_outputs.cmake)      # transient ownership for runtime-only cleanup

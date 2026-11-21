@@ -80,5 +80,5 @@ runs the same over the producer's own file.
 
 ## What is unreachable on purpose
 
-`tools/audit_linux_reachability.sh` finds code no path from `_start` reaches. What remains is the PE plugin loader, the Windows
-notification page and the voice processing switch (`settings_binding_unavailable`), and test-only entry points.
+The Linux client links some code that no path from `_start` reaches: the PE plugin loader, the Windows notification page, the
+voice processing switch (`settings_binding_unavailable`) and test-only entry points.

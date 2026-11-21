@@ -27,7 +27,7 @@ import re
 import zlib
 
 import optimal_deflate
-from font_reference.embed_fixture import embed_arrays, write_if_changed
+from embed_fixture import embed_arrays, write_if_changed
 
 PACKED_FILE = "regional_flag_packed.bin"  # beside the include, read by #embed
 SUBDIVISIONS = {"gbeng": 677, "gbsct": 678, "gbwls": 679}

@@ -28,7 +28,7 @@
 # window sits below it: layout y of a click is the window's y plus 23). A screenshot repaints the output first, because
 # headless sway otherwise shows the frame from before a window's last commits when the window covers the output.
 # --audio starts a private PulseAudio server (a null sink; a speech-like signal from tools/qa_voice_signal.py as the microphone)
-# for a voice run (tools/test_voice_wayland.sh); the fake server's voice server is us-qa.discord.media.
+# for a voice run; the fake server's voice server is us-qa.discord.media.
 # Needs unshare, openssl, python3, sway, swaymsg, grim, wtype (tools/client_flow.py), and for --root a passwordless sudo.
 
 set -uo pipefail

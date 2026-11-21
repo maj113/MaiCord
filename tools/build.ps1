@@ -1,6 +1,6 @@
 #requires -Version 5.1
 # Builds MaiCord.exe in ..\MaiCord-build\Release, audits it and, with -Test, builds and runs the temporary test suite. Every run
-# ends with the build directory holding only the client and its runtime assets.
+# ends with the build directory holding only the client, its runtime assets and the CMake cache (in cmake).
 [CmdletBinding()]
 param(
     [switch]$Test,
@@ -67,9 +67,11 @@ if ($TestNames | Where-Object { $_ -notmatch '^[A-Za-z0-9_.+-]+$' }) { throw "In
 if ($AudioPlaybackProbe -and $TestNames) { $TestNames += 'maicord_account_audio_playback' }
 
 $repository = Split-Path -Parent $PSScriptRoot
-$build = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
-$client = Join-Path $build 'MaiCord.exe'
-$mutex = [Threading.Mutex]::new($false, (& "$PSScriptRoot\build_lock_name.ps1" $build))
+$release = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
+# The CMake tree (CMakePresets.json). The images and runtime assets go to $release.
+$build = Join-Path $release 'cmake'
+$client = Join-Path $release 'MaiCord.exe'
+$mutex = [Threading.Mutex]::new($false, (& "$PSScriptRoot\build_lock_name.ps1" $release))
 $locked = $false
 . (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -LlvmBin $LlvmBin
 $toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
@@ -83,7 +85,10 @@ $configureKey = Join-Path $build 'maicord-configure-key.txt'
 function Get-ConfigureOptions([string[]]$Options) {
     if ($NoUpdater) { $Options += '-DMAICORD_UPDATE_REPOSITORY=', '-DMAICORD_UPDATE_PUBLIC_KEY=' }
     $Options += "-DCMAKE_EXPORT_COMPILE_COMMANDS=$(if ($KeepIntermediates) { 'ON' } else { 'OFF' })"
-    @('-S', $repository, '--preset', 'x64-release') + $toolchainOptions + $Options
+    # The kept cache holds the release identity of the last configure (cmake/update_config.cmake): the environment and
+    # -NoUpdater set it again for each run, as for a new cache.
+    @('-S', $repository, '--preset', 'x64-release', '-U', 'MAICORD_UPDATE_*', '-U', 'MAICORD_PLUGIN_CATALOG_*') +
+        $toolchainOptions + $Options
 }
 function Invoke-Configure([string[]]$Options) {
     Remove-Item -LiteralPath $configureKey -ErrorAction SilentlyContinue
@@ -91,7 +96,8 @@ function Invoke-Configure([string[]]$Options) {
 }
 # What a configure reads that the build rules of a kept build directory do not watch (build.ninja runs CMake again for a
 # changed CMake file): the options, the commit and the tags (the build identity, cmake/update_config.cmake), the file
-# list (file(GLOB) without CONFIGURE_DEPENDS), the presets and the environment. $null when git cannot answer.
+# list (the file(GLOB) results: no glob has CONFIGURE_DEPENDS, so Ninja runs no glob check), the presets and the
+# environment. $null when git cannot answer.
 function Get-ConfigureKey([string[]]$Options) {
     $parts = [Collections.Generic.List[string]]::new()
     $parts.AddRange([string[]](Get-ConfigureOptions $Options))
@@ -108,9 +114,11 @@ function Get-ConfigureKey([string[]]$Options) {
     $hash = [Security.Cryptography.SHA256]::Create()
     try { [BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($parts -join "`n"))) } finally { $hash.Dispose() }
 }
+# The Ninja that the cache names. The build starts it directly: cmake --build only starts the same Ninja.
+function Get-Ninja { [regex]::Match([IO.File]::ReadAllText($cache), '(?m)^CMAKE_MAKE_PROGRAM:[A-Z]+=(.+?)\r?$').Groups[1].Value }
 function Invoke-Build([string[]]$Targets) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
-    Invoke-Native cmake (@('--build', $build, '--parallel', $jobs, '--target') + $Targets)
+    Invoke-Native (Get-Ninja) (@('-C', $build, '-j', $jobs) + $Targets)
     Write-Host ('Build: {0:F2} seconds ({1} workers).' -f $timer.Elapsed.TotalSeconds, $jobs)
     # The client audits itself when it links (tools/audit_image.py, cmake/client.cmake).
     if ($Targets -contains 'MaiCord') { Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)" }
@@ -172,14 +180,14 @@ try {
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",
         "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })")
-    # A kept build directory configures again only when the key of the last configure changed (Get-ConfigureKey). Ninja
-    # then builds build.ninja alone, which runs CMake again for a changed CMake file, before the test list is read.
+    # A kept build directory configures again only when the key of the last configure changed (Get-ConfigureKey). The
+    # build runs CMake again for a changed CMake file. A test run first has Ninja build build.ninja alone, because it
+    # reads the test list before the build.
     $key = if ($KeepIntermediates) { Get-ConfigureKey $options }
     if ($key -and (Test-Path -LiteralPath $cache) -and (Test-Path -LiteralPath (Join-Path $build 'build.ninja')) -and
             (Test-Path -LiteralPath $configureKey) -and [IO.File]::ReadAllText($configureKey) -eq $key) {
         Write-Host 'Configure skipped: no option, commit, tag, file name, preset or environment changed since the last one.'
-        $ninja = [regex]::Match([IO.File]::ReadAllText($cache), '(?m)^CMAKE_MAKE_PROGRAM:[A-Z]+=(.+?)\r?$').Groups[1].Value
-        Invoke-Native $ninja @('-C', $build, 'build.ninja')
+        if ($Test) { Invoke-Native (Get-Ninja) @('-C', $build, 'build.ninja') }
     } else {
         Invoke-Configure $options
         if ($key) { [IO.File]::WriteAllText($configureKey, $key) }
@@ -226,13 +234,13 @@ try {
         & "$PSScriptRoot\perf\run_perf.ps1" -ProductionStartup -Execute -Probe $client -ProfileRoot $testProfile @PerfArguments
     }
     if ($PerfProbe) {
-        & "$PSScriptRoot\perf\run_perf.ps1" -Execute -Probe "$build\MaiCordPerfProbe.exe" -ProfileRoot $testProfile @PerfArguments
+        & "$PSScriptRoot\perf\run_perf.ps1" -Execute -Probe "$release\MaiCordPerfProbe.exe" -ProfileRoot $testProfile @PerfArguments
     }
     if ($Test) {
         if ($ClientWaitSeconds) {
             $wait = [Diagnostics.Stopwatch]::StartNew()
             while (!(Test-Path -LiteralPath $client -PathType Leaf)) {
-                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "No MaiCord.exe in $build after $ClientWaitSeconds seconds." }
+                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "No MaiCord.exe in $release after $ClientWaitSeconds seconds." }
                 Start-Sleep -Seconds 1
             }
         }
@@ -282,7 +290,7 @@ try {
             $skipped = ($runs | ForEach-Object { $_[1] } | Measure-Object -Sum).Sum
             $whole = @($runs | Where-Object { $_[0] -eq 0 -and $_[1] -gt 0 }).Count
             $message = "Text references: $whole of $($runs.Count) app-line tests skipped entirely; $checked of $($checked + $skipped) case groups checked."
-            if ($skipped) { $message += ' This machine has system fonts the references were not recorded with (tools/font_reference/text_reference.py record --merge).' }
+            if ($skipped) { $message += ' This machine has system fonts the references were not recorded with.' }
             Write-Host $message
             if ($skipped -and $env:GITHUB_ACTIONS) { Write-Host "::warning::$message" }
         }
@@ -301,7 +309,7 @@ try {
     throw
 } finally {
     # Never leave the startup-measuring candidate as the normal client, nor
-    # anything but the client and its runtime assets in the build directory
+    # anything but the client, its runtime assets and the CMake cache in the build directory
     # (without the CMake ownership manifest, after a failed configure, the
     # temporary profiles). Windows Error Reporting writes crashed test
     # executables' dumps under the real profile; MaiCord.exe dumps are kept.

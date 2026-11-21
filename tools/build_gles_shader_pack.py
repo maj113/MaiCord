@@ -28,7 +28,7 @@ import tempfile
 import zlib
 
 import optimal_deflate
-from font_reference.embed_fixture import embed_arrays, write_if_changed
+from embed_fixture import embed_arrays, write_if_changed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHADER_LIST = ROOT / 'cmake' / 'generated_sources.cmake'

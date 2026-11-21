@@ -94,7 +94,7 @@ if [ -n "$binary_directory" ]; then
     run_program bare "$bare_address" MaiCordCapturePortalTests --bare
 else
     run_ctest mock "$mock_address" maicord_dbus_wire maicord_dbus_bus maicord_dbus_services maicord_dbus_secure_buffer \
-        maicord_dbus_desktop maicord_dbus_instance_socket maicord_desktop_entry maicord_desktop_entry_validate
+        maicord_dbus_desktop maicord_dbus_instance_socket
     MAICORD_NOTIFICATION_BACKEND=portal run_ctest mock "$mock_address" maicord_dbus_services_portal
     run_ctest mock "$mock_address" maicord_dbus_services_plain
     run_ctest mock "$mock_address" maicord_linux_notifications_mock

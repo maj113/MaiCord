@@ -44,8 +44,7 @@ maicord_collect_build_outputs("${CMAKE_BINARY_DIR}")
 # These custom-command outputs are consumed through includes, resource
 # dependencies or INTERFACE links rather than compiled-target SOURCES.
 # Keep the finite ownership list tied to their defining CMake variables.
-foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-        "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
+foreach(output IN ITEMS "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
         "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
         "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_REGIONAL_FLAG_PACKED}"
         "${MAICORD_SHADER_PACK_INCLUDE}" "${MAICORD_SHADER_PACK_PACKED}"
@@ -53,10 +52,12 @@ foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
         "${MAICORD_PERMISSION_GRID_PACK}" "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin"
         "${MAICORD_BUILTIN_COMMANDS_PACK}" "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_packed.bin"
         "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" ${MAICORD_PACKED_SHADER_HEADERS}
-        # The source rules' stamp and depfile (cmake/client.cmake), and the linker map of a -SizeReport run, which a
-        # later run without it no longer writes but must still remove.
-        "${maicord_source_rules_stamp}" "${maicord_source_rules_stamp}.d" "${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
-    cmake_path(IS_PREFIX CMAKE_BINARY_DIR "${output}" NORMALIZE contained)
+        # The source rules' stamp and depfile (cmake/client.cmake), the stamp of the client's inputs that test targets
+        # wait for (maicord_order_tests_after_client, cmake/test_support.cmake), and the linker map of a -SizeReport run,
+        # which a later run without it no longer writes but must still remove.
+        "${maicord_source_rules_stamp}" "${maicord_source_rules_stamp}.d"
+        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/maicord_client_inputs.stamp" "${MAICORD_OUTPUT_DIRECTORY}/MaiCord.map")
+    cmake_path(IS_PREFIX MAICORD_OUTPUT_DIRECTORY "${output}" NORMALIZE contained)
     if(NOT contained)
         message(FATAL_ERROR "Generated build output is outside the Release directory: ${output}")
     endif()

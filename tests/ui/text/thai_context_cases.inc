@@ -1,7 +1,7 @@
 // Thai break opportunities from the native word breaker: maximal matching
-// over the open ICU and PyThaiNLP lexicon (tools/unicode/thai_break_data.py)
+// over the open ICU and PyThaiNLP lexicon (src/text/unicode/generated/thai_lexical_data.inc)
 // and the first-party syllable grammar for unknown text
-// (tools/unicode/thai_syllable_data.py). '|' marks each expected opportunity
+// (src/text/unicode/generated/thai_syllable_data.inc). '|' marks each expected opportunity
 // after cluster projection. The cases cover ambiguous word sequences, unknown
 // syllables and finals, silent letters, attached and orphan marks, MAIYAMOK
 // and wrapped corpus samples.

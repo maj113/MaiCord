@@ -8,33 +8,22 @@
 set(MAICORD_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
 
-# Preserve the canonical emoji catalog; emit the compact data in the build tree.
-# The catalog and shortcode name/glyph pools and both entry tables ship as one zlib stream that
-# src/ui/text/emoji_catalog.cpp inflates on first use (lengths checked at compile time).
-set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
-add_custom_command(
-    OUTPUT "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-    COMMAND "${Python3_EXECUTABLE}" -B
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_unicode_emoji_catalog.py"
-        --canonical-include
-        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/unicode_emoji_16.inc"
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/text/unicode_emoji_16.inc src/ui/text/emoji_shortcodes.inc
-    VERBATIM)
+# The emoji catalog (src/ui/text/unicode_emoji_16.inc) and the shortcodes: their name/glyph pools and both entry
+# tables ship as one zstd frame that src/ui/text/emoji_catalog.cpp inflates on first use (lengths checked at compile
+# time).
 set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
 set(MAICORD_EMOJI_POOL_PACKED "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_packed.bin")
 add_custom_command(
     OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
-    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
-        tools/optimal_deflate.py tools/deflate_cache.txt "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/unicode_emoji_16.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
+    DEPENDS tools/pack_emoji_pools.py tools/embed_fixture.py tools/optimal_deflate.py tools/deflate_cache.txt
+        src/ui/text/unicode_emoji_16.inc src/ui/text/emoji_shortcodes.inc
     VERBATIM)
 # The libraries that consume the emoji catalog wait for it through this target.
-add_custom_target(maicord_emoji_catalog_data
-    DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
+add_custom_target(maicord_emoji_catalog_data DEPENDS "${MAICORD_EMOJI_POOL_INCLUDE}")
 
 # The icon manifest (its order defines UiIcon) and its vendored SVG sources.
 file(GLOB MAICORD_ICON_SOURCES
@@ -51,7 +40,7 @@ add_custom_command(
         --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
         --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
         --output "${MAICORD_ICON_PACK_INCLUDE}"
-    DEPENDS tools/generate_icon_pack.py tools/optimal_deflate.py tools/deflate_cache.txt tools/font_reference/embed_fixture.py
+    DEPENDS tools/generate_icon_pack.py tools/optimal_deflate.py tools/deflate_cache.txt tools/embed_fixture.py
         include/maicord/ui/widgets/icon_ids.inc
         ${MAICORD_ICON_SOURCES}
     VERBATIM)
@@ -71,7 +60,7 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
     DEPENDS tools/generate_regional_flag_bundle.py tools/optimal_deflate.py tools/deflate_cache.txt
-        tools/font_reference/embed_fixture.py
+        tools/embed_fixture.py
         ${MAICORD_REGIONAL_FLAG_SOURCES}
     VERBATIM)
 
@@ -88,7 +77,7 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/scene.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/schema.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
-    DEPENDS tools/pack_settings_catalog.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+    DEPENDS tools/pack_settings_catalog.py tools/optimal_deflate.py tools/embed_fixture.py
         src/app/settings/catalog_data.inc
         src/app/settings/catalog.hpp include/maicord/ui/settings/scene.hpp include/maicord/ui/settings/schema.hpp
         include/maicord/ui/widgets/icon_ids.inc
@@ -106,7 +95,7 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_grid.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_bits.hpp"
     DEPENDS tools/pack_tables.py tools/pack_settings_catalog.py tools/optimal_deflate.py
-        tools/font_reference/embed_fixture.py
+        tools/embed_fixture.py
         src/model/guild/permission_grid_data.inc include/maicord/model/guild/permission_grid.hpp
         include/maicord/model/guild/permission_bits.hpp
     VERBATIM)
@@ -120,18 +109,8 @@ add_custom_command(
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_text_blobs.py" "${MAICORD_GENERATED_DIRECTORY}"
         "BuiltinCommands=${CMAKE_CURRENT_SOURCE_DIR}/src/app/chat/composer/builtin_commands.json"
-    DEPENDS tools/pack_text_blobs.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+    DEPENDS tools/pack_text_blobs.py tools/optimal_deflate.py tools/embed_fixture.py
         src/app/chat/composer/builtin_commands.json
-    VERBATIM)
-
-# The executable's icon (the tray mark on the violet brand tile, PNG-compressed): the file the Windows resource
-# compiler takes (Linux renders the mark instead).
-set(MAICORD_APP_ICON "${MAICORD_GENERATED_DIRECTORY}/maicord.ico")
-add_custom_command(
-    OUTPUT "${MAICORD_APP_ICON}"
-    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_app_icon.py"
-        --output "${MAICORD_APP_ICON}"
-    DEPENDS tools/generate_app_icon.py
     VERBATIM)
 
 # maicord_embed_pack(<source> <pack>...): <source> includes the packs, so they are order-only inputs of its object and

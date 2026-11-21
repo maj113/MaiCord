@@ -3,7 +3,7 @@ ICU Thai word-break dictionary data
 MaiCord's Thai word-break lexicon
 (src/text/unicode/generated/thai_lexical_data.inc)
 includes every word of the ICU project's Thai dictionary, re-encoded by
-tools/unicode/thai_break_data.py. No ICU library or implementation code is
+MaiCord as a word graph. No ICU library or implementation code is
 included in the application.
 
 Source: ICU 78.3, icu4c/source/data/brkitr/dictionaries/thaidict.txt

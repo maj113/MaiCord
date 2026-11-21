@@ -22,7 +22,7 @@ import re
 import sys
 import zlib
 import optimal_deflate
-from font_reference.embed_fixture import embed_arrays, write_if_changed
+from embed_fixture import embed_arrays, write_if_changed
 
 PACKED_FILE = "settings_catalog_packed.bin"  # beside the include, read by #embed
 LABEL_SETS = ["degree", "percent", "decibel", "millisecond", "zoom", "lens"]  # catalog.cpp's numbered label sets

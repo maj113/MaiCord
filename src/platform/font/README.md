@@ -9,13 +9,11 @@
   emoji. The portal's interface and monospace fonts reach the text system through `application_platform_desktop_fonts()`
   (`src/app/linux/desktop_fonts.cpp`) before the first text.
 - System fallback asks `FcFontSort` for the route's sample scalar first, then the generated range table
-  `src/ui/text/generated/linux_fallback_data.inc` (`python tools/font_reference/linux_fallback.py --ucd <UCD-17.0.0.zip>`, CJK variants
-  per language; regenerate after a Unicode version change).
+  `src/ui/text/generated/linux_fallback_data.inc` (from Unicode 17.0.0, CJK variants per language).
 - Colour bitmap emoji (CBLC/CBDT, PNG images) are read by `maicord_font_color` on Linux only (`src/text/opentype`; Windows' Segoe UI Emoji
-  is COLR) and reach the colour atlas through `colr_paint_upload_pixels`; `tools/font_reference/make_cbdt_fixture.py` regenerates the
-  fixture.
+  is COLR) and reach the colour atlas through `colr_paint_upload_pixels`.
 - CFF2 outlines (variable CFF) are read on Linux only (`cff2_open` and `cff2_outline` in `src/text/opentype`): NixOS and Fedora ship
-  Noto Sans CJK as one CFF2 collection, `NotoSansCJK-VF.otf.ttc`. `tools/font_reference/make_cff2_fixture.py` regenerates the fixture.
+  Noto Sans CJK as one CFF2 collection, `NotoSansCJK-VF.otf.ttc`.
 - Names and ranges that differ per system sit under `#if defined(_WIN32)` in `src/ui/text/native_text_catalog*.inc` and
   `native_system_fallback*.inc`.
 

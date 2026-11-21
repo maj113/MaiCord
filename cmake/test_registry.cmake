@@ -135,9 +135,9 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordAudioUnavailableTests ENTRY maicord_audio_unavailable_entry
         SOURCES tests/platform/audio/pulse_unavailable.cpp tests/platform/audio/window_post_stub.cpp
         LIBS maicord_audio_pulse maicord_core
-        TIMEOUT 20 ENV PULSE_SERVER=unix:/maicord-no-such-pulse-server
+        TIMEOUT 20 ENVIRONMENT PULSE_SERVER=unix:/maicord-no-such-pulse-server
         TEST maicord_audio_no_server --no-server)
-    maicord_add_tests(MaiCordAudioUnavailableTests TIMEOUT 20 ENV MAICORD_PULSE_LIBRARY=libmaicord-no-such-pulse.so.0
+    maicord_add_tests(MaiCordAudioUnavailableTests TIMEOUT 20 ENVIRONMENT MAICORD_PULSE_LIBRARY=libmaicord-no-such-pulse.so.0
         TEST maicord_audio_no_library --no-library)
     # Text-to-speech (src/platform/audio/speechd), the logic against fake libspeechd entry points and the real library's
     # unavailable states. The no-daemon case has no daemon to reach and none it could start (an address in a directory that
@@ -156,10 +156,10 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/audio/speechd.cpp
         LIBS maicord_audio_pulse maicord_core
         TIMEOUT 20 TEST maicord_speechd)
-    maicord_add_tests(MaiCordSpeechdTests TIMEOUT 20 ENV MAICORD_SPEECHD_LIBRARY=libmaicord-no-such-speechd.so.2
+    maicord_add_tests(MaiCordSpeechdTests TIMEOUT 20 ENVIRONMENT MAICORD_SPEECHD_LIBRARY=libmaicord-no-such-speechd.so.2
         TEST maicord_speechd_no_library --no-library)
     maicord_add_tests(MaiCordSpeechdTests TIMEOUT 60
-        ENV SPEECHD_ADDRESS=unix_socket:/maicord-no-such-directory/speech.sock PATH=/maicord-no-such-path
+        ENVIRONMENT SPEECHD_ADDRESS=unix_socket:/maicord-no-such-directory/speech.sock PATH=/maicord-no-such-path
         TEST maicord_speechd_no_daemon --no-daemon)
     maicord_add_tests(MaiCordSpeechdTests TIMEOUT 60 LABELS integration RESOURCE_LOCK speech_dispatcher
         TEST maicord_speechd_live --live)
@@ -380,10 +380,10 @@ if(MAICORD_LINUX)
         LIBS maicord_crypto maicord_core
         TIMEOUT 10 TEST maicord_secure_buffer)
     maicord_add_tests(MaiCordSecureBufferTests TIMEOUT 10
-        ENV XDG_DATA_HOME=/proc
+        ENVIRONMENT XDG_DATA_HOME=/proc
         TEST maicord_secure_buffer_unwritable --unavailable)
     maicord_add_tests(MaiCordSecureBufferTests TIMEOUT 10
-        ENV --unset=XDG_DATA_HOME --unset=HOME
+        ENVIRONMENT_MODIFICATION XDG_DATA_HOME=unset: HOME=unset:
         TEST maicord_secure_buffer_no_home --unavailable)
     # The TLS client over the system OpenSSL: its cases that need no network, and the loopback sessions against local
     # `openssl s_server` processes that tests/platform/net/tls_smoke.sh starts (skipped, status 77, without the command).
@@ -431,7 +431,7 @@ maicord_test(MaiCordGoLiveLoopbackTests ONLY WINDOWS ENTRY maicord_go_live_loopb
 if(NOT MAICORD_LINUX)
     add_test(NAME maicord_go_live_loopback
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_go_live_loopback.py"
-            "$<TARGET_FILE:MaiCordGoLiveLoopbackTests>" "${CMAKE_BINARY_DIR}/go-live-loopback")
+            "$<TARGET_FILE:MaiCordGoLiveLoopbackTests>")
     set_tests_properties(maicord_go_live_loopback PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77 LABELS gpu)
     maicord_test_target(maicord_go_live_loopback MaiCordGoLiveLoopbackTests)
 endif()
@@ -1332,7 +1332,7 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordVp8CpuRouteTests ENTRY maicord_vp8_cpu_route_entry
         SOURCES tests/app/media/vp8_cpu_route.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
         LIBS maicord_gpu_gles_shaders maicord_gpu_gles ${maicord_linux_app_test_libs}
-        TIMEOUT 20 ENV MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128 TEST maicord_vp8_cpu_route)
+        TIMEOUT 20 ENVIRONMENT MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128 TEST maicord_vp8_cpu_route)
 endif()
 maicord_test(MaiCordGuildAdminGatewayTests ONLY WINDOWS ENTRY maicord_guild_admin_gateway_entry
     SOURCES tests/protocol/guild/admin_gateway.cpp
@@ -1764,8 +1764,6 @@ if(MAICORD_LINUX)
     #                                 lookup, the fallback to the key file, moving the file in), and on a bus without one
     #   maicord_dbus_real             the settings portal, the probes and the Secret Service against xdg-desktop-portal and
     #                                 gnome-keyring on a private bus (tools/test_dbus_real.sh; skips without MAICORD_DBUS_REAL=1)
-    #   maicord_desktop_entry         the generated .desktop file (tools/generate_desktop_entry.py --validate), and
-    #                                 desktop-file-validate when it is installed
     maicord_test(MaiCordDbusWireTests ENTRY maicord_dbus_wire_entry
         SOURCES tests/platform/dbus/dbus_wire.cpp
         LIBS maicord_dbus maicord_core
@@ -1800,7 +1798,7 @@ if(MAICORD_LINUX)
         LIBS maicord_dbus maicord_core
         TIMEOUT 20 TEST maicord_dbus_desktop)
     maicord_add_tests(MaiCordDbusDesktopTests TIMEOUT 20 TEST maicord_dbus_desktop_bare --bare)
-    maicord_add_tests(MaiCordDbusDesktopTests TIMEOUT 20 ENV MAICORD_INSTANCE_BACKEND=socket
+    maicord_add_tests(MaiCordDbusDesktopTests TIMEOUT 20 ENVIRONMENT MAICORD_INSTANCE_BACKEND=socket
         TEST maicord_dbus_instance_socket --socket)
     maicord_test(MaiCordSecureBufferServiceTests ENTRY maicord_secure_buffer_service_entry
         SOURCES tests/platform/dbus/secure_buffer_service.cpp
@@ -1821,16 +1819,6 @@ if(MAICORD_LINUX)
         set_property(TEST ${maicord_dbus_case} APPEND PROPERTY ENVIRONMENT "MAICORD_SECRET_SERVICE=auto")
     endforeach()
     set_tests_properties(maicord_dbus_instance_socket PROPERTIES SKIP_RETURN_CODE 77)
-    # The packaging artifact: the generated .desktop file is valid (our checks, then desktop-file-validate where installed).
-    add_test(NAME maicord_desktop_entry
-        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_desktop_entry.py"
-            --validate "${MAICORD_DESKTOP_ENTRY}")
-    add_test(NAME maicord_desktop_entry_validate
-        COMMAND sh -c "command -v desktop-file-validate >/dev/null || exit 77; desktop-file-validate \"$1\"" validate
-            "${MAICORD_DESKTOP_ENTRY}")
-    set_tests_properties(maicord_desktop_entry_validate PROPERTIES SKIP_RETURN_CODE 77)
-    maicord_test_target(maicord_desktop_entry maicord_desktop_entry)
-    maicord_test_target(maicord_desktop_entry_validate maicord_desktop_entry)
 endif()
 maicord_add_tests(MaiCordLoginCancelRuntimeTests TEST maicord_login_cancel_runtime)
 maicord_test(MaiCordPasswordRecoveryCoordinatorTests ENTRY maicord_password_recovery_coordinator_entry
@@ -1971,7 +1959,7 @@ maicord_test(MaiCordStreamEncoderGpuTests ONLY WINDOWS ENTRY maicord_stream_enco
     INCLUDES ${MAICORD_GENERATED_DIRECTORY})
 foreach(maicord_encoder_codec IN ITEMS h264 h265 av1)
     maicord_add_tests(MaiCordStreamEncoderGpuTests ONLY WINDOWS TIMEOUT 20 LABELS gpu
-        ENV MAICORD_STREAM_ENCODER_CODEC=${maicord_encoder_codec} TEST maicord_stream_encoder_gpu_${maicord_encoder_codec})
+        ENVIRONMENT MAICORD_STREAM_ENCODER_CODEC=${maicord_encoder_codec} TEST maicord_stream_encoder_gpu_${maicord_encoder_codec})
 endforeach()
 # The encoder's pure parts on both systems: Discord's quality presets and Nitro limits, extents and bitrates, the codec
 # tiers, and the rewriting of the hardware encoders' output into the sender's access units.
@@ -2002,7 +1990,7 @@ if(MAICORD_LINUX)
         TIMEOUT 20 TEST maicord_video_software)
     set_tests_properties(maicord_video_software PROPERTIES SKIP_RETURN_CODE 77)
     maicord_add_tests(MaiCordVideoSoftwareTests TIMEOUT 10
-        ENV MAICORD_DAV1D_LIBRARY=libmaicord-no-such-dav1d.so.7 MAICORD_OPENH264_LIBRARY=libmaicord-no-such-openh264.so.7
+        ENVIRONMENT MAICORD_DAV1D_LIBRARY=libmaicord-no-such-dav1d.so.7 MAICORD_OPENH264_LIBRARY=libmaicord-no-such-openh264.so.7
         TEST maicord_video_software_no_library --no-library)
     # The live stream decoder over the software tier, end to end on the GPU API: access units in, the planes it publishes
     # converted by the video_frame shader and read back, against the reference pictures converted on the CPU. Runs on
@@ -2012,7 +2000,7 @@ if(MAICORD_LINUX)
         LIBS maicord_video_decode maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles maicord_video_software
             maicord_compression maicord_media_codec maicord_core
         INCLUDES src
-        TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_stream_software)
+        TIMEOUT 20 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_video_stream_software)
     set_tests_properties(maicord_video_stream_software PROPERTIES SKIP_RETURN_CODE 77)
     # The VA-API parameter and slice builders without a GPU: every picture of the encoder fixtures through the stream state
     # machines, the VA picture parameters against the DXVA builders' output, the slice parameters against values derived
@@ -2031,10 +2019,10 @@ if(MAICORD_LINUX)
         LIBS maicord_video_vaapi maicord_protocol maicord_media_codec maicord_gpu_gles maicord_core
         INCLUDES src
         TIMEOUT 20 TEST maicord_video_capability)
-    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENV MAICORD_VAAPI=off TEST maicord_vaapi_off --off)
-    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENV MAICORD_VAAPI_LIBRARY=libmaicord-no-such-va.so.2
+    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_vaapi_off --off)
+    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENVIRONMENT MAICORD_VAAPI_LIBRARY=libmaicord-no-such-va.so.2
         TEST maicord_vaapi_no_library --no-library)
-    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENV MAICORD_VAAPI_DEVICE=/dev/null
+    maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 ENVIRONMENT MAICORD_VAAPI_DEVICE=/dev/null
         TEST maicord_vaapi_bad_node --bad-node)
     maicord_add_tests(MaiCordVideoCapabilityTests TIMEOUT 10 TEST maicord_vaapi_no_node --no-node)
     set_tests_properties(maicord_vaapi_no_node PROPERTIES SKIP_RETURN_CODE 77)
@@ -2046,14 +2034,14 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/decode/video_hardware_tier.cpp
         LIBS maicord_video_decode maicord_video_vaapi maicord_video_software maicord_gpu_gles maicord_media_codec maicord_core
         INCLUDES src
-        TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_hardware_tier)
+        TIMEOUT 20 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_video_hardware_tier)
     # Pictures that arrive as dma-bufs (NV12 and P010 in dumb buffers of a DRM device), imported, converted by the video_frame
     # shader and compared with the CPU conversion; skipped (77) without a DRM device this user may use or an EGL that imports.
     maicord_test(MaiCordVideoDmabufTests ENTRY maicord_video_dmabuf_entry
         SOURCES tests/platform/decode/video_dmabuf.cpp
         LIBS maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles maicord_core
         INCLUDES src
-        TIMEOUT 20 ENV MAICORD_VAAPI=off TEST maicord_video_dmabuf)
+        TIMEOUT 20 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_video_dmabuf)
     set_tests_properties(maicord_video_dmabuf PROPERTIES SKIP_RETURN_CODE 77)
     # The movie decoder of attachments (mp4_decoder.hpp) with the software tier forced: movies from
     # tools/generate_mp4_fixtures.py against libavformat's and libavcodec's pictures and PCM. The AAC decoder is the
@@ -2063,12 +2051,12 @@ if(MAICORD_LINUX)
         LIBS maicord_video_decode maicord_aac_decoder maicord_gpu_gles_video maicord_gpu_gles_shaders maicord_gpu_gles
             maicord_video_software maicord_compression maicord_media_codec maicord_core
         INCLUDES src
-        TIMEOUT 30 ENV MAICORD_VAAPI=off TEST maicord_mp4_decoder_linux)
+        TIMEOUT 30 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_mp4_decoder_linux)
     set_tests_properties(maicord_mp4_decoder_linux PROPERTIES SKIP_RETURN_CODE 77)
     # --no-library: libopenh264 is absent and VA-API is off, so an H.264 and an HEVC movie report a missing decoder
     # (kVideoDecoderMissing) and a damaged movie keeps its parse error.
     maicord_add_tests(MaiCordMp4DecoderLinuxTests TIMEOUT 10 SKIP_RETURN_CODE 77
-        ENV MAICORD_VAAPI=off MAICORD_OPENH264_LIBRARY=libmaicord-no-such-openh264.so.7
+        ENVIRONMENT MAICORD_VAAPI=off MAICORD_OPENH264_LIBRARY=libmaicord-no-such-openh264.so.7
         TEST maicord_mp4_decoder_missing --no-library)
     # The media player's session (src/app/media/account_video_session*.cpp, the Windows code) over that decoder: a movie
     # played by the clock, seeked and replayed, every picture converted and compared. --audio (the opt-in
@@ -2079,7 +2067,7 @@ if(MAICORD_LINUX)
         LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video maicord_gpu_gles_shaders
             maicord_gpu_gles maicord_video_software maicord_media_core maicord_media_codec maicord_compression maicord_core
         INCLUDES src src/app
-        TIMEOUT 60 ENV MAICORD_VAAPI=off TEST maicord_account_video_playback)
+        TIMEOUT 60 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_account_video_playback)
     set_tests_properties(maicord_account_video_playback PROPERTIES SKIP_RETURN_CODE 77)
     # The same binary with --audio: the AAC track of a movie through the session's PCM transport into a sound server.
     # Opt-in like maicord_pulse_loopback (tools/test_pulse_audio.sh configures MAICORD_PULSE_INTEGRATION and picks the
@@ -2098,7 +2086,7 @@ if(MAICORD_LINUX)
         LIBS maicord_video_decode maicord_aac_decoder maicord_audio_pulse maicord_gpu_gles_video maicord_gpu_gles_shaders
             maicord_gpu_gles maicord_video_software ${maicord_linux_app_test_libs}
         INCLUDES src src/app
-        TIMEOUT 60 ENV MAICORD_VAAPI=off TEST maicord_local_video_preview)
+        TIMEOUT 60 ENVIRONMENT MAICORD_VAAPI=off TEST maicord_local_video_preview)
     set_tests_properties(maicord_local_video_preview PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 maicord_test(MaiCordGlyphEffectTests ONLY WINDOWS ENTRY maicord_glyph_effect_entry
@@ -2156,9 +2144,9 @@ if(MAICORD_LINUX)
         SOURCES tests/gpu/sync.cpp
         LIBS maicord_gpu_gles maicord_core
         TIMEOUT 20 TEST maicord_gpu_sync)
-    maicord_add_tests(MaiCordGpuSyncTests TIMEOUT 20 ENV MAICORD_TEST_PRESTART=0 TEST maicord_gpu_sync_no_prestart)
+    maicord_add_tests(MaiCordGpuSyncTests TIMEOUT 20 ENVIRONMENT MAICORD_TEST_PRESTART=0 TEST maicord_gpu_sync_no_prestart)
     # A driver without timer queries: the create fails the way it does on a device without them.
-    maicord_add_tests(MaiCordGpuSyncTests TIMEOUT 20 ENV MAICORD_GLES_NO_TIMER_QUERY=1 TEST maicord_gpu_sync_no_timers)
+    maicord_add_tests(MaiCordGpuSyncTests TIMEOUT 20 ENVIRONMENT MAICORD_GLES_NO_TIMER_QUERY=1 TEST maicord_gpu_sync_no_timers)
     maicord_test(MaiCordGpuClearReadbackTests ENTRY maicord_gpu_clear_readback_entry
         SOURCES tests/gpu/clear_readback.cpp
         LIBS maicord_gpu_gles maicord_core
@@ -2170,7 +2158,7 @@ if(MAICORD_LINUX)
         TIMEOUT 20 TEST maicord_gpu_shader_pack)
     # A device that offers the 128 invocations per group the specification guarantees: colr_layers links as its narrow variant.
     maicord_add_tests(MaiCordGpuShaderPackTests TIMEOUT 20
-        ENV MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128
+        ENVIRONMENT MAICORD_GLES_MAX_COMPUTE_INVOCATIONS=128
         TEST maicord_gpu_shader_pack_small_groups)
     # The ui quads scene against the PNG that tests/gpu/ui_quads_windows.cpp captured from Direct3D 11.
     maicord_test(MaiCordGpuUiQuadsTests ENTRY maicord_gpu_ui_quads_entry
@@ -2197,7 +2185,7 @@ if(MAICORD_LINUX)
         LIBS maicord_effect_host maicord_gpu_gles_shaders maicord_gpu_gles maicord_compression maicord_media_codec
             maicord_core
         INCLUDES src
-        TIMEOUT 120 LABELS gpu ENV MAICORD_GLES_NO_TIMER_QUERY=1 TEST maicord_gpu_effects)
+        TIMEOUT 120 LABELS gpu ENVIRONMENT MAICORD_GLES_NO_TIMER_QUERY=1 TEST maicord_gpu_effects)
     # A window on a compositor showing the same scene through the EGL window surface, the damage blit and the frame
     # callbacks. Opt-in like the Wayland window tests (a window opens): MAICORD_WAYLAND_INTEGRATION=1 at configure time;
     # tools/test_gpu_surface.sh runs it on headless sway with a screenshot check. Status 77: no compositor.
@@ -2281,39 +2269,39 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordLocalTimeTests ENTRY maicord_local_time_entry
         SOURCES tests/os/local_time_test.cpp
         LIBS maicord_desktop_system maicord_core
-        TIMEOUT 10 ENV TZDIR=${maicord_zoneinfo} TZ=Europe/Berlin
+        TIMEOUT 10 ENVIRONMENT TZDIR=${maicord_zoneinfo} TZ=Europe/Berlin
         TEST maicord_local_time_berlin berlin)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZDIR=${maicord_zoneinfo} TZ=:America/New_York
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZDIR=${maicord_zoneinfo} TZ=:America/New_York
         TEST maicord_local_time_new_york new_york)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZ=${maicord_zoneinfo}/Asia/Kolkata
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZ=${maicord_zoneinfo}/Asia/Kolkata
         TEST maicord_local_time_path kolkata)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZDIR=${maicord_zoneinfo} TZ=Australia/Lord_Howe
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZDIR=${maicord_zoneinfo} TZ=Australia/Lord_Howe
         TEST maicord_local_time_lord_howe lord_howe)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZ=EST5EDT,M3.2.0,M11.1.0
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZ=EST5EDT,M3.2.0,M11.1.0
         TEST maicord_local_time_rule rule)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZ=
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZ=
         TEST maicord_local_time_empty utc)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZDIR=${maicord_zoneinfo} TZ=Nowhere/Land
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZDIR=${maicord_zoneinfo} TZ=Nowhere/Land
         TEST maicord_local_time_missing missing)
     # Whatever zone the host has ($TZ unset: /etc/localtime).
     maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 TEST maicord_local_time_system system)
-    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENV TZDIR=${maicord_zoneinfo} TZ=America/New_York
+    maicord_add_tests(MaiCordLocalTimeTests TIMEOUT 10 ENVIRONMENT TZDIR=${maicord_zoneinfo} TZ=America/New_York
         TEST maicord_local_time_log log)
     # Date and time formatting (English names; the hour cycle comes from LC_ALL, LC_TIME or LANG, in that order).
     maicord_test(MaiCordDateFormatTests ENTRY maicord_date_format_entry
         SOURCES tests/os/date_format_test.cpp
         LIBS maicord_core
-        TIMEOUT 10 ENV LC_ALL=en_US.UTF-8
+        TIMEOUT 10 ENVIRONMENT LC_ALL=en_US.UTF-8
         TEST maicord_date_format_en_us 12)
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL=de_DE.UTF-8 TEST maicord_date_format_de_de 24)
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL=C TEST maicord_date_format_c 12)
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL=en_GB.UTF-8 TEST maicord_date_format_en_gb 24)
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL=de_DE.UTF-8 TEST maicord_date_format_de_de 24)
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL=C TEST maicord_date_format_c 12)
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL=en_GB.UTF-8 TEST maicord_date_format_en_gb 24)
     # LC_TIME beats LANG, and LC_ALL beats both.
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL= LC_TIME=fr_FR.UTF-8 LANG=en_US.UTF-8
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL= LC_TIME=fr_FR.UTF-8 LANG=en_US.UTF-8
         TEST maicord_date_format_lc_time 24)
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL=en_US.UTF-8 LC_TIME=de_DE.UTF-8 LANG=de_DE.UTF-8
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL=en_US.UTF-8 LC_TIME=de_DE.UTF-8 LANG=de_DE.UTF-8
         TEST maicord_date_format_lc_all 12)
-    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENV LC_ALL= LC_TIME= LANG=ja_JP.UTF-8
+    maicord_add_tests(MaiCordDateFormatTests TIMEOUT 10 ENVIRONMENT LC_ALL= LC_TIME= LANG=ja_JP.UTF-8
         TEST maicord_date_format_lang 24)
 endif()
 # The system spell checker, read-only: ISpellChecker on Windows, each backend on Linux (hunspell, enchant). CI may
@@ -2323,10 +2311,10 @@ maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry
     WINDOWS LIBS maicord_platform ole32
         BUNDLE MaiCordCoreUnitTests
     LINUX LIBS maicord_desktop_system maicord_core
-    TIMEOUT 10 LABELS system_spellcheck ENV LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=
+    TIMEOUT 10 LABELS system_spellcheck ENVIRONMENT LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=
     TEST maicord_system_spellcheck)
 maicord_add_tests(MaiCordSystemSpellcheckTests ONLY LINUX TIMEOUT 10 LABELS system_spellcheck
-    ENV MAICORD_SPELLCHECK_BACKEND=enchant LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=
+    ENVIRONMENT MAICORD_SPELLCHECK_BACKEND=enchant LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=
     TEST maicord_system_spellcheck_enchant)
 if(MAICORD_LINUX)
     # The spell checker tests of the Linux build. The "fixture" cases use the dictionary of tests/fixtures/hunspell through
@@ -2338,31 +2326,31 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordSpellcheckLinuxTests ENTRY maicord_spellcheck_linux_entry
         SOURCES tests/platform/desktop/spellcheck_linux_test.cpp
         LIBS maicord_desktop_system maicord_core
-        TIMEOUT 10 ENV DICPATH=${maicord_hunspell_fixtures} LANG=xx_XX.UTF-8 LC_ALL= LC_MESSAGES=
+        TIMEOUT 10 ENVIRONMENT DICPATH=${maicord_hunspell_fixtures} LANG=xx_XX.UTF-8 LC_ALL= LC_MESSAGES=
         TEST maicord_spellcheck_fixture fixture)
     maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10
-        ENV DICPATH=${maicord_hunspell_fixtures} LANG=en_US.UTF-8 LC_ALL=xx_XX.UTF-8 LC_MESSAGES=
+        ENVIRONMENT DICPATH=${maicord_hunspell_fixtures} LANG=en_US.UTF-8 LC_ALL=xx_XX.UTF-8 LC_MESSAGES=
         TEST maicord_spellcheck_lc_all fixture)
     maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10
-        ENV DICPATH=${maicord_hunspell_fixtures} LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=xx_XX
+        ENVIRONMENT DICPATH=${maicord_hunspell_fixtures} LANG=en_US.UTF-8 LC_ALL= LC_MESSAGES=xx_XX
         TEST maicord_spellcheck_lc_messages fixture)
     maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10
-        ENV MAICORD_HUNSPELL_LIBRARY=libmaicord-no-hunspell.so.0 MAICORD_ENCHANT_LIBRARY=libmaicord-no-enchant.so.2
+        ENVIRONMENT MAICORD_HUNSPELL_LIBRARY=libmaicord-no-hunspell.so.0 MAICORD_ENCHANT_LIBRARY=libmaicord-no-enchant.so.2
         TEST maicord_spellcheck_missing missing)
-    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENV ${maicord_spell_set_environment} LANG=de_DE.UTF-8
+    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENVIRONMENT ${maicord_spell_set_environment} LANG=de_DE.UTF-8
         LC_ALL= LC_MESSAGES=
         TEST maicord_spellcheck_de_de language de-DE)
     # Austrian German has no dictionary of its own here: the base language's (de_DE) is used.
-    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENV ${maicord_spell_set_environment} LANG=de_AT.UTF-8
+    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENVIRONMENT ${maicord_spell_set_environment} LANG=de_AT.UTF-8
         LC_ALL= LC_MESSAGES=
         TEST maicord_spellcheck_de_at language de)
-    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENV ${maicord_spell_set_environment} LANG=C LC_ALL=
+    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENVIRONMENT ${maicord_spell_set_environment} LANG=C LC_ALL=
         LC_MESSAGES=
         TEST maicord_spellcheck_c language en-US)
-    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENV ${maicord_spell_set_environment} LANG=tlh_XX.UTF-8
+    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENVIRONMENT ${maicord_spell_set_environment} LANG=tlh_XX.UTF-8
         LC_ALL= LC_MESSAGES=
         TEST maicord_spellcheck_unknown_language language en-US)
-    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENV ${maicord_spell_set_environment} LANG=de_DE.UTF-8
+    maicord_add_tests(MaiCordSpellcheckLinuxTests TIMEOUT 10 ENVIRONMENT ${maicord_spell_set_environment} LANG=de_DE.UTF-8
         LC_ALL=en_US.UTF-8 LC_MESSAGES=
         TEST maicord_spellcheck_en_us language en-US)
 endif()
@@ -2594,7 +2582,7 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/desktop/linux_integration.cpp
         LIBS maicord_app_client maicord_desktop_system maicord_core
         TIMEOUT 10
-        ENV XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/config
+        ENVIRONMENT XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/config
             XDG_DATA_HOME=${CMAKE_BINARY_DIR}/test-profile/linux-integration/data
             APPDIR=${CMAKE_BINARY_DIR}
             APPIMAGE=${CMAKE_BINARY_DIR}/test-profile/linux-integration/Test.AppImage
@@ -2615,7 +2603,7 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/desktop/linux_notifications.cpp
         LIBS maicord_app_client maicord_desktop_system maicord_dbus maicord_window_null maicord_core
         TIMEOUT 10
-        ENV DBUS_SESSION_BUS_ADDRESS=unix:path=/maicord-no-session-bus
+        ENVIRONMENT DBUS_SESSION_BUS_ADDRESS=unix:path=/maicord-no-session-bus
         TEST maicord_linux_notifications)
     maicord_add_tests(MaiCordLinuxNotificationsTests TIMEOUT 20 TEST maicord_linux_notifications_mock --mock)
     set_tests_properties(maicord_linux_notifications_mock PROPERTIES SKIP_RETURN_CODE 77 RESOURCE_LOCK dbus_private_bus)
@@ -2625,7 +2613,7 @@ if(MAICORD_LINUX)
         SOURCES tests/platform/desktop/linux_fido2.cpp
         LIBS maicord_app_client maicord_desktop_system maicord_dbus maicord_window_null maicord_core
         TIMEOUT 30 TEST maicord_linux_fido2)
-    maicord_add_tests(MaiCordLinuxFido2Tests TIMEOUT 10 ENV MAICORD_FIDO2_LIBRARY=libmaicord-no-such-fido2.so.1
+    maicord_add_tests(MaiCordLinuxFido2Tests TIMEOUT 10 ENVIRONMENT MAICORD_FIDO2_LIBRARY=libmaicord-no-such-fido2.so.1
         TEST maicord_linux_fido2_no_library --no-library)
     # The sign-in's side of the ceremony (src/app/account/login/auth.cpp) over a fake ceremony: the screens, the PIN field, each
     # failure, a cancel, no libfido2. The fake ceremony replaces webauthn_ceremony.cpp, which stays out of the link.
@@ -2647,22 +2635,22 @@ if(MAICORD_LINUX)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
         TEST maicord_linux_data_path_create --data-path-create)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV MAICORD_LIBRARY_PATH=/maicord-no-such-directory:/maicord-another
+        ENVIRONMENT MAICORD_LIBRARY_PATH=/maicord-no-such-directory:/maicord-another
         TEST maicord_linux_library_path --library-path)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV XDG_DATA_HOME=/maicord-xdg-test/data HOME=/maicord-home-test
+        ENVIRONMENT XDG_DATA_HOME=/maicord-xdg-test/data HOME=/maicord-home-test
         TEST maicord_linux_data_path_xdg --data-path-xdg)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV --unset=XDG_DATA_HOME HOME=/maicord-home-test
+        ENVIRONMENT HOME=/maicord-home-test ENVIRONMENT_MODIFICATION XDG_DATA_HOME=unset:
         TEST maicord_linux_data_path_home --data-path-home)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV XDG_DATA_HOME=relative/data HOME=/maicord-home-test
+        ENVIRONMENT XDG_DATA_HOME=relative/data HOME=/maicord-home-test
         TEST maicord_linux_data_path_relative_xdg --data-path-relative-xdg)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV XDG_CACHE_HOME=/maicord-xdg-test/cache XDG_STATE_HOME=/maicord-xdg-test/state HOME=/maicord-home-test
+        ENVIRONMENT XDG_CACHE_HOME=/maicord-xdg-test/cache XDG_STATE_HOME=/maicord-xdg-test/state HOME=/maicord-home-test
         TEST maicord_linux_cache_state_xdg --cache-state-xdg)
     maicord_add_tests(MaiCordLinuxRuntimeTests TIMEOUT 5
-        ENV XDG_CACHE_HOME=relative/cache --unset=XDG_STATE_HOME HOME=/maicord-home-test
+        ENVIRONMENT XDG_CACHE_HOME=relative/cache HOME=/maicord-home-test ENVIRONMENT_MODIFICATION XDG_STATE_HOME=unset:
         TEST maicord_linux_cache_state_home --cache-state-home)
     # The program resources linked into the image (src/core/linux/resource.cpp), read by their resource ids.
     maicord_test(MaiCordLinuxResourceTests ENTRY maicord_linux_resource_entry SOURCES tests/core/linux_resource.cpp
@@ -2920,17 +2908,17 @@ if(MAICORD_LINUX)
     maicord_test(MaiCordFontLocatorTests ENTRY maicord_font_locator_entry
         SOURCES tests/platform/font/system_font_locator.cpp
         LIBS maicord_font_system maicord_font maicord_core
-        TIMEOUT 10 ENV ${maicord_font_set_environment}
+        TIMEOUT 10 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_font_locator)
-    maicord_add_tests(MaiCordFontLocatorTests TIMEOUT 10 ENV ${maicord_font_set_environment}
+    maicord_add_tests(MaiCordFontLocatorTests TIMEOUT 10 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_font_locator_scan --scan)
     maicord_add_tests(MaiCordFontLocatorTests TIMEOUT 10
-        ENV FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf
+        ENVIRONMENT FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf
         TEST maicord_font_locator_fonts_conf --fonts-conf)
     # CBLC/CBDT colour bitmaps: the generated fixture and the installed Noto Color Emoji (strict with the Ubuntu set).
     maicord_test(MaiCordCbdtTests ENTRY maicord_cbdt_entry SOURCES tests/text/opentype/cbdt_test.cpp
         LIBS maicord_font_color maicord_font_system maicord_font maicord_media_codec maicord_compression maicord_core
-        TIMEOUT 15 ENV ${maicord_font_set_environment}
+        TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_cbdt)
     maicord_add_tests(MaiCordCbdtTests TIMEOUT 5 TEST maicord_native_cbdt_fixture --fixture)
     # CFF2 outlines (Linux only): a generated variable collection, opened, named and drawn at blended weights.
@@ -2941,13 +2929,13 @@ if(MAICORD_LINUX)
     # face (refused, not crashed on).
     maicord_test(MaiCordSystemTextTests ENTRY maicord_system_text_entry SOURCES tests/ui/text/system_text_linux_test.cpp
         LIBS maicord_text_system maicord_text_catalog maicord_font_system maicord_font maicord_unicode maicord_core
-        TIMEOUT 15 ENV ${maicord_font_set_environment}
+        TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_system_text)
     # The native text catalog: family lookup, the fallback routes and the generated Linux table.
     maicord_test(MaiCordTextCatalogTests ENTRY maicord_text_catalog_entry SOURCES tests/ui/text/native_catalog_linux_test.cpp
         LIBS maicord_text_catalog maicord_font_system maicord_font_color maicord_font maicord_media_codec maicord_compression
             maicord_unicode maicord_core
-        TIMEOUT 15 ENV ${maicord_font_set_environment}
+        TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_text_catalog)
     # The language picks the CJK order (fontconfig's sort for the language, the generated table's variants without it).
     foreach(language IN ITEMS "ja_JP.UTF-8|Noto Sans CJK JP" "ko_KR.UTF-8|Noto Sans CJK KR" "zh_CN.UTF-8|Noto Sans CJK SC"
@@ -2958,18 +2946,18 @@ if(MAICORD_LINUX)
         string(REGEX REPLACE "_.*" "" short "${locale}")
         string(REGEX REPLACE "^[a-z]+_([A-Z]+).*" "\\1" territory "${locale}")
         string(TOLOWER "${short}_${territory}" name)
-        maicord_add_tests(MaiCordSystemTextTests TIMEOUT 15 ENV ${maicord_font_set_environment} LC_ALL=${locale}
+        maicord_add_tests(MaiCordSystemTextTests TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment} LC_ALL=${locale}
             TEST maicord_native_system_text_${name} --language "${family}")
     endforeach()
-    maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15 ENV ${maicord_font_set_environment}
+    maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15 ENVIRONMENT ${maicord_font_set_environment}
         TEST maicord_native_text_catalog_scan --scan)
     # A face fontconfig lists and the text engine refuses falls back: it never makes the text system fail.
     maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15
-        ENV FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf
+        ENVIRONMENT FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf
         TEST maicord_native_text_catalog_broken_face --broken-face "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Orbitron.ttf")
     # GTK names a desktop interface font with an opsz axis (as GNOME names Adwaita Sans): it is the interface family.
     maicord_add_tests(MaiCordTextCatalogTests TIMEOUT 15
-        ENV FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf XDG_CURRENT_DESKTOP=GNOME
+        ENVIRONMENT FONTCONFIG_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/fonts/fonts.conf XDG_CURRENT_DESKTOP=GNOME
             XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-profile/maicord_native_text_catalog_desktop_font/config
         TEST maicord_native_text_catalog_desktop_font --desktop-font)
 endif()
@@ -3172,7 +3160,7 @@ maicord_test(MaiCordAccountLogoutUiProbe ONLY WINDOWS WIN32 ENTRY maicord_accoun
         src/app/shell/input.cpp src/core/log.cpp
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1
+    RESOURCE_LOCK native_gpu ENVIRONMENT MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1
     TEST maicord_account_logout_ui_probe)
 maicord_test(MaiCordScopedReadUiProbe ONLY WINDOWS WIN32 ENTRY maicord_scoped_read_ui_probe_entry
     SOURCES ${maicord_account_fake}
@@ -3183,7 +3171,7 @@ maicord_test(MaiCordScopedReadUiProbe ONLY WINDOWS WIN32 ENTRY maicord_scoped_re
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
     OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/scoped_read_clock_fixture.hpp"
-    RESOURCE_LOCK native_gpu ENV MAICORD_UI_SCOPED_READ_PROBE=1
+    RESOURCE_LOCK native_gpu ENVIRONMENT MAICORD_UI_SCOPED_READ_PROBE=1
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu_c)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
@@ -3265,6 +3253,8 @@ endforeach()
 # Isolated scene gates of the UI probe: each builds the shared fixture, drives
 # one scene through the real layout, text and draw path, and exits. They need
 # no GPU lock; every one is a hardware-renderer pixel and geometry check.
+# Each gate starts its own process: every gate checks the client's start state, and gates change the window, the
+# renderer and the account fake.
 # Unified picker also checks cached centering and dense message batch capacity.
 # MAICORD_<GATE>_PROBE runs as maicord_<gate>_probe, a leading UI_ moved to the end.
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI

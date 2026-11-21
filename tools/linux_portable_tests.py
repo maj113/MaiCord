@@ -119,20 +119,15 @@ def case_command(test, remap, strict):
     """The environment (as `env` takes it: `-u NAME` options, which GNU, busybox and BSD env accept, then NAME=value)
     and the command of a ctest case."""
     command = list(test['command'])
-    operations = []  # ('set', name, value) or ('unset', name), in the order ctest and cmake -E env apply them
-    for property_ in test.get('properties', []):
-        if property_['name'] == 'ENVIRONMENT':
-            operations += [('set',) + tuple(item.split('=', 1)) for item in property_['value']]
-    # cmake -E env A=B --unset=C program arguments... (maicord_add_tests ENV)
-    if len(command) >= 3 and os.path.basename(command[0]) == 'cmake' and command[1:3] == ['-E', 'env']:
-        command = command[3:]
-        while command:
-            if command[0].startswith('--unset='):
-                operations.append(('unset', command.pop(0)[len('--unset='):]))
-            elif re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', command[0]):
-                operations.append(('set',) + tuple(command.pop(0).split('=', 1)))
-            else:
-                break
+    properties = {property_['name']: property_['value'] for property_ in test.get('properties', [])}
+    # ('set', name, value) or ('unset', name), in the order ctest applies them
+    operations = [('set',) + tuple(item.split('=', 1)) for item in properties.get('ENVIRONMENT', [])]
+    # ENVIRONMENT_MODIFICATION comes after ENVIRONMENT. The registry uses only its NAME=unset: operation.
+    for item in properties.get('ENVIRONMENT_MODIFICATION', []):
+        name, operation = item.split('=', 1)
+        if operation != 'unset:':
+            raise SystemExit('error: %s: unsupported ENVIRONMENT_MODIFICATION %s' % (test['name'], item))
+        operations.append(('unset', name))
     if command and command[0] in ('/usr/bin/sh', '/bin/sh'):
         command[0] = 'sh'
     final = {}

@@ -6,7 +6,7 @@
 
 namespace maicord {namespace {
 // Word graph generated from ICU and PyThaiNLP word lists; see the file header
-// and tools/unicode/thai_break_data.py for the node encoding.
+// and src/text/unicode/README.md for the node encoding.
 #include "generated/thai_lexical_data.inc"
 
 constexpr u32 no_node=0xffffffffu;

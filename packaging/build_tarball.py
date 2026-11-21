@@ -11,8 +11,8 @@ that. The archive holds one directory, maicord-<version>-linux-x86_64[-musl]/:
 
     MaiCord                    the program (PATH, or the stub)
     fonts/  licenses/          the bundled fonts and license notices, as next to MaiCord.exe (cmake/client.cmake)
-    share/applications/        io.github.maj113.MaiCord.desktop      (tools/generate_desktop_entry.py)
-    share/icons/hicolor/       the application icon PNGs             (tools/generate_app_icon.py)
+    share/applications/        io.github.maj113.MaiCord.desktop      (assets/desktop/applications)
+    share/icons/hicolor/       the application icon PNGs             (assets/desktop/icons)
     share/metainfo/            io.github.maj113.MaiCord.metainfo.xml (packaging/metainfo, with this version's release)
     .maicord-portable          the marker of the self-updating channel (packaging/README.md)
     install.sh uninstall.sh    per-user installation under ~/.local
@@ -115,8 +115,7 @@ def stage(arguments, directory: Path, version: str, date: str) -> None:
     for source, name in LICENSE_SOURCES:
         shutil.copyfile(ROOT / source, licenses / (name or Path(source).name))
 
-    subprocess.run([sys.executable, '-B', str(ROOT / 'tools' / 'generate_desktop_entry.py'), '--output',
-                    str(directory / 'share'), '--exec', 'maicord', '--icons'], check=True)
+    shutil.copytree(ROOT / 'assets' / 'desktop', directory / 'share')
     write_metainfo(directory / 'share' / 'metainfo' / f'{APPLICATION_ID}.metainfo.xml', version, date)
 
     (directory / MARKER).write_text(MARKER_TEXT, encoding='utf-8', newline='\n')

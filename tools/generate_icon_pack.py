@@ -27,7 +27,7 @@ import xml.etree.ElementTree as ElementTree
 import zlib
 
 import optimal_deflate
-from font_reference.embed_fixture import embed_arrays, write_if_changed
+from embed_fixture import embed_arrays, write_if_changed
 
 GRID = 24
 UNITS = 64

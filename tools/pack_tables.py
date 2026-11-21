@@ -17,7 +17,7 @@ import re
 import sys
 
 import pack_settings_catalog as base
-from font_reference.embed_fixture import embed_arrays, write_if_changed
+from embed_fixture import embed_arrays, write_if_changed
 
 fail = base.fail
 

@@ -108,7 +108,9 @@ as_root apt-get update -o Acquire::Retries=5
 # The distribution's default GCC: the gcc package depends on gcc-<N>.
 gcc_major="$(apt-cache depends gcc | sed -n 's/^ *Depends: gcc-\([0-9][0-9]*\)$/\1/p' | head -n 1)"
 [ -n "$gcc_major" ] || { echo "No default GCC version in the package lists (apt-cache depends gcc)." >&2; exit 1; }
-apt_install cmake ninja-build python3 git rsync ca-certificates curl xz-utils \
+# --no-upgrade installs what is missing and keeps what is there. On an ubuntu-24.04 runner the installed libc6-dev
+# would else pull a newer patch release of libc6, libc-bin and locales, which the build does not need.
+apt_install --no-upgrade cmake ninja-build python3 git rsync ca-certificates curl xz-utils \
     binutils libc6-dev "libgcc-$gcc_major-dev" "libstdc++-$gcc_major-dev"
 bash "$resolve" > /dev/null
 

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=MaiCord
+GenericName=Chat Client
+Comment=A native Discord client
+Exec=maicord %U
+Icon=io.github.maj113.MaiCord
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=Discord;Chat;Voice;Messaging;
+MimeType=x-scheme-handler/discord;x-scheme-handler/maicord;
+StartupNotify=true
+StartupWMClass=io.github.maj113.MaiCord

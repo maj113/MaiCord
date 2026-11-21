@@ -41,6 +41,9 @@ pkg_postinst() {
 	xdg_pkg_postinst
 	optfeature "voice and notification audio" media-libs/libpulse
 	optfeature "Go Live screen sharing and stream audio" media-video/pipewire
+	optfeature "hardware video decoding and Go Live encoding (with a VA-API driver: media-libs/mesa[vaapi] or media-libs/libva-intel-media-driver)" media-libs/libva
+	optfeature "AV1 video decoding without a GPU that decodes AV1" media-libs/dav1d
+	optfeature "H.264 video decoding without a GPU that decodes H.264" media-libs/openh264
 	optfeature "system fonts and font fallback" media-libs/fontconfig
 	optfeature "the file chooser, settings and global shortcut portals" sys-apps/xdg-desktop-portal
 	optfeature "colour emoji" media-fonts/noto-emoji

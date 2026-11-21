@@ -1,7 +1,7 @@
 #include "maicord/text/unicode/detail/thai_syllable.hpp"
 
 namespace maicord {namespace {
-// Authored grammar with no input data; see tools/unicode/thai_syllable_data.py.
+// Authored grammar with no input data; see src/text/unicode/README.md.
 #include "generated/thai_syllable_data.inc"
 
 u32 syllable_scalar(const ConstSlice<u32>& text,u32 first,u32 offset) noexcept {

@@ -29,8 +29,9 @@ One entry point per system with the same options: `tools\build.ps1` (from Window
 - Runs on one build directory wait for each other (Windows: a mutex named by `tools/build_lock_name.ps1`; Linux: a `.lock`
   file beside the directory). Test runs wait for each other on the whole machine (`Local\MaiCordTestRun`,
   `~/.maicord-linux-test.lock`). `tools/build.ps1` starts its 20 second check after that wait.
-- A run leaves only the client and its runtime assets. On Windows with `-KeepIntermediates`, `python tools/check_sources.py`
-  parses changed files and every unit including a changed header without building; finish with a normal run.
+- A run leaves only the client and its runtime assets, and on Windows the CMake cache in `cmake`. On Windows with
+  `-KeepIntermediates`, `python tools/check_sources.py` parses changed files and every unit including a changed header
+  without building; finish with a normal run.
 - Every link audits the client (`tools/audit_image.py`). A Linux `--test` build and a Windows `-TestHooks` client define
   `MAICORD_TEST_HOOKS` and are not shipping builds: ship, package and measure size only from a build without them.
 - The suite must finish within 20 seconds. Tests assert outputs and counts (operations, allocations, bytes), never wall-clock

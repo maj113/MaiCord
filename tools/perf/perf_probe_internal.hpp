@@ -302,11 +302,11 @@ extern u32 g_call_site_count;
 
 // Retained text and paint work: parser runs against cache hits, content text
 // streams rebuilt (and how many kept the shell's glyphs), paint streams rebuilt,
-// GPU instance bytes uploaded, member rows resolved for media and shell
+// paint and glyph instance bytes uploaded, member rows resolved for media and shell
 // segments replayed instead of built.
 struct TextWork {
     u64 markdown_parses, markdown_hits, text_builds, shell_reuses, paint_builds;
-    u64 paint_upload_bytes, text_upload_bytes, media_upload_bytes, member_media_resolves, shell_replays;
+    u64 paint_upload_bytes, text_upload_bytes, member_media_resolves, shell_replays;
 };
 // GPU work: immediate-context calls, replayed draw streams, renderer paint CPU time and texture traffic.
 struct GpuWork {

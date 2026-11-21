@@ -384,19 +384,18 @@ foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list'
     Write-Host $line
 }
 Write-Host ''
-# GPU instance bytes uploaded per presented frame (paint quads, glyph quads,
-# media quads), member list rows resolved for media (cache misses) and shell
-# segments replayed instead of built (timeline-only rebuilds).
-Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}{6,11}' -f 'upload', 'paint B/f', 'text B/f', 'media B/f', 'total KiB', 'member res', 'shell rep')
+# GPU instance bytes uploaded per presented frame (paint quads, glyph quads),
+# member list rows resolved for media (cache misses) and shell segments
+# replayed instead of built (timeline-only rebuilds).
+Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}' -f 'upload', 'paint B/f', 'text B/f', 'total KiB', 'member res', 'shell rep')
 foreach ($phase in @('scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'theme')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.up_paint_b -ne $null })
     if (!$rows.Count) { continue }
     $perFrame = { param($row, $key) [double]$row[$key] / [Math]::Max(1, [double]$row.frames) }
-    Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}{6,11}' -f $phase,
+    Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}' -f $phase,
         (Format-Number (Get-Median @($rows | ForEach-Object { & $perFrame $_ 'up_paint_b' }))),
         (Format-Number (Get-Median @($rows | ForEach-Object { & $perFrame $_ 'up_text_b' }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { & $perFrame $_ 'up_media_b' }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { ([double]$_.up_paint_b + [double]$_.up_text_b + [double]$_.up_media_b) / 1024 }))),
+        (Format-Number (Get-Median @($rows | ForEach-Object { ([double]$_.up_paint_b + [double]$_.up_text_b) / 1024 }))),
         (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.member_resolves }))),
         (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.shell_replays }))))
 }

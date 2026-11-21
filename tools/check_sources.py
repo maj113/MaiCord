@@ -18,7 +18,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 REPOSITORY = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BUILD = os.path.normpath(os.path.join(REPOSITORY, '..', 'MaiCord-build', 'Release'))
+BUILD = os.path.normpath(os.path.join(REPOSITORY, '..', 'MaiCord-build', 'Release', 'cmake'))
 SOURCE = ('.c', '.cpp')
 CHECKED = SOURCE + ('.h', '.hpp', '.inc', '.inl')
 BELOW_NORMAL = 0x00004000

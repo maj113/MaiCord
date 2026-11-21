@@ -102,7 +102,7 @@ It replaced Direct2D, whose answers the tests keep as their reference.
 A change is checked by `maicord_lottie_geometry` (a fixed list of shapes, combinations and strokes: areas and coverage against
 `tests/render/effects/golden/lottie_geometry.bin`, what Direct2D answered; and cases with exact answers: shared, collinear and touching
 edges, self-crossing, tangent and zero-area outlines, huge and tiny coordinates, chains of combinations) and `maicord_lottie_program`
-(the corpus `tests/render/effects/corpus` that `tools/generate_lottie_corpus.py` draws, compiled and compared mask by mask with
+(the generated corpus `tests/render/effects/corpus`, compiled and compared mask by mask with
 `golden/lottie_program.bin`, what the compiler made on Direct2D). Both write nothing and need no GPU. `MAICORD_LOTTIE_PROGRAM_CAPTURE`
 set to a path writes the current build's digests instead. The sticker files the client shows are not ours to ship; to compare them
 anyway, list their paths in a file (`MAICORD_LOTTIE_CORPUS_LIST`), capture their digests with `MAICORD_LOTTIE_CORPUS_CAPTURE` and compare

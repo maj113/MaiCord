@@ -1,0 +1,35 @@
+/* The version script of the libc.so.6 stub the Linux image links against (cmake/build_contract.cmake). Linked against
+   the build machine's glibc, a reference binds to the newest version of the symbol and the image refuses to start on an
+   older glibc. The stub defines each function under the oldest version that glibc 2.34's libc.so.6 exports as the
+   default on x86-64 (objdump -T): dlopen and the pthread functions moved into libc.so.6 with GLIBC_2.34, except
+   pthread_attr_init and pthread_attr_destroy (GLIBC_2.2.5). The loader maps the real libc.so.6 at run time; musl ignores
+   the versions. Add a function here, in libc_stub.c and in include/maicord/sys/linux/libc.hpp together; musl must define
+   it too, or the image imports it weakly (malloc_trim). One node per glibc version, each inheriting the one before. */
+GLIBC_2.2.5 {
+  global:
+    malloc;
+    calloc;
+    free;
+    malloc_trim;
+    getaddrinfo;
+    freeaddrinfo;
+    pthread_attr_init;
+    pthread_attr_destroy;
+};
+GLIBC_2.17 {
+  global:
+    clock_gettime;
+} GLIBC_2.2.5;
+GLIBC_2.34 {
+  global:
+    dlopen;
+    dlsym;
+    dlclose;
+    dlerror;
+    pthread_create;
+    pthread_join;
+    pthread_detach;
+    pthread_attr_setstacksize;
+  local:
+    *;
+} GLIBC_2.17;

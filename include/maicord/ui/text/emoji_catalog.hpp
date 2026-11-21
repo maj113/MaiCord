@@ -104,7 +104,7 @@ struct EmojiAliasEntry {
 };
 static_assert(sizeof(EmojiAliasEntry) == 6);
 // Shortcode aliases (joypixels, gemoji, iamcal and emojibase names, sorted)
-// that are not catalog names; see tools/generate_emoji_shortcodes.py.
+// that are not catalog names; see the header of src/ui/text/emoji_shortcodes.inc.
 ConstSlice<EmojiAliasEntry> emoji_shortcodes() noexcept;
 // Exact, case-sensitive lookup: an alias, else a catalog (CLDR) name. A
 // "::skin-tone-N" or "_toneN" suffix (N = 1..5) selects the base emoji's

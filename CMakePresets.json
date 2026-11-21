@@ -5,11 +5,10 @@
     {
       "name": "x64-release",
       "generator": "Ninja",
-      "binaryDir": "${sourceParentDir}/MaiCord-build/Release",
+      "binaryDir": "${sourceParentDir}/MaiCord-build/Release/cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "MAICORD_BUILD_TESTS": false,
-        "MAICORD_BUILD_INTEGRATION_TESTS": false,
         "MAICORD_UNWIND_TABLES": false
       }
     }

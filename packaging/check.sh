@@ -38,7 +38,6 @@ mkdir "$scratch/unpacked"
 tar -xzf "$scratch/one/$tarball" -C "$scratch/unpacked"
 unpacked="$scratch/unpacked/maicord-$version-linux-x86_64"
 desktop-file-validate "$unpacked/share/applications/io.github.maj113.MaiCord.desktop"
-python3 -B "$root/tools/generate_desktop_entry.py" --validate "$unpacked/share/applications/io.github.maj113.MaiCord.desktop"
 appstreamcli validate --no-net "$unpacked/share/metainfo/io.github.maj113.MaiCord.metainfo.xml"
 [ -f "$unpacked/.maicord-portable" ] && [ -x "$unpacked/MaiCord" ] && [ -x "$unpacked/install.sh" ] || { echo "the tarball lacks a part" >&2; exit 1; }
 

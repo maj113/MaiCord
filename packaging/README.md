@@ -2,7 +2,7 @@
 
 The application id is `io.github.maj113.MaiCord`; it is the Wayland `app_id`, the single-instance D-Bus name, the desktop
 entry's file name and the AppStream id. Every format installs the same files, which `build_tarball.py` stages: the program,
-`fonts/` and `licenses/` next to it, the desktop entry and hicolor icons (`tools/generate_desktop_entry.py --icons`) and the
+`fonts/` and `licenses/` next to it, the desktop entry and hicolor icons (`assets/desktop`) and the
 AppStream metadata. Everything that ships is built **without `--test`** (a test build carries test-only switches;
 `build_tarball.py` runs `tools/audit_image.py --no-test-hooks` on the program and refuses one that has them).
 
@@ -239,7 +239,6 @@ cmake --build BUILD
   time. The project's releases are built with LLVM 24 of [maj113/llvm-pe](https://github.com/maj113/llvm-pe), whose extra code
   generation options the contract adds only when the compiler takes them, so a stock build is the same program, somewhat bigger.
   `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` is for a clang that cannot link a hosted program on its own.
-* **BUILD is outside SRC** (`generate_unicode_emoji_catalog.py` refuses to write into the source tree).
 * **Shader tools.** None: the client's shaders are hand-written GLSL (`src/render/shaders/gles`) that the build packs with python, so
   a client or test build fetches and compiles nothing for them. The GPU tests of
   `tests/gpu` (`sync`, `clear_readback`, `shader_pack`, `ui_quads`, `glyphs`, `media`, `effects`, `bitmap_glyph`) pass on Mesa's
@@ -248,8 +247,8 @@ cmake --build BUILD
   number the build from; `MaiCord --version` prints it), and leave `MAICORD_LINUX_RELEASES` unset: the build then never enables the
   self-updater, which in any case needs the `.maicord-portable` marker only the tarball has.
 * **Install** `MaiCord` with `fonts/` and `licenses/` beside it (the program reads them next to its real executable, so a `bin/`
-  link to `lib/<name>/MaiCord` works and a copy of the program elsewhere does not), `BUILD/packaging/{applications,icons}` into
-  `share/` (target `maicord_desktop_entry`, part of `all`) and the metainfo from `metainfo/*.in` with `@RELEASES@` replaced by a
+  link to `lib/<name>/MaiCord` works and a copy of the program elsewhere does not), `SRC/assets/desktop/{applications,icons}` into
+  `share/` and the metainfo from `metainfo/*.in` with `@RELEASES@` replaced by a
   `<releases>` element or nothing. Never install the marker. Run `tools/audit_image.py --no-test-hooks BUILD/MaiCord` before the
   distribution patches the interpreter or adds a run path (the audit forbids RUNPATH); the image is linked stripped already.
 * **Run-time libraries** are all `dlopen`ed by soname (below); a distribution that sets no loader search path itself can name

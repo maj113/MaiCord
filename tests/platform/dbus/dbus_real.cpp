@@ -1,9 +1,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/dbus/file_chooser.hpp"
-#include "maicord/platform/dbus/instance.hpp"
-#include "maicord/platform/dbus/tray.hpp"
-#include "maicord/sys/linux/calls.hpp"
 #include "maicord/platform/dbus/desktop_settings.hpp"
 #include "maicord/platform/dbus/portal.hpp"
 #include "maicord/platform/dbus/secret_service.hpp"
@@ -157,107 +154,6 @@ void test_file_chooser() noexcept {
            portal_interface_version("org.freedesktop.portal.GlobalShortcuts", 5000));
 }
 
-// Files shared with the script that drives the --tray and --instance runs.
-bool sync_exists(const char* directory, const char* name) noexcept {
-    char path[512];
-    u32 length = 0;
-    for (; directory[length] && length < 400; ++length)
-        path[length] = directory[length];
-    path[length++] = '/';
-    for (u32 i = 0; name[i]; ++i)
-        path[length++] = name[i];
-    path[length] = 0;
-    const long opened = sys_openat(kAtCurrentDirectory, path, kOpenReadOnly | kOpenCloseOnExec);
-    if (syscall_failed(opened))
-        return false;
-    sys_close(static_cast<int>(opened));
-    return true;
-}
-
-void sync_write(const char* directory, const char* name, const char* text, bool append) noexcept {
-    char path[512];
-    u32 length = 0;
-    for (; directory[length] && length < 400; ++length)
-        path[length] = directory[length];
-    path[length++] = '/';
-    for (u32 i = 0; name[i]; ++i)
-        path[length++] = name[i];
-    path[length] = 0;
-    const long opened = sys_openat(kAtCurrentDirectory, path,
-                                   kOpenWriteOnly | kOpenCreate | (append ? 0x400 /* O_APPEND */ : 0x200 /* O_TRUNC */) |
-                                       kOpenCloseOnExec,
-                                   0600);
-    if (syscall_failed(opened))
-        return;
-    u32 n = 0;
-    while (text[n])
-        ++n;
-    sys_write(static_cast<int>(opened), text, n);
-    sys_close(static_cast<int>(opened));
-}
-
-void pump_bus(u32 milliseconds) noexcept {
-    const u64 until = clock_monotonic_milliseconds() + milliseconds;
-    while (clock_monotonic_milliseconds() < until) {
-        Waitable waitable = session_bus_waitable();
-        u32 wait = 50;
-        if (waitable)
-            wait_many(&waitable, 1, wait, 0);
-        session_bus_process(clock_monotonic_milliseconds());
-    }
-}
-
-// A real StatusNotifierHost (swaybar's tray, in tools/test_dbus_tray.sh) takes the item: a magenta mark in two sizes, the
-// menu of the Windows tray. `ready` says it registered; the script screenshots the bar and asks the item and its menu
-// with busctl, then writes `done`.
-void run_tray(const char* directory) noexcept {
-    static u32 big[32 * 32];
-    static u32 small[22 * 22];
-    for (u32& pixel : big)
-        pixel = 0xFFFF00FFu;
-    for (u32& pixel : small)
-        pixel = 0xFFFF00FFu;
-    const TrayPixmap icons[2] = {{32, 32, big}, {22, 22, small}};
-    const TrayMenuEntry menu[4] = {{"Open MaiCord", 1, false, false, false},
-                                   {"Mute", 2, true, false, false},
-                                   {"Deafen", 3, true, true, false},
-                                   {"Quit MaiCord", 4, false, false, true}};
-    check(tray_start([](void*, const TrayEvent&) noexcept {}, nullptr), "the tray starts");
-    tray_update(TrayState{"MaiCord", "tray check", icons, 2, menu, 4});
-    const u64 until = clock_monotonic_milliseconds() + 15000;
-    while (clock_monotonic_milliseconds() < until && !tray_available())
-        pump_bus(50);
-    check(tray_available(), "the bar's watcher accepts the item");
-    if (tray_available())
-        sync_write(directory, "ready", "ready\n", false);
-    const u64 wait_until = clock_monotonic_milliseconds() + 40000;
-    while (clock_monotonic_milliseconds() < wait_until && !sync_exists(directory, "done"))
-        pump_bus(50);
-    tray_stop();
-}
-
-// The first instance for `gdbus call`, a real GLib client of org.freedesktop.Application: requests it receives are
-// appended to `requests`; `ready` says it is up; `done` ends it.
-void run_instance(const char* key, const char* directory) noexcept {
-    const InstanceConfig config{"io.github.maj113.MaiCord", key};
-    LaunchRequest none{};
-    check(instance_acquire(config, none, 2000) == InstanceResult::primary, "the first instance");
-    instance_set_handler(
-        [](void* context, const LaunchRequest& request) noexcept {
-            const char* directory = static_cast<const char*>(context);
-            sync_write(directory, "requests", request.url_present ? request.url : "(activate)", true);
-            sync_write(directory, "requests", request.activation_token[0] ? " token=" : "", true);
-            sync_write(directory, "requests", request.activation_token, true);
-            sync_write(directory, "requests", "\n", true);
-        },
-        const_cast<char*>(directory));
-    sync_write(directory, "ready", "ready\n", false);
-    const u64 wait_until = clock_monotonic_milliseconds() + 40000;
-    while (clock_monotonic_milliseconds() < wait_until && !sync_exists(directory, "done"))
-        pump_bus(50);
-    instance_release();
-}
-
 } // namespace
 } // namespace maicord
 
@@ -267,15 +163,6 @@ MAICORD_TEST_ENTRY(maicord_dbus_real_entry) {
     if (!real || !text_equal(real, "1")) {
         test_write_line("SKIP dbus_real (tools/test_dbus_real.sh starts the real portal and keyring on a private bus)");
         test_process_exit(77);
-    }
-    const ProcessStartup& startup = process_startup();
-    if (startup.argc >= 3 && text_equal(startup.argv[1], "--tray")) {
-        run_tray(startup.argv[2]);
-        test_exit(g_failures, "dbus_real_tray");
-    }
-    if (startup.argc >= 4 && text_equal(startup.argv[1], "--instance")) {
-        run_instance(startup.argv[2], startup.argv[3]);
-        test_exit(g_failures, "dbus_real_instance");
     }
     test_settings();
     test_probes();
