@@ -24,6 +24,7 @@
 #include "../guild/channel_overview.hpp"
 #include "../guild/settings/settings.hpp"
 #include "../update/updates.hpp"
+#include "maicord/core/deadline.hpp"
 #include "../plugins/catalog_service.hpp"
 #include "../account/friends.hpp"
 #include "../chat/composer/text_form.hpp"
@@ -365,13 +366,6 @@ __attribute__((minsize)) int start_interface() noexcept {
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_catalog_initialize_default();
 #endif
-
-#if !defined(MAICORD_ISOLATED_MAIN)
-    if (!application_account_logout_blocked() && !g_app.account.instance && g_app.login.visible &&
-        !login_browser_mode(g_app.login.status) && !application_login_begin_remote_auth()) {
-        log_write(LogLevel::error, "auth", "remote_auth_initial_start_failed");
-    }
-#endif
     return 0;
 }
 
@@ -384,6 +378,17 @@ __declspec(noinline) __attribute__((minsize)) void start_updates() noexcept {
     // The first present of this turn came before the worker existed, so it could not ask for the first check.
     if (g_app.first_present_recorded)
         application_updates_ready();
+}
+#endif
+
+#if !defined(MAICORD_ISOLATED_MAIN)
+// Once, after the first presented frame: the QR sign-in (its owner, the login module and its thread) follows the
+// sign-in screen's first image instead of delaying it. That frame shows the QR area before its start state.
+__declspec(noinline) __attribute__((minsize)) void start_remote_auth() noexcept {
+    if (!application_account_logout_blocked() && !g_app.account.instance && g_app.login.visible &&
+        !login_browser_mode(g_app.login.status) && !application_login_begin_remote_auth()) {
+        log_write(LogLevel::error, "auth", "remote_auth_initial_start_failed");
+    }
 }
 #endif
 
@@ -462,6 +467,9 @@ int application_run() noexcept {
     application_trace_load_stage("loop_entered");
     MAICORD_PERF_MARK("loop_entered");
     g_app.frame_loop_active = true;
+#if !defined(MAICORD_ISOLATED_MAIN)
+    bool remote_auth_started = false;
+#endif
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     bool updates_started = false;
 #endif
@@ -549,6 +557,11 @@ int application_run() noexcept {
         }
         timeout = minimum(timeout, application_plugins_wait_timeout(wait_now_ms));
         timeout = minimum(timeout, catalog_wait_timeout(wait_now_ms));
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
+        // The updater's thread runs only while it works: the loop waits for its next check.
+        if (const u64 update_wake = application_updates_next_wake())
+            timeout = minimum(timeout, wait_milliseconds_until(wait_now_ms, update_wake));
+#endif
         if (retained_frame_permit)
             timeout = 0;
         if (frame_handle_index != 0xFFFFFFFFu) {
@@ -836,6 +849,16 @@ int application_run() noexcept {
         application_window_refresh_minimum_size();
         application_window_refresh_idle_inhibit();
         application_present_pending_frame();
+#if !defined(MAICORD_ISOLATED_MAIN)
+        if (!remote_auth_started && g_app.first_present_recorded) {
+            remote_auth_started = true;
+            start_remote_auth();
+        }
+#endif
+#if defined(MAICORD_STARTUP_PROBE)
+        // After the QR sign-in's start: the report names the login module it started.
+        application_startup_probe_finish();
+#endif
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon
         // round trips would otherwise delay the first image.
@@ -849,6 +872,7 @@ int application_run() noexcept {
             updates_started = true;
             start_updates();
         }
+        application_updates_tick(restart_now_ms);
 #endif
 #if defined(MAICORD_PERF_PROBE)
         if (perf::probe_step(&exit_code))

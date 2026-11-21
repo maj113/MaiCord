@@ -40,7 +40,7 @@ mc_status kv_set(PluginKeyValue*, const mc_str& key, const void* value, u32 byte
 mc_status kv_remove(PluginKeyValue*, mc_str key, u64 now_ms) noexcept;
 // The value's bytes, or null when the key has none.
 const u8* kv_find(const PluginKeyValue&, const mc_str& key, u32* bytes) noexcept;
-// A missing file is an empty table; a damaged one empties the table and fails.
+// Reads into a table kv_open just opened. A missing file is an empty table; a damaged one empties the table and fails.
 bool kv_load(PluginKeyValue*, const wchar_t* path) noexcept;
 // Writes through a temporary file and a rename. Creates the data and owner directories.
 bool kv_save(PluginKeyValue*, const wchar_t* path) noexcept;

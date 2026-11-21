@@ -49,7 +49,7 @@ const mc_setting_def& setting_of(u32 index) noexcept {
 bool typed(const mc_setting_def& setting) noexcept {
     return setting.type != MC_SET_HEADER && setting.type != MC_SET_TOGGLE && setting.type != MC_SET_CHOICE;
 }
-u32 capacity_for(const mc_setting_def& setting) noexcept {
+inline u32 capacity_for(const mc_setting_def& setting) noexcept {
     switch (setting.type) {
     case MC_SET_TEXT:
     case MC_SET_SECRET: return (setting.max_bytes ? setting.max_bytes : MC_SETTING_TEXT_MAX) + 4;

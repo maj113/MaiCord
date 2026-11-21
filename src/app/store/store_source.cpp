@@ -236,8 +236,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
                 hex_bytes(text, v.commit, 4);
                 out->commit = w.add({text, 7});
             }
-            if (!out->sha.bytes)
-                out->sha = hex_sha(w, v.file.sha256);
+            out->sha = hex_sha(w, v.file.sha256); // apply_state replaces it with an installed item's own digest
         }
         out->cost = static_cast<u8>(item.cost);
         out->base = static_cast<u8>(item.base);
@@ -443,8 +442,9 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
             for (u32 c = 0; c < k.choice_count && c < 16; ++c)
                 out.choices[c] = w.c_text(package->choices[k.choice_index][c]);
         }
+        const u64 identity = application_effects_identity(item.library);
         const EffectUserSettings user = application_effects_user_settings();
-        const EffectShaderSettings shader = application_effects_shader_settings(application_effects_identity(item.library));
+        const EffectShaderSettings shader = application_effects_shader_settings(identity);
         StoreUniversal& u = m->universal;
         u = {};
         u.resolution = shader.resolution;
@@ -462,12 +462,12 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
         u.light = shader.light;
         u.global_light = application_effects_light_auto() ? 1 : 2;
         u.appearance = (package->uses & effect_use_appearance) != 0;
-        const EffectCost cost = application_effects_cost(application_effects_identity(item.library));
+        const EffectCost cost = application_effects_cost(identity);
         m->effect_cost_state = cost.known ? (cost.refused ? 2 : 1) : 0;
         if (cost.known)
             m->effect_cost_text = store_cost_text(m, cost, true);
         // The page previews this entry (store host): its tile is live once the entry is the effect drawing.
-        const EffectTrialState preview = application_effects_preview_state(application_effects_identity(item.library));
+        const EffectTrialState preview = application_effects_preview_state(identity);
         m->effect_preview = preview == EffectTrialState::drawing ? 1 : preview == EffectTrialState::rejected ? 2 : 0;
     } else if (kind == CatalogKind::effect && index && item.item != ~0u) {
         const CatalogItem& ci = index->items[item.item];

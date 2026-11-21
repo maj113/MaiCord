@@ -17,7 +17,7 @@ struct ExclusiveLock {
     }
 };
 
-Utf8View app_state(bool focused) noexcept {
+inline Utf8View app_state(bool focused) noexcept {
     return focused ? utf8_literal("focused") : utf8_literal("unfocused");
 }
 
@@ -48,7 +48,7 @@ bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 no
 }
 
 // Locked. The session the client would report at now_ms.
-const ClientHeartbeatSession* live_session(const ClientSessionMetadata& metadata, u64 now_ms) noexcept {
+inline const ClientHeartbeatSession* live_session(const ClientSessionMetadata& metadata, u64 now_ms) noexcept {
     return client_heartbeat_session_live(metadata.session, now_ms) ? &metadata.session : nullptr;
 }
 

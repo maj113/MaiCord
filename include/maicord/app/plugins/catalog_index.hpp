@@ -187,7 +187,8 @@ inline Utf8View catalog_text(const CatalogIndex& index, CatalogString s) noexcep
 // missing members are refused, every limit is checked, display text bans controls,
 // bidi controls and zero-width characters. The size is checked before
 // hashing; the signature (by any of keys) before parsing. No allocation,
-// network or file access. On failure *output is zeroed.
+// network or file access. *output must be all zero on entry (fresh pages): the
+// parser fills only what the document lists. On failure *output is zeroed.
 CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signature, ConstSlice<const P256Key*> keys,
                                         KdfSha256Workspace& workspace, u64 now_unix, bool accept_expired,
                                         Slice<u32> structural_scratch, CatalogIndex* output) noexcept;

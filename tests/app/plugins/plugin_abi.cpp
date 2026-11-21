@@ -875,8 +875,8 @@ void silent_toggle() noexcept {
     Block settings{};
     mc_ctx ctx{&kApi, nullptr, settings.bytes, MC_CTX_GESTURE, 1};
     check(d->start(&ctx) == MC_OK && g_host.buttons == 1 && g_host.button_flags == 0 &&
-              same(g_host.button_tooltip, "Silent messages: off"),
-          "silent-toggle: start shows the saved state");
+              same(g_host.button_tooltip, "Silent messages: off") && g_host.setting_writes == 0,
+          "silent-toggle: start shows the saved state and writes no setting");
     const mc_arg omitted{MC_ARG_BOOL, 0, {}, 0, 0};
     mc_command_call call = command_call(&omitted, 1);
     check(d->commands[0].run(&ctx, &call) == MC_OK && call.reply_kind == MC_REPLY_TOAST &&

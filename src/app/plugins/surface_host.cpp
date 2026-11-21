@@ -71,7 +71,7 @@ bool plugin_user_is_bot(const AccountUiRuntime& ui, u64 user_id) noexcept {
 
 namespace {
 
-u32 presence_of(u8 packed) noexcept {
+inline u32 presence_of(u8 packed) noexcept {
     switch (client_status_overall(packed)) {
     case ClientPlatformStatus::online: return kPluginPresenceOnline;
     case ClientPlatformStatus::idle: return kPluginPresenceIdle;
@@ -79,7 +79,7 @@ u32 presence_of(u8 packed) noexcept {
     default: return kPluginPresenceOffline;
     }
 }
-u32 platforms_of(u8 packed) noexcept {
+inline u32 platforms_of(u8 packed) noexcept {
     u32 platforms = 0;
     if (client_status_get(packed, ClientPlatform::desktop) != ClientPlatformStatus::offline)
         platforms |= kPluginPlatformDesktop;

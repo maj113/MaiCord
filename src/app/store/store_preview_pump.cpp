@@ -152,7 +152,7 @@ void pump_stills(StorePreviews* p, const StorePreviewPump& in, bool* more) noexc
     }
 }
 
-bool loop_fail(StorePreviews* p, u32 slot) noexcept {
+inline bool loop_fail(StorePreviews* p, u32 slot) noexcept {
     loop_stop(p);
     p->failed_loop_slot = slot;
     return false;

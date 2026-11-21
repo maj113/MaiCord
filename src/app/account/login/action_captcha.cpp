@@ -50,7 +50,7 @@ void reset() noexcept {
     reset_value(&g_captcha);
     g_captcha.generation = generation;
 }
-bool open_url(const SecureBuffer& url) noexcept {
+inline bool open_url(const SecureBuffer& url) noexcept {
     // The URL carries the bridge's single-use state; it is never logged.
     wchar_t wide[512];
     if (!url.bytes || url.bytes >= 512)

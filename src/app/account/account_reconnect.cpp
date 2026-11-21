@@ -5,7 +5,7 @@
 
 namespace maicord {
 namespace {
-u64 next_random(u64* state) noexcept {
+inline u64 next_random(u64* state) noexcept {
     u64 x = *state ? *state : 0x9E3779B97F4A7C15ull;
     x ^= x << 13;
     x ^= x >> 7;

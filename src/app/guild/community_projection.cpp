@@ -817,7 +817,7 @@ void build_calendar() noexcept {
             copy_bytes(p.day_labels[d], text.data, text.bytes);
             bytes = text.bytes;
         } else {
-            wchar_t wide[32]{};
+            wchar_t wide[32];
             bytes = wide_label(wide, format_date(LOCALE_NAME_USER_DEFAULT, 0, &day, L"ddd, MMM d", wide, 32),
                                p.day_labels[d], sizeof(p.day_labels[d]));
         }
@@ -830,7 +830,7 @@ void build_calendar() noexcept {
         time.wDay = 1;
         time.wHour = static_cast<u16>(t / 2);
         time.wMinute = static_cast<u16>(t % 2 * 30);
-        wchar_t wide[24]{};
+        wchar_t wide[24];
         const int units = format_time(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, wide, 24);
         p.time_views[t] = {p.time_labels[t], wide_label(wide, units, p.time_labels[t], sizeof(p.time_labels[t]))};
     }

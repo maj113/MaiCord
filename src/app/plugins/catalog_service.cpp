@@ -253,9 +253,9 @@ __declspec(noinline) void delete_plugin_file(const u8 (&sha256)[32]) noexcept {
 __declspec(noinline) void delete_unreferenced_plugins() noexcept {
     wchar_t directory[600];
     if (!catalog_path(base(), L"plugins\\", directory)) return;
-    DirIter scan{};
+    DirIter scan;
     if (!dir_open(&scan, directory)) return;
-    DirEntry found{};
+    DirEntry found;
     while (dir_next(&scan, &found)) {
         if (found.kind != FileKind::regular || wide_length(found.name, 260) != kCatalogPluginLeafCharacters) continue;
         bool dll = true;
@@ -646,7 +646,7 @@ __declspec(noinline) void auto_update() noexcept {
 }
 
 __declspec(noinline) void take_results() noexcept {
-    CatalogJobResult r{};
+    CatalogJobResult r;
     while (catalog_worker_take(&r)) {
         switch (r.kind) {
         case CatalogJobKind::load_cache:
@@ -776,12 +776,12 @@ __declspec(noinline) void dev_scan(bool force) noexcept {
     if (!length || length >= 600) return;
     DevFile seen[8]{};
     u32 count = 0;
-    DirIter scan{};
+    DirIter scan;
     if (!dir_open(&scan, g->dev_folder)) {
         g->dev_count = 0; // an empty folder: a DLL that comes back is new
         return;
     }
-    DirEntry found{};
+    DirEntry found;
     while (dir_next(&scan, &found)) {
         const u32 name_length = wide_length(found.name, 64);
         if (found.kind != FileKind::regular || !dev_dll(found.name, name_length) || count == 8)

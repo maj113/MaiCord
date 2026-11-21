@@ -326,31 +326,33 @@ struct Call {
     PluginBinding& binding;
     PluginCallTicket ticket;
 
+    // Both halves write the binding through a local reference: stores through the member would make the compiler
+    // load the member again after each one.
     Call(PluginBinding& target, PluginCallKind kind, PluginCallClass call_class, u32 flags) noexcept : binding(target) {
-        PluginRuntime& runtime = *binding.runtime;
+        PluginRuntime& runtime = *target.runtime;
         if (++runtime.call_serial == 0) ++runtime.call_serial;
-        binding.ctx.call = runtime.call_serial;
-        binding.ctx.flags = flags;
-        // A gesture counts for a few seconds; a completion keeps the deadline of the request that began it.
-        binding.gesture_until_ms = !(flags & MC_CTX_GESTURE)          ? 0
-                                   : binding.inherit_gesture_until_ms ? binding.inherit_gesture_until_ms
-                                                                      : clock_monotonic_milliseconds() + kPluginGestureMilliseconds;
-        ticket = plugin_call_begin(runtime.ledger, binding.owner_id, kind, call_class);
+        target.ctx.call = runtime.call_serial;
+        target.ctx.flags = flags;
+        // A gesture counts for a few seconds; a completion keeps the deadline of the request that began it. The
+        // deadline is read only during a gesture call.
+        if (flags & MC_CTX_GESTURE)
+            target.gesture_until_ms = target.inherit_gesture_until_ms ? target.inherit_gesture_until_ms
+                                                                     : clock_monotonic_milliseconds() + kPluginGestureMilliseconds;
+        ticket = plugin_call_begin(runtime.ledger, target.owner_id, kind, call_class);
     }
     PluginCallOutcome finish() noexcept {
-        const PluginCallOutcome outcome = plugin_call_finish(binding.runtime->ledger, ticket);
-        apply_staged(binding);
-        binding.ctx.call = 0;
-        binding.ctx.flags = 0;
-        binding.gesture_until_ms = 0;
-        ++binding.calls;
-        binding.last_call_us = outcome.elapsed_us;
+        PluginBinding& b = binding;
+        const PluginCallOutcome outcome = plugin_call_finish(b.runtime->ledger, ticket);
+        apply_staged(b);
+        b.ctx.call = 0;
+        b.ctx.flags = 0;
+        b.last_call_us = outcome.elapsed_us;
         if (outcome.overran) {
-            ++binding.strikes;
-            const PluginRuntime& runtime = *binding.runtime;
-            if (runtime.strike) runtime.strike(runtime.sink_context, binding.owner_id, ticket.kind, binding.strikes, outcome.elapsed_us);
+            ++b.strikes;
+            const PluginRuntime& runtime = *b.runtime;
+            if (runtime.strike) runtime.strike(runtime.sink_context, b.owner_id, ticket.kind, b.strikes, outcome.elapsed_us);
         }
-        if (outcome.disable) binding.struck_out = true;
+        if (outcome.disable) b.struck_out = true;
         return outcome;
     }
 };
@@ -384,8 +386,8 @@ u32 reserve_text(PluginBinding& binding, u32 cursor) noexcept {
     return cursor;
 }
 
+// The store is closed already: a disable closes it, and a failed enable never opened it.
 void destroy(PluginBinding* binding) noexcept {
-    kv_close(&binding->store);
     if (binding->data) pages_release(binding->data);
     pages_release(binding);
 }

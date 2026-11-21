@@ -77,7 +77,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
     }
     if (!secure_random_u32(&handshake->first_heartbeat_fraction).ok())
         handshake->first_heartbeat_fraction = ~0u;
-    u8 fingerprint[kRemoteAuthSha256Bytes]{};
+    u8 fingerprint[kRemoteAuthSha256Bytes];
     const RemoteAuthCryptoResult fingerprinted = remote_auth_crypto_fingerprint(
         handshake->crypto, Slice<u8>{fingerprint, static_cast<u32>(sizeof(fingerprint))});
     const Base64UrlResult encoded =
@@ -116,7 +116,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         return result(RemoteAuthHandshakeError::invalid_state);
     }
     reset_value<RemoteAuthHandshakeEvent>(event);
-    char packet_text[kRemoteAuthMaximumTicketBytes]{};
+    char packet_text[kRemoteAuthMaximumTicketBytes];
     RemoteAuthPacket packet{};
     const RemoteAuthDecodeResult decoded = remote_auth_decode_server_packet(
         body, structural_scratch, maximum_depth,
@@ -146,8 +146,8 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_hello) {
             return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
-        u8 spki[kRemoteAuthPublicSpkiMaximumBytes]{};
-        char encoded_spki[432]{};
+        u8 spki[kRemoteAuthPublicSpkiMaximumBytes];
+        char encoded_spki[432];
         const RemoteAuthCryptoResult exported = remote_auth_crypto_export_spki(
             handshake->crypto, Slice<u8>{spki, static_cast<u32>(sizeof(spki))});
         const Base64Result encoded =
@@ -186,9 +186,9 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_nonce) {
             return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
-        u8 ciphertext[kRemoteAuthRsaBytes]{};
-        u8 nonce[kRemoteAuthMaximumUserPayloadBytes]{};
-        char encoded_nonce[256]{};
+        u8 ciphertext[kRemoteAuthRsaBytes];
+        u8 nonce[kRemoteAuthMaximumUserPayloadBytes];
+        char encoded_nonce[256];
         const Base64Result cipher =
             base64_decode(Utf8View{packet_text, packet.text_bytes},
                           Slice<u8>{ciphertext, static_cast<u32>(sizeof(ciphertext))});
@@ -254,8 +254,8 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_mobile) {
             return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
-        u8 ciphertext[kRemoteAuthRsaBytes]{};
-        u8 plaintext[kRemoteAuthMaximumUserPayloadBytes]{};
+        u8 ciphertext[kRemoteAuthRsaBytes];
+        u8 plaintext[kRemoteAuthMaximumUserPayloadBytes];
         const Base64Result cipher =
             base64_decode(Utf8View{packet_text, packet.text_bytes},
                           Slice<u8>{ciphertext, static_cast<u32>(sizeof(ciphertext))});
@@ -343,7 +343,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_finish_ticket(RemoteAuthHandshak
     // A new ticket attempt replaces the output credential. Erase it before
     // parsing too, so shape/encoding failures cannot leave an older token live.
     secure_buffer_clear(token);
-    char encrypted_token[512]{};
+    char encrypted_token[512];
     u32 encrypted_token_bytes = 0;
     const RemoteAuthDecodeResult decoded = remote_auth_decode_ticket_response(
         body, structural_scratch, maximum_depth,
@@ -354,7 +354,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_finish_ticket(RemoteAuthHandshak
                     RemoteAuthCryptoError::none, decoded.base64_error,
                     RemoteAuthHandshakeStage::ticket_parse);
     }
-    u8 ciphertext[kRemoteAuthRsaBytes]{};
+    u8 ciphertext[kRemoteAuthRsaBytes];
     const Base64Result cipher = base64_decode(Utf8View{encrypted_token, encrypted_token_bytes},
                                               Slice<u8>{ciphertext, static_cast<u32>(sizeof(ciphertext))});
     secure_clear_bytes(encrypted_token, sizeof(encrypted_token));

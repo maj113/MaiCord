@@ -79,7 +79,7 @@ void restore_source_focus(const ApplicationAccountMenu& owner) noexcept {
     renderer_bind_focus_owner(&g_app.renderer,
                               g_app.keyboard_focus_visible ? g_app.context_focus : nullptr);
 }
-Utf8View custom_status_label(char* output, u32 capacity) noexcept {
+inline Utf8View custom_status_label(char* output, u32 capacity) noexcept {
     SelfCustomStatus status;
     if (!application_custom_status_snapshot(&status) || !self_custom_status_active(status, clock_unix_milliseconds()))
         return {};
@@ -324,7 +324,7 @@ bool application_account_menu_action(u32 value) noexcept {
     if (value == static_cast<u32>(UiAccountMenuAction::edit_profile))
         return application_profile_open_edit(user);
     if (value == static_cast<u32>(UiAccountMenuAction::copy_user_id)) {
-        char digits[20]{};
+        char digits[20];
         const u32 count = message_context_format_snowflake(user, {digits, 20});
         const bool copied = application_copy_text({digits, count}, kToastIdCopied, kToastIdCopyFailed);
         return refresh_account_frame() && copied;

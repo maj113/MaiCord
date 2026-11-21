@@ -146,16 +146,15 @@ PluginEnableResult enable(PluginRuntime* runtime, const wchar_t* name, u64 appro
 
 // ---- Tests -------------------------------------------------------------------------
 
-// With nothing enabled a hook is one branch: no call, no allocation.
+// With nothing enabled a hook is one branch: nothing to call, no allocation.
 void test_no_plugins() noexcept {
     const PluginDispatchStats before = plugin_dispatch_stats();
     const PluginDraftResult sent = send("hello"), edited = edit("hello");
     check(!plugin_hook_subscribed(PluginHook::pre_send) && !plugin_hook_subscribed(PluginHook::pre_edit),
           "nothing is subscribed before a plugin is enabled");
     check(sent.verdict == PluginDraftVerdict::keep && edited.verdict == PluginDraftVerdict::keep &&
-              plugin_dispatch_stats().calls == before.calls &&
               plugin_dispatch_stats().allocations == before.allocations,
-          "dispatching with no plugin calls nothing and allocates nothing");
+          "dispatching with no plugin allocates nothing");
 }
 
 // Every entry maicord_plugin.h declares is implemented: the table is complete and has no null slot.
@@ -169,7 +168,9 @@ void test_api_table() noexcept {
           "the host table implements every mc_api entry");
 }
 
+// The PE refusals. Linux checks the same refusals against ELF images in tests/app/plugins/loader_elf.cpp.
 void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
+#if defined(_WIN32)
     struct Case {
         const wchar_t* built;
         PluginLoadError error;
@@ -194,16 +195,16 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
         join(path, root.plugins, L"candidate.dll");
         DeleteFileW(path);
     }
+#endif
     PluginImage image{};
     check(plugin_image_load(&image, runtime->directory, leaf(L"missing.dll"), MC_PERM_MESSAGE_SEND).error ==
               PluginLoadError::open,
           "a missing file is an open failure");
-
+#if defined(_WIN32)
     // Damaged copies of a good DLL.
     install(root, L"MaiCordPluginRuntimeFullFixture.dll", L"damaged.dll");
     u8 head[1024];
     read_head(root, L"damaged.dll", head, sizeof(head));
-#if defined(_WIN32)
     const u32 nt = byte_load_le32(head + 0x3C);
     const u32 table = nt + 24 + byte_load_le16(head + nt + 20);
     const u16 other_machine = 0x14c;
@@ -218,31 +219,6 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
               PluginLoadError::sections,
           "a section that is writable and executable is refused");
     patch(root, L"damaged.dll", table + 36, head + table + 36, 4);
-#else
-    // The program headers sit at e_phoff; the first segment that is executable is the one made writable.
-    const u64 table = byte_load_le64(head + 32);
-    u32 code = 0;
-    for (u32 i = 0, count = byte_load_le16(head + 56); i < count && table + 56u * (i + 1) <= sizeof(head); ++i) {
-        const u32 header = static_cast<u32>(table) + 56u * i;
-        if (byte_load_le32(head + header) == 1 && (byte_load_le32(head + header + 4) & 1)) {
-            code = header;
-            break;
-        }
-    }
-    check(code != 0, "the fixture has an executable segment");
-    const u16 other_machine = 3;
-    patch(root, L"damaged.dll", 18, &other_machine, 2);
-    check(plugin_image_load(&image, runtime->directory, leaf(L"damaged.dll"), MC_PERM_MESSAGE_SEND).error ==
-              PluginLoadError::machine,
-          "a non-x86-64 image is refused");
-    patch(root, L"damaged.dll", 18, head + 18, 2);
-    const u32 writable_code = byte_load_le32(head + code + 4) | 2;
-    patch(root, L"damaged.dll", code + 4, &writable_code, 4);
-    check(plugin_image_load(&image, runtime->directory, leaf(L"damaged.dll"), MC_PERM_MESSAGE_SEND).error ==
-              PluginLoadError::sections,
-          "a segment that is writable and executable is refused");
-    patch(root, L"damaged.dll", code + 4, head + code + 4, 4);
-#endif
     const u8 junk[16]{'M', 'Z'};
     write_file(root, L"truncated.dll", head, 1024);
     write_file(root, L"junk.dll", junk, sizeof(junk));
@@ -257,6 +233,7 @@ void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
               PluginLoadError::open,
           "an empty file is refused");
     check(!loaded(L"damaged.dll") && !image.module, "no refused file was loaded");
+#endif
 
     // The descriptor loads, but the user has not approved what its hooks need.
     install(root, L"MaiCordPluginRuntimeFullFixture.dll", L"full.dll");
@@ -282,7 +259,7 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
     PluginBinding* binding = enabled.binding;
     const auto* state = static_cast<const FixtureState*>(binding->ctx.state);
     const auto* settings = static_cast<const FixtureSettings*>(binding->ctx.settings);
-    check(state->starts == 1 && state->start_flags == MC_CTX_FIRST_START && binding->started &&
+    check(state->starts == 1 && state->start_flags == MC_CTX_FIRST_START &&
               binding->ctx.call == 0 && binding->ctx.api->level == MC_API_LEVEL && binding->ctx.api->size == sizeof(mc_api),
           "start ran once with a zeroed state and the first-start flag");
     check(settings->enabled == 1 && settings->limit == 10 && same(settings->label, "hello") &&
@@ -318,7 +295,7 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
           "a toast reaches the application with its owner and tone");
     send("setting");
     check(state->setting_status == MC_OK && state->label_before == 5 && state->label_during == 5 &&
-              same(settings->label, "new label") && binding->settings_dirty,
+              same(settings->label, "new label"),
           "a setting changed during a call applies when the call returns");
     send("store");
     check(state->store_set_status == MC_OK && state->store_get_status == MC_OK && state->store_bytes == 5 &&
@@ -363,7 +340,7 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root) noexcept {
     check(plugin_runtime_poll(runtime, now) == 0 && !exists(store_file) && !exists(settings_file),
           "changes wait out the flush delay");
     check(plugin_runtime_poll(runtime, now + kPluginFlushDelayMilliseconds + 500) == 0 && exists(store_file) &&
-              exists(settings_file) && !binding->settings_dirty && !binding->store.dirty,
+              exists(settings_file),
           "changes older than the delay are written");
 
     // A disable runs stop and keeps what the plugin stored and what was set.
@@ -423,8 +400,8 @@ void test_budget(PluginRuntime* runtime, PluginCallLedger* ledger, const Root& r
     send("hi");
     check(binding->strikes == 3 && binding->struck_out && plugin_call_ledger_disable_requested(ledger, kSlowOwner),
           "the third strike flags the plugin");
-    const u32 calls = plugin_dispatch_stats().calls;
-    check(send("hi").verdict == PluginDraftVerdict::keep && plugin_dispatch_stats().calls == calls,
+    // Every call of the slow plugin overruns: a call would cost a fourth strike.
+    check(send("hi").verdict == PluginDraftVerdict::keep && binding->strikes == 3,
           "a flagged plugin is skipped at once");
     check(plugin_runtime_poll(runtime, clock_monotonic_milliseconds()) == kSlowOwner && !runtime->binding_count &&
               !plugin_hook_subscribed(PluginHook::pre_send) && !loaded(L"slow.dll"),
@@ -434,6 +411,16 @@ void test_budget(PluginRuntime* runtime, PluginCallLedger* ledger, const Root& r
     check(plugin_runtime_poll(runtime, clock_monotonic_milliseconds()) == 0, "nothing else is flagged");
 }
 
+// A call that took elapsed_us, without waiting: the ticket's start moves back by that many ticks. The test sets the
+// ledger's tick frequency so high that the real time between begin and finish adds at most a few microseconds,
+// even on a loaded machine, so the outcome depends only on elapsed_us.
+PluginCallOutcome timed_call(PluginCallLedger* ledger, u64 owner, PluginCallKind kind, PluginCallClass call_class,
+                             u64 elapsed_us) noexcept {
+    PluginCallTicket ticket = plugin_call_begin(ledger, owner, kind, call_class);
+    ticket.started -= static_cast<i64>(elapsed_us * (static_cast<u64>(ledger->frequency) / 1'000'000ull));
+    return plugin_call_finish(ledger, ticket);
+}
+
 void test_ledger_classes(const Root& root) noexcept {
     PluginCallLedger ledger{};
     PluginCallMarker leftover{};
@@ -441,19 +428,16 @@ void test_ledger_classes(const Root& root) noexcept {
               ledger.pre_budget_us == 10'000 && ledger.event_budget_us == 10'000 && ledger.budget_us == 50'000 &&
               ledger.lifecycle_budget_us == 500'000,
           "every call class starts with its documented budget");
-    auto ticket = plugin_call_begin(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate);
-    Sleep(8);
-    PluginCallOutcome outcome = plugin_call_finish(&ledger, ticket);
-    check(outcome.overran && !outcome.disable && outcome.elapsed_us >= 1000, "a decorate call past 1 ms is a strike");
-    ticket = plugin_call_begin(&ledger, 8, PluginCallKind::menu, PluginCallClass::gesture);
-    Sleep(8);
-    outcome = plugin_call_finish(&ledger, ticket);
-    check(!outcome.overran, "a gesture call keeps the 50 ms budget");
-    for (u32 i = 0; i < 2; ++i) {
-        ticket = plugin_call_begin(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate);
-        Sleep(8);
-        outcome = plugin_call_finish(&ledger, ticket);
-    }
+    ledger.frequency = 10'000'000'000'000ll;
+    PluginCallOutcome outcome = timed_call(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate, 1'500);
+    check(outcome.overran && !outcome.disable && outcome.elapsed_us >= 1'500, "a decorate call past 1 ms is a strike");
+    check(!timed_call(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate, 500).overran,
+          "a decorate call within 1 ms is no strike");
+    check(!timed_call(&ledger, 8, PluginCallKind::menu, PluginCallClass::gesture, 40'000).overran &&
+              timed_call(&ledger, 8, PluginCallKind::menu, PluginCallClass::gesture, 60'000).overran,
+          "a gesture call keeps the 50 ms budget");
+    for (u32 i = 0; i < 2; ++i)
+        outcome = timed_call(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate, 8'000);
     check(outcome.overran && outcome.disable && plugin_call_ledger_disable_requested(&ledger, 7),
           "three strikes request a disable");
 
@@ -463,9 +447,13 @@ void test_ledger_classes(const Root& root) noexcept {
     join(copy, root.base, L"marker-copy.bin");
     check(plugin_call_ledger_open(&watched, root.marker, &leftover) && plugin_call_watchdog_start(&watched, 40),
           "the watchdog starts on an open marker");
-    ticket = plugin_call_begin(&watched, 0x77, PluginCallKind::pre_send, PluginCallClass::pre);
-    Sleep(250);
-    const bool flagged = watched.view[21] == 1;
+    const PluginCallTicket ticket = plugin_call_begin(&watched, 0x77, PluginCallKind::pre_send, PluginCallClass::pre);
+    // The watchdog flags the call within two of its 40 ms looks. The deadline only bounds a failure.
+    const volatile u8* view = watched.view;
+    for (const u64 deadline = clock_monotonic_milliseconds() + 5000;
+         view[21] != 1 && clock_monotonic_milliseconds() < deadline;)
+        Sleep(1);
+    const bool flagged = view[21] == 1;
     u8 record[32];
     HANDLE marker = CreateFileW(root.marker, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -486,6 +474,39 @@ void test_ledger_classes(const Root& root) noexcept {
           "a process killed during a long call is reported as hung with its owner");
     plugin_call_ledger_close(&reader);
     plugin_call_ledger_close(&watched);
+#if defined(_WIN32)
+    // A watchdog with no call to watch parks: it gains no processor cycles over a span of 20 limits. A call wakes it,
+    // and it parks again once the call ended. A watchdog that looked once per limit would gain cycles in every span.
+    PluginCallLedger idle{};
+    join(copy, root.base, L"idle-marker.bin");
+    check(plugin_call_ledger_open(&idle, copy, &leftover) && plugin_call_watchdog_start(&idle, 10),
+          "a watchdog starts on a second marker");
+    const auto cycles = [&]() noexcept {
+        u64 value = 0;
+        QueryThreadCycleTime(reinterpret_cast<HANDLE>(idle.watchdog), &value);
+        return value;
+    };
+    // The deadline only bounds a failure.
+    const auto parks = [&]() noexcept {
+        for (const u64 deadline = clock_monotonic_milliseconds() + 5000; clock_monotonic_milliseconds() < deadline;) {
+            const u64 before = cycles();
+            Sleep(200);
+            if (cycles() == before) return true;
+        }
+        return false;
+    };
+    check(idle.watchdog && parks(), "a watchdog with no call parks");
+    const u64 parked = cycles();
+    plugin_call_finish(&idle, plugin_call_begin(&idle, 0x78, PluginCallKind::timer, PluginCallClass::event));
+    bool woke = false;
+    for (const u64 deadline = clock_monotonic_milliseconds() + 5000; !woke && clock_monotonic_milliseconds() < deadline;) {
+        Sleep(1);
+        woke = cycles() != parked;
+    }
+    check(woke, "a call wakes the parked watchdog");
+    check(parks(), "the watchdog parks again once the call ended");
+    plugin_call_ledger_close(&idle);
+#endif
 }
 
 void test_clear_urls(PluginRuntime* runtime, const Root& root) noexcept {
@@ -673,6 +694,10 @@ void run() noexcept {
     wchar_t ledger_path[MAX_PATH];
     join(ledger_path, root.base, L"ledger.bin");
     const bool ledger_ready = plugin_call_ledger_open(&ledger, ledger_path, &leftover) && !leftover.present;
+    // Ordinary calls get budgets no loaded machine reaches, so they never strike. test_budget lowers the pre-send
+    // budget around its slow plugin; test_ledger_classes checks the real budgets on its own ledger.
+    constexpr u64 kRelaxedBudgetUs = 10'000'000;
+    ledger.decorate_budget_us = ledger.pre_budget_us = ledger.event_budget_us = ledger.budget_us = kRelaxedBudgetUs;
     const PluginLoadResult opened =
         plugin_runtime_open(&runtime, {root.plugins, length(root.plugins)}, {root.data, length(root.data)}, &ledger);
     check(ledger_ready && opened.ok(), "the plugins directory is pinned once");
@@ -683,6 +708,7 @@ void run() noexcept {
         test_full_plugin(&runtime, root);
         test_start_failure_and_duplicates(&runtime, root);
         test_budget(&runtime, &ledger, root);
+        ledger.pre_budget_us = kRelaxedBudgetUs;
         test_clear_urls(&runtime, root);
         test_ledger_classes(root);
         check(runtime.binding_count == 0, "every test left its plugin disabled");

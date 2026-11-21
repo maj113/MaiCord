@@ -43,7 +43,7 @@ static_assert(same(AcceptanceRecordError::path, UpdateAcceptanceError::path) && 
     same(AcceptanceRecordError::release, UpdateAcceptanceError::release));
 static_assert(kUpdateAcceptanceMaximumPathCharacters == kAcceptanceRecordMaximumPathCharacters);
 UpdateAcceptanceResult load(const wchar_t* path, UpdateAcceptanceState* state) noexcept {
-    u8 record[kUpdateAcceptanceRecordBytes]{};
+    u8 record[kUpdateAcceptanceRecordBytes];
     const auto result = convert(acceptance_record_read(path, {record, sizeof(record)}));
     return result.ok() ? update_acceptance_decode({record, sizeof(record)}, state) : result;
 }
@@ -65,7 +65,7 @@ UpdateAcceptanceResult current(const UpdateAcceptanceTransaction& transaction) n
     return {};
 }
 UpdateAcceptanceResult store(const wchar_t* path, u32 characters, const UpdateAcceptanceState& state) noexcept {
-    u8 record[kUpdateAcceptanceRecordBytes]{};
+    u8 record[kUpdateAcceptanceRecordBytes];
     const auto result = update_acceptance_encode(state, {record, sizeof(record)});
     return result.ok() ? convert(acceptance_record_write(path, characters, {record, sizeof(record)})) : result;
 }

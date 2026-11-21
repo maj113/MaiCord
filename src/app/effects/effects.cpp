@@ -342,10 +342,10 @@ void scan_folder(bool developer, u8* buffer, McfxWorkspace* workspace) noexcept 
     wchar_t folder[512];
     if (!folder_path(folder, developer))
         return;
-    DirIter search{};
+    DirIter search;
     if (!dir_open(&search, folder))
         return;
-    DirEntry found{};
+    DirEntry found;
     while (dir_next(&search, &found)) {
         static constexpr wchar_t kExtension[] = L".mcfx";
         const u32 name_length = wide_length(found.name, 260);
@@ -900,7 +900,7 @@ void application_effects_synchronize() noexcept {
     if (g.dirty && InterlockedExchange(&g.dirty, 0) && g.library_loaded) {
         // A file changed: rescan, and keep the choice across an update (the file's hash changed, the slug did not).
         const Entry* before = find(g.file.selected);
-        char slug[kMcfxSlugBytes + 1]{};
+        char slug[kMcfxSlugBytes + 1];
         if (before)
             copy_bytes(slug, before->info.slug, sizeof(slug));
         g.library_loaded = false;

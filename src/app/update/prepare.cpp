@@ -11,7 +11,7 @@ UpdatePreparationResult failure(UpdatePreparationError error, UpdatePreparationP
     result.phase = phase;
     return result;
 }
-bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
+inline bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
     for (u32 i = 0; i < ranges.count; ++i) {
         if (!byte_range_valid(ranges[i])) return false;
         for (u32 j = 0; j < i; ++j) {
@@ -23,7 +23,7 @@ bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
     }
     return true;
 }
-bool fresh(const UpdatePreparationContext& context) noexcept {
+inline bool fresh(const UpdatePreparationContext& context) noexcept {
     // Explicit release zeroes both owners. Refuse stale caller state as well as
     // live handles so callers cannot accidentally reuse a half-prepared context.
     if (context.acceptance.lock || context.acceptance.path_characters || context.acceptance.record_present ||

@@ -68,14 +68,16 @@ The client starts without saved credentials through the production login path.
 It can contact the unauthenticated remote-auth service. This mode does not use the offline account module.
 It skips desktop registration, notifications, updates and instance forwarding.
 Its window uses the quiet probe styles and does not take focus.
-After the first successful `Present`, the client requests normal window closure.
+The client measures at the first successful `Present`. It starts the QR sign-in after that frame, as it always does,
+then writes its record and requests normal window closure.
 
 The runner prints each `MAICORD_STARTUP` record and cold/warm medians, then the medians of the
 named startup points (`MAICORD_PERF_MARK` in `main.cpp`, `app/shell/window.cpp`,
 `app/shell/frame_presentation.cpp` and `app/shell/shutdown_metrics.cpp`), in ms since process creation.
 It accepts a record only from its child process, after exit code zero and valid cycle, CPU-time and memory queries.
 It also requires `backend_loaded=1` and `login_active=1` for every accepted launch.
-These flags confirm that the real backend and login instance exist. They do not mean that authentication finished.
+These flags confirm that the real backend and login instance exist (both are read after the QR sign-in's
+start). They do not mean that authentication finished.
 
 | Measurement | Definition |
 | --- | --- |

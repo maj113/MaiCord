@@ -284,7 +284,7 @@ bool resident(const Cache& cache, const Entry& entry) noexcept {
 }
 
 // Older entries rank lower: empty and overwritten first, then by position in the ring's history.
-u64 rank(const Cache& cache, const Entry& entry) noexcept {
+inline u64 rank(const Cache& cache, const Entry& entry) noexcept {
     if (!resident(cache, entry)) return 0;
     if (!entry.bytes) return 1;
     return (static_cast<u64>(entry.lap) << 32 | entry.offset) + 2;
@@ -335,7 +335,7 @@ bool ensure_memory(Plugin& plugin) noexcept {
 
 // Space for a record at the ring's head; wrapping counts a lap and strands what the head passed, so views the UI
 // holds may dangle: the caller reports a change when this wraps.
-u8* reserve(Cache& cache, u32 bytes, u32* offset, bool* wrapped) noexcept {
+inline u8* reserve(Cache& cache, u32 bytes, u32* offset, bool* wrapped) noexcept {
     if (bytes > cache.arena_bytes) return nullptr;
     if (cache.head + bytes > cache.arena_bytes) {
         cache.head = 0;
@@ -644,7 +644,7 @@ bool evaluate(PluginDecoratePass* pass, u32 kind, u64 key, u64 scope, u32 revisi
 
 // A user's revision is derived from what the hooks see, so a presence or name change asks again; a profile's
 // opening time too, so every opening asks again.
-u32 user_revision(const PluginUserInput& u) noexcept {
+inline u32 user_revision(const PluginUserInput& u) noexcept {
     u64 h = hash64_mix(kHash64Seed, u.guild_id);
     h = hash64_mix(h, u.channel_id);
     h = hash64_mix(h, (static_cast<u64>(u.flags) << 32) | u.relationship);
@@ -971,8 +971,7 @@ mc_status plugin_surfaces_detail::plugin_surfaces_push(PluginBinding* binding, u
 mc_status plugin_surfaces_detail::plugin_surfaces_invalidate(PluginBinding* binding, u32 what, u64 id) noexcept {
     if (what < MC_INVALIDATE_MESSAGE || what > MC_INVALIDATE_BUTTONS) return MC_E_INVALID;
     if (what == MC_INVALIDATE_BUTTONS) {
-        buttons_refresh_remembered();
-        changed(false);
+        buttons_refresh_remembered(); // reports the change itself
         return MC_OK;
     }
     Plugin* plugin = find_plugin(binding);

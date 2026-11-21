@@ -16,7 +16,7 @@ void store_idle(volatile u8* view) noexcept {
     for (u32 i = 0; i < 8; ++i) view[i] = kMagic[i];
     for (u32 i = 8; i < 32; ++i) view[i] = 0;
 }
-PluginCallLedgerEntry* entry(PluginCallLedger* ledger, u64 owner, bool create) noexcept {
+inline PluginCallLedgerEntry* entry(PluginCallLedger* ledger, u64 owner, bool create) noexcept {
     PluginCallLedgerEntry* empty = nullptr;
     for (auto& candidate : ledger->entries) {
         if (candidate.owner_id == owner) return &candidate;
@@ -37,7 +37,7 @@ void initialize_timing(PluginCallLedger* ledger) noexcept {
     if (!ledger->event_budget_us) ledger->event_budget_us = kPluginCallEventBudgetUs;
     if (!ledger->overrun_limit) ledger->overrun_limit = kPluginCallOverrunLimit;
 }
-u64 class_budget(const PluginCallLedger& ledger, PluginCallClass call_class) noexcept {
+inline u64 class_budget(const PluginCallLedger& ledger, PluginCallClass call_class) noexcept {
     switch (call_class) {
     case PluginCallClass::lifecycle: return ledger.lifecycle_budget_us;
     case PluginCallClass::decorate: return ledger.decorate_budget_us;
@@ -46,7 +46,7 @@ u64 class_budget(const PluginCallLedger& ledger, PluginCallClass call_class) noe
     default: return ledger.budget_us;
     }
 }
-void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
+inline void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
     bool magic = true;
     for (u32 i = 0; i < 8; ++i) magic = magic && bytes[i] == kMagic[i];
     if (!magic || bytes[20] != 1 || !leftover) return;

@@ -39,7 +39,7 @@ RemoteAuthTicketExchangeResult failure(RemoteAuthTicketExchangeError error, u32 
     return result;
 }
 
-bool locked_output(const SecureBuffer* output) noexcept {
+inline bool locked_output(const SecureBuffer* output) noexcept {
     return output && output->data && output->locked && output->capacity != 0 &&
            output->bytes <= output->capacity;
 }

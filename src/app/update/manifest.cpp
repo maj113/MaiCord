@@ -77,8 +77,8 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     return valid;
 }
 #if defined(_WIN32)
-bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
-    char name[kUpdateArtifactNameCapacity]{};
+inline bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
+    char name[kUpdateArtifactNameCapacity];
     const Utf8View prefix = kUpdateArtifactPrefix;
     copy_bytes(name, prefix.data, prefix.bytes);
     u32 used = prefix.bytes + decimal_write(name + prefix.bytes, manifest.version);
@@ -119,7 +119,7 @@ UpdateManifestResult verify_manifest(const Utf8View& document, const ConstSlice<
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},
         {reinterpret_cast<const u8*>(document.data), document.bytes}};
-    u8 hashed[32]{};
+    u8 hashed[32];
     if (!sha256(workspace, {parts, 2}, {hashed, sizeof(hashed)}).ok() ||
         !p256_verify_digest(trusted_key, {hashed, sizeof(hashed)}, signature).ok())
         return {UpdateManifestError::signature};

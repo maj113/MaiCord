@@ -73,7 +73,7 @@ struct PluginBinding {
     bool settings_dirty;
     u64 settings_dirty_since;
     bool started, hooks_published, struck_out;
-    u32 calls, strikes;
+    u32 strikes;
     // The ledger's microseconds of the last call that returned (0 without a ledger): what a decorate pass charges.
     u64 last_call_us;
     // Network: bit i set = the user approved descriptor.network[i]. generation tells this enable from

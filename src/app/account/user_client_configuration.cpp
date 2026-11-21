@@ -162,7 +162,7 @@ namespace {
 
 // Appends one preferred language to the Accept-Language list at output[*used], weighted *weight (0.9 down to 0.1):
 // skipped when it is no tag or is the host locale, false when it does not fit.
-bool accept_language_add(Utf8View name, Utf8View host_locale, Slice<char> output, u32* used, u32* weight) noexcept {
+inline bool accept_language_add(Utf8View name, Utf8View host_locale, Slice<char> output, u32* used, u32* weight) noexcept {
     bool tag = name.bytes != 0;
     for (u32 index = 0; index < name.bytes; ++index)
         tag = tag && (ascii_is_alnum(name.data[index]) || name.data[index] == '-');
@@ -222,7 +222,7 @@ u32 client_accept_language(Utf8View host_locale, Utf8View preferred, Slice<char>
 #endif
 
 bool user_client_random_uuid(char* output) noexcept {
-    u8 uuid[16]{};
+    u8 uuid[16];
     if (!secure_random_fill(Slice<u8>{uuid, sizeof(uuid)}).ok())
         return false;
     uuid_set_version4(uuid);
@@ -240,7 +240,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
 
     AcquireSRWLockExclusive(&launch_lock);
     if (!launch_id[0]) {
-        u8 uuid[32]{};
+        u8 uuid[32];
         const SecureRandomResult random = secure_random_fill(Slice<u8>{uuid, sizeof(uuid)});
         if (!random.ok()) {
             SecureZeroMemory(uuid, sizeof(uuid));
@@ -266,7 +266,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
 
 #if defined(_WIN32)
     // The host takes its locale from ICU's default, the user's format locale.
-    wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
+    wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH];
     const int locale_characters = GetUserDefaultLocaleName(locale_wide, LOCALE_NAME_MAX_LENGTH);
     if (locale_characters <= 1)
         return fail(storage, UserClientConfigurationError::locale, thread_last_error());

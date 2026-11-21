@@ -57,20 +57,17 @@ bool account_text_sources_stale(const AccountUiRuntime& ui) noexcept {
     const MessageStore& messages = g_app.message_view.store;
     const u32 private_revision =
         ui.chat_state.private_channels ? ui.chat_state.private_channels->revision : 0;
-    return ui.rendered_poll_revision != ui.message_poll_store.revision ||
-           ui.rendered_navigation_revision != ui.navigation_view.revision ||
-           ui.rendered_message_created != messages.created ||
-           ui.rendered_message_updated != messages.updated ||
-           ui.rendered_message_deleted != messages.deleted ||
-           ui.rendered_user_revision != ui.user_store.revision ||
-           ui.rendered_member_revision != ui.guild_member_store.revision ||
-           ui.rendered_private_revision != private_revision ||
-           ui.rendered_emoji_mutations != ui.chat_state.emoji_mutations ||
-           ui.rendered_typing_revision != ui.typing_store.revision ||
-           ui.rendered_permission_mutations != ui.chat_state.permission_mutations ||
-           ui.rendered_composer_revision != g_app.message_composer.revision ||
-           application_plugin_surfaces_stale() ||
-           ui.rendered_channel_id != ui.active_channel_id;
+    return (ui.rendered_poll_revision != ui.message_poll_store.revision) |
+           (ui.rendered_navigation_revision != ui.navigation_view.revision) |
+           (ui.rendered_message_created != messages.created) | (ui.rendered_message_updated != messages.updated) |
+           (ui.rendered_message_deleted != messages.deleted) | (ui.rendered_user_revision != ui.user_store.revision) |
+           (ui.rendered_member_revision != ui.guild_member_store.revision) |
+           (ui.rendered_private_revision != private_revision) |
+           (ui.rendered_emoji_mutations != ui.chat_state.emoji_mutations) |
+           (ui.rendered_typing_revision != ui.typing_store.revision) |
+           (ui.rendered_permission_mutations != ui.chat_state.permission_mutations) |
+           (ui.rendered_composer_revision != g_app.message_composer.revision) |
+           (ui.rendered_channel_id != ui.active_channel_id) || application_plugin_surfaces_stale();
 }
 bool account_polls_expired(const AccountUiRuntime& ui, u64 now_ms) noexcept {
     const auto& polls = ui.message_poll_store;

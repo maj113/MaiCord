@@ -129,7 +129,7 @@ RestClientSubmitResult module_lane(void* instance, const decltype(lane_request(S
         if constexpr (kUnset<Session>) {
             return Submit(rest, request, request_id);
         } else {
-            GatewayUserSessionSnapshot session{};
+            GatewayUserSessionSnapshot session;
             const bool known = Session(*request) &&
                                user_account_coordinator_snapshot_session(&runtime->coordinator, &session) &&
                                session.has_resume;

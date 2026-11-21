@@ -10,7 +10,7 @@
 namespace maicord {
 namespace {
 
-bool append_ascii(wchar_t* out, u32 capacity, u32* length, const char* text, u32 bytes) noexcept {
+inline bool append_ascii(wchar_t* out, u32 capacity, u32* length, const char* text, u32 bytes) noexcept {
     if (*length + bytes >= capacity)
         return false;
     for (u32 i = 0; i < bytes; ++i)
@@ -75,13 +75,13 @@ bool delete_effect_files(const wchar_t* root, Utf8View slug, const wchar_t* keep
     u32 length = 0;
     if (!folder_path(root, PackageLinkKind::effect, folder, &length))
         return false;
-    DirIter search{};
+    DirIter search;
     if (!dir_open(&search, folder)) {
         const u32 error = thread_last_error();
         return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
     }
     bool clean = true;
-    DirEntry found{};
+    DirEntry found;
     while (dir_next(&search, &found)) {
         if (found.kind == FileKind::directory)
             continue;

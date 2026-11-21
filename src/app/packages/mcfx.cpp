@@ -276,9 +276,10 @@ bool finish_knob(Parse& p, u32 at) noexcept {
     if (p.row + (p.lane != 0) > kEffectKnobRows || p.scalars > 16 || p.colours > 4)
         return p.fail(at);
     auto& list = *p.out;
+    // The terminator is compared too, so equal bytes are equal ids.
+    const u32 id_bytes = c_string_length(k.id) + 1;
     for (u32 i = 0; i < list.knob_count; ++i)
-        if (c_string_length(list.knobs[i].id) == c_string_length(k.id) &&
-            bytes_equal(list.knobs[i].id, k.id, c_string_length(k.id)))
+        if (bytes_equal(list.knobs[i].id, k.id, id_bytes))
             return p.fail(at);
     list.knobs[list.knob_count++] = k;
     return true;

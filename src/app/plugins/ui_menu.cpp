@@ -62,7 +62,7 @@ bool make_row(PluginBinding& binding, u32 item, const mc_menu_target& target, Pl
     return true;
 }
 
-bool has_child(const mc_descriptor& descriptor, u32 parent_item, u32 bit) noexcept {
+inline bool has_child(const mc_descriptor& descriptor, u32 parent_item, u32 bit) noexcept {
     for (u32 i = 0; i < descriptor.menu_count; ++i)
         if (descriptor.menus[i].parent == parent_item + 1 && (descriptor.menus[i].targets & bit)) return true;
     return false;

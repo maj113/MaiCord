@@ -234,6 +234,7 @@ void test_fixture_catalog() noexcept {
     u8 signature[64]{};
     check(g_key.sign(g_document.view(), signature), "the index is signed");
     const P256Key* keys[]{&g_key.public_key};
+    clear_bytes(&g_index, sizeof(g_index));
     const CatalogIndexResult verified = catalog_index_verify(g_document.view(), {signature, 64}, {keys, 1}, g_key.workspace, kNow, false,
                                                              {g_scratch, kCatalogIndexStructuralCapacity}, &g_index);
     check(verified.ok(), "the catalog's index verifies under its key");
@@ -289,6 +290,7 @@ void test_built_site() noexcept {
         (pass ? signature_bytes : document_bytes) = ok ? read : 0;
     }
     const P256Key* keys[]{&key};
+    clear_bytes(&g_index, sizeof(g_index));
     const CatalogIndexResult verified =
         document_bytes && signature_bytes
             ? catalog_index_verify({reinterpret_cast<const char*>(index_document), document_bytes}, {index_signature, signature_bytes},

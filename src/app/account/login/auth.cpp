@@ -436,7 +436,7 @@ bool webauthn_begin(u64 posted_epoch, WebAuthnMfaRequestOptions* request, WebAut
         *result = webauthn_failed();
         return false;
     }
-    u32 structurals[kWebAuthnStructuralCapacity]{};
+    u32 structurals[kWebAuthnStructuralCapacity];
     const WebAuthnMfaResult decoded = webauthn_mfa_decode_request(
         Utf8View{reinterpret_cast<const char*>(challenge.data), challenge.bytes},
         Slice<u32>{structurals, kWebAuthnStructuralCapacity}, 16, request);
@@ -1019,7 +1019,7 @@ bool application_login_pump() noexcept {
         return true;
     }
     if (host.login_status.remote_event == RemoteAuthClientEventKind::qr_ready) {
-        char url[kRemoteAuthQrUrlBytes]{};
+        char url[kRemoteAuthQrUrlBytes];
         u32 url_bytes = 0;
         const bool copied = account_module_login_copy_remote_auth_qr(
             host.login_instance, Slice<char>{url, static_cast<u32>(sizeof(url))}, &url_bytes);
@@ -1044,7 +1044,7 @@ bool application_login_pump() noexcept {
         return application_refresh_login_view();
     }
     if (host.login_status.remote_event == RemoteAuthClientEventKind::mobile_pending) {
-        char payload[kRemoteAuthMaximumUserPayloadBytes]{};
+        char payload[kRemoteAuthMaximumUserPayloadBytes];
         u32 payload_bytes = 0;
         const bool copied = account_module_login_copy_remote_auth_user(
             host.login_instance, Slice<char>{payload, static_cast<u32>(sizeof(payload))}, &payload_bytes);

@@ -27,7 +27,9 @@ struct StartupProbe {
     u32 entry_modules;
     StartupMark marks[kStartupMarkCapacity];
     u32 mark_count;
-    bool initialized, recorded;
+    // The record taken at the first Present, written after the loop turn's QR sign-in start.
+    char line[sizeof(LogEvent::text)];
+    bool initialized, recorded, written;
 };
 StartupProbe g_startup_probe{};
 
@@ -141,10 +143,18 @@ void application_startup_probe_first_present() noexcept {
     line.field("times_ok", static_cast<u64>(process_times_ok && main_times_ok));
     line.field("memory_ok", static_cast<u64>(memory_ok));
     line.field("pws_ok", static_cast<u64>(pws_ok));
-    line.field("backend_loaded", static_cast<u64>(g_app.account.module != nullptr));
-    line.field("login_active", static_cast<u64>(g_app.account.login_instance != nullptr));
     line.field("present_qpc", static_cast<u64>(presented));
     line.field("qpc_hz", static_cast<u64>(g_startup_probe.clock.frequency));
+    copy_bytes(g_startup_probe.line, line.text, line.used + 1);
+}
+
+void application_startup_probe_finish() noexcept {
+    if (!g_startup_probe.recorded || g_startup_probe.written)
+        return;
+    g_startup_probe.written = true;
+    LogEvent line(g_startup_probe.line);
+    line.field("backend_loaded", static_cast<u64>(g_app.account.module != nullptr));
+    line.field("login_active", static_cast<u64>(g_app.account.login_instance != nullptr));
     line.append("\n");
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);

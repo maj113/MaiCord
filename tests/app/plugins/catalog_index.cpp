@@ -34,6 +34,7 @@ SigningKey g_key;
 
 CatalogIndexResult verify(Utf8View document, ConstSlice<u8> signature, u64 now, bool accept_expired = false) noexcept {
     const P256Key* keys[]{&g_key.public_key};
+    clear_bytes(&g_work->index, sizeof(g_work->index));
     return catalog_index_verify(document, signature, {keys, 1}, g_key.workspace, now, accept_expired,
                                 {g_work->scratch, kCatalogIndexStructuralCapacity}, &g_work->index);
 }
@@ -325,6 +326,7 @@ void test_end_to_end() noexcept {
     file_path(kCatalogIndexFile, L".sig");
     u8* signature = read_file(path, &signature_bytes);
     const P256Key* keys[]{&key};
+    clear_bytes(&g_work->index, sizeof(g_work->index));
     const auto verified = ok && document && signature
         ? catalog_index_verify({reinterpret_cast<const char*>(document), document_bytes}, {signature, signature_bytes}, {keys, 1},
                                g_key.workspace, clock_unix_milliseconds() / 1000, false,

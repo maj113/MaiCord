@@ -115,7 +115,7 @@ void autosave_if_due(AccountModuleRuntime* runtime, u64 monotonic_now_ms) noexce
     if (monotonic_now_ms < runtime->next_autosave_at_ms) {
         return;
     }
-    GatewayUserSessionSnapshot snapshot{};
+    GatewayUserSessionSnapshot snapshot;
     const bool captured = user_account_coordinator_snapshot_session(&runtime->coordinator, &snapshot);
     const bool saved = !captured || save_snapshot(runtime, snapshot, false);
     persist_refreshed_credential(runtime, true);
@@ -216,7 +216,7 @@ AccountModuleStartResult account_module_start(const wchar_t* profile_path, const
         return result;
     }
 
-    GatewayUserSessionSnapshot restored{};
+    GatewayUserSessionSnapshot restored;
     ClientHeartbeatSession restored_heartbeat{};
     const AccountSessionStoreResult session = account_user_session_store_load(
         session_path, profile.metadata.profile_id, &restored, &restored_heartbeat, &runtime->cookies);
@@ -505,7 +505,7 @@ RestClientSubmitResult account_module_attachment_upload(void* instance, u64 chan
     RestClient* rest = module_rest(instance);
     if (!rest || !request_id)
         return {RestClientSubmitError::invalid_input};
-    u8 target[96]{};
+    u8 target[96];
     u8* const body = g_request_body;
     const auto written = attachment_upload_write(channel_id, id, filename, file_bytes,
                                                  {target, sizeof(target)}, {body, 8 * 1024});
@@ -630,7 +630,7 @@ __declspec(noinline) RestClientSubmitResult submit_interaction(AccountModuleRunt
                                                                u32 capacity, InteractionBodyWriter write,
                                                                const void* context, u64 request_id,
                                                                bool autocomplete) noexcept {
-    GatewayUserSessionSnapshot snapshot{};
+    GatewayUserSessionSnapshot snapshot;
     if (!user_account_coordinator_snapshot_session(&runtime->coordinator, &snapshot) || !snapshot.has_resume)
         return kInvalidSubmit;
     Arena storage{};

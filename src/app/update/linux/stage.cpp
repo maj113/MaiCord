@@ -57,9 +57,9 @@ bool remove_directory(Path* path, u32 depth) noexcept {
     const u32 base = path->count;
     // Deleting while a directory is read may skip entries: read it again until it is empty.
     for (u32 pass = 0; pass < 3; ++pass) {
-        DirIter iterator{};
+        DirIter iterator;
         if (!dir_open(&iterator, path->text)) return false;
-        DirEntry entry{};
+        DirEntry entry;
         bool failed = false;
         while (dir_next(&iterator, &entry)) failed = !remove_entry(path, base, entry, depth) || failed;
         dir_close(&iterator);

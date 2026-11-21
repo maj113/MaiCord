@@ -115,13 +115,19 @@ u32 application_updates_release_notes_url(const ApplicationUpdatesView&, Utf8Vie
 
 // UI thread. A background worker checks at the chosen interval (jitter,
 // backoff, server retry times) and on demand; nothing here blocks on the
-// network. commit: application_update_build_commit(). Also deletes the
+// network. The worker thread runs only while it has work: a request starts
+// it, and so does the loop when a check is due (application_updates_tick).
+// commit: application_update_build_commit(). Also deletes the
 // executable a previous swap replaced and a stage an earlier session left.
 bool application_updates_initialize(const UpdateServiceConfig&, Utf8View commit = {}) noexcept;
 // The first frame was presented: the first check follows within seconds. If
 // this never comes (a window hidden at startup), it runs 1 to 3 minutes after
 // launch.
 void application_updates_ready() noexcept;
+// Each loop turn: starts the worker when its next check is due.
+void application_updates_tick(u64 now_ms) noexcept;
+// The monotonic time of the next check, 0 while the worker runs (the loop's wake time).
+u64 application_updates_next_wake() noexcept;
 // What an exit does with a verified update. Only Restart to update installs
 // it, on a normal exit, and starts MaiCord again; any other exit keeps the
 // running version, and the next start stages the kept package again.

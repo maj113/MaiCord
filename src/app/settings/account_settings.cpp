@@ -2177,6 +2177,66 @@ bool keep_member(Utf8View body, Slice<u32> structurals, Utf8View name, Field f) 
     b.field_bytes[f] = static_cast<u16>(bytes == ~0u ? 0 : bytes);
     return bytes != ~0u && bytes;
 }
+// The backup codes the answer lists; none when it lists none.
+void keep_codes(Utf8View body, Slice<u32> structurals) noexcept {
+    const u32 count =
+        account_settings_decode_backup_codes(body, structurals, {g_owner.bank->codes, kAccountBackupCodeMaximum});
+    g_owner.code_count = count == ~0u ? 0 : count;
+}
+// The flows whose request's answer ends them: what they reload and the line the page then shows (its index in
+// kSettledLines + 1; 0 shows none, as a connection's switch, which already shows its new state). Discord ends every
+// session of a disabled or deleted account: this one signs out when its connection closes.
+constexpr char kSettledLines[] =
+    "Your password was changed.\0" "Your authenticator app was removed.\0" "Your username was changed.\0"
+    "Check your inbox to verify your new email address.\0" "Your phone number was updated.\0"
+    "Your phone number was removed.\0" "SMS authentication is on.\0" "SMS authentication was removed.\0"
+    "Your changes were saved.\0" "The security key was renamed.\0" "The security key was removed.\0"
+    "Your account was disabled.\0" "Your account is scheduled for deletion.\0" "The app was deauthorized.\0"
+    "The account was disconnected.\0";
+static_assert(name_list_count(kSettledLines) == 15);
+// Where each line starts, then where a 16th would: a line ends one byte (its terminator) before the next starts.
+constexpr auto kSettledStarts = [] {
+    struct {
+        u16 at[16];
+    } starts{};
+    for (u32 i = 0, line = 0; i + 1 < sizeof(kSettledLines); ++i)
+        if (!kSettledLines[i])
+            starts.at[++line] = static_cast<u16>(i + 1);
+    return starts;
+}();
+Utf8View settled_line(u32 line) noexcept {
+    const u32 start = kSettledStarts.at[line - 1];
+    return {kSettledLines + start, kSettledStarts.at[line] - start - 1u};
+}
+struct Settled {
+    u8 reload, line;
+};
+struct SettledFlows {
+    Settled ops[kAccountSettingsOperationCount];
+};
+constexpr SettledFlows kSettled = [] {
+    SettledFlows table{};
+    const auto set = [&](Op op, u32 reload, u8 line) {
+        table.ops[static_cast<u32>(op)] = {static_cast<u8>(reload), line};
+    };
+    set(Op::password, load_self, 1);
+    set(Op::totp_disable, load_self, 2);
+    set(Op::username, load_self, 3);
+    set(Op::email, load_self, 4);
+    set(Op::phone_add, load_self, 5);
+    set(Op::phone_remove, load_self, 6);
+    set(Op::sms_enable, load_self, 7);
+    set(Op::sms_disable, load_self, 8);
+    set(Op::display_name, load_self, 9);
+    set(Op::profile_patch, load_profile, 9);
+    set(Op::security_key_rename, load_keys | load_self, 10);
+    set(Op::security_key_delete, load_keys | load_self, 11);
+    set(Op::account_disable, 0, 12);
+    set(Op::account_delete, 0, 13);
+    set(Op::token_revoke, load_tokens, 14);
+    set(Op::connection_delete, load_connections, 15);
+    return table;
+}();
 // A successful answer to the flow's request: the next dialog, or the flow's result.
 __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals) noexcept {
     auto& b = *g_owner.bank;
@@ -2226,9 +2286,8 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
         keep_member(body, structurals, utf8_literal("regenerate_nonce"), field_token2);
         transition(Form::backup_key);
         return;
-    case Op::backup_codes: {
-        const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
-        g_owner.code_count = count == ~0u ? 0 : count;
+    case Op::backup_codes:
+        keep_codes(body, structurals);
         // A nonce works once: regenerating spends the second.
         if (g_owner.op_option) {
             secure_clear_bytes(b.fields[field_token2], b.field_bytes[field_token2]);
@@ -2236,46 +2295,14 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
         }
         transition(Form::backup_list);
         return;
-    }
-    case Op::totp_enable: {
+    case Op::totp_enable:
         adopt_token(body, structurals);
-        const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
-        g_owner.code_count = count == ~0u ? 0 : count;
+        keep_codes(body, structurals);
         g_owner.loaded &= ~load_self;
         set_status(SettingsPanel::account, utf8_literal("Your authenticator app is on. Save your backup codes."), false);
         transition(g_owner.code_count ? Form::new_codes : Form::none);
         if (!g_owner.code_count)
             clear_flow();
-        return;
-    }
-    case Op::password:
-    case Op::totp_disable:
-        adopt_token(body, structurals);
-        g_owner.loaded &= ~load_self;
-        finish(op == Op::password ? utf8_literal("Your password was changed.")
-                                  : utf8_literal("Your authenticator app was removed."),
-               false);
-        return;
-    case Op::username:
-    case Op::email:
-    case Op::phone_add:
-    case Op::phone_remove:
-    case Op::sms_enable:
-    case Op::sms_disable:
-    case Op::display_name:
-        g_owner.loaded &= ~load_self;
-        finish(op == Op::username      ? utf8_literal("Your username was changed.")
-               : op == Op::email       ? utf8_literal("Check your inbox to verify your new email address.")
-               : op == Op::phone_add   ? utf8_literal("Your phone number was updated.")
-               : op == Op::phone_remove ? utf8_literal("Your phone number was removed.")
-               : op == Op::sms_enable  ? utf8_literal("SMS authentication is on.")
-               : op == Op::sms_disable ? utf8_literal("SMS authentication was removed.")
-                                       : utf8_literal("Your changes were saved."),
-               false);
-        return;
-    case Op::profile_patch:
-        g_owner.loaded &= ~load_profile;
-        finish(utf8_literal("Your changes were saved."), false);
         return;
     case Op::security_key_create:
         if (!field(field_token2).bytes) {
@@ -2292,10 +2319,7 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
         }
         // The second: the new key, and the backup codes when it is the account's first way to verify.
         adopt_token(body, structurals);
-        {
-            const u32 count = account_settings_decode_backup_codes(body, structurals, {b.codes, kAccountBackupCodeMaximum});
-            g_owner.code_count = count == ~0u ? 0 : count;
-        }
+        keep_codes(body, structurals);
         g_owner.loaded &= ~(load_keys | load_self);
         set_status(SettingsPanel::account,
                    g_owner.code_count ? utf8_literal("Your security key was added. Save your backup codes.")
@@ -2305,37 +2329,11 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
         if (!g_owner.code_count)
             clear_flow();
         return;
-    case Op::security_key_rename:
-    case Op::security_key_delete:
-        g_owner.loaded &= ~(load_keys | load_self);
-        finish(op == Op::security_key_rename ? utf8_literal("The security key was renamed.")
-                                             : utf8_literal("The security key was removed."),
-               false);
-        return;
-    case Op::account_disable:
-    case Op::account_delete:
-        // Discord ends every session of the account: this one signs out when its connection closes.
-        finish(op == Op::account_disable ? utf8_literal("Your account was disabled.")
-                                         : utf8_literal("Your account is scheduled for deletion."),
-               false);
-        return;
     case Op::session_logout:
         g_owner.loaded &= ~load_sessions;
         finish(g_owner.form == Form::logout_all ? utf8_literal("All known devices were logged out.")
                                                 : utf8_literal("The device was logged out."),
                false);
-        return;
-    case Op::token_revoke:
-        g_owner.loaded &= ~load_tokens;
-        finish(utf8_literal("The app was deauthorized."), false);
-        return;
-    case Op::connection_delete:
-        g_owner.loaded &= ~load_connections;
-        finish(utf8_literal("The account was disconnected."), false);
-        return;
-    case Op::connection_patch:
-        // The switch already shows the new state.
-        finish({}, false);
         return;
     case Op::consent_patch:
         // The answer leaves usage_statistics out (Userdoccers: user-settings#consents-object).
@@ -2350,9 +2348,16 @@ __forceinline void action_succeeded(Op op, Utf8View body, Slice<u32> structurals
                             "30 days, but we'll email you when it's done."),
                false);
         return;
-    default:
-        finish({}, false);
+    case Op::password:
+    case Op::totp_disable:
+        adopt_token(body, structurals);
+        [[fallthrough]];
+    default: {
+        const Settled settled = kSettled.ops[static_cast<u32>(op)];
+        g_owner.loaded &= ~settled.reload;
+        finish(settled.line ? settled_line(settled.line) : Utf8View{}, false);
         return;
+    }
     }
 }
 } // namespace

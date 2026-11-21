@@ -12,12 +12,16 @@ MC_BUTTON(bell, surface::chat_bar, "Silent messages", "lucide/bell-off", .toggle
     show(ctx, !ctx.settings().silent);
 }
 
-static void show(Ctx& ctx, bool on) {
-    ctx.set_setting(Setting::silent, on);
+static void show_button(Ctx& ctx, bool on) {
     ButtonState look{};
     look.flags = on ? MC_BUTTON_ACTIVE : 0;
     look.tooltip = on ? Str("Silent messages: on") : Str("Silent messages: off");
     ctx.button<bell>(look);
+}
+
+static void show(Ctx& ctx, bool on) {
+    ctx.set_setting(Setting::silent, on);
+    show_button(ctx, on);
 }
 
 MC_COMMAND(silent, (Opt<bool> on), "Send messages without notifications", .args = {"On or off; omit to switch"}) {
@@ -33,8 +37,9 @@ static void pre_send(Ctx& ctx, Draft& draft) {
     if (ctx.settings().once)
         show(ctx, false);
 }
+// The button shows the saved state. Writing the same value again would save the settings file at every start.
 static void start(Ctx& ctx) {
-    show(ctx, ctx.settings().silent); // the button shows the saved state
+    show_button(ctx, ctx.settings().silent);
 }
 
 MC_HOOKS(pre_send);

@@ -24,12 +24,12 @@ struct ComposerNotice {
 };
 ComposerNotice g_notice;
 
-u64 channel_guild(u64 channel) noexcept {
+inline u64 channel_guild(u64 channel) noexcept {
     const auto* record = g_app.account_ui && channel ?
         chat_state_store_find_channel(g_app.account_ui->chat_state, channel) : nullptr;
     return record ? record->guild_id : 0;
 }
-void set_composer_notice(Utf8View text) noexcept {
+inline void set_composer_notice(Utf8View text) noexcept {
     g_notice.bytes = utf8_copy_truncated(g_notice.text, text);
     g_notice.until = g_notice.bytes ? clock_monotonic_milliseconds() + kComposerNoticeMs : 0;
 }
@@ -109,8 +109,8 @@ u32 application_plugins_composer_notice_wait(u64 now_ms) noexcept {
     return g_notice.until <= now_ms ? 0 : static_cast<u32>(minimum<u64>(g_notice.until - now_ms, 0x7FFFFFFFu));
 }
 
-void application_plugins_composer_notice_poll(u64 now_ms) noexcept {
-    if (!g_notice.bytes || now_ms < g_notice.until) return;
+void application_plugins_composer_notice_poll() noexcept {
+    if (!g_notice.bytes || clock_monotonic_milliseconds() < g_notice.until) return;
     g_notice.bytes = 0;
     if (g_app.account_ui) refresh_message_composer_ui();
 }

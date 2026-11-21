@@ -183,9 +183,6 @@ mc_status kv_remove(PluginKeyValue* kv, mc_str key, u64 now_ms) noexcept {
 }
 
 bool kv_load(PluginKeyValue* kv, const wchar_t* path) noexcept {
-    kv->loaded = true;
-    kv->count = 0;
-    kv->used = 0;
     HANDLE file = file_open(path, {FileAccess::read, FileCreate::existing, kFileShareRead,
                                    kFileSequential | kFileNoFollow});
     if (file == INVALID_HANDLE_VALUE) return thread_last_error() == ERROR_FILE_NOT_FOUND;

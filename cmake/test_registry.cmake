@@ -1369,6 +1369,12 @@ maicord_test(MaiCordAccountMenuRuntimeTests ONLY WINDOWS ENTRY maicord_account_m
     LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_account_menu_runtime)
+maicord_test(MaiCordAccountSwitchObserveTests ONLY WINDOWS ENTRY maicord_account_switch_observe_entry
+    SOURCES tests/app/account/account_switch_observe.cpp src/app/account/application_account_switch.cpp
+        src/app/account/account_inventory.cpp src/app/shell/state.cpp src/core/log.cpp
+    LIBS ${maicord_headless_test_libs} maicord_message_runtime kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10 TEST maicord_account_switch_observe)
 maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
     SOURCES ${maicord_account_fake}
     SOURCES tests/ui/account/dm_profile_panel.cpp src/app/account/dm_profile.cpp src/app/chat/private_header.cpp

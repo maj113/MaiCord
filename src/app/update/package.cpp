@@ -96,13 +96,13 @@ bool regular(HANDLE file, u64 bytes, UpdatePackageResult* status) noexcept {
 bool zip(Reader& reader, Member* member) noexcept {
     constexpr u32 name_bytes = kUpdatePackageExecutable.bytes;
     if (reader.bytes < 22 || reader.bytes > kUpdatePackageMaximumBytes) return reader.fail(UpdatePackageError::zip);
-    u8 end[22]{};
+    u8 end[22];
     if (!reader.read(reader.bytes - 22, end, sizeof(end))) return false;
     const u64 central = dword(end + 16), central_bytes = dword(end + 12);
     if (dword(end) != 0x06054b50 || word(end + 4) || word(end + 6) || word(end + 8) != 1 || word(end + 10) != 1 ||
         word(end + 20) || central > reader.bytes - 22 || central_bytes != reader.bytes - 22 - central)
         return reader.fail(UpdatePackageError::zip);
-    u8 local[30]{}, record[46]{}, name[name_bytes]{}, central_name[name_bytes]{};
+    u8 local[30], record[46], name[name_bytes], central_name[name_bytes];
     if (!reader.read(0, local, sizeof(local)) || !reader.read(central, record, sizeof(record))) return false;
     const u16 version = word(local + 4);
     const u64 bytes = dword(local + 22);
@@ -137,7 +137,7 @@ struct Pe {
     // The entry point's first byte lies in an executable section's raw data.
     bool entry_executable(u32 rva) noexcept {
         for (u32 i = 0; i < count; ++i) {
-            u8 sec[40]{}; if (!section(i, sec)) return false;
+            u8 sec[40]; if (!section(i, sec)) return false;
             const u64 start = dword(sec + 12), raw = dword(sec + 16);
             if (rva >= start && rva - start < raw && (dword(sec + 36) & IMAGE_SCN_MEM_EXECUTE)) return true;
         }
@@ -146,7 +146,7 @@ struct Pe {
     // An AMD64 executable image (not a DLL) whose entry point lies in an
     // executable section and whose sections stay within the file and image.
     bool verify() noexcept {
-        u8 dos[64]{}, nt[264]{};
+        u8 dos[64], nt[264];
         if (!read(0, dos, sizeof(dos)) || word(dos) != IMAGE_DOS_SIGNATURE) return false;
         const u32 pe = dword(dos + 60);
         if (pe < 64 || !read(pe, nt, sizeof(nt)) || dword(nt) != IMAGE_NT_SIGNATURE ||
@@ -157,14 +157,14 @@ struct Pe {
         if (!count || count > kUpdatePackageMaximumSections || sections > bytes || count * 40 > bytes - sections ||
             headers < sections + count * 40 || headers > bytes || !dword(nt + 80)) return false;
         for (u32 i = 0; i < count; ++i) {
-            u8 a[40]{}; if (!section(i, a)) return false;
+            u8 a[40]; if (!section(i, a)) return false;
             const u64 raw = dword(a + 16), start = dword(a + 20), va = dword(a + 12);
             const u64 virtual_bytes = maximum<u64>(dword(a + 8), raw);
             if ((raw && (start < headers || start > bytes || raw > bytes - start)) ||
                 (virtual_bytes && va < headers) ||
                 va + virtual_bytes > dword(nt + 80)) return false;
             for (u32 j = 0; j < i; ++j) {
-                u8 b[40]{}; if (!section(j, b)) return false;
+                u8 b[40]; if (!section(j, b)) return false;
                 const u64 other_raw = dword(b + 16), other_start = dword(b + 20), other_va = dword(b + 12);
                 const u64 other_virtual = maximum<u64>(dword(b + 8), other_raw);
                 if ((raw && other_raw && start < other_start + other_raw && other_start < start + raw) ||
@@ -195,7 +195,7 @@ bool inspect(Reader& reader, const UpdateManifest& manifest, Member* member, u8*
 }
 bool readback(HANDLE file, u64 bytes, const u8* sha256, Reader& reader) noexcept {
     reader.file = file; reader.bytes = bytes; reader.cursor = Reader::kUnknownCursor;
-    u8 digest[32]{};
+    u8 digest[32];
     if (!regular(file, bytes, &reader.status) || !reader.stream(0, bytes, digest, nullptr)) return false;
     if (!bytes_equal(digest, sha256, 32)) return reader.fail(UpdatePackageError::digest);
     return image(reader, 0, bytes);
@@ -235,7 +235,7 @@ UpdatePackageResult update_package_extract(UpdateArtifact* source, const UpdateP
     if (created == INVALID_HANDLE_VALUE) { reader.fail(UpdatePackageError::create, thread_last_error()); return finish(reader, owned, 2); }
     owned[0] = created;
     if (!regular(owned[0], 0, &reader.status)) return finish(reader, owned, 2);
-    u8 digest[32]{};
+    u8 digest[32];
     if (!reader.stream(member.data, member.bytes, digest, nullptr, owned[0])) return finish(reader, owned, 2);
     if (!bytes_equal(digest, candidate.sha256, 32)) { reader.fail(UpdatePackageError::digest); return finish(reader, owned, 2); }
     if (!file_flush(owned[0])) { reader.fail(UpdatePackageError::flush, thread_last_error()); return finish(reader, owned, 2); }

@@ -7,6 +7,7 @@
 // a synthetic preview build. Nothing here contacts the network.
 #include "maicord/app/update/service.hpp"
 #include "../../support/settings_schema_validation.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/app/update/log.hpp"
 #include "update/updates.hpp"
@@ -1575,6 +1576,61 @@ void test_hidden_page_forgets_rows() noexcept {
         "hidden updates page: releasing the changelog rows clears the rows projected from them");
 }
 
+// The worker thread runs only while it has work. A configured updater starts no thread; the loop's wake time is the
+// fallback check. The first frame's request runs the thread once: it schedules the first check and ends, which
+// publishes the next wake time again. An interval change runs it once more and saves the choice. No check comes due
+// here, so nothing reaches the network.
+void test_worker_on_demand() noexcept {
+    using namespace app_detail;
+    static Temp t{};
+    wchar_t saved[MAX_PATH]{};
+    const DWORD saved_count = GetEnvironmentVariableW(L"LOCALAPPDATA", saved, MAX_PATH);
+    const bool isolated = temporary_root(&t) && SetEnvironmentVariableW(L"LOCALAPPDATA", t.base);
+    struct Cleanup {
+        const wchar_t* saved;
+        bool restore;
+        ~Cleanup() noexcept {
+            application_updates_release(false);
+            SetEnvironmentVariableW(L"LOCALAPPDATA", restore ? saved : nullptr);
+            remove_root(t);
+        }
+    } cleanup{saved, saved_count != 0 && saved_count < MAX_PATH};
+    constexpr char key[] = "04"
+        "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+        "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5";
+    UpdateServiceConfig config{};
+    UpdatePaths paths{};
+    check(isolated && update_service_config(utf8_literal("owner/repo"), {key, sizeof(key) - 1}, 1002003004, &config) &&
+              application_updates_initialize(config, {}) && update_paths_default(&paths),
+          "updater on demand: a configured updater starts in a temporary profile");
+    if (!isolated) return;
+    // A run sets the wake time to 0 as it starts and publishes the next one as it ends. The deadline only bounds a
+    // failure.
+    const auto ended = []() noexcept {
+        for (const u64 deadline = clock_monotonic_milliseconds() + 5000; clock_monotonic_milliseconds() < deadline;) {
+            if (application_updates_next_wake()) return true;
+            Sleep(1);
+        }
+        return false;
+    };
+    u64 now = clock_monotonic_milliseconds();
+    const u64 fallback = application_updates_next_wake();
+    check(fallback >= now + 59'000 && fallback <= now + 181'000,
+          "updater on demand: no thread runs at start, and the loop waits for the fallback check");
+    application_updates_tick(now);
+    check(application_updates_next_wake() == fallback, "updater on demand: a loop turn before the check starts nothing");
+    application_updates_ready();
+    now = clock_monotonic_milliseconds();
+    const bool first = ended();
+    const u64 next = application_updates_next_wake();
+    check(first && next >= now + 4'000 && next <= now + 16'000,
+          "updater on demand: the first frame runs the thread once, and it schedules the first check 5 to 15 s away");
+    const u32 choice = update_interval_load(paths, kUpdateDefaultCheckInterval) == UpdateCheckInterval::hour ? 1u : 0u;
+    check(application_updates_activate(SettingBinding::update_interval, choice) && ended() &&
+              update_interval_load(paths, kUpdateDefaultCheckInterval) == static_cast<UpdateCheckInterval>(choice),
+          "updater on demand: an interval change runs the thread once more, and it saves the choice");
+}
+
 } // namespace
 } // namespace maicord
 
@@ -1587,6 +1643,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_http_reader();
     maicord::test_settings_rows();
     maicord::test_hidden_page_forgets_rows();
+    maicord::test_worker_on_demand();
     maicord::test_check_schedule();
     maicord::test_interval_store();
     maicord::test_changelog_cache();

@@ -77,7 +77,7 @@ bool application_login_paste() noexcept {
         return true;
     }
     if (login_phone_mode(g_app.login.status)) {
-        char digits[kLoginPhoneCodeDigits]{};
+        char digits[kLoginPhoneCodeDigits];
         const auto pasted = clipboard_read_utf8({digits, kLoginPhoneCodeDigits});
         const auto result = pasted.ok() && pasted.bytes ? application_phone_insert_utf8(edit, {digits, pasted.bytes}) : SecureEditResult::unchanged;
         SecureZeroMemory(digits, sizeof(digits));

@@ -514,6 +514,7 @@ void test_samples(PluginRuntime* runtime, const Root& root) noexcept {
     check(toggle.ok(), "the silent-toggle sample is enabled");
     if (toggle.ok()) {
         PluginBinding* binding = toggle.binding;
+        check(!binding->settings_dirty, "starting the sample leaves its settings unwritten");
         check(draft("hello").flags == 0 && draft("hello").verdict == PluginDraftVerdict::keep, "silent mode starts off");
         check(plugin_binding_set_setting(binding, 0, &on, 1) == MC_OK, "the silent setting turns on");
         const PluginDraftResult silent = draft("hello");

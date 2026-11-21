@@ -286,7 +286,7 @@ bool toggle_detection(u32 entry) noexcept {
     return registered_games_save(g_games);
 }
 // "Last played 3 days ago", with the official client's relative-time thresholds (moment's fromNow).
-Utf8View played_text(u64 played_ms, char (&output)[kPlayedTextBytes]) noexcept {
+inline Utf8View played_text(u64 played_ms, char (&output)[kPlayedTextBytes]) noexcept {
     // The spans in order: below which the text applies and the unit counted before it (1: none).
     struct Span {
         u64 below, unit;

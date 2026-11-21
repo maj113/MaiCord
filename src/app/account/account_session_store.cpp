@@ -92,12 +92,13 @@ bool encode(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSes
     return true;
 }
 
+// Fills the caller's zeroed snapshot and heartbeat. The caller drops them when this fails.
 bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_flags, u32 version,
             GatewayUserSessionSnapshot* snapshot, ClientHeartbeatSession* heartbeat,
             CookieJar* cookies) noexcept {
     const u32 heartbeat_bytes = (expected_flags & kFlagHeartbeat) ? kHeartbeatBytes : 0;
     const bool has_cookies = (expected_flags & kFlagCookies) != 0;
-    if (!snapshot || payload.bytes < kPayloadHeaderBytes || byte_load_le32(payload.data) != version ||
+    if (payload.bytes < kPayloadHeaderBytes || byte_load_le32(payload.data) != version ||
         byte_load_le32(payload.data + 4) != expected_flags ||
         byte_load_le64(payload.data + 8) != expected_profile_id || (heartbeat_bytes && version < 3) ||
         (has_cookies && version < 4)) {
@@ -113,7 +114,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
         cookie_offset + (has_cookies ? 4ull + cookie_bytes : 0) != payload.bytes) {
         return false;
     }
-    ClientHeartbeatSession restored{};
+    ClientHeartbeatSession& restored = *heartbeat;
     if (heartbeat_bytes) {
         const u8* record = payload.data + kPayloadHeaderBytes + session_bytes + url_bytes;
         restored.created_ms = byte_load_le64(record);
@@ -123,7 +124,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
         if (!client_heartbeat_session_valid(restored))
             return false;
     }
-    GatewayUserSessionSnapshot decoded{};
+    GatewayUserSessionSnapshot& decoded = *snapshot;
     decoded.profile_id = expected_profile_id;
     decoded.self_user_id = byte_load_le64(payload.data + 32);
     if ((expected_flags & kFlagResume) != 0) {
@@ -144,13 +145,9 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
     } else if (session_bytes != 0 || url_bytes != 0 || byte_load_le64(payload.data + 16) != 0) {
         return false;
     }
-    if (has_cookies && cookies &&
-        !cookie_jar_decode_persistent(cookies, {payload.data + cookie_offset + 4, cookie_bytes},
-                                      clock_unix_milliseconds()))
-        return false;
-    *snapshot = decoded;
-    *heartbeat = restored;
-    return true;
+    return !has_cookies || !cookies ||
+           cookie_jar_decode_persistent(cookies, {payload.data + cookie_offset + 4, cookie_bytes},
+                                        clock_unix_milliseconds());
 }
 
 void write_header(u8* output, u32 total_bytes, u32 protected_bytes, u32 flags, u64 profile_id) noexcept {
@@ -164,10 +161,8 @@ void write_header(u8* output, u32 total_bytes, u32 protected_bytes, u32 flags, u
     byte_store_le32(output + 36, 0);
 }
 
+// The file holds at least a header: the read admits no shorter one.
 bool parse_header(ConstSlice<u8> file, u64 expected_profile_id, u32* flags, u32* protected_bytes) noexcept {
-    if (!flags || !protected_bytes || file.count < kHeaderBytes) {
-        return false;
-    }
     for (u32 index = 0; index < sizeof(kMagic); ++index) {
         if (file[index] != kMagic[index]) {
             return false;

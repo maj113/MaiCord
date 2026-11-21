@@ -834,12 +834,11 @@ CatalogIndexResult catalog_index_verify(Utf8View document, ConstSlice<u8> signat
     }
     for (u32 i = 0; i < keys.count; ++i)
         if (!keys[i] || !keys[i]->handle || keys[i]->kind != P256Kind::ecdsa) return {E::invalid_input};
-    clear_bytes(output, sizeof(*output));
     if (!document.bytes || document.bytes > kCatalogIndexMaximumBytes) return {E::size};
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kCatalogIndexSignatureDomain.data), kCatalogIndexSignatureDomain.bytes},
         {reinterpret_cast<const u8*>(document.data), document.bytes}};
-    u8 digest[32]{};
+    u8 digest[32];
     if (!sha256(workspace, {parts, 2}, {digest, 32}).ok()) return {E::invalid_input};
     bool trusted = false;
     for (u32 i = 0; i < keys.count && !trusted && signature.count == 64; ++i)

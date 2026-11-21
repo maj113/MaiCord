@@ -60,10 +60,8 @@ void write_header(u8* output, u32 total_bytes, u32 protected_bytes,
     byte_store_le64(output + 40, 0);
 }
 
+// The file holds at least a header: the read admits no shorter one.
 bool parse_header(ConstSlice<u8> file, AccountProfileMetadata* metadata, u32* protected_bytes) noexcept {
-    if (!metadata || !protected_bytes || file.count < kProfileHeaderBytes) {
-        return false;
-    }
     for (u32 index = 0; index < 8; ++index) {
         if (file[index] != kProfileMagic[index]) {
             return false;

@@ -17,7 +17,7 @@ LoginMfaCodeResult code_failure(LoginMfaCodeError error) noexcept {
     return LoginMfaCodeResult{0, error};
 }
 
-bool printable_ascii(u8 value) noexcept {
+inline bool printable_ascii(u8 value) noexcept {
     return value >= 0x20u && value <= 0x7Eu;
 }
 

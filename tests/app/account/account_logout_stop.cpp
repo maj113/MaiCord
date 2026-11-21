@@ -87,12 +87,13 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
         "logout stop: invalid or unbounded requests cannot acquire host ownership");
     AccountHostStopResult result{};
     result.native_error = 91;
-    result.error = AccountHostError::module_release;
+    // A value no stop returns: the calls below must leave it alone.
+    result.error = AccountHostError::module_symbol;
     check(!account_logout_stop_take(nullptr, &result) && !account_logout_stop_take(&held->owner, &result) &&
         !account_logout_stop_join_for_shutdown(nullptr, 0, &result) &&
         !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
         account_logout_stop_join_for_shutdown(&held->owner, 0, &result) && result.native_error == 91 &&
-        result.error == AccountHostError::module_release,
+        result.error == AccountHostError::module_symbol,
         "logout stop: idle poll and bounded idempotent shutdown preserve unpublished outputs");
     const auto started = account_logout_stop_start(&held->owner, &held->host, 250, 1234, 5678, held_stop);
     check(started.ok(), "logout stop: start returns while the fake host stop is still gated");
@@ -115,7 +116,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
         !account_logout_stop_join_for_shutdown(&held->owner, 1, &result) &&
         !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
         same_live(held->owner, completion, &held->host) && result.native_error == 91 &&
-        result.error == AccountHostError::module_release && read_acquire(&held->calls) == 1,
+        result.error == AccountHostError::module_symbol && read_acquire(&held->calls) == 1,
         "logout stop: duplicate, 64 pending polls and cancelled bounded joins retain all context and unpublished result");
     SetEvent(held->allowed);
     const bool terminal = WaitForSingleObject(completion, 3'000) == WAIT_OBJECT_0;

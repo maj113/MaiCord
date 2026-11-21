@@ -59,7 +59,7 @@ const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
 }
 // The caller's own status for private member rows; unknown until the session
 // reports it for this account.
-GuildMemberStatus self_member_status(const AccountUiRuntime& ui) noexcept {
+inline GuildMemberStatus self_member_status(const AccountUiRuntime& ui) noexcept {
     const auto status = application_self_status_snapshot();
     return status.authoritative && status.profile_id == g_app.account.status.profile_id &&
                    status.self_user_id == ui.chat_state.self_user_id && status.status <= GatewayUserStatus::invisible

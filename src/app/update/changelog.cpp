@@ -135,7 +135,7 @@ UpdateChangelogError update_changelog_verify(Utf8View document, ConstSlice<u8> s
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kUpdateChangelogSignatureDomain.data), kUpdateChangelogSignatureDomain.bytes},
         {reinterpret_cast<const u8*>(document.data), document.bytes}};
-    u8 hashed[32]{};
+    u8 hashed[32];
     if (!sha256(workspace, {parts, 2}, {hashed, sizeof(hashed)}).ok() ||
         !p256_verify_digest(trusted_key, {hashed, sizeof(hashed)}, signature).ok())
         return UpdateChangelogError::signature;

@@ -272,7 +272,7 @@ bool send_frame(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, WebS
 // Sends the opening request and validates the response. The caller erases the key.
 bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
                                 ConstSlice<u8> client_key, u32* native_error) noexcept {
-    u8 request[1024]{};
+    u8 request[1024];
     const WebSocketHandshakeWriteResult written = websocket_write_opening_request(
         bytes("/?v=2"), bytes(kRemoteAuthHost), client_key,
         Slice<u8>{request, static_cast<u32>(sizeof(request))});
@@ -299,8 +299,8 @@ bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntim
 bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
                     u32* native_error) noexcept {
     publish_phase(client, RemoteAuthClientPhase::websocket_opening);
-    u8 nonce[kWebSocketNonceBytes]{};
-    u8 client_key[kWebSocketClientKeyBytes]{};
+    u8 nonce[kWebSocketNonceBytes];
+    u8 client_key[kWebSocketClientKeyBytes];
     const SecureRandomResult random = secure_random_fill(Slice<u8>{nonce, static_cast<u32>(sizeof(nonce))});
     const WebSocketHandshakeWriteResult encoded =
         random.ok()
@@ -318,7 +318,7 @@ bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
 }
 
 void store_qr(RemoteAuthClient* client, Utf8View fingerprint) noexcept {
-    char qr[kRemoteAuthQrUrlBytes]{};
+    char qr[kRemoteAuthQrUrlBytes];
     const RemoteAuthWriteResult written =
         remote_auth_write_qr_url(fingerprint, Slice<char>{qr, static_cast<u32>(sizeof(qr))});
     if (!written.ok() || written.bytes != kRemoteAuthQrUrlBytes) {
@@ -419,8 +419,8 @@ bool submit_ticket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, U
 bool handle_message(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, ConstSlice<u8> message,
                     bool* ticket_ready, u32* native_error, RemoteAuthClientError* client_error,
                     RemoteAuthHandshakeResult* failure) noexcept {
-    char command[kRemoteAuthMaximumCommandBytes]{};
-    char data[kRemoteAuthMaximumTicketBytes]{};
+    char command[kRemoteAuthMaximumCommandBytes];
+    char data[kRemoteAuthMaximumTicketBytes];
     RemoteAuthHandshakeEvent event{};
     *failure = remote_auth_handshake_handle(
         &runtime->handshake,
@@ -516,7 +516,7 @@ bool tick_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
         runtime->handshake.phase > RemoteAuthHandshakePhase::ticket_ready) {
         return true;
     }
-    char command[kRemoteAuthMaximumCommandBytes]{};
+    char command[kRemoteAuthMaximumCommandBytes];
     RemoteAuthHandshakeEvent event{};
     *failure = remote_auth_handshake_tick(&runtime->handshake, clock_monotonic_milliseconds(),
                                           Slice<char>{command, static_cast<u32>(sizeof(command))}, &event);

@@ -394,18 +394,18 @@ bool application_custom_status_open() noexcept {
     f.had_status = known;
     u32 emoji = 0;
     if (known && current.emoji_id) {
+        // "<:" name ":" id ">": a name of at most kSelfCustomStatusEmojiBytes and 20 digits always fit.
+        static_assert(kSelfCustomStatusEmojiBytes + 20 + 4 <= kEmojiInputBytes);
         char digits[20];
         const u32 count = decimal_write(digits, current.emoji_id);
-        if (current.emoji_name_bytes + count + 3 <= sizeof(f.emoji)) {
-            f.emoji[emoji++] = '<';
-            f.emoji[emoji++] = ':';
-            copy_bytes(f.emoji + emoji, current.emoji_name, current.emoji_name_bytes);
-            emoji += current.emoji_name_bytes;
-            f.emoji[emoji++] = ':';
-            copy_bytes(f.emoji + emoji, digits, count);
-            emoji += count;
-            f.emoji[emoji++] = '>';
-        }
+        f.emoji[emoji++] = '<';
+        f.emoji[emoji++] = ':';
+        copy_bytes(f.emoji + emoji, current.emoji_name, current.emoji_name_bytes);
+        emoji += current.emoji_name_bytes;
+        f.emoji[emoji++] = ':';
+        copy_bytes(f.emoji + emoji, digits, count);
+        emoji += count;
+        f.emoji[emoji++] = '>';
     } else if (known) {
         copy_bytes(f.emoji, current.emoji_name, current.emoji_name_bytes);
         emoji = current.emoji_name_bytes;

@@ -1,5 +1,6 @@
 #include "profile_editor_internal.hpp"
 #include "../media/file_over_limit.hpp"
+#include "maicord/app/net/file_persistence.hpp"
 #include "maicord/os/file.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "profile_editor.hpp"
@@ -39,28 +40,23 @@ bool read_image(Pick pick, ConstSlice<wchar_t> path, FileSnapshot snapshot, Utf8
         release_picked(staged);
         return false;
     }
-    auto* data = static_cast<u8*>(
-        commit_pages(static_cast<SIZE_T>(size)));
-    u32 total = 0;
-    while (data && total < size) {
-        u32 read = 0;
-        if (!file_read(file, data + total, static_cast<u32>(size - total), &read) || !read)
-            break;
-        total += read;
-    }
+    const u32 bytes = static_cast<u32>(size);
+    auto* data = static_cast<u8*>(commit_pages(bytes));
+    u32 native_error = 0;
+    const bool read = data && file_persistence_read_complete(file, {data, bytes}, &native_error);
     if (!snapshot.bytes)
         file_snapshot_read(file, &snapshot);
     file_close(file);
-    if (!data || total != size) {
+    if (!read) {
         if (data)
             pages_release(data);
         release_picked(staged);
         return false;
     }
     staged.data = data;
-    staged.bytes = total;
+    staged.bytes = bytes;
     ProfileImageRequest request{};
-    request.source = {data, total};
+    request.source = {data, bytes};
     request.info = &staged.info;
     if (!account_module_profile_image(g_app.account.instance, &request)) {
         *error = image_error(staged.info.error);
@@ -569,6 +565,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
                             : fonts                          ? profile_name_font_index(style.font)
                                                              : profile_name_effect_index(style.effect);
         PopupItem items[kProfileNameFontCount];
+        static_assert(kProfileNameEffectCount <= kProfileNameFontCount);
         const u32 count = fonts ? kProfileNameFontCount : kProfileNameEffectCount;
         NameList name{fonts ? kProfileNameFontNames : kProfileNameEffectNames};
         for (u32 i = 0; i < count; ++i, name.next())

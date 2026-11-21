@@ -20,7 +20,6 @@ enum class AccountHostError : u8 {
     active,
     login_stop,
     account_stop,
-    module_release,
 };
 
 struct AccountHostResult {

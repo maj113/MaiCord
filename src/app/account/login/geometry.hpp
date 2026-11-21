@@ -51,7 +51,7 @@ inline SecureEditResult application_phone_replace(SecureEdit* edit, u32 first, u
         return SecureEditResult::invalid_input;
     for (u32 i = 0; i < input.count; ++i)
         if (input[i] < '0' || input[i] > '9') return SecureEditResult::invalid_input;
-    char cells[kLoginPhoneCodeDigits]{};
+    char cells[kLoginPhoneCodeDigits];
     for (u32 i = 0; i < kLoginPhoneCodeDigits; ++i) cells[i] = application_phone_cell(*edit, i);
     const u32 finish = maximum(last, first + input.count);
     for (u32 i = first; i < last; ++i) cells[i] = ' ';
@@ -107,7 +107,7 @@ inline TextInputTarget application_phone_input_target(SecureEdit* edit) noexcept
 
 inline SecureEditResult application_phone_insert_utf8(SecureEdit* edit, Utf8View text) noexcept {
     if (!edit || !login_phone_code_valid(text, false)) return SecureEditResult::invalid_input;
-    u16 digits[kLoginPhoneCodeDigits]{};
+    u16 digits[kLoginPhoneCodeDigits];
     for (u32 i = 0; i < text.bytes; ++i) digits[i] = static_cast<u16>(text.data[i]);
     TextInputChange change{};
     const auto result = text_input_replace(application_phone_input_target(edit), minimum(edit->anchor, edit->caret),

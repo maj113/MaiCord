@@ -19,7 +19,7 @@ namespace maicord::app_detail {
 
 namespace {
 
-SecureTextInputScope active_input_scope(const Application& application, const SecureEdit* edit) noexcept {
+inline SecureTextInputScope active_input_scope(const Application& application, const SecureEdit* edit) noexcept {
     if (edit == &application.login.login) {
         return SecureTextInputScope::login_name;
     }

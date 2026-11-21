@@ -40,7 +40,7 @@ struct SwitchOwner {
     u32 observed_slot;
     u32 observed_revision;
     u32 inventory_revision;
-    u32 return_revision;
+    u32 return_revision, return_slot;
     LoginStatus return_status;
     u64 confirm_serial;
     u64 confirm_user;
@@ -300,14 +300,18 @@ ApplicationTextFormProgress confirm_progress(TextFormOwnerKey key) noexcept {
             true};
 }
 
-u32 append(char* output, u32 used, u32 capacity, const char* text, u32 bytes) noexcept {
-    return used + utf8_copy_truncated(output + used, capacity - used, {text, bytes});
-}
-u32 append(char* output, u32 used, u32 capacity, const Utf8View& text) noexcept {
-    return append(output, used, capacity, text.data, text.bytes);
-}
-template <u32 N> u32 append(char* output, u32 used, u32 capacity, const char (&text)[N]) noexcept {
-    return append(output, used, capacity, text, N - 1);
+constexpr Utf8View kTitleLead = utf8_literal("Log out of ");
+constexpr Utf8View kContextLead = utf8_literal("You'll have to log in to ");
+constexpr Utf8View kContextTail = utf8_literal(" again later.");
+// The longest name is a display name: a username and "this account" are shorter.
+static_assert(kAccountInventoryUsernameBytes <= kAccountInventoryDisplayNameBytes);
+static_assert(kTitleLead.bytes + kAccountInventoryDisplayNameBytes + 1 <= kConfirmTitleBytes);
+static_assert(kContextLead.bytes + kAccountInventoryDisplayNameBytes + kContextTail.bytes <= kConfirmContextBytes);
+
+// Writes text at output + used and returns the new length. The asserts above make every text fit.
+u32 append(char* output, u32 used, const Utf8View& text) noexcept {
+    copy_bytes(output + used, text.data, text.bytes);
+    return used + text.bytes;
 }
 
 bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
@@ -321,12 +325,12 @@ bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
     const Utf8View display = account_inventory_display_name(entry);
     const Utf8View username = account_inventory_username(entry);
     const Utf8View name = display.bytes ? display : username.bytes ? username : utf8_literal("this account");
-    u32 title = append(g_switch.confirm_title, 0, kConfirmTitleBytes - 1, "Log out of ");
-    title = append(g_switch.confirm_title, title, kConfirmTitleBytes - 1, name);
-    title = append(g_switch.confirm_title, title, kConfirmTitleBytes, "?");
-    u32 context = append(g_switch.confirm_context, 0, kConfirmContextBytes, "You'll have to log in to ");
-    context = append(g_switch.confirm_context, context, kConfirmContextBytes - 12, username.bytes ? username : name);
-    context = append(g_switch.confirm_context, context, kConfirmContextBytes, " again later.");
+    u32 title = append(g_switch.confirm_title, 0, kTitleLead);
+    title = append(g_switch.confirm_title, title, name);
+    title = append(g_switch.confirm_title, title, utf8_literal("?"));
+    u32 context = append(g_switch.confirm_context, 0, kContextLead);
+    context = append(g_switch.confirm_context, context, username.bytes ? username : name);
+    context = append(g_switch.confirm_context, context, kContextTail);
     ApplicationTextFormRequest request{};
     request.title = {g_switch.confirm_title, title};
     request.context = {g_switch.confirm_context, context};
@@ -391,9 +395,16 @@ bool login_escape_reserved() noexcept {
 // A rejected token marks its entry; an idle sign-in screen offers Esc back
 // to another saved account.
 void observe_signed_out() noexcept {
-    if (g_app.account.instance || !g_app.login.visible || application_account_logout_locked())
+    if (g_app.account.instance || !g_app.login.visible || application_account_logout_locked()) {
+        g_switch.return_known = false;
         return;
+    }
     const u32 slot = selected();
+    // The profile files and the offer change only with the slot, the status or a saved inventory (a session in
+    // between observes again): the files are read once for each of them, not on each loop turn.
+    if (g_switch.return_known && g_switch.return_revision == g_switch.inventory_revision &&
+        g_switch.return_status == g_app.login.status && g_switch.return_slot == slot)
+        return;
     if (g_app.login.status == LoginStatus::session_expired) {
         auto* entry = entry_for(slot);
         if (entry && !(entry->flags & account_inventory_needs_login) && !slot_profile_present(slot)) {
@@ -401,12 +412,10 @@ void observe_signed_out() noexcept {
             save_inventory();
         }
     }
-    if (g_switch.return_known && g_switch.return_revision == g_switch.inventory_revision &&
-        g_switch.return_status == g_app.login.status)
-        return;
     g_switch.return_known = true;
     g_switch.return_revision = g_switch.inventory_revision;
     g_switch.return_status = g_app.login.status;
+    g_switch.return_slot = slot;
     u32 other = 0;
     const bool offer = !g_switch.add_mode && !login_escape_reserved() && most_recent_saved(slot, &other);
     if (g_app.login_scene.account_return != offer) {

@@ -243,7 +243,7 @@ void start_pick(u8 purpose) noexcept {
 }
 
 // The page's dev folder in Explorer.
-void open_folder_command() noexcept {
+inline void open_folder_command() noexcept {
     const Utf8View folder = application_catalog_dev_folder(page().kind == CatalogKind::plugin ? 0 : 1);
     wchar_t path[MAX_PATH];
     const int n = folder.bytes ? utf8_to_utf16(folder.data, static_cast<int>(folder.bytes), path, MAX_PATH - 1, false) : 0;
@@ -576,8 +576,9 @@ u64 sources_stamp() noexcept {
     const CatalogView& view = application_catalog_view();
     const auto theme = application_custom_theme_view();
     const PackageStatus status = application_packages_status();
+    const i32 chosen = application_effects_selected_index();
     u64 h = view.revision * 0x9E3779B97F4A7C15ull;
-    h ^= (static_cast<u64>(application_effects_count()) << 20) ^ static_cast<u64>(application_effects_selected_index() + 1);
+    h ^= (static_cast<u64>(application_effects_count()) << 20) ^ static_cast<u64>(chosen + 1);
     h = h * 31 + theme.revision + (theme.custom_active ? 1 : 0) + (theme.previewing ? 2 : 0);
     h = h * 31 + status.revision + static_cast<u64>(status.phase);
     h = h * 31 + (g_app.preferences.developer_mode ? 1 + 2 * static_cast<u64>(application_dev_console_revision()) : 0);
@@ -586,7 +587,7 @@ u64 sources_stamp() noexcept {
     // A measured cost arrives a few frames after its effect starts drawing.
     const EffectCost trial_cost = application_packages_preview_cost();
     h = h * 31 + (trial_cost.known ? 1 : 0) + (trial_cost.refused ? 2 : 0) + static_cast<u64>(application_effects_trial_state()) * 4;
-    if (const i32 chosen = application_effects_selected_index(); chosen >= 0) {
+    if (chosen >= 0) {
         const EffectCost cost = application_effects_cost(application_effects_identity(static_cast<u32>(chosen)));
         h = h * 31 + (cost.known ? 1 : 0) + (cost.refused ? 2 : 0) + static_cast<u64>(cost.level) * 4 + static_cast<u64>(cost.milliseconds * 10.f);
     }
@@ -1049,7 +1050,7 @@ void handle_event(const UiStoreEvent& event, bool commit) noexcept {
         act(event.action, event.anchor);
 }
 
-bool menu_pointer(PointerStep step, float x, float y) noexcept {
+inline bool menu_pointer(PointerStep step, float x, float y) noexcept {
     const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
     if (!hit.inside && step == PointerStep::press) {
         close_menu();

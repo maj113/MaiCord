@@ -214,7 +214,6 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
     if (host->login_instance) {
         result.login_status = account_host_login_stop(host, timeout_ms);
         if (host->login_instance) {
-            host->stop_failed = true;
             result.native_error = result.login_status.native_error;
             result.error = AccountHostError::login_stop;
             return result;
@@ -245,10 +244,9 @@ u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) n
     if (!host->module) {
         return 0;
     }
-    HANDLE staged[kAccountHostNotificationHandleCapacity]{};
     u32 count = 0;
     if (host->instance && !host->stop_failed) {
-        count = account_module_notification_handles(host->instance, staged, capacity);
+        count = account_module_notification_handles(host->instance, output, capacity);
         if (count > capacity) {
             return 0;
         }
@@ -257,13 +255,12 @@ u32 account_host_notification_handles(const AccountHost* host, HANDLE* output) n
         const HANDLE login = account_module_login_notification_handle(host->login_instance);
         bool duplicate = false;
         for (u32 index = 0; index < count; ++index) {
-            duplicate = duplicate || staged[index] == login;
+            duplicate = duplicate || output[index] == login;
         }
         if (login && !duplicate) {
-            staged[count++] = login;
+            output[count++] = login;
         }
     }
-    copy_bytes(output, staged, count * static_cast<u32>(sizeof(HANDLE)));
     return count;
 }
 

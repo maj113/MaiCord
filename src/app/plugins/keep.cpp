@@ -135,8 +135,8 @@ bool valid(const KeepMessage& message) noexcept {
            utf8_validate(message.author_name).valid;
 }
 
-Record* claim(const KeepMessage& message) noexcept {
-    Record* existing = find(message.message_id);
+// existing: find(message.message_id), which the caller has already looked up.
+Record* claim(const KeepMessage& message, Record* existing) noexcept {
     if (existing) return existing;
     u32 in_channel = 0;
     for (const auto& record : g_store->records)
@@ -173,7 +173,7 @@ bool keep_deleted(const KeepMessage& message) noexcept {
     if (!valid(message) || !ensure()) return false;
     Record* existing = find(message.message_id);
     if (existing && existing->deleted) return true;
-    Record* record = claim(message);
+    Record* record = claim(message, existing);
     if (!record) return false;
     if (!existing) {
         fill(record, message);
@@ -190,7 +190,7 @@ bool keep_edited(const KeepMessage& before, const Utf8View& after, u64 edited_ms
     if (!valid(before) || !after.bytes || after.bytes > kKeepContentMax || !utf8_validate(after).valid || !ensure())
         return false;
     Record* existing = find(before.message_id);
-    Record* record = claim(before);
+    Record* record = claim(before, existing);
     if (!record) return false;
     Block earlier{}, latest{};
     if (!store_text(&earlier, before.content, record) || !store_text(&latest, after, record) ||

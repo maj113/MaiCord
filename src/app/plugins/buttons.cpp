@@ -64,7 +64,7 @@ void evaluate_static(Plugin& plugin) noexcept {
 }
 
 // The answer of the hover bar predicate for a message, from the plugin's memory of recent hovers.
-const VisibleMemory* remembered(const Plugin& plugin, u64 message_id) noexcept {
+inline const VisibleMemory* remembered(const Plugin& plugin, u64 message_id) noexcept {
     for (const VisibleMemory& memory : plugin.visible)
         if (memory.message_id == message_id) return &memory;
     return nullptr;

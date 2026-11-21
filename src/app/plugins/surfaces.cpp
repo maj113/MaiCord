@@ -16,7 +16,7 @@
 namespace maicord::app_detail {
 namespace {
 
-const UiLayoutNode* account_footer() noexcept {
+inline const UiLayoutNode* account_footer() noexcept {
     if (!g_app.account_ui || g_app.login.visible) return nullptr;
     return ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
 }

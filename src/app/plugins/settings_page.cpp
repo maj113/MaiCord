@@ -332,7 +332,8 @@ PluginSettingsOutcome plugin_settings_commit(PluginBinding* binding, PluginSetti
                                              Utf8View text) noexcept {
     bool shown = false;
     for (u32 i = 0; i < page->count; ++i) shown = shown || page->ids[i] == control_id;
-    if (!shown || !control_id || control_id >= kPluginSettingsHostBase) return PluginSettingsOutcome::none;
+    // A shown id is never 0; ids from the network header up are no setting.
+    if (!shown || control_id >= kPluginSettingsNetworkHeader) return PluginSettingsOutcome::none;
     const u32 index = static_cast<u32>(control_id - 1);
     const mc_setting_def& setting = settings_of(*binding)[index];
     if (setting.type == MC_SET_HEADER || setting.type == MC_SET_TOGGLE || setting.type == MC_SET_CHOICE)

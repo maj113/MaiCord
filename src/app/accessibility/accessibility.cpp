@@ -47,7 +47,7 @@ void arm_rebuild_timer(u64 now_ms) noexcept {
 }
 
 // Input that can move focus or change structure makes the next frame urgent.
-bool urgent_message(UINT message) noexcept {
+inline bool urgent_message(UINT message) noexcept {
     switch (message) {
     case WM_KEYDOWN:
     case WM_KEYUP:

@@ -33,7 +33,7 @@ bool surfaces_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !application_settings_active() && !g_app.text_form;
 }
 // The other person of a 1:1 DM, or zero.
-u64 dm_recipient(u64 channel_id) noexcept {
+inline u64 dm_recipient(u64 channel_id) noexcept {
     const auto& chat = g_app.account_ui->chat_state;
     const auto* record = chat.private_channels ? private_channel_store_find(*chat.private_channels, channel_id) : nullptr;
     const auto recipients = record ? private_channel_store_recipients(*chat.private_channels, *record) : ConstSlice<u64>{};

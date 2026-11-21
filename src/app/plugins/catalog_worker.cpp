@@ -5,6 +5,7 @@
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
@@ -176,10 +177,10 @@ struct ProgressSink {
 bool progress_sink(void* context, ConstSlice<u8> bytes) noexcept {
     auto& s = *static_cast<ProgressSink*>(context);
     if (!update_buffer_sink(&s.buffer, bytes)) return false;
-    InterlockedExchange64(&s.w->progress_bytes, s.buffer.used);
+    write_release(&s.w->progress_bytes, s.buffer.used);
     return true;
 }
-CatalogError fetch_error(const UpdateFetchResult& r) noexcept {
+inline CatalogError fetch_error(const UpdateFetchResult& r) noexcept {
     switch (r.error) {
     case UpdateFetchError::rate_limited: return CatalogError::rate_limited;
     case UpdateFetchError::oversize:
@@ -194,8 +195,8 @@ CatalogError fetch(Worker& w, Network& net, const Utf8View& relative, u32 maximu
     if (!net.open() || !location(w, relative, &start)) return CatalogError::unreachable;
     ProgressSink sink{{commit_pages<u8>(exact ? exact : maximum), exact ? exact : maximum, 0}, &w};
     if (!sink.buffer.data) return CatalogError::storage;
-    InterlockedExchange64(&w.progress_bytes, 0);
-    InterlockedExchange64(&w.progress_total, exact);
+    write_release(&w.progress_bytes, 0);
+    write_release(&w.progress_total, exact);
     const auto result = update_fetch(net.transport, start, sink.buffer.capacity, exact, progress_sink, &sink, now_unix(w));
     if (!result.ok()) {
         release(sink.buffer.data);
@@ -352,9 +353,9 @@ void trim_assets(const Worker& w) noexcept {
     if (!catalog_path(base(w), L"catalog-cache\\", directory)) return;
     // Oldest first until the cache is under its cap; at most a few hundred files.
     for (u32 round = 0; round < 64; ++round) {
-        DirIter scan{};
+        DirIter scan;
         if (!dir_open(&scan, directory)) return;
-        DirEntry found{}, oldest{};
+        DirEntry found, oldest;
         u64 total = 0;
         bool any = false;
         while (dir_next(&scan, &found)) {
@@ -414,9 +415,9 @@ void delete_data(const Worker& w, const CatalogJob& job) noexcept {
     wchar_t directory[600];
     u32 length = catalog_path(base(w), L"plugin-data\\", directory);
     if (!length || !wide_append_hex(directory, 600, &length, job.owner)) return;
-    DirIter scan{};
+    DirIter scan;
     if (dir_open(&scan, directory)) {
-        DirEntry found{};
+        DirEntry found;
         while (dir_next(&scan, &found)) {
             if (found.kind != FileKind::regular) continue;
             wchar_t path[600];
@@ -467,7 +468,7 @@ u32 worker_main(void* parameter) noexcept {
     for (;;) {
         AcquireSRWLockExclusive(w.lock.native());
         const bool have = w.job_count != 0;
-        CatalogJob job{};
+        CatalogJob job;
         if (have) {
             job = w.jobs[w.job_first];
             w.job_first = (w.job_first + 1) % kQueue;
@@ -484,7 +485,7 @@ u32 worker_main(void* parameter) noexcept {
         result.kind = job.kind;
         result.serial = job.serial;
         run(w, job, result);
-        InterlockedExchange64(&w.progress_total, 0);
+        write_release(&w.progress_total, 0);
         AcquireSRWLockExclusive(w.lock.native());
         // The UI takes results every pass; a full queue only happens while it is gone.
         if (w.result_count == kQueue) {
@@ -603,8 +604,8 @@ bool catalog_worker_take(CatalogJobResult* result) noexcept {
 
 void catalog_worker_progress(u64* bytes, u64* total) noexcept {
     Worker* w = g_worker;
-    *bytes = w ? static_cast<u64>(InterlockedCompareExchange64(&w->progress_bytes, 0, 0)) : 0;
-    *total = w ? static_cast<u64>(InterlockedCompareExchange64(&w->progress_total, 0, 0)) : 0;
+    *bytes = w ? static_cast<u64>(read_acquire(&w->progress_bytes)) : 0;
+    *total = w ? static_cast<u64>(read_acquire(&w->progress_total)) : 0;
 }
 
 void catalog_worker_free(void* memory) noexcept { release(memory); }

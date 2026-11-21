@@ -36,7 +36,7 @@ PackageLinkKind link_kind(CatalogKind kind) noexcept { return static_cast<Packag
 static_assert(static_cast<u32>(PackageLinkKind::theme) == static_cast<u32>(CatalogKind::theme) &&
               static_cast<u32>(PackageLinkKind::effect) == static_cast<u32>(CatalogKind::effect));
 bool validate_package(CatalogKind kind, ConstSlice<u8> bytes, Utf8View slug) noexcept {
-    PackageInfo info{};
+    PackageInfo info;
     if (package_validate(link_kind(kind), bytes, &info) != PackageError::none) return false;
     // An effect names itself; it must be the item the catalog lists.
     return kind != CatalogKind::effect || utf8_equal({info.slug, c_string_length(info.slug)}, slug);
@@ -51,7 +51,7 @@ namespace {
 // The plugin list and call marker of the retired first plugin system, and the saved Spotify sign-in token. Nothing
 // reads them now and no install depends on them, so every start removes what an earlier version left behind; a
 // missing file is the normal case.
-void remove_retired_files() noexcept {
+inline void remove_retired_files() noexcept {
     const wchar_t* const names[]{L"plugins.bin", L"plugin-call.bin", L"spotify-account.bin"};
     for (const wchar_t* name : names) {
         wchar_t path[480];

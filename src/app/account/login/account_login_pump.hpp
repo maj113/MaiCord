@@ -12,7 +12,7 @@ namespace maicord {
 namespace {
 
 bool load_remote_user_id(AccountLoginRuntime* runtime) noexcept {
-    char payload[kRemoteAuthMaximumUserPayloadBytes]{};
+    char payload[kRemoteAuthMaximumUserPayloadBytes];
     u32 payload_bytes = 0;
     const bool copied = remote_auth_client_copy_user(
         runtime->remote_auth, Slice<char>{payload, static_cast<u32>(sizeof(payload))}, &payload_bytes);
@@ -306,7 +306,6 @@ AccountLoginStatus module_login_stop(void** instance, u32 timeout_ms) noexcept {
     const bool ordinary_limited = runtime->coordinator.state.http_status == 429;
     const u64 retry_at_ms = maximum(remote_limited ? runtime->remote_status.retry_at_ms : 0,
                                     ordinary_limited ? runtime->coordinator.state.retry_at_ms : 0);
-    account_profile_promotion_release(&runtime->promotion);
     secure_clear_bytes(runtime, sizeof(*runtime));
     pages_release(runtime);
     *instance = nullptr;

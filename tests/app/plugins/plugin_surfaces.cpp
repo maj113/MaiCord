@@ -684,11 +684,11 @@ void test_samples(PluginRuntime* runtime) noexcept {
         check(slots(kUiPluginSlotMemberName, 0, 0, 41, 0, nodes, 4) == 2 && !nodes[0].text.bytes &&
                   same(nodes[1].text, "alice9"),
               "a member row gets the suffix as its second node");
-        const u32 calls = names.binding->calls;
+        const u32 calls = pass.calls;
         PluginUserInput profile = author;
         profile.where = kPluginUserProfile;
         plugin_decorate_user(&pass, profile);
-        check(names.binding->calls == calls, "profiles are not asked");
+        check(pass.calls == calls, "profiles are not asked");
         // The "before the name" setting moves it, tinted with the author's role colour.
         const u32 before = 1;
         check(plugin_binding_set_setting(names.binding, 0, &before, 4) == MC_OK, "the placement setting is accepted");

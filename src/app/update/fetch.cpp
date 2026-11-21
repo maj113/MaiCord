@@ -35,7 +35,7 @@ bool location_valid(const UpdateLocation& l) noexcept {
         l.target[0] == '/' && (!closed_origin(l.host) || (l.origin_bytes && l.origin_bytes <= kUpdateHostNameCapacity));
 }
 // Host part of a Location value for diagnostics; relative targets stay on `current`.
-Utf8View location_host(ConstSlice<u8> location, Utf8View current) noexcept {
+inline Utf8View location_host(ConstSlice<u8> location, Utf8View current) noexcept {
     const Utf8View text = as_text(location);
     u32 at = 0;
     if (text.bytes > 8 && ascii_equal_ignore_case({text.data, 8}, utf8_literal("https://"))) at = 8;
@@ -86,9 +86,9 @@ bool update_repository_valid(Utf8View repository) noexcept {
 
 bool update_public_key_from_hex(Utf8View hex, Slice<u8> output) noexcept {
     if (!hex.data || hex.bytes != 130 || !output.data || output.count < 65) return false;
-    u8 key[65]{};
+    u8 key[65];
     for (u32 i = 0; i < 65; ++i) {
-        i32 v[2]{};
+        i32 v[2];
         for (u32 j = 0; j < 2; ++j) {
             v[j] = ascii_hex_value(hex.data[i * 2 + j]);
             if (v[j] < 0) return false;

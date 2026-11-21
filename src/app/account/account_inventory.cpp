@@ -193,7 +193,7 @@ bool account_inventory_profile_user(const wchar_t* profile_path, u64* user_id) n
     HANDLE file = file_open(profile_path, {FileAccess::read, FileCreate::existing, kFileShareRead, 0});
     if (file == INVALID_HANDLE_VALUE)
         return false;
-    u8 header[kProfileHeaderBytes]{};
+    u8 header[kProfileHeaderBytes];
     u32 native_error = 0;
     const bool read = file_persistence_read_complete(file, Slice<u8>{header, kProfileHeaderBytes}, &native_error);
     file_close(file);

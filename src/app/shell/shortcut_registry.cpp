@@ -363,7 +363,7 @@ u32 shortcut_chord_label(ShortcutChord chord, Slice<char> output) noexcept {
     for (u8 modifier = shortcut_ctrl; modifier <= shortcut_shift; modifier <<= 1)
         if (chord.modifiers & modifier)
             at = put_char(output, put(output, at, shortcut_modifier_label(modifier)), '+');
-    char key[24]{};
+    char key[24];
     const u32 bytes = shortcut_key_label(chord.key, {key, sizeof(key)});
     return put(output, at, {key, bytes});
 }
@@ -550,7 +550,7 @@ bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds* keybinds) noe
 bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) noexcept {
     if (!path || !keybinds)
         return false;
-    u8 record[kCustomKeybindsMaximumBytes]{};
+    u8 record[kCustomKeybindsMaximumBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
     return read.ok() && custom_keybinds_decode({record, read.bytes}, keybinds);
 }

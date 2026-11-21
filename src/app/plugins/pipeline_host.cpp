@@ -393,7 +393,7 @@ mc_status reaction_result(ApplicationMessageReactionEnqueueResult result) noexce
 }
 
 // "name:id" is a custom emoji; anything else is Unicode.
-void split_emoji(Utf8View emoji, Utf8View* name, u64* id) noexcept {
+inline void split_emoji(Utf8View emoji, Utf8View* name, u64* id) noexcept {
     u32 colon = emoji.bytes;
     for (u32 i = 0; i < emoji.bytes; ++i)
         if (emoji.data[i] == ':') {
@@ -788,7 +788,7 @@ void poll_pipeline() noexcept {
 // Once per loop pass: what plugins changed since the UI last built from it, the pipeline's queues and timers,
 // and the composer notice that has run out.
 void application_plugins_poll() noexcept {
-    application_plugins_composer_notice_poll(clock_monotonic_milliseconds());
+    application_plugins_composer_notice_poll();
     application_plugin_surfaces_poll();
     poll_pipeline();
 }

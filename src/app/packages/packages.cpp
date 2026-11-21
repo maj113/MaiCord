@@ -90,7 +90,7 @@ void set_failed(PackageError error) noexcept {
         application_store_open(PackageLinkKind::effect);
 }
 
-bool text_is(const char* a, const char* b) noexcept {
+inline bool text_is(const char* a, const char* b) noexcept {
     const u32 n = c_string_length(a);
     return n == c_string_length(b) && bytes_equal(a, b, n);
 }
@@ -114,7 +114,7 @@ bool parse_theme(const u8* bytes, u32 size, ClientThemeDocument* output) noexcep
 }
 
 // "Night Owl" -> "night-owl-1a2b3c4d": the file name of an unreviewed theme.
-void theme_slug(const ClientThemeDocument& document, const u8* bytes, u32 size, char (&slug)[kPackageSlugMaximumBytes + 1]) noexcept {
+inline void theme_slug(const ClientThemeDocument& document, const u8* bytes, u32 size, char (&slug)[kPackageSlugMaximumBytes + 1]) noexcept {
     u32 n = 0;
     for (u32 i = 0; i < document.name_bytes && n < 24; ++i) {
         const char c = ascii_lower(document.name[i]);
@@ -175,7 +175,7 @@ PackageError analyze_kind(Sniff kind, const u8* bytes, u32 size, Candidate* cand
     return kind == Sniff::program ? PackageError::unsupported : PackageError::invalid;
 }
 
-bool effect_installed(const char* slug) noexcept {
+inline bool effect_installed(const char* slug) noexcept {
     for (u32 i = 0, count = application_effects_count(); i < count; ++i) {
         const EffectInfo* info = application_effects_info(i);
         if (info && text_is(info->slug, slug))
@@ -216,7 +216,7 @@ void fill_card(const PackageInfo& info) noexcept {
 // A loaded candidate becomes a card, an effect starts its trial.
 void finish_load(Sniff kind) noexcept {
     auto& s = g.session;
-    PackageInfo info{};
+    PackageInfo info;
     const PackageError error = analyze_kind(kind, s.candidate->file, s.size, s.candidate, &info);
     if (error != PackageError::none) {
         set_failed(error);
@@ -239,7 +239,7 @@ void finish_load(Sniff kind) noexcept {
 }
 
 // ---- Session -------------------------------------------------------------------------------------------
-void join_worker() noexcept {
+inline void join_worker() noexcept {
     auto& s = g.session;
     if (!s.thread)
         return;
@@ -307,7 +307,7 @@ u32 fetch_main(void*) noexcept {
     return 0;
 }
 
-PackageError map_fetch(const UpdateFetchResult& result) noexcept {
+inline PackageError map_fetch(const UpdateFetchResult& result) noexcept {
     switch (result.error) {
     case UpdateFetchError::redirect: return PackageError::redirect;
     case UpdateFetchError::oversize:

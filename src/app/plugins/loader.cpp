@@ -84,7 +84,7 @@ bool rva_to_offset(const Section* sections, u32 count, u32 rva, u32 bytes, u64* 
     }
     return false;
 }
-const Section* section_of(const Section* sections, u32 count, u32 rva) noexcept {
+inline const Section* section_of(const Section* sections, u32 count, u32 rva) noexcept {
     for (u32 i = 0; i < count; ++i)
         if (rva >= sections[i].rva && rva - sections[i].rva < sections[i].virtual_bytes) return &sections[i];
     return nullptr;
@@ -116,7 +116,7 @@ struct Image {
     }
 };
 
-bool key_ok(const mc_str& key, const Image& image) noexcept {
+inline bool key_ok(const mc_str& key, const Image& image) noexcept {
     if (!image.text(key, 1, MC_SETTING_KEY_MAX)) return false;
     for (u32 i = 0; i < key.bytes; ++i) {
         const char c = key.data[i];
@@ -141,7 +141,7 @@ u32 setting_bytes(u32 type) noexcept {
     default: return 0;
     }
 }
-u32 setting_alignment(u32 type) noexcept {
+inline u32 setting_alignment(u32 type) noexcept {
     return setting_bytes(type) >= 8 ? 8 : setting_bytes(type);
 }
 
@@ -336,7 +336,7 @@ bool path_component_valid(ConstSlice<wchar_t> part) noexcept {
     return true;
 }
 // A drive-rooted path whose every component is an ordinary name, at most kPluginPathMaximumAncestors deep.
-bool directory_valid(ConstSlice<wchar_t> path) noexcept {
+inline bool directory_valid(ConstSlice<wchar_t> path) noexcept {
     if (!path.data || path.count < 3 || path.count >= kPluginPathCapacity || path_root(path) != PathRoot::drive)
         return false;
     u32 start = 3, ancestors = 1;
@@ -619,7 +619,7 @@ u32 descriptor_path(int descriptor, char (&output)[32]) noexcept {
 // group per user). The plugins directory itself, owned: the user's alone and writable by nobody else.
 bool directory_trusted(int directory, bool owned, i32* error) noexcept {
     constexpr u32 kNeeded = kStatxType | kStatxMode | kStatxUser;
-    Statx stat{};
+    Statx stat;
     const long result = sys_statx(directory, "", kAtEmptyPath, kNeeded, &stat);
     if (result < 0) {
         *error = static_cast<i32>(-result);
@@ -723,7 +723,7 @@ bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, Pinne
     }
     out->descriptor = static_cast<int>(opened);
     constexpr u32 kNeeded = kStatxType | kStatxMode | kStatxUser | kStatxSize;
-    Statx stat{};
+    Statx stat;
     const long result = sys_statx(out->descriptor, "", kAtEmptyPath, kNeeded, &stat);
     if (result < 0) {
         *error = static_cast<i32>(-result);

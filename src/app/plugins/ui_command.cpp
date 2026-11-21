@@ -105,7 +105,7 @@ bool visit_member(void* context, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-bool parse_integer(Utf8View text, i64* output) noexcept {
+inline bool parse_integer(Utf8View text, i64* output) noexcept {
     u32 at = 0;
     const bool negative = text.bytes && text.data[0] == '-';
     if (negative) ++at;

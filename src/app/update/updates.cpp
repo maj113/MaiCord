@@ -1,5 +1,6 @@
 #include "updates.hpp"
 #include "maicord/core/interlocked.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/os_text.hpp"
 #include "maicord/core/name_list.hpp"
@@ -28,6 +29,8 @@ constexpr char kIntervalNames[] = "Every hour\0" "Every 4 hours\0" "Every 12 hou
 static_assert(name_list_count(kIntervalNames) == kUpdateCheckIntervalCount);
 using State = ApplicationUpdateState;
 
+// The worker thread runs only while it has work: a request, or a check that is due. It exits when it has none and
+// leaves the time of the next check in due_ms, which the UI thread's loop waits for (application_updates_tick).
 struct Worker {
     UpdateService service;
     UpdateHttpsTransport https;
@@ -35,12 +38,16 @@ struct Worker {
     UpdatePaths paths;
     SrwLock lock;
     Thread* thread;
-    Waitable wake, stop, notify;
+    Waitable notify;
     ApplicationUpdatesView view; // guarded by lock
     u64 revision;                // guarded by lock
     u64 progress_at_ms;
-    UpdateSchedule schedule; // worker thread
+    // Monotonic ms when the next check is due, 0 while the thread runs. The thread writes it as it exits.
+    volatile Atomic64 due_ms;
+    UpdateSchedule schedule; // the running thread, else the UI thread
     u32 failures;
+    bool configured;
+    bool running, stopping;  // guarded by lock
     bool check_requested, channel_requested, interval_requested, ready_requested, restart, quit;
     UpdateChangelogDownload download; // worker thread
     UpdateChangelog published;        // guarded by lock
@@ -196,23 +203,35 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
 UpdateCheckInterval current_interval(Worker* w) noexcept {
     return *static_cast<const volatile UpdateCheckInterval*>(&w->view.interval); // one byte: the lock added nothing
 }
+// The monotonic time of the schedule's next check, at most an hour ahead: a change of the system clock moves a
+// check by at most an hour, as the hour-long waits of the earlier always-running thread did.
+u64 schedule_due_ms(const UpdateSchedule& schedule) noexcept {
+    const u64 now = now_unix();
+    const u64 wait = schedule.next_unix > now ? minimum<u64>(schedule.next_unix - now, 3600) : 0;
+    return clock_monotonic_milliseconds() + wait * 1000;
+}
 u32 worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);
     auto& schedule = w->schedule;
-    schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
-    publish_cached(w, w->view.channel);
     for (;;) {
-        const u64 now = now_unix();
-        const DWORD timeout = update_schedule_due(schedule, now) ? 0
-            : static_cast<DWORD>(minimum<u64>(schedule.next_unix - now, 3600) * 1000);
-        Waitable handles[]{w->stop, w->wake};
-        const DWORD waited = wait_any(handles, 2, timeout);
-        if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
         AcquireSRWLockExclusive(w->lock.native());
         const bool check = w->check_requested, quit = w->quit;
         const bool channel_changed = w->channel_requested, interval_changed = w->interval_requested, ready = w->ready_requested;
         const UpdateChannel channel = w->view.channel;
         const UpdateCheckInterval interval = w->view.interval;
+        // Nothing asked and nothing due: the thread ends, and the UI thread starts it again for the next request or
+        // at due_ms. Restart to update (quit) and the exit end it for good.
+        const bool idle = !check && !channel_changed && !interval_changed && !ready &&
+                          !update_schedule_due(schedule, now_unix());
+        if (w->stopping || quit || idle) {
+            const bool timed = !w->stopping && !quit;
+            write_release(&w->due_ms, timed ? static_cast<Atomic64>(schedule_due_ms(schedule)) : 0);
+            w->running = false;
+            ReleaseSRWLockExclusive(w->lock.native());
+            // The loop may wait without a deadline since this run began: it wakes and takes the new one.
+            if (timed) event_set(w->notify);
+            return 0;
+        }
         w->check_requested = w->channel_requested = w->interval_requested = w->ready_requested = false;
         ReleaseSRWLockExclusive(w->lock.native());
         if (channel_changed) {
@@ -225,14 +244,34 @@ u32 worker_main(void* parameter) noexcept {
             update_interval_save(w->paths, interval);
             update_schedule_retarget(&schedule, update_check_interval_seconds(interval), random32());
         }
-        // Restart to update: the window closes and the exit swaps the stage in.
-        if (quit) break;
         if (!check && !channel_changed && !update_schedule_due(schedule, now_unix())) continue;
         const u64 retry_at = run_check(w, channel);
         update_schedule_finish(&schedule, now_unix(), w->failures, retry_at, random32(),
             update_check_interval_seconds(current_interval(w)));
     }
-    return 0;
+}
+// UI thread: starts the thread unless it runs, after the exit of its last run.
+void start_worker(Worker* w) noexcept {
+    AcquireSRWLockExclusive(w->lock.native());
+    const bool start = w->configured && !w->running && !w->stopping && !w->quit;
+    if (start) {
+        w->running = true;
+        write_release(&w->due_ms, 0);
+    }
+    ReleaseSRWLockExclusive(w->lock.native());
+    if (!start) return;
+    // The last run cleared running as its last step: it has returned or is returning.
+    if (w->thread) {
+        thread_wait(w->thread, INFINITE);
+        thread_close(w->thread);
+    }
+    w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
+    if (w->thread) return;
+    AcquireSRWLockExclusive(w->lock.native());
+    w->running = false;
+    ReleaseSRWLockExclusive(w->lock.native());
+    UpdateLog("worker_start_failed").field("native", thread_last_error()).write(LogLevel::warning);
+    set_state(w, State::error, UpdateServiceError::storage);
 }
 Utf8View commit_of(const char (&commit)[kApplicationUpdatesCommitChars]) noexcept {
     return {commit, commit[0] ? kApplicationUpdatesCommitChars : 0u};
@@ -273,17 +312,17 @@ void add_when(TextBank& t, u64 unix_seconds, u64 now) noexcept {
     t.add({when, formatted.bytes});
 }
 // "MaiCord 0.5.4 · Stable channel"
-void add_identity(TextBank& t, const ApplicationUpdatesView& v) noexcept {
+inline void add_identity(TextBank& t, const ApplicationUpdatesView& v) noexcept {
     t.add("MaiCord "); add_build(t, v.own_version, own_commit(v));
     t.add(v.channel == UpdateChannel::preview ? utf8_literal(" · Preview channel") : utf8_literal(" · Stable channel"));
 }
-void add_checked(TextBank& t, const ApplicationUpdatesView& v, u64 now, bool past) noexcept {
+inline void add_checked(TextBank& t, const ApplicationUpdatesView& v, u64 now, bool past) noexcept {
     t.add(" · ");
     if (!v.checked_unix) { t.add("Not checked yet"); return; }
     t.add(past ? utf8_literal("Checked ") : utf8_literal("Last checked "));
     add_when(t, v.checked_unix, now);
 }
-void set_chip_tone(UiSettingsControlPresentation* presentation, u32 chip, UiSettingsChipTone tone) noexcept {
+inline void set_chip_tone(UiSettingsControlPresentation* presentation, u32 chip, UiSettingsChipTone tone) noexcept {
     presentation->chip_tones = static_cast<u16>(presentation->chip_tones | static_cast<u32>(tone) << (chip * 2));
 }
 // The status card: one state, one action.
@@ -394,7 +433,7 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
     presentation->icon_plus_one = icon_of(icon);
 }
 // The Update settings rows.
-void project_setting(const ApplicationUpdatesView& v, SettingBinding binding, ApplicationUpdatesText* text,
+inline void project_setting(const ApplicationUpdatesView& v, SettingBinding binding, ApplicationUpdatesText* text,
     UiSettingsControl* control) noexcept {
     if (binding == SettingBinding::update_interval) {
         static Utf8View intervals[kUpdateCheckIntervalCount];
@@ -417,7 +456,7 @@ void project_setting(const ApplicationUpdatesView& v, SettingBinding binding, Ap
     }
     control->description = description.view();
 }
-Utf8View first_line(Utf8View text) noexcept {
+inline Utf8View first_line(Utf8View text) noexcept {
     u32 bytes = 0;
     while (bytes < text.bytes && text.data[bytes] != '\n') ++bytes;
     return {text.data, bytes};
@@ -643,17 +682,18 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
         .field("interval", static_cast<u8>(w->view.interval)).write();
     if (located) update_paths_cleanup(w->paths);
     if (!config.configured || !located) return true;
-    w->wake = event_create(false, false);
-    w->stop = event_create(true, false);
     w->notify = event_create(false, false);
-    if (w->wake && w->stop && w->notify && update_service_initialize(&w->service, config, w->paths) == UpdateServiceError::none &&
-        update_https_initialize(&w->https)) {
-        w->service.changelog = &w->download;
-        w->service.observer = {w, verified};
-        w->thread = thread_start(worker_main, w, 256 * 1024, nullptr);
-    }
-    if (!w->thread) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; g_view = w->view; }
-    return w->thread != nullptr;
+    w->configured = w->notify && update_service_initialize(&w->service, config, w->paths) == UpdateServiceError::none &&
+                    update_https_initialize(&w->https);
+    if (!w->configured) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; g_view = w->view; return false; }
+    w->service.changelog = &w->download;
+    w->service.observer = {w, verified};
+    // No thread runs yet: the first one starts for the first frame's request (application_updates_ready) or at this
+    // fallback time.
+    w->schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
+    write_release(&w->due_ms, static_cast<Atomic64>(schedule_due_ms(w->schedule)));
+    publish_cached(w, w->view.channel);
+    return true;
 }
 void application_updates_release(bool normal_exit) noexcept {
     Worker* w = g_worker;
@@ -667,8 +707,11 @@ void application_updates_release(bool normal_exit) noexcept {
         copy_bytes(g_relaunch, w->paths.executable, (g_relaunch_count + 1) * sizeof(wchar_t));
     }
     if (w->thread) {
-        event_set(w->stop);
-        update_https_cancel(&w->https);
+        AcquireSRWLockExclusive(w->lock.native());
+        w->stopping = true;
+        const bool running = w->running;
+        ReleaseSRWLockExclusive(w->lock.native());
+        if (running) update_https_cancel(&w->https);
         // Staging in flight finishes first: never swap from or free storage
         // the worker may still touch.
         if (!thread_wait(w->thread, 3000)) return;
@@ -680,8 +723,7 @@ void application_updates_release(bool normal_exit) noexcept {
     if (plan.install) update_service_swap(&w->service);
     update_service_release(&w->service);
     update_https_release(&w->https);
-    const Waitable events[]{w->wake, w->stop, w->notify};
-    for (Waitable h : events) if (h) waitable_close(h);
+    if (w->notify) waitable_close(w->notify);
     pages_release(w);
 }
 void application_updates_relaunch() noexcept {
@@ -703,12 +745,21 @@ void application_updates_relaunch() noexcept {
 }
 void application_updates_ready() noexcept {
     Worker* w = g_worker;
-    if (!w || !w->thread || g_ready_reported) return;
+    if (!w || !w->configured || g_ready_reported) return;
     g_ready_reported = true;
     AcquireSRWLockExclusive(w->lock.native());
     w->ready_requested = true;
     ReleaseSRWLockExclusive(w->lock.native());
-    event_set(w->wake);
+    start_worker(w);
+}
+// UI thread, each loop turn: the check that due_ms names starts the thread.
+void application_updates_tick(u64 now_ms) noexcept {
+    Worker* w = g_worker;
+    if (w && deadline_due(now_ms, static_cast<u64>(read_acquire(&w->due_ms))))
+        start_worker(w);
+}
+u64 application_updates_next_wake() noexcept {
+    return g_worker ? static_cast<u64>(read_acquire(&g_worker->due_ms)) : 0;
 }
 HANDLE application_updates_notification() noexcept { return g_worker ? g_worker->notify : nullptr; }
 bool application_updates_poll() noexcept {
@@ -804,7 +855,7 @@ bool application_updates_restart() noexcept {
 }
 bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
     Worker* w = g_worker;
-    if (!w || !w->thread) return false;
+    if (!w || !w->configured) return false;
     AcquireSRWLockExclusive(w->lock.native());
     const auto state = w->view.state;
     bool accepted = !busy_state(state);
@@ -830,7 +881,7 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
         } else accepted = false;
     }
     ReleaseSRWLockExclusive(w->lock.native());
-    if (accepted) { event_set(w->wake); event_set(w->notify); }
+    if (accepted) { start_worker(w); event_set(w->notify); }
     return accepted;
 }
 

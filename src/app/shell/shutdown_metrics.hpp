@@ -10,8 +10,11 @@ void application_persist_drafts_on_exit() noexcept;
 // Call at entry before any desktop/account/profile initialization; false means
 // the instrumented candidate must exit without starting the application.
 bool application_startup_probe_initialize() noexcept;
-// Records one successful Present return and requests normal window shutdown.
+// Records one successful Present return.
 void application_startup_probe_first_present() noexcept;
+// After the loop turn of that Present (and the QR sign-in it starts): writes the record with whether the login
+// module runs, and requests normal window shutdown.
+void application_startup_probe_finish() noexcept;
 // Main thread: keeps the first time of each named point (a static string)
 // for the first-present report.
 void application_startup_probe_mark(const char* name) noexcept;

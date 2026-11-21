@@ -424,7 +424,6 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     //    signed size and digest.
     const UpdatePreparationRequest request{{s->paths.acceptance, s->paths.acceptance_count},
         {s->paths.download, s->paths.download_count}, {s->document, s->document_bytes}, {s->signature, 64}, true};
-    clear_bytes(&s->preparation, sizeof(s->preparation));
     const auto prepared = update_prepare_artifact(&s->preparation, request, s->key, s->workspace, &policy, {s->scratch, 256});
     {
         UpdateLog line("prepare");

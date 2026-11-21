@@ -68,7 +68,7 @@ bool application_plugins_compose(bool* handled) noexcept;
 // until it expires (INFINITE: none); the poll clears it when its time is up.
 Utf8View application_plugins_composer_notice() noexcept;
 u32 application_plugins_composer_notice_wait(u64 now_ms) noexcept;
-void application_plugins_composer_notice_poll(u64 now_ms) noexcept;
+void application_plugins_composer_notice_poll() noexcept;
 // Keys bound in plugin settings. Key-downs after the custom keybinds; never while a dialog, menu or other
 // overlay is open or the window is in the background. True when a plugin handled the chord.
 bool application_plugins_keybind_input(UiInputKind, u32 code, bool repeated) noexcept;
