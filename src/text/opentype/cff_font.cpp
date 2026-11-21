@@ -150,8 +150,9 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
         case 17: target = &out->charstrings; break;
         case 19: target = &out->subrs; break;
         case 20: case 21:
+            // The default width (20) is checked only: hmtx gives the advances.
             if (count != 1 || !(stack[0] >= -1.e12 && stack[0] <= 1.e12)) return SfntStatus::malformed;
-            if (op == 20) out->default_width = stack[0]; else out->nominal_width = stack[0];
+            if (op == 21) out->nominal_width = stack[0];
             break;
         case 0x124: target = &out->fd_array; break;
         case 0x125: target = &out->fd_select; break;
@@ -190,10 +191,10 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
 
 #if defined(_WIN32)
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
-                           double* default_width, double* nominal_width) noexcept {
+                           double* nominal_width) noexcept {
 #else
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
-                           double* default_width, double* nominal_width, u32* vsindex) noexcept {
+                           double* nominal_width, u32* vsindex) noexcept {
 #endif
     reset_value(subrs); *seed = 0;
     if (!span(table, dict.private_offset, dict.private_size)) return SfntStatus::truncated;
@@ -201,7 +202,7 @@ SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex*
     const auto status = dictionary({table.data + dict.private_offset, dict.private_size}, &priv);
     if (status != SfntStatus::ok) return status;
     *seed = priv.random_seed;
-    *default_width = priv.default_width; *nominal_width = priv.nominal_width;
+    *nominal_width = priv.nominal_width;
 #if !defined(_WIN32)
     *vsindex = priv.vsindex;
 #endif
@@ -216,14 +217,14 @@ SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex*
 
 #if defined(_WIN32)
 SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* matrix, u32* seed,
-                         double* default_width, double* nominal_width) noexcept {
+                         double* nominal_width) noexcept {
 #else
 SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* matrix, u32* seed,
-                         double* default_width, double* nominal_width, u32* vsindex) noexcept {
+                         double* nominal_width, u32* vsindex) noexcept {
     *vsindex = 0;
 #endif
     *subrs = font.local_subrs; *seed = font.random_seed;
-    *default_width = font.default_width; *nominal_width = font.nominal_width;
+    *nominal_width = font.nominal_width;
     for (u32 i = 0; i < 6; ++i) matrix[i] = font.matrix[i];
     if (!font.cid) return SfntStatus::ok;
     const auto select = font.fd_select;
@@ -257,9 +258,9 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
     auto status = dictionary(index_object(font.font_dicts, fd), &dict);
     if (status != SfntStatus::ok) return status;
 #if defined(_WIN32)
-    status = private_subrs(font.table, dict, subrs, seed, default_width, nominal_width);
+    status = private_subrs(font.table, dict, subrs, seed, nominal_width);
 #else
-    status = private_subrs(font.table, dict, subrs, seed, default_width, nominal_width, vsindex);
+    status = private_subrs(font.table, dict, subrs, seed, nominal_width, vsindex);
 #endif
     if (status != SfntStatus::ok) return status;
     if (dict.has_matrix) {
@@ -404,12 +405,11 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     for (u32 i = 0; i < 6; ++i) result.matrix[i] = dict.matrix[i];
     result.charset = dict.charset; result.cid = dict.cid;
 #if defined(_WIN32)
-    status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed,
-                                      &result.default_width, &result.nominal_width);
+    status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed, &result.nominal_width);
 #else
     u32 vsindex = 0;
-    status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed,
-                                      &result.default_width, &result.nominal_width, &vsindex);
+    status = cff_detail::private_subrs(table, dict, &result.local_subrs, &result.random_seed, &result.nominal_width,
+                                      &vsindex);
 #endif
     if (status != SfntStatus::ok) return status;
     if (result.cid) {

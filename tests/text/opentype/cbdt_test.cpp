@@ -76,8 +76,8 @@ void test_fixture() noexcept {
     check(cbdt_open(face, &font) == SfntStatus::ok && font.strike_count == 3, "fixture_open");
 
     CbdtStrike strike{};
-    check(cbdt_strike(font, 0, &strike) == SfntStatus::ok && strike.ppem_y == 16 && strike.ppem_x == 16 &&
-              strike.bit_depth == 32 && strike.first_glyph == 1 && strike.last_glyph == 12 && strike.subtable_count == 5,
+    check(cbdt_strike(font, 0, &strike) == SfntStatus::ok && strike.ppem_y == 16 && strike.first_glyph == 1 &&
+              strike.last_glyph == 12 && strike.subtable_count == 5,
           "fixture_strike_16");
     check(cbdt_strike(font, 1, &strike) == SfntStatus::ok && strike.ppem_y == 32 && strike.last_glyph == 3,
           "fixture_strike_32");
@@ -120,7 +120,7 @@ void test_fixture() noexcept {
     check(cbdt_glyph(font, 5, 1, &glyph) == SfntStatus::invalid_input, "strike_index_invalid");
 
     // Strike selection: the smallest strike at least the target size, else the largest, skipping strikes without
-    // the glyph.
+    // the glyph. It returns the glyph's image in that strike.
     u32 selected = 99;
     const struct {
         float size;
@@ -135,11 +135,16 @@ void test_fixture() noexcept {
     };
     for (const auto& test : selections) {
         selected = 99;
-        check(cbdt_select_strike(font, test.size, test.glyph, &selected) == SfntStatus::ok && selected == test.strike,
+        CbdtGlyph expected{};
+        check(cbdt_select_strike(font, test.size, test.glyph, &selected, &glyph) == SfntStatus::ok &&
+                  selected == test.strike && cbdt_glyph(font, test.strike, test.glyph, &expected) == SfntStatus::ok &&
+                  glyph.png.data == expected.png.data && glyph.png.count == expected.png.count &&
+                  glyph.width == expected.width && glyph.advance == expected.advance,
               test.name);
     }
-    check(cbdt_select_strike(font, 16, 7, &selected) == SfntStatus::glyph_out_of_range, "select_missing_glyph");
-    check(cbdt_select_strike(font, 0, 1, &selected) == SfntStatus::invalid_input, "select_zero_size");
+    check(cbdt_select_strike(font, 16, 7, &selected, &glyph) == SfntStatus::glyph_out_of_range,
+          "select_missing_glyph");
+    check(cbdt_select_strike(font, 0, 1, &selected, &glyph) == SfntStatus::invalid_input, "select_zero_size");
 
     Scratch scratch;
     BitmapColorGlyph tile{};
@@ -275,7 +280,7 @@ void test_noto(bool strict) noexcept {
     }
 
     CbdtStrike strike{};
-    check(cbdt_strike(font, 0, &strike) == SfntStatus::ok && strike.bit_depth == 32 && strike.ppem_y >= 64,
+    check(cbdt_strike(font, 0, &strike) == SfntStatus::ok && strike.ppem_y >= 64,
           "noto_strike");
 
     Scratch scratch;
@@ -289,8 +294,8 @@ void test_noto(bool strict) noexcept {
         }
         CbdtGlyph image{};
         u32 index = 0;
-        check(cbdt_select_strike(font, 109, glyph, &index) == SfntStatus::ok &&
-                  cbdt_glyph(font, index, glyph, &image) == SfntStatus::ok && is_png(image) && image.width > 0 &&
+        check(cbdt_select_strike(font, 109, glyph, &index, &image) == SfntStatus::ok && is_png(image) &&
+                  image.width > 0 &&
                   image.height > 0 && image.advance > 0,
               "noto_glyph");
         u32 reference_mass = 0;

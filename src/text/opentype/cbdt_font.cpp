@@ -179,14 +179,10 @@ SfntStatus cbdt_strike(const CbdtFont& font, u32 index, CbdtStrike* output) noex
     CbdtStrike strike{};
     strike.subtable_array_offset = be32(table, at);
     strike.subtable_count = be32(table, at + 8);
-    // After the offsets, sizes and colour reference: two SbitLineMetrics of 12 bytes.
-    strike.ascender = static_cast<i8>(table.data[at + 16]);
-    strike.descender = static_cast<i8>(table.data[at + 17]);
+    // After the offsets, sizes, colour reference and two SbitLineMetrics of 12 bytes: the glyph range and ppemY.
     strike.first_glyph = static_cast<u16>(be16(table, at + 40));
     strike.last_glyph = static_cast<u16>(be16(table, at + 42));
-    strike.ppem_x = table.data[at + 44];
     strike.ppem_y = table.data[at + 45];
-    strike.bit_depth = table.data[at + 46];
     if (strike.last_glyph < strike.first_glyph || strike.ppem_y == 0)
         return SfntStatus::malformed;
     if (!span(table, strike.subtable_array_offset, static_cast<u64>(strike.subtable_count) * kSubtableArrayEntryBytes))
@@ -199,7 +195,7 @@ SfntStatus cbdt_glyph(const CbdtFont& font, u32 strike_index, u16 glyph, CbdtGly
     if (!output)
         return SfntStatus::invalid_input;
     reset_value(output);
-    CbdtStrike strike{};
+    CbdtStrike strike;
     SfntStatus status = cbdt_strike(font, strike_index, &strike);
     if (status != SfntStatus::ok)
         return status;
@@ -264,8 +260,9 @@ SfntStatus cbdt_glyph(const CbdtFont& font, u32 strike_index, u16 glyph, CbdtGly
     return SfntStatus::ok;
 }
 
-SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 glyph, u32* output) noexcept {
-    if (!output || !(pixels_per_em > 0.0f) || !font.locations.data)
+SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 glyph, u32* output,
+                              CbdtGlyph* image) noexcept {
+    if (!output || !image || !(pixels_per_em > 0.0f) || !font.locations.data)
         return SfntStatus::invalid_input;
     // Strikes ordered by preference: a strike at least as large as the target comes first, the smallest of those
     // first; the ones that would be scaled up follow, the largest first.
@@ -276,7 +273,7 @@ SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 gly
         u64 best_key = 0xFFFFFFFFFFFFFFFFull;
         u32 best = 0;
         for (u32 i = 0; i < font.strike_count; ++i) {
-            CbdtStrike strike{};
+            CbdtStrike strike;
             if (cbdt_strike(font, i, &strike) != SfntStatus::ok)
                 continue;
             const u32 ppem = strike.ppem_y;
@@ -291,8 +288,7 @@ SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 gly
             break;
         previous = best_key;
         first = false;
-        CbdtGlyph found{};
-        if (cbdt_glyph(font, best, glyph, &found) == SfntStatus::ok) {
+        if (cbdt_glyph(font, best, glyph, image) == SfntStatus::ok) {
             *output = best;
             return SfntStatus::ok;
         }

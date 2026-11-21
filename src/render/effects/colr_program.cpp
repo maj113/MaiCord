@@ -130,21 +130,44 @@ Point midpoint(Point a, Point b) noexcept {
 float absf(float x) noexcept {
     return x < 0 ? -x : x;
 }
-bool curve(SegmentWriter& b, Point a, Point c1, Point c2, Point z, u32 depth = 0) noexcept {
-    // Flatten in device space, so scale/shear/DPI cannot magnify curve error.
-    const float dx = z.x - a.x, dy = z.y - a.y;
-    const float error =
-        absf((c1.x - z.x) * dy - (c1.y - z.y) * dx) + absf((c2.x - z.x) * dy - (c2.y - z.y) * dx);
-    const float extent =
-        maximum(maximum(absf(c1.x - a.x), absf(c1.y - a.y)),
-                maximum(maximum(absf(c2.x - a.x), absf(c2.y - a.y)), maximum(absf(dx), absf(dy))));
-    if (depth == 12 || extent * b.scale <= .125f ||
-        (error * error * b.scale * b.scale <= .015625f * (dx * dx + dy * dy) &&
-         (dx * dx + dy * dy > 1e-16f)))
-        return line(b, a, z);
-    const auto ab = midpoint(a, c1), bc = midpoint(c1, c2), cd = midpoint(c2, z);
-    const auto abc = midpoint(ab, bc), bcd = midpoint(bc, cd), center = midpoint(abc, bcd);
-    return curve(b, a, ab, abc, center, depth + 1) && curve(b, center, bcd, cd, z, depth + 1);
+// Flatten in device space, so scale/shear/DPI cannot magnify curve error. Each split goes on with its first half
+// and keeps the second half on a stack (one entry for each depth below 12): the segments come out in curve order,
+// with no call for each split.
+bool curve(SegmentWriter& b, Point a, Point c1, Point c2, Point z) noexcept {
+    struct Half {
+        Point a, c1, c2, z;
+        u32 depth;
+    } later[12];
+    u32 count = 0, depth = 0;
+    for (;;) {
+        const float dx = z.x - a.x, dy = z.y - a.y;
+        const float error =
+            absf((c1.x - z.x) * dy - (c1.y - z.y) * dx) + absf((c2.x - z.x) * dy - (c2.y - z.y) * dx);
+        const float extent =
+            maximum(maximum(absf(c1.x - a.x), absf(c1.y - a.y)),
+                    maximum(maximum(absf(c2.x - a.x), absf(c2.y - a.y)), maximum(absf(dx), absf(dy))));
+        if (depth == 12 || extent * b.scale <= .125f ||
+            (error * error * b.scale * b.scale <= .015625f * (dx * dx + dy * dy) &&
+             (dx * dx + dy * dy > 1e-16f))) {
+            if (!line(b, a, z))
+                return false;
+            if (!count)
+                return true;
+            const Half& half = later[--count];
+            a = half.a;
+            c1 = half.c1;
+            c2 = half.c2;
+            z = half.z;
+            depth = half.depth;
+            continue;
+        }
+        const auto ab = midpoint(a, c1), bc = midpoint(c1, c2), cd = midpoint(c2, z);
+        const auto abc = midpoint(ab, bc), bcd = midpoint(bc, cd), center = midpoint(abc, bcd);
+        later[count++] = {center, bcd, cd, z, ++depth};
+        c1 = ab;
+        c2 = abc;
+        z = center;
+    }
 }
 bool emit_mask(Builder& b, u32 job) noexcept {
     if (b.p->last != none) {
@@ -279,16 +302,22 @@ __declspec(noinline) bool build_mask(Builder& b, u32 glyph, const ColrMatrix& m)
     auto* indices = arena_allocate<u32>(&b.p->storage, references ? references : 1);
     if (!indices)
         return false;
-    const u32 first_index = static_cast<u32>(reinterpret_cast<u8*>(indices) - b.p->storage.base);
-    for (u32 y = 0; y < job->height; ++y) rows[y].offset += first_index;
-    for (u32 i = 0; i < job->segment_count; ++i) {
+    u8* const base = b.p->storage.base;
+    const u32 first_index = static_cast<u32>(reinterpret_cast<u8*>(indices) - base);
+    // The row stores below may alias the job and the program as far as the compiler knows: these stay in registers.
+    const i32 top = job->top, height = static_cast<i32>(job->height);
+    const u32 segment_count = job->segment_count;
+    const float scale = b.scale;
+    for (i32 y = 0; y < height; ++y) rows[y].offset += first_index;
+    for (u32 i = 0; i < segment_count; ++i) {
         const auto& e = segments[i];
-        const i32 first = maximum(0, static_cast<i32>(minimum(e.a.y, e.b.y) * b.scale - job->top - 1.5f));
-        const i32 last = minimum(static_cast<i32>(job->height) - 1,
-                                 static_cast<i32>(maximum(e.a.y, e.b.y) * b.scale - job->top + 1.5f));
-        for (i32 y = first; y <= last; ++y)
-            if (rows[y].count != none)
-                reinterpret_cast<u32*>(b.p->storage.base + rows[y].offset)[rows[y].count++] = i;
+        const i32 first = maximum(0, static_cast<i32>(minimum(e.a.y, e.b.y) * scale - top - 1.5f));
+        const i32 last = minimum(height - 1, static_cast<i32>(maximum(e.a.y, e.b.y) * scale - top + 1.5f));
+        for (i32 y = first; y <= last; ++y) {
+            MaskRow& row = rows[y];
+            if (row.count != none)
+                reinterpret_cast<u32*>(base + row.offset)[row.count++] = i;
+        }
     }
     for (u32 y = 1; y < job->height; ++y)
         if (rows[y].count == none) rows[y].count = rows[y-1].count;

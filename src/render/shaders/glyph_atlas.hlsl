@@ -95,9 +95,14 @@ void accumulate_right(float2 start, float2 end) {
     winding += int(end.y > sample_position.y) - int(start.y > sample_position.y);
 }
 
+// A relevant curve's 12 segment ends: lane k of the group computes end k once, and every
+// lane reads them all. When each lane computed all 12, a raster took 3 to 4 times the GPU time.
+groupshared float2 curve_points[12];
+
 [numthreads(8, 8, 1)]
-void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV_GroupID) {
-    const uint offset=dispatch_id.z*28;
+void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV_GroupID,
+                    uint lane : SV_GroupIndex) {
+    const uint offset=group_id.z*28;
     const uint4 raster=raster_data.Load4(offset);
     const float3 values=asfloat(raster_data.Load3(offset+16));
     const uint2 destination_origin=uint2(raster.x&65535,raster.x>>16),destination_size=uint2(raster.y&65535,raster.y>>16);
@@ -107,17 +112,14 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
     const bool stroking=stroke_half_width>0.0f;
     const float pixels_per_em=values.x;
     const float2 outline_origin=values.yz;
-    if (dispatch_id.x >= destination_size.x || dispatch_id.y >= destination_size.y) {
+    // The whole group leaves together: every lane that stays reaches each barrier below.
+    if (any(group_id.xy * 8 >= destination_size)) {
         return;
     }
-
     // Linear filtering can reach outside the glyph's UV rectangle. Initialize
     // the allocator-owned gutter on every raster, including recycled shelves.
-    if (any(dispatch_id.xy < allocation_padding) ||
-        any(dispatch_id.xy >= destination_size - allocation_padding)) {
-        coverage_atlas[destination_origin + dispatch_id.xy] = 0.0f;
-        return;
-    }
+    const bool gutter = any(dispatch_id.xy < allocation_padding) ||
+                        any(dispatch_id.xy >= destination_size - allocation_padding);
 
     sample_position =
         outline_origin + (float2(dispatch_id.xy - allocation_padding) + 0.5f) / pixels_per_em;
@@ -145,37 +147,50 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
         GlyphPathCommand command;
         command.point1=asfloat(first.xy);command.point2=asfloat(first.zw);
         command.point3=asfloat(last.xy);command.kind=last.z;
-        // Lines and curves share one path (a fifth faster on AMD than a branch of each):
-        // a line is a curve's last segment alone, whose weights give the end point exactly.
         if (command.kind == 2 || command.kind == 3) {
             const bool curve = command.kind == 3;
             const float2 control = curve ? command.point2 : command.point1;
             const float2 end = curve ? command.point3 : command.point1;
             const uint relevant = relevance(min(min(current, command.point1), min(control, end)),
                                             max(max(current, command.point1), max(control, end)));
+            // Relevance, the command and the contour state are uniform over the group, so
+            // every lane takes the same branches and reaches the barriers.
             [branch] if (relevant == 2) {
-                // Uniform per command: a loop of each (2.7 % faster than one loop that
-                // branches per segment), so a filled contour computes no stroke distance.
-                float2 segment_start = current;
-                [branch] if (contour_filled) {
-                    [loop]
-                    for (uint segment = curve ? 0 : 11; segment < 12; ++segment) {
-                        const float4 weights = cubic_weights[segment];
-                        const float2 segment_end = weights.x * current + weights.y * command.point1 +
-                                                   weights.z * control + weights.w * end;
-                        accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
-                        accumulate_crossing(sample_position, segment_start, segment_end, winding);
-                        segment_start = segment_end;
+                [branch] if (curve) {
+                    [branch] if (contour_filled || stroking) {
+                        GroupMemoryBarrierWithGroupSync();
+                        [branch] if (lane < 12) {
+                            const float4 weights = cubic_weights[lane];
+                            curve_points[lane] = weights.x * current + weights.y * command.point1 +
+                                                 weights.z * control + weights.w * end;
+                        }
+                        GroupMemoryBarrierWithGroupSync();
                     }
+                    // A loop of each (2.7 % faster than one loop that branches per segment),
+                    // so a filled contour computes no stroke distance.
+                    float2 segment_start = current;
+                    [branch] if (contour_filled) {
+                        [loop]
+                        for (uint segment = 0; segment < 12; ++segment) {
+                            const float2 segment_end = curve_points[segment];
+                            accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
+                            accumulate_crossing(sample_position, segment_start, segment_end, winding);
+                            segment_start = segment_end;
+                        }
+                    } else if (stroking) {
+                        [loop]
+                        for (uint segment = 0; segment < 12; ++segment) {
+                            const float2 segment_end = curve_points[segment];
+                            accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
+                            segment_start = segment_end;
+                        }
+                    }
+                } else if (contour_filled) {
+                    // A line is one segment to its end point.
+                    accumulate_distance(sample_position, current, end, minimum_distance_squared);
+                    accumulate_crossing(sample_position, current, end, winding);
                 } else if (stroking) {
-                    [loop]
-                    for (uint segment = curve ? 0 : 11; segment < 12; ++segment) {
-                        const float4 weights = cubic_weights[segment];
-                        const float2 segment_end = weights.x * current + weights.y * command.point1 +
-                                                   weights.z * control + weights.w * end;
-                        accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
-                        segment_start = segment_end;
-                    }
+                    accumulate_stroke(sample_position, current, end, stroke_distance_squared);
                 }
             } else if (relevant && contour_filled) {
                 accumulate_right(current, end);
@@ -199,5 +214,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID, uint3 group_id : SV
             sqrt(min(minimum_distance_squared, stroke_distance_squared)) * pixels_per_em;
         coverage = max(coverage, saturate(0.5f + stroke_half_width - stroke_distance));
     }
-    coverage_atlas[destination_origin + dispatch_id.xy] = coverage;
+    if (all(dispatch_id.xy < destination_size)) {
+        coverage_atlas[destination_origin + dispatch_id.xy] = gutter ? 0.0f : coverage;
+    }
 }

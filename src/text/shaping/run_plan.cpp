@@ -24,9 +24,12 @@ struct PlanData {
     NativeKerningPlan kerning;
     SfntFontLayoutMetrics layout_metrics;
     NativeRunPlanHandle parent;
-    const SfntTrueType* bold_font;
+    const FontGeometryInstance* bold;
+    const SfntShapePlan* parent_plan;
+    u64* ink;
+    u32 ink_glyphs;
 };
-NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
+inline NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
 #include "run_substitutions.inc"
 NativeRunPlanSlot* slot(const NativeRunPlanStore& s,NativeRunPlanHandle h) noexcept {
     if(!s.instances||!s.slots.data||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
@@ -46,19 +49,30 @@ SfntStatus gvar_advance(void* context,u16 glyph,double* output) noexcept {
     const auto& instance=*static_cast<const FontGeometryInstance*>(context);u16 value=0;
     const auto status=sfnt_gvar_design_advance(instance.font->outline.truetype,*instance.variation,glyph,&value);*output=value;return status;
 }
+// A bold glyph with ink is (units per em + 25) / 50 units wider, as DirectWrite draws it. An empty glyph keeps its
+// advance. TrueType reads the ink box from glyf. CFF and CFF2 read it once for each glyph from the first path commands
+// (cff_glyph_ink) and add their parent's advance, which follows the variation instance.
 SfntStatus bold_advance(void* context,u16 glyph,double* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output=0;
-    const auto& p=*static_cast<const PlanData*>(context);SfntGlyphMetrics metrics{};
-    auto status=sfnt_horizontal_metrics(p.metrics,glyph,&metrics);if(status!=SfntStatus::ok)return status;
-    u32 value=metrics.advance;
-    if(value){const auto& f=*p.bold_font;const u32 stride=f.loca_stride;
-        if((stride!=2&&stride!=4)||!f.loca.data||f.loca.count/stride<=static_cast<u32>(glyph)+1)return SfntStatus::malformed;
-        const u32 first=sfnt_read::loca_offset(f.loca,stride,glyph),end=sfnt_read::loca_offset(f.loca,stride,static_cast<u32>(glyph)+1);if(first>end||end>f.glyf.count)return SfntStatus::malformed;
-        if(first<end){if(!f.glyf.data||end-first<10)return SfntStatus::malformed;const auto* box=f.glyf.data+first+2;
-            const i32 width=static_cast<i16>(byte_load_be16(box+4))-static_cast<i16>(byte_load_be16(box));
-            const i32 height=static_cast<i16>(byte_load_be16(box+6))-static_cast<i16>(byte_load_be16(box+2));
-            if(width<0||height<0)return SfntStatus::malformed;if(width&&height)value+=(static_cast<u32>(p.metrics.units_per_em)+25)/50;}
-    }*output=value;return SfntStatus::ok;
+    const auto& p=*static_cast<const PlanData*>(context);double value=0;bool inked=false;
+    if(p.bold->font->kind==FontGeometryKind::truetype){SfntGlyphMetrics metrics{};
+        auto status=sfnt_horizontal_metrics(p.metrics,glyph,&metrics);if(status!=SfntStatus::ok)return status;
+        value=metrics.advance;
+        if(value){const auto& f=p.bold->font->outline.truetype;const u32 stride=f.loca_stride;
+            if((stride!=2&&stride!=4)||!f.loca.data||f.loca.count/stride<=static_cast<u32>(glyph)+1)return SfntStatus::malformed;
+            const u32 first=sfnt_read::loca_offset(f.loca,stride,glyph),end=sfnt_read::loca_offset(f.loca,stride,static_cast<u32>(glyph)+1);if(first>end||end>f.glyf.count)return SfntStatus::malformed;
+            if(first<end){if(!f.glyf.data||end-first<10)return SfntStatus::malformed;const auto* box=f.glyf.data+first+2;
+                const i32 width=static_cast<i16>(byte_load_be16(box+4))-static_cast<i16>(byte_load_be16(box));
+                const i32 height=static_cast<i16>(byte_load_be16(box+6))-static_cast<i16>(byte_load_be16(box+2));
+                if(width<0||height<0)return SfntStatus::malformed;inked=width&&height;}}
+    }else{auto status=p.parent_plan->advance(p.parent_plan->metric_context,glyph,&value);if(status!=SfntStatus::ok)return status;
+        if(value){u64* const word=glyph<p.ink_glyphs?p.ink+glyph/32:nullptr;const u32 shift=glyph%32*2;
+            if(word&&((*word>>shift)&1))inked=((*word>>shift)&2)!=0;
+            else{const auto* variation=p.bold->variation;
+                status=cff_glyph_ink(p.bold->font->outline.cff,glyph,variation?variation->coordinates:ConstSlice<double>{},&inked);if(status!=SfntStatus::ok)return status;
+                if(word)*word|=(inked?3ull:1ull)<<shift;}}
+    }
+    *output=value+(inked?(static_cast<u32>(p.metrics.units_per_em)+25)/50:0);return SfntStatus::ok;
 }
 // Plan preparation runs once per font instance and kind (not per run): compiled for size.
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
@@ -163,7 +177,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
         }else{
             auto nominal_scratch=take<u64>(scratch,(layout.feature_count+63u)/64+(layout.lookup_count+63u)/64);
             if(!filled(nominal_scratch))return SfntStatus::output_too_small;
-            SfntNominalParticipationResult participation_result{};
+            SfntNominalParticipationResult participation_result;
             status=sfnt_nominal_participation_add(layout,p.metrics.glyph_count,participation,nominal_scratch,&participation_result,work,{},&source_cache,variations);
             if(status!=SfntStatus::ok)return status;
             for(u32 i=0;!table&&i<p.nominal.ascii_count;++i){const u32 glyph=p.nominal.ascii_first+i;
@@ -202,7 +216,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     const auto* font=native_font_instance_get(*store->instances,instance);if(!font)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* face=native_font_get(*store->instances->fonts,font->face);if(!face)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const bool bold=(simulations&1)!=0&&!font_ignores_bold(face->geometry);
-    if(bold&&(face->geometry.kind!=FontGeometryKind::truetype||face->geometry.gvar.table.data))return failure(SfntStatus::unsupported);
+    if(bold&&face->geometry.kind==FontGeometryKind::truetype&&face->geometry.gvar.table.data)return failure(SfntStatus::unsupported);
     u32 available=store->slots.count;
     if(store->slots.count>work)return failure(SfntStatus::resource_limit);
     for(u32 i=0;i<store->slots.count;++i){auto& p=store->slots[i];
@@ -216,20 +230,27 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     const usize page=pages_page_size();
     if(!page||(page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
     if(limit<page||limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
+    // A bold CFF or CFF2 plan keeps two bits for each glyph on pages after its metric view: whether bold_advance read
+    // the ink of the glyph, and the ink. These pages stay writable. Plans change on the owning thread only.
+    const u32 ink_glyphs=bold&&face->geometry.kind==FontGeometryKind::cff?face->geometry.outline.cff.glyph_count:0;
+    const usize ink=ink_glyphs?((ink_glyphs+31u)/32u*8u+page-1)&~(page-1):0;
+    if(bold&&limit<page+ink)return failure(SfntStatus::resource_limit);
     NativeRunPlanHandle parent{};
     struct ParentRelease {NativeRunPlanStore* s;NativeRunPlanHandle& h;~ParentRelease() noexcept{if(h.slot)native_run_plan_release(s,h);}} parent_release{store,parent};
-    if(bold){const auto result=native_run_plan_acquire(store,instance,scratch,&parent,work,limit-page,0,kind);if(!result.ok())return result;
+    if(bold){const auto result=native_run_plan_acquire(store,instance,scratch,&parent,work,limit-page-ink,0,kind);if(!result.ok())return result;
         available=0;while(available<store->slots.count&&(store->slots[available].references||store->slots[available].generation==0xffffffffu))++available;
         if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};}
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
-    if(!arena_initialize(&state,bold?page:limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
+    if(!arena_initialize(&state,bold?page+ink:limit,0,page,ArenaTag::text))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);data->kind=kind;
     SubstitutionScope substitutions{store->substitutions};
     if(bold){const auto& base=*reinterpret_cast<const PlanData*>(store->slots[parent.slot-1].state.base);
-        data->metrics=base.metrics;data->nominal=base.nominal;data->nominal.ascii_advances=nullptr;data->layout_metrics=base.layout_metrics;data->parent=parent;data->bold_font=&face->geometry.outline.truetype;
+        data->metrics=base.metrics;data->nominal=base.nominal;data->nominal.ascii_advances=nullptr;data->layout_metrics=base.layout_metrics;data->parent=parent;
+        data->bold=&font->geometry;data->parent_plan=&base.plans[0];
+        if(ink){data->ink=static_cast<u64*>(arena_bump_zero(&state,ink,page));data->ink_glyphs=ink_glyphs;if(!data->ink)return failure(SfntStatus::resource_limit);}
         for(u32 mode=0;mode<2;++mode){data->plans[mode]=base.plans[mode];data->plans[mode].metric_context=data;data->plans[mode].advance=bold_advance;data->plans[mode].cache_advances=true;}}
     else{arena_reset(scratch);const auto status=prepare(*font,*face,*data,state,*scratch,work,limit,store->substitutions);if(status!=SfntStatus::ok)return failure(status);}
-    if(!pages_protect(state.base,state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
+    if(!pages_protect(state.base,ink?page:state.committed,PageAccess::read))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
     if(!bold&&!native_font_instance_retain(store->instances,instance))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
     auto& p=store->slots[available];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     substitutions.keep=true;reset_value(&parent);*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};

@@ -46,13 +46,13 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
 // faces/instances. An optional prepared instruction context in scratch applies
 // the implemented bytecode operations; the instance alone does not guarantee
 // instruction/context compatibility. Optional oblique simulation transforms
-// design geometry before emission. CFF metrics remain the base charstring
-// metrics; GlyphOutline bounds describe the transformed ink.
+// design geometry before emission; GlyphOutline bounds describe the
+// transformed ink.
 // Bold is supported for static TrueType text outlines, before oblique; it needs
 // prepared instructions when the font's prep policy affects widening. CFF and
 // variable bold remain unsupported.
 SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     FontGeometryScratch* scratch,GlyphOutline* output,u32 work_limit=1000000,
-    CffGlyphMetrics* cff_metrics=nullptr,bool oblique=false,bool bold=false) noexcept;
+    bool oblique=false,bool bold=false) noexcept;
 static_assert(sizeof(FontGeometryInstance)==16);
 } // namespace maicord

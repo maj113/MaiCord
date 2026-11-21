@@ -761,12 +761,12 @@ bool glyph_atlas_release(GlyphAtlasAllocator* atlas, GlyphAtlasHandle handle) no
 
 namespace {
 
-bool index_usable(const GlyphAtlasAllocator& atlas, const GlyphAtlasIndex* index) noexcept {
+inline bool index_usable(const GlyphAtlasAllocator& atlas, const GlyphAtlasIndex* index) noexcept {
     return index && index->buckets && atlas.entries &&
            static_cast<u64>(atlas.entry_capacity) * 2 <= static_cast<u64>(index->mask) + 1;
 }
 
-u32 index_home(const GlyphAtlasIndex& index, u64 key) noexcept {
+inline u32 index_home(const GlyphAtlasIndex& index, u64 key) noexcept {
     return static_cast<u32>((key * 0x9E3779B97F4A7C15ull) >> 32) & index.mask;
 }
 

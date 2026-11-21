@@ -22,6 +22,8 @@ SfntStatus declared_sizes(const SfntFace& face,ConstSlice<u8>* maxp,ConstSlice<u
     return byte_load_be32(maxp->data)!=0x10000 || cvt->count%2?SfntStatus::malformed:SfntStatus::ok;
 }
 }
+// Once per prepared instance: compiled for size.
+__attribute__((minsize))
 SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> maxp{},cvt{};
     const auto status=declared_sizes(face,&maxp,&cvt);if(status!=SfntStatus::ok)return status;

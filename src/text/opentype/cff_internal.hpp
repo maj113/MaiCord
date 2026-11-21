@@ -5,7 +5,7 @@ namespace maicord::cff_detail {
 
 struct Dictionary {
     double matrix[6]{.001, 0, 0, .001, 0, 0};
-    double default_width = 0, nominal_width = 0;
+    double nominal_width = 0;
     u32 charstrings = 0, charset = 0, private_offset = 0, private_size = 0;
     u32 subrs = 0, fd_array = 0, fd_select = 0, random_seed = 0;
 #if !defined(_WIN32)
@@ -19,17 +19,19 @@ ConstSlice<u8> index_object(const CffIndex& index, u32 object) noexcept;
 SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* result) noexcept;
 #if defined(_WIN32)
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict,
-                           CffIndex* subrs, u32* seed, double* default_width, double* nominal_width) noexcept;
+                           CffIndex* subrs, u32* seed, double* nominal_width) noexcept;
 SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs,
-                         double* matrix, u32* seed, double* default_width, double* nominal_width) noexcept;
+                         double* matrix, u32* seed, double* nominal_width) noexcept;
 #else
 // `vsindex` receives the Private DICT's item variation data index (CFF2; zero when the DICT names none).
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict,
-                           CffIndex* subrs, u32* seed, double* default_width, double* nominal_width, u32* vsindex) noexcept;
+                           CffIndex* subrs, u32* seed, double* nominal_width, u32* vsindex) noexcept;
 SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs,
-                         double* matrix, u32* seed, double* default_width, double* nominal_width, u32* vsindex) noexcept;
+                         double* matrix, u32* seed, double* nominal_width, u32* vsindex) noexcept;
 SfntStatus cff2_open(const SfntFace& face, CffFont* font) noexcept;
 #endif
 SfntStatus standard_glyph(const CffFont& font, u32 code, u16* glyph) noexcept;
+// Sets the bounds of the outline's points, cubic control points included, when it has a point.
+void outline_bounds(GlyphOutline* outline) noexcept;
 
 } // namespace maicord::cff_detail

@@ -210,20 +210,6 @@ bool glyph_outline_initialize(GlyphOutline* outline, Slice<GlyphPathCommand> com
     return true;
 }
 
-void glyph_outline_reset(GlyphOutline* outline) noexcept {
-    if (!outline) {
-        return;
-    }
-    outline->count = 0;
-    outline->rejected = 0;
-    outline->minimum_x = 0.0f;
-    outline->minimum_y = 0.0f;
-    outline->maximum_x = 0.0f;
-    outline->maximum_y = 0.0f;
-    outline->fill_rule = GlyphFillRule::alternate;
-    outline->has_bounds = false;
-}
-
 TextFoldedStyles text_fold_style_sizes(ConstSlice<TextStyleSpan> styles, Slice<TextStyleSpan> scratch) noexcept {
     bool sized = false;
     for (u32 i = 0; i < styles.count; ++i) {

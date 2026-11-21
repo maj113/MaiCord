@@ -22,15 +22,11 @@ struct CbdtFont {
     u32 strike_count;
 };
 
-// One strike (a BitmapSize record of CBLC).
+// One strike (a BitmapSize record of CBLC): what glyph lookup and scaling read of it.
 struct CbdtStrike {
     u16 first_glyph;
     u16 last_glyph;
-    u8 ppem_x;
     u8 ppem_y;
-    u8 bit_depth;
-    i8 ascender; // the strike's horizontal line metrics, in its own pixels
-    i8 descender;
     u32 subtable_count;
     u32 subtable_array_offset;
 };
@@ -53,7 +49,9 @@ SfntStatus cbdt_strike(const CbdtFont& font, u32 index, CbdtStrike* output) noex
 SfntStatus cbdt_glyph(const CbdtFont& font, u32 strike, u16 glyph, CbdtGlyph* output) noexcept;
 // The strike to draw `glyph` with at `pixels_per_em`: the smallest strike that is at least that size (it is scaled
 // down), else the largest (scaled up), skipping the strikes that lack the glyph. glyph_out_of_range when none has it.
-SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 glyph, u32* strike) noexcept;
+// `image` receives the glyph's image in that strike (cbdt_glyph).
+SfntStatus cbdt_select_strike(const CbdtFont& font, float pixels_per_em, u16 glyph, u32* strike,
+                              CbdtGlyph* image) noexcept;
 
 // A glyph drawn at a size: premultiplied RGBA8 pixels (red in the low byte), the tile's top-left corner relative to
 // the glyph origin in device pixels (y grows down, so `top` is negative above the baseline) and the advance.

@@ -36,9 +36,10 @@ struct NativeKerningPlan {u64 ready[2],base[2];ConstSlice<u16> roots;};
 // lookup use, never moves or changes committed payloads; its pool is released with
 // the last plan. state_limit covers base committed bytes plus lookup bytes (including
 // newly prepared base state and any metric view; cached state is reused). Work bounds
-// each parser/planner stage, not total CPU time. Oblique reuses the base plan; static
-// TrueType bold keeps a one-page metric view over that plan's programs, roots and
-// nominal data.
+// each parser/planner stage, not total CPU time. Oblique reuses the base plan; bold
+// (static TrueType, CFF and CFF2 at any instance) keeps a one-page metric view over
+// that plan's programs, roots and nominal data. CFF and CFF2 bold add writable pages
+// with two bits for each glyph, which record its ink on first use.
 NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontInstanceHandle instance,
     Arena* scratch,NativeRunPlanHandle* output,u32 stage_work=1000000,usize state_limit=16*1024*1024,u32 simulations=0,NativeRunPlanKind kind=NativeRunPlanKind::text) noexcept;
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle handle,

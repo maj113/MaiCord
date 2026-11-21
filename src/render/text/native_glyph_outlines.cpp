@@ -64,7 +64,7 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
         scratch.truetype.work_limit=1000000;
         return sfnt_truetype_outline(instance.geometry.font->outline.truetype,glyph,&scratch.truetype,output,SfntOutlineMode::colr,nullptr,scratch.instructions);
     }
-    return font_geometry_outline(instance.geometry,glyph,&scratch,output,1000000,nullptr,oblique,bold);
+    return font_geometry_outline(instance.geometry,glyph,&scratch,output,1000000,oblique,bold);
 }
 bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;

@@ -166,23 +166,27 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
     // Each end_closed goes up as a line back to its contour's first point, so the shaders close a contour through
     // the same line path as every other edge and keep no contour start. The shaders' separate closing edge was lost
     // on Intel's Windows driver (UHD 630, issue #11): an L lost its bar, an n its right stem, a d filled in.
+    // The source and its count stay in registers: the stores into the mapped buffer could alias them for the compiler.
     auto* destination=reinterpret_cast<GlyphPathCommand*>(mapped+glyph_raster_header_bytes)+cursor;
+    const GlyphPathCommand* source=outline.commands;
+    const u32 commands=outline.count;
     float start_x=0,start_y=0;
-    for(u32 i=0;i<outline.count;++i){
-        GlyphPathCommand command=outline.commands[i];
-        if(command.kind==GlyphPathCommandKind::begin_filled||command.kind==GlyphPathCommandKind::begin_hollow){
-            start_x=command.x1;start_y=command.y1;
-        }else if(command.kind==GlyphPathCommandKind::end_closed){
-            command={start_x,start_y,0,0,0,0,GlyphPathCommandKind::line,{}};
+    for(u32 i=0;i<commands;++i){
+        const GlyphPathCommand& command=source[i];
+        if(command.kind==GlyphPathCommandKind::end_closed){
+            const GlyphPathCommand closing{start_x,start_y,0,0,0,0,GlyphPathCommandKind::line,{}};
+            copy_bytes(destination+i,&closing,sizeof(closing));
+            continue;
         }
-        destination[i]=command;
+        if(command.kind<=GlyphPathCommandKind::begin_hollow){start_x=command.x1;start_y=command.y1;}
+        copy_bytes(destination+i,&command,sizeof(command));
     }
     const GlyphRasterJob constants{
-        x|(y<<16),width|(height<<16),outline.count|(outline.fill_rule==GlyphFillRule::winding?1u<<16:0)|
+        x|(y<<16),width|(height<<16),commands|(outline.fill_rule==GlyphFillRule::winding?1u<<16:0)|
             (static_cast<u32>(stroke_half_width*256.0f+0.5f)<<17),
         cursor|(static_cast<u32>(allocation_padding)<<16),pixels_per_em,(bounds.left-pen_offset)/pixels_per_em,
         bounds.top/pixels_per_em};
-    copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=outline.count;
+    copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=commands;
     groups_x=maximum(groups_x,(width+7)/8);groups_y=maximum(groups_y,(height+7)/8);
     return gpu_error(GlyphAtlasGpuError::none);
 }

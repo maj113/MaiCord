@@ -7,14 +7,13 @@ bool bounded_float(float value, float limit) noexcept {
     return value == value && value >= -limit && value <= limit;
 }
 
-i32 floor_i32(float value) noexcept {
-    const i32 truncated = static_cast<i32>(value);
-    return static_cast<float>(truncated) > value ? truncated - 1 : truncated;
+// vroundss and vcvttss2si (the compile baseline has SSE4.1). The bounds checks keep each product within 2^16.
+inline i32 floor_i32(float value) noexcept {
+    return static_cast<i32>(__builtin_elementwise_floor(value));
 }
 
-i32 ceil_i32(float value) noexcept {
-    const i32 truncated = static_cast<i32>(value);
-    return static_cast<float>(truncated) < value ? truncated + 1 : truncated;
+inline i32 ceil_i32(float value) noexcept {
+    return static_cast<i32>(__builtin_elementwise_ceil(value));
 }
 
 } // namespace

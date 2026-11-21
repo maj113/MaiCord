@@ -5,6 +5,7 @@
 #include "maicord/text/opentype/tt_outline.hpp"
 #include "sfnt_read.hpp"
 #include "floor_value.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {
@@ -79,14 +80,18 @@ struct Decoder {
             return SfntStatus::output_too_small;
         if (points > work) return SfntStatus::resource_limit;
         work -= points;
+        // clang-cl does not assume strict aliasing: the array pointers stay in locals, or each store would reload them.
         const u32 first = scratch.point_count;
+        SfntOutlinePoint* const output = scratch.points.data + first;
+        u32* const ends = scratch.contour_ends.data + scratch.contour_count;
         u32 previous = 0;
         for (u32 i = 0; i < contours; ++i) {
             const u32 end = be16(data.data + 10 + i * 2);
             if (i && end <= previous) return SfntStatus::malformed;
             previous = end;
-            scratch.contour_ends.data[scratch.contour_count++] = first + end;
+            ends[i] = first + end;
         }
+        scratch.contour_count += contours;
         Reader reader{data, 10 + contours * 2};
         const u8* p = nullptr;
         if (!reader.take(2, &p)) return SfntStatus::truncated;
@@ -100,13 +105,13 @@ struct Decoder {
                 repeat += *p;
             }
             if (repeat > points - i) return SfntStatus::malformed;
-            while (repeat--) scratch.points.data[first + i++] = {0, 0, flags, {0, 0, 0}};
+            while (repeat--) output[i++] = {0, 0, flags, {0, 0, 0}};
         }
         for (u32 axis = 0; axis < 2; ++axis) {
             i32 coordinate = 0;
             const u8 short_bit = axis ? 4 : 2, same_bit = axis ? 32 : 16;
             for (u32 i = 0; i < points; ++i) {
-                auto& point = scratch.points.data[first + i];
+                auto& point = output[i];
                 i32 delta = 0;
                 if (point.flags & short_bit) {
                     if (!reader.take(1, &p)) return SfntStatus::truncated;
@@ -155,7 +160,11 @@ struct Decoder {
             if(variation){const u32 count=scratch.point_count-first;SfntGvarDelta* deltas=nullptr;
             status=variations(id,first,first_contour,count,false,&deltas);if(status!=SfntStatus::ok)return status;
             if(count>work)return SfntStatus::resource_limit;work-=count;
-            for(u32 i=0;i<count;++i){auto& point=scratch.points[first+i];point.x=varied_coordinate(point.x+deltas[i].x);point.y=varied_coordinate(point.y+deltas[i].y);}
+            // The rounding of varied_coordinate() inline, in a scalar loop: a call per coordinate took a tenth of a
+            // varied glyph's time, and a vector body would add bytes.
+            SfntOutlinePoint* const varied=scratch.points.data+first;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for(u32 i=0;i<count;++i){auto& point=varied[i];point.x=static_cast<float>(round_value(point.x+deltas[i].x));point.y=static_cast<float>(round_value(point.y+deltas[i].y));}
             *metric_origin-=varied_coordinate(deltas[count].x);}
             // In the normalized-outline profile, simple component
             // programs share the first leaf's vertical phantom origin for this
@@ -212,14 +221,15 @@ struct Decoder {
             }
             if(flags&0x200u){*metric_origin=variation?component_product(child_origin,xx)+component_product(child_origin_y,yx):child_origin;
                 if(variation)*metric_origin_y=component_product(child_origin,xy_matrix)+component_product(child_origin_y,yy);}
-            const u32 child_points = scratch.point_count - child_first;
+            SfntOutlinePoint* const points = scratch.points.data;
+            const u32 child_end = scratch.point_count, child_points = child_end - child_first;
             if (child_points > work / 2u) return SfntStatus::resource_limit;
             work -= child_points * 2u;
             // Child transforms are resolved before parent point attachments. Every point is a
             // multiple of 1/64 here, which component_product reproduces exactly: the identity
             // (no transform words) leaves the child unchanged.
-            if (values) for (u32 i = child_first; i < scratch.point_count; ++i) {
-                auto& point = scratch.points.data[i];
+            if (values) for (u32 i = child_first; i < child_end; ++i) {
+                auto& point = points[i];
                 const float x = point.x, y = point.y;
                 point.x = component_product(x, xx) + component_product(y, yx);
                 point.y = component_product(x, xy_matrix) + component_product(y, yy);
@@ -228,7 +238,7 @@ struct Decoder {
             if(xy && variation){dx=varied_coordinate(dx+component_deltas[component_index].x);dy=varied_coordinate(dy+component_deltas[component_index].y);}
             if (!xy) {
                 const u32 parent_count = child_first - first;
-                const u32 child_count = scratch.point_count - child_first;
+                const u32 child_count = child_points;
                 if (static_cast<u32>(a) >= parent_count || static_cast<u32>(b) >= child_count) {
                     // The four phantom points are valid references but need phantom
                     // metrics this decoder lacks: unsupported, not corrupt data.
@@ -236,8 +246,8 @@ struct Decoder {
                            static_cast<u64>(b) < static_cast<u64>(child_count) + 4u
                                ? SfntStatus::unsupported : SfntStatus::malformed;
                 }
-                dx = scratch.points.data[first + a].x - scratch.points.data[child_first + b].x;
-                dy = scratch.points.data[first + a].y - scratch.points.data[child_first + b].y;
+                dx = points[first + a].x - points[child_first + b].x;
+                dy = points[first + a].y - points[child_first + b].y;
             } else if ((flags & 0x1800u) == 0x800u) {
                 // Match the Windows scaler's legacy offset scale: magnitude
                 // of the largest coefficient for each input axis. The offset
@@ -249,8 +259,8 @@ struct Decoder {
             }
             // ROUND_XY_TO_GRID applies after scaling/grid fitting, not to an
             // unhinted design outline. The default component offset is unscaled.
-            for (u32 i = child_first; i < scratch.point_count; ++i) {
-                auto& point = scratch.points.data[i]; point.x += dx; point.y += dy;
+            for (u32 i = child_first; i < child_end; ++i) {
+                auto& point = points[i]; point.x += dx; point.y += dy;
                 if (!(point.x >= -1.e12f && point.x <= 1.e12f &&
                       point.y >= -1.e12f && point.y <= 1.e12f)) return SfntStatus::malformed;
             }
@@ -265,24 +275,33 @@ struct Decoder {
     }
 };
 
-// Appends commands and, when asked, grows the bounds over every emitted point.
+// Appends commands and, when asked, grows the bounds over every emitted point. The buffer, the count and the bounds
+// stay in locals until finish(): a command store may alias `out`, which would make each point reload and store them.
+// One vector holds the bounds: the minimum x and y, then the negated maximum x and y. minps keeps the operand that
+// minimum() and maximum() keep, signed zeros included, so the bounds are exact.
 struct Writer {
     GlyphOutline& out;
     bool bounds;
-    __forceinline void include(SfntOutlinePoint p) noexcept {
-        if (!out.has_bounds) { out.minimum_x = out.maximum_x = p.x; out.minimum_y = out.maximum_y = p.y; out.has_bounds = true; return; }
-        out.minimum_x = minimum(out.minimum_x, p.x); out.maximum_x = maximum(out.maximum_x, p.x);
-        out.minimum_y = minimum(out.minimum_y, p.y); out.maximum_y = maximum(out.maximum_y, p.y);
-    }
+    GlyphPathCommand* commands = out.commands;
+    u32 capacity = out.capacity, count = 0;
+    __m128 extent{__builtin_inff(), __builtin_inff(), __builtin_inff(), __builtin_inff()};
+    __forceinline void include(SfntOutlinePoint p) noexcept { extent = _mm_min_ps(extent, __m128{p.x, p.y, -p.x, -p.y}); }
     __forceinline bool append(GlyphPathCommandKind kind, SfntOutlinePoint a = {},
                   SfntOutlinePoint b = {}, SfntOutlinePoint c = {}) noexcept {
-        if (out.count == out.capacity) return false;
-        out.commands[out.count++] = {a.x, a.y, b.x, b.y, c.x, c.y, kind, {0, 0, 0}};
+        if (count == capacity) return false;
+        commands[count++] = {a.x, a.y, b.x, b.y, c.x, c.y, kind, {0, 0, 0}};
         if (bounds && kind != GlyphPathCommandKind::end_closed) {
             include(a);
             if (kind == GlyphPathCommandKind::cubic) { include(b); include(c); }
         }
         return true;
+    }
+    // Every contour begins with a point, so any command means bounds.
+    void finish() noexcept {
+        out.count = count;
+        if (!bounds || !count) return;
+        out.minimum_x = extent[0]; out.minimum_y = extent[1]; out.maximum_x = -extent[2]; out.maximum_y = -extent[3];
+        out.has_bounds = true;
     }
 };
 
@@ -340,6 +359,7 @@ SfntStatus emit(const SfntOutlineScratch& scratch, GlyphOutline& output, float o
         if (!writer.append(GlyphPathCommandKind::end_closed)) return SfntStatus::output_too_small;
         first = last + 1;
     }
+    writer.finish();
     return SfntStatus::ok;
 }
 #pragma float_control(pop)
@@ -362,6 +382,8 @@ u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept 
     return static_cast<u32>(be16(data+10+(contours-1)*2))+1+static_cast<u32>(contours)*2;
 }
 
+// Once per face: compiled for size.
+__attribute__((minsize))
 SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allow_variations) noexcept {
     if (!font) return SfntStatus::invalid_input;
     reset_value(font);
@@ -391,6 +413,8 @@ SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allo
     return SfntStatus::ok;
 }
 
+// Once per prepared instance: compiled for size.
+__attribute__((minsize))
 SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present) noexcept {
     u32 work=1000000;*present=false;
     if(!font.loca.data||!font.glyf.data||(font.loca_stride!=2&&font.loca_stride!=4)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
@@ -422,31 +446,38 @@ SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
     float origin = 0,origin_y=0;
     auto status=instructions?tt_outline_begin(instructions,font,&decoder.work):SfntStatus::ok;
     if(status==SfntStatus::ok)status=decoder.glyph(glyph,0,&origin,0,&origin_y);
+    SfntOutlinePoint* const points=scratch->points.data;const u32 point_count=scratch->point_count;
     if(status==SfntStatus::ok&&origin_y){
-        if(scratch->point_count>decoder.work)status=SfntStatus::resource_limit;
-        else{decoder.work-=scratch->point_count;for(u32 i=0;i<scratch->point_count;++i)scratch->points[i].y+=origin_y;}
+        if(point_count>decoder.work)status=SfntStatus::resource_limit;
+        else{decoder.work-=point_count;
+// The point passes after the decode stay scalar: vector bodies with their alias checks would add 450 bytes.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for(u32 i=0;i<point_count;++i)points[i].y+=origin_y;}
     }
     if(status==SfntStatus::ok&&bold){u32 used=0;
-        status=tt_bold_marked_points({scratch->points.data,scratch->point_count},{scratch->contour_ends.data,scratch->contour_count},font.metrics.units_per_em,
+        status=tt_bold_marked_points({points,point_count},{scratch->contour_ends.data,scratch->contour_count},font.metrics.units_per_em,
             instructions&&instructions->instance->prep_recovered_missing_function,decoder.work,&used);decoder.work-=used;
     }
     if(status==SfntStatus::ok&&oblique){
         if(mode!=SfntOutlineMode::text)status=SfntStatus::unsupported;
-        else if(scratch->point_count>decoder.work)status=SfntStatus::resource_limit;
+        else if(point_count>decoder.work)status=SfntStatus::resource_limit;
         // Match the Windows scaler's 1/64-unit transform, with half ties away
         // from zero, after attachments/instructions and before implied points.
-        else {decoder.work-=scratch->point_count;
-            for(u32 i=0;i<scratch->point_count;++i)scratch->points[i].x+=component_product(scratch->points[i].y,87.f/256.f);}
+        else {decoder.work-=point_count;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for(u32 i=0;i<point_count;++i)points[i].x+=component_product(points[i].y,87.f/256.f);}
     }
-    if (status == SfntStatus::ok && scratch->point_count) {
+    if (status == SfntStatus::ok && point_count) {
         const float scale = 1.f / font.metrics.units_per_em;
         // The color path computes implied points after scaling and keeps isolated
         // contours. It applies only to simple glyphs within 2048 points and
         // contours; composites use the text order.
         const u32 begin=location(font,glyph),end=location(font,glyph+1);
         const bool color=mode==SfntOutlineMode::colr && end-begin>=10 && s16(font.glyf.data+begin)>=0 &&
-            scratch->point_count<=2048 && scratch->contour_count<=2048;
-        if(color)for(u32 i=0;i<scratch->point_count;++i)scratch->points[i]=normalized(scratch->points[i],origin,scale);
+            point_count<=2048 && scratch->contour_count<=2048;
+        if(color){
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+            for(u32 i=0;i<point_count;++i)points[i]=normalized(points[i],origin,scale);}
         status = emit(*scratch, *output, origin, scale,color,mode==SfntOutlineMode::text);
     }
     if (status != SfntStatus::ok) {

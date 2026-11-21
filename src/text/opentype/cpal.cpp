@@ -36,7 +36,7 @@ SfntStatus cpal_open(const SfntFace& face,CpalFont* output) noexcept {
 SfntStatus cpal_color(const CpalFont& font,u16 palette,u16 entry,CpalColor* output) noexcept {
     if(!output)return SfntStatus::invalid_input;
     reset_value(output);
-    if(!font.starts.data || !font.colors.data)return SfntStatus::invalid_input;
+    // cpal_open leaves a zero font (no palettes) or both views with one or more palettes.
     if(palette>=font.palette_count)return SfntStatus::invalid_input;
     if(entry==0xffff)return SfntStatus::unsupported_sequence; // 0xFFFF selects the caller's foreground color.
     if(entry>=font.entry_count)return SfntStatus::invalid_input;

@@ -57,12 +57,14 @@ SfntStatus point_list(Reader& r,u32 total,Slice<u32> storage,PointList* out,u32&
         for(u32 i=0;i<n;++i){point+=width==2?r16(data,i*2):data[i];if(point>=total)return SfntStatus::malformed;storage[at++]=point;}}
     *out={{storage.data,count},count,false};return SfntStatus::ok;
 }
+// clang-cl does not assume strict aliasing: the array pointers stay in locals, or each store would reload them.
 SfntStatus deltas(Reader& r,u32 count,Slice<i32> storage,u32& work) noexcept {
     if(storage.count<count || (count && !storage.data))return SfntStatus::output_too_small;if(!spend(work,count))return SfntStatus::resource_limit;
+    i32* const values=storage.data;
     u32 at=0;while(at<count){u8 control=0;if(!r.byte(&control))return SfntStatus::truncated;const u32 n=(control&63u)+1,width=control&128?0:control&64?2:1;if(n>count-at)return SfntStatus::malformed;ConstSlice<u8> data{};if(width && !r.take(n*width,&data))return SfntStatus::truncated;
         // Runs hold at most 64 values: the vectorized body and its alias checks only add size.
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
-        for(u32 i=0;i<n;++i)storage[at++]=!width?0:width==2?static_cast<i16>(r16(data,i*2)):static_cast<signed char>(data[i]);}return SfntStatus::ok;
+        for(u32 i=0;i<n;++i)values[at++]=!width?0:width==2?static_cast<i16>(r16(data,i*2)):static_cast<signed char>(data[i]);}return SfntStatus::ok;
 }
 inline double inferred(double target,double a,double b,double da,double db) noexcept {
     if(a==b)return da==db?da:0;if(a>b){const double c=a;a=b;b=c;const double d=da;da=db;db=d;}
@@ -70,21 +72,28 @@ inline double inferred(double target,double a,double b,double da,double db) noex
 }
 SfntStatus apply(const PointList& list,const ConstSlice<SfntOutlinePoint>& points,const ConstSlice<u32>& ends,bool composite,const SfntGvarScratch& scratch,const Slice<SfntGvarDelta>& output,double scale,u32& work,u32 origin) noexcept {
     if(!spend(work,list.count))return SfntStatus::resource_limit;
-    if(list.all){for(u32 i=0;i<list.count;++i){output[i].x+=scratch.x_deltas[i]*scale;output[i].y+=scratch.y_deltas[i]*scale;}return SfntStatus::ok;}
+    SfntGvarDelta* const out=output.data;i32* const dx=scratch.x_deltas.data;i32* const dy=scratch.y_deltas.data;const u32 count=list.count;
+    if(list.all){
+        // A vector body with its alias checks adds about 190 bytes for 2% of a varied glyph's time.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
+        for(u32 i=0;i<count;++i){out[i].x+=dx[i]*scale;out[i].y+=dy[i]*scale;}
+        return SfntStatus::ok;
+    }
     // Coalesce repeated point IDs cumulatively, as required by the packed-point
     // format. The separate shared list stays reusable by later tuples.
-    u32 unique=0;for(u32 i=0;i<list.count;++i){const u32 p=list.indices[i];if(unique && scratch.private_points[unique-1]==p){scratch.x_deltas[unique-1]+=scratch.x_deltas[i];scratch.y_deltas[unique-1]+=scratch.y_deltas[i];}
-        else{scratch.private_points[unique]=p;scratch.x_deltas[unique]=scratch.x_deltas[i];scratch.y_deltas[unique]=scratch.y_deltas[i];++unique;}}
-    const auto ids=scratch.private_points;
-    for(u32 i=0;i<unique;++i){output[ids[i]].x+=scratch.x_deltas[i]*scale;output[ids[i]].y+=scratch.y_deltas[i]*scale;}
+    const u32* const indices=list.indices.data;u32* const ids=scratch.private_points.data;
+    u32 unique=0;for(u32 i=0;i<count;++i){const u32 p=indices[i];if(unique && ids[unique-1]==p){dx[unique-1]+=dx[i];dy[unique-1]+=dy[i];}
+        else{ids[unique]=p;dx[unique]=dx[i];dy[unique]=dy[i];++unique;}}
+    for(u32 i=0;i<unique;++i){out[ids[i]].x+=dx[i]*scale;out[ids[i]].y+=dy[i]*scale;}
     if(composite)return SfntStatus::ok;
+    const SfntOutlinePoint* const at=points.data;
     u32 first=0,cursor=0;for(u32 contour=0;contour<ends.count;++contour){const u32 last=ends[contour]-origin,begin=cursor;while(cursor<unique && ids[cursor]<=last)++cursor;
         if(cursor>begin){for(u32 a=begin;a<cursor;++a){const u32 b=a+1<cursor?a+1:begin;u32 target=ids[a]==last?first:ids[a]+1;
-            while(target!=ids[b]){if(!spend(work))return SfntStatus::resource_limit;const auto p=points[target],pa=points[ids[a]],pb=points[ids[b]];
+            while(target!=ids[b]){if(!spend(work))return SfntStatus::resource_limit;const auto p=at[target],pa=at[ids[a]],pb=at[ids[b]];
                 // Untouched points truncate each inferred/scaled contribution;
                 // explicit points retain the fraction until final rounding.
-                output[target].x+=static_cast<i64>(inferred(p.x,pa.x,pb.x,scratch.x_deltas[a],scratch.x_deltas[b])*scale);
-                output[target].y+=static_cast<i64>(inferred(p.y,pa.y,pb.y,scratch.y_deltas[a],scratch.y_deltas[b])*scale);target=target==last?first:target+1;}}}
+                out[target].x+=static_cast<i64>(inferred(p.x,pa.x,pb.x,dx[a],dx[b])*scale);
+                out[target].y+=static_cast<i64>(inferred(p.y,pa.y,pb.y,dy[a],dy[b])*scale);target=target==last?first:target+1;}}}
         first=last+1;
     }return SfntStatus::ok;
 }

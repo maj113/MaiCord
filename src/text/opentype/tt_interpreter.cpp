@@ -7,7 +7,8 @@ inline bool fits(i64 v) noexcept {return v>=-2147483648ll && v<=2147483647ll;}
 i64 quotient(i64 numerator,i64 denominator) noexcept {const bool negative=(numerator<0)!=(denominator<0);const i64 n=absolute_value<i64>(numerator),d=absolute_value<i64>(denominator);const i64 q=(n+d/2)/d;return negative?-q:q;}
 // Fixed-point projection multiplication adds a positive half before shifting;
 // its negative ties differ from TrueType's explicit grid-rounding instructions.
-i64 projected_product(i64 numerator,i64 denominator) noexcept {return numerator<0?-((-numerator+(denominator-1)/2)/denominator):(numerator+denominator/2)/denominator;}
+// The arithmetic shift rounds down. For a negative product it gives -((-n+half-1)>>shift).
+inline i64 projected_product(i64 numerator,u32 shift) noexcept {return (numerator+(1ll<<(shift-1)))>>shift;}
 using tt_math::multiply_divide;
 using tt_math::normalized_vector;
 i64 rounded(i32 v,const TtGraphicsState& g) noexcept {
@@ -51,18 +52,18 @@ struct Machine {
     // inlining at every point operand adds size for no speed.
     __declspec(noinline) TtPoint* point(u32 zone,i32 index) noexcept {if(index<0)return nullptr;const auto points=zone?s.glyph:s.twilight;return static_cast<u32>(index)<points.count?points.data+index:nullptr;}
     bool project(const TtPoint& p,bool original,i32* value) noexcept {const auto& g=s.graphics;const i16 x=original?g.dual_x:g.projection_x,y=original?g.dual_y:g.projection_y;
-        const i64 v=projected_product(static_cast<i64>(original?p.original_x:p.x)*x,16384)+projected_product(static_cast<i64>(original?p.original_y:p.y)*y,16384);if(!fits(v))return false;*value=static_cast<i32>(v);return true;}
+        const i64 v=projected_product(static_cast<i64>(original?p.original_x:p.x)*x,14)+projected_product(static_cast<i64>(original?p.original_y:p.y)*y,14);if(!fits(v))return false;*value=static_cast<i32>(v);return true;}
     SfntStatus move(TtPoint& p,i64 distance,bool projection) noexcept {auto& g=s.graphics;
-        const i64 dot=projection?projected_product(static_cast<i64>(g.freedom_x)*g.projection_x,16384)+projected_product(static_cast<i64>(g.freedom_y)*g.projection_y,16384):16384;
+        const i64 dot=projection?projected_product(static_cast<i64>(g.freedom_x)*g.projection_x,14)+projected_product(static_cast<i64>(g.freedom_y)*g.projection_y,14):16384;
         if(!dot)return SfntStatus::unsupported;i64 x=0,y=0;
         if(!multiply_divide(distance,g.freedom_x,dot,&x)||!multiply_divide(distance,g.freedom_y,dot,&y))return SfntStatus::malformed;
         if(x<-2147483648ll-p.x || x>2147483647ll-p.x || y<-2147483648ll-p.y || y>2147483647ll-p.y)return SfntStatus::malformed;p.x=static_cast<i32>(p.x+x);p.y=static_cast<i32>(p.y+y);if(g.freedom_x)p.touched|=1;if(g.freedom_y)p.touched|=2;return SfntStatus::ok;
     }
     i64 distance(const TtPoint& a,const TtPoint& b,bool original,bool unscaled=true,bool current_vector=false) noexcept {
         const i64 x=static_cast<i64>(original?a.original_x:a.x)-(original?b.original_x:b.x),y=static_cast<i64>(original?a.original_y:a.y)-(original?b.original_y:b.y);const auto& g=s.graphics;
-        const i64 scale=original && unscaled?64:1;
+        const bool unscaled_original=original && unscaled;const i64 scale=unscaled_original?64:1;const u32 shift=unscaled_original?20:14;
         const i16 vx=original&&!current_vector?g.dual_x:g.projection_x,vy=original&&!current_vector?g.dual_y:g.projection_y;
-        return (projected_product(x*vx,16384*scale)+projected_product(y*vy,16384*scale))*scale;
+        return (projected_product(x*vx,shift)+projected_product(y*vy,shift))*scale;
     }
     SfntStatus vector_line(u8 op) noexcept {
         i32 a=0,b=0;if(!two(&a,&b))return SfntStatus::malformed;auto& g=s.graphics;const auto* p1=point(g.zp[2],b);const auto* p2=point(g.zp[1],a);if(!p1||!p2)return SfntStatus::malformed;

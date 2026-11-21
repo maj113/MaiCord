@@ -84,7 +84,6 @@ bool effect_glyph_grid_build(D3D11Renderer* renderer, GpuSrv** view) noexcept {
                 continue;
             if (shaped.run_count && shaped.glyph_count) {
                 const TextRun& run = shaped.runs[0];
-                glyph_outline_reset(&outline);
                 GlyphRasterBounds bounds{};
                 if (run.native_font &&
                     native_glyph_outline(&outlines, face_id(&faces, run.native_face, &outlines),

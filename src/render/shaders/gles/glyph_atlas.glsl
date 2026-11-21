@@ -1,4 +1,4 @@
-// twin: src/render/shaders/glyph_atlas.hlsl 7c7c3bd11b160ab5
+// twin: src/render/shaders/glyph_atlas.hlsl ce789813c65895f9
 // glyph_coverage (STAGE_CS): rasterizes glyph and icon outlines into the coverage atlas. Every raster is culled by
 // tile: a work group skips each command that cannot reach any sample of its 8 x 8 tile, and takes only the winding of
 // one that lies right of it. Measured on the UI's own rasters, that pays at every size.
@@ -48,8 +48,8 @@ void accumulate_stroke(vec2 sample_position, vec2 line_start, vec2 line_end, ino
     minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
 }
 
-// Cubic Bezier weights at t = k/12 (k = 1..12), rounded after each binary32 operation; verify with
-// tools/verify_glyph_cubic_weights.py. Each literal is the shortest decimal that reads back as the same binary32.
+// Cubic Bezier weights at t = k/12 (k = 1..12), rounded after each binary32 operation. Each literal is the shortest
+// decimal that reads back as the same binary32.
 const vec4 cubic_weights[12] = vec4[12](
     vec4(0.7702547, 0.21006946, 0.019097224, 0.00057870377),
     vec4(0.57870364, 0.3472222, 0.06944445, 0.00462963),
@@ -96,9 +96,13 @@ void accumulate_right(vec2 start, vec2 end) {
     winding += int(end.y > sample_position.y) - int(start.y > sample_position.y);
 }
 
+// A relevant curve's 12 segment ends: lane k of the group computes end k once, and every lane reads them all. When
+// each lane computed all 12, a raster took 3 to 4 times the GPU time.
+shared vec2 curve_points[12];
+
 void main() {
     uvec3 id = gl_GlobalInvocationID;
-    uint offset = id.z * 7u;
+    uint offset = gl_WorkGroupID.z * 7u;
     uvec4 raster = uvec4(raster_data[offset], raster_data[offset + 1u], raster_data[offset + 2u],
                          raster_data[offset + 3u]);
     vec3 values = uintBitsToFloat(uvec3(raster_data[offset + 4u], raster_data[offset + 5u], raster_data[offset + 6u]));
@@ -110,16 +114,13 @@ void main() {
     bool stroking = stroke_half_width > 0.0;
     float pixels_per_em = values.x;
     vec2 outline_origin = values.yz;
-    if (id.x >= destination_size.x || id.y >= destination_size.y)
+    // The whole group leaves together: every lane that stays reaches each barrier below.
+    if (any(greaterThanEqual(gl_WorkGroupID.xy * 8u, destination_size)))
         return;
-
     // Linear filtering can reach outside the glyph's UV rectangle. Initialize the allocator-owned gutter on every
     // raster, including recycled shelves.
-    if (any(lessThan(id.xy, uvec2(allocation_padding))) ||
-        any(greaterThanEqual(id.xy, destination_size - allocation_padding))) {
-        imageStore(coverage_atlas, ivec2(destination_origin + id.xy), vec4(0.0));
-        return;
-    }
+    bool gutter = any(lessThan(id.xy, uvec2(allocation_padding))) ||
+                  any(greaterThanEqual(id.xy, destination_size - allocation_padding));
 
     sample_position = outline_origin + (vec2(id.xy - allocation_padding) + 0.5) / pixels_per_em;
     winding = 0;
@@ -139,35 +140,51 @@ void main() {
     // point, and end markers draw nothing.
     for (uint index = 0u; index < command_count; ++index) {
         GlyphPathCommand command = load_command(uint(GLYPH_JOBS) + (raster.w & 65535u) + index);
-        // Lines and curves share one path (a fifth faster on AMD than a branch of each): a line is a curve's last
-        // segment alone, whose weights give the end point exactly.
         if (command.kind == 2u || command.kind == 3u) {
             bool curve = command.kind == 3u;
             vec2 control = curve ? command.point2 : command.point1;
             vec2 end = curve ? command.point3 : command.point1;
             uint relevant = relevance(min(min(current, command.point1), min(control, end)),
                                       max(max(current, command.point1), max(control, end)));
+            // Relevance, the command and the contour state are uniform over the group, so every lane takes the same
+            // branches and reaches the barriers.
             if (relevant == 2u) {
-                // Uniform per command: a loop of each (2.7 % faster than one loop that branches per segment), so a
-                // filled contour computes no stroke distance.
-                vec2 segment_start = current;
-                if (contour_filled) {
-                    for (uint segment = curve ? 0u : 11u; segment < 12u; ++segment) {
-                        vec4 weights = cubic_weights[segment];
-                        vec2 segment_end = weights.x * current + weights.y * command.point1 + weights.z * control +
-                                           weights.w * end;
-                        accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
-                        accumulate_crossing(sample_position, segment_start, segment_end, winding);
-                        segment_start = segment_end;
+                if (curve) {
+                    if (contour_filled || stroking) {
+                        memoryBarrierShared();
+                        barrier();
+                        uint lane = gl_LocalInvocationIndex;
+                        if (lane < 12u) {
+                            vec4 weights = cubic_weights[lane];
+                            curve_points[lane] = weights.x * current + weights.y * command.point1 +
+                                                 weights.z * control + weights.w * end;
+                        }
+                        memoryBarrierShared();
+                        barrier();
                     }
+                    // A loop of each (2.7 % faster than one loop that branches per segment), so a filled contour
+                    // computes no stroke distance.
+                    vec2 segment_start = current;
+                    if (contour_filled) {
+                        for (uint segment = 0u; segment < 12u; ++segment) {
+                            vec2 segment_end = curve_points[segment];
+                            accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
+                            accumulate_crossing(sample_position, segment_start, segment_end, winding);
+                            segment_start = segment_end;
+                        }
+                    } else if (stroking) {
+                        for (uint segment = 0u; segment < 12u; ++segment) {
+                            vec2 segment_end = curve_points[segment];
+                            accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
+                            segment_start = segment_end;
+                        }
+                    }
+                } else if (contour_filled) {
+                    // A line is one segment to its end point.
+                    accumulate_distance(sample_position, current, end, minimum_distance_squared);
+                    accumulate_crossing(sample_position, current, end, winding);
                 } else if (stroking) {
-                    for (uint segment = curve ? 0u : 11u; segment < 12u; ++segment) {
-                        vec4 weights = cubic_weights[segment];
-                        vec2 segment_end = weights.x * current + weights.y * command.point1 + weights.z * control +
-                                           weights.w * end;
-                        accumulate_stroke(sample_position, segment_start, segment_end, stroke_distance_squared);
-                        segment_start = segment_end;
-                    }
+                    accumulate_stroke(sample_position, current, end, stroke_distance_squared);
                 }
             } else if (relevant != 0u && contour_filled) {
                 accumulate_right(current, end);
@@ -190,5 +207,6 @@ void main() {
         float stroke_distance = sqrt(min(minimum_distance_squared, stroke_distance_squared)) * pixels_per_em;
         coverage = max(coverage, clamp(0.5 + stroke_half_width - stroke_distance, 0.0, 1.0));
     }
-    imageStore(coverage_atlas, ivec2(destination_origin + id.xy), vec4(coverage));
+    if (all(lessThan(id.xy, destination_size)))
+        imageStore(coverage_atlas, ivec2(destination_origin + id.xy), vec4(gutter ? 0.0 : coverage));
 }

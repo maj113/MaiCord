@@ -89,8 +89,8 @@ SfntStatus colr_color_line(const ColrFont& font,const ColrPaint& paint,ColrColor
 SfntStatus colr_color_stop(const ColrFont& font,const ColrColorLine& line,u32 index,ColrColorStop* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data || index>=line.count)return SfntStatus::invalid_input;
+    // colr_color_line checked that the stops hold count records.
     const u32 stride=line.variable?10u:6u,at=index*stride;
-    if(!span(line.stops,at,stride))return SfntStatus::truncated;
     const u16 palette=r16(line.stops,at+2);
     if(!palette_valid(font,palette))return SfntStatus::malformed;
     *output={signed16(line.stops,at)/16384.0,signed16(line.stops,at+4)/16384.0,

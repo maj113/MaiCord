@@ -1,8 +1,8 @@
 // CFF2 outlines (Linux only): the first-party collection tests/generated/cff2_collection_fixture.bin
 // (tools/font_reference/make_cff2_fixture.py), two variable faces with CFF2 outlines in one file, the layout of Noto Sans
 // CJK on NixOS and Fedora. Each face opens, names its family and its weight instances, and draws its glyphs at the
-// default instance and at blended weights. A changed version, an operand stack without the blend operands and an
-// unknown vsindex are refused.
+// default instance and at blended weights, regular and bold. A changed version, an operand stack without the blend
+// operands and an unknown vsindex are refused.
 #include "maicord/core/memory.hpp"
 #include "maicord/text/fonts/family.hpp"
 #include "maicord/text/fonts/geometry.hpp"
@@ -42,6 +42,18 @@ bool box_at(const GlyphOutline& out, double x) noexcept {
            near(out.commands[0].y1, -.1f) && near(out.commands[1].x1, left + .3f) &&
            out.commands[4].kind == GlyphPathCommandKind::end_closed && near(out.minimum_x, left) &&
            near(out.maximum_x, left + .3f) && near(out.minimum_y, -.15f);
+}
+
+// The same box drawn bold: the pen square of 1310/65536 em moves its right side right and its top up, and leaves its
+// left side and its bottom where they are.
+bool bold_box_at(const GlyphOutline& out, double x) noexcept {
+    const float left = static_cast<float>(x / 1000.0), strength = 1310.f / 65536.f;
+    const float right = left + .3f + strength, top = -.15f - strength;
+    const auto* c = out.commands;
+    return out.count == 5 && c[0].kind == GlyphPathCommandKind::begin_filled && near(c[0].x1, left) && near(c[0].y1, -.1f) &&
+           near(c[1].x1, right) && near(c[1].y1, -.1f) && near(c[2].x1, right) && near(c[2].y1, top) &&
+           near(c[3].x1, left) && near(c[3].y1, top) && c[4].kind == GlyphPathCommandKind::end_closed &&
+           near(out.minimum_x, left) && near(out.maximum_x, right) && near(out.minimum_y, top) && near(out.maximum_y, -.1f);
 }
 
 AxisSegmentMap g_maps[4];
@@ -86,15 +98,32 @@ void test_face(u32 index, const char* family) noexcept {
     for (u16 glyph = 1; glyph <= 3; ++glyph) {
         check(font_geometry_outline(instance, glyph, nullptr, &out) == SfntStatus::ok && box_at(out, 100), "default_box");
         check(cff_outline(geometry.outline.cff, glyph, &out) == SfntStatus::ok && box_at(out, 100), "cff_outline_default");
+        check(font_geometry_outline(instance, glyph, nullptr, &out, 1000000, false, true) == SfntStatus::ok &&
+                  bold_box_at(out, 100),
+              "default_bold_box");
     }
     const double weights[]{100, 500, 900};
     const double lefts[]{100, 150, 200};
     for (u32 i = 0; i < 3; ++i) {
         const FontAxisSetting setting{sfnt_tag('w', 'g', 'h', 't'), weights[i]};
         check(instance_at(geometry, {&setting, 1}, &instance) == SfntStatus::ok, "weight_instance");
-        for (u16 glyph = 1; glyph <= 3; ++glyph)
+        for (u16 glyph = 1; glyph <= 3; ++glyph) {
             check(font_geometry_outline(instance, glyph, nullptr, &out) == SfntStatus::ok && box_at(out, lefts[i]),
                   "blended_box");
+            check(font_geometry_outline(instance, glyph, nullptr, &out, 1000000, false, true) == SfntStatus::ok &&
+                      bold_box_at(out, lefts[i]),
+                  "blended_bold_box");
+        }
+        // The ink of every glyph at this instance is the box of its whole outline.
+        const ConstSlice<double> coordinates = instance.variation ? instance.variation->coordinates : ConstSlice<double>{};
+        for (u16 glyph = 0; glyph < geometry.outline.cff.glyph_count; ++glyph) {
+            const SfntStatus status = font_geometry_outline(instance, glyph, nullptr, &out);
+            const bool box = out.has_bounds && out.maximum_x > out.minimum_x && out.maximum_y > out.minimum_y;
+            bool ink = !box;
+            check(cff_glyph_ink(geometry.outline.cff, glyph, coordinates, &ink) == status &&
+                      (status != SfntStatus::ok || ink == box) && (glyph == 0 || ink),
+                  "blended_ink");
+        }
     }
 }
 

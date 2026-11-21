@@ -9,6 +9,8 @@ namespace maicord {
 namespace {
 
 #include "../../generated/cff_oblique_fixture.inc"
+#include "../../generated/cff_bold_fixture.inc"
+#include "../../generated/cff_ink_fixture.inc"
 u8 bytes[3072];
 GlyphPathCommand commands[256];
 constexpr u32 cff_at = 512, cff_size = 2048;
@@ -160,7 +162,8 @@ bool flex_round_trip() noexcept {
     return false;
 }
 
-bool resolved_metrics() noexcept {
+// A width operand leaves the stack before the operator reads its operands: the outlines match the program without it.
+bool explicit_widths() noexcept {
     const u8 path[]{149,159,21,239,139,139,239,39,139,5,14};
     const u8 explicit_move[]{248,36,149,159,21,239,139,5,14};
     const u8 explicit_end[]{248,36,14};
@@ -173,15 +176,15 @@ bool resolved_metrics() noexcept {
         bytes[cff_at+29]=5;
         const u8 priv[]{248,136,20,239,21};
         copy_bytes(bytes+cff_at+1800,priv,sizeof(priv));
-        CffFont font{}; auto out=outline(); CffGlyphMetrics metrics{};
+        CffFont font{}; auto out=outline();
         if (open({bytes,sizeof(bytes)},&font)!=SfntStatus::ok ||
-            cff_outline(font,0,&out,10000,&metrics)!=SfntStatus::ok ||
-            metrics.advance_x!=500 || metrics.advance_y!=0 || metrics.has_bounds!=(i!=2)) return false;
-        if (i!=2 && (metrics.minimum_x!=10 || metrics.minimum_y!=20 || metrics.maximum_x!=110)) return false;
-        if (i==0 && metrics.maximum_y!=120) return false;
+            cff_outline(font,0,&out,10000)!=SfntStatus::ok || out.has_bounds!=(i!=2)) return false;
+        if (i!=2 && (!nearly_equal(out.minimum_x,.01f) || !nearly_equal(out.maximum_y,-.02f) ||
+                     !nearly_equal(out.maximum_x,.11f))) return false;
+        if (i==0 && !nearly_equal(out.minimum_y,-.12f)) return false;
         out.capacity=1;
-        if (i!=2 && (cff_outline(font,0,&out,10000,&metrics)!=SfntStatus::output_too_small ||
-                    metrics.advance_x || metrics.has_bounds || metrics.maximum_x || out.count)) return false;
+        if (i!=2 && (cff_outline(font,0,&out,10000)!=SfntStatus::output_too_small || out.has_bounds || out.count))
+            return false;
     }
     return true;
 }
@@ -248,7 +251,17 @@ bool cid_selection() noexcept {
             if(open({bytes,sizeof(bytes)},&font)!=SfntStatus::malformed) return false;
         }
     }
-    return true;
+    // Without a Top DICT FontMatrix the Font DICT matrix applies alone (Unifont: 1/64 in its Font DICT only), not its
+    // product with the default 0.001.
+    const u8 scaled[]{29,0,0,0,6,29,0,0,7,8,18,30,0x0a,0x00,0x2f,139,139,30,0x0a,0x00,0x2f,139,139,12,7};
+    fixture({program,sizeof(program)}); auto* p=bytes+cff_at;
+    const u32 at=12+single_index(p+12,{top,sizeof(top)});
+    put16(p+at,0); put16(p+at+2,0);
+    single_index(p+160,{scaled,sizeof(scaled)});
+    p[200]=0; p[201]=0;
+    CffFont font{}; auto out=outline();
+    return open({bytes,sizeof(bytes)},&font)==SfntStatus::ok && !font.top_matrix && cff_outline(font,0,&out)==SfntStatus::ok &&
+           out.count==3 && nearly_equal(commands[1].x1,.02f);
 }
 
 bool oblique_corpus() noexcept {
@@ -263,8 +276,8 @@ bool oblique_corpus() noexcept {
         for(u32 i=0;i<count;++i){u32 id=0,n=0,fill=0,bounds=0;u32 expected_bounds[4];ConstSlice<u8> expected{};
             if(!reader.word(&id)||!reader.word(&n)||!reader.word(&fill)||!reader.word(&bounds)||id!=i||n>256)return false;
             for(auto& b:expected_bounds)if(!reader.word(&b))return false;if(!reader.take(n*28,&expected))return false;
-            auto out=outline();CffGlyphMetrics raw{},styled{};
-            if(cff_outline(font,static_cast<u16>(i),&out,1000000,&raw)!=SfntStatus::ok||cff_outline(font,static_cast<u16>(i),&out,1000000,&styled,true)!=SfntStatus::ok)return false;
+            auto out=outline();
+            if(cff_outline(font,static_cast<u16>(i),&out,1000000,true)!=SfntStatus::ok)return false;
             const float actual_bounds[]{out.minimum_x,out.minimum_y,out.maximum_x,out.maximum_y};
             bool exact=out.count==n&&bytes_equal(expected_bounds,actual_bounds,16)&&bytes_equal(expected.data,out.commands,n*28);
             // The Windows observations round flex control points through an inverse 16.16 transform, which
@@ -273,13 +286,60 @@ bool oblique_corpus() noexcept {
                 for(u32 k=0;exact&&k<n;++k){exact=expected[k*28+24]==static_cast<u8>(out.commands[k].kind)&&near_bits(expected.data+k*28,&out.commands[k],6);}
                 if(!exact)return false;++inexact;}
             if(static_cast<u32>(out.fill_rule)!=fill||out.has_bounds!=(bounds!=0)||out.count!=n||!exact)return false;
-            if(raw.advance_x!=styled.advance_x||raw.advance_y!=styled.advance_y||raw.minimum_x!=styled.minimum_x||raw.minimum_y!=styled.minimum_y||raw.maximum_x!=styled.maximum_x||raw.maximum_y!=styled.maximum_y||raw.has_bounds!=styled.has_bounds)return false;
-            if(cff_outline(font,static_cast<u16>(i),&out,0,&styled,true)!=SfntStatus::resource_limit||out.count||out.has_bounds||styled.has_bounds)return false;
-            if(n){out.capacity=n-1;if(cff_outline(font,static_cast<u16>(i),&out,1000000,&styled,true)!=SfntStatus::output_too_small||out.count||out.has_bounds||styled.has_bounds)return false;}
+            if(cff_outline(font,static_cast<u16>(i),&out,0,true)!=SfntStatus::resource_limit||out.count||out.has_bounds)return false;
+            if(n){out.capacity=n-1;if(cff_outline(font,static_cast<u16>(i),&out,1000000,true)!=SfntStatus::output_too_small||out.count||out.has_bounds)return false;}
             ++glyphs;
         }
     }
     return reader.at==sizeof(cff_oblique_fixture)&&glyphs==704&&inexact==185;
+}
+// The font `index` of cff_oblique_fixture.
+ConstSlice<u8> oblique_font(u32 index) noexcept {
+    u32 at=12;
+    for(u32 f=0;;++f){const u32 size=byte_load_le32(cff_oblique_fixture+at),count=byte_load_le32(cff_oblique_fixture+at+4);at+=8;
+        if(f==index)return {cff_oblique_fixture+at,size};
+        at+=size;for(u32 i=0;i<count;++i)at+=32+byte_load_le32(cff_oblique_fixture+at+4)*28;}
+}
+// Two fonts of cff_oblique_fixture drawn bold, against the outlines DirectWrite draws with its bold simulation. Each
+// point is within 1e-5 em of DirectWrite's, except in the glyphs below: their contours cross themselves, and
+// DirectWrite moves their points to the other side of the pen. Advances are the run plan's (native_format_test).
+bool bold_corpus() noexcept {
+    constexpr u32 crossing[]{4,5,28,29,32,33,34,35,36,37,38,39,74,75,84,85};
+    if(!bytes_equal(cff_bold_fixture,"MCCFFB1\0",8)||byte_load_le32(cff_bold_fixture+8)!=2)return false;
+    u32 at=12,agree=0;
+    for(u32 f=0;f<2;++f){CffFont font{};const u32 index=byte_load_le32(cff_bold_fixture+at),count=byte_load_le32(cff_bold_fixture+at+4);at+=8;
+        if(index>=8||open(oblique_font(index),&font)!=SfntStatus::ok||count!=font.glyph_count)return false;
+        for(u32 i=0;i<count;++i){const u32 n=byte_load_le32(cff_bold_fixture+at);at+=4;
+            if(n>256||at+n*28>sizeof(cff_bold_fixture))return false;const u8* expected=cff_bold_fixture+at;at+=n*28;
+            auto out=outline();if(cff_outline(font,static_cast<u16>(i),&out)!=SfntStatus::ok||out.count!=n)return false;
+            cff_bold(&out);
+            bool same=true;float low[2]{},high[2]{};
+            for(u32 k=0;k<n;++k){GlyphPathCommand want{};copy_bytes(&want,expected+k*28,28);if(want.kind!=commands[k].kind)return false;
+                const float a[]{commands[k].x1,commands[k].y1,commands[k].x2,commands[k].y2,commands[k].x3,commands[k].y3},b[]{want.x1,want.y1,want.x2,want.y2,want.x3,want.y3};
+                const u32 points=want.kind==GlyphPathCommandKind::cubic?3:want.kind==GlyphPathCommandKind::end_closed?0:1;
+                for(u32 c=0;c<points*2;++c){same=same&&a[c]>=b[c]-1.e-5f&&a[c]<=b[c]+1.e-5f;
+                    if(!k&&!c){low[0]=high[0]=a[0];low[1]=high[1]=a[1];}
+                    low[c&1]=minimum(low[c&1],a[c]);high[c&1]=maximum(high[c&1],a[c]);}}
+            if(out.has_bounds!=(n!=0)||(n&&(out.minimum_x!=low[0]||out.minimum_y!=low[1]||out.maximum_x!=high[0]||out.maximum_y!=high[1])))return false;
+            bool listed=false;for(u32 g:crossing)listed=listed||g==i;
+            if(same==listed)return false;agree+=same;
+        }
+    }
+    return at==sizeof(cff_bold_fixture)&&agree==2*(88-16);
+}
+// cff_glyph_ink against the box of the whole outline, for every glyph of the eight fonts of cff_oblique_fixture: 688
+// glyphs have ink, 16 draw nothing. Then the glyphs of cff_ink_fixture, against DirectWrite's bold advances.
+bool ink() noexcept {
+    u32 inked=0,glyphs=0;
+    for(u32 f=0;f<8;++f){CffFont font{};if(open(oblique_font(f),&font)!=SfntStatus::ok)return false;
+        for(u32 i=0;i<font.glyph_count;++i){auto out=outline();if(cff_outline(font,static_cast<u16>(i),&out)!=SfntStatus::ok)return false;
+            const bool box=out.has_bounds&&out.maximum_x>out.minimum_x&&out.maximum_y>out.minimum_y;bool answer=!box;
+            if(cff_glyph_ink(font,static_cast<u16>(i),{},&answer)!=SfntStatus::ok||answer!=box)return false;inked+=box;++glyphs;}}
+    CffFont font{};if(open({cff_ink_fixture,sizeof(cff_ink_fixture)},&font)!=SfntStatus::ok||font.glyph_count!=6)return false;
+    constexpr bool expected[]{true,true,false,false,false,false};
+    for(u16 i=0;i<6;++i){bool answer=!expected[i];if(cff_glyph_ink(font,i,{},&answer)!=SfntStatus::ok||answer!=expected[i])return false;}
+    bool answer=true;
+    return glyphs==704&&inked==688&&cff_glyph_ink(font,6,{},&answer)==SfntStatus::glyph_out_of_range&&!answer;
 }
 bool guarded_inputs() noexcept {
     u8* memory=static_cast<u8*>(pages_reserve_no_access(8192));
@@ -301,15 +361,14 @@ bool guarded_inputs() noexcept {
         u8* input=memory+4096-size; copy_bytes(input,bytes,size);
         CffFont font{};
         if(open({input,size},&font)==SfntStatus::ok) {
-            auto out=outline(); CffGlyphMetrics metrics{};
-            auto status=cff_outline(font,0,&out,2048,&metrics,(iteration&2)!=0);
-            ok=out.count<=out.capacity && (status==SfntStatus::ok ||
-                (!out.count && !out.has_bounds && out.rejected && !metrics.has_bounds && !metrics.advance_x));
+            auto out=outline();
+            auto status=cff_outline(font,0,&out,2048,(iteration&2)!=0);
+            ok=out.count<=out.capacity && (status==SfntStatus::ok || (!out.count && !out.has_bounds && out.rejected));
         }
     }
     pages_release(memory); return ok;
 }
 
 } // namespace
-bool cff_outline_tests() noexcept { return geometry() && invalid_programs() && flex_round_trip() && resolved_metrics() && structures() && cid_selection() && oblique_corpus() && guarded_inputs(); }
+bool cff_outline_tests() noexcept { return geometry() && invalid_programs() && flex_round_trip() && explicit_widths() && structures() && cid_selection() && oblique_corpus() && bold_corpus() && ink() && guarded_inputs(); }
 } // namespace maicord

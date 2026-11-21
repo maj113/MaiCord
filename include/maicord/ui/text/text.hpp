@@ -177,7 +177,6 @@ TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family
 void text_system_release(TextSystem* system) noexcept;
 
 bool glyph_outline_initialize(GlyphOutline* outline, Slice<GlyphPathCommand> commands) noexcept;
-void glyph_outline_reset(GlyphOutline* outline) noexcept;
 
 // The text every shaper and hit-tester sees: the source with browser-invisible
 // default-ignorables replaced by same-length invisible scalars (see

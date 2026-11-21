@@ -180,16 +180,14 @@ SfntStatus bitmap_color_glyph_build(const CbdtFont& font, u16 glyph, float pixel
     reset_value(output);
     if (!arena || !arena->base || !(pixels_per_em > 0.0f) || pixels_per_em > 4096.0f)
         return SfntStatus::invalid_input;
+    // The selection already located the image; the strike gives its size.
     u32 strike_index = 0;
-    SfntStatus status = cbdt_select_strike(font, pixels_per_em, glyph, &strike_index);
+    CbdtGlyph image;
+    SfntStatus status = cbdt_select_strike(font, pixels_per_em, glyph, &strike_index, &image);
     if (status != SfntStatus::ok)
         return status;
-    CbdtStrike strike{};
-    CbdtGlyph image{};
+    CbdtStrike strike;
     status = cbdt_strike(font, strike_index, &strike);
-    if (status != SfntStatus::ok)
-        return status;
-    status = cbdt_glyph(font, strike_index, glyph, &image);
     if (status != SfntStatus::ok)
         return status;
     if (image.width == 0 || image.height == 0)

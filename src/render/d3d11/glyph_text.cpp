@@ -795,7 +795,6 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, GpuContext* context,
                     // Origin and dimensions are needed on a hit; the outline is only
                     // needed to populate a missing atlas tile. Origins share the same
                     // slots for monochrome and color glyphs and are rewritten on reuse.
-                    glyph_outline_reset(&outline);
                     if (!native_glyph_outline(&owner->native_outlines, face_id, glyph.index, &outline,
                                               owner->system.native_fonts, run.native_face))
                         return append_fail(8);

@@ -7,12 +7,13 @@ inline Point add(Point a,Point b) noexcept {return {a.x+b.x,a.y+b.y};}
 inline Point sub(Point a,Point b) noexcept {return {a.x-b.x,a.y-b.y};}
 using tt_math::floor_div;
 using tt_math::multiply_divide;
-// Design points arrive as exact 26.6 values; exact() rejects anything else before load() is used.
-inline Point load(const SfntOutlinePoint& p) noexcept {return {static_cast<i64>(static_cast<double>(p.x)*64),static_cast<i64>(static_cast<double>(p.y)*64)};}
+// Design points arrive as exact 26.6 values; exact() rejects anything else before load() is used. A float times
+// 64 only moves its exponent, so the products are exact and need no double.
+inline Point load(const SfntOutlinePoint& p) noexcept {return {static_cast<i64>(p.x*64.0f),static_cast<i64>(p.y*64.0f)};}
 inline bool exact(const SfntOutlinePoint& p) noexcept {
-    const double x=static_cast<double>(p.x)*64,y=static_cast<double>(p.y)*64;
-    return x>=-2147483648.0&&x<=2147483647.0&&y>=-2147483648.0&&y<=2147483647.0&&
-        x==static_cast<double>(static_cast<i64>(x))&&y==static_cast<double>(static_cast<i64>(y));
+    const float x=p.x*64.0f,y=p.y*64.0f;
+    return x>=-2147483648.0f&&x<2147483648.0f&&y>=-2147483648.0f&&y<2147483648.0f&&
+        x==static_cast<float>(static_cast<i64>(x))&&y==static_cast<float>(static_cast<i64>(y));
 }
 bool meeting(Point a0,Point a1,Point b0,Point b1,Point* out) noexcept {
     const auto a=sub(a1,a0),b=sub(b1,b0);i64 n=0,d=0,t=0;
@@ -53,11 +54,12 @@ SfntStatus tt_bold_marked_points(Slice<SfntOutlinePoint> points,ConstSlice<u32> 
     Widen w{s,xn,s*64-xn,(s-1)*64-yp,yp,1};u32 start=0;
     for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];w.sign=points[start].reserved[0]?-1:1;
         if(end-start<2){start=end+1;continue;}
-        const Point first=load(points[start]);Point previous=load(points[end]);
+        // The edge into each point is the edge out of the point before it: each edge offset is found once.
+        const Point first=load(points[start]);Point previous=load(points[end]);Point a=w.offset(sub(first,previous));
         for(u32 i=start;i<=end;){const Point p=load(points[i]);u32 last=i;
             while(last<end&&same(p,load(points[last+1])))++last;
             const Point next=last<end?load(points[last+1]):first;
-            const Point a=w.offset(sub(p,previous)),b=w.offset(sub(next,p));Point delta=a;
+            const Point b=w.offset(sub(next,p));Point delta=a;
             if(!same(a,b)){Point hit{};const Point center{w.xn,w.yn};
                 if(!meeting(add(previous,s==1?center:a),add(p,a),add(p,b),add(next,s==1?center:b),&hit))return SfntStatus::malformed;
                 delta=sub(hit,p);
@@ -66,8 +68,10 @@ SfntStatus tt_bold_marked_points(Slice<SfntOutlinePoint> points,ConstSlice<u32> 
             if(delta.y<0)delta.y=0;else if(delta.y>(s-1)*64)delta.y=2*w.yn;
             const Point result=add(p,delta);
             if(result.x>2147483647ll||result.y>2147483647ll)return SfntStatus::malformed;
-            for(u32 j=i;j<=last;++j){points[j].x=static_cast<float>(static_cast<double>(result.x)/64);points[j].y=static_cast<float>(static_cast<double>(result.y)/64);}
-            previous=p;i=last+1;
+            // Rounding to float commutes with the exact division by 64.
+            const float x=static_cast<float>(result.x)/64.0f,y=static_cast<float>(result.y)/64.0f;
+            for(u32 j=i;j<=last;++j){points[j].x=x;points[j].y=y;}
+            previous=p;a=b;i=last+1;
         }start=end+1;
     }return SfntStatus::ok;
 }

@@ -60,7 +60,7 @@ SfntStatus prepare(const FontGeometry& geometry,TtOutlineInstance* output,TtExec
 }
 TtOutlineContext context(const TtOutlineInstance* instance) noexcept {TtOutlineContext c{};c.instance=instance;c.scratch.stack={stack,256};c.scratch.storage={storage,128};c.scratch.cvt={cvt,128};c.scratch.frames={frames,32};c.scratch.twilight={twilight,64};c.scratch.glyph={vm_points,512};c.contour_ends={vm_ends,128};return c;}
 SfntStatus decode_outline(const FontGeometryInstance& instance,u16 glyph,FontGeometryScratch* scratch,GlyphOutline* output,u32 work=1000000) noexcept {
-    return font_geometry_outline(instance,glyph,scratch,output,work,nullptr,simulate_oblique,simulate_bold);
+    return font_geometry_outline(instance,glyph,scratch,output,work,simulate_oblique,simulate_bold);
 }
 bool equal(const GlyphOutline& actual,const Expected& expected) noexcept {const float bounds[]{actual.minimum_x,actual.minimum_y,actual.maximum_x,actual.maximum_y};return actual.count==expected.count && static_cast<u32>(actual.fill_rule)==expected.fill && actual.has_bounds==(expected.has_bounds!=0) && bytes_equal(bounds,expected.bounds,16) && bytes_equal(commands,expected.commands.data,expected.commands.count);}
 bool vertical_policy(SfntFace face,const Expected (&expected)[4],bool reject) noexcept {
