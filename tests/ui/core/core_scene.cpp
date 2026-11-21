@@ -31,8 +31,8 @@
 #include "maicord/render/text/glyph_atlas.hpp"
 
 namespace maicord {
-MessageRichRecord g_message_scene_rich_records[32];
-u16 g_message_scene_rich_order[32];
+MessageRichRecord g_message_scene_rich_records[kMessageSceneRichRecords];
+u16 g_message_scene_rich_order[kMessageSceneRichRecords];
 u8 g_message_scene_rich_text[16 * 1024];
 
 namespace {
@@ -782,7 +782,7 @@ void test_ui_scene() noexcept {
     const UiLayoutNode* grouping_second_content =
         grouping_rearranged.ok() ? message_scene_layout_node(grouping_scene, grouping_scene.rows[1].content)
                                  : nullptr;
-    expect(grouping_arranged.ok() && grouping_scene.count == 5 && grouping_scene.owns_rows &&
+    expect(grouping_arranged.ok() && grouping_scene.count == 5 &&
                grouping_scene.rows.count == 5 && !grouping_scene.rows[0].grouped &&
                grouping_scene.rows[1].grouped && !grouping_scene.rows[2].grouped &&
                !grouping_scene.rows[3].grouped && grouping_scene.rows[4].grouped && grouping_measured &&
@@ -796,48 +796,49 @@ void test_ui_scene() noexcept {
            "message_scene_groups_from_start_anchor_within_seven_minutes");
     message_scene_release(&grouping_scene);
 
-    MessageRecord message_scene_records[32]{};
-    u32 message_scene_order[32]{};
+    // 128 messages: more than the owned scene's viewport plus its preparation margin on both sides, so the scene
+    // materializes a virtual window, not every row.
+    constexpr u32 kVirtualMessages = kMessageSceneRichRecords;
+    MessageRecord message_scene_records[kVirtualMessages]{};
+    u32 message_scene_order[kVirtualMessages]{};
     u8 message_scene_text[2 * 1024]{};
     MessageStore message_scene_store{};
     bool message_scene_seeded = message_store_initialize(
-        &message_scene_store, Slice<MessageRecord>{message_scene_records, 32},
-        Slice<u32>{message_scene_order, 32}, Slice<u8>{message_scene_text, 2 * 1024});
-    for (u32 index = 0; index < 32 && message_scene_seeded; ++index) {
+        &message_scene_store, Slice<MessageRecord>{message_scene_records, kVirtualMessages},
+        Slice<u32>{message_scene_order, kVirtualMessages}, Slice<u8>{message_scene_text, 2 * 1024});
+    for (u32 index = 0; index < kVirtualMessages && message_scene_seeded; ++index) {
         message_scene_seeded =
             message_store_upsert(&message_scene_store,
                                  MessageInput{80'000 + index, 7, 9, 1'700'000'000'000ull + index, 0,
                                               utf8_literal("message"), 0})
                 .ok();
     }
-    u32 message_scene_item_units[32]{};
-    u64 message_scene_fenwick[32]{};
+    u32 message_scene_item_units[kVirtualMessages]{};
+    u64 message_scene_fenwick[kVirtualMessages]{};
     UiVariableList message_scene_list{};
     MessageTimeline message_scene_timeline{};
     const u32 message_default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
     const bool message_scene_model_ready =
         message_scene_seeded &&
-        ui_variable_list_initialize(&message_scene_list, Slice<u32>{message_scene_item_units, 32},
-                                    Slice<u64>{message_scene_fenwick, 32}, 32, message_default_units) &&
+        ui_variable_list_initialize(&message_scene_list, Slice<u32>{message_scene_item_units, kVirtualMessages},
+                                    Slice<u64>{message_scene_fenwick, kVirtualMessages}, kVirtualMessages,
+                                    message_default_units) &&
         message_timeline_initialize(&message_scene_timeline, &message_scene_store, &message_scene_list,
                                     message_default_units, ui_extent_units(320.0f), false) &&
-        message_timeline_set_scroll(&message_scene_timeline, static_cast<u64>(message_default_units) * 10u,
+        message_timeline_set_scroll(&message_scene_timeline, static_cast<u64>(message_default_units) * 40u,
                                     false);
     MessageScene virtual_message_scene{};
     // This full rich-capacity fixture exceeds a Windows thread's default stack
-    // after adding independent forwarded rows. Keep the test banks off-stack;
-    // production still admits only required rows through its existing storage.
-    static MessageSceneRowWidget virtual_message_rows[16]{};
-    static UiWidget virtual_message_widgets[16 * kMessageSceneWidgetsPerRow + 1]{};
-    static UiLayoutNode virtual_message_layout[16 * kMessageSceneWidgetsPerRow + 1]{};
+    // after adding independent forwarded rows. Keep the test banks off-stack.
+    constexpr u32 kVirtualWidgets = 64 * kMessageSceneWidgetsPerRow + 1;
+    static UiWidget virtual_message_widgets[kVirtualWidgets]{};
+    static UiLayoutNode virtual_message_layout[kVirtualWidgets]{};
     const UiRect message_viewport{312.0f, 48.0f, 1'040.0f, 368.0f};
     const bool virtual_message_initialized =
         message_scene_model_ready &&
-        message_scene_initialize(
-            &virtual_message_scene, &message_scene_timeline,
-            Slice<MessageSceneRowWidget>{virtual_message_rows, 16},
-            Slice<UiWidget>{virtual_message_widgets, 16 * kMessageSceneWidgetsPerRow + 1},
-            Slice<UiLayoutNode>{virtual_message_layout, 16 * kMessageSceneWidgetsPerRow + 1});
+        message_scene_initialize_owned(&virtual_message_scene, &message_scene_timeline, kMessageSceneTestRows, 16,
+                                       Slice<UiWidget>{virtual_message_widgets, kVirtualWidgets},
+                                       Slice<UiLayoutNode>{virtual_message_layout, kVirtualWidgets});
     const MessageSceneResult virtual_message_first =
         message_scene_update(&virtual_message_scene, message_viewport);
     const MessageSceneRowWidget* visible_message_row = nullptr;
@@ -964,8 +965,9 @@ void test_ui_scene() noexcept {
     const bool presentation_rich_ready =
         presentation_record &&
         message_rich_store_initialize(
-            &message_scene_rich_store, Slice<MessageRichRecord>{g_message_scene_rich_records, 32},
-            Slice<u16>{g_message_scene_rich_order, 32}, Slice<u8>{g_message_scene_rich_text, 16 * 1024}) &&
+            &message_scene_rich_store, Slice<MessageRichRecord>{g_message_scene_rich_records, kVirtualMessages},
+            Slice<u16>{g_message_scene_rich_order, kVirtualMessages},
+            Slice<u8>{g_message_scene_rich_text, 16 * 1024}) &&
         message_timeline_bind_rich_store(&message_scene_timeline, &message_scene_rich_store) &&
         message_rich_store_apply(&message_scene_rich_store, retained_message_id,
                                  presentation_record->revision, presentation_rich)
@@ -1078,7 +1080,7 @@ void test_ui_scene() noexcept {
         }
     }
     expect(virtual_message_initialized && virtual_message_first.ok() && virtual_message_first.first != 0 &&
-               virtual_message_first.count < 16 && message_hit.message_id == retained_message_id,
+               virtual_message_first.count < kVirtualMessages && message_hit.message_id == retained_message_id,
            "message_scene_virtual_hit_and_range");
     expect(virtual_message_cached.ok() && !virtual_message_cached.changed &&
                message_layouts_after_cached == message_layouts_before_cached,
@@ -1138,7 +1140,7 @@ void test_ui_scene() noexcept {
     for (u32 i = 1; i < message_scene_store.count; ++i) {
         const auto next = message_scene_navigate(&virtual_message_scene, UiListMove::next);
         keyboard_walk = keyboard_walk && next.message_id && next.source_index == i &&
-            virtual_message_scene.count <= 16 &&
+            virtual_message_scene.count < kVirtualMessages &&
             ui_widget_manager_context_anchor(virtual_message_scene.widgets, &message_context_anchor);
     }
     expect(keyboard_walk && !message_scene_timeline.follow_bottom &&
@@ -1151,12 +1153,12 @@ void test_ui_scene() noexcept {
            "message_keyboard_home_end_and_reverse_focus_use_logical_order");
     bool message_pages = message_scene_navigate(&virtual_message_scene, UiListMove::first).message_id != 0;
     u32 previous_page_index = 0;
-    // 32 rows always reach the end within 31 pages; the remaining pages exercise the stop at the end.
-    for (u32 i = 0; i < 40; ++i) {
+    // 128 rows always reach the end within 127 pages; the remaining pages exercise the stop at the end.
+    for (u32 i = 0; i < kVirtualMessages + 8; ++i) {
         const u64 before = message_scene_timeline.scroll_units;
         const auto page = message_scene_page(&virtual_message_scene, false);
         message_pages = message_pages && page.message_id && page.source_index >= previous_page_index &&
-            message_scene_timeline.scroll_units >= before && virtual_message_scene.count <= 16 &&
+            message_scene_timeline.scroll_units >= before && virtual_message_scene.count < kVirtualMessages &&
             ui_widget_manager_context_anchor(virtual_message_scene.widgets, &message_context_anchor);
         previous_page_index = page.source_index;
     }
@@ -1165,11 +1167,11 @@ void test_ui_scene() noexcept {
            "message_pages_preserve_visible_focus_through_mixed_height_virtual_windows_and_stop_at_end");
 
     MessageScene tiny_message_scene{};
-    MessageSceneRowWidget tiny_message_rows[1]{};
+    // An owned scene that may hold one row fails a viewport that needs more, and publishes nothing.
     UiWidget tiny_message_widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode tiny_message_layout[kMessageSceneWidgetsPerRow + 1]{};
-    const bool tiny_message_initialized = message_scene_initialize(
-        &tiny_message_scene, &message_scene_timeline, Slice<MessageSceneRowWidget>{tiny_message_rows, 1},
+    const bool tiny_message_initialized = message_scene_initialize_owned(
+        &tiny_message_scene, &message_scene_timeline, 1, 1,
         Slice<UiWidget>{tiny_message_widgets, kMessageSceneWidgetsPerRow + 1},
         Slice<UiLayoutNode>{tiny_message_layout, kMessageSceneWidgetsPerRow + 1});
     const MessageSceneResult tiny_message_result =

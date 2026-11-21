@@ -79,14 +79,13 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
             !(at == value_begin + 2 && query.data[value_begin] == '"' && query.data[value_begin + 1] == '"');
         if (has_value) ++populated[index];
         if (anchor < value_begin || anchor > at || caret < value_begin || caret > at) continue;
-        UiSearchFilterContext candidate{};
-        candidate.kind = kind;
-        candidate.token_begin = first;
-        candidate.token_end = at;
-        candidate.value_begin = value_begin;
-        candidate.value_end = at;
-        if (!decode(query, caret, candidate)) return {};
-        copy_value(&result, candidate);
+        // Tokens are a space apart, so only one holds the caret: the result is still clear here.
+        result.kind = kind;
+        result.token_begin = first;
+        result.token_end = at;
+        result.value_begin = value_begin;
+        result.value_end = at;
+        if (!decode(query, caret, result)) return {};
     }
     if (result.kind == UiSearchFilterKind::none) return {};
     const auto index = static_cast<u8>(result.kind);

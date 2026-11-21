@@ -24,9 +24,11 @@ constexpr u64 kChannel = 7;
 constexpr u64 kAnn = 9, kBob = 10;
 constexpr u64 kStartMs = 1'700'000'000'000ull;
 constexpr u64 kNow = 1'700'000'100ull;
-constexpr u32 kRowCount = 12;
+// More messages than a short viewport and the scene's preparation margins on its two sides hold, so a short timeline
+// presents only some of them. The tall viewport holds them all.
+constexpr u32 kRowCount = 48;
 constexpr u32 kWidgets = kRowCount * kMessageSceneWidgetsPerRow + 1;
-constexpr UiRect kTall{0, 0, 720, 2'000};
+constexpr UiRect kTall{0, 0, 720, 4'000};
 constexpr UiRect kShort{0, 0, 720, 200};
 
 MessageRecord records[kRowCount];
@@ -35,7 +37,6 @@ u8 store_text[4096];
 MessageRichRecord rich_records[kRowCount];
 u16 rich_order[kRowCount];
 u8 rich_text[8192];
-MessageSceneRowWidget rows[kRowCount];
 UiWidget widgets[kWidgets];
 UiLayoutNode layout[kWidgets];
 MessageTextCommand commands[256];
@@ -93,13 +94,13 @@ Utf8View message_content(u32 index) noexcept {
     case 8: return utf8_literal("ninth");
     case 9: return utf8_literal("tenth");
     case 10: return utf8_literal("eleventh");
-    default: return utf8_literal("last of all");
+    default: return index == kRowCount - 1 ? utf8_literal("last of all") : utf8_literal("later");
     }
 }
 constexpr u64 id_of(u32 index) noexcept {
     return 101 + index;
 }
-// 101-103 Ann, 104-106 Bob, 107-112 Ann: three groups. 103 was edited.
+// 101-103 Ann, 104-106 Bob, 107-148 Ann: three groups. 103 was edited.
 MessageInput input_of(u32 index) noexcept {
     return MessageInput{id_of(index),  kChannel, index >= 3 && index < 6 ? kBob : kAnn, kStartMs + index * 1'000ull,
                         index == 2 ? kStartMs + 60'000 : 0, message_content(index), 0};
@@ -185,12 +186,14 @@ bool g_overflow;
 Utf8View copy(Fixture& f) noexcept {
     return message_text_selection_copy(&f.text, f.range, f.store, &f.rich, &f.scene, &g_overflow);
 }
-bool reset_timeline(Fixture& f) noexcept {
+// A fresh timeline at `viewport`, scrolled to the top. The scene keeps a window that already covers the whole
+// timeline when the viewport shrinks, so a test of a short timeline starts from a fresh one.
+bool reset_timeline(Fixture& f, UiRect viewport = kTall) noexcept {
     message_text_selection_text_release(&f.text);
     reset_value(&f.range);
     reset_value(&f.store);
     reset_value(&f.rich);
-    reset_value(&f.scene);
+    message_scene_release(&f.scene);
     reset_value(&f.list);
     reset_value(&f.timeline);
     reset_value(&f.presentation);
@@ -201,14 +204,14 @@ bool reset_timeline(Fixture& f) noexcept {
     for (u32 i = 0; ok && i < kRowCount; ++i)
         ok = message_store_upsert(&f.store, input_of(i)).ok();
     const u32 default_units = ui_extent_units(80.0f);
-    f.viewport = kTall;
+    f.viewport = viewport;
     return ok && ui_variable_list_initialize(&f.list, {f.units, kRowCount}, {f.fenwick, kRowCount}, kRowCount,
                                              default_units) &&
            message_timeline_initialize(&f.timeline, &f.store, &f.list, default_units,
-                                       ui_extent_units(ui_rect_height(kTall)), false) &&
+                                       ui_extent_units(ui_rect_height(viewport)), false) &&
            message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-           message_scene_initialize(&f.scene, &f.timeline, {rows, kRowCount}, {widgets, kWidgets},
-                                    {layout, kWidgets}) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, kRowCount, {widgets, kWidgets},
+                                          {layout, kWidgets}) &&
            message_text_presentation_initialize(&f.presentation, {commands, 256}, {display, sizeof(display)},
                                                 {styles, 256}, {semantics, 128}, {measurements, kRowCount * 2},
                                                 {reveals, 16}, {scratch, 8192}) &&
@@ -291,11 +294,9 @@ void test_scroll_and_virtualization(Fixture& f) noexcept {
               test_contains(reference.view(), utf8_literal("last of all")),
           "virtualization: the reference copy holds every group's header and the last message");
 
-    // A short viewport: the drag starts at the top and autoscrolls to the bottom, a step at a time.
-    f.viewport = kShort;
-    message_text_selection_text_release(&f.text);
-    reset_value(&f.range);
-    check(scroll_to(f, 0) && !presented(p, id_of(kRowCount - 1)) &&
+    // A fresh short timeline: the drag starts at the top and autoscrolls to the bottom, a step at a time. The anchor
+    // and offset of the whole selection hold across the reset because message ids do not change.
+    check(reset_timeline(f, kShort) && !presented(p, id_of(kRowCount - 1)) &&
               message_text_selection_begin(&f.range, &f.unit, p, content_index(p, id_of(0)), 6, 1),
           "virtualization: a press on the first message of a short timeline that does not show the last");
     const u64 maximum_scroll = message_timeline_maximum_scroll(f.timeline);
@@ -528,8 +529,8 @@ void test_message_cap() noexcept {
                                         false);
     check(ready, "message cap: the timeline lays them out");
     ready = ready &&
-            message_scene_initialize(&m.scene, &m.timeline, {rows, kRowCount}, {widgets, kWidgets},
-                                     {layout, kWidgets}) &&
+            message_scene_initialize_owned(&m.scene, &m.timeline, kMessageSceneTestRows, kRowCount,
+                                           {widgets, kWidgets}, {layout, kWidgets}) &&
             message_text_presentation_initialize(&m.presentation, {commands, 256}, {display, sizeof(display)},
                                                  {styles, 256}, {semantics, 128}, {measurements, kRowCount * 2},
                                                  {reveals, 16}, {scratch, 8192});
@@ -588,6 +589,7 @@ void run() noexcept {
     test_autoscroll();
     test_message_cap();
     message_text_selection_text_release(&f.text);
+    message_scene_release(&f.scene);
 }
 } // namespace
 } // namespace maicord::message_text_selection_test

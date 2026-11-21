@@ -88,7 +88,7 @@ PollControllerActor actor() noexcept {
     return {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
             g_app.account_ui->chat_state.self_user_id, reinterpret_cast<usize>(g_app.account.instance)};
 }
-bool actor_current(const ApplicationPollSource& s) noexcept {
+inline bool actor_current(const ApplicationPollSource& s) noexcept {
     const auto current = actor();
     return current.instance && s.ui == g_app.account_ui && current.instance == s.source.actor.instance &&
            current.account_scope == s.source.actor.account_scope &&
@@ -288,7 +288,7 @@ u64 theme_revision() noexcept {
     (void)application_theme();
     return g_theme_revision;
 }
-bool ensure_owner() noexcept {
+inline bool ensure_owner() noexcept {
     if (owner)
         return !owner->release_pending;
     owner = commit_pages<PollOwner>();
@@ -539,7 +539,7 @@ bool project_voters() noexcept {
     }
     return projected;
 }
-MessageScene* source_scene(const ApplicationPollSource& source) noexcept {
+inline MessageScene* source_scene(const ApplicationPollSource& source) noexcept {
     if (source.surface == UiPollSourceSurface::timeline)
         return &g_app.message_scene;
     auto* search = application_search_scene();
@@ -1221,15 +1221,15 @@ u64 application_poll_next_wake() noexcept {
     const auto scan = [&](const MessageScene* scene) noexcept {
         if (!scene || !scene->active)
             return;
+        const u64 observed_now = scene->polls ? scene->polls->now_ms : 0;
         for (u32 i = 0; i < scene->count; ++i) {
             const auto& row = scene->rows[i];
             if (row.redacted || row.forwarded_snapshot || !row.poll.generation)
                 continue;
+            // An expiry after observed_now is not zero, so earliest_deadline takes it as a deadline.
             const auto* p = message_poll_store_find(g_app.account_ui->message_poll_store, row.message_id);
-            const u64 observed_now = scene->polls ? scene->polls->now_ms : 0;
-            if (p && !p->expiry_null && !p->is_finalized && p->expiry_ms > observed_now &&
-                (!earliest || p->expiry_ms < earliest))
-                earliest = p->expiry_ms;
+            if (p && !p->expiry_null && !p->is_finalized && p->expiry_ms > observed_now)
+                earliest = earliest_deadline(earliest, p->expiry_ms);
         }
     };
     scan(&g_app.message_scene);
@@ -1238,16 +1238,15 @@ u64 application_poll_next_wake() noexcept {
         scan(ui_search_scene_message_scene(search));
     if (application_poll_active()) {
         const auto* p = poll(owner->source);
-        if (p && !p->expiry_null && !p->is_finalized && p->expiry_ms > unix_now &&
-            (!earliest || p->expiry_ms < earliest))
-            earliest = p->expiry_ms;
+        if (p && !p->expiry_null && !p->is_finalized && p->expiry_ms > unix_now)
+            earliest = earliest_deadline(earliest, p->expiry_ms);
     }
     visible_expiry = earliest;
     if (earliest) {
         const auto expires = earliest <= unix_now
                                  ? u64{1}
                                  : deadline_after(clock_monotonic_milliseconds(), earliest - unix_now);
-        wake = wake ? minimum(wake, expires) : expires;
+        wake = earliest_deadline(wake, expires);
     }
     return wake;
 }

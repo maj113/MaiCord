@@ -98,7 +98,7 @@ void clear_poll_tickets(ApplicationSearch& s) noexcept {
     s.submitted_poll_count = 0;
     s.submitted_poll_gateway_serial = 0;
 }
-bool capture_poll_tickets(ApplicationSearch& s) noexcept {
+inline bool capture_poll_tickets(ApplicationSearch& s) noexcept {
     clear_poll_tickets(s);
     if (!g_app.account_ui)
         return false;
@@ -211,7 +211,7 @@ namespace {
 bool edit_ready(const TextInputTarget& t) noexcept {
     return application_search_edit_focused() && t.context == application_search_edit_model();
 }
-bool edit_forbidden(u32 unit) noexcept {
+inline bool edit_forbidden(u32 unit) noexcept {
     return unit < 32 || unit == 0x2028 || unit == 0x2029;
 }
 using EditInput = ForwardedInput<edit_ready, edit_forbidden, true>;
@@ -261,9 +261,10 @@ bool application_search_close_panel() noexcept {
     return repaint();
 }
 bool application_search_read_blocked() noexcept {
-    return g_app.search && available() &&
+    return g_app.search &&
            (g_app.search->focused || g_app.search->panel || g_app.search->suggestions ||
-            g_app.search->sort_menu);
+            g_app.search->sort_menu) &&
+           available();
 }
 
 namespace {
@@ -302,7 +303,7 @@ bool channel_authorized(ApplicationSearch& s, u32 index, bool permit_unknown) no
     if (channel->guild_id) {
         const auto* guild = chat_state_store_find_guild(state, channel->guild_id);
         if (!guild || guild->unavailable ||
-            (channel_view_denied(state, *channel) && !(permit_unknown && row_access_check(s, index))))
+            (channel_view_denied(state, *channel) && !(permit_unknown && row_access_check(s, index, channel))))
             return false;
     }
     // A guild channel not seen before can get its first model generation once
@@ -316,24 +317,20 @@ bool channel_authorized(ApplicationSearch& s, u32 index, bool permit_unknown) no
 } // namespace
 namespace search_detail {
 
-bool row_unavailable(const ApplicationSearch& s, u32 index) noexcept {
-    if (!s.bank || !g_app.account_ui || index >= s.bank->page.message_count)
-        return true;
-    const auto& b = *s.bank;
-    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state,
-                                                           b.messages[index].message.channel_id);
-    if (!channel)
-        return true;
-    return !channel_usable(*channel) ||
-           (b.channel_generations[index] && b.channel_generations[index] != channel->generation) ||
+bool row_unavailable(const ApplicationSearch& s, u32 index, const ChannelRecord** found) noexcept {
+    const auto* channel = s.bank && g_app.account_ui && index < s.bank->page.message_count
+                              ? chat_state_store_find_channel(g_app.account_ui->chat_state,
+                                                              s.bank->messages[index].message.channel_id)
+                              : nullptr;
+    *found = channel;
+    return !channel || !channel_usable(*channel) ||
+           (s.bank->channel_generations[index] && s.bank->channel_generations[index] != channel->generation) ||
            (channel->guild_id && channel_view_denied(g_app.account_ui->chat_state, *channel));
 }
-bool row_access_check(const ApplicationSearch& s, u32 index) noexcept {
+bool row_access_check(const ApplicationSearch& s, u32 index, const ChannelRecord* channel) noexcept {
     if (!s.bank || !g_app.account_ui || index >= s.bank->page.message_count)
         return false;
     const auto& state = g_app.account_ui->chat_state;
-    const auto* channel =
-        chat_state_store_find_channel(state, s.bank->messages[index].message.channel_id);
     if (!channel) {
         const auto& item = s.bank->messages[index];
         const auto* guild = chat_state_store_find_guild(state, s.scope_id);
@@ -360,13 +357,14 @@ bool row_access_check(const ApplicationSearch& s, u32 index) noexcept {
 } // namespace search_detail
 namespace {
 
-void synchronize_privacy(ApplicationSearch& s) noexcept {
+inline void synchronize_privacy(ApplicationSearch& s) noexcept {
     if (!s.bank)
         return;
     bool changed = false;
     for (u32 i = 0; i < s.bank->page.message_count; ++i) {
-        const bool unavailable = row_unavailable(s, i);
-        const bool check = row_access_check(s, i);
+        const ChannelRecord* channel;
+        const bool unavailable = row_unavailable(s, i, &channel);
+        const bool check = row_access_check(s, i, channel);
         changed |= unavailable != s.bank->unavailable[i] || check != s.bank->access_checks[i];
         s.bank->unavailable[i] = unavailable;
         s.bank->access_checks[i] = check;
@@ -412,7 +410,7 @@ bool application_search_source_resolve(const ApplicationSearchSourceTicket& tick
     const auto handle = b.result_handles[ticket.index];
     const auto* message = message_store_resolve(b.store, handle);
     const auto* outer = message_rich_store_find(b.rich, ticket.message_id);
-    const auto* rich = snapshot ? message_rich_store_snapshot(b.rich, ticket.message_id) : outer;
+    const auto* rich = !snapshot ? outer : outer ? message_rich_store_snapshot_of(b.rich, *outer) : nullptr;
     if (!message || message->revision != ticket.publication_revision || (snapshot && (!outer || !rich)) ||
         (rich && rich->message_revision != ticket.publication_revision))
         return false;

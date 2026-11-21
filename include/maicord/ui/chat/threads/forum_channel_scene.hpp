@@ -52,7 +52,8 @@ struct UiForumStyle {
     float card_gap, list_card_height, list_media, gallery_min_width, gallery_card_height, gallery_media_height;
     float card_inset, card_tag_height, avatar, radius;
 };
-inline constexpr UiForumStyle kDefaultUiForumStyle{
+// Every forum view has this one style.
+inline constexpr UiForumStyle kUiForumStyle{
     40, 30, 176, 76, 26, 32, 6,
     52, 168, 7.5f, 28,
     8, 116, 88, 216, 248, 136,
@@ -80,12 +81,12 @@ struct UiForumToolbar {
     float height;
 };
 // Lays the toolbar out from band's left/top/right; height is the band it needs.
-void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView&, const UiForumStyle&, UiForumToolbar*) noexcept;
+void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView&, UiForumToolbar*) noexcept;
 struct UiForumGrid {
     u32 columns;
     float card_width, card_height, gap;
 };
-UiForumGrid ui_forum_grid(float width, UiForumLayout, const UiForumStyle&) noexcept;
+UiForumGrid ui_forum_grid(float width, UiForumLayout) noexcept;
 UiRect ui_forum_card_rectangle(const UiRect& body, UiForumGrid, u32 index, float scroll) noexcept;
 float ui_forum_content_height(UiForumGrid, u32 count) noexcept;
 
@@ -96,6 +97,6 @@ bool ui_forum_channel_media(const UiThreadBrowserScene&, u32 index, UiRect* rect
 bool ui_forum_channel_paint(const UiThreadBrowserScene&, const Theme&, PaintStream*) noexcept;
 bool ui_forum_channel_text_output(const UiThreadBrowserScene&, const Theme&, UiTextOutput*) noexcept;
 // The look of the panel's buttons and rows.
-UiLook ui_thread_browser_look(const UiThreadBrowserScene&) noexcept;
+UiLook ui_thread_browser_look() noexcept;
 Utf8View ui_forum_sort_label(UiForumSort) noexcept;
 } // namespace maicord

@@ -124,7 +124,6 @@ void test_pinned_message_controller(void (*check)(bool, const char*) noexcept) n
     items[0].message.attachments.count = 2;
     items[0].message.stickers.count = 1;
     items[0].message.reference.type = 1;
-    items[0].message.rich_truncations = 1;
     items[1].message.content = {};
     items[1].message.type = 6;
     check(pinned_message_controller_refresh(&value) && submit(value, 4) &&
@@ -137,7 +136,7 @@ void test_pinned_message_controller(void (*check)(bool, const char*) noexcept) n
         row->content_bytes <= kPinnedMessageExcerptBytes && row->excerpt_truncated &&
         row->content_bytes >= 17 && bytes_equal(row->content + row->content_bytes - 17, "Forwarded message", 17) &&
         utf8_validate(pinned_message_content(*row)).valid && row->attachment_count == 2 &&
-        row->sticker_count == 1 && row->forwarded && row->rich_truncated &&
+        row->sticker_count == 1 && row->forwarded &&
         media_only && !media_only->content_bytes && media_only->type == 6 && !pinned_message_controller_row(value, 2),
         "pins_excerpts_own_transient_text_preserve_media_summary_and_never_split_utf8");
     pinned_message_controller_authority(&value, scope, true, true);

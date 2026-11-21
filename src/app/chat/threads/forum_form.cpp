@@ -9,6 +9,7 @@
 #include "forum_attachments.hpp"
 #include "forum_preview.hpp"
 #include "../composer/text_form.hpp"
+#include "../composer/preview.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "../composer/text_input.hpp"
 #include "../composer/text_geometry.hpp"
@@ -53,19 +54,25 @@ void reset_caret(ApplicationForumForm* f) noexcept {
     f->blink_at_ms =
         f->caret_visible && f->blink_ms != INFINITE ? clock_monotonic_milliseconds() + f->blink_ms : 0;
 }
-Utf8View file_kind(Utf8View name) noexcept {
-    if (filename_ends_with(name, utf8_literal(".png")) || filename_ends_with(name, utf8_literal(".jpg")) ||
-        filename_ends_with(name, utf8_literal(".jpeg")) || filename_ends_with(name, utf8_literal(".webp")) ||
-        filename_ends_with(name, utf8_literal(".gif")))
+inline Utf8View file_kind(Utf8View name) noexcept {
+    switch (filename_extension_code(name)) {
+    case extension_code("png"):
+    case extension_code("jpg"):
+    case extension_code("jpeg"):
+    case extension_code("webp"):
+    case extension_code("gif"):
         return utf8_literal("Image");
-    if (filename_ends_with(name, utf8_literal(".mp4")) || filename_ends_with(name, utf8_literal(".webm")) ||
-        filename_ends_with(name, utf8_literal(".mov")))
+    case extension_code("mp4"):
+    case extension_code("webm"):
+    case extension_code("mov"):
         return utf8_literal("Video");
-    if (filename_ends_with(name, utf8_literal(".pdf")))
+    case extension_code("pdf"):
         return utf8_literal("PDF");
-    return utf8_literal("File");
+    default:
+        return utf8_literal("File");
+    }
 }
-Utf8View file_status(ApplicationForumForm* f, u32 index,
+inline Utf8View file_status(ApplicationForumForm* f, u32 index,
                      const ApplicationForumAttachmentRow& row) noexcept {
     ProtocolWriter writer{
         {reinterpret_cast<u8*>(f->attachment_labels[index]), sizeof(f->attachment_labels[index])}, 0};

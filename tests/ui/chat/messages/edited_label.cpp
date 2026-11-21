@@ -31,7 +31,6 @@ u8 text[2048];
 MessageRichRecord rich_records[8];
 u16 rich_order[8];
 u8 rich_text[32768];
-MessageSceneRowWidget rows[kRowCount];
 UiWidget widgets[kRowCount * kMessageSceneWidgetsPerRow + 1];
 UiLayoutNode layout[kRowCount * kMessageSceneWidgetsPerRow + 1];
 MessageTextCommand commands[256];
@@ -211,9 +210,9 @@ void run() noexcept {
         ui_variable_list_initialize(&f.list, {f.units, kRowCount}, {f.fenwick, kRowCount}, 3, default_units) &&
         message_timeline_initialize(&f.timeline, &f.store, &f.list, default_units, ui_extent_units(900.0f), true) &&
         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-        message_scene_initialize(&f.scene, &f.timeline, {rows, kRowCount},
-                                 {widgets, kRowCount * kMessageSceneWidgetsPerRow + 1},
-                                 {layout, kRowCount * kMessageSceneWidgetsPerRow + 1}) &&
+        message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, kRowCount,
+                                       {widgets, kRowCount * kMessageSceneWidgetsPerRow + 1},
+                                       {layout, kRowCount * kMessageSceneWidgetsPerRow + 1}) &&
         message_text_presentation_initialize(&f.presentation, {commands, 256}, {display, sizeof(display)},
                                              {styles, 256}, {semantics, 128}, {measurements, 8}, {reveals, 16},
                                              {scratch, 8192}) &&

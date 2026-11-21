@@ -44,7 +44,8 @@ MessageSceneIntroKind intro_kind(const ChannelRecord& channel) noexcept {
 void application_message_intro_synchronize() noexcept {
     AccountUiRuntime* ui = g_app.account_ui;
     g_app.message_scene.bottom_anchored = true;
-    MessageSceneIntro intro{};
+    // message_scene_intro_compose writes the whole intro. Only an intro that it composed is read.
+    MessageSceneIntro intro;
     bool visible = false;
     if (ui && ui->active_channel_id && ui->active_channel_id == ui->chat_state.selected_channel_id &&
         !application_friends_active()) {

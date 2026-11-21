@@ -920,7 +920,7 @@ bool finish(ProfileScene* s, const UiRect& viewport) noexcept {
         s->message_field = s->note_field;
         s->edit_rectangle = node->rectangle;
         s->edit_content = ui_rect_inset(s->edit_rectangle, {10, 2, 10, 2});
-        reset_value(&s->message_placeholder);
+        s->message_placeholder.bytes = 0;
         append(&s->message_placeholder, "Click to add a note");
         if (s->edit.focused)
             ui_widget_manager_focus(&s->widgets, s->note_field);

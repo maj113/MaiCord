@@ -58,15 +58,19 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
     auto system=source;
     system.tracking=0;system.independent_letters=false;system.fixed_weight=false;system.message_hit_policy=true;
     ConstSlice<TextStyleSpan> styles{};
+    // The geometry stays first (compact_geometry and the lookups read it at the arena base), then the spans, which
+    // every attempt reads. An attempt needs no zeroed geometry: the hit layout resets its hits first and writes the
+    // measure when it succeeds.
     arena_reset(&owner.storage);
-    if(!take_position_spans(owner.storage,command,&styles))return false;
+    auto* geometry=arena_allocate_zero<NativeMessageGeometry>(&owner.storage);
+    if(!geometry||!take_position_spans(owner.storage,command,&styles))return false;
+    const ArenaMark attempt_mark=arena_mark(&owner.storage);
     // Shape exactly what drawing shaped (hidden default-ignorables included).
     const TextShapingView shaping(command.text);
     // Drawing's same-length substitute when the native items reject the text.
     TextNativeFallback fallback;Utf8View shaped=shaping.text;u32 fallback_stage=0;
     u32 style_capacity=native_text_candidate_style_capacity(shaping.text,styles),run_capacity=0;
-    for(u32 attempt=0;attempt<3+TextNativeFallback::stages;++attempt){arena_reset(&owner.storage);
-        auto* geometry=arena_allocate_zero<NativeMessageGeometry>(&owner.storage);if(!geometry)return false;
+    for(u32 attempt=0;attempt<3+TextNativeFallback::stages;++attempt){arena_rewind(&owner.storage,attempt_mark);
         auto clusters=message_take<NativeParagraphHitCluster>(owner.storage,units);
         auto lines=message_take<NativeParagraphHitLine>(owner.storage,units+1);
         auto advances=message_take<float>(owner.storage,units*4+16);
@@ -74,8 +78,7 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
         auto runs=message_take<NativeParagraphHitRun>(owner.storage,run_capacity);
         const bool aligned=command.horizontal_alignment!=UiTextAlignment::start;
         auto widths=message_take<float>(owner.storage,aligned?units+1:0);
-        if(!clusters.data||!lines.data||!advances.data||(style_capacity&&!parts.data)||(run_capacity&&!runs.data)||(aligned&&!widths.data)||
-           !take_position_spans(owner.storage,command,&styles))return false;
+        if(!clusters.data||!lines.data||!advances.data||(style_capacity&&!parts.data)||(run_capacity&&!runs.data)||(aligned&&!widths.data))return false;
         u32 required_runs=0;NativeParagraphHitStorage storage{clusters,lines,advances,&geometry->hits,parts,runs,&required_runs,widths};
         const auto wrap=command.wrapping;
         const bool built=native_text_candidate_hits(system,{shaped,styles,width,height,wrap},storage,&geometry->measure);

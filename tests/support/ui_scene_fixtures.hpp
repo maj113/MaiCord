@@ -6,7 +6,6 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/text_presentation.hpp"
-#include "maicord/ui/chat/messages/unread_divider_style.hpp"
 
 namespace maicord {
 inline bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Slice<PopupRowWidget> rows,
@@ -36,31 +35,8 @@ inline bool shell_text_presentation_build(const UiScene& scene, const ChatStateS
                                                 visual_selected_channel_id);
 }
 
-inline bool message_scene_initialize(MessageScene* scene, MessageTimeline* timeline,
-                                     Slice<MessageSceneRowWidget> row_storage, Slice<UiWidget> widget_storage,
-                                     Slice<UiLayoutNode> layout_storage) noexcept {
-    if (!scene || !timeline || !timeline->store || !timeline->list || !row_storage.data ||
-        row_storage.count == 0 || !widget_storage.data || !layout_storage.data ||
-        widget_storage.count == 0 || layout_storage.count == 0) {
-        return false;
-    }
-    reset_value<MessageScene>(scene);
-    scene->rows = row_storage;
-    scene->timeline = timeline;
-    scene->root = ui_widget_invalid_handle();
-    scene->unread_divider_style = kDefaultUiUnreadDividerStyle;
-    scene->unread_prepared_height = kDefaultUiUnreadDividerStyle.height;
-    return ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage);
-}
-
-// Fixed-storage hosts supply the child rows of forwarded snapshots; the owned host uses its row allocator.
-inline bool message_scene_bind_snapshot_rows(MessageScene* scene, Slice<MessageSceneRowWidget> rows) noexcept {
-    if (!scene || scene->active || scene->owns_rows || (!rows.data && rows.count) ||
-        rows.count > kInvalidUiWidgetSlot)
-        return false;
-    scene->snapshot_rows = rows;
-    return true;
-}
+// The most rows a test message scene may grow to (message_scene_initialize_owned's maximum_rows).
+inline constexpr u32 kMessageSceneTestRows = 512;
 
 // Opens a registered settings page: selects it, rebuilds the scene over its content and focuses its row.
 inline bool ui_settings_scene_select(UiSettingsScene* scene, UiPageKey page) noexcept {

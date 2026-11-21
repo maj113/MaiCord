@@ -139,9 +139,6 @@ struct MessageActionBar {
     u64 message_id;
     u32 revision;
     u32 preference_revision;
-    u32 opens;
-    u32 closes;
-    u32 rejected;
     u32 hovered_index;
     u16 capabilities;
     // Items before this index are quick reactions followed by a section gap.
@@ -151,7 +148,7 @@ struct MessageActionBar {
 };
 
 static_assert(sizeof(MessageActionBarItem) == 40);
-static_assert(sizeof(MessageActionBar) == 576);
+static_assert(sizeof(MessageActionBar) == 568);
 using MessageActionBarPolicy = u16 (*)(void*, u64 message_id) noexcept;
 
 // Pending sends never get a bar; failed sends show only Retry and Delete.

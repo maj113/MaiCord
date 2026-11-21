@@ -21,8 +21,10 @@ struct JpegWorkspace;
 struct LossyWebpWorkspace;
 struct Vp8lWorkspace;
 
-extern MessageRichRecord g_message_scene_rich_records[32];
-extern u16 g_message_scene_rich_order[32];
+// One rich record for each message of the virtual message scene test.
+inline constexpr u32 kMessageSceneRichRecords = 128;
+extern MessageRichRecord g_message_scene_rich_records[kMessageSceneRichRecords];
+extern u16 g_message_scene_rich_order[kMessageSceneRichRecords];
 extern u8 g_message_scene_rich_text[16 * 1024];
 extern u8 g_png_encoded[17'000];
 extern u8 g_png_zlib[17'000];

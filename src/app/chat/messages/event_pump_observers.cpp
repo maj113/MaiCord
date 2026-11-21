@@ -173,7 +173,7 @@ bool validate_member_list(const MessageEventPump& pump, const GatewayClientEvent
            gateway_member_list_summary_ids_unique(payload, groups);
 }
 
-bool affects_visible_members(const GuildMemberStore& members, u64 guild_id, u64 list_id, u32 first,
+inline bool affects_visible_members(const GuildMemberStore& members, u64 guild_id, u64 list_id, u32 first,
                              u32 last) noexcept {
     const auto& visible = members.visible;
     return visible.guild_id == guild_id && visible.list_id == list_id && guild_id &&
@@ -487,11 +487,11 @@ bool observe_message_users(MessageEventPump* pump, const GatewayClientEvent& eve
             return false;
         }
     }
+    // user_store_set_avatar fails for a user the store does not hold.
     if (event.message.author_avatar_hash_bytes != 0) {
         Utf8View avatar_hash{};
         if (event.message.author_id == 0 ||
             !gateway_client_event_message_author_avatar_hash(event, payload, &avatar_hash) ||
-            !user_store_find(*pump->users, event.message.author_id) ||
             !user_store_set_avatar(pump->users, event.message.author_id, avatar_hash)) {
             return false;
         }

@@ -257,14 +257,11 @@ bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeli
                                                owned_rows.capacity};
     scene->timeline = timeline;
     scene->root = ui_widget_invalid_handle();
-    scene->unread_divider_style = kDefaultUiUnreadDividerStyle;
-    scene->unread_prepared_height = kDefaultUiUnreadDividerStyle.height;
     if (!ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage)) {
         stable_storage_release(&owned_rows);
         return false;
     }
     scene->owned_rows = owned_rows;
-    scene->owns_rows = true;
     scene->snapshot_storage_offset = maximum_rows;
     if (!message_scene_detail::initialize_measurements(scene, defer_measurements)) {
         message_scene_release(scene);
@@ -279,9 +276,7 @@ bool message_scene_reserve_measurements(MessageScene* scene) noexcept {
 }
 
 void message_scene_release(MessageScene* scene) noexcept {
-    if (scene->owns_rows) {
-        stable_storage_release(&scene->owned_rows);
-    }
+    stable_storage_release(&scene->owned_rows);
     stable_storage_release(&scene->owned_measurements);
     stable_storage_release(&scene->owned_item_layouts);
     reset_value<MessageScene>(scene);
@@ -289,7 +284,7 @@ void message_scene_release(MessageScene* scene) noexcept {
 
 // Callers ask for more rows than the scene holds.
 static bool reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
-    if (!scene->owns_rows || required_rows > scene->snapshot_storage_offset ||
+    if (required_rows > scene->snapshot_storage_offset ||
         !stable_storage_grow(&scene->owned_rows, required_rows)) {
         return false;
     }
@@ -332,19 +327,14 @@ bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 la
     return true;
 }
 
-bool message_scene_set_result_card_style(MessageScene* scene, const MessageResultCardStyle* style) noexcept {
-    if (!scene->timeline || !scene->owns_rows ||
-        (style && !message_result_card_style_valid(*style)))
+bool message_scene_show_result_cards(MessageScene* scene) noexcept {
+    if (!scene->timeline)
         return false;
-    const auto next = style ? *style : MessageResultCardStyle{};
-    if (scene->result_cards == (style != nullptr) &&
-        scene->result_card_style.heading_height == next.heading_height &&
-        scene->result_card_style.action_height == next.action_height &&
-        scene->result_card_style.gap == next.gap &&
-        scene->result_card_style.materialized_rows == next.materialized_rows)
+    if (scene->result_cards)
         return true;
-    scene->result_card_style = next;
-    scene->result_cards = style != nullptr;
+    // Result cards show no intro. A zero intro height keeps the first row's extent free of it.
+    scene->result_cards = true;
+    scene->intro_height = 0.0f;
     saturating_increment(scene->result_card_revision);
     scene->dirty = true;
     return true;
@@ -397,7 +387,7 @@ float intro_icon_extent(MessageSceneIntroKind kind) noexcept {
         return 0.0f;
     }
 }
-float intro_icon_margin(MessageSceneIntroKind kind) noexcept {
+inline float intro_icon_margin(MessageSceneIntroKind kind) noexcept {
     return kind == MessageSceneIntroKind::channel || kind == MessageSceneIntroKind::thread ? 16.0f : 0.0f;
 }
 float intro_measure_text(MessageScene* scene, u16 item, const Utf8View& text, const ConstSlice<TextStyleSpan>& styles,
@@ -429,7 +419,7 @@ float intro_measure_text(MessageScene* scene, u16 item, const Utf8View& text, co
 }
 void refresh_intro_measurement(MessageScene* scene, float viewport_width) noexcept {
     const MessageSceneIntro& intro = scene->intro;
-    if (intro.kind == MessageSceneIntroKind::none || !scene->owns_rows || scene->result_cards ||
+    if (intro.kind == MessageSceneIntroKind::none || scene->result_cards ||
         !(viewport_width > 0.0f)) {
         scene->intro_height = 0.0f;
         scene->intro_header_height = scene->intro_subtitle_height = scene->intro_description_height = 0.0f;
@@ -459,7 +449,7 @@ void refresh_intro_measurement(MessageScene* scene, float viewport_width) noexce
 }
 // The intro occupies the top of the first row, or with no rows the bottom of
 // the viewport (an empty channel's beginning).
-UiRect intro_area(const MessageScene& scene) noexcept {
+inline UiRect intro_area(const MessageScene& scene) noexcept {
     if (!scene.active || !(scene.intro_height > 0.0f))
         return {};
     if (scene.timeline && scene.timeline->list && scene.timeline->list->count == 0)
@@ -580,27 +570,33 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
 
 bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro,
                              UiTextMeasureCache* measure) noexcept {
-    MessageSceneIntro next{};
-    if (intro && intro->kind != MessageSceneIntroKind::none &&
-        intro->header_bytes + intro->subtitle_bytes + intro->description_bytes <= kMessageSceneIntroTextBytes &&
-        intro->description_span_count <= kMessageSceneIntroSpanMaximum)
-        copy_value(&next, *intro);
-    u64 signature = hash_mix(kHash64Seed, static_cast<u64>(next.kind) | (u64{next.locked} << 8));
-    signature = hash_mix(signature, next.user_id);
-    signature = hash_mix(signature, next.channel_id);
-    const u32 text_bytes = next.header_bytes + next.subtitle_bytes + next.description_bytes;
-    signature = hash_mix(signature, (u64{next.header_bytes} << 40) ^ (u64{next.subtitle_bytes} << 20) ^
-                                        next.description_bytes);
-    signature = hash64_counted_bytes(signature, next.text, text_bytes);
-    signature = hash64_counted_bytes(signature, next.description_spans,
-                                     next.description_span_count * static_cast<u32>(sizeof(TextStyleSpan)));
+    // An absent or out-of-range intro hashes and is stored as an empty one. Each shell scene update calls this, so it
+    // makes no cleared copy of the 1 KiB intro.
+    if (intro && (intro->kind == MessageSceneIntroKind::none ||
+                  intro->header_bytes + intro->subtitle_bytes + intro->description_bytes > kMessageSceneIntroTextBytes ||
+                  intro->description_span_count > kMessageSceneIntroSpanMaximum))
+        intro = nullptr;
+    const u32 header_bytes = intro ? intro->header_bytes : 0, subtitle_bytes = intro ? intro->subtitle_bytes : 0;
+    const u32 description_bytes = intro ? intro->description_bytes : 0;
+    u64 signature =
+        hash_mix(kHash64Seed, intro ? static_cast<u64>(intro->kind) | (u64{intro->locked} << 8) : 0);
+    signature = hash_mix(signature, intro ? intro->user_id : 0);
+    signature = hash_mix(signature, intro ? intro->channel_id : 0);
+    signature = hash_mix(signature, (u64{header_bytes} << 40) ^ (u64{subtitle_bytes} << 20) ^ description_bytes);
+    signature = hash64_counted_bytes(signature, intro ? intro->text : nullptr,
+                                     header_bytes + subtitle_bytes + description_bytes);
+    signature = hash64_counted_bytes(signature, intro ? intro->description_spans : nullptr,
+                                     (intro ? intro->description_span_count : 0) * static_cast<u32>(sizeof(TextStyleSpan)));
     scene->intro_measure = measure;
     if (signature == scene->intro_signature)
         return false;
-    copy_value(&scene->intro, next);
+    if (intro)
+        copy_value(&scene->intro, *intro);
+    else
+        reset_value(&scene->intro);
     scene->intro_signature = signature;
-    scene->intro_header_style = {0, next.header_bytes, text_style_bold, text_size_xxl, {}};
-    scene->intro_subtitle_style = {0, next.subtitle_bytes, text_style_bold, text_size_lg, {}};
+    scene->intro_header_style = {0, header_bytes, text_style_bold, text_size_xxl, {}};
+    scene->intro_subtitle_style = {0, subtitle_bytes, text_style_bold, text_size_lg, {}};
     // Measured (width and text) by the next update, before row extents.
     scene->intro_measured_width = 0.0f;
     scene->intro_height = 0.0f;
@@ -647,7 +643,7 @@ UiRect message_scene_unread_divider_rectangle(const MessageScene& scene,
         return {};
     auto rectangle = node->rectangle;
     rectangle.top = minimum(rectangle.bottom, rectangle.top + intro_row_height(scene, row));
-    rectangle.bottom = minimum(rectangle.bottom, rectangle.top + scene.unread_divider_style.height);
+    rectangle.bottom = minimum(rectangle.bottom, rectangle.top + kUiUnreadDividerStyle.height);
     return rectangle;
 }
 
@@ -690,16 +686,13 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
     UiVariableRange range =
         scene->result_cards ? ui_variable_list_range(*scene->timeline->list, scene->timeline->scroll_units,
                                                      viewport_units, 0)
-        : scene->owns_rows
-            ? ui_variable_list_buffered_range(*scene->timeline->list, scene->timeline->scroll_units,
-                                              viewport_units,
-                                              ui_extent_units(kMessageScenePreparationMarginDips))
-            : ui_variable_list_range(*scene->timeline->list, scene->timeline->scroll_units, viewport_units,
-                                     kMessageSceneOverscanRows);
+                            : ui_variable_list_buffered_range(*scene->timeline->list, scene->timeline->scroll_units,
+                                                              viewport_units,
+                                                              ui_extent_units(kMessageScenePreparationMarginDips));
     if (scene->result_cards)
-        range.count = minimum(range.count, scene->result_card_style.materialized_rows);
+        range.count = minimum(range.count, kMessageResultCardStyle.materialized_rows);
     const UiVariableList& list = *scene->timeline->list;
-    if (scene->owns_rows && !scene->result_cards && scene->active && !scene->dirty && scene->count &&
+    if (!scene->result_cards && scene->active && !scene->dirty && scene->count &&
         scene->first + scene->count <= list.count && scene->source_count == message_scene_source_count(*scene) &&
         scene->observed_structural_updates == list.structural_updates) {
         // Scrolling keeps the materialized rows while they still reach half the
@@ -714,22 +707,6 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
             range = UiVariableRange{scene->first, scene->count,
                                     static_cast<i64>(begin) - static_cast<i64>(scroll)};
     }
-    if (!scene->owns_rows && scene->active && message_scene_pending(*scene)) {
-        const u32 retained_end = scene->first + scene->count;
-        const u32 desired_end = range.first + range.count;
-        const u32 union_first = minimum(scene->first, range.first);
-        const u32 union_end = maximum(retained_end, desired_end);
-        const u32 union_count = union_end - union_first;
-        if (union_count > scene->rows.count) {
-            reserve_rows(scene, union_count);
-        }
-        if (union_count <= scene->rows.count) {
-            const u64 first_prefix = ui_variable_list_prefix_units(*scene->timeline->list, union_first);
-            range = UiVariableRange{union_first, union_count,
-                                    static_cast<i64>(first_prefix) -
-                                        static_cast<i64>(scene->timeline->scroll_units)};
-        }
-    }
     if (range.count > scene->rows.count && !reserve_rows(scene, range.count)) {
         clear_materialization(scene);
         scene->viewport = viewport;
@@ -742,7 +719,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
     // all do). Only a poll's vote revision moves none of them.
     const MessageStore& store = *scene->timeline->store;
     const bool unchanged =
-        scene->owns_rows && !scene->result_cards && scene->active && !scene->dirty &&
+        !scene->result_cards && scene->active && !scene->dirty &&
         prepared_before == scene->prepared_signature && range.first == scene->first &&
         range.count == scene->count && scene->source_count == message_scene_source_count(*scene) &&
         scene->observed_created == store.created && scene->observed_updated == store.updated &&

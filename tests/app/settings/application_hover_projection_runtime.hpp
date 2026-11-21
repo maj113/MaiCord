@@ -44,7 +44,6 @@ inline void test_retained_hover_projection() noexcept {
     MessageStore store{};
     UiVariableList list{};
     MessageTimeline timeline{};
-    MessageSceneRowWidget rows[4]{};
     UiWidget widgets[1 + 4 * kMessageSceneWidgetsPerRow]{};
     UiLayoutNode nodes[1 + 4 * kMessageSceneWidgetsPerRow]{};
     const bool ready =
@@ -55,16 +54,17 @@ inline void test_retained_hover_projection() noexcept {
         ui_variable_list_initialize(&list, {heights, 2}, {fenwick, 2}, 2, ui_extent_units(72)) &&
         message_timeline_initialize(&timeline, &store, &list, ui_extent_units(72), ui_extent_units(240),
                                     false) &&
-        message_scene_initialize(&g_app.message_scene, &timeline, {rows, 4},
-                                 {widgets, 1 + 4 * kMessageSceneWidgetsPerRow},
-                                 {nodes, 1 + 4 * kMessageSceneWidgetsPerRow}) &&
+        message_scene_initialize_owned(&g_app.message_scene, &timeline, kMessageSceneTestRows, 4,
+                                       {widgets, 1 + 4 * kMessageSceneWidgetsPerRow},
+                                       {nodes, 1 + 4 * kMessageSceneWidgetsPerRow}) &&
         message_scene_update(&g_app.message_scene, {0, 0, 640, 240}).ok();
     check(ready && g_app.message_scene.count == 2,
           "hover host: real message store, timeline and native retained row targets initialize");
     if (!ready || g_app.message_scene.count != 2)
         return;
     const auto point = [&](u32 row) noexcept {
-        const auto* layout = message_scene_layout_node(g_app.message_scene, rows[row].widget);
+        const auto* layout =
+            message_scene_layout_node(g_app.message_scene, message_scene_find_row(g_app.message_scene, row)->widget);
         return MAKELPARAM(static_cast<short>(layout->rectangle.left + 80),
                           static_cast<short>((layout->rectangle.top + layout->rectangle.bottom) * .5f));
     };

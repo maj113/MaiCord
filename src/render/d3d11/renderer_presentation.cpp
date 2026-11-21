@@ -232,8 +232,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
                browser.view->source_publication, renderer.interaction_text_thread_browser_revision,
                renderer.interaction_text_thread_browser_publication, browser.scroll_dips)
             .widgets(browser.widgets)
-            .bytes(&browser.panel, sizeof(browser.panel))
-            .bytes(&browser.style, sizeof(browser.style));
+            .bytes(&browser.panel, sizeof(browser.panel));
     }
     s.push(renderer.media_picker_scene, (shown & d3d11_surface_media_picker) != 0);
     if (renderer.media_picker_scene) {

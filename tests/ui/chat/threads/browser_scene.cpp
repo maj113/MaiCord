@@ -45,8 +45,8 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
     ui_forum_sort({keys, 5}, UiForumSort::creation_date);
     check(keys[0].thread_id == 5 && keys[1].thread_id == 40 && keys[2].thread_id == 30 && keys[3].thread_id == 20 &&
         keys[4].thread_id == 10 && keys[4].index == 0, "forum channel: creation date orders by post ID with pinned posts first");
-    const auto list = ui_forum_grid(900, UiForumLayout::list, kDefaultUiForumStyle);
-    const auto gallery = ui_forum_grid(700, UiForumLayout::gallery, kDefaultUiForumStyle);
+    const auto list = ui_forum_grid(900, UiForumLayout::list);
+    const auto gallery = ui_forum_grid(700, UiForumLayout::gallery);
     const UiRect body{10, 100, 710, 600};
     const auto third = ui_forum_card_rectangle(body, list, 2, 4);
     const auto fifth = ui_forum_card_rectangle(body, gallery, 4, 0);
@@ -56,7 +56,7 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
         gallery.columns == 3 && gallery.card_width == (700 - 16) / 3.f && gallery.card_height == 248 &&
         fifth.left == 10 + gallery.card_width + 8 && fifth.top == 100 + 248 + 8 &&
         ui_forum_content_height(gallery, 4) == 2 * 248 + 8 && ui_forum_content_height(gallery, 0) == 0 &&
-        ui_forum_grid(100, UiForumLayout::gallery, kDefaultUiForumStyle).columns == 1,
+        ui_forum_grid(100, UiForumLayout::gallery).columns == 1,
         "forum channel: list rows and gallery columns have exact card geometry and content extents");
     UiForumTag tags[kUiForumTagCapacity]{};
     for (u32 i = 0; i < kUiForumTagCapacity; ++i)
@@ -73,7 +73,7 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
     UiForumChannelView forum{{tags, 4}, {posts, 6}, UiForumSort::latest_activity, UiForumLayout::list,
         UiForumTagMatch::some, false};
     UiForumToolbar toolbar{};
-    ui_forum_toolbar_layout({20, 200, 420, 200}, forum, kDefaultUiForumStyle, &toolbar);
+    ui_forum_toolbar_layout({20, 200, 420, 200}, forum, &toolbar);
     bool chips_inside = toolbar.chip_count == 4;
     for (u32 i = 0; i < toolbar.chip_count; ++i)
         chips_inside &= toolbar.chips[i].left >= 20 && toolbar.chips[i].right <= 420 &&
@@ -82,7 +82,7 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
         toolbar.gallery.right == 420 && toolbar.height >= 40 + 32,
         "forum channel: toolbar keeps sort and List/Gallery apart and wraps tag chips inside its band");
     forum.tags = {tags, kUiForumTagCapacity};
-    ui_forum_toolbar_layout({20, 200, 420, 200}, forum, kDefaultUiForumStyle, &toolbar);
+    ui_forum_toolbar_layout({20, 200, 420, 200}, forum, &toolbar);
     check(toolbar.chip_count == kUiForumTagCapacity && toolbar.chips[19].bottom <= 200 + toolbar.height &&
         toolbar.chips[19].top > toolbar.chips[0].top, "forum channel: all twenty tags stay reachable on wrapped rows");
     forum.tags = {tags, 4};
@@ -200,10 +200,11 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
         controls_separate(scene) && scene.backing->rows[0].generation && !scene.backing->rows[24].generation,
         "thread browser scene: lazy bounded native main-content panel clips page rows and separates all controls");
     if (!scene.active) return;
-    const u32 rebuilds = scene.rebuilds, layouts = scene.layout_passes;
+    // The scene lays out only when it rebuilds.
+    const u32 rebuilds = scene.rebuilds;
     const u16 generation = scene.widgets.generation;
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport) && scene.rebuilds == rebuilds &&
-        scene.layout_passes == layouts && scene.widgets.generation == generation,
+        scene.widgets.generation == generation,
         "thread browser scene: same borrowed view publication and viewport performs no retained rebuild/layout");
     const auto card = scene.backing->cards[0];
     const auto captured = ui_thread_browser_scene_hit_test(scene, card.left + 45, card.top + 20);
@@ -218,7 +219,7 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
     u32 text_fields = 0;
     for (u32 i = 0; i < scene.widgets.count; ++i)
         text_fields += scene.widgets.storage[i].kind == UiWidgetKind::text_field ? 1u : 0u;
-    const auto& style = kDefaultUiThreadBrowserStyle;
+    const auto& style = kUiThreadBrowserStyle;
     check(!text_fields && scene.tabs.top == scene.header.bottom && scene.status.top == scene.tabs.bottom &&
         scene.body.top == scene.status.bottom &&
         scene.body.top - scene.panel.top == style.header_height + style.tabs_height + style.status_height &&
@@ -322,18 +323,17 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
         utf8_equal({scene.page_text, scene.page_bytes}, utf8_literal("Page 4")) &&
         ui_thread_browser_scene_focus(&scene, {UiThreadBrowserAction::previous, 0, 2}),
         "thread browser scene: archived pagination has no fabricated total even when caller supplies a local total");
-    auto custom = kDefaultUiThreadBrowserStyle;
     view.can_create_post = true;
     ++view.revision;
     check(ui_thread_browser_scene_update(&scene, &view, {0, 0, 320, 640}) && scene.create_post.generation &&
           controls_separate(scene) && ui_thread_browser_scene_focus(&scene, {UiThreadBrowserAction::create_post, 0, 2}),
           "forum browser exposes a distinct keyboard and pointer Create post control");
     const auto post_target = ui_thread_browser_scene_target(scene, scene.create_post);
-    const u32 post_layouts = scene.layout_passes, post_rebuilds = scene.rebuilds;
+    const u32 post_rebuilds = scene.rebuilds;
     bool unchanged = true;
     for (u32 frame = 0; frame < 64; ++frame)
         unchanged = ui_thread_browser_scene_update(&scene, &view, scene.viewport) && unchanged;
-    check(unchanged && scene.layout_passes == post_layouts && scene.rebuilds == post_rebuilds &&
+    check(unchanged && scene.rebuilds == post_rebuilds &&
           ui_thread_browser_scene_target_current(scene, post_target),
           "forum browser retains unchanged Create post geometry and publication for 64 frames");
     view.can_create_post = false;
@@ -341,15 +341,7 @@ void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexce
     check(ui_thread_browser_scene_update(&scene, &view, scene.viewport) && !scene.create_post.generation &&
           !ui_thread_browser_scene_target_current(scene, post_target),
           "forum browser authority withdrawal retires the captured Create post action");
-    custom.row_height = 72;
-    custom.radius = 10;
-    check(ui_thread_browser_scene_update(&scene, &view, scene.viewport, &custom) && scene.style.row_height == 72,
-        "thread browser scene: independent style tokens customize native geometry");
     const u32 stable_rebuilds = scene.rebuilds;
-    const u32 nan_bits = 0x7fc00000u;
-    copy_bytes(&custom.row_height, &nan_bits, sizeof(nan_bits));
-    check(!ui_thread_browser_scene_update(&scene, &view, scene.viewport, &custom) && scene.rebuilds == stable_rebuilds,
-        "thread browser scene: nonfinite style rejects before altering retained geometry");
     const char malformed[]{static_cast<char>(0xf0), static_cast<char>(0x80), static_cast<char>(0x80), static_cast<char>(0x80)};
     rows[0].name = {malformed, sizeof(malformed)};
     view.rows = {rows, 1};

@@ -75,7 +75,6 @@ struct AnimationUiFixture {
     u8 rich_text[1024]{};
     u32 heights[1]{};
     u64 fenwick[1]{};
-    MessageSceneRowWidget row[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
     MessageTextPresentation message_text{};
@@ -159,9 +158,9 @@ bool seed_fixture(Application& application, AccountUiRuntime& ui, AnimationUiFix
         !message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
                                      ui_extent_units(1000), false) ||
         !message_timeline_bind_rich_store(&view.timeline, &ui.message_rich_store) ||
-        !message_scene_initialize(&application.message_scene, &view.timeline, {fixture.row, 1},
-                                  {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
-                                  {fixture.nodes, kMessageSceneWidgetsPerRow + 1}) ||
+        !message_scene_initialize_owned(&application.message_scene, &view.timeline, kMessageSceneTestRows, 1,
+                                        {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
+                                        {fixture.nodes, kMessageSceneWidgetsPerRow + 1}) ||
         !animation_timeline_initialize(&application.animations.timeline, {fixture.entries, 1},
                                        {fixture.buckets, 2}))
         return false;

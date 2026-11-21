@@ -392,7 +392,7 @@ bool begin(Kind kind, u64 guild_id, u64 user_id) noexcept {
 }
 
 bool open_choices(Kind kind) noexcept {
-    PopupItem items[kChoiceCount]{};
+    PopupItem items[kChoiceCount];
     const u32 count = kind == Kind::timeout ? member_context_timeout_choices(kActions, {items, kChoiceCount})
                                             : member_context_ban_choices(kActions, {items, kChoiceCount});
     const UiRect anchor = g_app.popup_scene.anchor;

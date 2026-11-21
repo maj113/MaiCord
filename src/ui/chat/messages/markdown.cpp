@@ -24,7 +24,7 @@ bool emoji_base(u32 codepoint) noexcept {
            codepoint == 0x3030u || codepoint == 0x303Du || codepoint == 0x3297u || codepoint == 0x3299u;
 }
 
-bool emoji_modifier(u32 codepoint) noexcept {
+inline bool emoji_modifier(u32 codepoint) noexcept {
     return codepoint == 0xFE0Fu || (codepoint >= 0x1F3FBu && codepoint <= 0x1F3FFu) ||
            (codepoint >= 0xE0020u && codepoint <= 0xE007Fu);
 }
@@ -42,7 +42,7 @@ bool consume_codepoint(Utf8View source, u32* cursor, u32* codepoint) noexcept {
     return true;
 }
 
-bool consume_keycap(Utf8View source, u32* cursor) noexcept {
+inline bool consume_keycap(Utf8View source, u32* cursor) noexcept {
     if (*cursor >= source.bytes) {
         return false;
     }
@@ -66,7 +66,7 @@ bool consume_keycap(Utf8View source, u32* cursor) noexcept {
     return true;
 }
 
-bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
+inline bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
     if (*cursor >= source.bytes || source.data[*cursor] != '<') {
         return false;
     }
@@ -97,7 +97,7 @@ bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
     return true;
 }
 
-bool consume_unicode_emoji(Utf8View source, u32* cursor) noexcept {
+inline bool consume_unicode_emoji(Utf8View source, u32* cursor) noexcept {
     const u32 begin = *cursor;
     if (consume_keycap(source, cursor)) {
         return true;
@@ -175,7 +175,7 @@ bool emoji_only_source(Utf8View source) noexcept {
 // simple-markdown's escape rule /^\\([^0-9A-Za-z\s])/: a backslash escapes any
 // one character that is not ASCII alphanumeric or whitespace ("\!", "\.").
 // ASCII \s is \t \n \v \f \r and space; other controls and DEL escape.
-bool markdown_escape_target(u32 cp) noexcept {
+inline bool markdown_escape_target(u32 cp) noexcept {
     if (cp < 0x80)
         return !(cp == ' ' || (cp >= '\t' && cp <= '\r')) && !ascii_is_alnum(static_cast<char>(cp));
     return !unicode_space(cp);
@@ -227,7 +227,7 @@ bool push_delimiter(Parser* parser, u32 style, u8 marker_bytes, DelimiterKind ki
     return true;
 }
 
-bool block_prefix(Parser* parser) noexcept {
+inline bool block_prefix(Parser* parser) noexcept {
     if (!parser->line_start || parser->depth != 0) {
         return true;
     }
@@ -399,7 +399,7 @@ u8 emphasis_marker(const Parser& parser, u32* style, DelimiterKind* kind) noexce
 // Rules match: code, spoilers, ***, ** and __ may open before
 // whitespace ("** a **" is bold, "` a `" code); a single * or _ and ~~ need
 // text right after them.
-bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcept {
+inline bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcept {
     const u32 after = parser.input_offset + bytes;
     if (after >= parser.input.bytes)
         return false;
@@ -408,7 +408,7 @@ bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcep
     return spaced || !ascii_is_space(parser.input.data[after]);
 }
 
-bool marker_can_close(const Parser& parser, const Delimiter& delimiter) noexcept {
+inline bool marker_can_close(const Parser& parser, const Delimiter& delimiter) noexcept {
     return parser.output_bytes > delimiter.output_offset + delimiter.marker_bytes;
 }
 
@@ -487,7 +487,7 @@ void emit_source_code_range(SourceCodeEmission* emission, u32 end, u32 style = 0
     }
 }
 
-bool emoji_alias_inside_url(Utf8View input, u32 begin, u32 end) noexcept {
+inline bool emoji_alias_inside_url(Utf8View input, u32 begin, u32 end) noexcept {
     u32 first = begin;
     while (first && !ascii_is_space(input.data[first - 1]) && input.data[first - 1] != '<' &&
            input.data[first - 1] != '>' && input.data[first - 1] != '[' &&
@@ -497,7 +497,7 @@ bool emoji_alias_inside_url(Utf8View input, u32 begin, u32 end) noexcept {
     return first < begin && valid_url(input, first, end);
 }
 
-bool emit_closed_source_code(Parser* parser) noexcept {
+inline bool emit_closed_source_code(Parser* parser) noexcept {
     if (parser->output_mode != OutputMode::source || parser->depth == 0) return false;
     const Delimiter& delimiter = parser->delimiters[parser->depth - 1];
     const SourceScope& scope = parser->source_sink->scopes[parser->depth - 1];
@@ -556,10 +556,11 @@ inline bool plain_text_byte(Utf8View input, u32 at) noexcept {
     if (((value < 64u ? kRuleStartLow : kRuleStartHigh) >> (value & 63u)) & 1u)
         return false;
     const u32 left = input.bytes - at;
+    // Inline compares: these letters are frequent, and bytes_equal is an outlined call.
     if (value == 'h')
-        return !(left > 3 && bytes_equal(input.data + at + 1, "ttp", 3));
+        return !(left > 3 && __builtin_memcmp(input.data + at + 1, "ttp", 3) == 0);
     if (value == 's')
-        return !(left > 4 && bytes_equal(input.data + at + 1, "team", 4));
+        return !(left > 4 && __builtin_memcmp(input.data + at + 1, "team", 4) == 0);
     return true;
 }
 
@@ -777,7 +778,7 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
     return MessageMarkdownError::none;
 }
 
-bool fenced(Utf8View input) noexcept {
+inline bool fenced(Utf8View input) noexcept {
     // Skipping three bytes after a non-backtick cannot step over a triple.
     for (u32 at = 2; at < input.bytes;) {
         if (input.data[at] != '`')

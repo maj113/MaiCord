@@ -1,3 +1,4 @@
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat/game_store.hpp"
 #include "maicord/core/scratch_pages.hpp"
@@ -99,7 +100,7 @@ void slowmode_start(u64 channel_id, u8 kind, u64 until_ms) noexcept {
     *slot = {channel_id, until_ms, kind};
 }
 
-const MessageRecord* latest_message(u64 channel_id) noexcept {
+inline const MessageRecord* latest_message(u64 channel_id) noexcept {
     const MessageStore& store = g_app.message_view.store;
     for (u32 index = store.count; index-- > 0;) {
         const MessageRecord* record = message_store_ordered_record(store, index);
@@ -109,7 +110,7 @@ const MessageRecord* latest_message(u64 channel_id) noexcept {
     return nullptr;
 }
 
-bool react_to_latest(u64 channel_id, Utf8View name) noexcept {
+inline bool react_to_latest(u64 channel_id, Utf8View name) noexcept {
     const MessageRecord* target = latest_message(channel_id);
     if (!target)
         return false;
@@ -319,17 +320,15 @@ u64 application_message_interaction_next_wake(u64 now_ms) noexcept {
     u64 wake = feedback.highlight_message_id
                    ? message_jump_highlight_next_wake(feedback.highlight_started_ms, now_ms)
                    : 0;
-    const u64 connection = feedback.connected_once ? connection_notice_next_wake(feedback.connection) : 0;
-    if (connection && (!wake || connection < wake))
-        wake = connection;
+    if (feedback.connected_once)
+        wake = earliest_deadline(wake, connection_notice_next_wake(feedback.connection));
     if (feedback.slowmode_label_bytes) {
         const SlowmodeDeadline* slot = g_app.account_ui ? slowmode_find(g_app.account_ui->active_channel_id) : nullptr;
         const u64 until_ms = slot ? slot->until_ms : 0;
         const u64 remaining = until_ms > now_ms ? until_ms - now_ms : 0;
         const u64 tick = now_ms + (remaining % 1000 ? remaining % 1000 : 1000);
         const u64 next = remaining ? minimum(tick, until_ms) : now_ms;
-        if (!wake || next < wake)
-            wake = next;
+        wake = earliest_deadline(wake, next);
     }
     return wake;
 }

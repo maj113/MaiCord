@@ -6,6 +6,7 @@
 #include "../../settings/emoji_preferences.hpp"
 #include "../../media/picker.hpp"
 #include "maicord/app/chat/messages/reaction_controller.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
@@ -814,20 +815,17 @@ u64 application_message_reaction_next_wake() noexcept {
     if (!owner || owner->closing)
         return 0;
     u64 wake{};
-    const u64 now = clock_monotonic_milliseconds();
     if (g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
         !owner->controller.flight.active) {
         message_reaction_controller_next_due(owner->controller, &wake);
         if (wake && wake < owner->admission_retry_at)
             wake = owner->admission_retry_at;
-        if (wake && wake <= now)
+        if (wake && wake <= clock_monotonic_milliseconds())
             wake = 1;
     }
-    for (u32 i = 0; i < owner->controller.count; ++i) {
-        const auto deadline = owner->controller.entries[i].deadline_at_ms;
-        if (!wake || deadline < wake)
-            wake = deadline;
-    }
+    // Each intent's deadline is deadline_after(now, lifetime): never zero.
+    for (u32 i = 0; i < owner->controller.count; ++i)
+        wake = earliest_deadline(wake, owner->controller.entries[i].deadline_at_ms);
     return wake;
 }
 

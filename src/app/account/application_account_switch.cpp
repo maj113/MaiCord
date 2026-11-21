@@ -106,7 +106,7 @@ AccountInventoryEntry* entry_for(u32 slot) noexcept {
 
 // Most recently used saved account other than `excluded` that can restore.
 bool most_recent_saved(u32 excluded, u32* slot) noexcept {
-    u8 order[kAccountInventoryMaximumAccounts]{};
+    u8 order[kAccountInventoryMaximumAccounts];
     const u32 count = account_inventory_order(g_switch.inventory, order);
     for (u32 i = 0; i < count; ++i) {
         const auto& entry = g_switch.inventory.entries[order[i]];
@@ -449,7 +449,7 @@ void application_account_switch_initialize() noexcept {
     if (account_inventory_find_slot(g_switch.inventory, g_switch.inventory.active_slot)) {
         slot = g_switch.inventory.active_slot;
     } else if (g_switch.inventory.count) {
-        u8 order[kAccountInventoryMaximumAccounts]{};
+        u8 order[kAccountInventoryMaximumAccounts];
         account_inventory_order(g_switch.inventory, order);
         slot = g_switch.inventory.entries[order[0]].slot;
     }
@@ -470,8 +470,8 @@ bool application_account_switch_available() noexcept {
 bool application_account_switch_panel(UiAccountSwitcherModel* model, u64 owner_id,
                                       UiAccountSwitcherPanel panel) noexcept {
     observe_running();
-    UiAccountSwitcherAccount accounts[kUiAccountSwitcherAccounts]{};
-    u8 order[kAccountInventoryMaximumAccounts]{};
+    UiAccountSwitcherAccount accounts[kUiAccountSwitcherAccounts];
+    u8 order[kAccountInventoryMaximumAccounts];
     const u32 count = account_inventory_order(g_switch.inventory, order);
     const u32 active = selected();
     for (u32 i = 0; i < count; ++i) {

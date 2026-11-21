@@ -80,15 +80,16 @@ void track(u64 scope, u64 channel_id, u64 message_id, u64 emoji_id, Utf8View nam
         s.channel_epoch == g_app.load_trace.channel_epoch &&
         utf8_equal({s.emoji_name, s.emoji_name_bytes}, name))
         return;
-    const u64 epoch = s.epoch + 1;
-    reset_value(&s);
+    // Every other field is written below or before it is read (the names, the label and its bold spans).
+    s.attempts = 0;
+    s.name_count = 0;
     s.scope = scope;
     s.channel_id = channel_id;
     s.message_id = message_id;
     s.emoji_id = emoji_id;
     s.type = type;
     s.count = count;
-    s.epoch = epoch;
+    ++s.epoch;
     s.channel_epoch = g_app.load_trace.channel_epoch;
     copy_bytes(s.emoji_name, name.data, name.bytes);
     s.emoji_name_bytes = static_cast<u8>(name.bytes);
@@ -96,7 +97,7 @@ void track(u64 scope, u64 channel_id, u64 message_id, u64 emoji_id, Utf8View nam
 }
 
 // A display name cut on a character boundary, with an ellipsis when cut.
-u8 copy_name(char* output, Utf8View name) noexcept {
+inline u8 copy_name(char* output, Utf8View name) noexcept {
     if (name.bytes <= kNameBytes) {
         copy_bytes(output, name.data, name.bytes);
         return static_cast<u8>(name.bytes);

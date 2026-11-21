@@ -163,7 +163,7 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     if (s->edit.active && !s->note_editing && s->message_field.generation) {
         s->edit_rectangle = absolute({x0, footer_top, x0 + content, footer_top + footer_height});
         s->edit_content = ui_rect_inset(s->edit_rectangle, {12, 2, 12 + 32, 2});
-        reset_value(&s->message_placeholder);
+        s->message_placeholder.bytes = 0;
         append(&s->message_placeholder, "Message @");
         append(&s->message_placeholder, p.nickname.bytes ? p.nickname.view() : p.display_name.view());
         if (s->edit.focused)

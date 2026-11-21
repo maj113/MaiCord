@@ -133,7 +133,7 @@ void recount(ApplicationScopedRead& o) noexcept {
                 ++j->pending;
         }
 }
-void cancel_flight(ApplicationScopedRead& o) noexcept {
+inline void cancel_flight(ApplicationScopedRead& o) noexcept {
     if (!o.flight_active)
         return;
     o.retired = true;

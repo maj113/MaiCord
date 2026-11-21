@@ -50,13 +50,14 @@ bool timeline_presented() noexcept {
            !application_thread_browser_read_blocked() &&
            g_app.account_ui->active_channel_id == g_app.account_ui->chat_state.selected_channel_id;
 }
-bool input(UnreadBannerInput* out) noexcept {
+// The active channel of a presented timeline, with its banner input; null when there is none.
+const ChannelRecord* input(UnreadBannerInput* out) noexcept {
     if (!timeline_presented())
-        return false;
+        return nullptr;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, g_app.account_ui->active_channel_id);
     if (!channel)
-        return false;
+        return nullptr;
     const auto& timeline = g_app.message_view.timeline;
     *out = {&g_app.message_view.store,
             timeline.list,
@@ -75,10 +76,10 @@ bool input(UnreadBannerInput* out) noexcept {
                  g_app.message_catchup.state == MessageHistoryCatchupState::paused),
             g_app.message_older.channel_id == channel->id &&
                 g_app.message_older.state == MessageHistoryOlderState::exhausted};
-    return true;
+    return channel;
 }
 // Modal layers own the pointer even where they leave the bars visible.
-bool pointer_available() noexcept {
+inline bool pointer_available() noexcept {
     return ui_unread_banner_visible(g_banner) && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
            !g_app.image_viewer.scene.active && !(g_app.profile && g_app.profile->scene.active) &&
            !g_app.text_form && g_app.scrollbar_drag == ScrollbarDragKind::none &&
@@ -117,11 +118,11 @@ bool jump_to_unread() noexcept {
     return application_navigate_known_message(in.channel_id, target);
 }
 // Message requests and DM safety warnings for the open conversation.
-UiBannerNotice conversation_notice(u64 channel_id) noexcept {
+UiBannerNotice conversation_notice(const ChannelRecord& channel) noexcept {
     UiBannerNotice notice{};
+    const u64 channel_id = channel.id;
     const auto& state = g_app.account_ui->chat_state;
-    const auto* channel = chat_state_store_find_channel(state, channel_id);
-    const auto* record = channel && channel->type == 1 && state.private_channels
+    const auto* record = channel.type == 1 && state.private_channels
                              ? private_channel_store_find(*state.private_channels, channel_id)
                              : nullptr;
     if (!record)
@@ -161,13 +162,13 @@ UiBannerNotice conversation_notice(u64 channel_id) noexcept {
     return notice;
 }
 // The guild of a channel whose server is viewed as roles, or zero.
-u64 viewing_guild(u64 channel_id) noexcept {
+inline u64 viewing_guild(u64 channel_id) noexcept {
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, channel_id);
     return channel && channel->guild_id && chat_state_store_viewing_as(state, channel->guild_id) ? channel->guild_id
                                                                                                 : 0;
 }
-bool perform(UiUnreadBannerAction action) noexcept {
+inline bool perform(UiUnreadBannerAction action) noexcept {
     const u64 channel = g_banner.view.channel_id;
     if (g_connection_notice && action == UiUnreadBannerAction::notice_primary)
         return application_account_reconnect_now();
@@ -212,7 +213,8 @@ void application_unread_banner_synchronize(u64 now_ms) noexcept {
     g_app.renderer.unread_banner_scene = &g_banner;
     UnreadBannerInput in{};
     UnreadBannerProjection projection{};
-    const bool presented = input(&in);
+    const auto* channel = input(&in);
+    const bool presented = channel != nullptr;
     if (presented)
         projection = unread_banner_project(in);
     char view_title[kUiBannerNoticeTitleBytes], connection_text[kUiBannerNoticeTextBytes];
@@ -221,7 +223,7 @@ void application_unread_banner_synchronize(u64 now_ms) noexcept {
                   : UiBannerNotice{};
     g_connection_notice = notice.id != 0;
     if (presented && !notice.id)
-        notice = conversation_notice(in.channel_id);
+        notice = conversation_notice(*channel);
     if (presented && !notice.id)
         notice = application_view_as_role_notice(in.channel_id, {view_title, sizeof(view_title)});
     // A plugin's banner shows when nothing of the client's own does.

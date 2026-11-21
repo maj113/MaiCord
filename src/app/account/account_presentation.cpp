@@ -556,7 +556,8 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
     if (application_friends_active())
         return application_friends_synchronize();
     AccountUiRuntime& ui = *g_app.account_ui;
-    MessageTextCoordinatorTrace trace{};
+    // message_text_coordinator_converge sets the count and each pass that it counts.
+    MessageTextCoordinatorTrace trace;
     ui.message_poll_binding.now_ms = clock_unix_milliseconds();
     ui.message_poll_binding.can_vote =
         g_app.account.status.gateway_ready != 0 &&

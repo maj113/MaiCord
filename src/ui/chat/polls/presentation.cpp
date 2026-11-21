@@ -78,17 +78,13 @@ bool own_check(PaintStream* paint, UiRect marker, Color fill, Color ink) noexcep
     return rounded(paint, circle, fill, ui_rect_width(circle) * .5f) &&
            ui_icon_paint(paint, UiIcon::check, centered(circle, ui_rect_width(circle) * .7f), ink);
 }
-u64 geometry_hash(u64 hash, const UiPollGeometry& geometry) noexcept {
-    // The rectangles are consecutive members: six, the answers (six rectangles each), then four.
-    static_assert(__builtin_offsetof(UiPollGeometry, answers) == 6 * sizeof(UiRect));
-    static_assert(sizeof(UiPollAnswerGeometry) == 6 * sizeof(UiRect));
-    static_assert(__builtin_offsetof(UiPollGeometry, vote) ==
-                  __builtin_offsetof(UiPollGeometry, answers) + sizeof(geometry.answers));
-    static_assert(__builtin_offsetof(UiPollGeometry, retry) == __builtin_offsetof(UiPollGeometry, vote) + 3 * sizeof(UiRect));
-    hash = hash64_bytes(hash, &geometry.bounds, 6 * sizeof(UiRect));
-    hash = hash64_bytes(hash, &geometry.vote, 4 * sizeof(UiRect));
-    return hash64_bytes(hash, geometry.answers, sizeof(geometry.answers));
-}
+// The rectangles from bounds through retry are consecutive members: six, the answers (six rectangles each), then four.
+static_assert(__builtin_offsetof(UiPollGeometry, answers) == 6 * sizeof(UiRect));
+static_assert(sizeof(UiPollAnswerGeometry) == 6 * sizeof(UiRect));
+static_assert(__builtin_offsetof(UiPollGeometry, vote) ==
+              __builtin_offsetof(UiPollGeometry, answers) + kUiPollMaximumAnswers * sizeof(UiPollAnswerGeometry));
+static_assert(__builtin_offsetof(UiPollGeometry, retry) == __builtin_offsetof(UiPollGeometry, vote) + 3 * sizeof(UiRect));
+constexpr u32 kPollGeometryRectangleBytes = __builtin_offsetof(UiPollGeometry, retry) + sizeof(UiRect);
 } // namespace
 
 bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
@@ -158,10 +154,10 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
                 !border(paint, ui_rect_shrink(row.bounds, -2), {}, projection.outline, style.radius + 2, 2))
                 return false;
         }
-        const UiPollTarget targets[]{{UiPollControl::vote},
-                                     {UiPollControl::remove_vote},
-                                     {UiPollControl::results},
-                                     {UiPollControl::retry}};
+        static constexpr UiPollTarget targets[]{{UiPollControl::vote},
+                                                {UiPollControl::remove_vote},
+                                                {UiPollControl::results},
+                                                {UiPollControl::retry}};
         for (auto target : targets) {
             if (!ui_poll_target_visible(projection, target))
                 continue;
@@ -234,10 +230,10 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
                     projection.foreground, style.percent_style, label_nowrap | label_end | label_middle)))
             return false;
     }
-    const UiPollTarget targets[]{{UiPollControl::vote},
-                                 {UiPollControl::remove_vote},
-                                 {UiPollControl::results},
-                                 {UiPollControl::retry}};
+    static constexpr UiPollTarget targets[]{{UiPollControl::vote},
+                                            {UiPollControl::remove_vote},
+                                            {UiPollControl::results},
+                                            {UiPollControl::retry}};
     const Utf8View texts[]{style.vote, style.remove_vote,
                            projection.results_primary ? style.back : style.view_results, style.retry};
     for (u32 i = 0; i < 4; ++i) {
@@ -272,8 +268,8 @@ bool ui_poll_scene_text_output(const UiPollScene& scene, UiTextOutput* output) n
 u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
     if (!scene.active || !ui_poll_owner_current(scene.owner))
         return 0;
-    u64 hash = geometry_hash(kHash64Seed, scene.projection.geometry);
-    hash = hash64_bytes(hash, &scene.clip, sizeof(scene.clip));
+    u64 hash = hash64_words(kHash64Seed, &scene.projection.geometry, kPollGeometryRectangleBytes);
+    hash = hash64_words(hash, &scene.clip, sizeof(scene.clip));
     hash = hash64_mix(hash, reinterpret_cast<usize>(scene.owner.manager));
     hash = hash64_mix(hash, scene.owner.handle.slot);
     hash = hash64_mix(hash, scene.owner.handle.generation);
@@ -281,8 +277,8 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
                   __builtin_offsetof(UiPollProjection, surface) + 6 * sizeof(Color));
     static_assert(__builtin_offsetof(UiPollProjection, victor) ==
                   __builtin_offsetof(UiPollProjection, answer_fill) + 6 * sizeof(Color));
-    hash = hash64_bytes(hash, &scene.projection.surface, 7 * sizeof(Color));
-    hash = hash64_bytes(hash, &scene.projection.answer_fill, 7 * sizeof(Color));
+    hash = hash64_words(hash, &scene.projection.surface, 7 * sizeof(Color));
+    hash = hash64_words(hash, &scene.projection.answer_fill, 7 * sizeof(Color));
     for (u32 i = 0; i < scene.projection.state.answers.count; ++i) {
         const auto& answer = scene.projection.state.answers[i];
         hash = hash64_mix(hash, answer.id);
@@ -300,15 +296,15 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
                        scene.keyboard_focus,             ui_poll_closed(scene.projection.state)};
     for (bool flag : flags)
         hash = hash64_mix(hash, flag);
-    const UiPollControl controls[]{UiPollControl::vote, UiPollControl::remove_vote, UiPollControl::results,
-                                   UiPollControl::retry};
+    static constexpr UiPollControl controls[]{UiPollControl::vote, UiPollControl::remove_vote,
+                                              UiPollControl::results, UiPollControl::retry};
     for (auto control : controls)
         hash = hash64_mix(hash, ui_poll_target_visible(scene.projection, {control}));
     hash = hash64_mix(hash, static_cast<u8>(scene.focus.control));
     hash = hash64_mix(hash, scene.focus.answer_id);
     hash = hash64_mix(hash, static_cast<u8>(scene.hover.control));
     hash = hash64_mix(hash, scene.hover.answer_id);
-    return hash64_bytes(hash, &scene.style.radius, sizeof(scene.style.radius));
+    return hash64_words(hash, &scene.style.radius, sizeof(scene.style.radius));
 }
 u64 ui_poll_scene_text_revision(const UiPollScene& scene) noexcept {
     return scene.active && ui_poll_owner_current(scene.owner)
@@ -367,7 +363,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
         const bool popped = paint_stream_pop_clip(paint);
         if (!rows_ok || !popped)
             return false;
-        const UiPollVotersTarget buttons[]{
+        static constexpr UiPollVotersTarget buttons[]{
             {UiPollVotersControl::previous}, {UiPollVotersControl::next}, {UiPollVotersControl::retry}};
         for (auto button : buttons) {
             const auto bounds = ui_poll_voters_target_rectangle(scene, button);
@@ -462,7 +458,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
                    scene.state.loading ? scene.secondary : scene.foreground, text_style_none, label_middle))
             return false;
     }
-    const UiPollVotersTarget buttons[]{
+    static constexpr UiPollVotersTarget buttons[]{
         {UiPollVotersControl::previous}, {UiPollVotersControl::next}, {UiPollVotersControl::retry}};
     const Utf8View texts[]{scene.style.previous, scene.style.next, scene.style.retry};
     for (u32 i = 0; i < 3; ++i) {
@@ -487,12 +483,13 @@ u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept
     if (!scene.active || !ui_poll_owner_current(scene.owner))
         return 0;
     const auto& g = scene.geometry;
-    static_assert(__builtin_offsetof(UiPollVotersGeometry, body) == 7 * sizeof(UiRect));
+    // The rectangles from viewport through page are consecutive members: eight, the answers, then four.
+    static_assert(__builtin_offsetof(UiPollVotersGeometry, answers) == 8 * sizeof(UiRect));
+    static_assert(__builtin_offsetof(UiPollVotersGeometry, previous) ==
+                  __builtin_offsetof(UiPollVotersGeometry, answers) + sizeof(g.answers));
     static_assert(__builtin_offsetof(UiPollVotersGeometry, page) ==
                   __builtin_offsetof(UiPollVotersGeometry, previous) + 3 * sizeof(UiRect));
-    u64 hash = hash64_bytes(kHash64Seed, &g.viewport, 8 * sizeof(UiRect));
-    hash = hash64_bytes(hash, &g.previous, 4 * sizeof(UiRect));
-    hash = hash64_bytes(hash, g.answers, sizeof(g.answers));
+    u64 hash = hash64_words(kHash64Seed, &g, __builtin_offsetof(UiPollVotersGeometry, page) + sizeof(UiRect));
     hash = hash64_mix(hash, reinterpret_cast<usize>(scene.owner.manager));
     hash = hash64_mix(hash, scene.owner.handle.slot);
     hash = hash64_mix(hash, scene.owner.handle.generation);
@@ -503,12 +500,12 @@ u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept
     hash = hash64_mix(hash, scene.state.can_retry);
     hash = hash64_mix(hash, scene.first);
     hash = hash64_mix(hash, scene.visible);
-    hash = hash64_bytes(hash, &scene.scroll, sizeof(scene.scroll));
+    hash = hash64_words(hash, &scene.scroll, sizeof(scene.scroll));
     static_assert(__builtin_offsetof(UiPollVotersScene, accent) == __builtin_offsetof(UiPollVotersScene, surface) + 3 * sizeof(Color));
-    hash = hash64_bytes(hash, &scene.surface, 4 * sizeof(Color));
+    hash = hash64_words(hash, &scene.surface, 4 * sizeof(Color));
     const float metrics[]{scene.style.radius, scene.style.row_height, scene.style.avatar_extent,
                           scene.style.backdrop_opacity};
-    hash = hash64_bytes(hash, metrics, sizeof(metrics));
+    hash = hash64_words(hash, metrics, sizeof(metrics));
     hash = hash64_mix(hash, scene.keyboard_focus);
     hash = hash64_mix(hash, static_cast<u8>(scene.focus.control));
     hash = hash64_mix(hash, scene.focus.id);

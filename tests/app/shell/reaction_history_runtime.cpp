@@ -69,7 +69,6 @@ MessageDraftRecord drafts[2];
 MessageRichRecord jump_rich_records[16];
 u16 jump_rich_order[16];
 u8 jump_rich_text[8192];
-MessageSceneRowWidget jump_rows[4];
 UiWidget jump_widgets[1 + 4 * kMessageSceneWidgetsPerRow];
 UiLayoutNode jump_layouts[1 + 4 * kMessageSceneWidgetsPerRow];
 void check(bool ok, const char* name) noexcept {
@@ -311,8 +310,8 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
                                       {jump_rich_order, 16}, {jump_rich_text, sizeof(jump_rich_text)}) &&
         message_timeline_bind_rich_store(&view.timeline, &ui.message_rich_store) &&
         message_timeline_apply_created(&view.timeline, retained).ok() &&
-        message_scene_initialize(
-            &g_app.message_scene, &view.timeline, {jump_rows, 4},
+        message_scene_initialize_owned(
+            &g_app.message_scene, &view.timeline, kMessageSceneTestRows, 4,
             {jump_widgets, static_cast<u32>(sizeof(jump_widgets) / sizeof(jump_widgets[0]))},
             {jump_layouts, static_cast<u32>(sizeof(jump_layouts) / sizeof(jump_layouts[0]))}) &&
         message_scene_update(&g_app.message_scene, {0, 0, 400, 80}).ok() &&

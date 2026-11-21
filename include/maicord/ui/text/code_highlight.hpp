@@ -29,7 +29,6 @@ enum class CodeLanguage : u8 {
 
 struct CodeHighlightResult {
     u32 token_count;
-    u32 styled_bytes;
     bool truncated;
 };
 

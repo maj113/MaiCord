@@ -1,5 +1,6 @@
 #include "maicord/ui/chat/composer/attachment_strip.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
@@ -45,24 +46,18 @@ u32 append(const Slice<char>& output, u32 used, const char* text) noexcept {
     return used;
 }
 
-u32 append_unsigned(const Slice<char>& output, u32 used, u64 value, u32 minimum_digits = 1) noexcept {
-    char digits[20];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value && count < 20);
-    while (count < minimum_digits && count < 20)
-        digits[count++] = '0';
-    while (count && used < output.count)
-        output[used++] = digits[--count];
-    return used;
-}
-
 u32 append_bytes(const Slice<char>& output, u32 used, const char* text, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes && used < output.count; ++i)
         output[used++] = text[i];
     return used;
+}
+
+u32 append_unsigned(const Slice<char>& output, u32 used, u64 value, u32 minimum_digits = 1) noexcept {
+    char digits[20];
+    const u32 count = decimal_write(digits, value);
+    for (u32 pad = count; pad < minimum_digits && used < output.count; ++pad)
+        output[used++] = '0';
+    return append_bytes(output, used, digits, count);
 }
 
 // Binary units: one decimal below ten units (always, with `always_decimal`; a zero decimal is dropped), whole

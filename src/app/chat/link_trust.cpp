@@ -14,7 +14,7 @@ constexpr u8 kMagic[] = {'M', 'C', 'L', 'T'};
 constexpr u8 kVersion = 1;
 constexpr u32 kMaximumUrlBytes = 2048;
 
-bool ends_with(Utf8View text, Utf8View suffix) noexcept {
+inline bool ends_with(Utf8View text, Utf8View suffix) noexcept {
     return suffix.bytes <= text.bytes && bytes_equal(text.data + text.bytes - suffix.bytes, suffix.data, suffix.bytes);
 }
 // A stored host or protocol: valid UTF-8, no ASCII control, space or URL

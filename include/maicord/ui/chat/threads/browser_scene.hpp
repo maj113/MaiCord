@@ -57,10 +57,19 @@ struct UiThreadBrowserStyle {
     u32 title_flags, name_flags, detail_flags;
     float create_button_width;
 };
-inline constexpr UiThreadBrowserStyle kDefaultUiThreadBrowserStyle{
+// Every thread browser has this one style.
+inline constexpr UiThreadBrowserStyle kUiThreadBrowserStyle{
     44, 44, 32, 44, 56, 12, 8, 32, 6,
     text_style_bold, text_style_bold, text_style_subtext, 104
 };
+static_assert([](const UiThreadBrowserStyle& s) {
+    return s.header_height >= 44 && s.header_height <= 80 && s.tabs_height >= 36 && s.tabs_height <= 64 &&
+        s.status_height >= 32 && s.status_height <= 64 && s.footer_height >= 36 && s.footer_height <= 64 &&
+        s.row_height >= 54 && s.row_height <= 96 && s.inset >= 8 && s.inset <= 24 && s.gap >= 4 && s.gap <= 16 &&
+        s.button_height >= 28 && s.button_height <= s.header_height && s.button_height <= s.tabs_height &&
+        s.button_height <= s.status_height && s.button_height <= s.footer_height && s.radius >= 0 &&
+        s.radius <= 16 && s.create_button_width >= 96 && s.create_button_width <= 160;
+}(kUiThreadBrowserStyle));
 struct UiThreadBrowserBacking {
     UiThreadBrowserTarget targets[kUiThreadBrowserWidgetCapacity];
     UiWidgetHandle rows[kUiThreadBrowserPageCapacity];
@@ -78,17 +87,15 @@ struct UiThreadBrowserScene {
     UiThreadBrowserBacking* backing;
     const UiThreadBrowserView* view;
     const UiThreadBrowserRow* observed_rows;
-    UiThreadBrowserStyle style;
     UiRect viewport, panel, header, tabs, status, body, footer;
     UiWidgetHandle root, body_owner, close, active_tab, archived_tab, previous, next, retry, create_post;
     // Forum/media mode: toolbar band between status and body, and its controls.
     UiRect toolbar;
     UiWidgetHandle forum_sort, forum_list, forum_gallery;
-    UiForumStyle forum_style;
     bool forum;
     UiThreadBrowserTarget focused;
     u64 source_publication;
-    u32 content_revision, page_index, count, revision, rebuilds, layout_passes;
+    u32 content_revision, page_index, count, revision, rebuilds;
     UiThreadBrowserTab tab;
     float scroll_dips;
     char page_text[64];
@@ -99,8 +106,7 @@ struct UiThreadBrowserScene {
 };
 static_assert(__is_trivial(UiThreadBrowserScene) && __is_standard_layout(UiThreadBrowserScene));
 // A first-class content panel fills the supplied main-content viewport.
-bool ui_thread_browser_scene_update(UiThreadBrowserScene*, const UiThreadBrowserView*, const UiRect& viewport,
-    const UiThreadBrowserStyle* style = nullptr) noexcept;
+bool ui_thread_browser_scene_update(UiThreadBrowserScene*, const UiThreadBrowserView*, const UiRect& viewport) noexcept;
 void ui_thread_browser_scene_release(UiThreadBrowserScene*) noexcept;
 bool ui_thread_browser_scene_current(const UiThreadBrowserScene&) noexcept;
 bool ui_thread_browser_scene_contains(const UiThreadBrowserScene&, float x, float y) noexcept;

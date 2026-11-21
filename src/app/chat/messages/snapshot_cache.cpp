@@ -39,7 +39,7 @@ const MessageSnapshotRow* row_at(const MessageSnapshotCache& cache, u32 offset) 
     return reinterpret_cast<const MessageSnapshotRow*>(cache.pool.base + offset);
 }
 
-Utf8View row_content(const MessageSnapshotRow& row) noexcept {
+inline Utf8View row_content(const MessageSnapshotRow& row) noexcept {
     return {reinterpret_cast<const char*>(&row + 1), row.content_bytes};
 }
 
@@ -102,7 +102,7 @@ void remove_entry(MessageSnapshotCache* cache, MessageSnapshotEntry* entry) noex
         release_memory(cache);
 }
 
-MessageSnapshotEntry* victim(MessageSnapshotCache* cache, const MessageSnapshotEntry* protect) noexcept {
+inline MessageSnapshotEntry* victim(MessageSnapshotCache* cache, const MessageSnapshotEntry* protect) noexcept {
     MessageSnapshotEntry* selected = nullptr;
     for (auto& entry : cache->entries) {
         if (!entry.occupied || &entry == protect)
@@ -553,7 +553,8 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
 void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayClientEvent& event,
                                     ConstSlice<u8> payload, Slice<u64> bulk_ids, u64 self_user_id,
                                     MessageContentAvailability content_availability) noexcept {
-    if (!message_snapshot_cache_count(*cache))
+    // Every entry holds at least one row, so the pool is empty exactly when no entry is occupied.
+    if (!cache->used)
         return;
     switch (event.dispatch_kind) {
     case GatewayClientDispatchKind::message_create:

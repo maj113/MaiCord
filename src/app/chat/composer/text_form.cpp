@@ -268,7 +268,7 @@ void toggle_pick(ApplicationTextForm* form) noexcept {
     refresh(form);
 }
 // The eyedropper's answer, once it settled.
-void poll_pick(ApplicationTextForm* form) noexcept {
+inline void poll_pick(ApplicationTextForm* form) noexcept {
     u32 rgb = 0;
     const auto state = form->color_picking ? screen_color_pick_state(&rgb) : ScreenColorState::idle;
     if (state == ScreenColorState::idle || state == ScreenColorState::picking)
@@ -586,8 +586,7 @@ bool secure_edit_command_key(SecureEdit* edit, const TextEditLayoutOwner& layout
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
     const bool parent = request.forum_parent.serial != 0;
     const bool forum = application_forum_form_active();
-    if ((forum && (!parent || !application_forum_post_current(request.forum_parent))) ||
-        (parent && (!forum || !application_forum_post_current(request.forum_parent))))
+    if ((forum || parent) && (forum != parent || !application_forum_post_current(request.forum_parent)))
         return false;
     if (g_app.text_form || !request.valid || (!request.save && !request.save_option && !request.save_choices) ||
         !request.valid(request.owner) || !g_app.renderer_ready || !owner_context_valid(request))

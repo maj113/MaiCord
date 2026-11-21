@@ -250,7 +250,7 @@ bool select_typed(Utf8View input) noexcept {
 namespace {
 
 // Puts text in the draft and the caret at caret.
-MessageComposerResult rewrite_draft(Utf8View text, u32 caret) noexcept {
+inline MessageComposerResult rewrite_draft(Utf8View text, u32 caret) noexcept {
     const auto input = message_composer_text(g_app.message_composer);
     const auto replaced = utf8_equal(input, text)
                               ? MessageComposerResult::unchanged

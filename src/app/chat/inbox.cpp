@@ -147,17 +147,17 @@ void store_mentions(u32 count) noexcept {
             duplicate = inbox->mentions[k].message_id == message.id;
         if (duplicate)
             continue;
+        // Every field that resolve reads is written below; the text arrays are read only up to their lengths.
         auto& row = inbox->mentions[inbox->mention_count++];
-        reset_value(&row);
         row.message_id = message.id;
         row.channel_id = message.channel_id;
         row.author_id = message.author_id;
+        const auto* user = user_store_find(ui.user_store, message.author_id);
         {
             // The user cache may hold a newer hash than this page.
-            Utf8View hash = message.author_avatar_hash;
-            if (const auto* user = user_store_find(ui.user_store, message.author_id))
-                if (user->avatar_hash_bytes)
-                    hash = user_store_avatar_hash(*user);
+            const Utf8View hash =
+                user && user->avatar_hash_bytes ? user_store_avatar_hash(*user) : message.author_avatar_hash;
+            row.avatar_bytes = 0;
             if (hash.bytes <= sizeof(row.avatar) && user_avatar_variant(hash)) {
                 copy_bytes(row.avatar, hash.data, hash.bytes);
                 row.avatar_bytes = static_cast<u8>(hash.bytes);
@@ -166,9 +166,7 @@ void store_mentions(u32 count) noexcept {
         const auto* channel = chat_state_store_find_channel(ui.chat_state, message.channel_id);
         row.guild_id = channel ? channel->guild_id : 0;
         u32 used = 0;
-        Utf8View author = message.author_name;
-        if (const auto* user = user_store_find(ui.user_store, message.author_id))
-            author = user_store_name(ui.user_store, *user);
+        const Utf8View author = user ? user_store_name(ui.user_store, *user) : message.author_name;
         append(row.author, sizeof(row.author), used, author.bytes ? author : utf8_literal("Unknown user"));
         row.author_bytes = static_cast<u16>(used);
         char raw[kMessageCardExcerptMaximumBytes];
@@ -217,7 +215,7 @@ void title(UnreadRow& row, const Utf8View& text) noexcept {
 }
 // Conversations lead the unreads, newest first, as in the official inbox:
 // unmuted ones holding a mention count (every message counts there).
-void build_conversation_unreads() noexcept {
+inline void build_conversation_unreads() noexcept {
     auto& s = g_app.account_ui->chat_state;
     const ChannelRecord* rows[kUnreadCapacity - 1];
     u32 count = 0;
@@ -260,7 +258,8 @@ void build_unreads() noexcept {
     auto& s = g_app.account_ui->chat_state;
     inbox->unread_count = 0;
     inbox->unread_key = unread_key();
-    const auto channels = [&](u64 guild_id) noexcept {
+    const auto channels = [&](const GuildRecord& guild) noexcept {
+        const u64 guild_id = guild.id;
         u32 added = 0;
         for (auto* listed = chat_state_store_first_guild_channel(s, guild_id); listed;
              listed = chat_state_store_next_guild_channel(s, *listed)) {
@@ -269,8 +268,7 @@ void build_unreads() noexcept {
                 continue;
             if (!added) {
                 UnreadRow header{UiInboxRowKind::group, guild_id, 0};
-                const auto* guild = chat_state_store_find_guild(s, guild_id);
-                title(header, guild ? chat_state_store_guild_name(s, *guild) : utf8_literal("Direct messages"));
+                title(header, chat_state_store_guild_name(s, guild));
                 if (!push_unread(header))
                     return;
             }
@@ -287,7 +285,7 @@ void build_unreads() noexcept {
     for (u32 order = 0; order < s.guild_count; ++order) {
         const u16 slot = s.guild_order[order];
         if (slot < s.guild_capacity && !s.guilds[slot].unavailable && s.guilds[slot].unread_channels)
-            channels(s.guilds[slot].id);
+            channels(s.guilds[slot]);
     }
     ++inbox->revision;
 }

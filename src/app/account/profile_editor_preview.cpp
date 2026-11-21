@@ -633,7 +633,7 @@ namespace profile_editor_detail {
 bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexcept {
     if (!owner)
         return false;
-    u32 colors[2]{};
+    u32 colors[2];
     u32 rgb = 0;
     if (control == control_theme) {
         if (effective_theme(colors) == 2)
@@ -824,7 +824,7 @@ void project_controls(TextBank& bank) noexcept {
     const bool theme_allowed = (g.enabled & profile_editor_theme) != 0;
     p.theme_choices[0] = utf8_literal("Primary");
     p.theme_choices[1] = utf8_literal("Accent");
-    u32 colors[2]{};
+    u32 colors[2];
     const bool themed = effective_theme(colors) == 2;
     auto& theme = row(control_theme, UiSettingsControlKind::colors, edit && theme_allowed);
     theme.label = utf8_literal("Profile Theme");

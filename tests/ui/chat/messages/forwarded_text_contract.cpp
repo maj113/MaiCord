@@ -15,7 +15,6 @@ void check(bool ok, Utf8View name) noexcept {
 }
 MessageRecord records[2]; u32 order[2]; u8 text[2048];
 MessageRichRecord rich_records[8]; u16 rich_order[8]; u8 rich_text[32768];
-MessageSceneRowWidget rows[2], snapshot_rows[2];
 UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1];
 UiLayoutNode layout[2 * kMessageSceneWidgetsPerRow + 1];
 MessageTextCommand commands[256]; char display[8192]; TextStyleSpan styles[256];
@@ -67,9 +66,9 @@ void run() noexcept {
     const bool arranged = ui_variable_list_initialize(&list, {units, 2}, {fenwick, 2}, 2, default_units) &&
         message_timeline_initialize(&timeline, &store, &list, default_units, ui_extent_units(900.0f), true) &&
         message_timeline_bind_rich_store(&timeline, &rich) &&
-        message_scene_initialize(&scene, &timeline, {rows, 2}, {widgets, 2 * kMessageSceneWidgetsPerRow + 1},
-                                 {layout, 2 * kMessageSceneWidgetsPerRow + 1}) &&
-        message_scene_bind_snapshot_rows(&scene, {snapshot_rows, 2}) &&
+        message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 2,
+                                       {widgets, 2 * kMessageSceneWidgetsPerRow + 1},
+                                       {layout, 2 * kMessageSceneWidgetsPerRow + 1}) &&
         message_scene_update(&scene, {0, 0, 720, 900}).ok();
     check(arranged, utf8_literal("forwarded_text_scene_ready")); if (!arranged) return;
     MessageTextPresentation p{}; ChatStateStore state{}; NavigationView navigation{};

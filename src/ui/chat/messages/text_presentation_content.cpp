@@ -62,26 +62,6 @@ MessageRichString rich_source_string(const MessageRichRecord& rich, u16 source_i
 }
 
 namespace {
-u16 identify_rich_source(const BuildContext& context, const Utf8View& source) noexcept {
-    if (!context.rich || !context.rich_store || source.bytes == 0)
-        return 0;
-    const u16 scope = kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u);
-    const u16 starts[] = {kRichTextEmbedBegin, kRichTextFieldBegin, kRichTextComponentBegin};
-    const u16 counts[] = {static_cast<u16>(context.rich->embed_count * kRichTextEmbedSlots),
-                          static_cast<u16>(context.rich->embed_field_count * 2u),
-                          static_cast<u16>(context.rich->component_count * 2u)};
-    for (u32 group = 0; group < 3; ++group) {
-        for (u16 slot = 0; slot < counts[group]; ++slot) {
-            const u16 id = starts[group] + slot;
-            const Utf8View candidate =
-                message_rich_store_string(*context.rich_store, rich_source_string(*context.rich, id));
-            if (candidate.data == source.data && candidate.bytes == source.bytes)
-                return scope | id;
-        }
-    }
-    return 0;
-}
-
 bool spoiler_revealed(void* opaque, u32 source_offset) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
     context->trace.spoilers = true;
@@ -498,7 +478,7 @@ float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float 
     return after + last;
 }
 
-bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow,
+bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, u16 source_id, UiTextFlowLayout* flow,
                                float left_inset, float right_inset, const Color& color,
                                const UiWidgetReference& owner, u16 measurement_index,
                                MessageTextMeasurementKind measurement_kind, float gap_after,
@@ -510,7 +490,7 @@ bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, Ui
     Utf8View display = source;
     ConstSlice<TextStyleSpan> styles{};
     ConstSlice<MessageMarkdownSemantic> semantics{};
-    context->source_id = identify_rich_source(*context, source);
+    context->source_id = source_id;
     if (!parse_content(presentation, context, source, &display, &styles, &semantics, base_style, base_size)) {
         return false;
     }
@@ -632,8 +612,8 @@ bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiText
 
 // A rich embed markdown block (title, description, field); non-rich embeds
 // show the raw string. A title with embed.url becomes one link to it.
-bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow, float left_inset,
-                        float right_inset, const Color& color, const UiWidgetReference& owner,
+bool append_embed_block(BuildContext* context, const Utf8View& source, u16 source_id, UiTextFlowLayout* flow,
+                        float left_inset, float right_inset, const Color& color, const UiWidgetReference& owner,
                         u16 measurement_index, bool markdown, u8 rules, u32 base_style, u8 base_size,
                         const Utf8View& link, u16 link_source) noexcept {
     if (source.bytes == 0)
@@ -641,7 +621,7 @@ bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlo
     if (!markdown) {
         return append_embed_plain_line(context, source, flow, left_inset, right_inset, color, owner,
                                        measurement_index, base_style, link, link_source, kMessageEmbedLineMinimum,
-                                       identify_rich_source(*context, source), base_size);
+                                       source_id, base_size);
     }
     MessageTextPresentation* const presentation = context->presentation;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
@@ -650,8 +630,8 @@ bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlo
         base_style |= text_style_underline | text_style_interactive_hover;
     context->markdown_rules = rules;
     const u32 command_before = presentation->command_count;
-    const bool appended = append_rich_markdown_line(context, source, flow, left_inset, right_inset, color, owner,
-                                                    measurement_index, MessageTextMeasurementKind::embed, 0.0f,
+    const bool appended = append_rich_markdown_line(context, source, source_id, flow, left_inset, right_inset, color,
+                                                    owner, measurement_index, MessageTextMeasurementKind::embed, 0.0f,
                                                     base_style, base_size);
     context->markdown_rules = 0;
     if (!appended)
@@ -730,12 +710,14 @@ bool append_embed_fields(BuildContext* context, const MessageRichStore& store, c
                 !ui_text_flow_initialize(&column_flow, content, clip)) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
+            const u32 field_source = kRichTextFieldBegin + (field + column) * 2u;
             const MessageRichEmbedField& value = rich.embed_fields[field + column];
-            if (!append_embed_block(context, message_rich_store_string(store, value.name), &column_flow, 0.0f, 0.0f,
-                                    name_color, owner, measurement_index, markdown, 1, text_style_bold,
-                                    text_size_sm) ||
+            if (!append_embed_block(context, message_rich_store_string(store, value.name),
+                                    rich_text_source(*context, field_source), &column_flow, 0.0f, 0.0f, name_color,
+                                    owner, measurement_index, markdown, 1, text_style_bold, text_size_sm) ||
                 !ui_text_flow_advance(&column_flow, 2.0f) ||
-                !append_embed_block(context, message_rich_store_string(store, value.value), &column_flow, 0.0f, 0.0f,
+                !append_embed_block(context, message_rich_store_string(store, value.value),
+                                    rich_text_source(*context, field_source + 1), &column_flow, 0.0f, 0.0f,
                                     value_color, owner, measurement_index, markdown, 2, 0, text_size_sm)) {
                 return false;
             }

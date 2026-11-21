@@ -141,7 +141,7 @@ bool bind_rich(UiSearchScene& s) noexcept {
                                             ui_widget_storage_layout_nodes(p.widgets)) ||
             !ui_widget_manager_bind_growable_storage(&p.scene.widgets, ui_widget_storage_grow,
                                                      &p.widgets) ||
-            !message_scene_set_result_card_style(&p.scene, &kDefaultMessageResultCardStyle) ||
+            !message_scene_show_result_cards(&p.scene) ||
             !message_scene_set_source_order(&p.scene, s.source->rich_order, s.source->revision))
             return false;
         p.timeline = timeline;
@@ -1023,8 +1023,8 @@ bool rebuild(UiSearchScene& s) noexcept {
                 s, {p.left + 8 + i * width, p.top + 76, p.left + 8 + (i + 1) * width, p.top + 116},
                 UiSearchAction::tab, tab_label(i), menus_closed(s), i);
         }
-        const UiSearchAction sorts[] = {UiSearchAction::newest, UiSearchAction::oldest,
-                                        UiSearchAction::relevance};
+        static constexpr UiSearchAction sorts[] = {UiSearchAction::newest, UiSearchAction::oldest,
+                                                   UiSearchAction::relevance};
         for (u32 i = 0; i < 3; ++i)
             reset_value(&s.buttons[3 + i]);
         s.buttons[6] = add_action(s, ui_rect_edges(p, ui_start(8), ui_end(-36), ui_start(76), ui_end(-8)),
@@ -1072,7 +1072,7 @@ bool rebuild(UiSearchScene& s) noexcept {
                                   s.body.top + s.row_offsets[i + 1] - s.scroll_dips - 8};
                 // Rich cards head with their channel, aligned to the avatar column,
                 // and Jump at the trailing edge of the same row.
-                const float heading = kDefaultMessageResultCardStyle.heading_height;
+                const float heading = kMessageResultCardStyle.heading_height;
                 const UiRect jump{card.right - 72, card.top + 4, card.right - 8, card.top + heading - 4};
                 s.group_rectangles[s.count] =
                     rich ? UiRect{card.left + 16, y, maximum(card.left + 16, jump.left - 8), y + heading}

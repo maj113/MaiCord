@@ -11,7 +11,6 @@ struct RestClientResponse;
 } // namespace maicord
 
 namespace maicord::app_detail {
-struct ApplicationThreadBrowser;
 bool application_thread_browser_available(u64 parent_id = 0) noexcept;
 bool application_thread_browser_active() noexcept;
 bool application_thread_browser_read_blocked() noexcept;

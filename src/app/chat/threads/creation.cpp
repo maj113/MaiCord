@@ -64,8 +64,7 @@ bool actor_current(const CreationSource& source) noexcept {
         source.instance == g_app.account.instance && source.account_scope == g_app.plugin_account_scope_serial &&
         source.profile == g_app.account.status.profile_id && source.self == g_app.account_ui->chat_state.self_user_id;
 }
-bool parent_authorized(u64 id) noexcept {
-    const auto* parent = application_channel_record(id);
+bool parent_authorized(const ChannelRecord* parent) noexcept {
     if (!parent || !parent->occupied || (parent->type != 0 && parent->type != 5) || !parent->guild_id ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag)) return false;
     constexpr u32 required = channel_action_view | channel_action_read_history |
@@ -89,17 +88,18 @@ u64 content_signature(MessageHandle handle) noexcept {
 }
 bool scope_current(const CreationSource& source) noexcept {
     const auto* parent = actor_current(source) ? application_channel_record(source.parent) : nullptr;
-    return parent && parent_authorized(source.parent) && parent->generation == source.parent_generation &&
+    return parent_authorized(parent) && parent->generation == source.parent_generation &&
         parent->guild_id == source.guild && source.store == &g_app.message_view.store &&
         g_app.account_ui->active_channel_id == source.parent &&
         g_app.account_ui->chat_state.selected_channel_id == source.parent &&
         g_app.account_ui->chat_state.selected_guild_id == source.guild;
 }
 const ChannelRecord* known_thread(const CreationSource& source) noexcept {
-    if (!actor_current(source) || !parent_authorized(source.parent)) return nullptr;
+    if (!actor_current(source)) return nullptr;
     const auto* parent = application_channel_record(source.parent);
+    if (!parent_authorized(parent)) return nullptr;
     const auto* thread = application_channel_record(source.message);
-    return parent && parent->generation == source.parent_generation && parent->guild_id == source.guild &&
+    return parent->generation == source.parent_generation && parent->guild_id == source.guild &&
         thread && thread->occupied && thread->guild_id == source.guild && thread->parent_id == source.parent &&
         thread->type == source.thread_type && thread->thread_archived_known && thread->thread_locked_known &&
         chat_state_store_channel_name(g_app.account_ui->chat_state, *thread).bytes &&
@@ -252,10 +252,11 @@ bool application_thread_creation_available(u64 id) noexcept {
         g_app.account.status.required_action != AccountRequirement::none) return false;
     const auto* message = resident(id);
     if (!message || !message->occupied || message->delivery != MessageDeliveryState::authoritative || !message->author_id ||
-        !user_message(message->type) || (message->flags & has_thread) || !parent_authorized(message->channel_id)) return false;
+        !user_message(message->type) || (message->flags & has_thread)) return false;
     const auto* parent = application_channel_record(message->channel_id);
+    if (!parent_authorized(parent)) return false;
     const auto* existing = application_channel_record(message->id);
-    return !existing && parent && g_app.account_ui->active_channel_id == parent->id &&
+    return !existing && g_app.account_ui->active_channel_id == parent->id &&
         g_app.account_ui->chat_state.selected_channel_id == parent->id &&
         g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }

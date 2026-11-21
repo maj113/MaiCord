@@ -86,7 +86,7 @@ bool picked_start(ApplicationForumAttachments& owner, NativeFilePickerError resu
     owner.picker_consumed = owner.picker_cancelled = false; owner.error = false; owner.status_bytes = 0;
     changed(owner); return true;
 }
-Utf8View row_status(const MessageAttachmentDraft& row) noexcept {
+inline Utf8View row_status(const MessageAttachmentDraft& row) noexcept {
     if (row.phase == MessageAttachmentDraftPhase::ready) return utf8_literal("Ready");
     if (row.phase == MessageAttachmentDraftPhase::uploading) return utf8_literal("Uploading…");
     if (row.phase == MessageAttachmentDraftPhase::waiting_url) return utf8_literal("Waiting to upload…");

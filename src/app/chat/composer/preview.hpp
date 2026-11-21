@@ -1,7 +1,30 @@
 #pragma once
 #include "maicord/app/media/account_media.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord::app_detail {
+// The extension after a file name's last dot, lowercase and packed into a u32 (its first byte lowest), when it
+// has one to four bytes and no NUL, else 0. The composer and the forum form tell files apart by such extensions
+// only, so the scan stops at the fifth byte from the end.
+inline u32 filename_extension_code(const Utf8View& name) noexcept {
+    u32 code = 0;
+    for (u32 bytes = 0; bytes < 5 && bytes < name.bytes; ++bytes) {
+        const char value = name.data[name.bytes - 1 - bytes];
+        if (value == '.')
+            return code;
+        if (!value)
+            return 0;
+        code = code << 8 | static_cast<u8>(ascii_lower(value));
+    }
+    return 0;
+}
+// The code filename_extension_code gives for a lowercase extension of one to four bytes.
+consteval u32 extension_code(const char* extension) noexcept {
+    u32 code = 0;
+    for (u32 i = 0; extension[i]; ++i)
+        code |= u32{static_cast<u8>(extension[i])} << (8 * i);
+    return code;
+}
 // Optional thumbnails for the composer upload strip. Images decode on the
 // account media lanes (never on the UI thread) into the preview atlas; MP4/MOV
 // files get a GPU-decoded first-frame poster reduced to the same extent. A

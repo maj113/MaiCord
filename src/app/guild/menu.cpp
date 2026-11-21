@@ -80,7 +80,7 @@ bool profile_allowed(u64 guild_id) noexcept {
 // The notification controls own "Notification settings" and its follow-up
 // menu; the header reuses that row's action so its range dispatches it.
 u32 notification_settings_action(u64 guild_id) noexcept {
-    PopupItem rows[kNotificationMenuItemCount]{};
+    PopupItem rows[kNotificationMenuItemCount];
     const u32 count = application_notification_menu_items(guild_id, 0, {rows, kNotificationMenuItemCount});
     return count == kNotificationMenuItemCount ? rows[count - 1].action : 0;
 }

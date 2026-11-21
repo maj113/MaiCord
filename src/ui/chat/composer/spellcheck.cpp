@@ -7,6 +7,8 @@
 namespace maicord {
 namespace {
 static_assert((kComposerSpellcheckCacheCapacity & (kComposerSpellcheckCacheCapacity - 1)) == 0);
+// pass() compares spans as bytes: every byte of a span is a field.
+static_assert(sizeof(TextCompositionSpan) == 5 * sizeof(u32) + 4);
 constexpr u64 kVerdictMask = 3;
 constexpr u64 kCorrect = 1, kMisspelled = 2;
 
@@ -83,8 +85,9 @@ bool saved_misspelling(const ComposerSpellcheck& s, u64 hash) noexcept {
 }
 PassResult pass(ComposerSpellcheck* s, const ComposerSpellcheckDocument& document, u32 budget,
                 bool retain_marks = true) noexcept {
-    TextCompositionSpan next[kComposerSpellcheckSpanCapacity]{};
-    u64 next_hashes[kComposerSpellcheckSpanCapacity]; // [0, count) written before read
+    // [0, count) is written whole before it is read.
+    TextCompositionSpan next[kComposerSpellcheckSpanCapacity];
+    u64 next_hashes[kComposerSpellcheckSpanCapacity];
     u32 count = 0;
     u32 first_unchecked = document.text.bytes;
     bool pending = false;
@@ -139,11 +142,8 @@ PassResult pass(ComposerSpellcheck* s, const ComposerSpellcheckDocument& documen
             last = units.advance(token.last);
         }
         next_hashes[count] = hash | kMisspelled;
-        auto& span = next[count++];
-        span.start = first;
-        span.end = last;
-        span.line_style = TextCompositionLineStyle::squiggle;
-        span.attribute = TextCompositionAttribute::input_error;
+        next[count++] = {first, last, 0, 0, 0, TextCompositionLineStyle::squiggle,
+                         TextCompositionAttribute::input_error, 0, false};
     }
     s->span_text_revision = document.text_revision;
     s->checked_through = retain_marks ? first_unchecked : 0;

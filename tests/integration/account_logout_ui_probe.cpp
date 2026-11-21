@@ -66,7 +66,6 @@ struct Fixture {
     u16 channel_scratch[1];
     u8 visibility[1];
     ChannelSortKey channel_keys[1];
-    MessageSceneRowWidget message_rows[1];
     UiWidget message_widgets[kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_nodes[kMessageSceneWidgetsPerRow + 1];
     HANDLE stop_entered, stop_allowed, blocked_file;
@@ -298,10 +297,9 @@ bool account_storage() noexcept {
     // this account-menu fixture has no visible history. Keep its valid empty,
     // inactive projection; no message controller/history transport is injected.
     if (!message_view_runtime_initialize(&g_app.message_view, ui_extent_units(80), 1, false).ok() ||
-        !message_scene_initialize(&g_app.message_scene, &g_app.message_view.timeline,
-                                  {fixture->message_rows, 1},
-                                  {fixture->message_widgets, kMessageSceneWidgetsPerRow + 1},
-                                  {fixture->message_nodes, kMessageSceneWidgetsPerRow + 1}))
+        !message_scene_initialize_owned(&g_app.message_scene, &g_app.message_view.timeline, kMessageSceneTestRows, 1,
+                                        {fixture->message_widgets, kMessageSceneWidgetsPerRow + 1},
+                                        {fixture->message_nodes, kMessageSceneWidgetsPerRow + 1}))
         return false;
     ui.chat_state.self_user_id = 99;
     auto& text = probe_bind_renderer_text(ui, fixture->hit_spans, fixture->hit_scratch, fixture->decorations);

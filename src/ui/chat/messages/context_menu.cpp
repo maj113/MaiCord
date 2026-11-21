@@ -76,15 +76,10 @@ bool append_quick_reactions(MessageContextMenuModel* model,
                                                        sizeof(kQuickReactionFallbackNames[0])) &&
                            selected < kMessageContextQuickReactionCount;
          ++fallback) {
-        for (u32 index = 0; index < catalog.count; ++index) {
-            if (!utf8_equal(catalog[index].name(), kQuickReactionFallbackNames[fallback]) ||
-                index > 0xFFFEu ||
-                already_selected(model->quick_catalog_indices, selected, static_cast<u16>(index))) {
-                continue;
-            }
+        // Catalog names are unique; an absent one is ~0u.
+        const u32 index = emoji_catalog_find_name(kQuickReactionFallbackNames[fallback]);
+        if (index <= 0xFFFEu && !already_selected(model->quick_catalog_indices, selected, static_cast<u16>(index)))
             model->quick_catalog_indices[selected++] = static_cast<u16>(index);
-            break;
-        }
     }
     if (selected != kMessageContextQuickReactionCount) {
         return false;

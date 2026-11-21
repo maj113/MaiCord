@@ -47,6 +47,7 @@ struct ApplicationThreadActionTicket {
     usize account_instance;
     u32 channel_revision, publication_revision;
     u16 channel_generation;
+    friend bool operator==(const ApplicationThreadActionTicket&, const ApplicationThreadActionTicket&) = default;
 };
 struct ApplicationThreadActionView {
     ApplicationThreadActionTicket ticket;

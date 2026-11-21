@@ -217,7 +217,9 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         return failure(scene, MemberListSceneError::widget);
     }
     scene->root = root.handle;
-    const UiLayoutStyle row_layout = row_style(row_height);
+    const UiLayoutStyle row_layout = row_style(row_height), avatar_layout = avatar_style(),
+                        label_layout = label_style(), group_layout = group_label_style(),
+                        status_layout = status_style();
     for (u32 local = 0; local < range.count; ++local) {
         const u32 source_index = range.first + local;
         const auto* resolved = member_list_view_row(*source, source_index);
@@ -238,16 +240,16 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
             "MemberRow", row_layout);
         const UiWidgetResult avatar =
             row.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 1, UiWidgetKind::image,
-                                                   ui_widget_enabled, "MemberAvatar", avatar_style())
+                                                   ui_widget_enabled, "MemberAvatar", avatar_layout)
                      : UiWidgetResult{};
         const UiWidgetResult label =
             avatar.ok() ? ui_widget_manager_add_keyed(
                               &scene->widgets, row.handle, id + 2, UiWidgetKind::text, ui_widget_enabled,
-                              "MemberName", (member_row || !resident) ? label_style() : group_label_style())
+                              "MemberName", (member_row || !resident) ? label_layout : group_layout)
                         : UiWidgetResult{};
         const UiWidgetResult status =
             label.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 3, UiWidgetKind::custom,
-                                                     ui_widget_enabled, "MemberStatus", status_style())
+                                                     ui_widget_enabled, "MemberStatus", status_layout)
                        : UiWidgetResult{};
         if (!row.ok() || !avatar.ok() || !label.ok() || !status.ok()) {
             clear_materialization(scene);
@@ -491,25 +493,20 @@ constexpr u8 kMemberMediaHovered = 1, kMemberMediaOffline = 2;
 constexpr u32 kMemberMediaCacheLoad = kMemberMediaCacheCapacity * 3 / 4;
 static_assert((kMemberMediaCacheCapacity & (kMemberMediaCacheCapacity - 1)) == 0);
 
-UiRect member_media_offset(UiRect r, float x, float y) noexcept {
-    return {r.left + x, r.top + y, r.right + x, r.bottom + y};
-}
-
 // Every input of member_media_resolve and member_list_badge_resolve that is
-// not per row: a change re-resolves every cached row.
+// not per row: a change re-resolves every cached row. The caller has a source.
 u64 member_media_stamp(const MemberListScene& s) noexcept {
     u64 h = hash64_mix(kHash64Seed, reinterpret_cast<usize>(s.users));
     h = hash64_mix(h, reinterpret_cast<usize>(s.members));
     h = hash64_mix(h, reinterpret_cast<usize>(s.state));
     h = hash64_mix(h, reinterpret_cast<usize>(s.measure));
-    h = hash64_mix(h, s.source ? s.source->guild_id : 0);
+    h = hash64_mix(h, s.source->guild_id);
     h = hash64_mix(h, (static_cast<u64>(s.users->revision) << 32) | s.users->appearance.revision);
     h = hash64_mix(h, (static_cast<u64>(s.users->compactions) << 32) | s.users->evictions);
     // An activity status line moves the badge onto the name line.
-    h = hash64_mix(h, s.users->activities.revision);
-    h = hash64_mix(h, s.members ? s.members->revision : 0);
-    h = hash64_mix(h, s.measure ? s.measure->generation : 0);
-    h = hash64_mix(h, s.media_dpi); // The requested ornament size follows it.
+    h = hash64_mix(h, (static_cast<u64>(s.users->activities.revision) << 32) | (s.members ? s.members->revision : 0));
+    // The requested ornament size follows the DPI.
+    h = hash64_mix(h, (static_cast<u64>(s.measure ? s.measure->generation : 0) << 32) | s.media_dpi);
     return h | 1;
 }
 
@@ -523,30 +520,13 @@ const UiLayoutNode* member_media_row_node(const MemberListScene& s, u32 index) n
     return member_list_scene_layout_node(s, row.widget);
 }
 
-const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 index,
-                                                const UiLayoutNode** row_node) noexcept {
-    *row_node = nullptr;
+// The miss half of member_media_entry: the row's node, then its entry by user, resolved when missing. Out of line,
+// so the per-layer look-up saves no registers for the resolve.
+__declspec(noinline) const MemberMediaCacheEntry* member_media_miss(const MemberListScene& s, u32 index, u64 key,
+                                                                   const UiLayoutNode** row_node) noexcept {
     MemberMediaCache* cache = s.media_cache;
-    if (!cache || !s.active || !s.users || !s.source || index >= s.count)
-        return nullptr;
     const auto& row = s.rows[index];
-    const u64 stamp = member_media_stamp(s);
-    if (cache->stamp != stamp) {
-        member_media_cache_reset(cache);
-        cache->stamp = stamp;
-    }
-    // Consumers look up a row's layers back to back: its residency, node and
-    // entry hold while nothing the lookup reads has moved.
-    u64 key = hash64_mix(stamp, index);
-    key = hash64_mix(key, (static_cast<u64>(row.widget.slot) << 32) | row.widget.generation);
-    key = hash64_mix(key, (static_cast<u64>(s.widgets.hovered.slot) << 32) | s.widgets.hovered.generation);
-    key = hash64_mix(key, (static_cast<u64>(s.layout_passes) << 32) | s.rebuilds);
-    key = hash64_mix(key, (static_cast<u64>(s.source->revision) << 32) | s.first) | 1;
     const u32 memory = index & (kMemberMediaRowMemory - 1);
-    if (cache->row_keys[memory] == key) {
-        *row_node = cache->row_nodes[memory];
-        return cache->row_slots[memory] == ~0u ? nullptr : &cache->entries[cache->row_slots[memory]];
-    }
     const UiLayoutNode* node = member_media_row_node(s, index);
     cache->row_keys[memory] = key;
     cache->row_nodes[memory] = node;
@@ -580,7 +560,6 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
     if (!cache->entries[slot].user_id) {
         if (cache->count >= kMemberMediaCacheLoad) {
             member_media_cache_reset(cache);
-            cache->stamp = stamp;
             slot = static_cast<u32>(hash64_mix(kHash64Seed, row.user_id)) & mask;
         }
         ++cache->count;
@@ -602,24 +581,7 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
         copy_bytes(entry.badge_text, badge.label.data, badge.label.bytes);
         entry.badge_rectangle = member_media_offset(badge.rectangle, x, y);
     }
-    for (u32 layer = 0; layer < kMemberMediaLayerCount; ++layer) {
-        ProfileMedia media{};
-        if (!member_media_resolve(s, index, static_cast<MemberMedia>(layer), &media, false))
-            continue;
-        entry.layer_mask = static_cast<u8>(entry.layer_mask | (1u << layer));
-        entry.circular_mask = static_cast<u8>(entry.circular_mask | (media.circular ? 1u << layer : 0u));
-        entry.keys[layer] = media.key;
-        entry.rectangles[layer] = member_media_offset(media.rectangle, x, y);
-    }
-    constexpr u32 avatar = static_cast<u32>(MemberMedia::avatar);
-    AvatarMedia plain;
-    if (!(entry.layer_mask & (1u << avatar)) && member_plain_avatar_resolve(s, index, &plain, false)) {
-        entry.plain_avatar = true;
-        entry.layer_mask = static_cast<u8>(entry.layer_mask | (1u << avatar));
-        entry.circular_mask = static_cast<u8>(entry.circular_mask | (1u << avatar));
-        entry.keys[avatar] = plain.key;
-        entry.rectangles[avatar] = member_media_offset(plain.rectangle, x, y);
-    }
+    member_media_cache_fill(s, index, badge, x, y, &entry);
     saturating_increment(cache->resolves);
     // A load reset above cleared the remembered rows.
     cache->row_keys[memory] = key;
@@ -627,21 +589,49 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
     cache->row_slots[memory] = slot;
     return &entry;
 }
+
+const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 index,
+                                                const UiLayoutNode** row_node) noexcept {
+    *row_node = nullptr;
+    MemberMediaCache* cache = s.media_cache;
+    if (!cache || !s.active || !s.users || !s.source || index >= s.count)
+        return nullptr;
+    const auto& row = s.rows[index];
+    const u64 stamp = member_media_stamp(s);
+    if (cache->stamp != stamp) {
+        member_media_cache_reset(cache);
+        cache->stamp = stamp;
+    }
+    // Consumers look up a row's layers back to back: its residency, node and
+    // entry hold while nothing the lookup reads has moved.
+    const auto bits = [](UiWidgetHandle handle) noexcept { return __builtin_bit_cast(u32, handle); };
+    u64 key = hash64_mix(stamp, (static_cast<u64>(index) << 32) | bits(row.widget));
+    key = hash64_mix(key, (static_cast<u64>(bits(s.widgets.hovered)) << 32) | s.rebuilds);
+    key = hash64_mix(key, (static_cast<u64>(s.layout_passes) << 32) | s.first);
+    key = hash64_mix(key, s.source->revision) | 1;
+    const u32 memory = index & (kMemberMediaRowMemory - 1);
+    if (cache->row_keys[memory] != key)
+        return member_media_miss(s, index, key, row_node);
+    *row_node = cache->row_nodes[memory];
+    return cache->row_slots[memory] == ~0u ? nullptr : &cache->entries[cache->row_slots[memory]];
+}
 } // namespace
 
 void member_media_cache_reset(MemberMediaCache* cache) noexcept {
     if (!cache)
         return;
-    const u32 resolves = cache->resolves, hits = cache->hits;
-    clear_bytes(cache, sizeof(*cache));
-    cache->resolves = resolves;
-    cache->hits = hits;
+    // A lookup reads an entry only past its user ID and a row only past its key (never zero): clearing those empties
+    // the cache without writing its 39 KB. The stamp and the counters stay.
+    cache->count = 0;
+    clear_bytes(cache->row_keys, sizeof(cache->row_keys));
+    for (auto& entry : cache->entries)
+        entry.user_id = 0;
 }
 
 bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
                         MemberMediaPlacement* out) noexcept {
     if (!s.media_cache) {
-        ProfileMedia media{};
+        ProfileMedia media;
         if (!member_media_resolve(s, index, layer, &media))
             return false;
         *out = {media.key, media.rectangle, media.clip, media.circular};

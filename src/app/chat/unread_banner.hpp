@@ -3,10 +3,6 @@
 
 #include "maicord/platform/window/event.hpp"
 
-namespace maicord {
-struct UiUnreadBannerScene;
-}
-
 namespace maicord::app_detail {
 // Frame-time projection of the selected channel's unread bar and jump bar.
 void application_unread_banner_synchronize(u64 now_ms) noexcept;

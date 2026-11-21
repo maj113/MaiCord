@@ -120,7 +120,7 @@ static void apply_style(Parser* parser, u32 begin, u32 end, u32 style) noexcept 
 }
 
 namespace {
-bool ascii_identifier(char value) noexcept {
+inline bool ascii_identifier(char value) noexcept {
     return ascii_is_alnum(value) || value == '_' || value == '-' || value == '+' || value == '.' ||
            value == '#';
 }
@@ -202,7 +202,7 @@ bool compact_ansi_piece(void* context, u32 begin, u32 end, AnsiTextStyle style) 
 // ANSI-to-HTML pass over a closed ```ansi block: escapes and hidden text
 // leave the display text, SGR styles join the byte styles and colours become
 // runs. The block is the output tail, so nothing follows it.
-void transform_ansi_block(Parser* parser, u32 begin) noexcept {
+inline void transform_ansi_block(Parser* parser, u32 begin) noexcept {
     const u32 end = parser->output_bytes;
     AnsiCompaction compaction{parser, begin, begin};
     ansi_text_scan(Utf8View{parser->output.data + begin, end - begin}, compact_ansi_piece, &compaction);
@@ -214,7 +214,7 @@ void transform_ansi_block(Parser* parser, u32 begin) noexcept {
 
 // A reply preview removes /\x1B\[(\d+(?:[:;]\d+)*)m/g from a ```ansi block
 // (the tail of the output) and shows the remaining text uncoloured.
-void strip_ansi_sgr(Parser* parser, u32 begin) noexcept {
+inline void strip_ansi_sgr(Parser* parser, u32 begin) noexcept {
     u32 write = begin;
     for (u32 read = begin; read < parser->output_bytes;) {
         const u32 escape = ansi_text_sgr_bytes(parser->output.data + read, parser->output_bytes - read);
@@ -644,7 +644,7 @@ bool decimal_u64(Utf8View input, u32 begin, u32 end, u64* value) noexcept {
     return begin < end && decimal_parse({input.data + begin, end - begin}, value);
 }
 
-bool ascii_letter(char value) noexcept {
+inline bool ascii_letter(char value) noexcept {
     return static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
 }
 

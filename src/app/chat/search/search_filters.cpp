@@ -164,9 +164,9 @@ bool choice_user_allowed(u64 id) noexcept {
     const auto* record = relationships ? relationship_store_find(*relationships, id) : nullptr;
     return id && (!record || (record->type != RelationshipType::blocked && !record->ignored));
 }
+// Every source is valid UTF-8: the user, member and channel stores validate names when they store them, and the
+// rest are ASCII (literals, digits, fixed choices, asset hashes).
 Utf8View choice_copy(SearchFilterChoices& b, char* output, u32 capacity, const Utf8View& text) noexcept {
-    if (!utf8_validate(text).valid)
-        return {};
     const u32 bytes = utf8_truncated_length(text, capacity);
     if (bytes) {
         copy_bytes(output, text.data, bytes);
@@ -452,9 +452,11 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
                 choice_user(s, b, message.author_id, 2, ui.user_store);
         }
         if (s.bank)
-            for (u32 i = 0; i < s.bank->page.message_count; ++i)
-                if (!row_unavailable(s, i) && !row_access_check(s, i))
+            for (u32 i = 0; i < s.bank->page.message_count; ++i) {
+                const ChannelRecord* channel;
+                if (!row_unavailable(s, i, &channel) && !row_access_check(s, i, channel))
                     choice_user(s, b, s.bank->messages[i].message.author_id, 3, s.bank->users);
+            }
         // Server members: the cached ones, and for a typed name the same gateway
         // member search the composer's '@' runs; its results rebuild this list.
         const u64 member_guild = s.scope == MessageSearchScope::guild ? s.scope_id : active->guild_id;

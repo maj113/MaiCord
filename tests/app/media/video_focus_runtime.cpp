@@ -242,8 +242,6 @@ struct SceneFixture {
     u8 rich_text[512]{};
     u32 heights[1]{};
     u64 fenwick[1]{};
-    MessageSceneRowWidget row[1]{};
-    MessageSceneRowWidget snapshot_row[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
 };
@@ -266,10 +264,9 @@ bool initialize_scene(SceneFixture& fixture,
         !message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
                                      ui_extent_units(480), false) ||
         !message_timeline_bind_rich_store(&view.timeline, &rich) ||
-        !message_scene_initialize(&g_app.message_scene, &view.timeline, {fixture.row, 1},
-                                  {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
-                                  {fixture.nodes, kMessageSceneWidgetsPerRow + 1}) ||
-        !message_scene_bind_snapshot_rows(&g_app.message_scene, {fixture.snapshot_row, 1}))
+        !message_scene_initialize_owned(&g_app.message_scene, &view.timeline, kMessageSceneTestRows, 1,
+                                        {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
+                                        {fixture.nodes, kMessageSceneWidgetsPerRow + 1}))
         return false;
     GatewayMessageAttachment attachment{};
     attachment.id = 70;

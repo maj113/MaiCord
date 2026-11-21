@@ -23,7 +23,9 @@ struct ProfileMedia {
     // Clockwise turn of the image inside its rectangle (0, 90, 180, 270).
     u16 rotation;
 };
-// On success, initializes every output field; callers may reuse uncleared storage.
+// On success, initializes every output field (the URL up to its length). Callers may reuse uncleared storage.
+// The functions of this header build their media in the output itself, so a failure may leave it partly written: a
+// caller reads it only on success.
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* output) noexcept;
 // A still picture of the card's saved avatar (the member's in a server, else the user's, else the default one),
 // `dips` wide on the card's display: an animated one's first frame, never a picked, unsaved one. Not drawn: the
@@ -55,9 +57,17 @@ bool member_media_resolve(const MemberListScene& scene, u32 index, MemberMedia l
                           ProfileMedia* output, bool visible_only = true) noexcept;
 // A visible member row without a guild avatar draws the shared user-avatar
 // identity, requested and cached like message authors.
-bool member_plain_avatar_resolve(const MemberListScene& scene, u32 index, AvatarMedia* output,
-                                 bool visible_only = true) noexcept;
+bool member_plain_avatar_resolve(const MemberListScene& scene, u32 index, AvatarMedia* output) noexcept;
 bool member_plain_avatar_current(const MemberListScene& scene, MediaAssetKey key) noexcept;
+// A rectangle moved by (dx, dy). Cache entries hold row-relative rectangles.
+inline UiRect member_media_offset(UiRect r, float dx, float dy) noexcept {
+    return {r.left + dx, r.top + dy, r.right + dx, r.bottom + dy};
+}
+// A cache entry's layers and plain avatar: member_media_resolve of every layer (rows outside the viewport too), then
+// member_plain_avatar_resolve without a server avatar, from one look-up of the row and its appearance. Rectangles
+// move by (dx, dy). `badge` is the row's member_list_badge_resolve.
+void member_media_cache_fill(const MemberListScene& scene, u32 index, const UiBadgeWidget& badge, float dx, float dy,
+                             MemberMediaCacheEntry* entry) noexcept;
 
 struct MemberMediaPlacement {
     MediaAssetKey key;

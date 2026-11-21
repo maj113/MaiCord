@@ -30,7 +30,7 @@ UiLayoutStyle item_style(float height) noexcept {
     return region_style(height, UiLayoutFlow::overlay);
 }
 
-UiLayoutStyle reaction_button_style(float width) noexcept {
+inline UiLayoutStyle reaction_button_style(float width) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(width);
     style.height = ui_layout_fixed(kDefaultMessageReactionLayoutMetrics.button_height);
@@ -93,7 +93,7 @@ bool set_group_height(UiWidgetManager* manager, UiWidgetHandle handle, float hei
     return handle.slot == kInvalidUiWidgetSlot ? ui_extent_valid(height) : set_fixed_height(manager, handle, height);
 }
 
-bool set_fixed_width(UiWidgetManager* manager, UiWidgetHandle handle, float width) noexcept {
+inline bool set_fixed_width(UiWidgetManager* manager, UiWidgetHandle handle, float width) noexcept {
     if (!ui_extent_valid(width) || width <= 0.0f) {
         return false;
     }

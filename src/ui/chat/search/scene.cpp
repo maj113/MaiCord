@@ -274,7 +274,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, const UiSearc
                 return false;
             *rectangle = message_rich_embed_thumbnail_rect(
                 {node->rectangle.left, node->rectangle.top, right, node->rectangle.bottom}, width, height,
-                message_rich_embed_plan(store, rich->embeds[i]).components);
+                rich->embeds[i].type == GatewayMessageEmbedType::components);
             *clip = rich_item_clip(s, *rectangle, node->clip_rectangle);
             return ui_rect_has_area(*clip);
         }
@@ -321,15 +321,15 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
         s->active = false;
         return false;
     }
+    // The host strings are valid UTF-8 where they are made: the heading and placeholder are a literal prefix and a
+    // guild or channel name that the chat state store validated (cut at a scalar boundary), the filter summary and
+    // the scope chip are literals, and the recent list validates each entry when it adds or loads it.
     bool recent_valid =
         content && content->recent_count <= 5 && (!content->recent_count || content->recent);
     for (u32 i = 0; recent_valid && i < content->recent_count; ++i)
-        recent_valid = content->recent[i].bytes && content->recent[i].bytes <= 256 &&
-                       utf8_validate(content->recent[i]).valid;
+        recent_valid = content->recent[i].bytes && content->recent[i].bytes <= 256;
     if (!s || !content || !recent_valid || !content->edit.active || !ui_rect_has_area(viewport) ||
-        ui_rect_width(title) < 120 || !utf8_validate(content->heading).valid ||
-        !utf8_validate(content->placeholder).valid || !utf8_validate(content->filter_summary).valid ||
-        !utf8_validate(content->scope_chip).valid ||
+        ui_rect_width(title) < 120 ||
         source && (!source->resolve || source->count > 125 ||
                    (source->current && !source->current(source->context))))
         return false;
@@ -504,20 +504,14 @@ bool ui_search_scene_filter_choice_avatar(const UiSearchScene& scene, u32 source
                                           UiRect* clip) noexcept {
     UiRect row{}, row_clip{};
     UiMenuRowGeometry geometry{};
+    // The row geometry succeeds only for a row with a current widget.
     if (!rectangle || !clip || !ui_search_scene_filter_choice_geometry(scene, source_index, &row, &row_clip) ||
         !choice_person(*scene.choice_source, scene.choice_source->rows[source_index]) ||
         !choice_menu_geometry(scene, row, &geometry))
         return false;
-    for (u32 slot = 1; slot < scene.widgets.count; ++slot) {
-        const auto& target = scene.targets[slot];
-        if (target.action == UiSearchAction::filter_value && target.source_index == source_index &&
-            ui_search_scene_target_current(scene, target)) {
-            *rectangle = choice_avatar_rectangle(geometry, row);
-            *clip = ui_rect_intersection(*rectangle, row_clip);
-            return ui_rect_has_area(*clip);
-        }
-    }
-    return false;
+    *rectangle = choice_avatar_rectangle(geometry, row);
+    *clip = ui_rect_intersection(*rectangle, row_clip);
+    return ui_rect_has_area(*clip);
 }
 namespace {
 void hit_test(const UiSearchScene& s, float x, float y, UiSearchTarget* out) noexcept {

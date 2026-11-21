@@ -33,8 +33,8 @@ struct PinnedMessageRow {
     char author[kPinnedMessageAuthorBytes]{}, avatar_hash[kPinnedMessageAvatarBytes]{},
          content[kPinnedMessageExcerptBytes]{};
     u16 author_bytes{}, avatar_bytes{}, content_bytes{}, type{}, edited_offset{};
-    u32 attachment_count{}, embed_count{}, sticker_count{}, component_count{};
-    bool forwarded{}, excerpt_truncated{}, rich_truncated{};
+    u32 attachment_count{}, embed_count{}, sticker_count{};
+    bool forwarded{}, excerpt_truncated{};
 };
 Utf8View pinned_message_author(const PinnedMessageRow&) noexcept;
 Utf8View pinned_message_avatar(const PinnedMessageRow&) noexcept;

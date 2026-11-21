@@ -189,7 +189,7 @@ void color_apply(u64 slot, u32 color) noexcept {
         p.draft.name_style_set = true;
         p.draft.name_style.colors[slot - color_name] = color;
     } else {
-        u32 colors[2]{};
+        u32 colors[2];
         if (effective_theme(colors) != 2)
             colors[0] = colors[1] = 0x41434A;
         colors[slot == color_primary ? 0 : 1] = color;
@@ -253,7 +253,7 @@ void edit_color(ColorSlot slot) noexcept {
     g_color_preview = {true,        false,        d.accent_set, d.theme_set, d.theme_reset, d.name_style_set,
                        d.accent,    {d.theme[0], d.theme[1]},   d.name_style, {}};
     const u32 suggested = avatar_palette(g_color_preview.suggested);
-    u32 colors[2]{};
+    u32 colors[2];
     const u32 fallback = suggested ? g_color_preview.suggested[0] : 0x41434A;
     const bool name = slot >= color_name;
     const u32 current = name ? d.name_style.colors[slot - color_name]
@@ -501,7 +501,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     }
     if (id == control_guild) {
         if (p.guild_choice_count && !changes()) {
-            PopupItem items[kGuildChoices]{};
+            PopupItem items[kGuildChoices];
             for (u32 i = 0; i < p.guild_choice_count; ++i)
                 items[i] = {p.guild_choices[i], popup_guild + i + 1, dropdown_flags(p.guild_ids[i] == p.guild_id)};
             open_dropdown(target, {items, p.guild_choice_count});
@@ -568,7 +568,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         const u32 current = !profile_name_style_set(style) ? ~0u
                             : fonts                          ? profile_name_font_index(style.font)
                                                              : profile_name_effect_index(style.effect);
-        PopupItem items[kProfileNameFontCount]{};
+        PopupItem items[kProfileNameFontCount];
         const u32 count = fonts ? kProfileNameFontCount : kProfileNameEffectCount;
         NameList name{fonts ? kProfileNameFontNames : kProfileNameEffectNames};
         for (u32 i = 0; i < count; ++i, name.next())

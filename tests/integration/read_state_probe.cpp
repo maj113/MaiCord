@@ -58,7 +58,6 @@ struct ReadStateFixture {
     u64 message_fenwick[1]{};
     MessageTimeline timeline{};
     MessageScene message_scene{};
-    MessageSceneRowWidget message_rows[1]{};
     UiWidget message_widgets[4]{};
     UiLayoutNode message_nodes[4]{};
 };
@@ -110,7 +109,8 @@ bool initialize(ReadStateFixture& f) noexcept {
         check(message_store_initialize(&f.messages, {f.message_records, 1}, {f.message_order, 1}, {f.message_bytes, 128}), "fixture_message_store_initialize_failed") &&
         check(ui_variable_list_initialize(&f.message_list, {f.message_units, 1}, {f.message_fenwick, 1}, 0, 1), "fixture_message_list_initialize_failed") &&
         check(message_timeline_initialize(&f.timeline, &f.messages, &f.message_list, 1, 1, true), "fixture_message_timeline_initialize_failed") &&
-        check(message_scene_initialize(&f.message_scene, &f.timeline, {f.message_rows, 1}, {f.message_widgets, 4}, {f.message_nodes, 4}), "fixture_message_scene_initialize_failed");
+        check(message_scene_initialize_owned(&f.message_scene, &f.timeline, kMessageSceneTestRows, 1,
+            {f.message_widgets, 4}, {f.message_nodes, 4}), "fixture_message_scene_initialize_failed");
 }
 bool state_contract(const ReadStateFixture& f, bool read) noexcept {
     const auto* unread = navigation_view_find_channel(f.view, kUnread);

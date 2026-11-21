@@ -15,7 +15,7 @@ static_assert(sizeof(MessageHistoryCatchup) == 40);
 static_assert(sizeof(MessageHistoryOlder) == 32);
 static_assert(sizeof(AttachmentRefresh) == 40);
 
-bool history_transient_failure(const RestClientResponse& response) noexcept {
+inline bool history_transient_failure(const RestClientResponse& response) noexcept {
     if (api_rejection_requires_action(response.rejection))
         return false;
     switch (response.error) {
@@ -34,7 +34,7 @@ bool history_transient_failure(const RestClientResponse& response) noexcept {
     }
 }
 
-u64 history_retry_deadline(u8* retries, const RestClientResponse& response, u64 now_ms) noexcept {
+inline u64 history_retry_deadline(u8* retries, const RestClientResponse& response, u64 now_ms) noexcept {
     // Read-only pages are safe to replay. Keep the cursor and resident window,
     // let the failed transport reconnect, and cap offline polling at once/30s.
     const u64 delay_ms = minimum(500ull << minimum(static_cast<u32>(*retries), 6u), 30'000ull);
@@ -106,9 +106,9 @@ bool observe_history_users(UserStore* users, ConstSlice<GatewayMessageEvent> mes
              !user_store_upsert(users, message.author_id, message.author_name).ok())) {
             return false;
         }
+        // user_store_set_avatar fails for a zero id and for a user the store does not hold.
         if (message.author_avatar_hash.bytes != 0 &&
-            (message.author_id == 0 || !user_store_find(*users, message.author_id) ||
-             !user_store_set_avatar(users, message.author_id, message.author_avatar_hash))) {
+            !user_store_set_avatar(users, message.author_id, message.author_avatar_hash)) {
             return false;
         }
         if (message.reference.author_name.bytes != 0 &&
@@ -118,10 +118,8 @@ bool observe_history_users(UserStore* users, ConstSlice<GatewayMessageEvent> mes
             return false;
         }
         if (message.reference.author_avatar_hash.bytes != 0 &&
-            (message.reference.author_id == 0 ||
-             !user_store_find(*users, message.reference.author_id) ||
-             !user_store_set_avatar(users, message.reference.author_id,
-                                            message.reference.author_avatar_hash))) {
+            !user_store_set_avatar(users, message.reference.author_id,
+                                   message.reference.author_avatar_hash)) {
             return false;
         }
         for (u32 user_index = 0; user_index < message.mention_users.count; ++user_index) {

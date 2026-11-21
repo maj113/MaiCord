@@ -92,8 +92,7 @@ bool forum_actor_current(const ForumSource& source) noexcept {
            source.profile == g_app.account.status.profile_id &&
            source.self == g_app.account_ui->chat_state.self_user_id;
 }
-bool forum_parent_authorized(u64 id) noexcept {
-    const auto* parent = application_channel_record(id);
+bool forum_parent_authorized(const ChannelRecord* parent) noexcept {
     if (!parent || !parent->occupied || (parent->type != 15 && parent->type != 16) || !parent->guild_id ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag))
         return false;
@@ -106,7 +105,7 @@ bool forum_parent_authorized(u64 id) noexcept {
 }
 bool forum_source_current(const ForumSource& source) noexcept {
     const auto* parent = forum_actor_current(source) ? application_channel_record(source.parent) : nullptr;
-    return parent && forum_parent_authorized(source.parent) &&
+    return forum_parent_authorized(parent) &&
            parent->generation == source.parent_generation && parent->type == source.parent_type && parent->guild_id == source.guild &&
            g_app.account_ui->active_channel_id == source.origin_active &&
            g_app.account_ui->chat_state.selected_channel_id == source.origin_selected &&
@@ -116,7 +115,7 @@ bool forum_owner_current(const ForumOwner& owner) noexcept {
     if (forum_source_current(owner.source))
         return true;
     const auto* parent = forum_actor_current(owner.source) ? application_channel_record(owner.source.parent) : nullptr;
-    return owner.navigating && owner.known_created && parent && forum_parent_authorized(parent->id) &&
+    return owner.navigating && owner.known_created && forum_parent_authorized(parent) &&
            parent->generation == owner.source.parent_generation && parent->type == owner.source.parent_type && parent->guild_id == owner.source.guild &&
            g_app.account_ui->chat_state.selected_guild_id == owner.source.guild &&
            g_app.account_ui->active_channel_id == owner.known_created &&
@@ -243,8 +242,7 @@ void forum_tags(ForumOwner& owner) noexcept {
         for (u32 j = 0; j < owner.selected_count; ++j)
             selected = selected || owner.selected[j] == tag.id;
         owner.tag_views[i] = {tag.id, forum_tag_name_view(tag), selected,
-                              forum_metadata_fresh(owner) && (!tag.moderated || manage),
-                              tag.moderated};
+                              forum_metadata_fresh(owner) && (!tag.moderated || manage)};
     }
 }
 void forum_queue_metadata(ForumOwner& owner) noexcept {
@@ -421,7 +419,7 @@ bool application_forum_post_available(u64 id) noexcept {
     if (!id)
         id = g_app.account_ui->chat_state.selected_channel_id;
     const auto* parent = application_channel_record(id);
-    return parent && forum_parent_authorized(id) &&
+    return forum_parent_authorized(parent) &&
            g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }
 bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) noexcept {
@@ -903,8 +901,9 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
     return true;
 }
 u64 application_forum_post_next_wake() noexcept {
-    if (!forum_owner || forum_owner->retired || forum_owner->flight.active || !forum_source_current(forum_owner->source) ||
-        !g_app.account.status.running || g_app.account.stop_failed || g_app.account.status.required_action != AccountRequirement::none) return 0;
+    if (!forum_owner || forum_owner->retired || forum_owner->flight.active || !g_app.account.status.running ||
+        g_app.account.stop_failed || g_app.account.status.required_action != AccountRequirement::none ||
+        !forum_source_current(forum_owner->source)) return 0;
     if (forum_queued(*forum_owner)) return maximum(u64{1}, maximum(forum_owner->due, forum_owner->actor_floor));
     ForumPostRequest request{}; u64 draft{};
     const auto now = clock_monotonic_milliseconds();

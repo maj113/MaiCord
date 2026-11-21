@@ -23,7 +23,6 @@ struct Fixture {
     u64 fenwick[kCount];
     UiWidget widget_storage[kWidgets];
     UiLayoutNode nodes[kWidgets];
-    MessageSceneRowWidget rows[kCount];
     MessageStore store;
     MessageRichStore rich;
     UiVariableList list;
@@ -114,8 +113,8 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
             message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(240),
                                         false) &&
             message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-            message_scene_initialize(&f.scene, &f.timeline, {f.rows, kCount}, {f.widget_storage, kWidgets},
-                                     {f.nodes, kWidgets});
+            message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, kCount,
+                                           {f.widget_storage, kWidgets}, {f.nodes, kWidgets});
     const UiRect viewport{0, 0, 740, 240};
     ready = ready && message_timeline_set_scroll(&f.timeline, 0, false) && message_scene_update(&f.scene, viewport).ok();
 

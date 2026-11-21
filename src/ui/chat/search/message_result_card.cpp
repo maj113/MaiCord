@@ -2,13 +2,6 @@
 
 namespace maicord {
 
-bool message_result_card_style_valid(const MessageResultCardStyle& s) noexcept {
-    return ui_extent_valid(s.heading_height) && ui_extent_valid(s.action_height) && ui_extent_valid(s.gap) &&
-        s.heading_height >= 20 && s.heading_height <= 64 &&
-        (s.action_height == 0 || (s.action_height >= 24 && s.action_height <= 64)) &&
-        s.gap <= 32 && s.materialized_rows && s.materialized_rows <= 24;
-}
-
 MessageResultCardHeaderLayout message_result_card_header_layout(float left, float right, float name_width,
                                                                 float timestamp_width) noexcept {
     const float width = right > left ? right - left : 0;

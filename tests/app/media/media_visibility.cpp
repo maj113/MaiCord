@@ -536,9 +536,9 @@ bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept {
         !message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
                                      ui_extent_units(1000), false) ||
         !message_timeline_bind_rich_store(&view.timeline, &ui.message_rich_store) ||
-        !message_scene_initialize(&g_app.message_scene, &view.timeline, {fixture.rows, 3},
-                                  {fixture.widgets, 3 * kMessageSceneWidgetsPerRow + 1},
-                                  {fixture.nodes, 3 * kMessageSceneWidgetsPerRow + 1}) ||
+        !message_scene_initialize_owned(&g_app.message_scene, &view.timeline, kMessageSceneTestRows, 3,
+                                        {fixture.widgets, 3 * kMessageSceneWidgetsPerRow + 1},
+                                        {fixture.nodes, 3 * kMessageSceneWidgetsPerRow + 1}) ||
         !message_scene_update(&g_app.message_scene, {0, 0, 640, 1000}).ok())
         return false;
     for (u32 index = 0; index < 3; ++index) {
@@ -549,7 +549,7 @@ bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept {
     }
     if (!message_scene_update(&g_app.message_scene, {0, 0, 640, 1000}).ok())
         return false;
-    const auto* third = message_scene_rich_item_layout_node(g_app.message_scene, fixture.rows[2],
+    const auto* third = message_scene_rich_item_layout_node(g_app.message_scene, g_app.message_scene.rows[2],
                                                             MessageSceneRichItemKind::attachment, 0);
     if (!third || !ui_rect_has_area(third->rectangle))
         return false;
@@ -558,10 +558,10 @@ bool seed_scene(VisibilityFixture& fixture, AccountUiRuntime& ui) noexcept {
     return message_scene_update(&g_app.message_scene, {0, 0, 640, third->rectangle.top}).ok();
 }
 
-MediaAssetKey attachment_key(const VisibilityFixture& fixture, const AccountUiRuntime& ui,
+MediaAssetKey attachment_key(const VisibilityFixture&, const AccountUiRuntime& ui,
                              u32 index) noexcept {
     const auto* rich = message_rich_store_find(ui.message_rich_store, 100 + index);
-    const auto* node = message_scene_rich_item_layout_node(g_app.message_scene, fixture.rows[index],
+    const auto* node = message_scene_rich_item_layout_node(g_app.message_scene, g_app.message_scene.rows[index],
                                                            MessageSceneRichItemKind::attachment, 0);
     float width = 0, height = 0;
     if (!rich || !node ||
@@ -581,8 +581,8 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
                  user_store_set_avatar(&ui.user_store, 9, hash);
     bool grouped[3]{};
     for (u32 index = 0; index < g_app.message_scene.count; ++index) {
-        grouped[index] = fixture.rows[index].grouped;
-        fixture.rows[index].grouped = true;
+        grouped[index] = g_app.message_scene.rows[index].grouped;
+        g_app.message_scene.rows[index].grouped = true;
     }
     pump.uploads = 0;
     bool repaint = false, stop = false;
@@ -609,7 +609,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
           "command avatar: clearing command presentation retires its media ownership");
     message_composer_scene_release(&g_app.message_composer_scene);
     for (u32 index = 0; index < g_app.message_scene.count; ++index)
-        fixture.rows[index].grouped = grouped[index];
+        g_app.message_scene.rows[index].grouped = grouped[index];
     check(repass(pump).avatar_key_is_current(avatar) &&
               pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
               identity_requests == before_hidden + 1,

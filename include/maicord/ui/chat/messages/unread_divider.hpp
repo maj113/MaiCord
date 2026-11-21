@@ -5,13 +5,6 @@
 
 namespace maicord {
 inline constexpr Utf8View kUiUnreadDividerLabel = utf8_literal("New messages");
-inline bool ui_unread_divider_style_valid(const UiUnreadDividerStyle& style) noexcept {
-    return ui_extent_valid(style.height) && style.height >= 16 && style.height <= 96 &&
-        ui_extent_valid(style.horizontal_inset) && style.horizontal_inset <= 96 &&
-        ui_extent_valid(style.label_width) && style.label_width >= 32 && style.label_width <= 256 &&
-        ui_extent_valid(style.label_gap) && style.label_gap <= 32 &&
-        ui_extent_valid(style.line_thickness) && style.line_thickness >= 1 && style.line_thickness <= 4;
-}
 struct UiUnreadDividerGeometry { UiRect line, label; };
 // Nearest device-pixel edge for a DIP coordinate at pixel_scale (dpi / 96).
 inline float ui_unread_divider_snap(float dip, float pixel_scale) noexcept {
@@ -22,9 +15,9 @@ inline float ui_unread_divider_snap(float dip, float pixel_scale) noexcept {
 }
 // A positive pixel_scale snaps the hairline to whole device pixels at least
 // one pixel thick, so it stays crisp at fractional DPI and while scrolling.
-inline UiUnreadDividerGeometry ui_unread_divider_geometry(const UiRect& rectangle,
-    const UiUnreadDividerStyle& style = kDefaultUiUnreadDividerStyle, float pixel_scale = 0) noexcept {
-    if (!ui_rect_has_area(rectangle) || !ui_unread_divider_style_valid(style)) return {};
+inline UiUnreadDividerGeometry ui_unread_divider_geometry(const UiRect& rectangle, float pixel_scale = 0) noexcept {
+    if (!ui_rect_has_area(rectangle)) return {};
+    constexpr UiUnreadDividerStyle style = kUiUnreadDividerStyle;
     const float inset = minimum(style.horizontal_inset, ui_rect_width(rectangle) / 4);
     const float left = rectangle.left + inset, right = rectangle.right - inset;
     const float label_left = maximum(left, right - style.label_width);
@@ -47,8 +40,8 @@ inline Color ui_unread_divider_text_color(const Theme& theme) noexcept {
     return ui_foreground_color(theme, theme.notification);
 }
 inline bool ui_unread_divider_paint(PaintStream* paint, UiRect rectangle, const Theme& theme,
-    const UiUnreadDividerStyle& style, float pixel_scale) noexcept {
-    const auto geometry = ui_unread_divider_geometry(rectangle, style, pixel_scale);
+    float pixel_scale) noexcept {
+    const auto geometry = ui_unread_divider_geometry(rectangle, pixel_scale);
     return !ui_rect_has_area(geometry.line) || paint_stream_push_rounded_border(paint, geometry.line, theme.notification, theme.notification, 0, 0);
 }
 } // namespace maicord

@@ -149,7 +149,7 @@ bool toggle_pick(ApplicationQuickSwitcher& q, u64 user) noexcept {
 }
 bool confirm_picks(ApplicationQuickSwitcher& q) noexcept {
     if (!q.picker || !q.picked_count) return true;
-    u64 people[kPrivateChannelRecipientMaximum]{};
+    u64 people[kPrivateChannelRecipientMaximum];
     const u32 count = q.picked_count;
     const u64 channel = q.picker_channel;
     copy_bytes(people, q.picked, count * sizeof(u64));

@@ -102,7 +102,7 @@ void test_composer_source_spans(void (*check)(bool, const char*) noexcept) noexc
             u32 byte_styles[128]{}, range_styles[128]{};
             const auto a = code_highlight(token_source, static_cast<CodeLanguage>(language), {byte_styles, 128}, capacity);
             const auto b = code_highlight_ranges(token_source, static_cast<CodeLanguage>(language), expand_highlight, range_styles, capacity);
-            lexer_equal = lexer_equal && a.token_count == b.token_count && a.styled_bytes == b.styled_bytes && a.truncated == b.truncated;
+            lexer_equal = lexer_equal && a.token_count == b.token_count && a.truncated == b.truncated;
             for (u32 i = 0; i < token_source.bytes; ++i) lexer_equal = lexer_equal && byte_styles[i] == range_styles[i];
         }
     }

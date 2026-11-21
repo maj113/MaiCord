@@ -24,7 +24,7 @@ constexpr bool ui_friends_tab_requests(UiFriendsTab tab) noexcept {
 enum class UiFriendsPhase : u8 { ready, loading, error };
 // message_request: a DM request's other person (on the Message Requests page).
 enum class UiFriendsKind : u8 { friend_user, incoming, outgoing, blocked, message_request };
-enum class UiFriendsSectionKind : u8 { incoming, outgoing, spam, ignored };
+enum class UiFriendsSectionKind : u8 { incoming, outgoing, spam };
 enum class UiFriendsAction : u8 { none, select_tab, open_dm, profile, accept, ignore, cancel, remove, block, add_friend, retry, search, clear_search, more, toggle_section, toggle_hidden, clear_hidden, clear_incoming, decline, unignore,
     // Active Now column: collapse/expand it, or open a card's first member.
     active_toggle, active_card,

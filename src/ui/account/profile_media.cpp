@@ -32,6 +32,14 @@ __forceinline u32 widget_bits(UiWidgetHandle handle) noexcept {
     CopyMemory(&bits, &handle, sizeof(bits));
     return bits;
 }
+// Sets every field of a result but the unused bytes of its URL, which a reader never reads past its length: about
+// 90 bytes written, not 480. One body for the six resolvers.
+__declspec(noinline) ProfileMedia& start(ProfileMedia* out) noexcept {
+    clear_bytes(out, __builtin_offsetof(ProfileMedia, url));
+    out->url.bytes = 0;
+    clear_bytes(&out->rectangle, sizeof(ProfileMedia) - __builtin_offsetof(ProfileMedia, rectangle));
+    return *out;
+}
 bool append(ProfileString<384>* s, const char* text, u32 bytes) noexcept {
     if (bytes > 384u - s->bytes)
         return false;
@@ -154,13 +162,12 @@ bool guild_badge_media(bool enabled, u64 guild_id, const Utf8View& badge, const 
                        ProfileMedia* out) noexcept {
     if (!out || !enabled || !guild_id || !asset(badge))
         return false;
-    ProfileMedia result{};
+    ProfileMedia& result = start(out);
     cdn_root(&result.url);
     badge_path(&result.url, guild_id, badge);
     result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
     copy_value(&result.rectangle, rectangle);
     result.clip = clip;
-    copy_value(out, result);
     return true;
 }
 } // namespace
@@ -178,25 +185,27 @@ bool user_nameplate_media(const UserAppearanceRecord& appearance, bool animated,
                           const UiRect& clip, ProfileMedia* out) noexcept {
     if (!out || !appearance.nameplate_sku)
         return false;
-    ProfileMedia result{};
+    ProfileMedia& result = start(out);
     cdn_root(&result.url);
     if (!nameplate_path(&result.url, appearance.nameplate_sku, animated))
         return false;
     result.key = profile_key(result.url, MediaAttachmentFormat::png, animated);
     result.rectangle = rectangle;
     result.clip = clip;
-    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* out) noexcept {
-    if (!out || !scene.active || !scene.profile || index >= scene.part_count)
+    // Most parts (text, buttons) have no media: the renderer and the media scans ask for every part each frame.
+    if (!out || !scene.active || !scene.profile || index >= scene.part_count ||
+        scene.parts[index].media == ProfileMediaKind::none)
         return false;
     const auto& part = scene.parts[index];
     const auto& p = *scene.profile;
     const auto* node = ui_widget_manager_layout_node(scene.widgets, part.widget);
     if (!node)
         return false;
-    ProfileMedia result{};
+    // The media is built in *out itself: a caller reads it only on success (profile_media.hpp).
+    ProfileMedia& result = start(out);
     result.rectangle = node->rectangle;
     result.clip = node->clip_rectangle;
     if (!ui_rect_intersects(result.rectangle, result.clip))
@@ -209,7 +218,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (!a || !a->status_emoji_id)
             return false;
         result.key = media_asset_custom_emoji(a->status_emoji_id, a->emoji_animated);
-        copy_value(out, result);
         return true;
     }
     if (part.media == ProfileMediaKind::nameplate) {
@@ -223,7 +231,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.mask = result.rectangle;
         result.mask_radius = 4;
         result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
-        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     if (part.media == ProfileMediaKind::avatar && scene.pending_avatar.active)
@@ -260,7 +267,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.mask = result.rectangle;
         result.mask_radius = corner ? ui_rect_width(result.rectangle) * .5f : scene.activity_art_radius;
         result.key = profile_key(result.url, format, false);
-        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     if (part.media == ProfileMediaKind::widget_game || part.media == ProfileMediaKind::collection_game) {
@@ -281,7 +287,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.mask_radius = cover ? scene.activity_art_radius : scene.game_icon_radius;
         if (!cover)
             result.opacity = part.style ? .5f : 0.f;
-        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     if (part.media == ProfileMediaKind::connection_logo || part.media == ProfileMediaKind::connection_chip) {
@@ -299,7 +304,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (logo)
             result.rectangle = ui_rect_inset(result.rectangle, {4, 4, 4, 4});
         result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
-        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     auto& url = result.url;
@@ -315,7 +319,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         default_avatar_path(&url, index);
         result.circular = true;
         result.key = default_avatar_key(index);
-        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     // A voice card member: their avatar, or the default one, masked to its circle.
@@ -331,7 +334,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             const u32 index = default_avatar_index(part.target);
             default_avatar_path(&url, index);
             result.key = default_avatar_key(index);
-            copy_value(out, result);
             return media_asset_key_valid(result.key);
         }
     }
@@ -434,7 +436,6 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     // (profile_scene_card_mask), so its top corners follow the card's.
     if (part.media == ProfileMediaKind::banner)
         result.clip = ui_rect_intersection(result.clip, result.rectangle);
-    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
 bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMedia* out) noexcept {
@@ -442,7 +443,7 @@ bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMe
         return false;
     const auto& p = *scene.profile;
     const auto display = profile_display(p);
-    ProfileMedia result{};
+    ProfileMedia& result = start(out);
     auto& url = result.url;
     cdn_root(&url);
     if (!display.avatar.bytes) {
@@ -465,12 +466,18 @@ bool profile_avatar_still_media(const ProfileScene& scene, float dips, ProfileMe
         id(&url, cdn_display_size(dips, scene.media_dpi, kCdnSquareSizeLimit));
         result.key = profile_key(url, MediaAttachmentFormat::webp, false);
     }
-    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
-bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer, ProfileMedia* out,
-                          bool visible_only) noexcept {
-    if (!out || !s.active || !s.users || !s.source || index >= s.count)
+namespace {
+// What each layer of a member row reads: the row, its node, its avatar's node and the user's global and server
+// appearance records. member_media_cache_fill looks them up once for all the layers of the row.
+struct MemberRowMedia {
+    const MemberListRowWidget* row;
+    const UiLayoutNode *node, *avatar;
+    const UserAppearanceRecord *global, *guild;
+};
+bool member_row_media(const MemberListScene& s, u32 index, bool visible_only, MemberRowMedia* out) noexcept {
+    if (!s.active || !s.users || !s.source || index >= s.count)
         return false;
     const auto& row = s.rows[index];
     if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member)
@@ -479,9 +486,17 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     const auto* avatar = member_list_scene_layout_node(s, row.avatar);
     if (!r || !avatar || (visible_only && !ui_rect_intersects(r->rectangle, s.viewport)))
         return false;
-    const auto* global = user_appearance_find(s.users->appearance, row.user_id);
-    const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
-    ProfileMedia result{};
+    *out = {&row, r, avatar, user_appearance_find(s.users->appearance, row.user_id),
+            user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id)};
+    return true;
+}
+// One layer of member_media_resolve. `badge` is the row's member_list_badge_resolve when the caller holds it.
+bool member_layer_media(const MemberListScene& s, u32 index, const MemberRowMedia& m, MemberMedia layer,
+                        const UiBadgeWidget* badge, ProfileMedia* out) noexcept {
+    const auto& row = *m.row;
+    const auto *r = m.node, *avatar = m.avatar;
+    const auto *global = m.global, *guild = m.guild;
+    ProfileMedia& result = start(out);
     result.clip = s.viewport;
     result.rectangle = avatar->rectangle;
     if (layer == MemberMedia::status_emoji) {
@@ -498,7 +513,6 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         const auto line = ui_activity_glyph_text(member_list_row_status_line(label->content_rectangle), status.glyph);
         result.rectangle = {line.left, line.top, line.left + 16, line.top + 16};
         result.key = media_asset_custom_emoji(a->status_emoji_id, a->emoji_animated);
-        copy_value(out, result);
         return true;
     }
     auto& url = result.url;
@@ -534,8 +548,12 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
             return false;
         badge_path(&url, global->primary_guild_id, global->primary_badge.view());
         format = MediaAttachmentFormat::png;
-        const auto badge = member_list_badge_resolve(s, index);
-        result.rectangle = ui_badge_geometry(badge, s.widgets).icon;
+        UiBadgeWidget resolved;
+        if (!badge) {
+            resolved = member_list_badge_resolve(s, index);
+            badge = &resolved;
+        }
+        result.rectangle = ui_badge_geometry(*badge, s.widgets).icon;
     } else if (layer == MemberMedia::decoration || layer == MemberMedia::decoration_still) {
         const auto* a = guild && (guild->fields & appearance_decoration) ? guild : global;
         if (!a || !asset(a->decoration.view()))
@@ -575,24 +593,14 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     if (animated && format == MediaAttachmentFormat::webp)
         append(&url, "&animated=true");
     result.key = profile_key(url, format, animated);
-    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
-bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedia* out,
-                                 bool visible_only) noexcept {
-    if (!out || !s.active || !s.users || !s.source || index >= s.count)
+// member_plain_avatar_resolve past its row checks. `guild` is the user's server appearance record (null outside a
+// server).
+bool member_plain_avatar(const MemberListScene& s, const MemberListRowWidget& row, const UiLayoutNode& avatar,
+                         const UserAppearanceRecord* guild, AvatarMedia* out) noexcept {
+    if (guild && guild->avatar.bytes)
         return false;
-    const auto& row = s.rows[index];
-    if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member || !row.user_id)
-        return false;
-    const auto* avatar = member_list_scene_layout_node(s, row.avatar);
-    if (!avatar || (visible_only && !ui_rect_intersects(avatar->rectangle, s.viewport)))
-        return false;
-    if (s.source->guild_id) {
-        const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
-        if (guild && guild->avatar.bytes)
-            return false;
-    }
     const auto* user = user_store_find(*s.users, row.user_id);
     if (!user)
         return false;
@@ -600,8 +608,53 @@ bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedi
     MediaAssetKey key;
     if (!avatar_media_key(row.user_id, hash, &key))
         return false;
-    *out = {key, hash, avatar->rectangle, s.viewport};
+    *out = {key, hash, avatar.rectangle, s.viewport};
     return true;
+}
+} // namespace
+bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer, ProfileMedia* out,
+                          bool visible_only) noexcept {
+    MemberRowMedia m;
+    return out && member_row_media(s, index, visible_only, &m) && member_layer_media(s, index, m, layer, nullptr, out);
+}
+void member_media_cache_fill(const MemberListScene& s, u32 index, const UiBadgeWidget& badge, float dx, float dy,
+                             MemberMediaCacheEntry* entry) noexcept {
+    MemberRowMedia m;
+    if (!member_row_media(s, index, false, &m))
+        return;
+    ProfileMedia media; // member_layer_media sets it
+    for (u32 layer = 0; layer < kMemberMediaLayerCount; ++layer) {
+        if (!member_layer_media(s, index, m, static_cast<MemberMedia>(layer), &badge, &media))
+            continue;
+        entry->layer_mask = static_cast<u8>(entry->layer_mask | (1u << layer));
+        entry->circular_mask = static_cast<u8>(entry->circular_mask | (media.circular ? 1u << layer : 0u));
+        entry->keys[layer] = media.key;
+        entry->rectangles[layer] = member_media_offset(media.rectangle, dx, dy);
+    }
+    constexpr u32 avatar = static_cast<u32>(MemberMedia::avatar);
+    AvatarMedia plain;
+    if (!(entry->layer_mask & (1u << avatar)) &&
+        member_plain_avatar(s, *m.row, *m.avatar, s.source->guild_id ? m.guild : nullptr, &plain)) {
+        entry->plain_avatar = true;
+        entry->layer_mask = static_cast<u8>(entry->layer_mask | (1u << avatar));
+        entry->circular_mask = static_cast<u8>(entry->circular_mask | (1u << avatar));
+        entry->keys[avatar] = plain.key;
+        entry->rectangles[avatar] = member_media_offset(plain.rectangle, dx, dy);
+    }
+}
+bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, AvatarMedia* out) noexcept {
+    if (!out || !s.active || !s.users || !s.source || index >= s.count)
+        return false;
+    const auto& row = s.rows[index];
+    if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member || !row.user_id)
+        return false;
+    const auto* avatar = member_list_scene_layout_node(s, row.avatar);
+    if (!avatar || !ui_rect_intersects(avatar->rectangle, s.viewport))
+        return false;
+    return member_plain_avatar(
+        s, row, *avatar,
+        s.source->guild_id ? user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id) : nullptr,
+        out);
 }
 bool member_plain_avatar_current(const MemberListScene& s, MediaAssetKey key) noexcept {
     const bool shared = is_default_avatar_key(key);
@@ -614,7 +667,7 @@ bool member_plain_avatar_current(const MemberListScene& s, MediaAssetKey key) no
 bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, ProfileMedia* out) noexcept {
     if (!out || !s.active || !s.effect || !s.effect->sku)
         return false;
-    ProfileMedia result{};
+    ProfileMedia& result = start(out);
     auto& url = result.url;
     bool animated = !s.reduced_motion;
     // The effect spans the card (the popout inside its theme border, the
@@ -671,7 +724,6 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
             format = MediaAttachmentFormat::gif;
     }
     result.key = profile_key(url, format, animated, true);
-    copy_value(out, result);
     return true;
 }
 } // namespace maicord

@@ -138,7 +138,6 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
     UiVariableList list{};
     MessageTimeline timeline{};
     MessageScene messages{};
-    MessageSceneRowWidget rows[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
     valid =
@@ -147,13 +146,15 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
         ui_variable_list_initialize(&list, {heights, 1}, {fenwick, 1}, 1, ui_extent_units(100)) &&
         message_timeline_initialize(&timeline, &store, &list, ui_extent_units(100), ui_extent_units(600),
                                     false) &&
-        message_scene_initialize(&messages, &timeline, {rows, 1}, {widgets, kMessageSceneWidgetsPerRow + 1},
-                                 {nodes, kMessageSceneWidgetsPerRow + 1}) &&
+        message_scene_initialize_owned(&messages, &timeline, kMessageSceneTestRows, 1,
+                                       {widgets, kMessageSceneWidgetsPerRow + 1},
+                                       {nodes, kMessageSceneWidgetsPerRow + 1}) &&
         message_scene_update(&messages, {0, 0, 500, 600}).ok();
     valid = valid && message_scene_bind_theme_styles(&messages, &bank) &&
             message_scene_update(&messages, {0, 0, 500, 600}).ok();
-    const auto* avatar = valid ? message_scene_layout_node(messages, rows[0].avatar) : nullptr;
-    const auto* body = valid ? message_scene_layout_node(messages, rows[0].content) : nullptr;
+    const auto* row = valid ? message_scene_find_row(messages, 0) : nullptr;
+    const auto* avatar = row ? message_scene_layout_node(messages, row->avatar) : nullptr;
+    const auto* body = row ? message_scene_layout_node(messages, row->content) : nullptr;
     check(valid && avatar && body && ui_rect_width(avatar->rectangle) == 48 &&
               avatar->rectangle.left == 22 && body->rectangle.left == 22 + 48 + 18 &&
               body->rectangle.right == 500 - 30,

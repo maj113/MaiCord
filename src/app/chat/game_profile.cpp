@@ -84,7 +84,7 @@ constexpr u32 kGenreCount = 69;
 constexpr char kMonthNames[] =
     "January\0February\0March\0April\0May\0June\0July\0August\0September\0October\0November\0December";
 
-Utf8View genre_name(u32 genre) noexcept {
+inline Utf8View genre_name(u32 genre) noexcept {
     return genre && genre <= kGenreCount ? c_string_list_entry(kGenreNames, genre - 1) : Utf8View{};
 }
 
@@ -115,18 +115,18 @@ constexpr LinkKind kLinkKinds[] = {{1, 0, 0},  {4, 1, 0},  {5, 2, 0},  {8, 3, 0}
                                    {19, 5, 0}, {14, 6, 0}, {6, 7, 0},  {22, 8, 0}, {10, 9, 1},
                                    {10, 9, 2}, {11, 9, 1}, {11, 9, 2}, {12, 10, 3}};
 
-Utf8View literal(const char* text) noexcept {
+inline Utf8View literal(const char* text) noexcept {
     return {text, c_string_length(text)};
 }
 Utf8View view(const char* text, u32 bytes) noexcept {
     return {text, bytes};
 }
 
-bool web_url(Utf8View url) noexcept {
+inline bool web_url(Utf8View url) noexcept {
     return (url.bytes > 8 && bytes_equal(url.data, "https://", 8)) ||
            (url.bytes > 7 && bytes_equal(url.data, "http://", 7));
 }
-bool on_host(Utf8View url, Utf8View host) noexcept {
+inline bool on_host(Utf8View url, Utf8View host) noexcept {
     const u32 scheme = url.bytes > 8 && bytes_equal(url.data, "https://", 8) ? 8u : 7u;
     return url.bytes >= scheme + host.bytes && bytes_equal(url.data + scheme, host.data, host.bytes) &&
            (url.bytes == scheme + host.bytes || url.data[scheme + host.bytes] == '/' ||
@@ -156,7 +156,7 @@ void order_links() noexcept {
         }
     }
 }
-Utf8View link_title(const GameProfileLink& link) noexcept {
+inline Utf8View link_title(const GameProfileLink& link) noexcept {
     for (const auto& kind : kLinkKinds)
         if (kind.category == link.category)
             return c_string_list_entry(kLinkTitles, kind.title);
@@ -164,7 +164,7 @@ Utf8View link_title(const GameProfileLink& link) noexcept {
 }
 
 // "September 4, 2023" (the official client's "LL"), in UTC.
-Utf8View release_text(u64 ms) noexcept {
+inline Utf8View release_text(u64 ms) noexcept {
     auto& bank = owner->bank;
     const CivilDate date = civil_date_from_days(static_cast<i64>(ms / 86'400'000));
     const u32 start = bank.used;

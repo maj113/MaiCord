@@ -5,7 +5,6 @@ namespace maicord {
 struct RestClientResponse;
 namespace app_detail {
 struct Application;
-struct ApplicationReadState;
 bool application_read_state_eligible() noexcept;
 void application_read_state_activity() noexcept;
 bool application_read_state_mark(u64 channel_id, bool immediate) noexcept;

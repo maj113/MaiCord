@@ -72,7 +72,7 @@
 namespace maicord::app_detail {
 
 // The selected channel needs a latest-page catch-up and none is running.
-static bool catchup_wanted() noexcept {
+inline static bool catchup_wanted() noexcept {
     const auto& catchup = g_app.message_catchup;
     const bool inactive =
         catchup.state == MessageHistoryCatchupState::idle || message_history_browsing_ready(catchup.state) ||
@@ -149,7 +149,7 @@ static void give_up_reply_refresh() noexcept {
     g_app.reply_refresh.state = AttachmentRefreshState::idle;
 }
 
-static bool begin_required_catchup() noexcept {
+inline static bool begin_required_catchup() noexcept {
     if (application_thread_browser_read_blocked())
         return true;
     if (g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
@@ -317,7 +317,7 @@ static void admit_details_request(u64 now) noexcept {
 void application_message_history_reset_reaction_turn() noexcept {
     reset_value(&reaction_primary_turn);
 }
-static bool reaction_primary_yield() noexcept {
+inline static bool reaction_primary_yield() noexcept {
     auto& turn = reaction_primary_turn;
     const u64 self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
     if (turn.account_scope != g_app.plugin_account_scope_serial ||

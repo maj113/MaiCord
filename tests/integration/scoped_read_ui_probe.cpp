@@ -67,7 +67,6 @@ struct Fixture {
     u8 visibility[kChannels];
     ChannelSortKey sort_keys[kChannels];
     ReadStateEntry read_pending[kChannels];
-    MessageSceneRowWidget message_rows[1];
     UiWidget message_widgets[kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_nodes[kMessageSceneWidgetsPerRow + 1];
     u32 message_byte_styles[4];
@@ -270,9 +269,9 @@ bool account_storage() noexcept {
                                           {ui.message_text_measure_cache_records, 128},
                                           renderer_text_measure_backend, &g_app.renderer) ||
         !message_view_runtime_initialize(&g_app.message_view, ui_extent_units(80), 1, false).ok() ||
-        !message_scene_initialize(&g_app.message_scene, &g_app.message_view.timeline, {f.message_rows, 1},
-                                  {f.message_widgets, kMessageSceneWidgetsPerRow + 1},
-                                  {f.message_nodes, kMessageSceneWidgetsPerRow + 1}))
+        !message_scene_initialize_owned(&g_app.message_scene, &g_app.message_view.timeline, kMessageSceneTestRows, 1,
+                                        {f.message_widgets, kMessageSceneWidgetsPerRow + 1},
+                                        {f.message_nodes, kMessageSceneWidgetsPerRow + 1}))
         return fail_at(__LINE__);
     ui.chat_state.self_user_id = 99;
     if (!chat_state_store_upsert_guild(&ui.chat_state, {kGuild, utf8_literal("Read scope QA"),

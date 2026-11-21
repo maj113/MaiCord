@@ -5,6 +5,10 @@
 
 #include "maicord/ui/chat/messages/system_text.hpp"
 
+namespace maicord {
+struct GuildMemberRecord;
+} // namespace maicord
+
 namespace maicord::text_presentation_detail {
 
 // What the Markdown callbacks consulted during one parse: the dependencies a
@@ -47,6 +51,11 @@ constexpr u16 kRichTextFieldBegin = 96u;
 constexpr u16 kRichTextComponentBegin = 224u;
 static_assert(kRichTextEmbedBegin + kGatewayMessageEmbedMaximum * kRichTextEmbedSlots <= kRichTextFieldBegin);
 static_assert(kRichTextFieldBegin + kGatewayMessageEmbedFieldMaximum * 2u <= kRichTextComponentBegin);
+// The source id of a rich text slot (rich_source_string) of the context's record, scoped to the row or its
+// forwarded snapshot.
+constexpr u16 rich_text_source(const BuildContext& context, u32 slot) noexcept {
+    return static_cast<u16>(kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u) | slot);
+}
 
 union FloatWord {
     float value;
@@ -112,13 +121,18 @@ constexpr u64 kSystemPinsTarget = 1;
 u32 scoped_source_offset(u16 source_id, u32 offset) noexcept;
 MessageRichString rich_source_string(const MessageRichRecord& rich, u16 source_id) noexcept;
 u64 command_content_signature(const MessageTextCommand& command) noexcept;
-bool fail(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept;
+// Out of line: the many failure exits share one call, and the success path does not change.
+__declspec(noinline) bool fail(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept;
 void set_failure_context(MessageTextPresentation* presentation, MessageTextPresentationStage stage,
                          MessageTextPresentationOperation operation,
                          u16 item_index = kInvalidMessageTextMeasurement) noexcept;
 void set_failure_operation(MessageTextPresentation* presentation,
                            MessageTextPresentationOperation operation,
                            UiTextFlowError flow_error = UiTextFlowError::none) noexcept;
+// The user's member record in the server of the channel, or null. Out of line: two searches, several callers.
+__declspec(noinline) const GuildMemberRecord* channel_member(const MessageTextPresentation& presentation,
+                                                             const ChatStateStore& state, u64 channel_id,
+                                                             u64 user_id) noexcept;
 Utf8View member_nickname(const MessageTextPresentation& presentation, const ChatStateStore& state,
                          u64 channel_id, u64 user_id) noexcept;
 Utf8View resolve_entity(void* opaque, MessageMarkdownEntityKind kind, u64 id) noexcept;
@@ -204,7 +218,8 @@ float quote_text_width(float width) noexcept;
 u32 split_quote_segments(const Utf8View& text, const ConstSlice<TextStyleSpan>& styles,
                          const ConstSlice<MessageMarkdownSemantic>& semantics, QuoteSegment* output) noexcept;
 float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float last) noexcept;
-bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow,
+// `source_id` names the rich text slot that `source` is (rich_text_source).
+bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, u16 source_id, UiTextFlowLayout* flow,
                                float left_inset, float right_inset, const Color& color,
                                const UiWidgetReference& owner, u16 measurement_index,
                                MessageTextMeasurementKind measurement_kind, float gap_after, u32 base_style,
@@ -215,8 +230,8 @@ bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiText
                              const UiWidgetReference& owner, u16 measurement_index, u32 flags,
                              const Utf8View& link, u16 link_source, float minimum_height, u16 source_id,
                              u8 size) noexcept;
-bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow, float left_inset,
-                        float right_inset, const Color& color, const UiWidgetReference& owner,
+bool append_embed_block(BuildContext* context, const Utf8View& source, u16 source_id, UiTextFlowLayout* flow,
+                        float left_inset, float right_inset, const Color& color, const UiWidgetReference& owner,
                         u16 measurement_index, bool markdown, u8 rules, u32 base_style, u8 base_size,
                         const Utf8View& link = kNoLink, u16 link_source = 0) noexcept;
 bool append_embed_fields(BuildContext* context, const MessageRichStore& store, const MessageRichRecord& rich,

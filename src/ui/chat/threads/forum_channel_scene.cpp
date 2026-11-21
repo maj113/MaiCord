@@ -12,7 +12,8 @@ namespace {
 struct CardParts {
     UiRect tags, title, preview, avatar, author, meta, media;
 };
-float chip_width(const Utf8View& name, const UiForumStyle& s) noexcept {
+float chip_width(const Utf8View& name) noexcept {
+    constexpr auto& s = kUiForumStyle;
     const auto valid = utf8_validate(name);
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
     return minimum(s.chip_max_width, maximum(s.chip_min_width, width));
@@ -38,12 +39,13 @@ const UiForumTag* find_tag(const UiForumChannelView& view, u64 id) noexcept {
 
 // Tag chips inside a card, in the post's own order; unknown IDs are skipped.
 bool card_tags(const UiForumChannelView& view, const UiForumPost& post, const UiRect& row,
-    const UiForumStyle& style, UiVisitRef<const UiForumTag&, const UiRect&> visit) noexcept {
+    UiVisitRef<const UiForumTag&, const UiRect&> visit) noexcept {
+    constexpr auto& style = kUiForumStyle;
     float x = row.left;
     for (u32 i = 0; i < post.tag_count && i < kUiForumPostTagCapacity; ++i) {
         const auto* tag = find_tag(view, post.tags[i]);
         if (!tag) continue;
-        const float width = minimum(chip_width(tag->name, style) - 8, row.right - x);
+        const float width = minimum(chip_width(tag->name) - 8, row.right - x);
         if (width < style.chip_min_width * .75f) break;
         if (!visit(*tag, UiRect{x, row.top, x + width, row.bottom})) return false;
         x += width + style.chip_gap;
@@ -84,8 +86,8 @@ void ui_forum_sort(const Slice<UiForumSortKey>& keys, UiForumSort sort) noexcept
     heap_sort_shared(keys.data, keys.count,
               [sort](const UiForumSortKey& a, const UiForumSortKey& b) noexcept { return before(a, b, sort); });
 }
-void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view, const UiForumStyle& s,
-    UiForumToolbar* out) noexcept {
+void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view, UiForumToolbar* out) noexcept {
+    constexpr auto& s = kUiForumStyle;
     reset_value(out);
     const float width = maximum(0.f, ui_rect_width(band));
     const float row_top = band.top + (s.toolbar_row_height - s.control_height) * .5f;
@@ -98,7 +100,7 @@ void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view,
     const float first_row = band.top + s.toolbar_row_height;
     float x = band.left, y = first_row;
     for (u32 i = 0; i < view.tags.count && i < kUiForumTagCapacity; ++i) {
-        const float chip = minimum(chip_width(view.tags[i].name, s), width);
+        const float chip = minimum(chip_width(view.tags[i].name), width);
         if (x > band.left && x + chip > band.right) { x = band.left; y += s.chip_row_height; }
         const float top = y + (s.chip_row_height - s.chip_height) * .5f;
         out->chips[i] = {x, top, x + chip, top + s.chip_height};
@@ -107,7 +109,8 @@ void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view,
     }
     out->height = s.toolbar_row_height + (out->chip_count ? y - first_row + s.chip_row_height + s.chip_gap : 0.f);
 }
-UiForumGrid ui_forum_grid(float width, UiForumLayout layout, const UiForumStyle& s) noexcept {
+UiForumGrid ui_forum_grid(float width, UiForumLayout layout) noexcept {
+    constexpr auto& s = kUiForumStyle;
     width = maximum(1.f, width);
     if (layout == UiForumLayout::list) return {1, width, s.list_card_height, s.card_gap};
     u32 columns = static_cast<u32>((width + s.card_gap) / (s.gallery_min_width + s.card_gap));
@@ -127,8 +130,8 @@ float ui_forum_content_height(UiForumGrid grid, u32 count) noexcept {
     const u32 rows = (count + grid.columns - 1) / grid.columns;
     return static_cast<float>(rows) * grid.card_height + static_cast<float>(rows - 1) * grid.gap;
 }
-static CardParts card_parts(const UiRect& card, UiForumLayout layout, const UiForumPost& post,
-    const UiForumStyle& s) noexcept {
+static CardParts card_parts(const UiRect& card, UiForumLayout layout, const UiForumPost& post) noexcept {
+    constexpr auto& s = kUiForumStyle;
     CardParts parts{};
     const float inset = s.card_inset;
     float right = card.right - inset, y = card.top + inset;
@@ -169,7 +172,7 @@ bool ui_forum_channel_avatar(const UiThreadBrowserScene& s, u32 index, UiRect* r
     const auto& post = s.view->forum->posts[index];
     if (!post.author_id) return false;
     const auto card = s.backing->cards[index];
-    *rectangle = card_parts(card, s.view->forum->layout, post, s.forum_style).avatar;
+    *rectangle = card_parts(card, s.view->forum->layout, post).avatar;
     *clip = ui_rect_intersection(ui_rect_intersection(card, s.body), *rectangle);
     return ui_rect_has_area(*clip);
 }
@@ -178,7 +181,7 @@ bool ui_forum_channel_media(const UiThreadBrowserScene& s, u32 index, UiRect* re
     const auto& post = s.view->forum->posts[index];
     if (!post.has_media) return false;
     const auto card = s.backing->cards[index];
-    *rectangle = card_parts(card, s.view->forum->layout, post, s.forum_style).media;
+    *rectangle = card_parts(card, s.view->forum->layout, post).media;
     *clip = ui_rect_intersection(ui_rect_intersection(card, s.body), *rectangle);
     return ui_rect_has_area(*clip);
 }
@@ -186,9 +189,9 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
     if (!active(s)) return true;
     UiPaint p{out, t};
     const auto& view = *s.view->forum;
-    const auto& style = s.forum_style;
+    constexpr auto& style = kUiForumStyle;
     const auto& toolbar = s.backing->toolbar;
-    const auto look = ui_thread_browser_look(s);
+    const auto look = ui_thread_browser_look();
     p.control(s.widgets, s.forum_sort, look).control(s.widgets, s.forum_list, look, view.layout == UiForumLayout::list)
         .control(s.widgets, s.forum_gallery, look, view.layout == UiForumLayout::gallery);
     const UiWidgetHandle icon_owners[]{s.forum_sort, s.forum_list, s.forum_gallery};
@@ -209,7 +212,7 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
         if (!handle.generation) continue;
         const auto card = s.backing->cards[i];
         const auto& post = view.posts[i];
-        const auto parts = card_parts(card, view.layout, post, style);
+        const auto parts = card_parts(card, view.layout, post);
         p.look(card, {.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
                       .radius = style.radius}, ui_widget_state(s.widgets, handle));
         if (ui_rect_has_area(parts.media)) {
@@ -218,7 +221,7 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
             p.rounded(parts.media, t.base_lowest, view.layout == UiForumLayout::gallery ? 0.f : style.radius)
                 .icon(post.has_media ? UiIcon::image : UiIcon::thread, {x - 12, y - 12, x + 12, y + 12}, t.text_secondary);
         }
-        card_tags(view, post, parts.tags, style, [&](const UiForumTag&, UiRect chip) noexcept {
+        card_tags(view, post, parts.tags, [&](const UiForumTag&, UiRect chip) noexcept {
             return p.rounded(chip, t.surface_high, ui_rect_height(chip) * .5f).ok();
         });
         if (post.pinned)
@@ -236,24 +239,24 @@ bool ui_forum_channel_text_output(const UiThreadBrowserScene& s, const Theme& t,
     if (!active(s)) return true;
     UiTextPen text{out, s.widgets, s.panel, s.body};
     const auto& view = *s.view->forum;
-    const auto& style = s.forum_style;
+    constexpr auto& browser = kUiThreadBrowserStyle;
     const auto& toolbar = s.backing->toolbar;
     if (s.forum_sort.generation)
         text(s.forum_sort, ui_forum_sort_label(view.sort),
              ui_rect_edges(ui_bounds(s, s.forum_sort), ui_start(30), ui_start(0), ui_end(-8), ui_end(0)), t.text_primary,
-             s.style.title_flags);
+             browser.title_flags);
     const UiWidgetHandle layouts[]{s.forum_list, s.forum_gallery};
     const Utf8View labels[]{utf8_literal("List"), utf8_literal("Gallery")};
     for (u32 i = 0; i < 2; ++i)
         if (layouts[i].generation)
             text(layouts[i], labels[i], ui_rect_edges(ui_bounds(s, layouts[i]), ui_start(28), ui_start(0), ui_end(-6), ui_end(0)),
-                 t.text_primary, s.style.detail_flags);
+                 t.text_primary, browser.detail_flags);
     for (u32 i = 0; i < toolbar.chip_count && i < view.tags.count; ++i) {
         if (!s.backing->chips[i].generation) continue;
         const auto r = toolbar.chips[i];
         const bool selected = view.tags[i].selected;
         text(s.backing->chips[i], view.tags[i].name, {r.left + (selected ? 24.f : 10.f), r.top, r.right - 10, r.bottom},
-             selected ? t.text_primary : t.text_secondary, s.style.detail_flags, selected ? 0u : ui_text_center);
+             selected ? t.text_primary : t.text_secondary, browser.detail_flags, selected ? 0u : ui_text_center);
     }
     for (u32 i = 0; text.ok() && i < s.count; ++i) {
         const auto handle = s.backing->rows[i];
@@ -262,29 +265,29 @@ bool ui_forum_channel_text_output(const UiThreadBrowserScene& s, const Theme& t,
         auto in_card = text.in(ui_rect_intersection(card, s.body));
         const auto& post = view.posts[i];
         const auto& row = s.view->rows[i];
-        const auto parts = card_parts(card, view.layout, post, style);
+        const auto parts = card_parts(card, view.layout, post);
         UiRect title = parts.title;
         if (post.pinned) title.right -= 22;
-        card_tags(view, post, parts.tags, style, [&](const UiForumTag& tag, UiRect chip) noexcept {
+        card_tags(view, post, parts.tags, [&](const UiForumTag& tag, UiRect chip) noexcept {
             return in_card(handle, tag.name, ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-8), ui_end(0)),
-                           t.text_secondary, s.style.detail_flags, ui_text_center).pen->ok();
+                           t.text_secondary, browser.detail_flags, ui_text_center).pen->ok();
         });
         in_card(handle, row.name.bytes ? row.name : utf8_literal("Untitled post"), title,
-                s.view->loading || s.view->error ? t.text_secondary : t.text_primary, s.style.name_flags)
-            (handle, post.preview, parts.preview, t.text_secondary, s.style.detail_flags, ui_text_wrap)
-            (handle, post.author_name, parts.author, t.text_secondary, s.style.detail_flags);
+                s.view->loading || s.view->error ? t.text_secondary : t.text_primary, browser.name_flags)
+            (handle, post.preview, parts.preview, t.text_secondary, browser.detail_flags, ui_text_wrap)
+            (handle, post.author_name, parts.author, t.text_secondary, browser.detail_flags);
         if (post.metadata_known) {
             const UiRect count_box = ui_rect_edges(parts.meta, ui_start(20), ui_start(0), ui_start(64), ui_end(0));
             in_card(handle, {s.backing->replies[i], s.backing->reply_bytes[i]}, count_box, t.text_secondary,
-                    s.style.detail_flags)
+                    browser.detail_flags)
                 (handle, post.activity, {count_box.right, parts.meta.top, parts.meta.right, parts.meta.bottom},
-                 t.text_secondary, s.style.detail_flags, ui_text_end);
+                 t.text_secondary, browser.detail_flags, ui_text_end);
         } else {
-            in_card(handle, post.activity, parts.meta, t.text_secondary, s.style.detail_flags, ui_text_end);
+            in_card(handle, post.activity, parts.meta, t.text_secondary, browser.detail_flags, ui_text_end);
         }
     }
     if (s.count) return text.ok();
-    const float left = s.panel.left + s.style.inset, right = s.panel.right - s.style.inset;
+    const float left = s.panel.left + browser.inset, right = s.panel.right - browser.inset;
     const float top = s.body.top + minimum(52.f, ui_rect_height(s.body) * .35f);
     bool filtered = false;
     for (u32 i = 0; i < view.tags.count; ++i) filtered |= view.tags[i].selected;
@@ -294,7 +297,7 @@ bool ui_forum_channel_text_output(const UiThreadBrowserScene& s, const Theme& t,
                  : s.tab == UiThreadBrowserTab::search ? utf8_literal("No matching posts")
                  : s.tab == UiThreadBrowserTab::archived ? utf8_literal("No older posts on this page")
                  : utf8_literal("No posts yet"),
-         {left, top, right, minimum(s.body.bottom, top + 60)}, t.text_secondary, s.style.title_flags,
+         {left, top, right, minimum(s.body.bottom, top + 60)}, t.text_secondary, browser.title_flags,
          ui_text_in_body | ui_text_center | ui_text_wrap);
     return text.ok();
 }

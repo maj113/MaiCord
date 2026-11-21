@@ -169,7 +169,6 @@ struct TimelineFixture {
     UiVariableList list;
     MessageTimeline timeline;
     MessageScene scene;
-    MessageSceneRowWidget rows[2];
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode layout_nodes[2 * kMessageSceneWidgetsPerRow + 1];
     ReactionPreferenceStore preferences;
@@ -185,9 +184,9 @@ bool timeline_ready(TimelineFixture& f, UiRect viewport) noexcept {
                .ok() &&
            ui_variable_list_initialize(&f.list, Slice<u32>{f.item_units, 2}, Slice<u64>{f.fenwick, 2}, 2, units) &&
            message_timeline_initialize(&f.timeline, &f.store, &f.list, units, ui_extent_units(360.0f), true) &&
-           message_scene_initialize(&f.scene, &f.timeline, Slice<MessageSceneRowWidget>{f.rows, 2},
-                                    Slice<UiWidget>{f.widgets, 2 * kMessageSceneWidgetsPerRow + 1},
-                                    Slice<UiLayoutNode>{f.layout_nodes, 2 * kMessageSceneWidgetsPerRow + 1}) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, 2,
+                                          Slice<UiWidget>{f.widgets, 2 * kMessageSceneWidgetsPerRow + 1},
+                                          Slice<UiLayoutNode>{f.layout_nodes, 2 * kMessageSceneWidgetsPerRow + 1}) &&
            message_scene_update(&f.scene, viewport).ok() && f.scene.count == 2 &&
            reaction_preferences_initialize(&f.preferences);
 }

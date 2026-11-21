@@ -20,7 +20,7 @@ inline constexpr u32 kPersistRetryMaximumMs = 30'000;
 inline constexpr u32 kPersistPollMs = 25;
 inline constexpr u32 kPersistDrainMs = 5'000;
 
-u32 retry_delay(u32 failures) noexcept {
+inline u32 retry_delay(u32 failures) noexcept {
     const u32 shift = minimum(failures == 0 ? 0u : failures - 1u, 5u);
     return minimum(kPersistThrottleMs << shift, kPersistRetryMaximumMs);
 }
@@ -63,7 +63,7 @@ u32 draft_writer_main(void* context) noexcept {
     }
 }
 
-DraftWriter* draft_writer() noexcept {
+inline DraftWriter* draft_writer() noexcept {
     if (g_writer || g_writer_failed) return g_writer;
     auto* writer = static_cast<DraftWriter*>(heap_allocate(sizeof(DraftWriter), true));
     if (writer) {

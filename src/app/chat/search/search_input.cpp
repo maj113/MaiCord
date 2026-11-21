@@ -247,8 +247,9 @@ bool application_search_window_event(const WindowEvent& event) noexcept {
         release_pointer(*s);
         return false;
     }
-    if (!front() || !(input_pointer(event) || event.type == EventType::cursor_query ||
-                      event.type == EventType::context_menu || event.type == EventType::pointer_leave))
+    if (!(input_pointer(event) || event.type == EventType::cursor_query || event.type == EventType::context_menu ||
+          event.type == EventType::pointer_leave) ||
+        !front())
         return false;
     const float scale = 96.f / g_app.renderer.dpi;
     float x = 0, y = 0;

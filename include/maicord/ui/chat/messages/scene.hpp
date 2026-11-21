@@ -5,7 +5,6 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/ui/chat/messages/rich_layout.hpp"
 #include "maicord/ui/core/widget_manager.hpp"
-#include "maicord/ui/chat/messages/unread_divider_style.hpp"
 #include "maicord/ui/chat/search/message_result_card.hpp"
 #include "maicord/ui/chat/messages/media_policy.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
@@ -35,7 +34,6 @@ struct MessageScenePollBinding {
     void* context{};
 };
 
-inline constexpr u32 kMessageSceneOverscanRows = 1;
 // Peak jump-highlight tint over the accent token.
 inline constexpr float kMessageSceneHighlightAlpha = 0.18f;
 // Ephemeral messages (message flag 1 << 6) sit on a faint accent tint.
@@ -294,9 +292,7 @@ struct MessageScene {
     u32 data_updates;
     u32 measurement_updates;
     u64 unread_channel_id, unread_last_read_message_id, unread_first_message_id;
-    UiUnreadDividerStyle unread_divider_style;
     float pixel_scale; // dpi / 96 for device-pixel hairlines; 0 leaves DIP geometry
-    float unread_prepared_height;
     u32 unread_revision;
     bool unread_cursor_known;
     bool active;
@@ -304,10 +300,8 @@ struct MessageScene {
     // A scroll moved the timeline since the last update; kept apart from dirty
     // so an update can tell a pure scroll from other changes.
     bool scroll_dirty;
-    bool owns_rows;
     // An update wrote layout specifications after the last layout pass.
     bool layout_specs_stale;
-    MessageResultCardStyle result_card_style;
     u32 result_card_revision;
     bool result_cards;
     ConstSlice<MessageHandle> source_order;
@@ -451,9 +445,8 @@ bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeli
 // Commits one retained measurement per store slot (the non-deferred layout).
 bool message_scene_reserve_measurements(MessageScene* scene) noexcept;
 void message_scene_release(MessageScene* scene) noexcept;
-// Only the retained owned-row mode supports result cards. Null restores normal
-// timeline presentation; body/snapshot measurements remain independently owned.
-bool message_scene_set_result_card_style(MessageScene*, const MessageResultCardStyle*) noexcept;
+// Result cards all use kMessageResultCardStyle. Body and snapshot measurements remain independently owned.
+bool message_scene_show_result_cards(MessageScene*) noexcept;
 // Immutable result order may differ from canonical MessageStore lookup order.
 // The host owns handles under revision; empty restores canonical timeline order.
 bool message_scene_set_source_order(MessageScene*, const ConstSlice<MessageHandle>&, u32 revision) noexcept;

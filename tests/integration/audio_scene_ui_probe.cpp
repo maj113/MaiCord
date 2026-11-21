@@ -181,7 +181,6 @@ struct Fixture {
     u8 rich_text[2048]{};
     u32 heights[2]{};
     u64 fenwick[2]{};
-    MessageSceneRowWidget rows[2]{};
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[2 * kMessageSceneWidgetsPerRow + 1]{};
     MessageTextCommand commands[32]{};
@@ -249,9 +248,9 @@ bool initialize(Fixture& fixture) noexcept {
                                                    ui_extent_units(180), ui_extent_units(1000), false) &&
                        message_timeline_bind_rich_store(&fixture.timeline, &fixture.rich),
                    304) &&
-           require(message_scene_initialize(&fixture.messages, &fixture.timeline, {fixture.rows, 2},
-                                            {fixture.widgets, 2 * kMessageSceneWidgetsPerRow + 1},
-                                            {fixture.nodes, 2 * kMessageSceneWidgetsPerRow + 1}),
+           require(message_scene_initialize_owned(&fixture.messages, &fixture.timeline, kMessageSceneTestRows, 2,
+                                                  {fixture.widgets, 2 * kMessageSceneWidgetsPerRow + 1},
+                                                  {fixture.nodes, 2 * kMessageSceneWidgetsPerRow + 1}),
                    305) &&
            require(message_text_presentation_initialize(&fixture.message_text, {fixture.commands, 32},
                                                         {fixture.display, sizeof(fixture.display)},

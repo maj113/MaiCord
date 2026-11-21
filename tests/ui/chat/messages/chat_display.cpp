@@ -192,7 +192,7 @@ void test_hairlines_and_spine(Check check) noexcept {
     bool crisp = true;
     constexpr float scales[]{1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
     for (const float scale : scales) {
-        const auto line = ui_unread_divider_geometry(divider, kDefaultUiUnreadDividerStyle, scale).line;
+        const auto line = ui_unread_divider_geometry(divider, scale).line;
         const float pixels = (line.bottom - line.top) * scale;
         crisp &= integral(line.top * scale) && integral(line.left * scale) && integral(line.right * scale) &&
                  pixels > .999f && pixels < scale + .501f && integral(pixels) &&

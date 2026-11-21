@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/chat/messages/scene.hpp"
+#include "maicord/ui/chat/messages/unread_divider_style.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
 #include "maicord/ui/theme/styles.hpp"

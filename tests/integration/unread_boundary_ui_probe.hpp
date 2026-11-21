@@ -31,7 +31,7 @@ inline Geometry geometry(const MessageScene& scene,u64 first) noexcept {
     const auto* boundary = message_scene_find_row(scene,1);
     const auto* forwarded = message_scene_find_row(scene,2);
     if (boundary && boundary->message_id == first + 1) {
-        result.line = ui_unread_divider_geometry(message_scene_unread_divider_rectangle(scene,*boundary),scene.unread_divider_style,
+        result.line = ui_unread_divider_geometry(message_scene_unread_divider_rectangle(scene,*boundary),
             scene.pixel_scale).line;
         const auto* avatar = message_scene_layout_node(scene,boundary->avatar);
         if (avatar) result.avatar = avatar->rectangle;
@@ -234,7 +234,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
                 ++dividers;
                 const auto body = message_scene_message_rectangle(f.scene,row);
                 if (row.message_id != first + 1 || row.grouped || body.top != strip.bottom ||
-                    ui_rect_height(strip) != kDefaultUiUnreadDividerStyle.height) return false;
+                    ui_rect_height(strip) != kUiUnreadDividerStyle.height) return false;
                 const auto child = message_scene_snapshot_row(f.scene,row);
                 if (child && ui_rect_has_area(message_scene_unread_divider_rectangle(f.scene,*child))) return false;
                 const auto visible = ui_rect_intersection(strip,f.scene.viewport);

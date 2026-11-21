@@ -16,7 +16,7 @@ struct UnreadFixture {
     ChannelRecord channels[3]; u16 channel_order[3]; u8 names[2048];
     MessageStore store; MessageRecord records[2]; u32 order[2], heights[2]; u64 fenwick[2]; u8 text[2048];
     UiVariableList list; MessageTimeline timeline; MessageScene scene;
-    MessageSceneRowWidget message_rows[2]; UiWidget message_widgets[64]; UiLayoutNode message_nodes[64];
+    UiWidget message_widgets[64]; UiLayoutNode message_nodes[64];
     NavigationView view; ChannelViewRow channel_rows[2];
     ShellNavigationScene navigation; ShellNavigationRowWidget navigation_rows[2];
     UiWidget navigation_widgets[12]; UiLayoutNode navigation_nodes[12];
@@ -54,7 +54,8 @@ struct UnreadFixture {
         event.fields = gateway_message_field_id | gateway_message_field_channel_id | gateway_message_field_author_id |
             gateway_message_field_content | gateway_message_field_timestamp;
         if (!message_timeline_apply_created(&timeline, event).ok() ||
-            !message_scene_initialize(&scene, &timeline, {message_rows, 2}, {message_widgets, 64}, {message_nodes, 64}) ||
+            !message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 2, {message_widgets, 64},
+                                            {message_nodes, 64}) ||
             !message_scene_update(&scene, {300, 40, 900, 500}).ok()) return false;
         view.channel_rows = channel_rows; view.channel_count = view.channel_capacity = 2; view.channel_revision = 1;
         view.selected_channel_id = 70;
@@ -113,9 +114,9 @@ void test_unread_context(void (*check)(bool, const char*) noexcept) noexcept {
     const auto row_count = f.scene.count; f.scene.count = 0;
     check(!unread_context_current(target, source), "unread context rejects a target removed from visible message rows");
     f.scene.count = row_count;
-    const auto row_handle = f.message_rows[0].widget; f.message_rows[0].widget.generation = 0;
+    const auto row_handle = f.scene.rows[0].widget; f.scene.rows[0].widget.generation = 0;
     check(!unread_context_current(target, source), "unread context rejects retired message widget handles");
-    f.message_rows[0].widget = row_handle;
+    f.scene.rows[0].widget = row_handle;
     f.state.selected_channel_id = 71;
     check(!unread_context_current(target, source), "unread message cannot activate after channel navigation");
     f.state.selected_channel_id = 70;

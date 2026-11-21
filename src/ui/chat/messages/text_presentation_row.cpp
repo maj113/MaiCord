@@ -52,24 +52,12 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
     return commit_last_command(presentation, flow);
 }
 
-// The member's role colour (0 when the author has none or is not a server member).
-u32 member_role_rgb(const MessageTextPresentation& presentation, const ChatStateStore& state, u64 channel_id,
-                    u64 user_id) noexcept {
-    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
-    const GuildMemberRecord* member =
-        presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
-            ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
-            : nullptr;
-    return member ? member->role_color : 0;
-}
-// The name colour as Accessibility's Role Colors shows it: the role colour (at the user-colour saturation) on names,
-// else the fallback (the role colour is a dot before the name, or not shown).
-Color member_role_color(const MessageTextPresentation& presentation, const MessageSceneDisplay& display,
-                        const ChatStateStore& state, u64 channel_id, u64 user_id, const Color& fallback) noexcept {
-    const u32 rgb = display.role_style == kMessageRoleColorsOnNames
-                        ? member_role_rgb(presentation, state, channel_id, user_id)
-                        : 0;
-    return rgb ? message_user_color(color_from_rgb24(rgb), display.user_color_desaturation) : fallback;
+// The name colour as Accessibility's Role Colors shows it: the role colour `rgb` (at the user-colour saturation) on
+// names, else the fallback (the role colour is a dot before the name, or not shown).
+Color role_name_color(const MessageSceneDisplay& display, u32 rgb, const Color& fallback) noexcept {
+    return rgb && display.role_style == kMessageRoleColorsOnNames
+               ? message_user_color(color_from_rgb24(rgb), display.user_color_desaturation)
+               : fallback;
 }
 
 struct RetainedAuthorHeader {
@@ -232,7 +220,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     }
     const auto divider = message_scene_unread_divider_rectangle(scene, row);
     if (ui_rect_has_area(divider)) {
-        const auto geometry = ui_unread_divider_geometry(divider, scene.unread_divider_style);
+        const auto geometry = ui_unread_divider_geometry(divider);
         if (!append_command(presentation, kUiUnreadDividerLabel, kNoStyles, kNoSemantics,
                             UiWidgetReference{&scene.widgets, row.widget}, geometry.label, row_clip,
                             ui_unread_divider_text_color(theme), nullptr, kInvalidMessageTextMeasurement,
@@ -398,9 +386,13 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 : MessageReplyIcon::none;
         const UiWidgetReference owner{&scene.widgets, row.reply};
         // Role colours are server data and pass through every theme unchanged. The quoted author's name is muted;
-        // the interaction header mutes its name when it lays the line out.
-        const Color reply_author_color = member_role_color(*presentation, scene.display, state, record->channel_id,
-                                                           message_rich_header_user(*rich), theme.text_primary);
+        // the interaction header mutes its name when it lays the line out. Only names show the colour.
+        const GuildMemberRecord* quoted =
+            scene.display.role_style == kMessageRoleColorsOnNames
+                ? channel_member(*presentation, state, record->channel_id, message_rich_header_user(*rich))
+                : nullptr;
+        const Color reply_author_color =
+            role_name_color(scene.display, quoted ? quoted->role_color : 0u, theme.text_primary);
         const Color reply_name_color =
             interaction_header ? reply_author_color
                                : ui_theme_color_alpha(reply_author_color, kMessageReplyAuthorOpacity);
@@ -441,7 +433,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         set_failure_context(presentation, MessageTextPresentationStage::author,
                             MessageTextPresentationOperation::append_command);
         const UserRecord* user = user_store_find(*users, record->author_id);
-        Utf8View name = member_nickname(*presentation, state, record->channel_id, record->author_id);
+        // One member lookup gives the nickname and the role colour.
+        const GuildMemberRecord* member =
+            channel_member(*presentation, state, record->channel_id, record->author_id);
+        Utf8View name = member ? guild_member_store_nickname(*member) : Utf8View{};
         if (name.bytes == 0 && user)
             name = user_store_name(*users, *user);
         if (name.bytes == 0 && record->delivery != MessageDeliveryState::authoritative) {
@@ -453,16 +448,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                  : theme.text_primary;
         author_color = ui_foreground_color(theme, author_color);
         // Role colours are server data and pass through every theme unchanged.
-        if (record->delivery == MessageDeliveryState::authoritative) {
-            author_color = member_role_color(*presentation, scene.display, state, record->channel_id,
-                                             record->author_id, author_color);
-        }
+        const u32 role_rgb =
+            member && record->delivery == MessageDeliveryState::authoritative ? member->role_color : 0u;
+        author_color = role_name_color(scene.display, role_rgb, author_color);
         // "Next to names": the role colour rides on the header as its inline role colour (a compact row's as a dot
         // cell); either way the dot comes before the name.
-        const u32 dot_rgb = scene.display.role_style == kMessageRoleColorsDot &&
-                                    record->delivery == MessageDeliveryState::authoritative
-                                ? member_role_rgb(*presentation, state, record->channel_id, record->author_id)
-                                : 0;
+        const u32 dot_rgb = scene.display.role_style == kMessageRoleColorsDot ? role_rgb : 0u;
         if (scene.display.compact) {
             compact_name = name;
             compact_color = author_color;
@@ -707,7 +698,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 if (!initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,
                                      ui_rect_width(item_layout->content_rectangle), component_clip, &flow) ||
                     !append_rich_markdown_line(
-                        &context, message_rich_store_string(*rich_store, component.content), &flow, 0.0f, 0.0f,
+                        &context, message_rich_store_string(*rich_store, component.content),
+                        rich_text_source(context, kRichTextComponentBegin + index * 2u + 1u), &flow, 0.0f, 0.0f,
                         theme.text_primary, owner, measurement_index, MessageTextMeasurementKind::component, 3.0f, 0,
                         contained ? text_size_sm : text_size_inherit)) {
                     return false;

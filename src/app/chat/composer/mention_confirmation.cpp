@@ -30,7 +30,7 @@ bool mention_confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
     return true;
 }
 
-MessageMentionWarningPlace mention_place(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+inline MessageMentionWarningPlace mention_place(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
     if (channel.type != 10 && channel.type != 11 && channel.type != 12)
         return MessageMentionWarningPlace::channel;
     const ChannelRecord* parent = channel.parent_id ? chat_state_store_find_channel(state, channel.parent_id) : nullptr;

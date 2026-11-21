@@ -244,7 +244,7 @@ bool application_private_channel_leave(u64 channel_id, bool silent) noexcept {
 }
 
 u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> output) noexcept {
-    if (!scope_current() || !output.data || !private_channel_member_count(state(), channel_id)) return 0;
+    if (!scope_current() || !private_channel_member_count(state(), channel_id)) return 0;
     // A message request offers its two answers instead of group actions.
     const auto* record = state().private_channels ? private_channel_store_find(*state().private_channels, channel_id)
                                                   : nullptr;
@@ -276,8 +276,7 @@ u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> outp
     return used;
 }
 u32 application_private_channel_member_items(u64 user_id, Slice<PopupItem> output) noexcept {
-    if (!scope_current() || !output.count || !output.data ||
-        !private_channel_can_remove(state(), state().selected_channel_id, user_id))
+    if (!scope_current() || !private_channel_can_remove(state(), state().selected_channel_id, user_id))
         return 0;
     popup_item_set(&output[0], utf8_literal("Remove from group"), popup_action_private_remove_member,
                    static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
@@ -374,8 +373,9 @@ void application_private_channel_navigation(NavigationView* view) noexcept {
     static u32 published_store_revision;
     const auto* store = state().private_channels;
     const u32 count = application_private_channel_request_count();
-    const bool mode = scope_current() && g_private.requests_mode && count;
-    if (scope_current() && g_private.requests_mode && !count)
+    const bool requests = scope_current() && g_private.requests_mode;
+    const bool mode = requests && count;
+    if (requests && !count)
         g_private.requests_mode = false;
     const u32 revision = store ? store->revision : 0;
     if (view->requests_row != (count != 0) || view->requests_mode != mode || view->request_count != count ||

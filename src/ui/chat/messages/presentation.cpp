@@ -303,7 +303,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     const UiRect message_rectangle = message_scene_message_rectangle(scene, row);
     const UiRect divider = message_scene_unread_divider_rectangle(scene, row);
     if (ui_rect_has_area(divider) &&
-        !ui_unread_divider_paint(paint, divider, theme, scene.unread_divider_style, scene.pixel_scale))
+        !ui_unread_divider_paint(paint, divider, theme, scene.pixel_scale))
         return false;
     if (!row.forwarded_snapshot && hovered == &row) {
         Color hover_fill = theme.surface;
@@ -358,6 +358,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         return false;
     if (!row.forwarded_snapshot && record && !append_plugin_card(scene, row, *record, theme, row_clip, paint))
         return false;
+    // A rich record comes from the message record, so the rest of the row has both. The caller marks the commands
+    // of a forwarded snapshot as snapshot commands.
     if (!rich) {
         *geometry_quads += paint->count - geometry_begin;
         return true;
@@ -513,7 +515,6 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             command->ordinary_video = format == MediaAttachmentFormat::mp4 && visible &&
                                       message_media_unplayable(scene.media_unplayable, reveal_key) ==
                                           MessageMediaUnplayable::none;
-            command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);
             command->gif = message_rich_attachment_gif_favorite(*rich_store, attachment) && visible;
         } else {
@@ -558,20 +559,16 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             return false;
         MessageRichEmbedMediaSelection selected{};
         float thumb_width = 0, thumb_height = 0;
-        if (record &&
-            message_rich_embed_thumbnail_extent(
+        if (message_rich_embed_thumbnail_extent(
                 *rich_store, embed,
                 maximum(1.f, ui_rect_width(card) - kMessageEmbedContentInset - kMessageEmbedEndInset),
                 &thumb_width, &thumb_height) &&
             message_rich_embed_resource_select(*rich_store, embed, MediaEmbedResource::thumbnail,
                                                &selected)) {
-            const UiRect thumb = message_rich_embed_thumbnail_rect(card, thumb_width, thumb_height,
-                                                                   message_rich_embed_plan(*rich_store, embed).components);
-            MessageMediaCommand* const command =
-                append_embed_media(media, *record, index, selected, thumb, row_clip, owner);
-            if (!command)
+            const UiRect thumb = message_rich_embed_thumbnail_rect(
+                card, thumb_width, thumb_height, embed.type == GatewayMessageEmbedType::components);
+            if (!append_embed_media(media, *record, index, selected, thumb, row_clip, owner))
                 return false;
-            command->snapshot = row.forwarded_snapshot;
         }
         // Author and footer icons: round, fetched by proxied URL like other
         // URL-keyed message images.
@@ -582,7 +579,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                             item_layout->content_rectangle, &icons[0]);
         message_rich_embed_footer_icon_rect(*rich_store, embed, row.rich_item_layout, index,
                                             item_layout->content_rectangle, &icons[1]);
-        for (u32 icon = 0; record && icon < 2; ++icon) {
+        for (u32 icon = 0; icon < 2; ++icon) {
             if (!ui_rect_has_area(icons[icon]) || !icon_urls[icon].bytes)
                 continue;
             const MediaAttachmentFormat format = message_rich_embed_icon_format(icon_urls[icon]);
@@ -598,7 +595,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         const float media_width = row.rich_item_layout.embed_media_widths[index];
         const float media_height = row.rich_item_layout.embed_media_heights[index];
         MessageRichEmbedGallery gallery{};
-        if (record && media_width > 0.0f && media_height > 0.0f &&
+        if (media_width > 0.0f && media_height > 0.0f &&
             message_rich_embed_gallery(*rich_store, *rich, index, &gallery)) {
             const UiRect block = message_rich_embed_media_rect(row.rich_item_layout, index,
                                                                item_layout->content_rectangle, media_only);
@@ -624,11 +621,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                     append_embed_media(media, *record, member, image, cell, row_clip, owner);
                 if (!command)
                     return false;
-                command->snapshot = row.forwarded_snapshot;
                 command->obscure = static_cast<u8>(obscure);
                 command->cover = 1;
             }
-        } else if (record && media_width > 0.0f && media_height > 0.0f &&
+        } else if (media_width > 0.0f && media_height > 0.0f &&
             message_rich_embed_media_select(*rich_store, rich->embeds[index], &selected)) {
             const float media_top =
                 item_layout->content_rectangle.top + row.rich_item_layout.embed_media_tops[index];
@@ -655,8 +651,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             command->ordinary_video = playable && embed.type != GatewayMessageEmbedType::gifv && visible &&
                                       message_media_unplayable(scene.media_unplayable, reveal_key) ==
                                           MessageMediaUnplayable::none;
-            command->open_link = command->ordinary_video && message_rich_embed_open_pill(*rich_store, embed);
-            command->snapshot = row.forwarded_snapshot;
+            // The open pill's test (message_rich_embed_open_pill) on the playback selection made above.
+            command->open_link = command->ordinary_video && embed.url.bytes != 0 && playback.provider &&
+                                 playback.format == MediaAttachmentFormat::mp4;
             command->obscure = static_cast<u8>(obscure);
             command->gif = message_rich_embed_gif_favorite(*rich_store, embed, selected) && visible;
         }
@@ -700,7 +697,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             continue;
         // An unrevealed spoiler container shows only its own card.
         const u32 spoiler = message_component_spoiler_container(*rich, index);
-        if (spoiler != kMessageComponentNone && spoiler != index && record &&
+        if (spoiler != kMessageComponentNone && spoiler != index &&
             message_scene_media_obscure(scene, media_policy, 0,
                                         message_media_reveal_key(record->id, MessageMediaSource::component, spoiler,
                                                                  row.forwarded_snapshot),
@@ -708,7 +705,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             continue;
         const bool item_hovered = hovered_widget.slot == item_widget.slot &&
                                   hovered_widget.generation == item_widget.generation && item_widget.generation;
-        const bool pending = record && scene.interaction.pending && scene.interaction.message_id == record->id &&
+        const bool pending = scene.interaction.pending && scene.interaction.message_id == record->id &&
                              scene.interaction.component_index == index && !row.forwarded_snapshot;
         switch (kind) {
         case MessageComponentKind::container: {
@@ -738,7 +735,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                     return false;
                 break;
             }
-            if (component.emoji_id && record) {
+            if (component.emoji_id) {
                 // After the padding, or centred in a button holding only the emoji.
                 const float top = control.top + (ui_rect_height(control) - kMessageComponentEmojiExtent) * 0.5f;
                 const float left = component.label.bytes
@@ -812,7 +809,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (!paint_stream_push_rounded(paint, control, theme.surface_high, theme.scale.radius_md))
                 return false;
             MessageComponentMedia resolved{};
-            if (record && message_component_media_resolve(*rich_store, component, &resolved)) {
+            if (message_component_media_resolve(*rich_store, component, &resolved)) {
                 const MessageMediaObscure obscure = message_scene_media_obscure(
                     scene, media_policy, 0,
                     message_media_reveal_key(record->id, MessageMediaSource::component, index,
@@ -823,7 +820,6 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                  control, row_clip, owner);
                 if (!command)
                     return false;
-                command->snapshot = row.forwarded_snapshot;
                 command->obscure = static_cast<u8>(obscure);
             } else if (!ui_icon_paint(paint, UiIcon::image,
                                       {(control.left + control.right) * 0.5f - 12.0f,
@@ -841,7 +837,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     }
 
     // A failed control's error line leads with the critical icon.
-    if (record && !row.forwarded_snapshot && scene.interaction.failed && scene.interaction.message_id == record->id) {
+    if (!row.forwarded_snapshot && scene.interaction.failed && scene.interaction.message_id == record->id) {
         const u32 host = message_component_error_host(*rich, scene.interaction.component_index);
         const UiLayoutNode* node =
             host != kMessageComponentNone

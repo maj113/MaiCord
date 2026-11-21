@@ -65,7 +65,6 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
     UiScene shell{};
     UiFriendsScene friends{};
     MessageScene messages{};
-    MessageSceneRowWidget message_rows[4]{};
     UiWidget message_widgets[256]{};
     UiLayoutNode message_nodes[256]{};
     MessageTextPresentation empty_presentation{};
@@ -157,8 +156,8 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
         !ui_variable_list_initialize(&empty_list, {item_units, 1}, {fenwick, 1}, 0, ui_extent_units(48)) ||
         !message_timeline_initialize(&timeline, &empty_store, &empty_list, ui_extent_units(48),
                                      ui_extent_units(400), false) ||
-        !message_scene_initialize(&messages, &timeline, {message_rows, 4}, {message_widgets, 256},
-                                  {message_nodes, 256}) ||
+        !message_scene_initialize_owned(&messages, &timeline, kMessageSceneTestRows, 4, {message_widgets, 256},
+                                        {message_nodes, 256}) ||
         !message_text_presentation_initialize(&empty_presentation, {empty_commands, 1}, {empty_utf8, 128},
                                               {empty_styles, 1}, {empty_semantics, 1},
                                               {empty_measurements, 1}, {empty_reveals, 1},

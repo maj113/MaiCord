@@ -110,7 +110,7 @@ bool rich_body_same(const MessageRichStore& store, const MessageRichRecord* rich
         if (rich->has_forwarded_snapshot != m.snapshot.present)
             return false;
         if (m.snapshot.present) {
-            const auto* child = message_rich_store_snapshot(store, rich->message_id);
+            const auto* child = message_rich_store_snapshot_of(store, *rich);
             if (!child)
                 return false;
             const auto& c = child->snapshot;
@@ -341,8 +341,9 @@ bool resolve(void* context, u32 index, UiSearchRow* out) noexcept {
     if (!out || !s.bank || index >= s.bank->page.message_count)
         return false;
     const auto& item = s.bank->messages[index];
-    if (row_unavailable(s, index)) {
-        const bool access_check = row_access_check(s, index);
+    const ChannelRecord* channel;
+    if (row_unavailable(s, index, &channel)) {
+        const bool access_check = row_access_check(s, index, channel);
         *out = {item.message.channel_id,
                 item.message.id,
                 {},

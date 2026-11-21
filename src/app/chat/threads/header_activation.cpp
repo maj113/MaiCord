@@ -13,7 +13,7 @@ u64 publication(const ApplicationThreadActionTicket& t) noexcept {
     for (u64 value : fields) hash = hash64_mix(hash, value);
     return hash ? hash : 1;
 }
-UiThreadAction operation(ThreadActionOperation op) noexcept {
+inline UiThreadAction operation(ThreadActionOperation op) noexcept {
     switch (op) {
     case ThreadActionOperation::fetch_self: return UiThreadAction::check_status;
     case ThreadActionOperation::join: return UiThreadAction::join;
@@ -22,13 +22,7 @@ UiThreadAction operation(ThreadActionOperation op) noexcept {
     }
     return UiThreadAction::none;
 }
-bool same_ticket(const ApplicationThreadActionTicket& a, const ApplicationThreadActionTicket& b) noexcept {
-    return a.serial == b.serial && a.account_scope == b.account_scope && a.profile_id == b.profile_id &&
-        a.self_user_id == b.self_user_id && a.thread_id == b.thread_id && a.account_instance == b.account_instance &&
-        a.channel_revision == b.channel_revision && a.publication_revision == b.publication_revision &&
-        a.channel_generation == b.channel_generation;
-}
-UiThreadAction menu_action(UiThreadMenuActions ids, u32 action) noexcept {
+inline UiThreadAction menu_action(UiThreadMenuActions ids, u32 action) noexcept {
     if (!action) return UiThreadAction::none;
     if (action == ids.check_status) return UiThreadAction::check_status;
     if (action == ids.join) return UiThreadAction::join;
@@ -51,7 +45,7 @@ ApplicationThreadHeaderActivationResult dispatch(const ApplicationThreadHeaderAc
     if (!s.current || !s.view || !s.ticket.thread_id || !s.current(s.context, s.ticket))
         return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     const auto host = s.view(s.context, s.ticket.thread_id);
-    if (!same_ticket(host.ticket, s.ticket)) return refuse(s, ApplicationThreadActionEnqueueResult::stale);
+    if (host.ticket != s.ticket) return refuse(s, ApplicationThreadActionEnqueueResult::stale);
     const auto ui = application_thread_header_projection(host);
     if (action == UiThreadAction::menu) {
         const bool opened = s.open_menu && s.open_menu(s.context, s.ticket, anchor);

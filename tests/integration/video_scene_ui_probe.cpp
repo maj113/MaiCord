@@ -36,7 +36,6 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         u8 rich_text[1024]{};
         u32 heights[1]{};
         u64 fenwick[1]{};
-        MessageSceneRowWidget rows[1]{};
         UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
         UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
         MessageStore store{};
@@ -59,9 +58,9 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
             message_timeline_initialize(&fixture.timeline, &fixture.store, &fixture.list,
                                         ui_extent_units(57), ui_extent_units(1000), false) &&
             message_timeline_bind_rich_store(&fixture.timeline, &fixture.rich) &&
-            message_scene_initialize(&fixture.messages, &fixture.timeline, {fixture.rows, 1},
-                                     {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
-                                     {fixture.nodes, kMessageSceneWidgetsPerRow + 1}),
+            message_scene_initialize_owned(&fixture.messages, &fixture.timeline, kMessageSceneTestRows, 1,
+                                           {fixture.widgets, kMessageSceneWidgetsPerRow + 1},
+                                           {fixture.nodes, kMessageSceneWidgetsPerRow + 1}),
         1);
     GatewayMessageAttachment attachment{};
     attachment.id = attachment_id;
@@ -85,9 +84,9 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
             message_rich_store_apply(&fixture.rich, message_id, fixture.record[0].revision, event).ok() &&
                 message_scene_update(&fixture.messages, viewport).ok(),
             2);
-    // Borrowed-row scenes keep their caller's initial timeline height until
-    // measurement is applied. Publish the empty body's metrics together with
-    // the estimated attachment layout, then lay out the expanded row again.
+    // The first layout uses the row's estimated height. Publish the empty
+    // body's metrics together with the estimated attachment layout, then lay
+    // out the expanded row again.
     bool metrics_changed = false;
     valid = valid && require(message_scene_set_text_metrics(&fixture.messages, 0, 0, 0, false, nullptr,
                                                             nullptr, {}, &metrics_changed) &&

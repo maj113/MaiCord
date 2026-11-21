@@ -22,7 +22,9 @@ constexpr UiPageKey kPage{kPageOwner, 1};
 constexpr u32 kAnswers = kPollCreateMaximumAnswers;
 // Editor 0 is the question; then answer texts, then answer emoji.
 constexpr u32 kEditorCount = 1 + 2 * kAnswers;
-constexpr u32 kControlCapacity = 8 + 2 * kAnswers;
+// project() pushes the most controls for a full form: five fixed rows, two rows for each answer and the Remove row.
+// A full form has no Add row.
+constexpr u32 kControlCapacity = 6 + 2 * kAnswers;
 constexpr u32 kMenuChoiceBase = 1'000;
 constexpr u32 kEmojiCodepoints = 16;
 enum : u64 {
@@ -118,17 +120,17 @@ u32 editor_of(u64 control) noexcept {
 
 // Projection --------------------------------------------------------------
 
-Utf8View numbered(TextBank& bank, Utf8View prefix, u32 number) noexcept {
+inline Utf8View numbered(TextBank& bank, Utf8View prefix, u32 number) noexcept {
     const u32 start = bank.used;
     bank.add(prefix);
     bank.number(number);
     return bank.since(start);
 }
+// kControlCapacity holds every projection.
 void push(const UiSettingsControl& control) noexcept {
-    if (owner->control_count < kControlCapacity)
-        owner->controls[owner->control_count++] = control;
+    owner->controls[owner->control_count++] = control;
 }
-Utf8View footer_status(PollDraftIssue issue) noexcept {
+inline Utf8View footer_status(PollDraftIssue issue) noexcept {
     if (owner->request_id || owner->queued) return utf8_literal("Posting poll…");
     if (owner->failed && owner->status.bytes) return owner->status;
     if (!connected()) return utf8_literal("Polls can be posted when MaiCord is connected.");

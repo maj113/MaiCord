@@ -50,7 +50,7 @@ bool source_current(const ComposerPreviewEntry& entry) noexcept {
            record->content.context == entry.request.content.context &&
            record->content.ops == entry.request.content.ops;
 }
-void unpin(MediaAssetKey key) noexcept {
+inline void unpin(MediaAssetKey key) noexcept {
     if (g_app.renderer.preview_media_atlas && media_asset_key_valid(key))
         media_atlas_unpin(g_app.renderer.preview_media_atlas, key);
 }

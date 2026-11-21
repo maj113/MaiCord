@@ -1101,6 +1101,16 @@ void test_component_embed(Check check) noexcept {
               described.underlined == 9 && described.struck == 9 && described.wrong == 0 && field.ok &&
               field.underlined == 10 && field.struck == 10 && field.wrong == 0,
           "message, embed description and field ansi: both lines take the run's foreground");
+    // Each rich text names its slot: embed 0's title and description, then field 0's name and value.
+    const MessageTextCommand* slot_title = row ? command(f.presentation, 0x8003, 0) : nullptr;
+    const MessageTextCommand* slot_name = row ? command(f.presentation, 0x8060, 0) : nullptr;
+    const MessageTextCommand* slot_value = row ? command_containing(f.presentation, utf8_literal("FIELDVALUE")) : nullptr;
+    const MessageTextCommand* slot_description =
+        row ? command_containing(f.presentation, utf8_literal("DESCRIBED")) : nullptr;
+    check(slot_title && utf8_equal(slot_title->text, utf8_literal("t")) && slot_name &&
+              utf8_equal(slot_name->text, utf8_literal("f")) && slot_value && slot_value->source_id == 0x8061 &&
+              slot_description && slot_description->source_id == 0x8004,
+          "embed title, description, field name and field value commands name their rich text slots");
     if (row)
         message_scene_release(&f.scene);
 

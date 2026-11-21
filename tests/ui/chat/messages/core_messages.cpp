@@ -520,7 +520,6 @@ void test_message_text_presentation() noexcept {
     UiVariableList list{};
     MessageTimeline timeline{};
     MessageScene scene{};
-    MessageSceneRowWidget rows[2]{};
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout[2 * kMessageSceneWidgetsPerRow + 1]{};
     const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
@@ -533,9 +532,9 @@ void test_message_text_presentation() noexcept {
                                     default_units) &&
         message_timeline_initialize(&timeline, &store, &list, default_units, ui_extent_units(320.0f),
                                     true) &&
-        message_scene_initialize(&scene, &timeline, Slice<MessageSceneRowWidget>{rows, 2},
-                                 Slice<UiWidget>{widgets, 2 * kMessageSceneWidgetsPerRow + 1},
-                                 Slice<UiLayoutNode>{layout, 2 * kMessageSceneWidgetsPerRow + 1});
+        message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 2,
+                                       Slice<UiWidget>{widgets, 2 * kMessageSceneWidgetsPerRow + 1},
+                                       Slice<UiLayoutNode>{layout, 2 * kMessageSceneWidgetsPerRow + 1});
     MessageRichStore rich_store{};
     GatewayMessageAttachment rich_attachments[2]{};
     rich_attachments[0].id = 71;
@@ -623,7 +622,9 @@ void test_message_text_presentation() noexcept {
             Slice<u16>{g_message_scene_rich_order, 32}, Slice<u8>{g_message_scene_rich_text, 16 * 1024}) &&
         message_timeline_bind_rich_store(&timeline, &rich_store) &&
         message_rich_store_apply(&rich_store, 91'000, source_message->revision, rich_event).ok();
-    const UiRect viewport{0.0f, 0.0f, 720.0f, 320.0f};
+    // The scene estimates the rich row before its text is measured. The viewport holds all of it, so the header and
+    // every rich item are in view.
+    const UiRect viewport{0.0f, 0.0f, 720.0f, 1'600.0f};
     const MessageSceneResult arranged =
         rich_ready ? message_scene_update(&scene, viewport) : MessageSceneResult{};
 
@@ -1664,17 +1665,19 @@ void test_message_text_presentation() noexcept {
                        .slot == kInvalidUiWidgetSlot,
            "message_rich_item_count_change_rematerializes_structure_and_expires_handles");
 
+    // The scene settles the heights of both rows first, so the scroll then puts the rich row just above the viewport.
+    // The viewport is lower than the grouped second row, so that scroll is within the timeline.
+    const UiRect overscan_viewport{0.0f, 0.0f, 720.0f, 12.0f};
     const bool overscan_second_inserted =
         message_store_upsert(
             &store, MessageInput{92'000, 7, 9, 1'700'000'001'000ull, 0, utf8_literal("visible row"), 0})
             .ok() &&
-        ui_variable_list_insert(&list, 1, 1, default_units);
-    const u64 first_row_units = ui_variable_list_item_units(list, 0);
-    const UiRect overscan_viewport{0.0f, 0.0f, 720.0f, 40.0f};
-    const bool overscan_scrolled =
-        overscan_second_inserted &&
+        ui_variable_list_insert(&list, 1, 1, default_units) &&
         message_timeline_set_viewport(&timeline, ui_extent_units(ui_rect_height(overscan_viewport))) &&
-        message_timeline_set_scroll(&timeline, first_row_units, false);
+        message_scene_update(&scene, overscan_viewport).ok();
+    const u64 first_row_units = ui_variable_list_item_units(list, 0);
+    const bool overscan_scrolled =
+        overscan_second_inserted && message_timeline_set_scroll(&timeline, first_row_units, false);
     const MessageSceneResult overscan_arranged =
         overscan_scrolled ? message_scene_update(&scene, overscan_viewport) : MessageSceneResult{};
     const MessageSceneRowWidget* overscan_rich_row =
@@ -1774,7 +1777,6 @@ void test_chat_text_size() noexcept {
     UiVariableList list{};
     MessageTimeline timeline{};
     MessageScene scene{};
-    MessageSceneRowWidget rows[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout[kMessageSceneWidgetsPerRow + 1]{};
     const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
@@ -1787,9 +1789,9 @@ void test_chat_text_size() noexcept {
             .ok() &&
         ui_variable_list_initialize(&list, Slice<u32>{item_units, 1}, Slice<u64>{fenwick, 1}, 1, default_units) &&
         message_timeline_initialize(&timeline, &store, &list, default_units, ui_extent_units(320.0f), true) &&
-        message_scene_initialize(&scene, &timeline, Slice<MessageSceneRowWidget>{rows, 1},
-                                 Slice<UiWidget>{widgets, kMessageSceneWidgetsPerRow + 1},
-                                 Slice<UiLayoutNode>{layout, kMessageSceneWidgetsPerRow + 1});
+        message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 1,
+                                       Slice<UiWidget>{widgets, kMessageSceneWidgetsPerRow + 1},
+                                       Slice<UiLayoutNode>{layout, kMessageSceneWidgetsPerRow + 1});
     GatewayMessageEmbed embeds[1]{};
     embeds[0].type = GatewayMessageEmbedType::rich;
     embeds[0].author_name = utf8_literal("Embed author");
@@ -2579,7 +2581,6 @@ void test_message_action_bar() noexcept {
     UiVariableList list{};
     MessageTimeline timeline{};
     MessageScene scene{};
-    MessageSceneRowWidget rows[2]{};
     UiWidget widgets[2 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode layout_nodes[2 * kMessageSceneWidgetsPerRow + 1]{};
     const u32 default_units = ui_extent_units(kUiBootstrapMessageRowHeight);
@@ -2596,9 +2597,9 @@ void test_message_action_bar() noexcept {
                                     default_units) &&
         message_timeline_initialize(&timeline, &store, &list, default_units, ui_extent_units(360.0f),
                                     true) &&
-        message_scene_initialize(&scene, &timeline, Slice<MessageSceneRowWidget>{rows, 2},
-                                 Slice<UiWidget>{widgets, 2 * kMessageSceneWidgetsPerRow + 1},
-                                 Slice<UiLayoutNode>{layout_nodes, 2 * kMessageSceneWidgetsPerRow + 1});
+        message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 2,
+                                       Slice<UiWidget>{widgets, 2 * kMessageSceneWidgetsPerRow + 1},
+                                       Slice<UiLayoutNode>{layout_nodes, 2 * kMessageSceneWidgetsPerRow + 1});
     const UiRect viewport{100.0f, 40.0f, 700.0f, 400.0f};
     const MessageSceneResult arranged =
         model_ready ? message_scene_update(&scene, viewport) : MessageSceneResult{};
@@ -2625,8 +2626,7 @@ void test_message_action_bar() noexcept {
     const MessageActionBarResult retained_open =
         message ? message_action_bar_open(&bar, scene, scene_hit, *message, &preferences)
                 : MessageActionBarResult{};
-    const bool retained_identity =
-        retained_open.ok() && !retained_open.changed && bar.opens == 1 && opened_revision == bar.revision;
+    const bool retained_identity = retained_open.ok() && !retained_open.changed && opened_revision == bar.revision;
     const float item_y =
         opened.ok() ? (bar.items[0].rectangle.top + bar.items[0].rectangle.bottom) * 0.5f : 0.0f;
     const MessageActionBarHit quick_hit =

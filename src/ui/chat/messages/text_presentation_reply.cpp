@@ -17,29 +17,26 @@ using namespace text_presentation_detail;
 namespace text_presentation_detail {
 u64 command_content_signature(const MessageTextCommand& command) noexcept {
     u64 hash = hash64_words(kHash64Seed, command.text.data, command.text.bytes);
+    // Offset and count are one word, flags and size the other: two mixes cover the four fields.
     for (u32 index = 0; index < command.styles.count; ++index) {
         const TextStyleSpan& style = command.styles[index];
-        hash = hash64_mix(hash, style.byte_offset);
-        hash = hash64_mix(hash, style.byte_count);
-        hash = hash64_mix(hash, style.flags);
-        hash = hash64_mix(hash, style.size);
+        hash = hash64_mix(hash, style.byte_offset | static_cast<u64>(style.byte_count) << 32);
+        hash = hash64_mix(hash, style.flags | static_cast<u64>(style.size) << 32);
     }
-    hash = hash64_mix(hash, command.styles.count);
-    hash = hash64_mix(hash, static_cast<u8>(command.wrapping));
-    return hash64_mix(hash, static_cast<u8>(command.overflow));
+    return hash64_mix(hash, command.styles.count | static_cast<u64>(command.wrapping) << 32 |
+                                static_cast<u64>(command.overflow) << 40);
 }
 
 namespace {
+// The small fields share words, so the mix count stays at three after the content.
 u64 command_measurement_identity(const MessageTextCommand& command, u32 owner_id) noexcept {
     u64 hash = command_content_signature(command);
     const FloatWord width{ui_rect_width(command.rectangle)};
     hash = hash64_mix(hash, command.message_id);
-    hash = hash64_mix(hash, command.message_revision);
-    hash = hash64_mix(hash, command.source_id);
-    hash = hash64_mix(hash, owner_id);
-    hash = hash64_mix(hash, static_cast<u8>(command.measurement_kind));
-    hash = hash64_mix(hash, command.measurement_slot);
-    return hash64_mix(hash, width.word);
+    hash = hash64_mix(hash, command.message_revision | static_cast<u64>(command.source_id) << 32 |
+                                static_cast<u64>(command.measurement_kind) << 48 |
+                                static_cast<u64>(command.measurement_slot) << 56);
+    return hash64_mix(hash, owner_id | static_cast<u64>(width.word) << 32);
 }
 
 // The previous build's measured extent of a command with this identity.
@@ -90,14 +87,18 @@ void note_emission(MarkdownParseTrace* trace, u32 bytes) noexcept {
 }
 
 } // namespace
+const GuildMemberRecord* channel_member(const MessageTextPresentation& presentation, const ChatStateStore& state,
+                                        u64 channel_id, u64 user_id) noexcept {
+    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
+    return presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
+               ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
+               : nullptr;
+}
+
 // The user's server nickname in the channel's guild, or empty.
 Utf8View member_nickname(const MessageTextPresentation& presentation, const ChatStateStore& state,
                          u64 channel_id, u64 user_id) noexcept {
-    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
-    const GuildMemberRecord* member =
-        presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
-            ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
-            : nullptr;
+    const GuildMemberRecord* member = channel_member(presentation, state, channel_id, user_id);
     return member ? guild_member_store_nickname(*member) : Utf8View{};
 }
 

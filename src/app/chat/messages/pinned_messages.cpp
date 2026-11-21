@@ -50,26 +50,39 @@ struct ApplicationPinnedMessages {
 };
 static_assert(sizeof(ApplicationPinnedMessages) <= 68 * 1024);
 namespace {
-PinnedMessageScope scope() noexcept {
-    if (!g_app.account_ui) return {};
-    const auto& state = g_app.account_ui->chat_state;
-    const auto* channel = chat_state_store_find_channel(state, g_app.account_ui->active_channel_id);
-    return channel && channel->occupied
-        ? PinnedMessageScope{g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
-                             state.self_user_id, channel->id, channel->generation} : PinnedMessageScope{};
-}
 const ChannelRecord* selected_channel() noexcept {
     return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state,
                                                                g_app.account_ui->active_channel_id) : nullptr;
 }
+PinnedMessageScope scope_of(const ChannelRecord* channel) noexcept {
+    return channel && channel->occupied
+        ? PinnedMessageScope{g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
+                             g_app.account_ui->chat_state.self_user_id, channel->id, channel->generation}
+        : PinnedMessageScope{};
+}
+PinnedMessageScope scope() noexcept {
+    return scope_of(selected_channel());
+}
+// The pins of the selected channel can be shown (application_pinned_messages_available).
+bool available_in(const ChannelRecord* channel) noexcept {
+    constexpr u32 required = channel_action_view | channel_action_read_history;
+    return channel && channel->occupied && !g_app.login.visible && !application_friends_active() &&
+        channel_is_message_capable(channel->type) && !(channel->flags & kChannelObfuscatedFlag) &&
+        channel->permissions_resolved && (channel->actions & required) == required &&
+        g_app.plugin_account_scope_serial && g_app.account.status.profile_id &&
+        g_app.account_ui->chat_state.self_user_id &&
+        g_app.account_ui->chat_state.selected_channel_id == channel->id &&
+        g_app.account_ui->chat_state.selected_guild_id == channel->guild_id;
+}
 bool pin_permission() noexcept {
     const auto* channel = selected_channel();
-    return application_pinned_messages_available() && channel &&
-           (channel->actions & channel_action_pin_messages);
+    return available_in(channel) && (channel->actions & channel_action_pin_messages);
 }
 bool current(const ApplicationPinnedMessages& value) noexcept {
-    return value.controller.active && application_pinned_messages_available() &&
-           pinned_message_scope_equal(value.controller.scope, scope());
+    if (!value.controller.active)
+        return false;
+    const auto* channel = selected_channel();
+    return available_in(channel) && pinned_message_scope_equal(value.controller.scope, scope_of(channel));
 }
 bool source_current(void* context) noexcept {
     return context && current(*static_cast<ApplicationPinnedMessages*>(context)) &&
@@ -235,15 +248,7 @@ bool activate(UiPinnedMessagesTarget target) noexcept {
 } // namespace
 
 bool application_pinned_messages_available() noexcept {
-    const auto* channel = selected_channel();
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    return channel && channel->occupied && !g_app.login.visible && !application_friends_active() &&
-        channel_is_message_capable(channel->type) && !(channel->flags & kChannelObfuscatedFlag) &&
-        channel->permissions_resolved && (channel->actions & required) == required &&
-        g_app.plugin_account_scope_serial && g_app.account.status.profile_id &&
-        g_app.account_ui->chat_state.self_user_id &&
-        g_app.account_ui->chat_state.selected_channel_id == channel->id &&
-        g_app.account_ui->chat_state.selected_guild_id == channel->guild_id;
+    return available_in(selected_channel());
 }
 bool application_pinned_messages_active() noexcept {
     return g_app.pinned_messages && g_app.pinned_messages->panel && current(*g_app.pinned_messages);
@@ -313,11 +318,14 @@ bool application_pinned_messages_synchronize() noexcept {
     if (value->confirming && !g_app.text_form) value->confirming = false;
     const auto old_active = value->controller.active;
     const auto* channel = selected_channel();
+    const auto current_scope = scope_of(channel);
+    const bool available = available_in(channel);
+    const bool can_pin = available && (channel->actions & channel_action_pin_messages);
     if (channel && g_app.account_ui->chat_state.permission_mutations != value->permission_revision &&
-        pinned_message_scope_equal(value->controller.scope, scope())) {
+        pinned_message_scope_equal(value->controller.scope, current_scope)) {
         value->permission_revision = g_app.account_ui->chat_state.permission_mutations;
-        pinned_message_controller_reauthorize(&value->controller, scope(), application_pinned_messages_available(), pin_permission());
-    } else pinned_message_controller_authority(&value->controller, scope(), application_pinned_messages_available(), pin_permission());
+        pinned_message_controller_reauthorize(&value->controller, current_scope, available, can_pin);
+    } else pinned_message_controller_authority(&value->controller, current_scope, available, can_pin);
     if (old_active && !value->controller.active) {
         cancel_submitted(*value);
         value->panel = false;

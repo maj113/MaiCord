@@ -15,7 +15,7 @@ MessageViewRuntimeResult runtime_error(MessageViewRuntimeError error) noexcept {
     return MessageViewRuntimeResult{error};
 }
 
-bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
+inline bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
     if (runtime->storage.base) {
         Arena storage = runtime->storage;
         Arena text_storage = runtime->text_storage;

@@ -764,7 +764,8 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
         return result;
     }
     while (result.popped < maximum_events) {
-        GatewayClientEvent event{};
+        // A pop that succeeds writes the whole event, and the loop reads it only then.
+        GatewayClientEvent event;
         Slice<u8> payload = pump->payload_scratch;
         GatewayClientPopResult popped = pop(source, &event, payload);
         if (popped.error == GatewayClientPopError::empty) {
@@ -776,7 +777,6 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
              reserved_bytes_initialize(&pump->large_payload, kGatewayClientGuildRecordCapacity)) &&
             reserved_bytes_commit(&pump->large_payload, popped.payload_bytes)) {
             payload = {pump->large_payload.base, pump->large_payload.committed};
-            reset_value(&event);
             popped = pop(source, &event, payload);
         }
         // Only the record that needed it keeps the large pages committed.

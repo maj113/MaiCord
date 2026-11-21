@@ -26,7 +26,7 @@ struct ApplicationForumPostTicket {
 struct ApplicationForumPostTag {
     u64 id;
     Utf8View name;
-    bool selected, enabled, moderated;
+    bool selected, enabled;
 };
 struct ApplicationForumPostView {
     ApplicationForumPostTicket ticket;

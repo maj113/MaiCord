@@ -1,5 +1,6 @@
 #include "forum_preview.hpp"
 #include "forum_attachments.hpp"
+#include "../composer/preview.hpp"
 #include "forum_form.hpp"
 #include "../../shell/state.hpp"
 #include "../../shell/owner.hpp"
@@ -37,7 +38,7 @@ bool actor_current(const PreviewEntry& entry) noexcept {
 PreviewEntry* find(MediaAssetKey key) noexcept {
     return owner ? local_preview_find(owner->entries, key) : nullptr;
 }
-bool visible(u64 id) noexcept {
+inline bool visible(u64 id) noexcept {
     auto* scene = application_forum_form_scene();
     if (!application_forum_form_active() || !scene)
         return false;
@@ -65,16 +66,20 @@ bool source_current(const PreviewEntry& entry) noexcept {
            content.context == entry.request.content.context && content.ops == entry.request.content.ops &&
            content.bytes == entry.request.content.bytes;
 }
-MediaAttachmentFormat format(Utf8View filename) noexcept {
-    if (filename_ends_with(filename, utf8_literal(".png")))
+inline MediaAttachmentFormat format(Utf8View filename) noexcept {
+    switch (filename_extension_code(filename)) {
+    case extension_code("png"):
         return MediaAttachmentFormat::png;
-    if (filename_ends_with(filename, utf8_literal(".webp")))
+    case extension_code("webp"):
         return MediaAttachmentFormat::webp;
-    if (filename_ends_with(filename, utf8_literal(".jpg")) || filename_ends_with(filename, utf8_literal(".jpeg")))
+    case extension_code("jpg"):
+    case extension_code("jpeg"):
         return MediaAttachmentFormat::jpeg;
-    if (filename_ends_with(filename, utf8_literal(".gif")))
+    case extension_code("gif"):
         return MediaAttachmentFormat::gif;
-    return MediaAttachmentFormat::unknown;
+    default:
+        return MediaAttachmentFormat::unknown;
+    }
 }
 void retire(PreviewEntry& entry, u64 now) noexcept {
     if (!entry.retired)

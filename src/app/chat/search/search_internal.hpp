@@ -212,8 +212,9 @@ void decorate(SearchBank& bank) noexcept;
 bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept;
 bool scroll_read(void* opaque, u64 key, UiScrollRange* out) noexcept;
 bool scroll_write(void* opaque, u64 key, double offset, bool* changed) noexcept;
-bool row_unavailable(const ApplicationSearch&, u32) noexcept;
-bool row_access_check(const ApplicationSearch&, u32) noexcept;
+// row_unavailable stores the row's resident channel (or null) in *channel for row_access_check.
+bool row_unavailable(const ApplicationSearch&, u32, const ChannelRecord** channel) noexcept;
+bool row_access_check(const ApplicationSearch&, u32, const ChannelRecord* channel) noexcept;
 
 } // namespace search_detail
 } // namespace maicord::app_detail

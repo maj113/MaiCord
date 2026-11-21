@@ -82,8 +82,8 @@ bool rebuild(UiInboxScene& s) noexcept {
         float left = s.filters.left + inset;
         const float top = s.filters.top + 6, bottom = s.filters.bottom - 6;
         const float widths[]{c.this_server_available ? 104.f : 0.f, 96.f, 72.f};
-        const UiInboxAction actions[]{UiInboxAction::filter_server, UiInboxAction::filter_everyone,
-                                      UiInboxAction::filter_roles};
+        static constexpr UiInboxAction actions[]{UiInboxAction::filter_server, UiInboxAction::filter_everyone,
+                                                 UiInboxAction::filter_roles};
         static constexpr Utf8View names[]{utf8_literal("Server filter"), utf8_literal("Include @everyone mentions"),
                                           utf8_literal("Include @role mentions")};
         for (u32 i = 0; i < 3; ++i) {

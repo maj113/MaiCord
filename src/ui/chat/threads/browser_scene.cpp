@@ -7,6 +7,7 @@
 
 namespace maicord {
 namespace {
+constexpr const UiThreadBrowserStyle& style = kUiThreadBrowserStyle;
 bool current(const UiThreadBrowserScene& s) noexcept {
     return s.active && s.backing && s.view && s.view->source_publication == s.source_publication &&
         s.view->revision == s.content_revision && s.view->rows.data == s.observed_rows &&
@@ -62,42 +63,42 @@ UiWidgetHandle add(UiThreadBrowserScene& s, const UiRect& r, UiThreadBrowserActi
 }
 // Forum cards share the plain rows' horizontal extent (inset, scrollbar gutter).
 UiRect card_area(const UiThreadBrowserScene& s) noexcept {
-    return {s.panel.left + s.style.inset, s.body.top, s.panel.right - s.style.inset - 10, s.body.bottom};
+    return {s.panel.left + style.inset, s.body.top, s.panel.right - style.inset - 10, s.body.bottom};
 }
 UiForumGrid forum_grid(const UiThreadBrowserScene& s) noexcept {
-    return ui_forum_grid(ui_rect_width(card_area(s)), s.view->forum->layout, s.forum_style);
+    return ui_forum_grid(ui_rect_width(card_area(s)), s.view->forum->layout);
 }
 float content_height(const UiThreadBrowserScene& s) noexcept {
     return s.forum && s.view && s.view->forum ? ui_forum_content_height(forum_grid(s), s.count)
-        : s.count * s.style.row_height;
+        : s.count * style.row_height;
 }
-UiRect control(const UiThreadBrowserScene& s, const UiRect& band, float left, float right) noexcept {
-    const float top = band.top + (ui_rect_height(band) - s.style.button_height) * .5f;
-    return {left, top, right, top + s.style.button_height};
+UiRect control(const UiRect& band, float left, float right) noexcept {
+    const float top = band.top + (ui_rect_height(band) - style.button_height) * .5f;
+    return {left, top, right, top + style.button_height};
 }
 bool rebuild(UiThreadBrowserScene& s) noexcept {
     clear_bytes(s.backing, sizeof(*s.backing));
     s.body_owner = s.retry = s.create_post = s.forum_sort = s.forum_list = s.forum_gallery = {};
     s.root = ui_scene_root(&s.widgets, utf8_literal("Thread browser"));
     if (!s.root.generation) return false;
-    const float left = s.panel.left + s.style.inset, right = s.panel.right - s.style.inset;
-    s.close = add(s, control(s, s.header, right - s.style.button_height, right),
+    const float left = s.panel.left + style.inset, right = s.panel.right - style.inset;
+    s.close = add(s, control(s.header, right - style.button_height, right),
         UiThreadBrowserAction::close, utf8_literal("Close thread browser"), s.root);
     if (s.view->can_create_post) {
-        const float end = right - s.style.button_height - s.style.gap;
-        s.create_post = add(s, control(s, s.header, maximum(left, end - s.style.create_button_width), end),
+        const float end = right - style.button_height - style.gap;
+        s.create_post = add(s, control(s.header, maximum(left, end - style.create_button_width), end),
             UiThreadBrowserAction::create_post, s.forum ? utf8_literal("New post") : utf8_literal("Create post"), s.root);
         if (!s.create_post.generation) return false;
     }
-    const float tab_width = (right - left - s.style.gap) * .5f;
-    s.active_tab = add(s, control(s, s.tabs, left, left + tab_width),
+    const float tab_width = (right - left - style.gap) * .5f;
+    s.active_tab = add(s, control(s.tabs, left, left + tab_width),
         UiThreadBrowserAction::active, utf8_literal("Active threads"), s.root);
-    s.archived_tab = add(s, control(s, s.tabs, left + tab_width + s.style.gap, right),
+    s.archived_tab = add(s, control(s.tabs, left + tab_width + style.gap, right),
         UiThreadBrowserAction::archived, utf8_literal("Archived threads"), s.root);
     if (s.forum) {
         const auto& forum = *s.view->forum;
         auto& toolbar = s.backing->toolbar;
-        ui_forum_toolbar_layout({left, s.toolbar.top, right, s.toolbar.bottom}, forum, s.forum_style, &toolbar);
+        ui_forum_toolbar_layout({left, s.toolbar.top, right, s.toolbar.bottom}, forum, &toolbar);
         s.backing->grid = forum_grid(s);
         s.forum_sort = add(s, toolbar.sort, UiThreadBrowserAction::forum_sort, utf8_literal("Sort by"), s.root);
         s.forum_list = add(s, toolbar.list, UiThreadBrowserAction::forum_list, utf8_literal("List"), s.root);
@@ -118,9 +119,9 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
     s.body_owner = add(s, s.body, UiThreadBrowserAction::none,
         s.forum ? utf8_literal("Post list viewport") : utf8_literal("Thread list viewport"), s.root);
     for (u32 i = 0; i < s.count; ++i) {
-        const float top = s.body.top + i * s.style.row_height - s.scroll_dips;
+        const float top = s.body.top + i * style.row_height - s.scroll_dips;
         const UiRect card = s.forum ? ui_forum_card_rectangle(card_area(s), s.backing->grid, i, s.scroll_dips)
-            : UiRect{left, top, right - 10, top + s.style.row_height};
+            : UiRect{left, top, right - 10, top + style.row_height};
         s.backing->cards[i] = card;
         const auto clip = ui_rect_intersection(card, s.body);
         if (!ui_rect_has_area(clip)) continue;
@@ -131,13 +132,13 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
         if (!s.backing->rows[i].generation) return false;
     }
     const float button_width = minimum(84.f, (right - left) * .32f);
-    s.previous = add(s, control(s, s.footer, left, left + button_width),
+    s.previous = add(s, control(s.footer, left, left + button_width),
         UiThreadBrowserAction::previous, utf8_literal("Previous page"), s.root);
-    s.next = add(s, control(s, s.footer, right - button_width, right),
+    s.next = add(s, control(s.footer, right - button_width, right),
         UiThreadBrowserAction::next, utf8_literal("Next page"), s.root);
     if (s.view->error) {
         const float retry_width = minimum(72.f, ui_rect_width(s.status) * .4f);
-        s.retry = add(s, control(s, s.status, right - retry_width, right),
+        s.retry = add(s, control(s.status, right - retry_width, right),
             UiThreadBrowserAction::retry, utf8_literal("Retry loading threads"), s.root);
     }
     if (!s.close.generation || !s.active_tab.generation || !s.archived_tab.generation ||
@@ -148,10 +149,9 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
         s.focused = s.backing->targets[slot];
     ++s.revision;
     ++s.rebuilds;
-    ++s.layout_passes;
     return true;
 }
-Utf8View state_text(const UiThreadBrowserScene& s) noexcept {
+inline Utf8View state_text(const UiThreadBrowserScene& s) noexcept {
     if (s.view->loading) return utf8_literal("Loading threads…");
     if (s.view->error) return utf8_literal("Couldn't load threads");
     if (s.tab == UiThreadBrowserTab::active && !s.view->inventory_synced)
@@ -162,33 +162,18 @@ Utf8View state_text(const UiThreadBrowserScene& s) noexcept {
 }
 } // namespace
 
-static bool style_valid(const UiThreadBrowserStyle& s) noexcept {
-    const float dimensions[]{s.header_height, s.tabs_height, s.status_height,
-        s.footer_height, s.row_height, s.inset, s.gap, s.button_height, s.radius, s.create_button_width};
-    for (float value : dimensions) if (!ui_extent_valid(value)) return false;
-    return s.header_height >= 44 && s.header_height <= 80 && s.tabs_height >= 36 && s.tabs_height <= 64 &&
-        s.status_height >= 32 && s.status_height <= 64 &&
-        s.footer_height >= 36 && s.footer_height <= 64 && s.row_height >= 54 && s.row_height <= 96 &&
-        s.inset >= 8 && s.inset <= 24 && s.gap >= 4 && s.gap <= 16 && s.button_height >= 28 &&
-        s.button_height <= minimum(s.header_height, minimum(s.tabs_height,
-        minimum(s.status_height, s.footer_height))) && s.radius <= 16 &&
-        s.create_button_width >= 96 && s.create_button_width <= 160;
-}
 bool ui_thread_browser_scene_current(const UiThreadBrowserScene& s) noexcept { return current(s); }
 bool ui_thread_browser_scene_spinner_visible(const UiThreadBrowserScene& s) noexcept {
     return current(s) && !s.count && s.view->loading;
 }
 bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrowserView* view,
-    const UiRect& viewport, const UiThreadBrowserStyle* style) noexcept {
-    const auto appearance = style ? *style : kDefaultUiThreadBrowserStyle;
+    const UiRect& viewport) noexcept {
     if (!s || !view || !view->source_publication || view->rows.count > kUiThreadBrowserPageCapacity ||
         (view->rows.count && !view->rows.data) || view->tab > UiThreadBrowserTab::search ||
-        !utf8_validate(view->title).valid || !utf8_validate(view->status).valid ||
-        !style_valid(appearance) || !ui_rect_valid(viewport) ||
-        ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < appearance.header_height +
-            appearance.tabs_height + appearance.status_height + appearance.footer_height + 24) return false;
-    if (current(*s) && s->view == view && ui_rect_equal(s->viewport, viewport) &&
-        bytes_equal(&s->style, &appearance, sizeof(appearance))) return true;
+        !utf8_validate(view->title).valid || !utf8_validate(view->status).valid || !ui_rect_valid(viewport) ||
+        ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < style.header_height +
+            style.tabs_height + style.status_height + style.footer_height + 24) return false;
+    if (current(*s) && s->view == view && ui_rect_equal(s->viewport, viewport)) return true;
     for (u32 i = 0; i < view->rows.count; ++i) {
         const auto& row = view->rows[i];
         if (!row.thread_id || !utf8_validate(row.name).valid || (row.type != 10 && row.type != 11 && row.type != 12))
@@ -218,19 +203,17 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrows
     s->page_index = view->page_index;
     s->count = static_cast<u32>(view->rows.count);
     s->tab = view->tab;
-    s->style = appearance;
     s->viewport = s->panel = viewport;
-    s->header = {viewport.left, viewport.top, viewport.right, viewport.top + appearance.header_height};
-    s->tabs = {viewport.left, s->header.bottom, viewport.right, s->header.bottom + appearance.tabs_height};
-    s->status = {viewport.left, s->tabs.bottom, viewport.right, s->tabs.bottom + appearance.status_height};
-    s->footer = {viewport.left, viewport.bottom - appearance.footer_height, viewport.right, viewport.bottom};
+    s->header = {viewport.left, viewport.top, viewport.right, viewport.top + style.header_height};
+    s->tabs = {viewport.left, s->header.bottom, viewport.right, s->header.bottom + style.tabs_height};
+    s->status = {viewport.left, s->tabs.bottom, viewport.right, s->tabs.bottom + style.status_height};
+    s->footer = {viewport.left, viewport.bottom - style.footer_height, viewport.right, viewport.bottom};
     s->forum = view->forum != nullptr;
-    s->forum_style = kDefaultUiForumStyle;
     float toolbar_height = 0;
     if (s->forum) {
         UiForumToolbar toolbar{};
-        ui_forum_toolbar_layout({viewport.left + appearance.inset, s->status.bottom, viewport.right - appearance.inset,
-            s->status.bottom}, *view->forum, s->forum_style, &toolbar);
+        ui_forum_toolbar_layout({viewport.left + style.inset, s->status.bottom, viewport.right - style.inset,
+            s->status.bottom}, *view->forum, &toolbar);
         // The band never takes the last 24 DIPs of the body; overflowing chip rows clip.
         toolbar_height = minimum(toolbar.height, maximum(0.f, s->footer.top - s->status.bottom - 24));
     }
@@ -284,7 +267,7 @@ bool ui_thread_browser_scene_focus(UiThreadBrowserScene* s, UiThreadBrowserTarge
     if (value.action == UiThreadBrowserAction::open_thread) {
         for (u32 i = 0; i < s->count; ++i) {
             if (s->view->rows[i].thread_id != value.thread_id) continue;
-            const auto grid = s->forum ? forum_grid(*s) : UiForumGrid{1, 0, s->style.row_height, 0};
+            const auto grid = s->forum ? forum_grid(*s) : UiForumGrid{1, 0, style.row_height, 0};
             const float extent = grid.card_height;
             const float first = static_cast<float>(i / grid.columns) * (grid.card_height + grid.gap);
             const float last = first + extent;
@@ -336,18 +319,18 @@ bool ui_thread_browser_scene_move_focus(UiThreadBrowserScene* s, bool reverse) n
 }
 // The current tab carries the accent selection tint (as selected pills and checked menu rows do), so it reads
 // as chosen rather than as a well.
-UiLook ui_thread_browser_look(const UiThreadBrowserScene& s) noexcept {
+UiLook ui_thread_browser_look() noexcept {
     return {.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
-            .selected_border = UI_TOKEN(tokens.emphasis.outline), .radius = s.style.radius,
+            .selected_border = UI_TOKEN(tokens.emphasis.outline), .radius = style.radius,
             .flags = ui_look_selected_emphasis};
 }
 bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s)) return true;
-    const auto look = ui_thread_browser_look(s);
+    const auto look = ui_thread_browser_look();
     UiPaint p{out, t};
     p.popover(s.panel, 0).rule_below(s.header);
-    if (!s.create_post.generation || ui_bounds(s, s.create_post).left - s.style.gap >= s.header.left + s.style.inset + 32)
-        p.icon(UiIcon::thread, {s.header.left + s.style.inset, s.header.top + 10, s.header.left + s.style.inset + 24,
+    if (!s.create_post.generation || ui_bounds(s, s.create_post).left - style.gap >= s.header.left + style.inset + 32)
+        p.icon(UiIcon::thread, {s.header.left + style.inset, s.header.top + 10, s.header.left + style.inset + 24,
                                 s.header.top + 34}, t.text_secondary);
     p.control(s.widgets, s.close, look).control(s.widgets, s.create_post, look)
         .control(s.widgets, s.active_tab, look, s.tab == UiThreadBrowserTab::active)
@@ -377,13 +360,13 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
 bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Theme& t, UiTextOutput* out) noexcept {
     if (!current(s)) return true;
     UiTextPen text{out, s.widgets, s.panel, s.body};
-    const float left = s.panel.left + s.style.inset, right = s.panel.right - s.style.inset;
-    const float title_right = ui_bounds(s, s.create_post.generation ? s.create_post : s.close).left - s.style.gap;
+    const float left = s.panel.left + style.inset, right = s.panel.right - style.inset;
+    const float title_right = ui_bounds(s, s.create_post.generation ? s.create_post : s.close).left - style.gap;
     text(s.root, s.forum ? (s.view->forum->media_channel ? utf8_literal("Media") : utf8_literal("Posts"))
                          : utf8_literal("Threads"),
-         {left + 32, s.header.top + 2, title_right, s.header.top + 24}, t.text_primary, s.style.title_flags);
+         {left + 32, s.header.top + 2, title_right, s.header.top + 24}, t.text_primary, style.title_flags);
     text(s.root, s.view->title, {left + 32, s.header.top + 24, title_right, s.header.bottom - 2}, t.text_secondary,
-         s.style.detail_flags);
+         style.detail_flags);
     const UiWidgetHandle buttons[]{s.active_tab, s.archived_tab, s.previous, s.next, s.retry, s.create_post};
     const Utf8View labels[]{utf8_literal("Active"), utf8_literal("Archived"), utf8_literal("Previous"),
         utf8_literal("Next"), utf8_literal("Retry"), s.forum ? utf8_literal("New post") : utf8_literal("Create post")};
@@ -391,15 +374,15 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
         if (!buttons[i].generation) continue;
         const bool enabled = ui_thread_browser_scene_target(s, buttons[i]).action != UiThreadBrowserAction::none;
         text(buttons[i], labels[i], ui_bounds(s, buttons[i]), enabled ? t.text_primary : t.text_secondary,
-             s.style.title_flags, ui_text_center);
+             style.title_flags, ui_text_center);
     }
     const auto status = s.view->status.bytes ? s.view->status
         : s.view->loading ? utf8_literal("Loading threads…") : s.view->error ? utf8_literal("Couldn't load threads")
         : s.tab == UiThreadBrowserTab::search ? utf8_literal("Search results")
         : s.tab == UiThreadBrowserTab::archived ? utf8_literal("Archived threads")
         : s.view->inventory_synced ? utf8_literal("Active threads in this channel") : utf8_literal("Loading threads…");
-    text(s.root, status, {left, s.status.top, s.retry.generation ? ui_bounds(s, s.retry).left - s.style.gap : right,
-                          s.status.bottom}, s.view->error ? t.notification : t.text_secondary, s.style.detail_flags);
+    text(s.root, status, {left, s.status.top, s.retry.generation ? ui_bounds(s, s.retry).left - style.gap : right,
+                          s.status.bottom}, s.view->error ? t.notification : t.text_secondary, style.detail_flags);
     if (s.forum && text.ok() && !ui_forum_channel_text_output(s, t, out)) text.fail();
     for (u32 i = 0; !s.forum && i < s.count; ++i) {
         if (!s.backing->rows[i].generation) continue;
@@ -407,7 +390,7 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
         const auto& row = s.view->rows[i];
         text(s.backing->rows[i], row.name.bytes ? row.name : utf8_literal("Unnamed thread"),
              ui_rect_edges(r, ui_start(38), ui_start(4), ui_end(-8), ui_start(28)),
-             s.view->loading || s.view->error ? t.text_secondary : t.text_primary, s.style.name_flags, ui_text_in_body);
+             s.view->loading || s.view->error ? t.text_secondary : t.text_primary, style.name_flags, ui_text_in_body);
         // Prepared fixed labels expose archive and membership without inventing server state.
         const auto detail = row.type == 12
             ? (row.archived
@@ -421,15 +404,15 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
                 : (row.membership_known ? (row.joined ? utf8_literal("Public · Active · Joined") : utf8_literal("Public · Active · Not joined"))
                     : utf8_literal("Public · Active")));
         text(s.backing->rows[i], detail, ui_rect_edges(r, ui_start(38), ui_start(28), ui_end(-8), ui_end(-4)),
-             t.text_secondary, s.style.detail_flags, ui_text_in_body);
+             t.text_secondary, style.detail_flags, ui_text_in_body);
     }
     if (!s.count && !s.forum) {
         const float top = s.body.top + minimum(52.f, ui_rect_height(s.body) * .35f);
         text(s.root, state_text(s), {left, top, right, minimum(s.body.bottom, top + 60)}, t.text_secondary,
-             s.style.title_flags, ui_text_in_body | ui_text_center | ui_text_wrap);
+             style.title_flags, ui_text_in_body | ui_text_center | ui_text_wrap);
     }
     return text(s.root, {s.page_text, s.page_bytes},
-                {ui_bounds(s, s.previous).right + s.style.gap, s.footer.top, ui_bounds(s, s.next).left - s.style.gap,
-                 s.footer.bottom}, t.text_secondary, s.style.detail_flags, ui_text_center).ok();
+                {ui_bounds(s, s.previous).right + style.gap, s.footer.top, ui_bounds(s, s.next).left - style.gap,
+                 s.footer.bottom}, t.text_secondary, style.detail_flags, ui_text_center).ok();
 }
 } // namespace maicord

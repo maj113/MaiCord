@@ -42,7 +42,7 @@ bool available() noexcept {
            g_card.scope == g_app.plugin_account_scope_serial;
 }
 
-const MessageSceneRowWidget* find_row(u64 message_id) noexcept {
+inline const MessageSceneRowWidget* find_row(u64 message_id) noexcept {
     const auto& scene = g_app.message_scene;
     for (u32 i = 0; i < scene.count; ++i)
         if (scene.rows[i].message_id == message_id)
@@ -115,11 +115,14 @@ bool application_interaction_card_toggle(u64 message_id) noexcept {
     const Utf8View name = message_rich_store_string(g_app.account_ui->message_rich_store, rich->interaction.command_name);
     if (!name.bytes)
         return false;
-    g_card = Card{.open = true,
-                  .phase = Phase::wanted,
-                  .scope = g_app.plugin_account_scope_serial,
-                  .message_id = message_id,
-                  .channel_id = record->channel_id};
+    // publish() below writes the text and its byte count.
+    g_card.open = true;
+    g_card.phase = Phase::wanted;
+    g_card.scope = g_app.plugin_account_scope_serial;
+    g_card.message_id = message_id;
+    g_card.channel_id = record->channel_id;
+    g_card.submitted_id = g_card.closed_by_press = 0;
+    g_card.revision = 0;
     char line[kUiTooltipMaximumTextBytes];
     const u32 bytes = minimum(name.bytes, static_cast<u32>(sizeof(line)) - 1);
     line[0] = '/';

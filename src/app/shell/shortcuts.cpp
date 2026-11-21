@@ -258,7 +258,7 @@ bool handle_shortcut_key(u32 key, bool repeated) noexcept {
     const auto chord = shortcut_chord_from_keyboard(key);
     if (!chord.key)
         return false;
-    ShortcutAction candidates[4]{};
+    ShortcutAction candidates[4];
     const u32 count = shortcut_resolve(application_shortcut_context(), chord, {candidates, 4});
     for (u32 i = 0; i < count; ++i)
         if (run_shortcut(candidates[i], repeated))

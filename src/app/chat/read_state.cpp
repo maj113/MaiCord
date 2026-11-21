@@ -65,7 +65,7 @@ struct ApplicationReadState {
 };
 static_assert(sizeof(ApplicationReadState) == 712);
 namespace {
-bool forum_form_covers_messages() noexcept {
+inline bool forum_form_covers_messages() noexcept {
     return g_app.renderer.forum_form && g_app.renderer.forum_form->scene &&
            g_app.renderer.forum_form->scene->active;
 }
@@ -90,11 +90,9 @@ bool scoped(const ApplicationReadState& o) noexcept {
     return account_live() && actor_matches(o, o.user_id) &&
            o.read_generation == g_app.account_ui->read_state_store.generation;
 }
-const ChannelRecord* readable(u64 id, bool unread = false) noexcept {
-    if (!account_live())
-        return nullptr;
+// The checks of readable() on a channel the caller found; c may be null.
+const ChannelRecord* readable_record(const ChannelRecord* c, bool unread) noexcept {
     const auto& state = g_app.account_ui->chat_state;
-    const auto* c = chat_state_store_find_channel(state, id);
     if (!c || (c->flags & kChannelObfuscatedFlag) || !channel_is_message_capable(c->type) ||
         !chat_state_store_channel_visible(state, *c) || !(c->actions & channel_action_view) ||
         !(c->actions & channel_action_read_history))
@@ -113,8 +111,13 @@ const ChannelRecord* readable(u64 id, bool unread = false) noexcept {
         return nullptr; // A server resource channel (IS_GUILD_RESOURCE_CHANNEL flag).
     return c;
 }
-bool source_current(const ApplicationReadState& o, const ReadActionSource& s,
-                    bool message = true) noexcept {
+const ChannelRecord* readable(u64 id, bool unread = false) noexcept {
+    return account_live() ? readable_record(chat_state_store_find_channel(g_app.account_ui->chat_state, id), unread)
+                          : nullptr;
+}
+// The action's channel while the action is current, else null. A scoped action is never manual, so a manual
+// action's channel is the one readable(id, true) gives.
+const ChannelRecord* source_channel(const ApplicationReadState& o, const ReadActionSource& s) noexcept {
     const auto* c = scoped(o)
                         ? chat_state_store_find_channel(g_app.account_ui->chat_state, s.channel_id)
                         : nullptr;
@@ -123,19 +126,23 @@ bool source_current(const ApplicationReadState& o, const ReadActionSource& s,
             !(c->actions & channel_action_view) ||
             !(c->actions & channel_action_read_history) ||
             !chat_state_store_channel_visible(g_app.account_ui->chat_state, *c))
-            return false;
+            return nullptr;
         const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, c->guild_id);
         if (!guild || !guild->occupied || guild->unavailable)
-            return false;
+            return nullptr;
         if (channel_is_thread(c->type) &&
             (!c->thread_active_known || !c->thread_listed_active || !c->thread_self_joined_known ||
              !c->thread_self_joined || (c->thread_archived_known && c->thread_archived)))
-            return false;
+            return nullptr;
     } else
-        c = c ? readable(s.channel_id, s.manual) : nullptr;
-    if (!c || c->generation != s.channel_generation)
+        c = readable_record(c, s.manual);
+    return c && c->generation == s.channel_generation ? c : nullptr;
+}
+// source_channel, and for a message action also its resident boundary message.
+bool source_current(const ApplicationReadState& o, const ReadActionSource& s) noexcept {
+    if (!source_channel(o, s))
         return false;
-    if (!message || !s.message_target)
+    if (!s.message_target)
         return true;
     const auto found = message_store_find(g_app.message_view.store, s.message_id);
     if (found.ok()) {
@@ -210,18 +217,15 @@ void clear_manual_failure(ApplicationReadState& o, u64 channel = 0) noexcept {
     }
 }
 void project(ApplicationReadState& o, const ReadActionSource& source) noexcept {
-    if (!source_current(o, source, false))
+    const auto* c = source_channel(o, source);
+    if (!c)
         return;
     if (source.manual) {
-        const auto* c = readable(source.channel_id, true);
         // Mute/block/mention suppression inputs are not retained in this cache.
         // Preserve the existing count as an incomplete estimate, never emit a guessed wire count.
         read_state_mark_unread_local(&g_app.account_ui->chat_state, source.channel_id,
                                              source.cursor, c->mention_count, false);
     } else {
-        const auto* c = source.scoped ? chat_state_store_find_channel(g_app.account_ui->chat_state,
-                                                                         source.channel_id)
-                                      : readable(source.channel_id);
         if (c->last_message_id > source.cursor) {
             ReadStateEntry entry{};
             entry.channel_id = source.channel_id;
@@ -242,7 +246,7 @@ void maintain_selected(ApplicationReadState& o) noexcept {
     const auto source = o.selected_manual;
     if (!source.channel_id)
         return;
-    const auto* c = source_current(o, source, false) ? readable(source.channel_id, true) : nullptr;
+    const auto* c = source_channel(o, source);
     if (!c || g_app.account_ui->chat_state.selected_channel_id != source.channel_id ||
         !c->read_auto_ack_suppressed) {
         reset_value(&o.selected_manual);
@@ -440,7 +444,9 @@ bool queue_manual(ApplicationReadState& o, ReadActionSource source) noexcept {
 void application_read_state_activity() noexcept {
     g_app.read_last_activity_ms = clock_monotonic_milliseconds();
 }
-bool application_read_state_eligible() noexcept {
+namespace {
+// Every condition of an automatic ACK except the selected channel's own suppression.
+bool automatic_ack_visible() noexcept {
     // A startup shell's channel is acknowledged once READY has its read state.
     if (!g_app.account_ui || !g_app.account.instance || !g_app.window || g_app.startup_shell_provisional)
         return false;
@@ -480,11 +486,16 @@ bool application_read_state_eligible() noexcept {
         (now >= g_app.read_last_activity_ms && now - g_app.read_last_activity_ms >= 600'000);
     // The system idle time matters only after ten minutes without activity in the application. Where the
     // system cannot tell how long the user has been away, only the application's own activity decides.
-    visibility.idle = locally_idle && platform_settings_read().system_idle_ms >= 600'000;
+    // The rest of the visibility passed above: only the idle and manual-suppression parts remain.
+    return !locally_idle || platform_settings_read().system_idle_ms < 600'000;
+}
+} // namespace
+bool application_read_state_eligible() noexcept {
+    if (!automatic_ack_visible())
+        return false;
     const auto* channel = chat_state_store_find_channel(
         g_app.account_ui->chat_state, g_app.account_ui->chat_state.selected_channel_id);
-    visibility.manual_suppressed = channel && channel->read_auto_ack_suppressed;
-    return read_ack_automatic_eligible(visibility);
+    return !channel || !channel->read_auto_ack_suppressed;
 }
 void application_read_state_ready() noexcept {
     if (!g_app.read_state || !g_app.account_ui)
@@ -633,7 +644,8 @@ bool application_read_state_observe() noexcept {
     application_read_state_ready();
     if (g_app.read_state)
         maintain_selected(*g_app.read_state);
-    if (!application_read_state_eligible())
+    // The checks below cover the selected channel's suppression that eligible() adds.
+    if (!automatic_ack_visible())
         return true;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, state.selected_channel_id);
@@ -663,12 +675,9 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
     if (!read_ack_controller_peek_due(owner.queue, now_ms, &intent))
         return false;
     auto* captured = action(owner, intent.channel_id);
-    const auto* channel =
-        captured && captured->scoped
-            ? (source_current(owner, *captured, false)
-                   ? chat_state_store_find_channel(g_app.account_ui->chat_state, intent.channel_id)
-                   : nullptr)
-            : readable(intent.channel_id, intent.kind == ReadAckKind::manual);
+    const auto* channel = captured && captured->scoped
+                              ? source_channel(owner, *captured)
+                              : readable(intent.channel_id, intent.kind == ReadAckKind::manual);
     const bool manual = intent.kind == ReadAckKind::manual;
     if (!channel || (manual && (!captured || !captured->manual || captured->cursor != intent.message_id ||
                                 !source_current(owner, *captured)))) {
@@ -863,7 +872,7 @@ void application_read_state_ack_observed(void*, u64 channel_id, u64 cursor, bool
         }
     if (matched != ~u32{0}) {
         const bool superseded =
-            latest && matched_serial < latest->serial && source_current(*o, *latest, false);
+            latest && matched_serial < latest->serial && source_channel(*o, *latest);
         if (echoes[matched].copies > 1)
             --echoes[matched].copies;
         else
@@ -919,7 +928,7 @@ bool application_read_state_scoped_prepare(ConstSlice<ReadScopeTarget> targets, 
         source.channel_id = t.channel_id;
         source.channel_generation = t.generation;
         source.scoped = true;
-        if (!source_current(*o, source, false) || t.outbound != (t.message_id != 0))
+        if (!source_channel(*o, source) || t.outbound != (t.message_id != 0))
             return false;
         for (u32 j = 0; j < i; ++j)
             if (targets[j].channel_id == t.channel_id)
@@ -972,7 +981,7 @@ bool application_read_state_scoped_commit(ConstSlice<ReadScopeTarget> targets, b
         source.channel_id = targets[i].channel_id;
         source.channel_generation = targets[i].generation;
         source.scoped = true;
-        if (!source_current(*o, source, false))
+        if (!source_channel(*o, source))
             return false;
     }
     const u32 viewed = viewed_day();
@@ -1009,7 +1018,7 @@ bool application_read_state_action_current(u64 channel_id, u64 serial) noexcept 
     if (!o || !serial || !scoped(*o))
         return false;
     const auto* latest = action(*o, channel_id);
-    return latest && latest->serial == serial && source_current(*o, *latest, false);
+    return latest && latest->serial == serial && source_channel(*o, *latest);
 }
 void application_read_state_scoped_cancel(u64 channel_id, u64 serial) noexcept {
     auto* o = g_app.read_state;

@@ -501,18 +501,6 @@ Utf8View reaction_picker_result_guild_name(const ReactionPickerModel& picker, u3
     return {};
 }
 
-namespace {
-bool settings_key_digits(Utf8View key) noexcept {
-    if (!key.bytes || key.bytes > 20)
-        return false;
-    for (u32 i = 0; i < key.bytes; ++i)
-        if (key.data[i] < '0' || key.data[i] > '9')
-            return false;
-    return true;
-}
-
-} // namespace
-
 u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, const Slice<char>& output) noexcept {
     if (!emoji.valid() || !output.data)
         return 0;
@@ -527,18 +515,11 @@ u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, const Slice<char>& outpu
 
 ReactionEmojiRef reaction_emoji_from_settings_key(const Utf8View& key) noexcept {
     constexpr ReactionEmojiRef none = reaction_emoji_unicode(kReactionPreferenceInvalidCatalogIndex);
-    if (settings_key_digits(key)) {
-        u64 id = 0;
-        for (u32 i = 0; i < key.bytes; ++i) {
-            const u64 digit = static_cast<u64>(key.data[i] - '0');
-            if (id > (~u64{0} - digit) / 10)
-                return none;
-            id = id * 10 + digit;
-        }
-        // Emoji names such as "100" and "1234" are Unicode names, not snowflakes.
-        if (id >= (1ull << 22))
-            return reaction_emoji_custom(id);
-    }
+    // Emoji names such as "100" and "1234" are Unicode names, not snowflakes. Digits past 64 bits name no alias,
+    // so they find nothing below.
+    u64 id = 0;
+    if (decimal_parse(key, &id) && id >= (1ull << 22))
+        return reaction_emoji_custom(id);
     // Any alias or catalog name, or the emoji sequence itself.
     const bool sequence = key.bytes && static_cast<u8>(key.data[0]) >= 0x80u;
     const u32 index = emoji_catalog_find_glyph(sequence ? key : emoji_shortcode_glyph(key));

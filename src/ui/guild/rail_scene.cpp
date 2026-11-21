@@ -237,12 +237,16 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
     if (restore_focus == 0) {
         restore_focus = view->selected_guild_id;
     }
-    // Indicator motion belongs to a guild, not a widget slot.
-    GuildRailIndicator indicators[64]{};
-    u64 indicator_ids[64]{};
+    // Indicator motion belongs to a guild, not a widget slot. The snapshot (about 8 KB) stays uninitialized: the
+    // row loop below reads only the `kept` entries written here.
+    struct Snapshot {
+        union { GuildRailIndicator indicators[64]; };
+        Snapshot() noexcept {}
+    } snapshot;
+    u64 indicator_ids[64];
     const u32 kept = minimum<u32>(scene->active ? scene->count : 0, 64);
     for (u32 i = 0; i < kept; ++i) {
-        indicators[i] = scene->rows[i].indicator;
+        snapshot.indicators[i] = scene->rows[i].indicator;
         indicator_ids[i] = scene->rows[i].view.id;
     }
     ui_widget_manager_reset(&scene->widgets);
@@ -288,7 +292,7 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
         GuildRailIndicator indicator{};
         for (u32 k = 0; k < kept; ++k)
             if (indicator_ids[k] == source.id)
-                copy_value(&indicator, indicators[k]);
+                copy_value(&indicator, snapshot.indicators[k]);
         scene->rows[local] = GuildRailRowWidget{source, added.handle, index, indicator, reveal};
     });
     if (!added_all)
@@ -425,16 +429,11 @@ GuildRailSceneResult guild_rail_scene_scroll(GuildRailScene* scene, const Naviga
 
 const GuildRailRowWidget* guild_rail_scene_resolve(const GuildRailScene& scene,
                                                    UiWidgetHandle widget) noexcept {
-    if (!ui_widget_manager_resolve(scene.widgets, widget)) {
-        return nullptr;
-    }
-    for (u32 index = 0; index < scene.count; ++index) {
-        const GuildRailRowWidget& row = scene.rows[index];
-        if (row.widget.slot == widget.slot && row.widget.generation == widget.generation) {
-            return &row;
-        }
-    }
-    return nullptr;
+    // materialize() adds the root, the spacer and the top tiles, then one widget per row: row n takes the slot
+    // 2 + materialized_top + n. Rows hold handles of the current widgets only (every reset clears or rebuilds them).
+    const u32 index = widget.slot - 2u - scene.materialized_top;
+    return index < scene.count && ui_widget_handle_equal(scene.rows[index].widget, widget) ? &scene.rows[index]
+                                                                                           : nullptr;
 }
 
 const UiLayoutNode* guild_rail_scene_layout_node(const GuildRailScene& scene,

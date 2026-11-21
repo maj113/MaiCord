@@ -162,7 +162,7 @@ bool hold_message(const Utf8View& text, u64 origin) noexcept {
     s.origin = origin;
     return message_composer_restore(&s.message, 0, text, text.bytes, text.bytes);
 }
-Utf8View user_tag(u64 user_id) noexcept {
+inline Utf8View user_tag(u64 user_id) noexcept {
     const auto* user = g_app.account_ui ? user_store_find(g_app.account_ui->user_store, user_id) : nullptr;
     if (!user)
         return {};

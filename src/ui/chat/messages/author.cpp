@@ -291,9 +291,9 @@ MessageProfileHit message_author_hit_test(const MessageScene& scene,
         const auto& row = scene.rows[i];
         if (row.grouped || scene.display.compact) continue;
         const auto* avatar = message_scene_layout_node(scene, row.avatar);
-        const auto* record = message_store_resolve(*scene.timeline->store, row.message);
-        if (record && avatar && ui_rect_contains(ui_rect_intersection(avatar->rectangle,
-                                                                     avatar->clip_rectangle), x, y))
+        if (!avatar || !ui_rect_contains(ui_rect_intersection(avatar->rectangle, avatar->clip_rectangle), x, y))
+            continue;
+        if (const auto* record = message_store_resolve(*scene.timeline->store, row.message))
             return {record->author_id, avatar->rectangle};
     }
     for (u32 i = 0; i < text.command_count; ++i) {

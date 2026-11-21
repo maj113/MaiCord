@@ -166,9 +166,9 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         if (!context.project() || !probe_present(&renderer, context.theme) || !probe_present(&renderer, context.theme)) return false;
         auto* scene = application_thread_browser_scene();
         if (!scene) return false;
-        struct Counters { u32 values[16]; };
+        struct Counters { u32 values[15]; };
         const auto counters = [&]() noexcept {
-            return Counters{{scene->rebuilds, scene->layout_passes, renderer.ui_scene->layout_passes,
+            return Counters{{scene->rebuilds, renderer.ui_scene->layout_passes,
                 renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
                 renderer.shell_navigation_scene->layout_passes, context.navigation.revision, measure.backend_calls,
                 renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
@@ -178,14 +178,14 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         const Counters before = counters();
         for (u32 i = 0; i < 64; ++i) if (!context.project() || !probe_present(&renderer, context.theme)) return false;
         const Counters after = counters();
-        const char* labels[]{"scene_rebuild", "scene_layout", "shell_layout", "shell_rebuild", "rail_layout",
+        const char* labels[]{"scene_rebuild", "shell_layout", "shell_rebuild", "rail_layout",
             "sidebar_layout", "navigation", "shape", "raster", "text_build", "paint_build", "paint_upload",
             "text_upload", "media_upload", "painted_frames", "unchanged_skips"};
         bool unchanged = true;
         log_u64(LogLevel::info, "thread_browser_warm", "case", case_id);
-        for (u32 i = 0; i < 16; ++i) {
+        for (u32 i = 0; i < 15; ++i) {
             log_u64(LogLevel::info, "thread_browser_warm", labels[i], after.values[i] - before.values[i]);
-            unchanged &= after.values[i] - before.values[i] == (i == 15 ? 64u : 0u);
+            unchanged &= after.values[i] - before.values[i] == (i == 14 ? 64u : 0u);
         }
         log_u64(LogLevel::info, "thread_browser_warm", "scene_committed_bytes", scene->storage.arena.committed);
         log_u64(LogLevel::info, "thread_browser_warm", "scene_abi_bytes", sizeof(UiThreadBrowserScene));
@@ -253,8 +253,8 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
     for (u32 i = 0; i < scene->widgets.count; ++i)
         text_fields += scene->widgets.storage[i].kind == UiWidgetKind::text_field ? 1u : 0u;
     if (!require(context.project() && !text_fields && scene->status.top == scene->tabs.bottom &&
-        scene->body.top - scene->panel.top == scene->style.header_height + scene->style.tabs_height +
-            scene->style.status_height, 9)) return false;
+        scene->body.top - scene->panel.top == kUiThreadBrowserStyle.header_height +
+            kUiThreadBrowserStyle.tabs_height + kUiThreadBrowserStyle.status_height, 9)) return false;
     // The header search bar submits thread names into the panel's Search list.
     if (!require(application_thread_browser_search(utf8_literal("Design日")) && thread_browser_ui_adapter_submit(98005) &&
         thread_browser_ui_adapter_flight(&flight, &flight_id) && flight.mode == ThreadBrowserMode::search &&

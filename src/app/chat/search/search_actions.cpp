@@ -110,35 +110,33 @@ void decorate(SearchBank& bank) noexcept {
     bank.measured_native_text = nullptr;
     bank.measured_width = 0;
     clear_bytes(bank.body_heights, sizeof(bank.body_heights));
-    for (u32 i = 0; i < bank.page.message_count; ++i) {
-        u32 group = 0;
-        for (u32 g = 0; g < bank.page.group_count; ++g)
-            if (i >= bank.groups[g].first_message)
-                group = g;
-        const auto& m = bank.messages[i].message;
-        const auto* channel =
-            chat_state_store_find_channel(g_app.account_ui->chat_state, m.channel_id);
-        const auto name = channel
-                              ? chat_state_store_channel_name(g_app.account_ui->chat_state, *channel)
-                              : Utf8View{};
+    const auto& state = g_app.account_ui->chat_state;
+    // The decoder keeps every message of a group in the channel of the group's first message.
+    for (u32 group = 0; group < bank.page.group_count; ++group) {
+        const u64 channel_id = bank.messages[bank.groups[group].first_message].message.channel_id;
+        const auto* channel = chat_state_store_find_channel(state, channel_id);
+        const auto name = channel ? chat_state_store_channel_name(state, *channel) : Utf8View{};
         auto* label = bank.channels[group];
         u32 used = 0;
         label[used++] = '#';
         if (name.bytes)
             used += utf8_copy_truncated(label + used, sizeof(bank.channels[group]) - 1, name);
         else
-            used += decimal_write(label + used, m.channel_id);
+            used += decimal_write(label + used, channel_id);
         bank.channel_bytes[group] = static_cast<u8>(used);
+    }
+    const u64 now_seconds = clock_unix_milliseconds() / 1000u;
+    for (u32 i = 0; i < bank.page.message_count; ++i) {
+        const u64 timestamp_ms = bank.messages[i].message.timestamp_ms;
         auto* detail = bank.details[i];
-        used = 0;
-        if (m.timestamp_ms) {
+        u32 used = 0;
+        if (timestamp_ms) {
             // The official client's calendar label ("Today at 3:45 PM", "10/5/2026 3:45 PM");
             // the short date alone when a long locale format overflows the slot.
-            const u64 now_seconds = clock_unix_milliseconds() / 1000u;
-            auto formatted = format_timestamp_calendar(m.timestamp_ms / 1000u, now_seconds,
+            auto formatted = format_timestamp_calendar(timestamp_ms / 1000u, now_seconds,
                                                        Slice<char>{detail, sizeof(bank.details[i])});
             if (!formatted.ok)
-                formatted = format_timestamp_local(m.timestamp_ms / 1000u, 'd', now_seconds,
+                formatted = format_timestamp_local(timestamp_ms / 1000u, 'd', now_seconds,
                                                    Slice<char>{detail, sizeof(bank.details[i])});
             used = formatted.ok ? formatted.bytes : 0;
         }

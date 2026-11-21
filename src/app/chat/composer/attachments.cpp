@@ -201,8 +201,8 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
         const Utf8View filename = message_attachment_drafts_filename(&state->drafts, ids[i]);
         const auto preview = application_composer_preview_view(ids[i]);
+        // Every field of the tile is assigned below.
         auto& tile = state->tiles[state->tile_count++];
-        reset_value(&tile);
         tile.id = ids[i];
         tile.filename = filename;
         tile.bytes = record->source.bytes;

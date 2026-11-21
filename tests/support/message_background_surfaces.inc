@@ -12,7 +12,6 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     // a real component without mutating the caller's timeline/focus/handles.
     MessageTimeline timeline = original.timeline ? *original.timeline : MessageTimeline{};
     MessageScene scene{};
-    MessageSceneRowWidget rows[16]{};
     UiWidget widgets[512]{};
     UiLayoutNode nodes[512]{};
     struct SceneRelease {
@@ -25,7 +24,7 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
         timeline.store ? message_store_find(*timeline.store, rich_message_id) : MessageStoreResult{};
     bool visible =
         found.ok() && timeline.list &&
-        message_scene_initialize(&scene, &timeline, {rows, 16}, {widgets, 512}, {nodes, 512}) &&
+        message_scene_initialize_owned(&scene, &timeline, kMessageSceneTestRows, 16, {widgets, 512}, {nodes, 512}) &&
         message_timeline_set_scroll(
             &timeline, ui_variable_list_prefix_units(*timeline.list, found.order_index), false) &&
         message_scene_update(&scene, original.viewport).ok();

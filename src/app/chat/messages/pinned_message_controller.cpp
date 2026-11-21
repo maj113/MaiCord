@@ -97,9 +97,7 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
         row.attachment_count = message.attachments.count + (message.snapshot.present ? message.snapshot.attachments.count : 0);
         row.embed_count = message.embeds.count + (message.snapshot.present ? message.snapshot.embeds.count : 0);
         row.sticker_count = message.stickers.count + (message.snapshot.present ? message.snapshot.stickers.count : 0);
-        row.component_count = message.components.count + (message.snapshot.present ? message.snapshot.components.count : 0);
         row.excerpt_truncated = card.truncated;
-        row.rich_truncated = message.rich_truncations != 0 || message.snapshot.rich_truncations != 0;
     }
     for (u32 at = items.count; at < value.page.count; ++at) reset_value(&value.rows[at]);
     value.page = page;

@@ -73,7 +73,7 @@ bool channel_memory_set_tabs(ChannelMemory* memory, ConstSlice<ChannelMemoryTab>
     }
     if (same)
         return false;
-    clear_bytes(memory->tabs, sizeof(memory->tabs));
+    // Tabs past tab_count keep old bytes. Every reader stops at tab_count.
     copy_bytes(memory->tabs, tabs.data, tabs.count * sizeof(ChannelMemoryTab));
     memory->tab_count = static_cast<u8>(tabs.count);
     ++memory->revision;

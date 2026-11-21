@@ -49,17 +49,20 @@ inline bool application_media_url_authorized(const Application& application, Utf
     if (!application.account_ui || !url.bytes) return false;
     const auto& store = application.message_view.store;
     const auto& rich_store = application.account_ui->message_rich_store;
-    for (u32 i = 0; i < store.count; ++i) {
-        const auto handle = message_store_ordered_handle(store, i);
-        const auto* message = message_store_resolve(store, handle);
-        if (!message || message->channel_id != application.account_ui->active_channel_id ||
-            !application_channel_readable(application, message->channel_id)) continue;
-        const auto* rich = message_rich_store_find(rich_store, message->id);
-        if (application_text_contains(message_store_content(store, handle), url)) return true;
-        if (rich && rich->message_revision == message->revision &&
-            (application_rich_url_owned(rich_store, rich, url) ||
-             application_rich_url_owned(rich_store, message_rich_store_snapshot(rich_store, message->id), url))) return true;
-    }
+    // Only messages of the active channel count, so one readability check serves all of them.
+    const u64 active = application.account_ui->active_channel_id;
+    if (application_channel_readable(application, active))
+        for (u32 i = 0; i < store.count; ++i) {
+            const auto handle = message_store_ordered_handle(store, i);
+            const auto* message = message_store_resolve(store, handle);
+            if (!message || message->channel_id != active) continue;
+            if (application_text_contains(message_store_content(store, handle), url)) return true;
+            const auto* rich = message_rich_store_find(rich_store, message->id);
+            if (rich && rich->message_revision == message->revision &&
+                (application_rich_url_owned(rich_store, rich, url) ||
+                 application_rich_url_owned(rich_store, message_rich_store_snapshot_of(rich_store, *rich), url)))
+                return true;
+        }
     const auto* scene = application_search_scene();
     if (!scene || !scene->source) return false;
     for (u32 i = 0; i < scene->source->count; ++i) {

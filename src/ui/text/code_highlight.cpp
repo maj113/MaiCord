@@ -270,7 +270,6 @@ struct Highlighter {
     void* context;
     u32 capacity;
     u32 tokens;
-    u32 styled_bytes;
     bool truncated;
     LanguageLexicon lexicon;
 };
@@ -285,7 +284,6 @@ bool mark(Highlighter* highlighter, u32 begin, u32 end, u32 style) noexcept {
     }
     highlighter->sink(highlighter->context, begin, end, style);
     ++highlighter->tokens;
-    highlighter->styled_bytes += end - begin;
     return true;
 }
 
@@ -401,7 +399,7 @@ CodeHighlightResult highlight_markup(Highlighter* highlighter) noexcept {
         }
         offset = end;
     }
-    return CodeHighlightResult{highlighter->tokens, highlighter->styled_bytes, highlighter->truncated};
+    return CodeHighlightResult{highlighter->tokens, highlighter->truncated};
 }
 
 } // namespace
@@ -449,7 +447,7 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
         language == CodeLanguage::none || language == CodeLanguage::ansi || token_capacity == 0) {
         return CodeHighlightResult{};
     }
-    Highlighter highlighter{code, sink, context, token_capacity, 0, 0, false, language_lexicon(language)};
+    Highlighter highlighter{code, sink, context, token_capacity, 0, false, language_lexicon(language)};
     if (language == CodeLanguage::markup) {
         return highlight_markup(&highlighter);
     }
@@ -515,7 +513,7 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
         }
         offset = end;
     }
-    return CodeHighlightResult{highlighter.tokens, highlighter.styled_bytes, highlighter.truncated};
+    return CodeHighlightResult{highlighter.tokens, highlighter.truncated};
 }
 
 } // namespace maicord

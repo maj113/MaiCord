@@ -35,7 +35,7 @@ void close_popup() noexcept {
     g_search.shown_count = 0;
 }
 
-bool has_marks(Utf8View text) noexcept {
+inline bool has_marks(Utf8View text) noexcept {
     for (u32 i = 0; i + 2 < text.bytes; ++i)
         if (static_cast<u8>(text.data[i]) == 0xE2 && static_cast<u8>(text.data[i + 1]) == 0x81 &&
             (static_cast<u8>(text.data[i + 2]) == 0xA4 || static_cast<u8>(text.data[i + 2]) == 0xA2))

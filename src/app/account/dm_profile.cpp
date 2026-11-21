@@ -115,7 +115,7 @@ u64 selected_peer() noexcept {
         return 0;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, state.selected_channel_id);
-    u64 peer[2]{};
+    u64 peer[2];
     return state.home_selected && channel && channel->type == 1 &&
                    ui_private_row_group_members(state, channel->id, peer)
                ? peer[0]
@@ -350,10 +350,12 @@ bool activate(const ProfileScene& s, UiWidgetHandle target) noexcept {
             application_link_open(user_activity_text(s.activity_set->items[part->source], UserActivityField::url),
                                   true);
         return true;
-    case ProfileAction::voice_join: {
-        const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, part->target);
-        return !part->target || application_voice_join(channel ? channel->guild_id : 0, part->target) || true;
-    }
+    case ProfileAction::voice_join:
+        if (part->target) {
+            const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, part->target);
+            application_voice_join(channel ? channel->guild_id : 0, part->target);
+        }
+        return true;
     case ProfileAction::voice_guild:
         return !part->target || select_content_guild(part->target);
     case ProfileAction::activity_spotify: {

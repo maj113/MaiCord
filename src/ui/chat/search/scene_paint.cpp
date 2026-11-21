@@ -202,10 +202,10 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             continue;
         }
         if (filter && action != UiSearchAction::clear_recent) {
-            const UiIcon icons[] = {UiIcon::user,       UiIcon::channel,   UiIcon::attachment,
-                                    UiIcon::mention,    UiIcon::calendar,  UiIcon::date_before,
-                                    UiIcon::date_after, UiIcon::pin,       UiIcon::link,
-                                    UiIcon::file,       UiIcon::file_text, UiIcon::bot};
+            static constexpr UiIcon icons[] = {UiIcon::user,       UiIcon::channel,   UiIcon::attachment,
+                                               UiIcon::mention,    UiIcon::calendar,  UiIcon::date_before,
+                                               UiIcon::date_after, UiIcon::pin,       UiIcon::link,
+                                               UiIcon::file,       UiIcon::file_text, UiIcon::bot};
             const float cy = (r.top + r.bottom) * .5f;
             p.clip(r)
                 .icon(action == UiSearchAction::more_filters

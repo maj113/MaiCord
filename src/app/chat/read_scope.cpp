@@ -7,7 +7,7 @@ namespace maicord {
 namespace {
 constexpr u64 read_permissions = kPermissionViewChannel | kPermissionReadMessageHistory;
 constexpr u32 read_actions = channel_action_view | channel_action_read_history;
-bool supported(u8 type) noexcept {
+inline bool supported(u8 type) noexcept {
     return type == 0 || type == 5 || type == 2 || type == 13 || type == 15 || type == 16 ||
            channel_is_thread(type);
 }

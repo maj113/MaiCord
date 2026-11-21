@@ -45,11 +45,12 @@ bool timeline_current(const ApplicationMessageNavigationSource& source) noexcept
         source.self_user_id != g_app.account_ui->chat_state.self_user_id ||
         source.channel_epoch != g_app.load_trace.channel_epoch ||
         source.channel_id != g_app.account_ui->active_channel_id ||
-        source.channel_id != g_app.account_ui->chat_state.selected_channel_id ||
-        !application_channel_readable(g_app, source.channel_id)) return false;
-    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, source.channel_id);
+        source.channel_id != g_app.account_ui->chat_state.selected_channel_id) return false;
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(state, source.channel_id);
     const auto* message = message_store_resolve(g_app.message_view.store, source.handle);
-    return channel && channel->generation == source.channel_generation && message && message->occupied &&
+    return channel && application_channel_record_readable(state, *channel) &&
+        channel->generation == source.channel_generation && message && message->occupied &&
         message->id == source.message_id && message->channel_id == source.channel_id && message->revision == source.revision &&
         message->delivery == MessageDeliveryState::authoritative;
 }

@@ -134,8 +134,7 @@ bool actor_current(const BrowserScope& scope) noexcept {
         scope.instance == g_app.account.instance && scope.account_scope == g_app.plugin_account_scope_serial &&
         scope.profile == g_app.account.status.profile_id && scope.self == g_app.account_ui->chat_state.self_user_id;
 }
-bool parent_readable(u64 id) noexcept {
-    const auto* parent = application_channel_record(id);
+bool parent_readable(const ChannelRecord* parent) noexcept {
     if (!parent || !parent->occupied || !parent->guild_id || !channel_is_thread_parent(parent->type) ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag)) return false;
     constexpr u32 required = channel_action_view | channel_action_read_history;
@@ -144,11 +143,13 @@ bool parent_readable(u64 id) noexcept {
     return guild && guild->occupied && !guild->unavailable &&
         (parent->actions & required) == required && chat_state_store_channel_visible(state, *parent);
 }
-bool current(const ApplicationThreadBrowser& value) noexcept {
-    const auto* parent = actor_current(value.scope) ? application_channel_record(value.scope.parent) : nullptr;
-    return value.panel && parent && parent_readable(parent->id) && parent->generation == value.scope.generation &&
+// The parent channel of an open browser that is still current, else null.
+const ChannelRecord* current(const ApplicationThreadBrowser& value) noexcept {
+    const auto* parent = value.panel && actor_current(value.scope) ? application_channel_record(value.scope.parent)
+                                                                   : nullptr;
+    return parent_readable(parent) && parent->generation == value.scope.generation &&
         parent->guild_id == value.scope.guild && g_app.account_ui->active_channel_id == value.scope.underlying_channel &&
-        g_app.account_ui->chat_state.selected_guild_id == value.scope.guild;
+        g_app.account_ui->chat_state.selected_guild_id == value.scope.guild ? parent : nullptr;
 }
 bool front() noexcept {
     return application_thread_browser_active() && !application_forum_form_active() && application_panel_uncovered();
@@ -215,7 +216,7 @@ bool repaint() noexcept {
 // Until that inventory is synced for the parent, nothing guarantees it will
 // ever arrive, so the tab asks REST for the parent's active threads instead of
 // waiting on it.
-bool active_fetch_needed(const ApplicationThreadBrowser& value) noexcept {
+inline bool active_fetch_needed(const ApplicationThreadBrowser& value) noexcept {
     const auto* parent = value.tab == UiThreadBrowserTab::active ? application_channel_record(value.scope.parent) : nullptr;
     // Forum cards need REST post metadata even when the Gateway inventory is synced.
     return parent && (!parent->thread_listing_synced || (value.forum_mode && !value.active_loaded));
@@ -332,7 +333,7 @@ bool forum_meta_active(const ApplicationThreadBrowser& value) noexcept {
     return value.forum && value.forum->meta_flight.active;
 }
 // Keeps the state of the same forum (cache, tag filter, sort, layout) across reopen.
-bool forum_prepare(ApplicationThreadBrowser& value, const ChannelRecord& parent) noexcept {
+inline bool forum_prepare(ApplicationThreadBrowser& value, const ChannelRecord& parent) noexcept {
     if (!owner_ensure(value.forum)) return false;
     auto& forum = *value.forum;
     if (!forum.cache) forum.cache = static_cast<ForumPostEntry*>(pages_reserve(forum_cache_bytes));
@@ -430,9 +431,7 @@ void forum_card(ApplicationThreadBrowser& value, const ChannelRecord& row, u32 s
         {forum.activity[slot], sizeof(forum.activity[slot])});
     if (formatted.ok) {
         post.activity = {forum.activity[slot], formatted.bytes};
-        if (formatted.next_update_unix_seconds && (!forum.activity_refresh_s ||
-            formatted.next_update_unix_seconds < forum.activity_refresh_s))
-            forum.activity_refresh_s = formatted.next_update_unix_seconds;
+        forum.activity_refresh_s = earliest_deadline(forum.activity_refresh_s, formatted.next_update_unix_seconds);
     }
 }
 // Forum projection: filter by the selected tags, order like the official client (pinned,
@@ -631,7 +630,7 @@ bool application_thread_browser_available(u64 parent_id) noexcept {
         !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id) return false;
     const u64 id = parent_id ? parent_id : default_parent();
     const auto* parent = application_channel_record(id);
-    return parent_readable(id) && parent && g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
+    return parent_readable(parent) && g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }
 bool application_thread_browser_active() noexcept { return browser_owner && current(*browser_owner); }
 bool application_thread_browser_read_blocked() noexcept { return application_thread_browser_active(); }
@@ -703,17 +702,17 @@ bool application_thread_browser_synchronize() noexcept {
     if (!value) { renderer_bind_thread_browser_scene(&g_app.renderer, nullptr); return true; }
     if (value->captured && value->pressed.thread_id == ~u64{0}) {
         const auto* parent = application_channel_record(value->pressed_scope.parent);
-        if (!actor_current(value->pressed_scope) || !parent || !parent_readable(parent->id) ||
+        if (!actor_current(value->pressed_scope) || !parent_readable(parent) ||
             parent->generation != value->pressed_scope.generation || default_parent() != value->pressed_scope.parent ||
             !ui_widget_manager_input_enabled(g_app.shell_scene.widgets, value->pressed.widget)) clear_capture(*value);
     }
-    if (!current(*value)) {
+    const auto* parent = current(*value);
+    if (!parent) {
         if (value->panel) application_thread_browser_close();
         renderer_bind_thread_browser_scene(&g_app.renderer, nullptr);
         return true;
     }
     if (!front()) clear_capture(*value);
-    const auto* parent = application_channel_record(value->scope.parent);
     if (value->tab == UiThreadBrowserTab::active && !value->flight.active) {
         if (parent->thread_listing_synced && (!value->forum_mode || value->active_loaded)) {
             // The Gateway inventory arrived first; it is authoritative.
@@ -771,13 +770,12 @@ bool application_thread_browser_refresh_after_scroll() noexcept {
 }
 bool application_thread_browser_pending(u64 now) noexcept {
     application_thread_browser_synchronize();
-    if (browser_owner && current(*browser_owner) && forum_meta_due(*browser_owner, now) && g_app.account.instance &&
-        g_app.account.status.running && !g_app.account.stop_failed &&
-        g_app.account.status.required_action == AccountRequirement::none) return true;
-    return browser_owner && current(*browser_owner) && browser_owner->queued && !browser_owner->flight.active &&
-        !forum_meta_active(*browser_owner) &&
-        g_app.account.instance && g_app.account.status.running && !g_app.account.stop_failed &&
-        g_app.account.status.required_action == AccountRequirement::none && now >= maximum(browser_owner->due, browser_owner->actor_floor);
+    const auto* value = browser_owner;
+    if (!value || !current(*value) || !g_app.account.instance || !g_app.account.status.running ||
+        g_app.account.stop_failed || g_app.account.status.required_action != AccountRequirement::none)
+        return false;
+    return forum_meta_due(*value, now) || (value->queued && !value->flight.active && !forum_meta_active(*value) &&
+                                           now >= maximum(value->due, value->actor_floor));
 }
 bool application_thread_browser_submit(u64 id, u64 now) noexcept {
     if (!id || !application_thread_browser_pending(now)) return false;
@@ -912,8 +910,8 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
     repaint(); return true;
 }
 u64 application_thread_browser_next_wake() noexcept {
-    return browser_owner && current(*browser_owner) && browser_owner->queued && !browser_owner->flight.active &&
-        g_app.account.status.running && g_app.account.status.required_action == AccountRequirement::none
+    return browser_owner && browser_owner->queued && !browser_owner->flight.active && g_app.account.status.running &&
+        g_app.account.status.required_action == AccountRequirement::none && current(*browser_owner)
         ? maximum<u64>(1, maximum(browser_owner->due, browser_owner->actor_floor)) : 0;
 }
 void application_thread_browser_gateway(u64 guild, u64 parent) noexcept {
@@ -985,9 +983,9 @@ bool application_thread_browser_activate(UiThreadBrowserTarget target) noexcept 
     return repaint();
 }
 bool application_thread_browser_search_scope(ApplicationThreadBrowserSearchScope* out) noexcept {
-    if (!application_thread_browser_active()) return false;
+    const auto* parent = browser_owner ? current(*browser_owner) : nullptr;
+    if (!parent) return false;
     const auto& value = *browser_owner;
-    const auto* parent = application_channel_record(value.scope.parent);
     *out = {value.scope.parent, value.session, chat_state_store_channel_name(g_app.account_ui->chat_state, *parent),
         value.forum_mode};
     return true;
@@ -1032,8 +1030,11 @@ bool application_thread_browser_window_event(const WindowEvent& event) noexcept 
     const float client_x = positioned ? client_dip_x(event) : 0.f;
     const float client_y = positioned ? client_dip_y(event) : 0.f;
     const bool header = ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).threads, client_x, client_y);
-    const bool header_front = application_thread_browser_available() && !application_forum_form_active() && application_panel_uncovered();
-    if (input_press(event) && header && header_front) {
+    // Only a press on the header and the release that ends it read this, so pointer moves skip its lookups.
+    const auto header_front = []() noexcept {
+        return application_thread_browser_available() && !application_forum_form_active() && application_panel_uncovered();
+    };
+    if (input_press(event) && header && header_front()) {
         if (!ensure_owner()) return true;
         auto& value = *browser_owner;
         const auto* parent = application_channel_record(default_parent());
@@ -1055,7 +1056,7 @@ bool application_thread_browser_window_event(const WindowEvent& event) noexcept 
         if (input_release(event)) {
             const auto captured = value->pressed_scope;
             const auto* parent = application_channel_record(captured.parent);
-            const bool accepted = header && header_front && actor_current(captured) && parent &&
+            const bool accepted = header && header_front() && actor_current(captured) && parent &&
                 parent->generation == captured.generation && parent->guild_id == captured.guild &&
                 g_app.account_ui->active_channel_id == captured.underlying_channel && default_parent() == captured.parent &&
                 ui_widget_manager_input_enabled(g_app.shell_scene.widgets, value->pressed.widget);

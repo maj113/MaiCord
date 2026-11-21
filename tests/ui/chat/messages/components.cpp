@@ -107,6 +107,12 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
                     f.commands[i].styles.count == 2 && f.commands[i].wrapping == TextWrapping::no_wrap;
         check(ok && header && row && !row->grouped && row->measured_reply_height > 0,
               "interaction_header_is_retained_single_line_styled_and_measured");
+        // The text component (index 1) is rich text slot 224 + 1 * 2 + 1, where copy and links read it.
+        bool text_source = false;
+        for (u32 i = 0; i < f.presentation.command_count; ++i)
+            if (utf8_starts_with(f.commands[i].text, utf8_literal("This server isn't listed")))
+                text_source = f.commands[i].source_id == 0x80E3;
+        check(ok && text_source, "component_text_command_names_its_rich_text_slot");
         if (!ok) break;
     }
     // A narrow timeline shrinks the container to the row and wraps the

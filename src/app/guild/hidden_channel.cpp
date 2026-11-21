@@ -33,7 +33,7 @@ bool application_hidden_channel_open(u64 channel_id, UiRect anchor) noexcept {
         return false;
     auto& ui = *g_app.account_ui;
     TextBank bank{g_text, sizeof(g_text), 0};
-    PopupItem items[kHiddenChannelMenuRows]{};
+    PopupItem items[kHiddenChannelMenuRows];
     const u32 count = hidden_channel_menu_build(ui.chat_state, ui.user_store, *channel,
                                                 clock_unix_milliseconds() / 1000, &bank,
                                                 {items, kHiddenChannelMenuRows});

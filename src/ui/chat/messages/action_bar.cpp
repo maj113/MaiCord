@@ -8,8 +8,7 @@
 namespace maicord {
 namespace {
 
-MessageActionBarResult reject(MessageActionBar* bar, MessageActionBarError error) noexcept {
-    saturating_increment_if(bar, bar->rejected);
+MessageActionBarResult reject(MessageActionBarError error) noexcept {
     return MessageActionBarResult{error, false};
 }
 
@@ -69,7 +68,7 @@ bool layout_items(MessageActionBar* bar, const UiRect& row, const UiRect& viewpo
     return true;
 }
 
-bool forwardable(const MessageRecord& message) noexcept {
+inline bool forwardable(const MessageRecord& message) noexcept {
     return message.content_availability == MessageContentAvailability::available &&
            (message.type == 0 || message.type == 19 || message.type == 20 || message.type == 23) &&
            !(message.flags & (1u << 6)) && !(message.presentation_flags & kMessagePresentationForwardingObstacles);
@@ -92,7 +91,7 @@ u32 plugin_count(u64 message_id) noexcept {
     return ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, message_id, {nodes, kMessageActionBarPluginItems});
 }
 // Plugin buttons sit just before More (Delete when expanded).
-void push_plugins(MessageActionBar* bar, u64 message_id) noexcept {
+inline void push_plugins(MessageActionBar* bar, u64 message_id) noexcept {
     const u32 count = plugin_count(message_id);
     for (u32 index = 0; index < count && bar->item_count < kMessageActionBarCapacity - 1; ++index)
         bar->items[bar->item_count++] = MessageActionBarItem{
@@ -172,7 +171,7 @@ bool pin_state_current(const MessageActionBar& bar, const MessageRecord& message
     return true;
 }
 
-const MessageSceneRowWidget* owner_row(const MessageScene& scene, const MessageActionBar& bar) noexcept {
+inline const MessageSceneRowWidget* owner_row(const MessageScene& scene, const MessageActionBar& bar) noexcept {
     for (u32 index = 0; index < scene.rows.count; ++index) {
         const auto& candidate = scene.rows[index];
         if (candidate.message_id == bar.message_id && candidate.widget.slot == bar.owner.handle.slot &&
@@ -182,7 +181,7 @@ const MessageSceneRowWidget* owner_row(const MessageScene& scene, const MessageA
     return nullptr;
 }
 
-bool supported_delivery(const MessageRecord& message) noexcept {
+inline bool supported_delivery(const MessageRecord& message) noexcept {
     return message.delivery == MessageDeliveryState::authoritative ||
            message.delivery == MessageDeliveryState::failed;
 }
@@ -195,14 +194,13 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
                                                MessageActionBarOptions options) noexcept {
     if (!bar || !scene.active || hit.message_id == 0 || hit.message_id != message.id ||
         !supported_delivery(message)) {
-        return reject(bar, hit.message_id != 0 && message.id != 0
-                               ? MessageActionBarError::unsupported_message
-                               : MessageActionBarError::invalid_input);
+        return reject(hit.message_id != 0 && message.id != 0 ? MessageActionBarError::unsupported_message
+                                                             : MessageActionBarError::invalid_input);
     }
     const MessageSceneRowWidget* row = message_scene_find_row(scene, hit.source_index);
     const UiLayoutNode* layout = row ? message_scene_layout_node(scene, row->widget) : nullptr;
     if (!row || row->message_id != message.id || !layout) {
-        return reject(bar, MessageActionBarError::invalid_input);
+        return reject(MessageActionBarError::invalid_input);
     }
     const u32 preference_revision = preferences ? preferences->revision : 0;
     const u16 capabilities = effective_capabilities(message, options.capabilities);
@@ -218,7 +216,7 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
         const UiRect previous_clip = bar->clip;
         if (!layout_items(bar, message_scene_message_rectangle(scene, *row), scene.viewport, divider)) {
             message_action_bar_close(bar);
-            return reject(bar, MessageActionBarError::layout);
+            return reject(MessageActionBarError::layout);
         }
         const bool changed = !ui_rect_equal(previous, bar->rectangle) || !ui_rect_equal(previous_clip, bar->clip);
         saturating_increment_if(changed, bar->revision);
@@ -234,10 +232,10 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
     candidate.capabilities = capabilities;
     candidate.active = true;
     if (!build_items(&candidate, message, preferences, capabilities)) {
-        return reject(bar, MessageActionBarError::quick_reactions);
+        return reject(MessageActionBarError::quick_reactions);
     }
     if (!layout_items(&candidate, message_scene_message_rectangle(scene, *row), scene.viewport, divider)) {
-        return reject(bar, MessageActionBarError::layout);
+        return reject(MessageActionBarError::layout);
     }
     const bool opening = !bar->active || bar->message_id != message.id;
     bool items_changed = opening || bar->item_count != candidate.item_count;
@@ -249,11 +247,7 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
     const bool changed = items_changed || !ui_rect_equal(bar->rectangle, candidate.rectangle) ||
                          bar->owner.handle.slot != candidate.owner.handle.slot ||
                          bar->owner.handle.generation != candidate.owner.handle.generation;
-    candidate.opens = bar->opens;
-    candidate.closes = bar->closes;
-    candidate.rejected = bar->rejected;
     candidate.revision = bar->revision;
-    saturating_increment_if(opening, candidate.opens);
     saturating_increment_if(changed, candidate.revision);
     copy_value(bar, candidate);
     return MessageActionBarResult{MessageActionBarError::none, changed};
@@ -344,7 +338,6 @@ bool message_action_bar_close(MessageActionBar* bar, bool* changed) noexcept {
     bar->message_id = 0;
     bar->hovered_index = kMessageActionBarNoItem;
     bar->item_count = 0;
-    saturating_increment(bar->closes);
     saturating_increment(bar->revision);
     if (changed) {
         *changed = true;

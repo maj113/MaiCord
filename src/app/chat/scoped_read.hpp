@@ -4,7 +4,6 @@
 #include "maicord/app/net/rest_client.hpp"
 
 namespace maicord::app_detail {
-struct ApplicationScopedRead;
 struct ApplicationScopedReadTicket {
     ReadScopeSource source;
     const void* account_ui;

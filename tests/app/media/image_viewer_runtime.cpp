@@ -227,7 +227,6 @@ struct TimelineFixture {
     u8 rich_text[1024]{};
     u32 heights[1]{};
     u64 fenwick[1]{};
-    MessageSceneRowWidget rows[1]{};
     UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
 } timeline_fixture;
@@ -257,9 +256,9 @@ bool seed_timeline(UiPoint* inside) noexcept {
         !message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
                                      ui_extent_units(480), false) ||
         !message_timeline_bind_rich_store(&view.timeline, &store) ||
-        !message_scene_initialize(&g_app.message_scene, &view.timeline, {f.rows, 1},
-                                  {f.widgets, kMessageSceneWidgetsPerRow + 1},
-                                  {f.nodes, kMessageSceneWidgetsPerRow + 1}) ||
+        !message_scene_initialize_owned(&g_app.message_scene, &view.timeline, kMessageSceneTestRows, 1,
+                                        {f.widgets, kMessageSceneWidgetsPerRow + 1},
+                                        {f.nodes, kMessageSceneWidgetsPerRow + 1}) ||
         !message_rich_store_apply(&store, 810, f.records[0].revision, event).ok() ||
         !message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok() ||
         !message_scene_set_text_metrics(&g_app.message_scene, 0, 0, 0, false, nullptr, nullptr, {}, &changed) ||

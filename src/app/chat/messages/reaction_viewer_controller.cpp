@@ -16,7 +16,7 @@ ReactionViewerControllerResult failure(ReactionViewerControllerError error, bool
     return ReactionViewerControllerResult{error, changed, false};
 }
 
-void require_current_page(ReactionViewerController* controller) noexcept {
+inline void require_current_page(ReactionViewerController* controller) noexcept {
     controller->retry_at_ms = 0;
     controller->retry_attempt = 0;
     controller->phase = controller->viewer && controller->viewer->active

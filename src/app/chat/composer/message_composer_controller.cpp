@@ -1,4 +1,5 @@
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/app/chat/composer/message_attachment_storage.hpp"
@@ -957,19 +958,12 @@ u64 message_composer_controller_next_wake_at(const MessageComposerController& co
         return 0;
     }
     u64 wake_at = 0;
-    for (u32 index = 0; index < kMessageComposerRequestCapacity; ++index) {
-        const MessageComposerRequest& request = controller.requests[index];
-        if (request.occupied && request.phase == MessageComposerRequestPhase::retry_wait &&
-            request.retry_at_ms != 0 && (wake_at == 0 || request.retry_at_ms < wake_at)) {
-            wake_at = request.retry_at_ms;
-        }
-    }
-    for (u32 index = 0; index < kMessageSendTrackerCapacity; ++index) {
-        const MessageSendAttempt& attempt = controller.sends.attempts[index];
-        if (attempt.active && attempt.deadline_ms != 0 && (wake_at == 0 || attempt.deadline_ms < wake_at)) {
-            wake_at = attempt.deadline_ms;
-        }
-    }
+    for (const MessageComposerRequest& request : controller.requests)
+        if (request.occupied && request.phase == MessageComposerRequestPhase::retry_wait)
+            wake_at = earliest_deadline(wake_at, request.retry_at_ms);
+    for (const MessageSendAttempt& attempt : controller.sends.attempts)
+        if (attempt.active)
+            wake_at = earliest_deadline(wake_at, attempt.deadline_ms);
     return wake_at;
 }
 

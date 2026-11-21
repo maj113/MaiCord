@@ -944,8 +944,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             };
             const auto block_gap = [&]() noexcept { return ui_text_flow_advance(&flow, kMessageEmbedBlockGap); };
             const auto source = [&](u32 slot) noexcept {
-                return static_cast<u16>(kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u) |
-                                        (kRichTextEmbedBegin + index * kRichTextEmbedSlots + slot));
+                return rich_text_source(context, kRichTextEmbedBegin + index * kRichTextEmbedSlots + slot);
             };
             const Color muted = ui_background_muted_text_color(theme);
             constexpr float text_insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
@@ -989,7 +988,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     const Utf8View url = message_rich_store_string(*rich_store, embed.url);
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_embed_block(&context, title, &flow, kMessageEmbedContentInset,
+                        !append_embed_block(&context, title, source(1), &flow, kMessageEmbedContentInset,
                                             kMessageEmbedEndInset, theme.text_primary, owner,
                                             measurement_index, plan.markdown, 1,
                                             text_style_bold | (url.bytes ? text_style_link : 0u), text_size_md, url,
@@ -1001,7 +1000,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 if (description.bytes && plan.description) {
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_embed_block(&context, description, &flow, kMessageEmbedContentInset,
+                        !append_embed_block(&context, description, source(2), &flow, kMessageEmbedContentInset,
                                             kMessageEmbedEndInset, theme.text_primary, owner,
                                             measurement_index, plan.markdown, 0, 0,
                                             plan.components ? text_size_inherit : text_size_sm))

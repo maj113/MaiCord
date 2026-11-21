@@ -39,7 +39,6 @@ struct Fixture {
     u16 rich_order[3];
     u8 rich_text[128];
     MessageScene scene;
-    MessageSceneRowWidget rows[3];
     UiWidget widgets[3 * kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode nodes[3 * kMessageSceneWidgetsPerRow + 1];
     MessageEventPump pump;
@@ -100,9 +99,9 @@ bool initialize() noexcept {
         !message_timeline_initialize(&f.timeline, &f.messages, &f.list, ui_extent_units(100),
                                      ui_extent_units(1000), false) ||
         !message_timeline_bind_rich_store(&f.timeline, &f.rich) ||
-        !message_scene_initialize(&f.scene, &f.timeline, {f.rows, 3},
-                                  {f.widgets, 3 * kMessageSceneWidgetsPerRow + 1},
-                                  {f.nodes, 3 * kMessageSceneWidgetsPerRow + 1}) ||
+        !message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, 3,
+                                        {f.widgets, 3 * kMessageSceneWidgetsPerRow + 1},
+                                        {f.nodes, 3 * kMessageSceneWidgetsPerRow + 1}) ||
         !message_scene_update(&f.scene, {0, 0, 640, 1000}).ok())
         return false;
     f.pump.timeline = &f.timeline;

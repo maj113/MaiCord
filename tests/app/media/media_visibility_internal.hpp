@@ -97,7 +97,6 @@ struct VisibilityFixture {
     u8 rich_text[2048]{};
     u32 heights[3]{};
     u64 fenwick[3]{};
-    MessageSceneRowWidget rows[3]{};
     UiWidget widgets[3 * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode nodes[3 * kMessageSceneWidgetsPerRow + 1]{};
     UserRecord users[1]{};

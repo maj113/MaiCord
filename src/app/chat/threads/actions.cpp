@@ -161,7 +161,7 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
         return Admission::permission;
     if (owner && owner->closing)
         return Admission::busy;
-    if (owner && source_current(owner->source) && owner->source.thread_id == id &&
+    if (owner && owner->source.thread_id == id && source_current(owner->source) &&
         owner->operation == operation && (queued() || owner->phase == Phase::submitting)) {
         if (output)
             *output = owner->source;
@@ -226,7 +226,7 @@ ApplicationThreadActionView application_thread_actions_view(u64 id) noexcept {
     result.locked = value->thread_locked;
     result.locked_known = value->thread_locked_known;
     result.actions = available(*value);
-    if (owner && source_current(owner->source) && owner->source.thread_id == id) {
+    if (owner && owner->source.thread_id == id && source_current(owner->source)) {
         result.ticket.serial = owner->source.serial;
         result.phase = owner->phase;
         result.operation = owner->operation;
@@ -236,7 +236,7 @@ ApplicationThreadActionView application_thread_actions_view(u64 id) noexcept {
             result.actions = thread_action_cancel;
             if (owner->operation == Operation::fetch_self && !value->thread_self_joined_known)
                 result.membership = Membership::pending;
-        } else if (owner->phase == Phase::failed && (available(*value) & flag(owner->operation)))
+        } else if (owner->phase == Phase::failed && (result.actions & flag(owner->operation)))
             result.actions |= thread_action_retry;
     }
     if (owner && owner->refusal_text.bytes && owner->refusal_source.thread_id == id &&
@@ -344,19 +344,21 @@ bool application_thread_actions_admission_status(const ApplicationThreadActionTi
 bool application_thread_actions_synchronize() noexcept {
     if (!owner)
         return true;
-    if (owner->closing || !source_current(owner->source)) {
+    // The thread record source_current found. The membership update below changes it in place.
+    const auto* value = owner->closing ? nullptr : source_current(owner->source);
+    if (!value) {
         owner->closing = true;
         cancel_flight();
         if (!owner->flight.active)
             free_owner();
         return true; // A canceled in-flight request must still be consumable by the shared worker queue.
     }
-    if (owner->phase == Phase::submitting && !fetchable(*application_channel_record(owner->source.thread_id))) {
+    if (owner->phase == Phase::submitting && !fetchable(*value)) {
         cancel_flight();
         invalidate_uncertain_membership(owner->flight);
         publish(utf8_literal("Your access to this thread changed."), Phase::failed, true);
     }
-    if (queued() && !(available(*application_channel_record(owner->source.thread_id)) & flag(owner->operation)))
+    if (queued() && !(available(*value) & flag(owner->operation)))
         publish(utf8_literal("Your access to this thread changed."), Phase::failed,
                 true);
     return true;

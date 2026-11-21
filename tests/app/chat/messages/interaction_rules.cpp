@@ -169,7 +169,6 @@ struct SceneFixture {
     u64 fenwick[kRows];
     UiWidget widgets[kWidgets];
     UiLayoutNode nodes[kWidgets];
-    MessageSceneRowWidget rows[kRows];
     MessageStore store;
     UiVariableList list;
     MessageTimeline timeline;
@@ -207,7 +206,8 @@ void test_action_bar(Check check) noexcept {
             ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, kRows, ui_extent_units(57)) &&
             message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(600),
                                         false) &&
-            message_scene_initialize(&f.scene, &f.timeline, {f.rows, kRows}, {f.widgets, kWidgets}, {f.nodes, kWidgets});
+            message_scene_initialize_owned(&f.scene, &f.timeline, kMessageSceneTestRows, kRows,
+                                           {f.widgets, kWidgets}, {f.nodes, kWidgets});
     const UiRect viewport{0, 0, 740, 600};
     ready = ready && message_scene_update(&f.scene, viewport).ok();
     check(ready, "action_bar_fixture_initializes");

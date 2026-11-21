@@ -9,7 +9,6 @@
 #include "source_ticket.hpp"
 
 namespace maicord::app_detail {
-struct ApplicationSearch;
 // The Search target of one rich item (attachment, embed or sticker) of an accepted message.
 inline UiSearchTarget application_search_rich_target(const UiSearchScene& search, u64 channel_id, u64 message_id,
                                                      u32 source_index, MessageSceneRichItemKind kind, u32 index,

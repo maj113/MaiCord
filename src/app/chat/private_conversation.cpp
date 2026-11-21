@@ -13,8 +13,6 @@ u64 private_conversation_cached(const ChatStateStore& state, u64 user_id) noexce
     if (!state.private_channels || !state.self_user_id || !user_id || user_id == state.self_user_id) return 0;
     for (u32 i = 0; i < state.private_channels->count; ++i) {
         const auto& metadata = state.private_channels->records[i];
-        const auto* channel = chat_state_store_find_channel(state, metadata.id);
-        if (!channel || channel->type != 1) continue;
         const auto recipients = private_channel_store_recipients(*state.private_channels, metadata);
         bool found = false, compatible = true;
         for (u32 j = 0; j < recipients.count; ++j) {
@@ -22,7 +20,10 @@ u64 private_conversation_cached(const ChatStateStore& state, u64 user_id) noexce
             found = found || recipients[j] == user_id;
             compatible = compatible && recipients[j] == user_id;
         }
-        if (found && compatible) return channel->id;
+        // Only a matching conversation needs its channel record.
+        if (!found || !compatible) continue;
+        const auto* channel = chat_state_store_find_channel(state, metadata.id);
+        if (channel && channel->type == 1) return channel->id;
     }
     return 0;
 }

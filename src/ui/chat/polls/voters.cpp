@@ -73,17 +73,53 @@ void publish_scroll(UiPollVotersScene& scene, float requested) noexcept {
 UiPollVotersAction action(const UiPollVotersScene& scene, UiPollVotersTarget target) noexcept {
     return {scene.state.owner, scene.state.generation, scene.state.revision, target.control, target.id};
 }
-u32 targets(const UiPollVotersScene& scene, UiPollVotersTarget* output) noexcept {
-    u32 count{};
-    output[count++] = {UiPollVotersControl::close};
-    for (u32 i = 0; i < scene.state.answers.count; ++i)
-        output[count++] = {UiPollVotersControl::answer, scene.state.answers[i].id};
-    for (u32 i = 0; i < scene.state.voters.count; ++i)
-        output[count++] = {UiPollVotersControl::user, scene.state.voters[i].id};
-    output[count++] = {UiPollVotersControl::previous};
-    output[count++] = {UiPollVotersControl::next};
-    output[count++] = {UiPollVotersControl::retry};
-    return count;
+// The targets in focus order: Close, the answers, the voters, Previous, Next and Retry.
+u32 target_count(const UiPollVotersScene& scene) noexcept {
+    return 4 + scene.state.answers.count + scene.state.voters.count;
+}
+// The target at `ordinal` (below target_count) and its rectangle. Answer and voter ids are unique (valid()), so the
+// rectangle is the one ui_poll_voters_target_rectangle finds by id.
+UiPollVotersTarget target_at(const UiPollVotersScene& scene, u32 ordinal, UiRect* rectangle) noexcept {
+    const auto& g = scene.geometry;
+    if (ordinal-- == 0) {
+        *rectangle = g.close;
+        return {UiPollVotersControl::close};
+    }
+    if (ordinal < scene.state.answers.count) {
+        *rectangle = g.answers[ordinal];
+        return {UiPollVotersControl::answer, scene.state.answers[ordinal].id};
+    }
+    ordinal -= scene.state.answers.count;
+    if (ordinal < scene.state.voters.count) {
+        *rectangle = ui_poll_voters_row_rectangle(scene, ordinal);
+        return {UiPollVotersControl::user, scene.state.voters[ordinal].id};
+    }
+    ordinal -= scene.state.voters.count;
+    *rectangle = ordinal == 0 ? g.previous : ordinal == 1 ? g.next : g.retry;
+    return {static_cast<UiPollVotersControl>(static_cast<u8>(UiPollVotersControl::previous) + ordinal)};
+}
+// ui_poll_voters_target_enabled for a current scene, with the target's rectangle at hand.
+bool enabled_at(const UiPollVotersScene& scene, UiPollVotersTarget target, const UiRect& rectangle) noexcept {
+    if (target.control != UiPollVotersControl::answer && target.control != UiPollVotersControl::user && target.id)
+        return false;
+    if (!ui_rect_has_area(rectangle))
+        return false;
+    switch (target.control) {
+    case UiPollVotersControl::close:
+        return true;
+    case UiPollVotersControl::answer:
+        return !scene.state.loading && target.id != scene.state.answer_id;
+    case UiPollVotersControl::user:
+        return !scene.state.loading && !scene.state.error;
+    case UiPollVotersControl::previous:
+        return !scene.state.loading && scene.state.has_previous;
+    case UiPollVotersControl::next:
+        return !scene.state.loading && scene.state.has_next;
+    case UiPollVotersControl::retry:
+        return !scene.state.loading && scene.state.can_retry;
+    default:
+        return false;
+    }
 }
 } // namespace
 
@@ -178,8 +214,8 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
         y = geometry.status.bottom + style.gap;
     }
     float footer_y = geometry.panel.bottom - style.padding - style.target;
-    const UiPollVotersControl controls[]{UiPollVotersControl::previous, UiPollVotersControl::next,
-                                         UiPollVotersControl::retry};
+    static constexpr UiPollVotersControl controls[]{UiPollVotersControl::previous, UiPollVotersControl::next,
+                                                    UiPollVotersControl::retry};
     const Utf8View button_labels[]{style.previous, style.next, style.retry};
     const bool visible[]{state.has_previous, state.has_next, state.can_retry};
     float widths[3]{};
@@ -285,39 +321,18 @@ UiRect ui_poll_voters_target_rectangle(const UiPollVotersScene& scene, UiPollVot
     return {};
 }
 bool ui_poll_voters_target_enabled(const UiPollVotersScene& scene, UiPollVotersTarget target) noexcept {
-    if (target.control != UiPollVotersControl::answer && target.control != UiPollVotersControl::user &&
-        target.id)
-        return false;
-    if (!current(scene) || !ui_rect_has_area(ui_poll_voters_target_rectangle(scene, target)))
-        return false;
-    switch (target.control) {
-    case UiPollVotersControl::close:
-        return true;
-    case UiPollVotersControl::answer:
-        return !scene.state.loading && target.id != scene.state.answer_id;
-    case UiPollVotersControl::user:
-        return !scene.state.loading && !scene.state.error;
-    case UiPollVotersControl::previous:
-        return !scene.state.loading && scene.state.has_previous;
-    case UiPollVotersControl::next:
-        return !scene.state.loading && scene.state.has_next;
-    case UiPollVotersControl::retry:
-        return !scene.state.loading && scene.state.can_retry;
-    default:
-        return false;
-    }
+    return current(scene) && enabled_at(scene, target, ui_poll_voters_target_rectangle(scene, target));
 }
 UiPollVotersTarget ui_poll_voters_scene_hit(const UiPollVotersScene& scene, UiPoint point) noexcept {
     if (!current(scene) || !ui_rect_contains(scene.geometry.panel, point.x, point.y))
         return {};
-    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4];
-    const auto count = targets(scene, all);
-    for (u32 i = 0; i < count; ++i) {
-        const auto target = all[i];
-        auto bounds = ui_poll_voters_target_rectangle(scene, target);
-        if (target.control == UiPollVotersControl::user)
-            bounds = ui_rect_intersection(bounds, scene.geometry.body);
-        if (ui_poll_voters_target_enabled(scene, target) && ui_rect_contains(bounds, point.x, point.y))
+    for (u32 ordinal = 0, count = target_count(scene); ordinal < count; ++ordinal) {
+        UiRect rectangle;
+        const auto target = target_at(scene, ordinal, &rectangle);
+        const UiRect bounds = target.control == UiPollVotersControl::user
+                                  ? ui_rect_intersection(rectangle, scene.geometry.body)
+                                  : rectangle;
+        if (enabled_at(scene, target, rectangle) && ui_rect_contains(bounds, point.x, point.y))
             return target;
     }
     return {};
@@ -373,16 +388,17 @@ UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene* scene, UiPol
             result.action = action(*scene, scene->focus);
         return result;
     }
-    UiPollVotersTarget all[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4],
-        enabled[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4];
-    const auto count = targets(*scene, all);
+    UiPollVotersTarget enabled[kUiPollMaximumAnswers + kUiPollVoterPageMaximum + 4];
     u32 available{}, focused = ~0u;
-    for (u32 i = 0; i < count; ++i)
-        if (ui_poll_voters_target_enabled(*scene, all[i])) {
-            if (ui_poll_voters_target_equal(all[i], scene->focus))
-                focused = available;
-            enabled[available++] = all[i];
-        }
+    for (u32 ordinal = 0, count = target_count(*scene); ordinal < count; ++ordinal) {
+        UiRect rectangle;
+        const auto target = target_at(*scene, ordinal, &rectangle);
+        if (!enabled_at(*scene, target, rectangle))
+            continue;
+        if (ui_poll_voters_target_equal(target, scene->focus))
+            focused = available;
+        enabled[available++] = target;
+    }
     if (!available)
         return result;
     u32 next = key == UiPollKey::last || key == UiPollKey::previous ? available - 1 : 0;
