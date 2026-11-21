@@ -78,8 +78,10 @@ bool publish(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> bytes
 GatewayReadyProjectionScratch scratch() noexcept {
     return {{arrays, 32768}, {records, 16384}, {payload, sizeof(payload)}, {header, sizeof(header)}};
 }
-bool decode(Utf8View input, GatewayReady* ready) noexcept {
-    return gateway_decode_ready({input, 0, JsonValueKind::object}, {arrays, 32768}, 64, ready).ok();
+bool decode(Utf8View input, GatewayReady* ready, Slice<u32> index = {arrays, 32768}) noexcept {
+    const auto scan = json_scan_structurals_avx1(input, index);
+    return scan.ok() &&
+           gateway_decode_ready({input, {index.data, scan.count}}, {input, 0, JsonValueKind::object}, 64, ready).ok();
 }
 u64 hash(Utf8View input) noexcept {
     u64 value = 14695981039346656037ull;
@@ -377,7 +379,7 @@ GatewayReadyProjectionScratch huge_scratch(u32 payload_bytes, bool large = false
 void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
     const auto input = huge_ready();
     GatewayReady ready{};
-    check(input.bytes && gateway_decode_ready({input, 0, JsonValueKind::object}, {huge_arrays, 1u << 18}, 64, &ready).ok(),
+    check(input.bytes && decode(input, &ready, {huge_arrays, 1u << 18}),
         "huge community READY fixture decodes");
     // Route the guild alone with the former 128 KiB record capacity: this is
     // the owner's failure (route_detail=6 channel list, event_decode_error=2
@@ -451,6 +453,56 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
         projected.guild_creates == 2 && projected.huge.record_count == 502 && projected.huge.role_count == 251 &&
         huge_large.peak == 256 * 1024,
         "huge community READY projects every guild through the on-demand oversized record storage");
+    reserved_bytes_release(&huge_large);
+}
+// Every byte of each published event and payload, for comparing two projections of one READY.
+u64 stream_digest;
+bool digest_publish(void*, const GatewayClientEvent& event, ConstSlice<u8> bytes) noexcept {
+    const auto* raw = reinterpret_cast<const u8*>(&event);
+    for (u32 i = 0; i < sizeof(event); ++i) stream_digest = (stream_digest ^ raw[i]) * 1099511628211ull;
+    stream_digest = (stream_digest ^ bytes.count) * 1099511628211ull;
+    for (u32 i = 0; i < bytes.count; ++i) stream_digest = (stream_digest ^ bytes[i]) * 1099511628211ull;
+    return true;
+}
+bool same_route(const GatewayClientDispatchRouteResult& a, const GatewayClientDispatchRouteResult& b) noexcept {
+    return a.error == b.error && a.event_error == b.event_error && a.scan_error == b.scan_error &&
+           a.read_error == b.read_error && a.error_offset == b.error_offset && a.detail == b.detail;
+}
+u32 document_index[1u << 19];
+// A projection through READY's document, with or without its table of bracket ends, publishes the same events and
+// bytes, and reports the same failures, as one that scans each array.
+void document_projection(void (*check)(bool, const char*) noexcept) noexcept {
+    check(reserved_bytes_initialize(&huge_large, kGatewayClientGuildRecordCapacity), "document READY large storage");
+    for (u32 shape = 0; shape < 4; ++shape) {
+        const Utf8View input = shape == 0 ? huge_ready() : shape == 1 ? fixture(129) : shape == 2 ? dense_guild(true)
+                                                                                      : dense_channels(true);
+        GatewayReady ready{};
+        const auto scan = json_scan_structurals_avx1(input, {document_index, 1u << 18});
+        JsonIndexedDocument document{input, {document_index, scan.count}};
+        check(scan.ok() && gateway_decode_ready(document, {input, 0, JsonValueKind::object}, 64, &ready).ok(),
+              "document READY fixture decodes through its document");
+        GatewayReadyProjectionResult results[3];
+        u64 digests[3];
+        for (u32 mode = 0; mode < 3; ++mode) {
+            if (mode == 2)
+                document.ends = json_index_ends(input, document.structurals, document_index + scan.count)
+                                    ? document_index + scan.count
+                                    : nullptr;
+            auto scratch = huge_scratch(kGatewayClientDispatchPayloadCapacity, true);
+            scratch.document = mode ? &document : nullptr;
+            stream_digest = 14695981039346656037ull;
+            results[mode] = gateway_ready_project(ready, scratch, 88, 99, digest_publish, nullptr, nullptr);
+            digests[mode] = stream_digest;
+            reserved_bytes_decommit(&huge_large);
+        }
+        check(document.ends && results[0].ok() && results[1].ok() && results[2].ok() && digests[0] == digests[1] &&
+                  digests[0] == digests[2] && results[0].degraded_guilds == results[1].degraded_guilds &&
+                  results[0].degraded_guilds == results[2].degraded_guilds &&
+                  same_route(results[0].degraded_route, results[1].degraded_route) &&
+                  same_route(results[0].degraded_route, results[2].degraded_route) &&
+                  (shape != 2 || results[0].degraded_guilds == 1),
+              "READY visited through its document publishes the bytes and failures of scanned arrays");
+    }
     reserved_bytes_release(&huge_large);
 }
 // Individually malformed or unknown-shaped records cost only themselves.
@@ -929,6 +981,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     nested_record_growth(check);
     indexed_channel_records(check);
     huge_community_guild(check);
+    document_projection(check);
     tolerant_guild_records(check);
     channel_nickname_projection(check);
     channel_create_projection(check);

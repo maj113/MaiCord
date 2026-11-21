@@ -60,28 +60,12 @@ struct ResponseFields {
     bool no_cache;
 };
 
-bool slice_equal_case(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
-    if (left.count != right.count) {
-        return false;
-    }
-    for (u32 index = 0; index < left.count; ++index) {
-        if (ascii_lower(left[index]) != ascii_lower(right[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool parse_delta_seconds(ConstSlice<u8> value, u64* result) noexcept {
     value = http_trim_ows(value);
     if (value.count >= 2 && value[0] == '"' && value[value.count - 1] == '"') {
         value = ConstSlice<u8>{value.data + 1, value.count - 2};
     }
     return decimal_parse_padded(value, result);
-}
-
-bool name_equal(const ConstSlice<u8>& name, const char* literal) noexcept {
-    return http_ascii_equal_case_insensitive(name, literal);
 }
 
 bool parse_cache_control(ResponseFields* fields, ConstSlice<u8> value) noexcept {
@@ -122,11 +106,12 @@ bool parse_cache_control(ResponseFields* fields, ConstSlice<u8> value) noexcept 
         const ConstSlice<u8> directive_value =
             has_value ? ConstSlice<u8>{directive.data + equals + 1, directive.count - equals - 1}
                       : ConstSlice<u8>{};
-        if (name_equal(name, "no-store")) {
+        const u32 known = http_ascii_name_index(name, "no-store\0no-cache\0max-age\0");
+        if (known == 0) {
             fields->no_store = true;
-        } else if (name_equal(name, "no-cache")) {
+        } else if (known == 1) {
             fields->no_cache = true;
-        } else if (name_equal(name, "max-age")) {
+        } else if (known == 2) {
             u64 seconds = 0;
             if (!has_value || fields->has_max_age || !parse_delta_seconds(directive_value, &seconds)) {
                 return false;
@@ -144,15 +129,14 @@ bool parse_cache_control(ResponseFields* fields, ConstSlice<u8> value) noexcept 
 
 bool response_field_visitor(void* context, HttpField field) noexcept {
     ResponseFields* fields = static_cast<ResponseFields*>(context);
-    // Headers kept as they are, each at most once.
-    static constexpr const char* kSingle[] = {"content-type", "content-encoding", "location", "content-range"};
-    ConstSlice<u8>* const values[] = {&fields->content_type, &fields->content_encoding, &fields->location,
-                                      &fields->content_range};
-    bool* const seen[] = {&fields->has_content_type, &fields->has_content_encoding, &fields->has_location,
-                          &fields->has_content_range};
-    for (u32 index = 0; index < 4; ++index) {
-        if (!name_equal(field.name, kSingle[index]))
-            continue;
+    const u32 index = http_ascii_name_index(
+        field.name, "content-type\0content-encoding\0location\0content-range\0etag\0age\0cache-control\0");
+    // The first four are kept as they are, each at most once.
+    if (index < 4) {
+        ConstSlice<u8>* const values[] = {&fields->content_type, &fields->content_encoding, &fields->location,
+                                          &fields->content_range};
+        bool* const seen[] = {&fields->has_content_type, &fields->has_content_encoding, &fields->has_location,
+                              &fields->has_content_range};
         if (*seen[index]) {
             fields->error = CdnHttpError::duplicate_field;
             return false;
@@ -161,7 +145,7 @@ bool response_field_visitor(void* context, HttpField field) noexcept {
         *values[index] = field.value;
         return true;
     }
-    if (name_equal(field.name, "etag")) {
+    if (index == 4) {
         if (fields->has_etag || field.value.count == 0 || !cdn_etag_valid(field.value)) {
             fields->error =
                 fields->has_etag ? CdnHttpError::duplicate_field : CdnHttpError::invalid_etag;
@@ -169,14 +153,14 @@ bool response_field_visitor(void* context, HttpField field) noexcept {
         }
         fields->has_etag = true;
         fields->etag = field.value;
-    } else if (name_equal(field.name, "age")) {
+    } else if (index == 5) {
         if (fields->has_age || !decimal_parse_padded(field.value, &fields->age)) {
             fields->error =
                 fields->has_age ? CdnHttpError::duplicate_field : CdnHttpError::invalid_age;
             return false;
         }
         fields->has_age = true;
-    } else if (name_equal(field.name, "cache-control")) {
+    } else if (index == 6) {
         if (!parse_cache_control(fields, field.value)) {
             fields->error = CdnHttpError::invalid_cache_control;
             return false;
@@ -198,7 +182,7 @@ bool parse_content_range(ConstSlice<u8> value, u64* first, u64* last, u64* lengt
     static constexpr char unit[] = "bytes ";
     constexpr u32 unit_bytes = sizeof(unit) - 1;
     if (value.count <= unit_bytes ||
-        !slice_equal_case({value.data, unit_bytes}, {reinterpret_cast<const u8*>(unit), unit_bytes}))
+        !http_ascii_equal_case_insensitive({value.data, unit_bytes}, unit))
         return false;
     u32 dash = unit_bytes;
     while (dash < value.count && value[dash] != '-')
@@ -286,8 +270,7 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
         static constexpr char scheme[] = "https://";
         constexpr u32 scheme_bytes = sizeof(scheme) - 1;
         if (location.count <= scheme_bytes ||
-            !slice_equal_case(ConstSlice<u8>{location.data, scheme_bytes},
-                              ConstSlice<u8>{reinterpret_cast<const u8*>(scheme), scheme_bytes})) {
+            !http_ascii_equal_case_insensitive({location.data, scheme_bytes}, scheme)) {
             return CdnRedirectResult{CdnHost::none, 0, CdnHttpError::invalid_location};
         }
         u32 slash = scheme_bytes;
@@ -297,18 +280,16 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
         if (slash == location.count) {
             return CdnRedirectResult{CdnHost::none, 0, CdnHttpError::invalid_location};
         }
-        const ConstSlice<u8> authority{location.data + scheme_bytes, slash - scheme_bytes};
+        const Utf8View authority{reinterpret_cast<const char*>(location.data) + scheme_bytes, slash - scheme_bytes};
         CdnHost parsed_host = CdnHost::none;
         if (cdn_catalog_provider(current_host)) {
-            const auto name = cdn_host_name(current_host);
-            if (slice_equal_case(authority, {reinterpret_cast<const u8*>(name.data), name.bytes}))
+            if (ascii_equal_ignore_case(authority, cdn_host_name(current_host)))
                 parsed_host = current_host;
         } else {
             static constexpr CdnHost allowed_hosts[] = {CdnHost::cdn, CdnHost::media, CdnHost::images_ext_1,
                                                         CdnHost::images_ext_2};
             for (CdnHost candidate : allowed_hosts) {
-                const Utf8View name = cdn_host_name(candidate);
-                if (slice_equal_case(authority, {reinterpret_cast<const u8*>(name.data), name.bytes})) {
+                if (ascii_equal_ignore_case(authority, cdn_host_name(candidate))) {
                     parsed_host = candidate;
                     break;
                 }

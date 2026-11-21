@@ -31,7 +31,9 @@ void test_account_requirement(void (*check)(bool, const char*) noexcept) noexcep
     const auto ready_body = utf8_literal(
         R"({"v":9,"user":{"id":"1"},"session_id":"session","resume_gateway_url":"wss://gateway.discord.gg","guilds":[],"required_action":"REQUIRE_SAFETY_FLOWS"})");
     GatewayReady ready{};
-    check(gateway_decode_ready({ready_body, 0, JsonValueKind::object}, {scratch, 512}, 32, &ready).ok() &&
+    const auto scan = json_scan_structurals_avx1(ready_body, {scratch, 512});
+    check(scan.ok() && gateway_decode_ready({ready_body, {scratch, scan.count}}, {ready_body, 0, JsonValueKind::object}, 32,
+                                            &ready).ok() &&
               ready.required_action == AccountRequirement::safety_flows,
           "READY carries the initial account requirement");
     GatewayEnvelope envelope{};

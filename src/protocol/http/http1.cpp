@@ -1,6 +1,7 @@
 #include "maicord/protocol/http/http1.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -286,6 +287,13 @@ bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal
     return (value.data || value.count == 0) && case_equal(value, literal, c_string_length(literal));
 }
 
+u32 http_ascii_name_index(ConstSlice<u8> text, const char* names) noexcept {
+    u32 index = 0;
+    for (NameList list{names}; list && !case_equal(text, list.at, list.bytes); list.next())
+        ++index;
+    return index;
+}
+
 ConstSlice<u8> http_trim_ows(ConstSlice<u8> value) noexcept {
     u32 begin = 0;
     u32 end = value.count;
@@ -416,31 +424,28 @@ HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header
         return HttpHeadResult{{}, 0, HttpError::none, HttpParseState::need_more};
     }
 
+    // find_complete_head checked that every CR of the head starts a CRLF and every LF ends one, and the head ends
+    // with an empty line: each line ends at its first CR, and the first empty line is the last line.
+    const auto line_end = [&](u32 at) noexcept {
+        while (input[at] != '\r')
+            ++at;
+        return at;
+    };
     HttpResponseHead head{};
     head.header_bytes = header_bytes;
-    LineResult line = find_line(ConstSlice<u8>{input.data, header_bytes}, 0);
-    if (line.state != LineState::complete)
-        return head_error(HttpError::invalid_status_line, 0);
+    u32 end = line_end(0);
     HttpError status_error = HttpError::none;
-    if (!parse_status_line(ConstSlice<u8>{input.data, line.end}, &head, &status_error))
+    if (!parse_status_line(ConstSlice<u8>{input.data, end}, &head, &status_error))
         return head_error(status_error, 0);
 
     bool transfer_encoding_seen = false;
-    u32 offset = line.next;
-    while (offset + 2 <= header_bytes) {
-        line = find_line(ConstSlice<u8>{input.data, header_bytes}, offset);
-        if (line.state != LineState::complete)
-            return head_error(HttpError::invalid_line_ending, offset);
-        if (line.end == offset) {
-            offset = line.next;
-            break;
-        }
+    for (u32 offset = end + 2; (end = line_end(offset)) != offset; offset = end + 2) {
         if (input[offset] == ' ' || input[offset] == '\t')
             return head_error(HttpError::obsolete_line_folding, offset);
         if (head.field_count >= maximum_fields)
             return head_error(HttpError::too_many_fields, offset);
 
-        const ConstSlice<u8> raw_line{input.data + offset, line.end - offset};
+        const ConstSlice<u8> raw_line{input.data + offset, end - offset};
         u32 colon = 0;
         const HttpError field_error = validate_field_line(raw_line, &colon);
         if (field_error != HttpError::none)
@@ -471,11 +476,7 @@ HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header
         }
         if (visitor && !visitor(context, field))
             return head_error(HttpError::visitor_rejected, offset);
-        offset = line.next;
     }
-
-    if (offset != header_bytes)
-        return head_error(HttpError::invalid_line_ending, offset);
     if (head.chunked && head.has_content_length)
         return head_error(HttpError::ambiguous_framing, header_bytes);
     return HttpHeadResult{head, 0, HttpError::none, HttpParseState::complete};

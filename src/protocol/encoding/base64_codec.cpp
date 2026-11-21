@@ -15,26 +15,21 @@ const char* alphabet_text(Base64CodecAlphabet alphabet) noexcept {
     return alphabet == Base64CodecAlphabet::standard ? kStandardAlphabet : kUrlAlphabet;
 }
 
-bool decode_digit(char character, Base64CodecAlphabet alphabet, u8* value) noexcept {
-    if (character >= 'A' && character <= 'Z') {
-        *value = static_cast<u8>(character - 'A');
-        return true;
+// For each ASCII byte: its digit value in the low 6 bits, kStandardDigit when the standard alphabet has it and
+// kUrlDigit when the URL alphabet has it. A byte that is no digit has neither bit. No byte from 0x80 up is a digit.
+constexpr u8 kStandardDigit = 0x40, kUrlDigit = 0x80;
+struct DigitTable {
+    u8 entry[128];
+};
+constexpr DigitTable make_digit_table() noexcept {
+    DigitTable table{};
+    for (u32 value = 0; value < 64; ++value) {
+        table.entry[static_cast<u8>(kStandardAlphabet[value])] |= static_cast<u8>(value | kStandardDigit);
+        table.entry[static_cast<u8>(kUrlAlphabet[value])] |= static_cast<u8>(value | kUrlDigit);
     }
-    if (character >= 'a' && character <= 'z') {
-        *value = static_cast<u8>(character - 'a' + 26);
-        return true;
-    }
-    if (character >= '0' && character <= '9') {
-        *value = static_cast<u8>(character - '0' + 52);
-        return true;
-    }
-    const char* symbols = alphabet_text(alphabet);
-    if (character == symbols[62] || character == symbols[63]) {
-        *value = static_cast<u8>(character == symbols[62] ? 62 : 63);
-        return true;
-    }
-    return false;
+    return table;
 }
+constexpr DigitTable kDigits = make_digit_table();
 
 } // namespace
 
@@ -69,15 +64,17 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
             return failure(Base64Error::invalid_padding, digits);
         }
     }
+    const u8 accepted = alphabet == Base64CodecAlphabet::standard ? kStandardDigit : kUrlDigit;
     u8 final_digit = 0;
     for (u32 index = 0; index < digits; ++index) {
-        u8 value = 0;
-        if (!decode_digit(input.data[index], alphabet, &value)) {
+        const u8 byte = static_cast<u8>(input.data[index]);
+        const u8 entry = kDigits.entry[byte & 127u];
+        if (!(entry & (byte < 128 ? accepted : 0))) {
             return failure(input.data[index] == '=' ? Base64Error::invalid_padding
                                                     : Base64Error::invalid_character,
                            index);
         }
-        final_digit = value;
+        final_digit = entry & 63u;
     }
     if ((remainder == 2 && (final_digit & 0x0Fu) != 0) || (remainder == 3 && (final_digit & 0x03u) != 0)) {
         return failure(Base64Error::non_canonical, digits == 0 ? 0 : digits - 1);
@@ -88,28 +85,23 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
         return failure(Base64Error::output_too_small, 0, required);
     }
 
+    // Every byte below digits is an ASCII digit of the alphabet (checked above).
+    const auto digit = [&](u32 at) noexcept {
+        return static_cast<u32>(kDigits.entry[static_cast<u8>(input.data[at]) & 127u] & 63u);
+    };
     u32 source = 0;
     u32 destination = 0;
-    while (source + 4 <= digits) {
-        u8 a = 0, b = 0, c = 0, d = 0;
-        decode_digit(input.data[source], alphabet, &a);
-        decode_digit(input.data[source + 1], alphabet, &b);
-        decode_digit(input.data[source + 2], alphabet, &c);
-        decode_digit(input.data[source + 3], alphabet, &d);
-        output[destination++] = static_cast<u8>((a << 2) | (b >> 4));
-        output[destination++] = static_cast<u8>((b << 4) | (c >> 2));
-        output[destination++] = static_cast<u8>((c << 6) | d);
-        source += 4;
+    for (; source + 4 <= digits; source += 4) {
+        const u32 group = digit(source) << 18 | digit(source + 1) << 12 | digit(source + 2) << 6 | digit(source + 3);
+        output[destination++] = static_cast<u8>(group >> 16);
+        output[destination++] = static_cast<u8>(group >> 8);
+        output[destination++] = static_cast<u8>(group);
     }
     if (remainder != 0) {
-        u8 a = 0, b = 0, c = 0;
-        decode_digit(input.data[source], alphabet, &a);
-        decode_digit(input.data[source + 1], alphabet, &b);
-        output[destination++] = static_cast<u8>((a << 2) | (b >> 4));
-        if (remainder == 3) {
-            decode_digit(input.data[source + 2], alphabet, &c);
-            output[destination++] = static_cast<u8>((b << 4) | (c >> 2));
-        }
+        const u32 group = digit(source) << 18 | digit(source + 1) << 12 | (remainder == 3 ? digit(source + 2) << 6 : 0);
+        output[destination++] = static_cast<u8>(group >> 16);
+        if (remainder == 3)
+            output[destination++] = static_cast<u8>(group >> 8);
     }
     return Base64Result{destination, 0, Base64Error::none};
 }

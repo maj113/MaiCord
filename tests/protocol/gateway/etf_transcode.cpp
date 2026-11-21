@@ -46,7 +46,7 @@ void number(u64 v) noexcept {
 EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
                       void* context) noexcept {
     u32 marks = 0;
-    return etf_to_json_indexed(etf, output, maximum_output, grow, context, {}, &marks);
+    return etf_to_json_indexed(etf, output, maximum_output, grow, context, {}, nullptr, &marks);
 }
 // Builds terms the way Erlang's term_to_binary lays them out.
 struct Term {
@@ -96,6 +96,13 @@ u8 json[8192];
 u8 indexed_json[8192];
 u32 written_index[4096];
 u32 scanned_index[4096];
+// Index growth for the transcoder: one entry at a time, so that each structural takes the growth path.
+bool grow_written_index(void*, u32 required, Slice<u32>* index) noexcept {
+    if (required > 4096)
+        return false;
+    *index = {written_index, required};
+    return true;
+}
 // The structural index written while transcoding is the scanner's on the same JSON, and a too small index
 // reports the full count without writing past its end or touching the JSON.
 bool index_agrees(const Term& term, u32 json_bytes) noexcept {
@@ -105,7 +112,7 @@ bool index_agrees(const Term& term, u32 json_bytes) noexcept {
     u32 count = 0;
     Slice<u8> output{indexed_json, sizeof(indexed_json)};
     const auto indexed = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
-                                             {written_index, 4096}, &count);
+                                             {written_index, 4096}, nullptr, &count);
     if (!scan.ok() || !indexed.ok() || indexed.bytes != json_bytes || count != scan.count ||
         !bytes_equal(indexed_json, json, json_bytes) || !bytes_equal(written_index, scanned_index, count * 4))
         return false;
@@ -126,9 +133,17 @@ bool index_agrees(const Term& term, u32 json_bytes) noexcept {
         written_index[count - 1] = ~0u;
         output = {indexed_json, sizeof(indexed_json)};
         const auto short_index = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
-                                                     {written_index, count - 1}, &too_few);
+                                                     {written_index, count - 1}, nullptr, &too_few);
         if (!short_index.ok() || short_index.bytes != json_bytes || too_few != count ||
             written_index[count - 1] != ~0u)
+            return false;
+        // An index that grows while the transcoder writes it ends with every entry.
+        u32 grown = 0;
+        output = {indexed_json, sizeof(indexed_json)};
+        const auto growing = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
+                                                 {written_index, 1}, grow_written_index, &grown);
+        if (!growing.ok() || growing.bytes != json_bytes || grown != count ||
+            !bytes_equal(written_index, scanned_index, count * 4))
             return false;
     }
     return true;

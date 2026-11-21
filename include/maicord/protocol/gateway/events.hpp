@@ -103,15 +103,15 @@ GatewayEventDecodeResult gateway_decode_hello(JsonValue data, const Slice<u32>& 
 GatewayEventDecodeResult gateway_decode_rate_limited(JsonValue data, Slice<u32> structural_scratch,
                                                      u32 maximum_depth,
                                                      GatewayRateLimited* output) noexcept;
-// Only completion metadata is copied; member rows retain their existing decoder.
-GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Slice<u32> structural_scratch,
+// Only completion metadata is copied; member rows retain their existing decoder. `document` is the envelope's and
+// holds `data`. The chunk is read through its index, so nothing is scanned. Error offsets count from the document.
+GatewayEventDecodeResult gateway_decode_member_chunk_receipt(const JsonIndexedDocument& document, JsonValue data,
                                                              u32 maximum_depth,
                                                              GatewayMemberChunkReceipt* output) noexcept;
-// With `document` (the envelope's, holding `data`) READY is read through its index and nothing is scanned, so the
-// index stays intact for what follows; without one `data` is scanned into the scratch.
-GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structural_scratch,
-                                              u32 maximum_depth, GatewayReady* output,
-                                              const JsonIndexedDocument* document = nullptr) noexcept;
+// `document` is the envelope's and holds `data`. READY is read through its index and nothing is scanned, so the index
+// stays intact for what follows.
+GatewayEventDecodeResult gateway_decode_ready(const JsonIndexedDocument& document, JsonValue data,
+                                              u32 maximum_depth, GatewayReady* output) noexcept;
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
     u32 maximum_depth, JsonValue* channels) noexcept;
 // Validates the optional _trace array; RESUMED carries nothing else that is kept.

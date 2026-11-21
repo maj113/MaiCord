@@ -2,10 +2,11 @@
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/intrin.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -39,6 +40,9 @@ struct Writer {
     Slice<u8>* out;
     u8* data;
     u32 capacity;
+    // The end of the room that a reservation hands out. While the index can grow, the index has an entry for each
+    // byte of that room (any byte may be structural): a reservation inside it needs no index check.
+    u32 limit;
     u32 used;
     u32 maximum;
     EtfGrowOutput grow;
@@ -48,32 +52,55 @@ struct Writer {
     u32* index;
     u32 index_capacity;
     u32 marks;
+    // Null when the caller gave none or growth failed: then the index bounds no room, and only the count goes on.
+    EtfGrowIndex grow_index;
 
-    __forceinline void mark(u32 at) noexcept {
-        if (marks < index_capacity)
-            index[marks] = at;
-        ++marks;
+    // One or more entries. A store to the index may alias the fields, so the call reads them once into locals.
+    template <typename... Offsets> __forceinline void mark(Offsets... at) noexcept {
+        u32 count = marks;
+        const u32 room = index_capacity;
+        u32* const entries = index;
+        ((count < room ? void(entries[count] = at) : void(), ++count), ...);
+        marks = count;
     }
 
-    __declspec(noinline) u8* reserve_slow(u32 bytes) noexcept {
-        if (bytes > maximum - used)
-            return nullptr;
-        // The owner's storage sets the growth policy (stable storage doubles).
-        const u32 required = used + bytes;
-        Slice<u8> next{};
-        if (!grow || !grow(context, required, &next) || (data && next.data != data) || next.count < required)
-            return nullptr;
-        *out = next;
-        data = next.data;
-        capacity = next.count;
+    void set_limit() noexcept {
+        const u32 entries = index_capacity - marks;
+        limit = grow_index && entries < capacity - used ? used + entries : capacity;
+    }
+    // A reservation past the limit. structurals: how many of the bytes the caller marks. The index grows only when
+    // those do not fit, so it grows exactly when the JSON has more structurals than it holds.
+    __declspec(noinline) u8* reserve_slow(u32 bytes, u32 structurals) noexcept {
+        // The owner's storage sets the growth policies (stable storage and the session double).
+        if (capacity - used < bytes) {
+            if (bytes > maximum - used)
+                return nullptr;
+            const u32 required = used + bytes;
+            Slice<u8> next{};
+            if (!grow || !grow(context, required, &next) || (data && next.data != data) || next.count < required)
+                return nullptr;
+            *out = next;
+            data = next.data;
+            capacity = next.count;
+        }
+        if (grow_index && index_capacity - marks < structurals) {
+            Slice<u32> next{};
+            if (grow_index(context, marks + structurals, &next) && next.data == index &&
+                next.count >= marks + structurals)
+                index_capacity = next.count;
+            else
+                grow_index = nullptr;
+        }
+        // The limit may lie inside this reservation: the next one then takes this path too.
+        set_limit();
         return data + used;
     }
-    __forceinline u8* reserve(u32 bytes) noexcept {
-        return capacity - used >= bytes ? data + used : reserve_slow(bytes);
+    __forceinline u8* reserve(u32 bytes, u32 structurals = 0) noexcept {
+        return used + bytes <= limit ? data + used : reserve_slow(bytes, structurals);
     }
     // Every single byte written this way is structural: a quote, comma, colon or bracket.
     __forceinline bool byte(u8 value) noexcept {
-        u8* at = reserve(1);
+        u8* at = reserve(1, 1);
         if (!at)
             return false;
         mark(used);
@@ -81,8 +108,8 @@ struct Writer {
         ++used;
         return true;
     }
-    __forceinline bool bytes(const void* data, u32 count) noexcept {
-        u8* at = reserve(count);
+    __forceinline bool bytes(const void* data, u32 count, u32 structurals = 0) noexcept {
+        u8* at = reserve(count, structurals);
         if (!at)
             return false;
         copy_bytes(at, data, count);
@@ -139,7 +166,7 @@ __forceinline u32 write_decimal(u8* out, u64 value) noexcept {
 // the sign and the 20 bytes that write_decimal writes.
 bool write_integer(Writer* w, u64 magnitude, bool negative, bool as_name) noexcept {
     const bool quoted = as_name || magnitude >= kSafeInteger;
-    u8* at = w->reserve(23);
+    u8* at = w->reserve(23, quoted ? 2 : 0);
     if (!at)
         return false;
     u32 n = 0;
@@ -167,26 +194,33 @@ __forceinline u32 special_mask(__m128i v) noexcept {
                      _mm_or_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8('"')), _mm_cmpeq_epi8(v, _mm_set1_epi8('\\'))))));
 }
 
+// The same for 32 bytes. A signed compare finds the controls and the bytes from 0x80 up.
+MAICORD_HASWELL __forceinline u32 special_mask(__m256i v) noexcept {
+    return static_cast<u32>(_mm256_movemask_epi8(
+        _mm256_or_si256(_mm256_cmpgt_epi8(_mm256_set1_epi8(0x20), v),
+                        _mm256_or_si256(_mm256_cmpeq_epi8(v, _mm256_set1_epi8('"')),
+                                        _mm256_cmpeq_epi8(v, _mm256_set1_epi8('\\'))))));
+}
+
 // Escapes and validates UTF-8 (latin1: bytes are code points). readable: bytes from s to the input's end.
-bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
+MAICORD_HASWELL bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
     if (!w->byte('"'))
         return false;
     u32 i = 0;
     while (i < n) {
-        if (readable - i >= 16) {
-            // Bytes that need nothing are copied 16 at a time. The copy can pass the run and the string: those
+        if (readable - i >= 32) {
+            // Bytes that need nothing are copied 32 at a time. The copy can pass the run and the string: those
             // output bytes have no meaning and the next write replaces them.
-            const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
-            u8* at = w->reserve(16);
+            const __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(s + i));
+            u8* at = w->reserve(32);
             if (!at)
                 return false;
-            _mm_storeu_si128(reinterpret_cast<__m128i*>(at), v);
-            unsigned long plain = 0;
-            _BitScanForward(&plain, special_mask(v) | 1u << 16);
-            const u32 run = minimum(static_cast<u32>(plain), n - i);
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(at), v);
+            const u32 plain = lowest_set_bit(u64{special_mask(v)} | 1ull << 32);
+            const u32 run = minimum(plain, n - i);
             w->used += run;
             i += run;
-            if (plain == 16 || i == n)
+            if (plain == 32 || i == n)
                 continue;
         } else {
             u32 run = i;
@@ -271,21 +305,19 @@ bool write_string_slow(Writer* w, const u8* s, u32 n, bool latin1, u32 readable)
     return w->byte('"');
 }
 
-// A string of fewer than 16 bytes that needs nothing is copied whole when 16
-// bytes of input may be read (readable: bytes from s to the input's end).
-__forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
-    if (n < 16 && readable >= 16) {
-        const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s));
-        const u32 mask = special_mask(v) & ((1u << n) - 1);
-        if (!mask) {
-            u8* at = w->reserve(18);
+// A string of at most 32 bytes that needs nothing is copied whole with one load when 32 bytes of input may be read
+// (readable: bytes from s to the input's end).
+MAICORD_HASWELL __forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 readable) noexcept {
+    if (n <= 32 && readable >= 32) {
+        const __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(s));
+        if (!(special_mask(v) & ((1ull << n) - 1))) {
+            u8* at = w->reserve(34, 2);
             if (!at)
                 return false;
             at[0] = '"';
-            _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
+            _mm256_storeu_si256(reinterpret_cast<__m256i_u*>(at + 1), v);
             at[1 + n] = '"';
-            w->mark(w->used);
-            w->mark(w->used + 1 + n);
+            w->mark(w->used, w->used + 1 + n);
             w->used += n + 2;
             return true;
         }
@@ -577,7 +609,7 @@ __forceinline bool read_integer(Reader* r, u8 tag, u64* magnitude, bool* negativ
 }
 
 // A map key that is not a short plain ATOM_EXT name, then ':'.
-bool write_key_slow(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept {
+MAICORD_HASWELL bool write_key_slow(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept {
     *error = EtfError::truncated;
     *quoting = Quoting::none;
     if (!r->has(1))
@@ -641,7 +673,7 @@ __forceinline bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quo
         const u8* text = r->data + r->at + 3;
         const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(text));
         if (n - 1 < 13 && !(n == 3 && same(text, "nil", 3)) && !(special_mask(v) & ((1u << n) - 1))) {
-            u8* at = w->reserve(19);
+            u8* at = w->reserve(19, 3);
             *error = EtfError::output_capacity;
             if (!at)
                 return false;
@@ -649,9 +681,7 @@ __forceinline bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quo
             _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
             at[1 + n] = '"';
             at[2 + n] = ':';
-            w->mark(w->used);
-            w->mark(w->used + 1 + n);
-            w->mark(w->used + 2 + n);
+            w->mark(w->used, w->used + 1 + n, w->used + 2 + n);
             w->used += n + 3;
             *quoting = key_quoting(text, n);
             r->at += 3 + n;
@@ -663,15 +693,18 @@ __forceinline bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quo
 
 } // namespace
 
-EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
-                              void* context, Slice<u32> index, u32* index_count) noexcept {
+MAICORD_HASWELL EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
+                                              EtfGrowOutput grow, void* context, Slice<u32> index,
+                                              EtfGrowIndex grow_index, u32* index_count) noexcept {
     *index_count = ~0u;
     if (!etf.data || !etf.count || !output || (!output->data && output->count) || (!index.data && index.count))
         return {0, EtfError::invalid_input};
     if (etf[0] != kVersion)
         return {0, EtfError::bad_version};
     Reader r{etf.data, etf.count, 1};
-    Writer w{output, output->data, output->count, 0, maximum_output, grow, context, index.data, index.count, 0};
+    Writer w{output, output->data, output->count, 0, 0, maximum_output, grow, context, index.data, index.count, 0,
+             grow_index};
+    w.set_limit();
     Frame stack[kEtfMaximumDepth];
     u32 depth = 0;
     // The table of bracket ends (json_index_ends) lies in the upper half of the index storage. An index that
@@ -798,10 +831,10 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
             break;
         }
         case kNil:
+            // The bytes are reserved with their entries: the reservation grows the index for them.
             pair(w.marks, w.marks + 1, 1);
-            w.mark(w.used);
-            w.mark(w.used + 1);
-            ok = w.bytes("[]", 2);
+            ok = w.bytes("[]", 2, 2);
+            w.mark(w.used - 2, w.used - 1);
             break;
         case kString: {
             if (!r.has(2))

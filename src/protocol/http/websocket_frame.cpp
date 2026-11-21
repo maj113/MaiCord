@@ -1,4 +1,5 @@
 #include "maicord/protocol/http/websocket_frame.hpp"
+#include "maicord/core/intrinsics.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -255,11 +256,19 @@ WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, ConstS
     output[offset++] = static_cast<u8>(masking_key >> 8);
     output[offset++] = static_cast<u8>(masking_key);
 
-    for (u32 index = 0; index < payload.count; ++index) {
-        const u32 shift = 24 - (index & 3u) * 8;
-        output[offset + index] = payload[index] ^ static_cast<u8>(masking_key >> shift);
+    // The key's bytes in wire order, lowest first: each payload byte takes the low one, then the word rotates.
+    // Locals keep the payload view out of memory: the output stores could alias it. Frames are sent a few at a
+    // time, so the loop stays rolled.
+    const u8* source = payload.data;
+    u8* target = output.data + offset;
+    const u32 count = payload.count;
+    u32 key = byte_swap(masking_key);
+#pragma clang loop unroll(disable)
+    for (u32 index = 0; index < count; ++index) {
+        target[index] = source[index] ^ static_cast<u8>(key);
+        key = key >> 8 | key << 24;
     }
-    return WebSocketWriteResult{offset + payload.count, WebSocketError::none};
+    return WebSocketWriteResult{offset + count, WebSocketError::none};
 }
 
 } // namespace maicord

@@ -7,46 +7,58 @@
 namespace maicord {
 namespace {
 constexpr u32 kDepth = 32;
+struct GuildArrays {
+    JsonValue voice_states;
+    JsonValue stage_instances;
+    JsonValue scheduled_events;
+    JsonValue stickers;
+};
 bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& arrays = *static_cast<GatewayGuildArrays*>(opaque);
-    switch (protocol_detail::member_index<"voice_states", "stage_instances", "guild_scheduled_events">(name)) {
+    auto& arrays = *static_cast<GuildArrays*>(opaque);
+    switch (protocol_detail::member_index<"voice_states", "stage_instances", "guild_scheduled_events", "stickers">(name)) {
     case 0: arrays.voice_states = value; break;
     case 1: arrays.stage_instances = value; break;
     case 2: arrays.scheduled_events = value; break;
+    case 3: arrays.stickers = value; break;
     default: break;
     }
     return true;
 }
 } // namespace
 
-bool gateway_guild_arrays_find(JsonValue guild, Slice<u32> scratch, GatewayGuildArrays* arrays) noexcept {
-    if (!scratch.data || scratch.count < 64 || guild.kind != JsonValueKind::object) return false;
-    reset_value(arrays);
-    arrays->scheduled_events.kind = JsonValueKind::null_value;
-    const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-    // The publishers' own visits use depths 64 (voice) and 32: the stricter one decides.
-    return scan.ok() && json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, arrays_field, arrays).ok();
+bool gateway_client_publish_guild_arrays(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
+                                         u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
+                                         void* context, const JsonIndexedDocument* document) noexcept {
+    GuildArrays arrays{};
+    arrays.scheduled_events.kind = JsonValueKind::null_value;
+    // The publishers' own visits used depths 64 (voice) and 32: the stricter one decides. When this visit fails,
+    // the voice states are looked up again, and the other three arrays publish nothing.
+    bool located = false;
+    if (scratch.data && scratch.count >= 64 && guild.kind == JsonValueKind::object) {
+        if (document) {
+            located = json_visit_indexed_object(*document, guild, kDepth, arrays_field, &arrays).ok();
+        } else {
+            const auto scan = json_scan_structurals_avx1(guild.source, scratch);
+            located = scan.ok() &&
+                      json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, arrays_field, &arrays).ok();
+        }
+    }
+    if (!gateway_client_publish_voice_states(guild, GatewayVoiceStateSource::guild, guild_id, scratch, payload, sequence,
+                                             now_ms, publish, context, located ? &arrays.voice_states : nullptr))
+        return false;
+    return !located || !publish || !guild_id || !payload.data || payload.count < kGatewayClientDispatchPayloadCapacity ||
+           (gateway_client_publish_stage_instances(arrays.stage_instances, guild_id, scratch, payload, sequence, now_ms,
+                                                   publish, context) &&
+            gateway_client_publish_scheduled_events(arrays.scheduled_events, guild_id, payload, sequence, now_ms,
+                                                    publish, context) &&
+            gateway_client_publish_guild_stickers(arrays.stickers, guild_id, scratch, payload, sequence, now_ms,
+                                                  publish, context));
 }
 
 // Events are ancillary like stage instances: a missing, malformed or
 // oversized array publishes nothing and never fails the session.
-bool gateway_client_publish_scheduled_events(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
-                                             u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                             void* context, const JsonValue* located) noexcept {
-    if (!publish || !guild_id || !scratch.data || scratch.count < 64 || !payload.data ||
-        payload.count < kGatewayClientDispatchPayloadCapacity || guild.kind != JsonValueKind::object)
-        return true;
-    JsonValue events{};
-    events.kind = JsonValueKind::null_value;
-    if (located) {
-        events = *located;
-    } else {
-        GatewayNamedMember target{utf8_literal("guild_scheduled_events"), &events};
-        const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-        if (!scan.ok() ||
-            !json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, gateway_store_named_member, &target).ok())
-            return true;
-    }
+bool gateway_client_publish_scheduled_events(JsonValue events, u64 guild_id, Slice<char> payload, u64 sequence,
+                                             u64 now_ms, GatewayRelationshipPublish publish, void* context) noexcept {
     if (events.kind != JsonValueKind::array || events.source.bytes > kGatewayClientDispatchPayloadCapacity)
         return true;
     copy_bytes(payload.data, events.source.data, events.source.bytes);

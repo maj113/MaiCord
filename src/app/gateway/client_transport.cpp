@@ -90,7 +90,7 @@ namespace {
 bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, SendPurpose purpose) noexcept;
 
 // Masks payload into one final frame, encrypts it into record_output and starts its send. The plaintext
-// frame is erased, and so is the record when its send does not start.
+// frame is erased. The record holds only the TLS header, ciphertext and trailer, so it is not erased.
 bool send_frame(GatewayClientRuntime* runtime, WebSocketOpcode opcode, ConstSlice<u8> payload,
                 SendPurpose purpose) noexcept {
     u32 masking_key = 0;
@@ -104,10 +104,7 @@ bool send_frame(GatewayClientRuntime* runtime, WebSocketOpcode opcode, ConstSlic
                                           Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
                            .ok();
     SecureZeroMemory(runtime->plain_output, framed.bytes);
-    if (encrypted && start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, purpose))
-        return true;
-    SecureZeroMemory(runtime->record_output, encrypted_bytes);
-    return false;
+    return encrypted && start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, purpose);
 }
 
 // Closes as the page's WebSocket does: an open session first writes a masked close frame

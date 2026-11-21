@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/intrinsics.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 
 namespace maicord {
 namespace {
@@ -15,31 +15,36 @@ struct ChunkMasks {
     u64 controls;
 };
 
-__forceinline u64 lane_mask(__m128i lane, u32 shift) noexcept {
-    return static_cast<u64>(static_cast<u32>(_mm_movemask_epi8(lane))) << shift;
+MAICORD_HASWELL __forceinline u64 lane_mask(__m256i lane, u32 shift) noexcept {
+    return static_cast<u64>(static_cast<u32>(_mm256_movemask_epi8(lane))) << shift;
 }
 
 // {}[]:, by nibble lookup: a byte is structural when the classes selected by
 // its low and high nibbles intersect (',' 2C, ':' 3A, '[' 5B, ']' 5D, '{' 7B,
-// '}' 7D). Bytes >= 0x80 select an empty high-nibble class.
-__forceinline ChunkMasks classify_chunk(const char* input) noexcept {
-    const __m128i low_table = _mm_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 1, 4, 0, 0);
-    const __m128i high_table = _mm_setr_epi8(0, 0, 1, 2, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0);
-    const __m128i nibble = _mm_set1_epi8(0x0F);
-    const __m128i quote = _mm_set1_epi8('"');
-    const __m128i backslash = _mm_set1_epi8('\\');
-    const __m128i control_bits = _mm_set1_epi8(-32);
-    const __m128i zero = _mm_setzero_si128();
+// '}' 7D). Bytes >= 0x80 select an empty high-nibble class. Each table holds its
+// 16 classes twice, one copy for each 128-bit lane of a shuffle.
+alignas(32) constexpr char kLowClasses[32]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 1, 4, 0, 0,
+                                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 1, 4, 0, 0};
+alignas(32) constexpr char kHighClasses[32]{0, 0, 1, 2, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 1, 2, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0};
+MAICORD_HASWELL __forceinline ChunkMasks classify_chunk(const char* input) noexcept {
+    const __m256i low_table = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kLowClasses));
+    const __m256i high_table = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(kHighClasses));
+    const __m256i nibble = _mm256_set1_epi8(0x0F);
+    const __m256i quote = _mm256_set1_epi8('"');
+    const __m256i backslash = _mm256_set1_epi8('\\');
+    const __m256i control_bits = _mm256_set1_epi8(-32);
+    const __m256i zero = _mm256_setzero_si256();
     ChunkMasks masks{};
-    for (u32 lane = 0; lane < 4; ++lane) {
-        const __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(input + lane * 16));
-        const __m128i low = _mm_shuffle_epi8(low_table, _mm_and_si128(bytes, nibble));
-        const __m128i high = _mm_shuffle_epi8(high_table, _mm_and_si128(_mm_srli_epi16(bytes, 4), nibble));
-        const __m128i structural = _mm_cmpeq_epi8(_mm_and_si128(low, high), zero);
-        masks.quotes |= lane_mask(_mm_cmpeq_epi8(bytes, quote), lane * 16);
-        masks.backslashes |= lane_mask(_mm_cmpeq_epi8(bytes, backslash), lane * 16);
-        masks.structurals |= lane_mask(structural, lane * 16);
-        masks.controls |= lane_mask(_mm_cmpeq_epi8(_mm_and_si128(bytes, control_bits), zero), lane * 16);
+    for (u32 lane = 0; lane < 2; ++lane) {
+        const __m256i bytes = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(input + lane * 32));
+        const __m256i low = _mm256_shuffle_epi8(low_table, _mm256_and_si256(bytes, nibble));
+        const __m256i high = _mm256_shuffle_epi8(high_table, _mm256_and_si256(_mm256_srli_epi16(bytes, 4), nibble));
+        const __m256i structural = _mm256_cmpeq_epi8(_mm256_and_si256(low, high), zero);
+        masks.quotes |= lane_mask(_mm256_cmpeq_epi8(bytes, quote), lane * 32);
+        masks.backslashes |= lane_mask(_mm256_cmpeq_epi8(bytes, backslash), lane * 32);
+        masks.structurals |= lane_mask(structural, lane * 32);
+        masks.controls |= lane_mask(_mm256_cmpeq_epi8(_mm256_and_si256(bytes, control_bits), zero), lane * 32);
     }
     masks.structurals = ~masks.structurals;
     return masks;
@@ -102,19 +107,21 @@ struct ScanState {
 enum class ChunkResult : u8 { ok, overflow, control };
 
 // Eight offsets from the lowest set bits of *bits. An empty mask stores 63 + base: the high bit
-// keeps the scan input nonzero, so there is no branch for "no bit left".
+// keeps the scan input nonzero, so there is no branch for "no bit left". The stores are volatile so that
+// the compiler keeps eight scalar stores and does not pack them into vector inserts (larger, more uops).
 __forceinline void store_eight(u32* out, u64* bits, u32 base) noexcept {
+    volatile u32* const slots = out;
     u64 rest = *bits;
     for (u32 k = 0; k < 8; ++k) {
-        out[k] = base + lowest_set_bit(rest | 1ull << 63);
+        slots[k] = base + lowest_set_bit(rest | 1ull << 63);
         rest &= rest - 1;
     }
     *bits = rest;
 }
 
 // valid: bytes of this chunk that belong to the input (all for whole chunks).
-__forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, ScanState* state, Slice<u32> output,
-                                     u32* error_offset) noexcept {
+MAICORD_HASWELL __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, ScanState* state,
+                                                     Slice<u32> output, u32* error_offset) noexcept {
     const ChunkMasks masks = classify_chunk(chunk);
     // Without a backslash in the chunk or a run carried in, nothing is escaped and the carry stays clear.
     const u64 escaped = masks.backslashes | state->escape_carry ? escaped_bits(masks.backslashes, &state->escape_carry) : 0;
@@ -132,17 +139,22 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
         state->count += pending;
         store_eight(out, &emitted, base);
         store_eight(out + 8, &emitted, base);
+        // The target attribute changes the unroll heuristics. The loops of this function stay as written: unrolled,
+        // they cost more bytes than the AVX2 classification saves.
+#pragma nounroll
         for (u32 i = 16; i < pending; i += 8) store_eight(out + i, &emitted, base);
         return ChunkResult::ok;
     }
     if (pending <= room) {
         state->count += pending;
+#pragma nounroll
         while (emitted) {
             *out++ = base + lowest_set_bit(emitted);
             emitted &= emitted - 1;
         }
         return ChunkResult::ok;
     }
+#pragma nounroll
     for (u32 left = room; left; --left) {
         *out++ = base + lowest_set_bit(emitted);
         emitted &= emitted - 1;
@@ -204,41 +216,14 @@ bool serve_from_source(const Utf8View& input, const Slice<u32>& output, JsonScan
     return true;
 }
 
-} // namespace
-
-void json_scan_source_set(const Utf8View& input, const ConstSlice<u32>& index) noexcept {
-    g_source.owner = 0;
-    if (!input.data || !index.data || !index.count)
-        return;
-    g_source.input = input.data;
-    g_source.bytes = input.bytes;
-    g_source.index = index.data;
-    g_source.count = index.count;
-    g_source.owner = current_thread_id();
-}
-
-void json_scan_source_clear() noexcept {
-    if (g_source.owner == current_thread_id())
-        g_source.owner = 0;
-}
-
-// 64-byte chunks: quote, backslash, structural and control masks from SSSE3
-// lookups, odd backslash runs resolved with carries, string interiors from a
-// carry-less prefix XOR. Malformed input (a control character inside a string
-// or an unterminated string) is rescanned by the scalar reference so results
-// and error offsets match it exactly.
-JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slice<u32>& output_view) noexcept {
-    // Value copies: the structural stores below must not force reloads of the caller's views.
-    const Utf8View input = input_view;
-    const Slice<u32> output = output_view;
-    if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
-        return JsonScanResult{0, JsonScanError::invalid_input};
-    }
-    JsonScanResult served;
-    if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread_id() &&
-        serve_from_source(input, output, &served))
-        return served;
-
+// The scan proper. It needs callee-saved XMM registers, so it stays out of line: a document the source serves,
+// or an invalid view, returns without saving them. The fields come one by one: views as arguments made LTO pass
+// json_scan_structurals_avx1's views through memory. The views are rebuilt as value copies, so the structural
+// stores do not force reloads.
+MAICORD_HASWELL __declspec(noinline) JsonScanResult scan_chunks(const char* data, u32 bytes, u32* structurals,
+                                                                u32 capacity) noexcept {
+    const Utf8View input{data, bytes};
+    const Slice<u32> output{structurals, capacity};
     ScanState state{};
     u32 error_offset = 0;
     alignas(16) char tail[64];
@@ -264,6 +249,43 @@ JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slic
         return scan_scalar(input, output);
     }
     return JsonScanResult{state.count, JsonScanError::none};
+}
+
+} // namespace
+
+void json_scan_source_set(const Utf8View& input, const ConstSlice<u32>& index) noexcept {
+    g_source.owner = 0;
+    if (!input.data || !index.data || !index.count)
+        return;
+    g_source.input = input.data;
+    g_source.bytes = input.bytes;
+    g_source.index = index.data;
+    g_source.count = index.count;
+    g_source.owner = current_thread_id();
+}
+
+void json_scan_source_clear() noexcept {
+    if (g_source.owner == current_thread_id())
+        g_source.owner = 0;
+}
+
+// 64-byte chunks: quote, backslash, structural and control masks from SSSE3
+// lookups, odd backslash runs resolved with carries, string interiors from a
+// carry-less prefix XOR. Malformed input (a control character inside a string
+// or an unterminated string) is rescanned by the scalar reference so results
+// and error offsets match it exactly.
+JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slice<u32>& output_view) noexcept {
+    // Value copies: each view is read once, and LTO passes its fields in registers.
+    const Utf8View input = input_view;
+    const Slice<u32> output = output_view;
+    if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
+        return JsonScanResult{0, JsonScanError::invalid_input};
+    }
+    JsonScanResult served;
+    if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread_id() &&
+        serve_from_source(input, output, &served))
+        return served;
+    return scan_chunks(input.data, input.bytes, output.data, output.count);
 }
 
 } // namespace maicord

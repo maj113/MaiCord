@@ -48,8 +48,6 @@ struct WebSocketHandshakeValidation {
 
 WebSocketHandshakeWriteResult websocket_encode_client_key(const ConstSlice<u8>& nonce,
                                                           const Slice<u8>& output) noexcept;
-WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key,
-                                                       Slice<u8> output) noexcept;
 // What Chromium adds from the page's profile: its Accept-Language and the
 // Cookie value for the WebSocket's host. Empty fields are omitted.
 struct WebSocketPageFields {

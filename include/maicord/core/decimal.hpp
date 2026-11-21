@@ -4,21 +4,33 @@
 
 namespace maicord {
 
+// value / 10 as a multiply by the rounded reciprocal (Granlund and Montgomery, "Division by Invariant Integers using
+// Multiplication", PLDI 1994). Written out, because a unit compiled for size emits a divide instruction for `/ 10`.
+__forceinline constexpr u64 decimal_tenth(u64 value) noexcept {
+    return static_cast<u64>((static_cast<unsigned __int128>(value) * 0xCCCCCCCCCCCCCCCDull) >> 67);
+}
+
+// Compares with growing powers of ten, which needs no division. 10^19 is the largest power below 2^64.
 __declspec(noinline) constexpr u32 decimal_digits(u64 value) noexcept {
     u32 digits = 1;
-    while (value >= 10) {
-        value /= 10;
+    for (u64 bound = 10; digits < 20 && value >= bound; bound *= 10)
         ++digits;
-    }
     return digits;
 }
 
-// Writes the decimal digits of value (no terminator); returns their count.
+// Writes the decimal digits of value (no terminator); returns their count. One pass writes them lowest first, then
+// they are turned around in place.
 template <typename Char> __declspec(noinline) constexpr u32 decimal_write(Char* output, u64 value) noexcept {
-    const u32 digits = decimal_digits(value);
-    for (u32 index = digits; index != 0; --index) {
-        output[index - 1] = static_cast<Char>('0' + value % 10);
-        value /= 10;
+    u32 digits = 0;
+    do {
+        const u64 rest = decimal_tenth(value);
+        output[digits++] = static_cast<Char>('0' + (value - rest * 10));
+        value = rest;
+    } while (value != 0);
+    for (u32 low = 0, high = digits - 1; low < high; ++low, --high) {
+        const Char swap = output[low];
+        output[low] = output[high];
+        output[high] = swap;
     }
     return digits;
 }
@@ -55,10 +67,10 @@ constexpr bool decimal_parse(const Utf8View& text, u64* value) noexcept {
         const char c = text.data[index];
         if (c < '0' || c > '9')
             return false;
-        const u64 digit = static_cast<u64>(c - '0');
-        if (parsed > (~u64{0} - digit) / 10)
+        // parsed * 10 + digit past 2^64-1 is the overflow, found by the multiply and the add themselves.
+        if (__builtin_mul_overflow(parsed, u64{10}, &parsed) ||
+            __builtin_add_overflow(parsed, static_cast<u64>(c - '0'), &parsed))
             return false;
-        parsed = parsed * 10 + digit;
     }
     *value = parsed;
     return true;

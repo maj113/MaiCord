@@ -197,7 +197,6 @@ void test_websocket_frames() noexcept {
 void test_websocket_handshake() noexcept {
     const ConstSlice<u8> nonce = byte_literal("the sample nonce");
     const ConstSlice<u8> expected_key = byte_literal("dGhlIHNhbXBsZSBub25jZQ==");
-    const ConstSlice<u8> expected_accept = byte_literal("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
     u8 key_storage[kWebSocketClientKeyBytes]{};
     const WebSocketHandshakeWriteResult key =
         websocket_encode_client_key(nonce, Slice<u8>{key_storage, kWebSocketClientKeyBytes});
@@ -205,12 +204,6 @@ void test_websocket_handshake() noexcept {
                bytes_equal(ConstSlice<u8>{key_storage, key.bytes}, expected_key),
            "websocket_handshake_rfc_key");
 
-    u8 accept_storage[kWebSocketAcceptBytes]{};
-    const WebSocketHandshakeWriteResult accept = websocket_compute_accept(
-        ConstSlice<u8>{key_storage, key.bytes}, Slice<u8>{accept_storage, kWebSocketAcceptBytes});
-    expect(accept.ok() && accept.bytes == kWebSocketAcceptBytes &&
-               bytes_equal(ConstSlice<u8>{accept_storage, accept.bytes}, expected_accept),
-           "websocket_handshake_rfc_accept");
     expect(websocket_encode_client_key(ConstSlice<u8>{nonce.data, nonce.count - 1},
                                        Slice<u8>{key_storage, kWebSocketClientKeyBytes})
                    .error == WebSocketHandshakeError::invalid_input,
@@ -218,13 +211,14 @@ void test_websocket_handshake() noexcept {
     expect(websocket_encode_client_key(nonce, Slice<u8>{key_storage, kWebSocketClientKeyBytes - 1}).error ==
                WebSocketHandshakeError::output_too_small,
            "websocket_handshake_key_output_bound");
-    expect(
-        websocket_compute_accept(byte_literal("invalid"), Slice<u8>{accept_storage, kWebSocketAcceptBytes})
-                .error == WebSocketHandshakeError::invalid_client_key,
-        "websocket_handshake_invalid_key");
-    expect(websocket_compute_accept(byte_literal("dGhlIHNhbXBsZSBub25jZR=="),
-                                    Slice<u8>{accept_storage, kWebSocketAcceptBytes})
-                   .error == WebSocketHandshakeError::invalid_client_key,
+    // The RFC 6455 accept value passes in websocket_handshake_response below.
+    expect(websocket_validate_opening_response(byte_literal("HTTP/1.1 101 Switching Protocols\r\n\r\n"),
+                                               byte_literal("invalid"), 4096, 32)
+                   .error == WebSocketHandshakeError::invalid_input,
+           "websocket_handshake_invalid_key");
+    expect(websocket_validate_opening_response(byte_literal("HTTP/1.1 101 Switching Protocols\r\n\r\n"),
+                                               byte_literal("dGhlIHNhbXBsZSBub25jZR=="), 4096, 32)
+                   .error == WebSocketHandshakeError::invalid_input,
            "websocket_handshake_noncanonical_key");
 
     const ConstSlice<u8> target = byte_literal("/gateway?v=10&encoding=json");

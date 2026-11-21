@@ -509,7 +509,8 @@ void publish_event(GatewayClientRuntime* runtime, const GatewayClientEvent& even
         runtime->notify_pending = true;
 }
 
-GatewayClientEvent bare_event(GatewayClientEventKind kind, u64 now_ms) noexcept {
+// Out of line: the zeroed descriptor (232 bytes) would otherwise be filled at each of its callers.
+__declspec(noinline) GatewayClientEvent bare_event(GatewayClientEventKind kind, u64 now_ms) noexcept {
     GatewayClientEvent event{};
     event.timestamp_ms = now_ms;
     event.kind = kind;

@@ -166,12 +166,17 @@ bool initialize() noexcept {
 // typed producers; no pre-decoded policy records are planted in the owner.
 // Discord sends hide_muted_channels on every guild entry, so READY carries it.
 constexpr auto ready = utf8_literal(R"({"v":9,"user":{"id":"1","username":"self"},"session_id":"notification-fixture","resume_gateway_url":"wss://gateway.discord.gg","users":[{"id":"2","username":"Peer"}],"guilds":[{"id":"10","name":"Guild","owner_id":"99","default_message_notifications":0,"joined_at":"2026-10-01T00:00:00Z","roles":[{"id":"10","name":"@everyone","permissions":"68608"}],"members":[{"user":{"id":"1","username":"self"},"roles":[]}],"channels":[{"id":"20","type":0,"name":"selected","permission_overwrites":[]},{"id":"21","type":0,"name":"other","permission_overwrites":[]},{"id":"22","type":4,"name":"category","permission_overwrites":[]}],"threads":[]}],"user_guild_settings":{"entries":[{"guild_id":"10","message_notifications":0,"muted":false,"hide_muted_channels":false,"channel_overrides":[{"channel_id":"21","message_notifications":3}]}],"partial":false,"version":10},"notification_settings":{"flags":0},"user_settings_proto":""})");
+bool decode_ready(Utf8View input, GatewayReady* decoded) noexcept {
+    const auto scan = json_scan_structurals_avx1(input, {fixture.arrays, 4096});
+    return scan.ok() && gateway_decode_ready({input, {fixture.arrays, scan.count}}, {input, 0, JsonValueKind::object}, 64,
+                                             decoded).ok();
+}
 bool hydrate(Utf8View input = ready, u64 sequence = 10, bool hold = false,
     Utf8View settings_override = {}) noexcept {
     auto& f = fixture;
     f.hold_completion = hold;
     GatewayReady decoded{};
-    if (!gateway_decode_ready({input, 0, JsonValueKind::object}, {f.arrays, 4096}, 64, &decoded).ok()) return false;
+    if (!decode_ready(input, &decoded)) return false;
     if(settings_override.data) decoded.user_guild_settings={settings_override,0,JsonValueKind::object};
     const auto result = gateway_ready_project(decoded,
         {{f.arrays, 4096}, {f.records, 4096}, {f.payload, sizeof(f.payload)}, {f.header, sizeof(f.header)}},
@@ -183,7 +188,7 @@ bool hydrate(Utf8View input = ready, u64 sequence = 10, bool hold = false,
 bool snapshot(Utf8View settings_json) noexcept {
     auto& f = fixture;
     GatewayReady decoded{};
-    if (!gateway_decode_ready({ready, 0, JsonValueKind::object}, {f.arrays, 4096}, 64, &decoded).ok()) return false;
+    if (!decode_ready(ready, &decoded)) return false;
     decoded.user_guild_settings = {settings_json, 0, JsonValueKind::object};
     const auto result = gateway_client_publish_notification_snapshot(decoded, {f.arrays, 4096}, {f.records, 4096},
         {f.payload, sizeof(f.payload)}, 10, 1000, publish, nullptr);

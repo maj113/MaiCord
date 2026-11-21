@@ -7,13 +7,10 @@
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 namespace {
-// Recognized wire names, not a claim that an encryptor is implemented.
-u32 voice_transport_mode(JsonString name) noexcept {
-    switch (protocol_detail::member_index<"aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize">(name)) {
-    case 0: return voice_transport_aes256_gcm_rtpsize;
-    case 1: return voice_transport_xchacha20_poly1305_rtpsize;
-    default: return 0;
-    }
+// Recognized wire names, not a claim that an encryptor is implemented. The mode bits follow the names' order.
+static_assert(voice_transport_aes256_gcm_rtpsize == 1 && voice_transport_xchacha20_poly1305_rtpsize == 2);
+u32 voice_transport_mode(const JsonString& name) noexcept {
+    return protocol_detail::member_bit<"aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize">(name);
 }
 struct Read {
     JsonIndexedDocument document;

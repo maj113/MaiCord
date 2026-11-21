@@ -50,17 +50,13 @@ void transport_fields(Writer& writer, const EncodedString& address, const VoiceG
 }
 } // namespace
 
+// The names in VoiceVideoCodec order after none. Any other name is unknown, the value after them.
+static_assert(static_cast<u32>(VoiceVideoCodec::unknown) == 6);
 VoiceVideoCodec voice_video_codec(JsonString name) noexcept {
     if (!name.encoded.bytes)
         return VoiceVideoCodec::none;
-    static constexpr VoiceVideoCodec codecs[]{VoiceVideoCodec::h264, VoiceVideoCodec::h265, VoiceVideoCodec::vp8,
-                                       VoiceVideoCodec::vp9, VoiceVideoCodec::av1};
-    for (const auto codec : codecs) {
-        const auto text = codec_name(codec);
-        if (json_string_equals_ascii(name, {text.text, text.bytes}))
-            return codec;
-    }
-    return VoiceVideoCodec::unknown;
+    const u32 index = protocol_detail::member_index<"H264", "H265", "VP8", "VP9", "AV1">(name);
+    return static_cast<VoiceVideoCodec>(index + 1);
 }
 
 u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept {

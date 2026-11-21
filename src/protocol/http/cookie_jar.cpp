@@ -53,12 +53,8 @@ bool cookie_octets(Utf8View text) noexcept {
     return http_field_value_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
 }
 
-bool equal_ignore_case(const Utf8View& text, const char* literal) noexcept {
-    u32 i = 0;
-    for (; literal[i]; ++i)
-        if (i >= text.bytes || ascii_lower(text.data[i]) != literal[i])
-            return false;
-    return i == text.bytes;
+u32 name_index(const Utf8View& text, const char* names) noexcept {
+    return http_ascii_name_index({reinterpret_cast<const u8*>(text.data), text.bytes}, names);
 }
 
 bool begins_with(Utf8View text, const char* literal) noexcept {
@@ -242,24 +238,30 @@ bool parse_set_cookie(Utf8View line, const CookieRequest& request, u64 now_ms, P
             split < attribute.bytes ? trim({attribute.data + split + 1, attribute.bytes - split - 1}) : Utf8View{};
         if (value.bytes > kCookieMaximumAttributeBytes)
             continue;
-        if (equal_ignore_case(key, "domain")) {
+        switch (name_index(key, "domain\0path\0expires\0max-age\0secure\0httponly\0samesite\0")) {
+        case 0:
             domain = value;
             have_domain = true;
-        } else if (equal_ignore_case(key, "path")) {
+            break;
+        case 1:
             path = value;
-        } else if (equal_ignore_case(key, "expires")) {
+            break;
+        case 2:
             expires = value;
-        } else if (equal_ignore_case(key, "max-age")) {
+            break;
+        case 3:
             max_age = value;
-        } else if (equal_ignore_case(key, "secure")) {
+            break;
+        case 4:
             out->flags |= cookie_secure;
-        } else if (equal_ignore_case(key, "httponly")) {
+            break;
+        case 5:
             out->flags |= cookie_http_only;
-        } else if (equal_ignore_case(key, "samesite")) {
-            out->same_site = equal_ignore_case(value, "none")     ? CookieSameSite::none
-                             : equal_ignore_case(value, "lax")    ? CookieSameSite::lax
-                             : equal_ignore_case(value, "strict") ? CookieSameSite::strict
-                                                                  : CookieSameSite::unspecified;
+            break;
+        case 6:
+            // The names follow CookieSameSite from none on. No match (3) wraps to unspecified.
+            out->same_site = static_cast<CookieSameSite>((name_index(value, "none\0lax\0strict\0") + 1) & 3);
+            break;
         }
     }
     // Domain: an empty value is ignored; a leading dot is dropped. A domain

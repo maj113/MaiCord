@@ -34,18 +34,20 @@ inline constexpr u32 kEtfMaximumDepth = 128;
 
 // Grows output to at least required bytes at the same base, keeping its contents.
 using EtfGrowOutput = bool (*)(void* context, u32 required_bytes, Slice<u8>* output) noexcept;
+// Grows the index to at least required entries at the same base, keeping its contents.
+using EtfGrowIndex = bool (*)(void* context, u32 required_entries, Slice<u32>* index) noexcept;
 
 // Transcodes one term (version byte 131 first) into *output, growing it through grow (optional) up to
 // maximum_output bytes, and writes the JSON's structural index to `index` as json_scan_structurals_avx1 would
-// produce it, since every structural byte is written here. *index_count is the number of structurals (~0u on
-// error). The index holds them when that count is at most index.count; the JSON is complete either way. Needs no
-// index: pass an empty slice.
+// produce it, since every structural byte is written here. A full index grows through grow_index (optional,
+// with the same context). *index_count is the number of structurals (~0u on error). The index holds them when
+// that count is at most the last index size; the JSON is complete either way. Needs no index: pass an empty slice.
 // The text is valid JSON by construction (strings escaped, invalid UTF-8 replaced, numbers canonical), so a
 // reader may take it as validated, within the depth the transcoder allows (kEtfMaximumDepth).
 // When the index needs at most the lower half of `index`, the upper half holds its table of bracket ends
-// (etf_index_ends).
+// (etf_index_ends of `index`, also after growth).
 EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
-                              void* context, Slice<u32> index, u32* index_count) noexcept;
+                              void* context, Slice<u32> index, EtfGrowIndex grow_index, u32* index_count) noexcept;
 
 // The table of bracket ends that etf_to_json_indexed left for an index of index_count entries in `index`, in the
 // form of json_index_ends. The count of levels at a closing bracket is an upper bound. Null when the index was

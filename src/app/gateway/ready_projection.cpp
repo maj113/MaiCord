@@ -101,6 +101,10 @@ struct Pass {
     u32 staged_bytes, staged_records;
     MemberArrayCursor members;
     bool merged_invalid;
+    // The document that the current array is visited through (null: the array's own scan), and the array's
+    // position in its input. Values keep offsets from the array's start, as with a scan of the array alone.
+    const JsonIndexedDocument* document;
+    u32 base;
 };
 // A staged record: descriptor, payload size, then the payload, 8-byte aligned.
 struct StagedRecord {
@@ -176,13 +180,16 @@ bool grow_record_index(Pass& pass) noexcept {
         backed.count > kGatewaySessionMaximumStructuralCount) return false;
     auto candidate = pass.scratch;
     candidate.records = backed;
+    // valid() also requires empty staging, which holds at entry only: the preflight commits staging as it goes.
+    candidate.staging = nullptr;
     if (!valid(*pass.ready, candidate)) return false;
-    pass.scratch = candidate;
+    pass.scratch.records = backed;
     return true;
 }
 bool record(void* opaque, u32, JsonValue value) noexcept {
     auto& pass = *static_cast<Pass*>(opaque);
     if (!allowed(pass)) return false;
+    value.source_offset -= pass.base;
     if (pass.kind == RecordKind::user) {
         if (pass.user_count == 64 && !flush_users(pass)) return false;
         GatewayPayloadWriter writer{};
@@ -231,7 +238,7 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
         } else if (pass.kind == RecordKind::guild) {
             pass.result.route = gateway_client_route_ready_guild(envelope, members, pass.scratch.records,
                                                                  pass.scratch.payload, pass.ready->user_id,
-                                                                 pass.scratch.large, &event, &payload);
+                                                                 pass.scratch.large, &event, &payload, pass.document);
         } else
             pass.result.route = gateway_client_route_dispatch_large(
                 envelope, pass.scratch.records, 64, pass.scratch.payload, {}, pass.ready->user_id, {},
@@ -260,39 +267,44 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
     event.timestamp_ms = pass.now_ms;
     if (!emit(pass, event, payload)) return false;
     // Voice states are ancillary: malformed rows are skipped, never fatal.
-    if (pass.kind != RecordKind::guild) return true;
-    GatewayGuildArrays arrays{};
-    const bool located = gateway_guild_arrays_find(value, pass.scratch.records, &arrays);
-    return gateway_client_publish_voice_states(value, GatewayVoiceStateSource::guild, event.state.id,
-               pass.scratch.records, pass.scratch.payload, pass.sequence, pass.now_ms, relay, &pass,
-               located ? &arrays.voice_states : nullptr) &&
-           gateway_client_publish_stage_instances(value, event.state.id, pass.scratch.records, pass.scratch.payload,
-               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.stage_instances : nullptr) &&
-           gateway_client_publish_scheduled_events(value, event.state.id, pass.scratch.records, pass.scratch.payload,
-               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.scheduled_events : nullptr) &&
-           gateway_client_publish_guild_stickers(value, event.state.id, pass.scratch.records, pass.scratch.payload,
-               pass.sequence, pass.now_ms, relay, &pass);
+    return pass.kind != RecordKind::guild ||
+           gateway_client_publish_guild_arrays(value, event.state.id, pass.scratch.records, pass.scratch.payload,
+                                               pass.sequence, pass.now_ms, relay, &pass, pass.document);
 }
 bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureStage stage) noexcept {
     pass.kind = kind; pass.result.failure_stage = stage;
+    pass.document = nullptr;
+    pass.base = 0;
     if (!allowed(pass)) return false;
     if (kind == RecordKind::user && array.kind == JsonValueKind::object)
         return record(&pass, 0, array) && flush_users(pass);
-    const auto scan = json_scan_structurals_avx1(array.source, pass.scratch.arrays);
-    if (!scan.ok()) {
-        pass.result.route.error = GatewayClientDispatchRouteError::decode;
-        pass.result.route.event_error = GatewayEventDecodeError::scan_failed;
-        pass.result.route.scan_error = scan.error; pass.result.route.error_offset = scan.error_offset;
-        return false;
+    ConstSlice<u32> index{};
+    if (pass.scratch.document) {
+        pass.document = pass.scratch.document;
+        pass.base = static_cast<u32>(array.source.data - pass.document->input.data);
+    } else {
+        const auto scan = json_scan_structurals_avx1(array.source, pass.scratch.arrays);
+        if (!scan.ok()) {
+            pass.result.route.error = GatewayClientDispatchRouteError::decode;
+            pass.result.route.event_error = GatewayEventDecodeError::scan_failed;
+            pass.result.route.scan_error = scan.error; pass.result.route.error_offset = scan.error_offset;
+            return false;
+        }
+        index = {pass.scratch.arrays.data, scan.count};
     }
-    const ConstSlice<u32> index{pass.scratch.arrays.data, scan.count};
+    const auto visit = [&](JsonArrayVisitor visitor) noexcept {
+        if (!pass.document) return json_visit_value_array(array, index, 64, visitor, &pass);
+        auto read = json_visit_indexed_array(*pass.document, array, 64, visitor, &pass);
+        if (!read.ok() && read.error_offset >= pass.base) read.error_offset -= pass.base;
+        return read;
+    };
     if (kind == RecordKind::guild && pass.ready->merged_members.source.data) {
         // Count before positional binding: a short or long array cannot shift
         // another guild's member into this guild's permission authority.
-        const auto counted = json_visit_value_array(array, index, 64, nullptr, nullptr);
+        const auto counted = visit(nullptr);
         pass.merged_invalid |= !counted.ok() || counted.member_count != pass.members.count;
     }
-    const auto read = json_visit_value_array(array, index, 64, record, &pass);
+    const auto read = visit(record);
     if (!read.ok()) {
         if (pass.result.route.ok() && !pass.result.interrupted) {
             pass.result.route.error = GatewayClientDispatchRouteError::decode;
@@ -311,7 +323,7 @@ bool run(Pass& pass) noexcept {
     do {
         reset_value(&event); reset_value(&payload);
         pass.result.route = gateway_client_route_ready(ready, pass.scratch.arrays, pass.scratch.records,
-            64, pass.scratch.header, &event, &payload);
+            64, pass.scratch.header, &event, &payload, pass.scratch.document);
     } while (!pass.result.route.ok() && grow_record_index(pass));
     if (!pass.result.route.ok()) return false;
     event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
@@ -384,10 +396,7 @@ bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noe
         {reinterpret_cast<const u8*>(scratch.records.data), scratch.records.count * 4u},
         {reinterpret_cast<const u8*>(scratch.payload.data), scratch.payload.count},
         {reinterpret_cast<const u8*>(scratch.header.data), scratch.header.count}};
-    for (u32 i = 0; i < 4; ++i) {
-        if (!byte_range_valid(buffers[i])) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(buffers[i], buffers[j])) return false;
-    }
+    if (!byte_ranges_all_disjoint({buffers, 4})) return false;
     const JsonValue sources[]{ready.user,
                               ready.guilds,
                               ready.private_channels,
@@ -458,13 +467,8 @@ GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
                                    {reinterpret_cast<const u8*>(records.data), records.count * 4u},
                                    {reinterpret_cast<const u8*>(storage.data), storage.count},
                                    {reinterpret_cast<const u8*>(data.source.data), data.source.bytes}};
-    for (u32 i = 0; i < 4; ++i) {
-        if (!byte_range_valid(buffers[i]))
-            return invalid;
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(buffers[i], buffers[j]))
-                return invalid;
-    }
+    if (!byte_ranges_all_disjoint({buffers, 4}))
+        return invalid;
     const auto scan = json_scan_structurals_avx1(data.source, arrays);
     // Optional authority stays unchanged on an unsupported shape.
     protocol_detail::FieldSet<"guilds", "merged_members"> fields;

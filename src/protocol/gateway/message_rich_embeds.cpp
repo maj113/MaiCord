@@ -155,38 +155,12 @@ GatewayEventDecodeResult decode_embed_media(const JsonValue& object, const JsonI
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayMessageEmbedType embed_type(JsonString value) noexcept {
-    char decoded[16]{};
-    const JsonStringDecodeResult result = json_string_decode_utf8(value, Slice<char>{decoded, 16});
-    if (!result.ok()) {
-        return GatewayMessageEmbedType::unknown;
-    }
-    const Utf8View text{decoded, result.bytes};
-    if (utf8_equal(text, utf8_literal("rich"))) {
-        return GatewayMessageEmbedType::rich;
-    }
-    if (utf8_equal(text, utf8_literal("image"))) {
-        return GatewayMessageEmbedType::image;
-    }
-    if (utf8_equal(text, utf8_literal("video"))) {
-        return GatewayMessageEmbedType::video;
-    }
-    if (utf8_equal(text, utf8_literal("gifv"))) {
-        return GatewayMessageEmbedType::gifv;
-    }
-    if (utf8_equal(text, utf8_literal("article"))) {
-        return GatewayMessageEmbedType::article;
-    }
-    if (utf8_equal(text, utf8_literal("link"))) {
-        return GatewayMessageEmbedType::link;
-    }
-    if (utf8_equal(text, utf8_literal("poll_result"))) {
-        return GatewayMessageEmbedType::poll_result;
-    }
-    if (utf8_equal(text, utf8_literal("components"))) {
-        return GatewayMessageEmbedType::components;
-    }
-    return GatewayMessageEmbedType::unknown;
+// The wire names in GatewayMessageEmbedType order from rich. Any other name is unknown.
+static_assert(static_cast<u32>(GatewayMessageEmbedType::components) == 8);
+GatewayMessageEmbedType embed_type(const JsonString& value) noexcept {
+    const u32 index =
+        member_index<"rich", "image", "video", "gifv", "article", "link", "poll_result", "components">(value);
+    return static_cast<GatewayMessageEmbedType>(index < 8 ? index + 1 : 0);
 }
 
 #pragma clang attribute push(__attribute__((minsize)), apply_to = function)

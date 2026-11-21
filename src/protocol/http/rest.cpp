@@ -97,53 +97,48 @@ bool parse_decimal_milliseconds(ConstSlice<u8> value, u64* output) noexcept {
     return true;
 }
 
-bool parse_bool_ascii(ConstSlice<u8> value, bool* output) noexcept {
-    const bool is_true = http_ascii_equal_case_insensitive(value, "true");
-    if (!is_true && !http_ascii_equal_case_insensitive(value, "false"))
+inline bool parse_bool_ascii(ConstSlice<u8> value, bool* output) noexcept {
+    const u32 index = http_ascii_name_index(value, "false\0true\0");
+    if (index > 1)
         return false;
-    *output = is_true;
+    *output = index != 0;
     return true;
 }
 
-bool rate_head_failure(RateHeadContext* context, RestHeadError error, u32 offset) noexcept {
+inline bool rate_head_failure(RateHeadContext* context, RestHeadError error, u32 offset) noexcept {
     context->error = error;
     context->error_offset = offset;
     return false;
 }
 
-bool begin_rate_field(RateHeadContext* context, u32 field, u32 offset) noexcept {
+inline bool begin_rate_field(RateHeadContext* context, u32 field, u32 offset) noexcept {
     if ((context->rate.fields & field) != 0)
         return rate_head_failure(context, RestHeadError::duplicate_rate_field, offset);
     context->rate.fields |= field;
     return true;
 }
 
-RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
+inline RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
     u32 media_bytes = 0;
     while (media_bytes < value.count && value[media_bytes] != ';')
         ++media_bytes;
     const ConstSlice<u8> media = http_trim_ows(ConstSlice<u8>{value.data, media_bytes});
-    const auto is = [&](const char* literal) noexcept { return http_ascii_equal_case_insensitive(media, literal); };
-    if (is("application/json") || is("text/json") ||
+    const u32 known = http_ascii_name_index(media, "application/json\0text/json\0text/html\0application/xhtml+xml\0");
+    if (known < 2 ||
         (media.count >= 5 &&
          http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data + media.count - 5, 5}, "+json")))
         return RestContentType::json;
-    if (is("text/html") || is("application/xhtml+xml"))
+    if (known < 4)
         return RestContentType::html;
     return media.count >= 5 && http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data, 5}, "text/")
                ? RestContentType::text
                : RestContentType::other;
 }
 
-RestContentEncoding classify_content_encoding(ConstSlice<u8> value) noexcept {
-    const ConstSlice<u8> encoding = http_trim_ows(value);
-    const auto is = [&](const char* literal) noexcept { return http_ascii_equal_case_insensitive(encoding, literal); };
-    return is("identity") ? RestContentEncoding::identity
-           : is("gzip")   ? RestContentEncoding::gzip
-           : is("deflate") ? RestContentEncoding::deflate
-           : is("br")     ? RestContentEncoding::brotli
-           : is("zstd")   ? RestContentEncoding::zstd
-                          : RestContentEncoding::other;
+// The names follow RestContentEncoding from identity on; no match gives other.
+inline RestContentEncoding classify_content_encoding(ConstSlice<u8> value) noexcept {
+    return static_cast<RestContentEncoding>(
+        http_ascii_name_index(http_trim_ows(value), "identity\0gzip\0deflate\0br\0zstd\0") + 1);
 }
 
 // A rate-limit field whose value parsed (or failed to) as `parsed`.
@@ -154,62 +149,63 @@ bool rate_value(RateHeadContext* context, u32 field, u32 offset, bool parsed) no
 
 bool visit_rate_header(void* opaque, HttpField field) noexcept {
     auto* context = static_cast<RateHeadContext*>(opaque);
-    const auto is = [&](const char* name) noexcept { return http_ascii_equal_case_insensitive(field.name, name); };
-    if (is("content-type")) {
+    auto& rate = context->rate;
+    const u32 at = field.source_offset;
+    switch (http_ascii_name_index(field.name, "content-type\0content-encoding\0x-ratelimit-limit\0"
+                                              "x-ratelimit-remaining\0x-ratelimit-reset\0x-ratelimit-reset-after\0"
+                                              "retry-after\0x-ratelimit-bucket\0x-ratelimit-global\0"
+                                              "x-ratelimit-scope\0")) {
+    case 0:
         context->representation.content_type =
             context->has_content_type ? RestContentType::other : classify_content_type(field.value);
         context->has_content_type = true;
-    } else if (is("content-encoding")) {
+        break;
+    case 1:
         context->representation.content_encoding = context->has_content_encoding
                                                        ? RestContentEncoding::other
                                                        : classify_content_encoding(field.value);
         context->has_content_encoding = true;
-    } else if (is("x-ratelimit-limit")) {
-        return rate_value(context, rate_limit_field_limit, field.source_offset,
-                          parse_u32(field.value, &context->rate.limit));
-    } else if (is("x-ratelimit-remaining")) {
-        return rate_value(context, rate_limit_field_remaining, field.source_offset,
-                          parse_u32(field.value, &context->rate.remaining));
-    } else if (is("x-ratelimit-reset")) {
-        return rate_value(context, rate_limit_field_reset, field.source_offset,
-                          parse_decimal_milliseconds(field.value, &context->rate.reset_epoch_ms));
-    } else if (is("x-ratelimit-reset-after")) {
-        return rate_value(context, rate_limit_field_reset_after, field.source_offset,
-                          parse_decimal_milliseconds(field.value, &context->rate.reset_after_ms));
-    } else if (is("retry-after")) {
-        return rate_value(context, rate_limit_field_retry_after, field.source_offset,
-                          parse_decimal_milliseconds(field.value, &context->rate.retry_after_ms));
-    } else if (is("x-ratelimit-bucket")) {
-        if (!begin_rate_field(context, rate_limit_field_bucket, field.source_offset))
+        break;
+    case 2:
+        return rate_value(context, rate_limit_field_limit, at, parse_u32(field.value, &rate.limit));
+    case 3:
+        return rate_value(context, rate_limit_field_remaining, at, parse_u32(field.value, &rate.remaining));
+    case 4:
+        return rate_value(context, rate_limit_field_reset, at,
+                          parse_decimal_milliseconds(field.value, &rate.reset_epoch_ms));
+    case 5:
+        return rate_value(context, rate_limit_field_reset_after, at,
+                          parse_decimal_milliseconds(field.value, &rate.reset_after_ms));
+    case 6:
+        return rate_value(context, rate_limit_field_retry_after, at,
+                          parse_decimal_milliseconds(field.value, &rate.retry_after_ms));
+    case 7:
+        if (!begin_rate_field(context, rate_limit_field_bucket, at))
             return false;
         if (!field.value.data || field.value.count == 0 || field.value.count > kRateLimitBucketMaximumBytes)
-            return rate_head_failure(context, RestHeadError::bucket_capacity, field.source_offset);
+            return rate_head_failure(context, RestHeadError::bucket_capacity, at);
         if (!valid_token(field.value))
-            return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
-        copy_bytes(context->rate.bucket, field.value.data, field.value.count);
-        context->rate.bucket_bytes = static_cast<u8>(field.value.count);
-    } else if (is("x-ratelimit-global")) {
-        return rate_value(context, rate_limit_field_global, field.source_offset,
-                          parse_bool_ascii(field.value, &context->rate.global));
-    } else if (is("x-ratelimit-scope")) {
-        if (!begin_rate_field(context, rate_limit_field_scope, field.source_offset))
+            return rate_head_failure(context, RestHeadError::invalid_rate_value, at);
+        copy_bytes(rate.bucket, field.value.data, field.value.count);
+        rate.bucket_bytes = static_cast<u8>(field.value.count);
+        break;
+    case 8:
+        return rate_value(context, rate_limit_field_global, at, parse_bool_ascii(field.value, &rate.global));
+    case 9: {
+        if (!begin_rate_field(context, rate_limit_field_scope, at))
             return false;
-        const auto value_is = [&](const char* literal) noexcept {
-            return http_ascii_equal_case_insensitive(field.value, literal);
-        };
-        if (value_is("user"))
-            context->rate.scope = RateLimitScope::user;
-        else if (value_is("global"))
-            context->rate.scope = RateLimitScope::global;
-        else if (value_is("shared"))
-            context->rate.scope = RateLimitScope::shared;
-        else
-            return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
+        // The names follow RateLimitScope from user on.
+        const u32 scope = http_ascii_name_index(field.value, "user\0global\0shared\0");
+        if (scope > 2)
+            return rate_head_failure(context, RestHeadError::invalid_rate_value, at);
+        rate.scope = static_cast<RateLimitScope>(scope + 1);
+        break;
+    }
     }
     return true;
 }
 
-bool rate_body_begin(RateBodyContext* context, u32 bit) noexcept {
+inline bool rate_body_begin(RateBodyContext* context, u32 bit) noexcept {
     if ((context->fields & bit) != 0) {
         context->error = RateLimitBodyError::duplicate_field;
         return false;
@@ -218,7 +214,7 @@ bool rate_body_begin(RateBodyContext* context, u32 bit) noexcept {
     return true;
 }
 
-bool rate_body_failure(RateBodyContext* context, RateLimitBodyError error) noexcept {
+inline bool rate_body_failure(RateBodyContext* context, RateLimitBodyError error) noexcept {
     context->error = error;
     return false;
 }
@@ -250,23 +246,23 @@ bool visit_rate_body(void* opaque, JsonString name, JsonValue value) noexcept {
 
 constexpr u16 invalid_rate_index = 0xFFFF;
 
-bool same_route(const RestRouteKey& left, const RestRouteKey& right) noexcept {
+inline bool same_route(const RestRouteKey& left, const RestRouteKey& right) noexcept {
     return left.route_id == right.route_id && left.major_key == right.major_key &&
            left.method == right.method && left.major == right.major;
 }
 
-bool same_hash(const RestRateBucket& bucket, const RateLimitHeaders& rate, const RestRouteKey& route) noexcept {
+inline bool same_hash(const RestRateBucket& bucket, const RateLimitHeaders& rate, const RestRouteKey& route) noexcept {
     return bucket.used && bucket.canonical && bucket.hash_bytes == rate.bucket_bytes && bucket.major == route.major &&
            bucket.major_key == route.major_key && bytes_equal(bucket.hash, rate.bucket, rate.bucket_bytes);
 }
 
-bool same_provisional(const RestRateBucket& bucket, const RestRouteKey& route) noexcept {
+inline bool same_provisional(const RestRateBucket& bucket, const RestRouteKey& route) noexcept {
     return bucket.used && !bucket.canonical && bucket.route_id == route.route_id &&
            bucket.major_key == route.major_key && bucket.method == route.method &&
            bucket.major == route.major;
 }
 
-u16 find_binding(const RestRateScheduler& scheduler, const RestRouteKey& route) noexcept {
+inline u16 find_binding(const RestRateScheduler& scheduler, const RestRouteKey& route) noexcept {
     for (u32 index = 0; index < scheduler.bindings.count; ++index)
         if (scheduler.bindings[index].used && same_route(scheduler.bindings[index].route, route))
             return static_cast<u16>(index);
@@ -446,7 +442,7 @@ bool audit_unreserved(u8 value) noexcept {
     return ascii_is_alnum(value) || value == '-' || value == '_' || value == '.' || value == '!' ||
            value == '~' || value == '*' || value == '\'' || value == '(' || value == ')';
 }
-bool audit_hex(u8 value) noexcept {
+inline bool audit_hex(u8 value) noexcept {
     return (value >= '0' && value <= '9') || (value >= 'A' && value <= 'F');
 }
 } // namespace

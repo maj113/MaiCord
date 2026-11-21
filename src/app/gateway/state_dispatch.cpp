@@ -160,10 +160,10 @@ namespace {
 // Out of line: the 4 KB of emoji role index would otherwise cost every state event a stack probe.
 __declspec(noinline) GatewayEventDecodeResult append_emoji_array_with_roles(
     JsonValue emojis, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
-    PayloadWriter* writer, u32* emoji_count, u32* role_count) noexcept {
+    PayloadWriter* writer, u32* emoji_count, u32* role_count, const JsonIndexedDocument* frame = nullptr) noexcept {
     u32 role_scratch[1'024];
     return append_emoji_array(emojis, structural_scratch, object_scratch, Slice<u32>{role_scratch, 1'024},
-                              maximum_depth, writer, emoji_count, role_count);
+                              maximum_depth, writer, emoji_count, role_count, frame);
 }
 
 // The branches of route_state_dispatch that visit nested arrays or decode a second object, out of line so
@@ -266,10 +266,11 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_member_update(
     return route_error(GatewayClientDispatchRouteError::none);
 }
 
+// `frame`: null, or READY's document, which holds the guild and whose index lies outside every scratch.
 __declspec(noinline) GatewayClientDispatchRouteResult route_guild_object(
     StateObjectContext& object, Slice<u32> structural_scratch, u32 maximum_depth, u64 self_user_id,
     JsonValue ready_members, bool ready_guild, bool guild_create, bool guild_update,
-    bool largest, PayloadWriter& writer, GatewayClientEvent* event) noexcept {
+    bool largest, PayloadWriter& writer, GatewayClientEvent* event, const JsonIndexedDocument* frame) noexcept {
     u32 object_scratch[512];
     event->state.member_role_flags = 0;
     if (ready_guild && ready_members.source.data) {
@@ -334,7 +335,7 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_guild_object(
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         GatewayEventDecodeResult appended =
             append_role_array(object.roles, structural_scratch, Slice<u32>{object_scratch, 512}, maximum_depth,
-                              &writer, &event->state.role_count);
+                              &writer, &event->state.role_count, frame);
         if (!appended.ok())
             return append_failure(appended.error, 4);
         bool self_found = false;
@@ -358,7 +359,7 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_guild_object(
         u32 overwrite_count = 0;
         GatewayEventDecodeResult appended = append_channel_array(
             object.channels, structural_scratch, Slice<u32>{object_scratch, 512}, maximum_depth,
-            object.mutation.id, &writer, &record_count, &overwrite_count, self_user_id, &skipped_channels);
+            object.mutation.id, &writer, &record_count, &overwrite_count, self_user_id, &skipped_channels, frame);
         if (!appended.ok()) {
             auto failed = append_failure(appended.error, 6);
             failed.scan_error = appended.scan_error;
@@ -373,7 +374,8 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_guild_object(
             const u32 mark = writer.used, records_mark = record_count, overwrites_mark = overwrite_count;
             appended = append_channel_array(
                 object.threads, structural_scratch, Slice<u32>{object_scratch, 512}, maximum_depth,
-                object.mutation.id, &writer, &record_count, &overwrite_count, self_user_id, &skipped_channels);
+                object.mutation.id, &writer, &record_count, &overwrite_count, self_user_id, &skipped_channels,
+                frame);
             if (!appended.ok()) {
                 if (appended.error == GatewayEventDecodeError::scan_failed &&
                     appended.scan_error == JsonScanError::output_overflow) {
@@ -398,7 +400,7 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_guild_object(
         const GatewayEventDecodeResult appended =
             append_emoji_array_with_roles(object.emojis, structural_scratch, Slice<u32>{object_scratch, 512},
                                           maximum_depth, &writer, &event->state.emoji_count,
-                                          &event->state.emoji_role_count);
+                                          &event->state.emoji_role_count, frame);
         if (!appended.ok() && appended.error == GatewayEventDecodeError::scan_failed &&
             appended.scan_error == JsonScanError::output_overflow) {
             auto failed = route_detail(GatewayClientDispatchRouteError::decode, appended.error, 8);
@@ -526,7 +528,8 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
                                      handled, event);
     else if (guild_create || guild_update || guild_delete)
         routed = route_guild_object(object, structural_scratch, maximum_depth, self_user_id, ready_members,
-                                    ready_guild, guild_create, guild_update, largest, writer, event);
+                                    ready_guild, guild_create, guild_update, largest, writer, event,
+                                    ready_guild ? frame : nullptr);
     else
         routed = route_channel_object(object, structural_scratch, maximum_depth, writer, event, channel_create,
                                       channel_update, channel_delete);
@@ -558,7 +561,8 @@ GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayE
                                                                   Slice<char> storage, u64 self_user_id,
                                                                   GatewayClientLargeRecord large,
                                                                   GatewayClientEvent* event,
-                                                                  ConstSlice<u8>* payload) noexcept {
+                                                                  ConstSlice<u8>* payload,
+                                                                  const JsonIndexedDocument* document) noexcept {
     if (!storage.data || !storage.count || !self_user_id)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     u32 capacity = storage.count;
@@ -570,12 +574,12 @@ GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayE
         event->has_sequence = envelope.has_sequence;
         bool handled = false, overflowed = false;
         auto routed = route_state_dispatch(envelope, scratch, 64, storage, self_user_id, event, payload,
-                                           &handled, &overflowed, members);
+                                           &handled, &overflowed, members, document);
         routed.payload_overflow = !routed.ok() && overflowed;
         event->dispatch_payload_bytes = payload->count;
         if (routed.ok()) {
             gateway_client_append_notification_sidecar(envelope, scratch, storage, self_user_id, event,
-                                                       payload);
+                                                       payload, document);
             return routed;
         }
         if (!overflowed || !large.acquire || capacity >= kGatewayClientGuildRecordCapacity)
@@ -713,7 +717,8 @@ bool ready_content_parent(JsonValue value, Slice<u32> scratch, u32 depth) noexce
 
 GatewayClientDispatchRouteResult gateway_client_route_ready(
     const GatewayReady& ready, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
-    Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
+    Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload,
+    const JsonIndexedDocument* document) noexcept {
     if (ready.user_id == 0 || ready.guilds.kind != JsonValueKind::array ||
         !ready.guilds.source.data || !structural_scratch.data || structural_scratch.count == 0 ||
         !object_scratch.data || object_scratch.count == 0 || maximum_depth == 0 || !payload_scratch.data) {
@@ -726,19 +731,28 @@ GatewayClientDispatchRouteResult gateway_client_route_ready(
         if (!decoded.ok())
             return decoded;
     }
-    const JsonScanResult scan = json_scan_structurals_avx1(ready.guilds.source, structural_scratch);
-    if (!scan.ok()) {
-        GatewayClientDispatchRouteResult result =
-            route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
-        result.scan_error = scan.error;
-        result.error_offset = scan.error_offset;
-        return result;
-    }
     PayloadWriter writer{payload_scratch, 0};
     ReadyContext context{&writer, object_scratch, maximum_depth};
-    const JsonReadResult read =
-        json_visit_value_array(ready.guilds, ConstSlice<u32>{structural_scratch.data, scan.count},
-                              maximum_depth, visit_ready_guild, &context);
+    // Each guild's offsets count from the array's start, as with a scan of the array alone.
+    context.document = document;
+    context.base = document ? static_cast<u32>(ready.guilds.source.data - document->input.data) : 0;
+    JsonReadResult read{};
+    if (document) {
+        read = json_visit_indexed_array(*document, ready.guilds, maximum_depth, visit_ready_guild, &context);
+        if (!read.ok() && read.error_offset >= context.base)
+            read.error_offset -= context.base;
+    } else {
+        const JsonScanResult scan = json_scan_structurals_avx1(ready.guilds.source, structural_scratch);
+        if (!scan.ok()) {
+            GatewayClientDispatchRouteResult result =
+                route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
+            result.scan_error = scan.error;
+            result.error_offset = scan.error_offset;
+            return result;
+        }
+        read = json_visit_value_array(ready.guilds, ConstSlice<u32>{structural_scratch.data, scan.count},
+                                      maximum_depth, visit_ready_guild, &context);
+    }
     if (!read.ok()) {
         GatewayClientDispatchRouteResult result = route_error(
             context.error == GatewayEventDecodeError::invalid_data

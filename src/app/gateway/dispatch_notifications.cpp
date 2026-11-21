@@ -481,7 +481,7 @@ bool notification_sync(void* opaque, u32, JsonValue value) noexcept {
 
 void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slice<u32> scratch,
                                                 Slice<char> storage, u64 self, GatewayClientEvent* e,
-                                                ConstSlice<u8>* payload) noexcept {
+                                                ConstSlice<u8>* payload, const JsonIndexedDocument* document) noexcept {
     const u32 named = protocol_detail::skim_member_index<
         "GUILD_CREATE", "READY_GUILD", "GUILD_UPDATE", "THREAD_MEMBER_UPDATE", "THREAD_CREATE", "THREAD_UPDATE",
         "THREAD_MEMBERS_UPDATE", "THREAD_LIST_SYNC", "CHANNEL_CREATE", "CHANNEL_UPDATE", "USER_UPDATE">(env.event_name);
@@ -496,7 +496,13 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slic
     const bool user = named == 10;
     JsonIndexedDocument doc{};
     NotificationFields f{};
-    bool valid = notification_document(env.data, scratch, &doc, &f);
+    bool valid;
+    if (document) {
+        doc = *document;
+        valid = json_visit_indexed_object(doc, env.data, 64, notification_fields, &f).ok() && !f.bad;
+    } else {
+        valid = notification_document(env.data, scratch, &doc, &f);
+    }
     if (user && (f.id != self || !(f.seen & 4194304)))
         return;
     const u32 base = payload->count;

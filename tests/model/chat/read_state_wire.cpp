@@ -66,8 +66,9 @@ Utf8View many(u32 count) noexcept {
     return {reinterpret_cast<const char*>(source), writer.used};
 }
 bool ready(Utf8View data, GatewayReady* output) noexcept {
-    return gateway_decode_ready({data, 0, JsonValueKind::object},
-        {structurals, structural_count}, 64, output).ok();
+    const auto scan = json_scan_structurals_avx1(data, {structurals, structural_count});
+    return scan.ok() && gateway_decode_ready({data, {structurals, scan.count}}, {data, 0, JsonValueKind::object}, 64,
+                                             output).ok();
 }
 GatewayClientDispatchRouteResult cursors(Utf8View name, Utf8View data, GatewayClientEvent* event,
     ConstSlice<u8>* payload, u32 capacity = sizeof(storage), bool direct = false) noexcept {

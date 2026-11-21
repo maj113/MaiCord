@@ -11,11 +11,13 @@ namespace maicord {
 struct GatewayPayloadWriter;
 
 // Appends the shared notification metadata to an already normalized state
-// record, using the same final storage as its typed payload.
+// record, using the same final storage as its typed payload. `document`: null, or
+// a document that holds the envelope's data and whose index lies outside `structural_scratch`.
 void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
                                                 Slice<u32> structural_scratch, Slice<char> storage,
                                                 u64 self_user_id, GatewayClientEvent* event,
-                                                ConstSlice<u8>* payload) noexcept;
+                                                ConstSlice<u8>* payload,
+                                                const JsonIndexedDocument* document = nullptr) noexcept;
 
 // Worker-owned, session-scoped progress. Keep through RESUME and clear when
 // invalidating the saved session or committing a fresh READY.
@@ -178,8 +180,9 @@ inline bool gateway_store_named_member(void* opaque, JsonString name, JsonValue 
     return true;
 }
 
-inline GatewayClientEvent gateway_dispatch_event(GatewayClientDispatchKind kind, u64 sequence,
-                                                 u64 now_ms) noexcept {
+// Out of line: the zeroed descriptor (232 bytes) would otherwise be filled at each of its 15 callers.
+__declspec(noinline) inline GatewayClientEvent gateway_dispatch_event(GatewayClientDispatchKind kind, u64 sequence,
+                                                                     u64 now_ms) noexcept {
     GatewayClientEvent event{};
     event.kind = GatewayClientEventKind::dispatch;
     event.dispatch_kind = kind;

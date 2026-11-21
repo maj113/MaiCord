@@ -5,6 +5,8 @@
 #include "maicord/core/memory.hpp"
 
 #include "dispatch_common.hpp"
+// Only static_asserts: the layout contract of the unpacker below. Keep this include.
+#include "message_mailbox.hpp"
 
 namespace maicord {
 namespace {

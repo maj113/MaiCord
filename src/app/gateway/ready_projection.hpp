@@ -22,6 +22,10 @@ struct GatewayReadyProjectionScratch {
     // committed only during the call. A record larger than the mailbox ring,
     // or a full reservation, falls back to routing again.
     ReservedBytes* staging = nullptr;
+    // Optional: READY's document, whose index and table of bracket ends lie outside every scratch above. The
+    // projection then visits READY's arrays and guilds through it instead of scanning them again, and the table
+    // (when present) lets each visit step over nested values.
+    const JsonIndexedDocument* document = nullptr;
 };
 struct GatewayReadyProjectionResult {
     GatewayClientDispatchRouteResult route;
@@ -51,13 +55,15 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
 GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
     JsonValue data, u64 self_user_id, Slice<u32> arrays, Slice<u32> records, Slice<char> payload,
     u64 sequence, u64 now_ms, GatewayReadyPublish publish, void* context) noexcept;
-// Internal READY routes; merged members replace the guild-local member list.
+// Internal READY routes; merged members replace the guild-local member list. `document` is null or the READY
+// document that holds the guild (GatewayReadyProjectionScratch::document).
 GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayEnvelope& envelope,
                                                                   JsonValue members, Slice<u32> scratch,
                                                                   Slice<char> storage, u64 self_user_id,
                                                                   GatewayClientLargeRecord large,
                                                                   GatewayClientEvent* event,
-                                                                  ConstSlice<u8>* payload) noexcept;
+                                                                  ConstSlice<u8>* payload,
+                                                                  const JsonIndexedDocument* document) noexcept;
 GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue members, u64 guild_id,
                                                                    u64 self_user_id, Slice<u32> scratch,
                                                                    Slice<char> storage,

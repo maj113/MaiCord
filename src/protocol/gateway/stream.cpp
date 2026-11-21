@@ -71,15 +71,12 @@ bool nullable_bool(JsonValue value, bool* output) noexcept {
     }
     return json_value_to_bool(value, output);
 }
-GatewayStreamDeleteReason reason_of(JsonString text) noexcept {
-    switch (protocol_detail::member_index<"user_requested", "stream_full", "unauthorized",
-                                          "safety_guild_rate_limited">(text)) {
-    case 0: return GatewayStreamDeleteReason::user_requested;
-    case 1: return GatewayStreamDeleteReason::stream_full;
-    case 2: return GatewayStreamDeleteReason::unauthorized;
-    case 3: return GatewayStreamDeleteReason::safety_guild_rate_limited;
-    default: return GatewayStreamDeleteReason::other;
-    }
+// The names in GatewayStreamDeleteReason order after none. Any other name is other, the value after them.
+static_assert(static_cast<u32>(GatewayStreamDeleteReason::other) == 5);
+GatewayStreamDeleteReason reason_of(const JsonString& text) noexcept {
+    const u32 index = protocol_detail::member_index<"user_requested", "stream_full", "unauthorized",
+                                                    "safety_guild_rate_limited">(text);
+    return static_cast<GatewayStreamDeleteReason>(index + 1);
 }
 // Keys are plain ASCII; an escaped key is decoded before parsing.
 bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) noexcept {
@@ -91,20 +88,12 @@ bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) no
 }
 bool visit_stream(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<StreamDecode*>(opaque);
-    struct Field {
-        u32 bit;
-        u8 kinds; // Bit per decode kind.
-    };
-    static constexpr Field fields[]{
-        {f_key, 0xF},      {f_server, 1}, {f_channel, 1}, {f_region, 5},  {f_viewers, 5},
-        {f_paused, 5},     {f_token, 2},  {f_endpoint, 2}, {f_reason, 8}, {f_unavailable, 8},
-    };
+    // The decode kinds of each name, a bit per kind. A name's seen bit is 1 << its position (f_key, f_server, ...).
+    static constexpr u8 kinds[]{0xF, 1, 1, 5, 5, 5, 2, 2, 8, 8};
     const u32 index = protocol_detail::member_index<"stream_key", "rtc_server_id", "rtc_channel_id", "region",
                                                     "viewer_ids", "paused", "token", "endpoint", "reason",
                                                     "unavailable">(name);
-    const u32 bit = index < sizeof(fields) / sizeof(fields[0]) && (fields[index].kinds >> d.kind & 1)
-                        ? fields[index].bit
-                        : 0;
+    const u32 bit = index < sizeof(kinds) && (kinds[index] >> d.kind & 1) ? 1u << index : 0;
     if (!bit)
         return true;
     if (d.seen & bit) {

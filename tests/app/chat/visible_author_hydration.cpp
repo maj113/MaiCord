@@ -7,6 +7,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "../../support/gateway_message_scratch.hpp"
 #include "../../support/chat_state_lists.hpp"
+#include "maicord/core/json_scan.hpp"
 
 namespace maicord {
 namespace {
@@ -202,9 +203,11 @@ void test_member_rate_limits(void (*check)(bool, const char*) noexcept) noexcept
     GatewayMemberChunkReceipt receipt{};
     const auto chunk =
         utf8_literal(R"({"guild_id":"8","nonce":"10","chunk_index":0,"chunk_count":1,"members":[]})");
-    check(gateway_decode_member_chunk_receipt({chunk, 0, JsonValueKind::object}, {structural, 128}, 16,
-                                              &receipt)
-              .ok(),
+    const auto chunk_scan = json_scan_structurals_avx1(chunk, {structural, 128});
+    const JsonIndexedDocument chunk_document{chunk, {structural, chunk_scan.count}};
+    check(chunk_scan.ok() &&
+              gateway_decode_member_chunk_receipt(chunk_document, {chunk, 0, JsonValueKind::object}, 16, &receipt)
+                  .ok(),
           "member rate: final member chunk retains exact guild and nonce metadata");
     gateway_member_request_complete(&owner, {8, 10, 0, 2});
     check(owner.batch_current, "member rate: an intermediate chunk retains request completion authority");

@@ -84,7 +84,7 @@ GatewayClientEvent activity_message_event(u64 id, u64 channel_id, u64 author_id,
 namespace {
 
 GatewayDecodeResult decode_gateway(Utf8View input, GatewayEnvelope* envelope) noexcept {
-    u32 structurals[1'024]{};
+    static u32 structurals[1'024]; // READY reads through the envelope's document, which outlives this call.
     return gateway_decode_envelope(input, Slice<u32>{structurals, 1'024}, 16, envelope);
 }
 
@@ -385,7 +385,7 @@ void test_json_reader_and_gateway() noexcept {
             R"({"op":0,"d":{"v":9,"user":{"id":"2"},"guilds":[],"private_channels":[],"session_id":"user-session","resume_gateway_url":"wss://gateway.discord.gg"},"s":8,"t":"READY"})"),
         &envelope);
     const GatewayEventDecodeResult user_ready_result =
-        gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready);
+        gateway_decode_ready(envelope.document, envelope.data, 16, &ready);
     expect(user_ready_envelope.ok() && user_ready_result.ok() && ready.api_version == 9 &&
                ready.user_id == 2,
            "gateway_ready_normal_user_shape");
@@ -396,7 +396,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":10,"user":{},"guilds":[],"session_id":"s","resume_gateway_url":"wss://g","application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_user,
         "gateway_ready_user_id_required");
 
@@ -405,7 +405,7 @@ void test_json_reader_and_gateway() noexcept {
                    R"({"op":0,"d":{"v":10,"user":{},"session_id":"s","resume_gateway_url":"wss://g"}})"),
                &envelope)
                    .ok() &&
-               gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+               gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                    GatewayEventDecodeError::missing_required_field,
            "gateway_ready_missing_required");
     expect(
@@ -414,7 +414,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":"10","user":{},"guilds":[],"session_id":"s","resume_gateway_url":"wss://g","application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_api_version,
         "gateway_ready_api_version_type");
     expect(
@@ -423,7 +423,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":10,"user":[],"guilds":[],"session_id":"s","resume_gateway_url":"wss://g","application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_user,
         "gateway_ready_user_type");
     expect(
@@ -432,7 +432,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":10,"user":{},"guilds":{},"session_id":"s","resume_gateway_url":"wss://g","application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_guilds,
         "gateway_ready_guilds_type");
     expect(
@@ -441,7 +441,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":10,"user":{},"guilds":[],"session_id":"","resume_gateway_url":"wss://g","application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_session_id,
         "gateway_ready_session_id_empty");
     expect(
@@ -450,7 +450,7 @@ void test_json_reader_and_gateway() noexcept {
                 R"({"op":0,"d":{"v":10,"user":{},"guilds":[],"session_id":"s","resume_gateway_url":4,"application":{}}})"),
             &envelope)
                 .ok() &&
-            gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
+            gateway_decode_ready(envelope.document, envelope.data, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_resume_gateway_url,
         "gateway_ready_resume_url_type");
     expect(
@@ -867,7 +867,7 @@ void test_chat_state() noexcept {
             R"({"op":0,"d":{"v":9,"user":{"id":"1"},"guilds":[{"id":"100","unavailable":true},{"id":"200","unavailable":true}],"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg"},"s":1,"t":"READY"})"),
         &envelope);
     const GatewayEventDecodeResult ready_decoded =
-        gateway_decode_ready(envelope.data, Slice<u32>{scratch, 512}, 32, &ready);
+        gateway_decode_ready(envelope.document, envelope.data, 32, &ready);
     const GatewayClientDispatchRouteResult ready_routed = gateway_client_route_ready(
         ready, Slice<u32>{scratch, 512}, Slice<u32>{ready_object_scratch, 512}, 32,
         Slice<char>{payload_storage, 4'096}, &event, &payload);
@@ -1444,7 +1444,7 @@ void test_channel_permissions() noexcept {
                 R"({"op":0,"d":{"v":9,"user":{"id":"1"},"guilds":[{"id":"100","unavailable":true}],"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg"},"s":1,"t":"READY"})"),
             &envelope)
             .ok() &&
-        gateway_decode_ready(envelope.data, Slice<u32>{scratch, 2'048}, 32, &ready).ok() &&
+        gateway_decode_ready(envelope.document, envelope.data, 32, &ready).ok() &&
         gateway_client_route_ready(ready, Slice<u32>{scratch, 2'048},
                                    Slice<u32>{ready_object_scratch, 2'048}, 32,
                                    Slice<char>{payload_storage, 16'384}, &event, &payload)

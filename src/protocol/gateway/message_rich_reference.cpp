@@ -229,9 +229,7 @@ bool visit_referenced_field_item(void* opaque, u32, JsonValue value) noexcept {
     context->field_value = {};
     if (value.kind == JsonValueKind::object)
         json_visit_indexed_object(*context->document, value, context->depth, visit_referenced_field, context);
-    char name[24];
-    const auto decoded = json_string_decode_utf8(context->field_name, Slice<char>{name, sizeof(name)});
-    if (!decoded.ok() || !utf8_equal(Utf8View{name, decoded.bytes}, utf8_literal("poll_question_text")))
+    if (!json_string_equals_ascii(context->field_name, utf8_literal("poll_question_text")))
         return true;
     context->poll_question = context->field_value;
     return false;
@@ -279,7 +277,7 @@ bool visit_mention_item(void* opaque, u32, JsonValue value) noexcept {
 // The "type" of a quoted message's own message_reference (1: it is a forward).
 bool visit_quote_reference_type(void* opaque, JsonString name, JsonValue value) noexcept {
     u32 type = 0;
-    if (json_string_equals_utf8(name, utf8_literal("type")) && value_u32(value, &type))
+    if (json_string_equals_ascii(name, utf8_literal("type")) && value_u32(value, &type))
         *static_cast<u32*>(opaque) = type;
     return true;
 }
@@ -290,10 +288,11 @@ struct MediaMentionProbe {
 };
 bool visit_media_mention(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* probe = static_cast<MediaMentionProbe*>(opaque);
-    if (json_string_equals_utf8(name, utf8_literal("attachment_id")))
-        json_value_to_snowflake(value, &probe->attachment_id);
-    else if (json_string_equals_utf8(name, utf8_literal("timestamp")))
-        json_value_to_u64(value, &probe->timestamp_ms);
+    switch (member_index<"attachment_id", "timestamp">(name)) {
+    case 0: json_value_to_snowflake(value, &probe->attachment_id); break;
+    case 1: json_value_to_u64(value, &probe->timestamp_ms); break;
+    default: break;
+    }
     return true;
 }
 
@@ -309,12 +308,12 @@ struct QuotedAttachmentProbe {
 };
 bool visit_attachment_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* probe = static_cast<QuotedAttachmentProbe*>(opaque);
-    if (json_string_equals_utf8(name, utf8_literal("id")))
-        json_value_to_snowflake(value, &probe->id);
-    else if (json_string_equals_utf8(name, utf8_literal("title")))
-        probe->title = value;
-    else if (json_string_equals_utf8(name, utf8_literal("flags")))
-        json_value_to_u64(value, &probe->flags);
+    switch (member_index<"id", "title", "flags">(name)) {
+    case 0: json_value_to_snowflake(value, &probe->id); break;
+    case 1: probe->title = value; break;
+    case 2: json_value_to_u64(value, &probe->flags); break;
+    default: break;
+    }
     return true;
 }
 bool visit_attachment_item(void* opaque, u32, JsonValue value) noexcept {
@@ -435,11 +434,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
     bool simple_embed = false;
     if (referenced.content.encoded.bytes && referenced.embeds.source.data) {
         json_visit_indexed_array(scratch, referenced.embeds, maximum_depth, visit_referenced_embed_item, &preview);
-        char type[8]{};
-        const auto decoded = json_string_decode_utf8(preview.type, Slice<char>{type, sizeof(type)});
-        const Utf8View kind{type, decoded.ok() ? decoded.bytes : 0u};
-        simple_embed = preview.count == 1 && !preview.described &&
-                       (utf8_equal(kind, utf8_literal("image")) || utf8_equal(kind, utf8_literal("gifv"))) &&
+        simple_embed = preview.count == 1 && !preview.described && member_index<"image", "gifv">(preview.type) < 2 &&
                        json_strings_equal(referenced.content, preview.url);
     }
     // A lone image/gifv link is hidden behind its simple embed; the

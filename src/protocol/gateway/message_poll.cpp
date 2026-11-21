@@ -51,12 +51,12 @@ bool text(JsonValue value, Text* bank, u32 byte_limit, u32 scalar_limit, Utf8Vie
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return false;
-    const auto size = json_string_decode_utf8(string, {});
-    if ((!size.ok() && size.error != JsonStringDecodeError::output_too_small) || size.bytes > byte_limit ||
-        bank->used > sizeof(bank->data) || size.bytes > sizeof(bank->data) - bank->used)
+    if (bank->used > sizeof(bank->data))
         return false;
-    const auto decoded = json_string_decode_utf8(string, {bank->data + bank->used, size.bytes});
-    if (!decoded.ok() || decoded.bytes != size.bytes)
+    // One decode both sizes and writes the text: a text too long for the room is measured without a write.
+    const u32 room = static_cast<u32>(sizeof(bank->data)) - bank->used;
+    const auto decoded = json_string_decode_utf8(string, {bank->data + bank->used, minimum(byte_limit, room)});
+    if (!decoded.ok())
         return false;
     const Utf8View result{bank->data + bank->used, decoded.bytes};
     const auto valid = utf8_validate(result);

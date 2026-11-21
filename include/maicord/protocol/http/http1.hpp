@@ -79,6 +79,9 @@ HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header
                                         HttpFieldVisitor visitor, void* context) noexcept;
 HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_was_head) noexcept;
 bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal) noexcept;
+// The index of text in `names` (a NameList of lowercase names), compared without case; the name count when none
+// matches. One call replaces a chain of http_ascii_equal_case_insensitive calls over a field name or value.
+u32 http_ascii_name_index(ConstSlice<u8> text, const char* names) noexcept;
 // Strips optional whitespace (spaces and tabs) from both ends of a field value.
 ConstSlice<u8> http_trim_ows(ConstSlice<u8> value) noexcept;
 Utf8View http_trim_ows(Utf8View value) noexcept;

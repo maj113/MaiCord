@@ -106,7 +106,7 @@ bool batch(JsonValue data, u32 count, bool rich_record = false) noexcept {
     if (!scan.ok()) return false;
     const JsonIndexedDocument document{data.source, {main_index_view(&runtime).data, scan.count}};
     GatewayReady ready{};
-    if (!gateway_decode_ready(data, main_index_view(&runtime), 64, &ready, &document).ok()) return false;
+    if (!gateway_decode_ready(document, data, 64, &ready).ok()) return false;
     // Only the user batches reach the mailbox drain() reads.
     const auto routed = gateway_ready_project(
         ready,
@@ -818,11 +818,12 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 term_bytes = bytes - 13;
     check(bytes && gateway_session_push(&runtime.session, {output, bytes}), "Gateway one raw block is accepted");
     const auto inflated = gateway_session_next(&runtime.session, 0, GetTickCount64());
-    check(inflated.kind == GatewaySessionEventKind::dispatch && index_growth_calls == 1 &&
+    check(inflated.kind == GatewaySessionEventKind::dispatch && index_growth_calls == 3 &&
+        runtime.structural_scratch.capacity == 8192 &&
         !stream.failed && stream.position == term_bytes && stream.frame_output == term_bytes &&
         !runtime.session.compressed_bytes &&
         gateway_session_next(&runtime.session, 0, GetTickCount64()).kind == GatewaySessionEventKind::need_input,
-        "Gateway index grows one time to the transcoder's count, and the message is not decoded again");
+        "Gateway index doubles while the transcoder writes it, and the message is not scanned again");
     zstd_stream_clear(&stream);
     check(fresh_index(), "Gateway demand index fixture returns to one-page baseline");
 }

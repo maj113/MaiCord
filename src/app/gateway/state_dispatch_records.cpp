@@ -124,7 +124,7 @@ namespace state_dispatch_detail {
 
 GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scratch,
                                            Slice<u32> object_scratch, u32 maximum_depth,
-                                           PayloadWriter* writer, u32* count) noexcept {
+                                           PayloadWriter* writer, u32* count, const JsonIndexedDocument* frame) noexcept {
     RoleArrayContext context; // ids[] is read below count only
     context.count = 0;
     context.error = GatewayEventDecodeError::none;
@@ -133,7 +133,7 @@ GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scr
     context.maximum_depth = maximum_depth;
     const GatewayEventDecodeResult result =
         visit_array(array, array_scratch, maximum_depth, visit_role, &context, context.error,
-                    GatewayEventDecodeError::invalid_json, &context.document);
+                    GatewayEventDecodeError::invalid_json, &context.document, frame);
     if (result.ok())
         *count = context.count;
     return result;
@@ -263,7 +263,7 @@ namespace state_dispatch_detail {
 GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_scratch,
                                             Slice<u32> object_scratch, Slice<u32> role_scratch,
                                             u32 maximum_depth, PayloadWriter* writer, u32* count,
-                                            u32* role_count) noexcept {
+                                            u32* role_count, const JsonIndexedDocument* frame) noexcept {
     EmojiArrayContext context; // ids[] is read below count only
     context.count = context.role_count = 0;
     context.error = GatewayEventDecodeError::none;
@@ -273,7 +273,7 @@ GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_sc
     context.maximum_depth = maximum_depth;
     const GatewayEventDecodeResult result =
         visit_array(array, array_scratch, maximum_depth, visit_emoji, &context, context.error,
-                    GatewayEventDecodeError::invalid_json, &context.document);
+                    GatewayEventDecodeError::invalid_json, &context.document, frame);
     if (result.ok()) {
         *count = context.count;
         *role_count = context.role_count;
@@ -574,6 +574,8 @@ struct ChannelArrayContext {
     // Guild snapshots skip one bad channel record; THREAD_LIST_SYNC keeps its
     // all-or-nothing contract and rejects the whole sync instead.
     bool tolerant{};
+    // The array's position in a frame document: channel offsets count from the array's start, as with its scan.
+    u32 base{};
 };
 
 // In a guild snapshot one malformed or unsupported channel record is skipped
@@ -581,6 +583,7 @@ struct ChannelArrayContext {
 // buffer stops the array, because every later record would be lost the same way.
 bool visit_channel(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<ChannelArrayContext*>(opaque);
+    value.source_offset -= context->base;
     const u32 mark = context->writer->used;
     const auto skip = [context, mark](GatewayEventDecodeError error, const GatewayEventDecodeResult* failure) noexcept {
         if (!context->tolerant || context->writer->overflow) {
@@ -631,24 +634,18 @@ GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_
                                               Slice<u32> object_scratch, u32 maximum_depth, u64 guild_id,
                                               PayloadWriter* writer, u32* count,
                                               u32* overwrite_count, u64 self_user_id,
-                                              u32* skipped) noexcept {
-    const JsonScanResult scan = json_scan_structurals_avx1(array.source, array_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
+                                              u32* skipped, const JsonIndexedDocument* frame) noexcept {
     ChannelArrayContext context{
         writer, object_scratch, guild_id, maximum_depth, 0, 0, GatewayEventDecodeError::none};
-    context.document = {array.source, {array_scratch.data, scan.count}};
     context.self_user_id = self_user_id;
     context.tolerant = skipped != nullptr;
-    const JsonReadResult read =
-        json_visit_value_array(array, ConstSlice<u32>{array_scratch.data, scan.count}, maximum_depth,
-                              visit_channel, &context);
-    if (!read.ok()) {
-        if (!context.failure.ok())
-            return context.failure;
-        return read_failure(context.error, read);
-    }
+    if (frame && array.kind == JsonValueKind::array)
+        context.base = static_cast<u32>(array.source.data - frame->input.data);
+    const GatewayEventDecodeResult visited =
+        visit_array(array, array_scratch, maximum_depth, visit_channel, &context, context.error,
+                    GatewayEventDecodeError::invalid_json, &context.document, frame);
+    if (!visited.ok())
+        return context.failure.ok() ? visited : context.failure;
     *count += context.count;
     *overwrite_count += context.overwrite_count;
     if (skipped)
@@ -658,9 +655,10 @@ GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_
 
 bool visit_ready_guild(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<ReadyContext*>(opaque);
+    value.source_offset -= context->base;
     StateObjectContext object;
     const GatewayEventDecodeResult decoded =
-        decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
+        decode_state_object(value, context->object_scratch, context->maximum_depth, &object, false, context->document);
     if (!decoded.ok() && decoded.error == GatewayEventDecodeError::scan_failed &&
         decoded.scan_error == JsonScanError::output_overflow) {
         // Index capacity, not data: the projection grows its index and retries.

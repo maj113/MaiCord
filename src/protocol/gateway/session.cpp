@@ -114,6 +114,13 @@ u32 doubled_index_count(u32 current, u32 required) noexcept {
                                                                          : maximum(current * 2, 1u);
     return current;
 }
+// The transcoder's growth of a full index (a first READY has about 300,000 structurals): one doubling at a time.
+bool grow_transcoder_index(void* opaque, u32 required, Slice<u32>* index) noexcept {
+    auto* session = static_cast<GatewaySession*>(opaque);
+    if (!grow_session_index(session, doubled_index_count(session->structural_scratch.count, required))) return false;
+    *index = session->structural_scratch;
+    return true;
+}
 
 // indexed: the number of entries of the message's structural index already in session->structural_scratch
 // (valid JSON written by the ETF transcoder), or ~0u to scan and validate the message. ends: null or the table
@@ -183,8 +190,7 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
             protocol_detail::skim_member_index<"READY", "RESUMED">(result.envelope.event_name);
         if (session_event == 0) {
             const GatewayEventDecodeResult ready =
-                gateway_decode_ready(result.envelope.data, session->structural_scratch, 64, &result.ready,
-                                     &result.envelope.document);
+                gateway_decode_ready(result.envelope.document, result.envelope.data, 64, &result.ready);
             if (event_decode_failed(result, ready)) {
                 return;
             }
@@ -258,26 +264,18 @@ void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now
     const Slice<u32> index = session->structural_scratch;
     const EtfResult json = etf_to_json_indexed(etf, &session->message_storage, session->maximum_decoded_message_bytes,
                                                session->grow_output ? grow_session_output : nullptr, session, index,
-                                               &structurals);
+                                               session->grow_index ? grow_transcoder_index : nullptr, &structurals);
     if (!json.ok()) {
         session_error(out, GatewaySessionError::etf);
         out->etf_error = json.error;
         return;
     }
     const Utf8View message{reinterpret_cast<const char*>(session->message_storage.data), json.bytes};
-    u32 indexed = structurals;
-    // The index was too short (a first READY has about 300,000 structurals). The transcoder gave the count, so
-    // the index grows one time, to the size that doubling reaches, and one scan fills it. The JSON is valid by
-    // construction: the scan writes the transcoder's index, and nothing is validated again.
-    if (structurals > index.count) {
-        indexed = ~0u;
-        if (grow_session_index(session, doubled_index_count(index.count, structurals))) {
-            const JsonScanResult scan = json_scan_structurals_avx1(message, session->structural_scratch);
-            if (scan.ok() && scan.count == structurals)
-                indexed = structurals;
-        }
-    }
-    process_gateway_message(session, message, heartbeat_jitter, now_ms, out, indexed, etf_index_ends(index, structurals));
+    // The JSON is valid by construction, so an index that holds every structural is not validated again. An index
+    // that could not grow holds the count alone: the message is then scanned and validated.
+    process_gateway_message(session, message, heartbeat_jitter, now_ms, out,
+                            structurals <= session->structural_scratch.count ? structurals : ~0u,
+                            etf_index_ends(index, structurals));
 }
 
 } // namespace

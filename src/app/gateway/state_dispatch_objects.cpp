@@ -34,17 +34,28 @@ GatewayClientDispatchRouteResult decode_route(GatewayEventDecodeError error) noe
 
 // Scans `array` into `scratch` and visits its elements; `error` is the visitor's recorded error. `document`
 // (optional) receives the array's index before the visit, for a visitor that reads the elements through it.
+// `frame` (optional, with `document`): a document that holds the array, read in place of the scan when the value is
+// an array. Its read errors count from the array's start, as with the scan.
 GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
                                      JsonArrayVisitor visit, void* context,
                                      const GatewayEventDecodeError& error,
-                                     GatewayEventDecodeError fallback, JsonIndexedDocument* document) noexcept {
-    const JsonScanResult scan = json_scan_structurals_avx1(array.source, scratch);
-    if (!scan.ok())
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    if (document)
-        *document = {array.source, {scratch.data, scan.count}};
-    const JsonReadResult read =
-        json_visit_value_array(array, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visit, context);
+                                     GatewayEventDecodeError fallback, JsonIndexedDocument* document,
+                                     const JsonIndexedDocument* frame) noexcept {
+    JsonReadResult read;
+    if (frame && array.kind == JsonValueKind::array) {
+        *document = *frame;
+        read = json_visit_indexed_array(*frame, array, maximum_depth, visit, context);
+        const u32 base = static_cast<u32>(array.source.data - frame->input.data);
+        if (!read.ok() && read.error_offset >= base)
+            read.error_offset -= base;
+    } else {
+        const JsonScanResult scan = json_scan_structurals_avx1(array.source, scratch);
+        if (!scan.ok())
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        if (document)
+            *document = {array.source, {scratch.data, scan.count}};
+        read = json_visit_value_array(array, ConstSlice<u32>{scratch.data, scan.count}, maximum_depth, visit, context);
+    }
     return read.ok() ? decode_failure(GatewayEventDecodeError::none) : read_failure(error, read, fallback);
 }
 

@@ -68,7 +68,7 @@ enum class GatewayVoiceStateSource : u8 {
 // batches for embedded member users. Every row validates before anything is
 // queued; malformed or oversized documents are skipped. Returns false only
 // when queueing fails. payload must hold kGatewayClientDispatchPayloadCapacity.
-// `located`: the guild's voice_states value from gateway_guild_arrays_find,
+// `located`: the guild's voice_states value from gateway_client_publish_guild_arrays,
 // so a guild source is not scanned again (absent: located->kind is not array).
 bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource source, u64 guild_id,
                                          Slice<u32> scratch, Slice<char> payload, u64 sequence,
@@ -80,29 +80,27 @@ bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource
 bool gateway_client_publish_passive_voice_states(JsonValue data, Slice<u32> scratch, Slice<char> payload,
                                                  u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
                                                  void* context) noexcept;
-// READY guilds and GUILD_CREATE carry stage_instances[]: one replace snapshot
-// for guild_id when the array is present (malformed rows are skipped).
-bool gateway_client_publish_stage_instances(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
-                                            u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                            void* context, const JsonValue* located = nullptr) noexcept;
-// READY guilds and GUILD_CREATE carry guild_scheduled_events[]: one verbatim
-// guild_scheduled_event_snapshot when the array is present and fits.
-bool gateway_client_publish_scheduled_events(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
-                                             u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
-                                             void* context, const JsonValue* located = nullptr) noexcept;
-// READY guilds and GUILD_CREATE carry stickers[]: one verbatim
-// guild_stickers_update when the list is present and fits.
-bool gateway_client_publish_guild_stickers(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
+// The next three publish one array of a READY guild or GUILD_CREATE object, the value that
+// gateway_client_publish_guild_arrays found. Each needs a publish callback, a nonzero guild_id, 64 entries
+// of scratch and a payload of kGatewayClientDispatchPayloadCapacity bytes.
+// stage_instances[]: one replace snapshot for guild_id when it is an array (malformed rows are skipped).
+bool gateway_client_publish_stage_instances(JsonValue instances, u64 guild_id, Slice<u32> scratch,
+                                            Slice<char> payload, u64 sequence, u64 now_ms,
+                                            GatewayRelationshipPublish publish, void* context) noexcept;
+// guild_scheduled_events[]: one verbatim guild_scheduled_event_snapshot when it is an array that fits.
+bool gateway_client_publish_scheduled_events(JsonValue events, u64 guild_id, Slice<char> payload, u64 sequence,
+                                             u64 now_ms, GatewayRelationshipPublish publish, void* context) noexcept;
+// stickers[]: one verbatim guild_stickers_update when the list is present and fits.
+bool gateway_client_publish_guild_stickers(JsonValue stickers, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
                                            u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
                                            void* context) noexcept;
-// The three ancillary arrays of a READY guild or GUILD_CREATE object, found in
-// one scan and visit (the last duplicate key wins, as in each publisher).
-struct GatewayGuildArrays {
-    JsonValue voice_states;
-    JsonValue stage_instances;
-    JsonValue scheduled_events;
-};
-bool gateway_guild_arrays_find(JsonValue guild, Slice<u32> scratch, GatewayGuildArrays* arrays) noexcept;
+// The voice states, stage instances, scheduled events and stickers of a READY guild or GUILD_CREATE
+// object, in that order. One visit finds the four arrays (the last duplicate key wins, as in each
+// publisher). `document`: null, or a document that holds `guild` and whose index lies outside `scratch`
+// (the visit then needs no scan). Returns false only when queueing fails.
+bool gateway_client_publish_guild_arrays(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
+                                         u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
+                                         void* context, const JsonIndexedDocument* document = nullptr) noexcept;
 // STAGE_INSTANCE_CREATE/UPDATE/DELETE as a one-record stage_instance_snapshot.
 // A malformed instance routes as unknown (never a session failure).
 GatewayClientDispatchRouteResult gateway_client_route_stage_instance(const GatewayEnvelope& envelope,
@@ -214,9 +212,12 @@ bool gateway_client_event_thread_member_record(const GatewayClientEvent& event, 
                                                Utf8View* display_name, Utf8View* avatar_hash,
                                                Utf8View* username, ConstSlice<u8>* user_appearance,
                                                ConstSlice<u8>* member_appearance) noexcept;
+// `document`: null, or READY's document, whose index lies outside both scratches (the guilds are then visited
+// through it).
 GatewayClientDispatchRouteResult gateway_client_route_ready(
     const GatewayReady& ready, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
-    Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept;
+    Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload,
+    const JsonIndexedDocument* document = nullptr) noexcept;
 // Fallback for a full guild object whose typed route failed: reads only its
 // "id" and produces an unavailable GUILD_CREATE (the guild stays listed and
 // shows as unavailable). False when no single valid id can be read.
@@ -276,6 +277,8 @@ struct GatewayGuildDetails {
     // The Discovery banner hash; empty for none.
     u8 discovery_splash_bytes;
     char discovery_splash[34];
+    // The Server Hub's gate (GuildSpaceBit).
+    u8 space;
 };
 static_assert(sizeof(GatewayGuildDetails) == 168);
 // False when the event carries no details record or it is malformed.
@@ -300,7 +303,8 @@ bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice
 // output prefix; only a successful table may be used with guild_role_at.
 bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                              Slice<u32> offsets) noexcept;
-// offset must come from successful guild_role_offsets for this same packet.
+// offset must come from successful guild_role_offsets for this same packet, which validated the record: this
+// reader checks only its bounds.
 bool gateway_client_event_guild_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 offset,
                                         GatewayClientRoleMutation* role, Utf8View* name) noexcept;
 inline bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice<u8> payload,

@@ -469,8 +469,13 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     relationship_store_upsert(&stream.active, record);
     const auto merged = utf8_literal(R"({"friends":[null,{"user_id":"20","status":"idle"}]})");
     GatewayReady ready{};
+    const auto decode_ready = [&](Utf8View input) noexcept {
+        const auto scan = json_scan_structurals_avx1(input, {scratch, 1024});
+        return scan.ok() &&
+               gateway_decode_ready({input, {scratch, scan.count}}, {input, 0, JsonValueKind::object}, 64, &ready).ok();
+    };
     const auto ready_json = utf8_literal(R"({"v":9,"user":{"id":"1"},"guilds":[],"session_id":"fixture","resume_gateway_url":"wss://gateway.discord.gg","relationships":[{"id":"20","type":1}],"merged_presences":{"friends":[{"user_id":"20","status":"online"}]}})");
-    check(gateway_decode_ready({ready_json, 0, JsonValueKind::object}, {scratch, 1024}, 64, &ready).ok() &&
+    check(decode_ready(ready_json) &&
         ready.relationships.kind == JsonValueKind::array && ready.merged_presences.kind == JsonValueKind::object &&
         gateway_client_publish_relationship_snapshot(ready.relationships, ready.merged_presences,
             {scratch, 1024}, {object_scratch, 512}, 9, 100, capture, &stream).ok() && stream.active.count == 1 &&
@@ -479,7 +484,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     const Utf8View bad_ready[]{
         utf8_literal(R"({"v":9,"user":{"id":"1"},"guilds":[],"session_id":"fixture","resume_gateway_url":"wss://gateway.discord.gg","relationships":[],"relationships":[]})"),
         utf8_literal(R"({"v":9,"user":{"id":"1"},"guilds":[],"session_id":"fixture","resume_gateway_url":"wss://gateway.discord.gg","merged_presences":[]})")};
-    for (const auto input : bad_ready) check(!gateway_decode_ready({input, 0, JsonValueKind::object}, {scratch, 1024}, 64, &ready).ok(),
+    for (const auto input : bad_ready) check(!decode_ready(input),
         "friends Gateway: READY rejects duplicate relationship fields and malformed merged presence shape");
     check(gateway_client_publish_relationship_snapshot({array, 0, JsonValueKind::array}, {merged, 0, JsonValueKind::object},
         {scratch, 1024}, {object_scratch, 512}, 10, 100, capture, &stream).ok() && stream.completed && stream.active.count == 3 &&

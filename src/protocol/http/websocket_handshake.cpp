@@ -11,7 +11,7 @@ namespace {
 
 inline constexpr char kWebSocketGuid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-u32 rotate_left(u32 value, u32 shift) noexcept {
+inline u32 rotate_left(u32 value, u32 shift) noexcept {
     return (value << shift) | (value >> (32 - shift));
 }
 
@@ -60,9 +60,10 @@ void sha1_block(const u8* block, u32* hash) noexcept {
     hash[4] += e;
 }
 
-// SHA-1 of the 60-byte client key plus GUID: one data block holding the message and the
-// padding byte, then one block holding only the bit length (480).
-void sha1_accept_source(const ConstSlice<u8>& client_key, u8* digest) noexcept {
+// The Sec-WebSocket-Accept value of a valid client key: base64 of the SHA-1 of the 60-byte key plus GUID, always
+// kWebSocketAcceptBytes long. The hash takes one data block holding the message and the padding byte, then one
+// block holding only the bit length (480).
+void accept_of(const ConstSlice<u8>& client_key, u8* output) noexcept {
     static_assert(kWebSocketClientKeyBytes + sizeof(kWebSocketGuid) - 1 == 60);
     u32 hash[5] = {0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u};
     u8 blocks[128]{};
@@ -73,9 +74,11 @@ void sha1_accept_source(const ConstSlice<u8>& client_key, u8* digest) noexcept {
     blocks[127] = 0xE0;
     sha1_block(blocks, hash);
     sha1_block(blocks + 64, hash);
+    u8 digest[20];
     for (u32 index = 0; index < 5; ++index) {
         byte_store_be32(digest + index * 4, hash[index]);
     }
+    base64_encode({digest, sizeof(digest)}, {reinterpret_cast<char*>(output), kWebSocketAcceptBytes});
 }
 
 bool valid_client_key(const ConstSlice<u8>& key) noexcept {
@@ -89,7 +92,7 @@ bool valid_client_key(const ConstSlice<u8>& key) noexcept {
 }
 
 
-bool equal_bytes(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
+inline bool equal_bytes(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
     if (left.count != right.count) {
         return false;
     }
@@ -133,7 +136,9 @@ struct AcceptVisitor {
 
 bool accept_visitor(void* opaque, HttpField field) noexcept {
     auto* context = static_cast<AcceptVisitor*>(opaque);
-    if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-accept")) {
+    const u32 index = http_ascii_name_index(
+        field.name, "sec-websocket-accept\0sec-websocket-extensions\0sec-websocket-protocol\0");
+    if (index == 0) {
         ++context->accept_count;
         if (context->accept_count > 1) {
             context->error = WebSocketHandshakeError::duplicate_accept;
@@ -143,11 +148,9 @@ bool accept_visitor(void* opaque, HttpField field) noexcept {
             context->error = WebSocketHandshakeError::invalid_accept;
             return false;
         }
-    } else if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-extensions")) {
-        context->error = WebSocketHandshakeError::unsolicited_extension;
-        return false;
-    } else if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-protocol")) {
-        context->error = WebSocketHandshakeError::unsolicited_subprotocol;
+    } else if (index < 3) {
+        context->error = index == 1 ? WebSocketHandshakeError::unsolicited_extension
+                                    : WebSocketHandshakeError::unsolicited_subprotocol;
         return false;
     }
     return true;
@@ -171,26 +174,6 @@ WebSocketHandshakeWriteResult websocket_encode_client_key(const ConstSlice<u8>& 
     const Base64Result encoded =
         base64_encode(nonce, Slice<char>{reinterpret_cast<char*>(output.data), output.count});
     if (!encoded.ok() || encoded.bytes != kWebSocketClientKeyBytes) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
-    }
-    return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
-}
-
-WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key,
-                                                       Slice<u8> output) noexcept {
-    if (!valid_client_key(client_key) || !output.data) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_client_key};
-    }
-    if (output.count < kWebSocketAcceptBytes) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
-    }
-
-    u8 digest[20];
-    sha1_accept_source(client_key, digest);
-    const Base64Result encoded =
-        base64_encode(ConstSlice<u8>{digest, static_cast<u32>(sizeof(digest))},
-                      Slice<char>{reinterpret_cast<char*>(output.data), output.count});
-    if (!encoded.ok() || encoded.bytes != kWebSocketAcceptBytes) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
     }
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
@@ -252,15 +235,9 @@ WebSocketHandshakeValidation websocket_validate_opening_response(const ConstSlic
     if ((!response.data && response.count != 0) || !valid_client_key(client_key)) {
         return validation_error(WebSocketHandshakeError::invalid_input);
     }
-    u8 expected_storage[kWebSocketAcceptBytes]{};
-    const WebSocketHandshakeWriteResult expected =
-        websocket_compute_accept(client_key, Slice<u8>{expected_storage, kWebSocketAcceptBytes});
-    if (!expected.ok()) {
-        return validation_error(expected.error);
-    }
-
-    AcceptVisitor visitor{ConstSlice<u8>{expected_storage, expected.bytes}, 0,
-                          WebSocketHandshakeError::none};
+    u8 expected[kWebSocketAcceptBytes];
+    accept_of(client_key, expected);
+    AcceptVisitor visitor{ConstSlice<u8>{expected, kWebSocketAcceptBytes}, 0, WebSocketHandshakeError::none};
     const HttpHeadResult parsed =
         http_parse_response_head(response, maximum_header_bytes, maximum_fields, accept_visitor, &visitor);
     if (parsed.state == HttpParseState::need_more) {

@@ -107,6 +107,10 @@ JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u
 inline u32* json_ends_room(const Slice<u32>& scratch, u32 count) noexcept {
     return scratch.count - count >= count ? scratch.data + count : nullptr;
 }
+// Writes the table of bracket ends of `structurals`, the exact index of valid JSON `input`, to `ends` (an entry for
+// each structural). The level counts are exact. False for brackets nested deeper than 128 levels: the table is then
+// not usable.
+bool json_index_ends(const Utf8View& input, const ConstSlice<u32>& structurals, u32* ends) noexcept;
 
 // Nested visitors borrow the immutable index of the complete document. They do
 // not rescan, copy/rebase offsets, allocate, or overwrite an active parent's index.

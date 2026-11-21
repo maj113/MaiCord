@@ -2,7 +2,7 @@
 #include "maicord/core/ascii.hpp"
 
 #include "maicord/core/intrinsics.hpp"
-#include "maicord/sys/simd.hpp"
+#include "maicord/sys/simd_haswell.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -146,17 +146,24 @@ __forceinline u32 low_bits(u32 count) noexcept {
     return 0xFFFFu >> (16 - count);
 }
 
-bool validate_string_content(IndexedReader* reader, u32 begin, u32 end, bool* has_escapes) noexcept {
+// special_bytes for 32 bytes.
+MAICORD_HASWELL __forceinline u32 wide_special_bytes(const char* data) noexcept {
+    const __m256i bytes = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(data));
+    return static_cast<u32>(_mm256_movemask_epi8(_mm256_or_si256(
+        _mm256_cmpgt_epi8(_mm256_set1_epi8(0x20), bytes), _mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\\')))));
+}
+
+MAICORD_HASWELL bool validate_string_content(IndexedReader* reader, u32 begin, u32 end, bool* has_escapes) noexcept {
     u32 offset = begin;
     bool escaped = false;
     while (offset < end) {
-        // Any 16 bytes inside the input may be loaded; those past the string are masked off.
-        if (reader->input.bytes - offset >= 16) {
+        // Any 32 bytes inside the input may be loaded; those past the string are masked off.
+        if (reader->input.bytes - offset >= 32) {
             const u32 left = end - offset;
-            u32 special = special_bytes(reader->input.data + offset);
-            if (left < 16) special &= low_bits(left);
+            u32 special = wide_special_bytes(reader->input.data + offset);
+            if (left < 32) special &= (1u << left) - 1;
             if (!special) {
-                offset += left < 16 ? left : 16;
+                offset += left < 32 ? left : 32;
                 continue;
             }
             offset += lowest_set_bit(special);
@@ -200,10 +207,27 @@ bool validate_string_content(IndexedReader* reader, u32 begin, u32 end, bool* ha
     return true;
 }
 
+// Whether the eight bytes of word hold a backslash (0x5C): a zero byte in word XOR 0x5C in every byte. The test is
+// exact for the whole word: a false hit can only come after a true one.
+__forceinline bool word_has_backslash(u64 word) noexcept {
+    const u64 x = word ^ 0x5C5C'5C5C'5C5C'5C5Cull;
+    return ((x - 0x0101'0101'0101'0101ull) & ~x & 0x8080'8080'8080'8080ull) != 0;
+}
+
 // Whether data[begin, end) holds a backslash; `readable` bytes of data may be loaded.
 __forceinline bool has_backslash(const char* data, u32 begin, u32 end, u32 readable) noexcept {
     for (u32 offset = begin; offset < end; offset += 16) {
         if (readable - offset < 16) {
+            // Words inside [offset, end) only: overlapping loads of 8 or 4 bytes, else single bytes.
+            const auto load = [&](u32 at, u32 width) noexcept {
+                return width == 8 ? *reinterpret_cast<const u64 __unaligned*>(data + at)
+                                  : *reinterpret_cast<const u32 __unaligned*>(data + at);
+            };
+            const u32 left = end - offset;
+            if (left >= 8)
+                return word_has_backslash(load(offset, 8)) || word_has_backslash(load(end - 8, 8));
+            if (left >= 4)
+                return word_has_backslash(load(offset, 4) | load(end - 4, 4) << 32);
             for (; offset < end; ++offset)
                 if (data[offset] == '\\') return true;
             return false;
@@ -370,7 +394,7 @@ constexpr NestingSteps kNesting = make_nesting_steps();
 
 // Validates the container at the reader's position, which `open` starts, and everything inside it. The position
 // and the open containers stay in locals: nested containers do not recurse, up to 64 levels for each call.
-bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
+MAICORD_HASWELL bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
     const char* const data = reader->input.data;
     const u32 bytes = reader->input.bytes;
     const u32* const offsets = reader->structurals.data;
@@ -396,16 +420,17 @@ bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
         return true;
     };
     // The string at the position. Inline at both uses, so the position stays in registers.
-    const auto string = [&](JsonReadError error) __attribute__((always_inline)) noexcept {
+    const auto string = [&](JsonReadError error) MAICORD_HASWELL __attribute__((always_inline)) noexcept {
         if (!structural('"', error)) return false;
         if (index >= total) return fail(reader, JsonReadError::structural_index_mismatch, offset);
         const u32 closing = offsets[index];
         if (closing < offset || closing >= bytes || data[closing] != '"')
             return fail(reader, JsonReadError::structural_index_mismatch, offset);
-        // Most strings are short and plain: one masked 16-byte check settles them without the call.
+        // Most strings are short and plain: one masked 32-byte check settles them without the call.
         const u32 length = closing - offset;
         bool has_escapes;
-        if (!(length <= 16 && bytes - offset >= 16 && !(special_bytes(data + offset) & low_bits(length))) &&
+        if (!(length <= 32 && bytes - offset >= 32 &&
+              !(wide_special_bytes(data + offset) & ((1ull << length) - 1))) &&
             !validate_string_content(reader, offset, closing, &has_escapes))
             return false;
         offset = closing + 1;
@@ -862,28 +887,39 @@ JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, con
     return visit_indexed(false, document, value, maximum_depth, reinterpret_cast<AnyVisitor>(visitor), context);
 }
 
-bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii_data,
-                                    u32 ascii_bytes) noexcept {
+bool json_index_ends(const Utf8View& input, const ConstSlice<u32>& structurals, u32* ends) noexcept {
+    // The open containers: the index position of each opening bracket, and the most levels of a container that
+    // closed inside each (inner[0] belongs to the document).
+    constexpr u32 kDepth = 128;
+    u32 opened[kDepth], inner[kDepth + 1];
+    u32 depth = 0;
+    inner[0] = 0;
+    for (u32 index = 0; index < structurals.count; ++index) {
+        const signed char step = kNesting.step[static_cast<u8>(input.data[structurals.data[index]])];
+        if (step > 0) {
+            if (depth == kDepth) return false;
+            opened[depth++] = index;
+            inner[depth] = 0;
+        } else if (step < 0) {
+            if (!depth) return false;
+            const u32 levels = inner[depth] + 1;
+            ends[opened[--depth]] = index;
+            ends[index] = levels;
+            inner[depth] = maximum(inner[depth], levels);
+        }
+    }
+    return depth == 0;
+}
+
+// An encoded name that starts with a backslash, against ASCII bytes. Out of line, so the comparison of a name without
+// escapes saves no registers and builds no string on the stack.
+__declspec(noinline) static bool escaped_equals_ascii(const char* encoded, u32 encoded_bytes, const char* ascii,
+                                                      u32 ascii_bytes) noexcept {
     const JsonString value{{encoded, encoded_bytes}, 0, false};
-    const Utf8View ascii{ascii_data, ascii_bytes};
-    if ((!value.encoded.data && value.encoded.bytes != 0) || (!ascii.data && ascii.bytes != 0)) {
-        return false;
-    }
-    // Up to the first backslash each encoded byte is one scalar, so compare
-    // bytes directly; only an escape needs the decoding loop below.
-    const u32 common = minimum(value.encoded.bytes, ascii.bytes);
-    u32 literal = 0;
-    while (literal < common && value.encoded.data[literal] != '\\') {
-        if (value.encoded.data[literal] != ascii.data[literal] || static_cast<signed char>(ascii.data[literal]) < 0)
-            return false;
-        ++literal;
-    }
-    if (literal == value.encoded.bytes) return literal == ascii.bytes;
-    if (value.encoded.data[literal] != '\\') return false;
-    u32 source_offset = literal;
-    for (u32 index = literal; index < ascii.bytes; ++index) {
-        if (source_offset == value.encoded.bytes) return false;
-        u32 codepoint = static_cast<u8>(value.encoded.data[source_offset++]);
+    u32 source_offset = 0;
+    for (u32 index = 0; index < ascii_bytes; ++index) {
+        if (source_offset == encoded_bytes) return false;
+        u32 codepoint = static_cast<u8>(encoded[source_offset++]);
         // A multibyte UTF-8 scalar cannot equal an ASCII byte. Only escapes
         // need decoding (including escaped ASCII field names).
         if (codepoint == '\\') {
@@ -894,9 +930,29 @@ bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, cons
         }
         // Sign-extension puts non-ASCII expected bytes outside Unicode's range,
         // so the equality check also rejects them without a second branch.
-        if (codepoint != static_cast<u32>(static_cast<signed char>(ascii.data[index]))) return false;
+        if (codepoint != static_cast<u32>(static_cast<signed char>(ascii[index]))) return false;
     }
-    return source_offset == value.encoded.bytes;
+    return source_offset == encoded_bytes;
+}
+
+bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii_data,
+                                    u32 ascii_bytes) noexcept {
+    if ((!encoded && encoded_bytes != 0) || (!ascii_data && ascii_bytes != 0)) {
+        return false;
+    }
+    // Up to the first backslash each encoded byte is one scalar, so compare
+    // bytes directly; only an escape needs the decoding loop.
+    const u32 common = minimum(encoded_bytes, ascii_bytes);
+    u32 literal = 0;
+    while (literal < common && encoded[literal] != '\\') {
+        if (encoded[literal] != ascii_data[literal] || static_cast<signed char>(ascii_data[literal]) < 0)
+            return false;
+        ++literal;
+    }
+    if (literal == encoded_bytes) return literal == ascii_bytes;
+    if (encoded[literal] != '\\') return false;
+    // The bytes before the backslash are equal: the rest compares from the backslash on.
+    return escaped_equals_ascii(encoded + literal, encoded_bytes - literal, ascii_data + literal, ascii_bytes - literal);
 }
 
 bool json_string_equals_utf8(const JsonString& value, const Utf8View& text) noexcept {
@@ -912,49 +968,87 @@ bool json_string_equals_utf8(const JsonString& value, const Utf8View& text) noex
     return source == value.encoded.bytes && target == text.bytes;
 }
 
+// Whether all eight bytes of chunk are ASCII digits: each high nibble is 3, and adding 6 keeps it 3.
+static __forceinline bool eight_digits(u64 chunk) noexcept {
+    return ((chunk & 0xF0F0'F0F0'F0F0'F0F0ull) | ((chunk + 0x0606'0606'0606'0606ull) & 0xF0F0'F0F0'F0F0'F0F0ull) >> 4) ==
+           0x3333'3333'3333'3333ull;
+}
+// The number that eight ASCII digits spell, the first in the low byte: pairs, then fours, then all eight, two
+// lanes for each multiply (Lemire, "Number Parsing at a Gigabyte per Second", 2021).
+static __forceinline u64 eight_digit_value(u64 chunk) noexcept {
+    chunk -= 0x3030'3030'3030'3030ull;
+    chunk = chunk * 10 + (chunk >> 8);
+    return ((chunk & 0x0000'00FF'0000'00FFull) * (100 + (1'000'000ull << 32)) +
+            (chunk >> 16 & 0x0000'00FF'0000'00FFull) * (1 + (10'000ull << 32))) >> 32;
+}
+// The decimal number that data[0, bytes) spells, eight digits at a time while eight bytes remain. In a string (not
+// null), a backslash starts an escape that may spell a digit. Any other byte that is not a digit fails, and so does
+// a value past 2^64 - 1. One copy serves strings and numbers.
+__declspec(noinline) static bool decimal_to_u64(const char* data, u32 bytes, const JsonString* string,
+                                                u64* output) noexcept {
+    u32 offset = 0;
+    u64 result = 0;
+    for (;;) {
+        for (; bytes - offset >= 8; offset += 8) {
+            const u64 chunk = *reinterpret_cast<const u64 __unaligned*>(data + offset);
+            if (!eight_digits(chunk))
+                break;
+            if (__builtin_mul_overflow(result, u64{100'000'000}, &result) ||
+                __builtin_add_overflow(result, eight_digit_value(chunk), &result))
+                return false;
+        }
+        u32 digit = 0;
+        for (; offset < bytes && (digit = static_cast<u32>(static_cast<u8>(data[offset])) - '0') <= 9; ++offset)
+            if (__builtin_mul_overflow(result, u64{10}, &result) || __builtin_add_overflow(result, u64{digit}, &result))
+                return false;
+        if (offset == bytes) {
+            *output = result;
+            return true;
+        }
+        u32 codepoint;
+        if (!string || data[offset] != '\\' || !decode_string_scalar(*string, &offset, &codepoint) ||
+            (digit = codepoint - '0') > 9 || __builtin_mul_overflow(result, u64{10}, &result) ||
+            __builtin_add_overflow(result, u64{digit}, &result))
+            return false;
+    }
+}
+
 bool json_string_to_u64(const JsonString& value, u64* output) noexcept {
     if (!output || !value.encoded.data || value.encoded.bytes == 0) {
         return false;
     }
-    u32 source_offset = 0;
-    u64 result = 0;
-    while (source_offset < value.encoded.bytes) {
-        u32 codepoint = static_cast<u8>(value.encoded.data[source_offset++]);
-        if (codepoint == '\\') {
-            --source_offset;
-            u32 decoded;
-            if (!decode_string_scalar(value, &source_offset, &decoded)) return false;
-            codepoint = decoded;
-        }
-        const u32 digit = codepoint - '0';
-        if (digit > 9 || result > ~0ull / 10 || (result == ~0ull / 10 && digit > ~0ull % 10)) {
-            return false;
-        }
-        result = result * 10 + digit;
-    }
-    *output = result;
-    return true;
+    return decimal_to_u64(value.encoded.data, value.encoded.bytes, &value, output);
 }
 
-// The length of the prefix whose bytes stand for themselves: below 0x80 and not a backslash.
-static u32 plain_prefix(const char* data, u32 bytes) noexcept {
+// The length of the prefix of data[0, bytes) without a backslash and, when `plain`, without a byte from 0x80 up
+// (the bytes that stand for themselves). The last bytes take one 32-byte load when it stays in the page of their
+// first byte. That page exists, so the read past the text cannot fault. The asm hides the text's size from the
+// compiler, which could otherwise treat that read as undefined. Else the last bytes go one at a time.
+MAICORD_HASWELL __forceinline u32 unmarked_prefix(const char* data, u32 bytes, bool plain) noexcept {
+    const auto marks = [plain](const char* at) MAICORD_HASWELL noexcept {
+        const __m256i block = _mm256_loadu_si256(reinterpret_cast<const __m256i_u*>(at));
+        const __m256i backslashes = _mm256_cmpeq_epi8(block, _mm256_set1_epi8('\\'));
+        return static_cast<u32>(_mm256_movemask_epi8(plain ? _mm256_or_si256(block, backslashes) : backslashes));
+    };
     u32 offset = 0;
-    for (; bytes - offset >= 16; offset += 16) {
-        const __m128i block = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + offset));
-        const u32 special =
-            static_cast<u32>(_mm_movemask_epi8(_mm_or_si128(block, _mm_cmpeq_epi8(block, _mm_set1_epi8('\\')))));
-        if (special) {
-            return offset + lowest_set_bit(special);
-        }
+    for (; bytes - offset >= 32; offset += 32)
+        if (const u32 found = marks(data + offset))
+            return offset + lowest_set_bit(found);
+    const u32 rest = bytes - offset;
+    const char* block = data + offset;
+    if (rest && (reinterpret_cast<usize>(block) & 4095) <= 4064) {
+        __asm__("" : "+r"(block));
+        return offset + lowest_set_bit(marks(block) | 1u << rest);
     }
-    while (offset < bytes && static_cast<u8>(data[offset]) < 0x80 && data[offset] != '\\') ++offset;
+    while (offset < bytes && data[offset] != '\\' && !(plain && static_cast<u8>(data[offset]) >= 0x80)) ++offset;
     return offset;
 }
 
 // json_string_decode_utf8 for a string whose first `plain` bytes stand for themselves and whose next byte does
 // not. Out of line, so the path of a plain string has a small frame.
-__declspec(noinline) static JsonStringDecodeResult decode_special_string(const JsonString& value, Slice<char> output,
-                                                                         u32 plain) noexcept {
+MAICORD_HASWELL __declspec(noinline) static JsonStringDecodeResult decode_special_string(const JsonString& value,
+                                                                                         Slice<char> output,
+                                                                                         u32 plain) noexcept {
     // The first pass validates and counts. A byte outside an escape stands for itself, so runs of ASCII and
     // runs of multi-byte sequences add their own length.
     const char* const data = value.encoded.data;
@@ -977,7 +1071,7 @@ __declspec(noinline) static JsonStringDecodeResult decode_special_string(const J
             }
             required += codepoint < 0x80 ? 1u : codepoint < 0x800 ? 2u : codepoint < 0x10000 ? 3u : 4u;
         }
-        const u32 run = plain_prefix(data + source_offset, bytes - source_offset);
+        const u32 run = unmarked_prefix(data + source_offset, bytes - source_offset, true);
         source_offset += run;
         required += run;
     }
@@ -985,28 +1079,30 @@ __declspec(noinline) static JsonStringDecodeResult decode_special_string(const J
         return JsonStringDecodeResult{required, JsonStringDecodeError::output_too_small};
     }
 
-    // The bytes before the first escape are the text. After it only the escapes need a decoder.
+    // The bytes before the first escape are the text. After it only the escapes need a decoder: the runs between
+    // them are copied whole.
     copy_bytes(output.data, data, first_escape);
     source_offset = first_escape;
     u32 destination_offset = first_escape;
     while (source_offset < bytes) {
-        if (data[source_offset] != '\\') {
-            output.data[destination_offset++] = data[source_offset++];
-            continue;
-        }
         u32 codepoint = 0;
         decode_string_scalar(value, &source_offset, &codepoint);
         // The first pass sized this exact scalar sequence, so its bytes fit.
         destination_offset += utf8_encode(codepoint, output.data + destination_offset);
+        const u32 run = unmarked_prefix(data + source_offset, bytes - source_offset, false);
+        copy_bytes(output.data + destination_offset, data + source_offset, run);
+        source_offset += run;
+        destination_offset += run;
     }
     return JsonStringDecodeResult{required, JsonStringDecodeError::none};
 }
 
-JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Slice<char>& output) noexcept {
+MAICORD_HASWELL JsonStringDecodeResult json_string_decode_utf8(const JsonString& value,
+                                                               const Slice<char>& output) noexcept {
     if ((!value.encoded.data && value.encoded.bytes != 0) || (!output.data && output.count != 0)) {
         return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
     }
-    const u32 plain = plain_prefix(value.encoded.data, value.encoded.bytes);
+    const u32 plain = unmarked_prefix(value.encoded.data, value.encoded.bytes, true);
     if (plain != value.encoded.bytes) {
         return decode_special_string(value, output, plain);
     }
@@ -1032,20 +1128,7 @@ bool json_value_to_u64(const JsonValue& value, u64* output) noexcept {
     if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) {
         return false;
     }
-    u64 result = 0;
-    for (u32 offset = 0; offset < value.source.bytes; ++offset) {
-        const char current = value.source.data[offset];
-        if (current < '0' || current > '9') {
-            return false;
-        }
-        const u32 digit = static_cast<u32>(current - '0');
-        if (result > ~0ull / 10 || (result == ~0ull / 10 && digit > ~0ull % 10)) {
-            return false;
-        }
-        result = result * 10 + digit;
-    }
-    *output = result;
-    return true;
+    return decimal_to_u64(value.source.data, value.source.bytes, nullptr, output);
 }
 
 bool json_value_to_bool(const JsonValue& value, bool* output) noexcept {

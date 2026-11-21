@@ -279,6 +279,16 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
         *policy = value;
         return true;
     }
+    // A member kept as a raw value of the expected shape. The cases share one copy of the check.
+    const bool array = value.kind == JsonValueKind::array, object = value.kind == JsonValueKind::object,
+               null = value.kind == JsonValueKind::null_value;
+    struct Kept {
+        u32 bit;
+        bool shape;
+        JsonValue* slot;
+        GatewayEventDecodeError invalid;
+    } kept;
+    constexpr auto invalid_data = GatewayEventDecodeError::invalid_data;
     switch (index) {
     case 3: {
         u64 version = 0;
@@ -287,91 +297,54 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
                            &error, GatewayEventDecodeError::invalid_api_version))
             return false;
         ready.api_version = static_cast<u32>(version);
-        break;
+        return true;
     }
-    case 4:
-        if (!accept_member(&fields, 1u << 1, value.kind == JsonValueKind::object, &error,
-                           GatewayEventDecodeError::invalid_user))
-            return false;
-        ready.user = value;
-        break;
-    case 5:
-        if (!accept_member(&fields, 1u << 2, value.kind == JsonValueKind::array, &error,
-                           GatewayEventDecodeError::invalid_guilds))
-            return false;
-        ready.guilds = value;
-        break;
-    case 6:
-        if (!accept_member(&fields, 1u << 5, value.kind == JsonValueKind::array, &error))
-            return false;
-        ready.private_channels = value;
-        break;
+    case 4: kept = {1u << 1, object, &ready.user, GatewayEventDecodeError::invalid_user}; break;
+    case 5: kept = {1u << 2, array, &ready.guilds, GatewayEventDecodeError::invalid_guilds}; break;
+    case 6: kept = {1u << 5, array, &ready.private_channels, invalid_data}; break;
     case 7:
         if (!mark_seen(&fields, 1u << 11, &error))
             return false;
         ready.required_action = decode_account_requirement(value);
-        break;
-    case 8:
-        if (!accept_member(&fields, 1u << 12,
-                           value.kind == JsonValueKind::array || value.kind == JsonValueKind::null_value,
-                           &error))
-            return false;
-        ready.relationships = value;
-        break;
-    case 9:
-        if (!accept_member(&fields, 1u << 13,
-                           value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value,
-                           &error))
-            return false;
-        ready.merged_presences = value;
-        break;
+        return true;
+    case 8: kept = {1u << 12, array || null, &ready.relationships, invalid_data}; break;
+    case 9: kept = {1u << 13, object || null, &ready.merged_presences, invalid_data}; break;
     case 10:
         // Optional member authority is checked per guild during projection.
         keep_first(context, 1u << 18, &ready.merged_members, value);
-        break;
-    case 11:
-        if (!accept_member(&fields, 1u << 14, value.kind == JsonValueKind::object, &error))
-            return false;
-        ready.read_state = value;
-        break;
-    case 12: keep_first(context, 1u << 20, &ready.linked_users, value); break;
+        return true;
+    case 11: kept = {1u << 14, object, &ready.read_state, invalid_data}; break;
+    case 12: keep_first(context, 1u << 20, &ready.linked_users, value); return true;
     case 13:
         // Ancillary account policy is normalized during READY projection.
         keep_first(context, 1u << 19, &ready.regional_feature_config, value);
-        break;
+        return true;
     case 14:
         if (!mark_seen(&fields, 1u << 10, &error))
             return false;
         ready.apex_experiments = value;
-        break;
-    case 15:
-        if (!accept_member(&fields, 1u << 6, value.kind == JsonValueKind::array, &error,
-                           GatewayEventDecodeError::invalid_user))
-            return false;
-        ready.users = value;
-        break;
+        return true;
+    case 15: kept = {1u << 6, array, &ready.users, GatewayEventDecodeError::invalid_user}; break;
     case 16:
-        if (!accept_member(&fields, 1u << 3,
-                           json_value_as_string(value, &ready.session_id) &&
-                               ready.session_id.encoded.bytes != 0,
-                           &error, GatewayEventDecodeError::invalid_session_id))
-            return false;
-        break;
+        return accept_member(&fields, 1u << 3,
+                             json_value_as_string(value, &ready.session_id) && ready.session_id.encoded.bytes != 0,
+                             &error, GatewayEventDecodeError::invalid_session_id);
     case 17:
-        if (!accept_member(&fields, 1u << 4,
-                           json_value_as_string(value, &ready.resume_gateway_url) &&
-                               ready.resume_gateway_url.encoded.bytes != 0,
-                           &error, GatewayEventDecodeError::invalid_resume_gateway_url))
-            return false;
-        break;
+        return accept_member(&fields, 1u << 4,
+                             json_value_as_string(value, &ready.resume_gateway_url) &&
+                                 ready.resume_gateway_url.encoded.bytes != 0,
+                             &error, GatewayEventDecodeError::invalid_resume_gateway_url);
     case 18:
         // Optional; identifies this session in the Devices list.
         ready.auth_session_id_hash = value;
-        break;
-    case 19: ready.qos_token = value; break;
-    case 20: ready.auth_token = value; break;
-    default: break;
+        return true;
+    case 19: ready.qos_token = value; return true;
+    case 20: ready.auth_token = value; return true;
+    default: return true;
     }
+    if (!accept_member(&fields, kept.bit, kept.shape, &error, kept.invalid))
+        return false;
+    *kept.slot = value;
     return true;
 }
 
@@ -388,13 +361,7 @@ bool visit_resumed_member(void* opaque, JsonString name, JsonValue value) noexce
 GatewayEventDecodeResult visit_object(JsonValue data, const Slice<u32>& scratch, u32 maximum_depth,
                                       JsonMemberVisitor visitor, void* context,
                                       const GatewayEventDecodeError* visitor_error,
-                                      GatewayEventDecodeError fallback,
-                                      const JsonIndexedDocument* document = nullptr) noexcept {
-    if (document) {
-        const JsonReadResult read = json_visit_indexed_object(*document, data, maximum_depth, visitor, context);
-        return read.ok() ? decode_failure(GatewayEventDecodeError::none)
-                         : read_failure(*visitor_error, read, fallback);
-    }
+                                      GatewayEventDecodeError fallback) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok()) {
         return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
@@ -431,16 +398,16 @@ GatewayEventDecodeResult gateway_decode_rate_limited(JsonValue data, Slice<u32> 
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_member_chunk_receipt(const JsonIndexedDocument& document, JsonValue data,
                                                              u32 maximum_depth,
                                                              GatewayMemberChunkReceipt* output) noexcept {
     if (data.kind != JsonValueKind::object)
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     MemberChunkContext context{};
-    const auto result = visit_object(data, structural_scratch, maximum_depth, visit_member_chunk_receipt,
-                                     &context, &context.error, GatewayEventDecodeError::invalid_data);
-    if (!result.ok())
-        return result;
+    const JsonReadResult read =
+        json_visit_indexed_object(document, data, maximum_depth, visit_member_chunk_receipt, &context);
+    if (!read.ok())
+        return read_failure(context.error, read, GatewayEventDecodeError::invalid_data);
     if ((context.fields & 13) != 13)
         return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     if (!context.value.chunk_count || context.value.chunk_index >= context.value.chunk_count)
@@ -467,38 +434,23 @@ GatewayEventDecodeResult gateway_decode_hello(JsonValue data, const Slice<u32>& 
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structural_scratch,
-                                              u32 maximum_depth, GatewayReady* output,
-                                              const JsonIndexedDocument* document) noexcept {
+GatewayEventDecodeResult gateway_decode_ready(const JsonIndexedDocument& document, JsonValue data,
+                                              u32 maximum_depth, GatewayReady* output) noexcept {
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     ReadyContext context{};
-    const auto result = visit_object(data, structural_scratch, maximum_depth, visit_ready_member, &context,
-                                     &context.error, GatewayEventDecodeError::invalid_json, document);
-    if (!result.ok()) {
-        return result;
+    const JsonReadResult read = json_visit_indexed_object(document, data, maximum_depth, visit_ready_member, &context);
+    if (!read.ok()) {
+        return read_failure(context.error, read);
     }
     constexpr u32 required_fields = (1u << 5) - 1;
     if ((context.fields & required_fields) != required_fields) {
         return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
     ReadyUserContext user{};
-    JsonReadResult user_read;
-    if (document) {
-        user_read = json_visit_indexed_object(*document, context.ready.user, maximum_depth,
-                                              visit_ready_user_member, &user);
-    } else {
-        const JsonScanResult user_scan =
-            json_scan_structurals_avx1(context.ready.user.source, structural_scratch);
-        if (!user_scan.ok()) {
-            return decode_failure(GatewayEventDecodeError::scan_failed, user_scan.error_offset,
-                                  user_scan.error);
-        }
-        user_read = json_visit_value_object(
-            context.ready.user, ConstSlice<u32>{structural_scratch.data, user_scan.count},
-            maximum_depth, visit_ready_user_member, &user);
-    }
+    const JsonReadResult user_read =
+        json_visit_indexed_object(document, context.ready.user, maximum_depth, visit_ready_user_member, &user);
     if (!user_read.ok() || user.error != GatewayEventDecodeError::none || !user.seen) {
         return decode_failure(user.error != GatewayEventDecodeError::none
                                   ? user.error

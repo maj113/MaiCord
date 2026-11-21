@@ -102,7 +102,8 @@ GatewayEventDecodeResult visit_array(JsonValue array, Slice<u32> scratch, u32 ma
                                      JsonArrayVisitor visit, void* context,
                                      const GatewayEventDecodeError& error,
                                      GatewayEventDecodeError fallback = GatewayEventDecodeError::invalid_json,
-                                     JsonIndexedDocument* document = nullptr) noexcept;
+                                     JsonIndexedDocument* document = nullptr,
+                                     const JsonIndexedDocument* frame = nullptr) noexcept;
 void member_state_from_flags(GatewayClientStateMutation* m) noexcept;
 
 // The first undismissed DM safety warning: {"id","type","dismiss_timestamp"}.
@@ -142,15 +143,18 @@ bool append_name(PayloadWriter* writer, JsonString source, u16* bytes) noexcept;
 bool append_icon(PayloadWriter* writer, JsonString source, u8* bytes) noexcept;
 u32 grown_record_capacity(u32 capacity) noexcept;
 u8 role_flags(const StateObjectContext& object) noexcept;
+// `frame` (optional) in the array appends: READY's document, which holds the array and whose index lies outside
+// every scratch. The array is then read through it instead of a scan of its own.
 GatewayEventDecodeResult append_role_array(JsonValue array, Slice<u32> array_scratch,
                                            Slice<u32> object_scratch, u32 maximum_depth,
-                                           PayloadWriter* writer, u32* count) noexcept;
+                                           PayloadWriter* writer, u32* count,
+                                           const JsonIndexedDocument* frame = nullptr) noexcept;
 GatewayEventDecodeResult append_snowflake_array(JsonValue array, Slice<u32> scratch, u32 maximum_depth,
                                                 PayloadWriter* writer, u32* count, u32 limit = kGatewayGuildRoleMaximum) noexcept;
 GatewayEventDecodeResult append_emoji_array(JsonValue array, Slice<u32> array_scratch,
                                             Slice<u32> object_scratch, Slice<u32> role_scratch,
                                             u32 maximum_depth, PayloadWriter* writer, u32* count,
-                                            u32* role_count) noexcept;
+                                            u32* role_count, const JsonIndexedDocument* frame = nullptr) noexcept;
 GatewayEventDecodeResult append_overwrite_array(JsonValue array, Slice<u32> array_scratch,
                                                 Slice<u32> object_scratch, u32 maximum_depth,
                                                 PayloadWriter* writer, u32* count,
@@ -173,7 +177,8 @@ GatewayEventDecodeResult append_channel_array(JsonValue array, Slice<u32> array_
                                               Slice<u32> object_scratch, u32 maximum_depth, u64 guild_id,
                                               PayloadWriter* writer, u32* count,
                                               u32* overwrite_count, u64 self_user_id = 0,
-                                              u32* skipped = nullptr) noexcept;
+                                              u32* skipped = nullptr,
+                                              const JsonIndexedDocument* frame = nullptr) noexcept;
 
 struct ReadyContext {
     PayloadWriter* writer;
@@ -184,6 +189,9 @@ struct ReadyContext {
     GatewayEventDecodeError error;
     JsonScanError scan_error;
     JsonReadError read_error;
+    // Null, or READY's document that the guilds are visited through, and the guilds array's position in it.
+    const JsonIndexedDocument* document;
+    u32 base;
 };
 
 bool visit_ready_guild(void* opaque, u32, JsonValue value) noexcept;

@@ -431,22 +431,21 @@ bool visit_author_member(void* opaque, JsonString name, JsonValue value) noexcep
 
 // Decodes `text` into output after the first *used bytes, at most `maximum`
 // bytes long. Empty text leaves *view unset, and is invalid when required.
+// One decode both sizes and writes the text: a text too long for the room is
+// measured without a write.
 GatewayEventDecodeResult decode_text(JsonString text, Slice<char> output, u32* used, u32 maximum,
                                      bool require_nonempty, GatewayEventDecodeError invalid, u32 offset,
                                      Utf8View* view) noexcept {
-    const JsonStringDecodeResult size = json_string_decode_utf8(text, Slice<char>{nullptr, 0});
-    const bool capacity_error = *used > output.count || size.bytes > output.count - *used;
-    if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
-        (require_nonempty && size.bytes == 0) || size.bytes > maximum || capacity_error) {
-        return decode_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity : invalid,
-                              offset);
-    }
-    if (size.bytes != 0) {
-        const JsonStringDecodeResult decoded =
-            json_string_decode_utf8(text, Slice<char>{output.data + *used, output.count - *used});
-        if (!decoded.ok() || decoded.bytes != size.bytes) {
-            return decode_failure(invalid, offset);
-        }
+    if (*used > output.count)
+        return decode_failure(GatewayEventDecodeError::message_content_capacity, offset);
+    const u32 room = output.count - *used;
+    const JsonStringDecodeResult decoded =
+        json_string_decode_utf8(text, Slice<char>{output.data + *used, minimum(room, maximum)});
+    if (decoded.error == JsonStringDecodeError::output_too_small && decoded.bytes > room)
+        return decode_failure(GatewayEventDecodeError::message_content_capacity, offset);
+    if (!decoded.ok() || (require_nonempty && decoded.bytes == 0))
+        return decode_failure(invalid, offset);
+    if (decoded.bytes != 0) {
         *view = Utf8View{output.data + *used, decoded.bytes};
         *used += decoded.bytes;
     }

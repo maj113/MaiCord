@@ -71,10 +71,23 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     Slice<u32> arrays = main_index_view(runtime);
     const JsonIndexedDocument& document = event.envelope.document;
     ReadyScanSource source;
+    JsonIndexedDocument ready_document = document;
+    const JsonIndexedDocument* visited = nullptr;
+    const u32 index_capacity = runtime->structural_scratch.capacity;
     if (document.structurals.data == arrays.data && document.structurals.count &&
         stable_storage_grow(&runtime->ready_arrays, arrays.count)) {
         arrays = ready_arrays_view(runtime);
         source.set(document);
+        // The projection visits READY's arrays through the document. A table of bracket ends behind the index (the
+        // transcoder's, or one built here in room committed for the projection only) lets each visit step over a
+        // nested value instead of walking it.
+        const u32 count = document.structurals.count;
+        if (!ready_document.ends && stable_storage_reserve(&runtime->structural_scratch, 2 * count)) {
+            u32* const ends = stable_storage_data<u32>(runtime->structural_scratch) + count;
+            if (json_index_ends(document.input, document.structurals, ends))
+                ready_document.ends = ends;
+        }
+        visited = &ready_document;
     }
     // The zero-copy READY packet stays in the current session message
     // backing while both passes run. No push/next/compaction occurs
@@ -88,9 +101,12 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
          grow_ready_record_index,
          runtime,
          {acquire_large_record, runtime},
-         runtime->ready_staging.base ? &runtime->ready_staging : nullptr},
+         runtime->ready_staging.base ? &runtime->ready_staging : nullptr,
+         visited},
         captured_state.sequence, now_ms, publish_ready_projection, ready_projection_work, &binding);
     settle_large_record(runtime);
+    // The session's index view never covered the table room: return it.
+    stable_storage_shrink(&runtime->structural_scratch, index_capacity);
     if (!projection.ok()) {
         note_route_error(runtime, projection.route);
         const GatewayClientFailureStage stage =
@@ -470,7 +486,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 InterlockedExchange(&client->required_action, static_cast<LONG>(dispatch.required_action));
             if (dispatch.dispatch_kind == GatewayClientDispatchKind::guild_members_chunk) {
                 GatewayMemberChunkReceipt receipt{};
-                if (gateway_decode_member_chunk_receipt(event.envelope.data, index, 64,
+                if (gateway_decode_member_chunk_receipt(event.envelope.document, event.envelope.data, 64,
                                                         &receipt)
                         .ok()) {
                     AcquireSRWLockExclusive(&runtime->subscription_lock);
@@ -714,8 +730,6 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         }
         const SendPurpose purpose = runtime->send_purpose;
         runtime->send_purpose = SendPurpose::none;
-        if (purpose >= SendPurpose::gateway_action)
-            SecureZeroMemory(runtime->record_output, runtime->send_bytes);
         if (purpose == SendPurpose::guild_subscription) {
             gateway_subscription_thread_owner_complete(&runtime->thread_subscription_owner, true);
             runtime->sent_subscription_revision = runtime->active_subscription_revision;

@@ -199,9 +199,10 @@ DWORD WINAPI ready_thread(void* context) noexcept {
     if (!bytes)
         return 1;
     GatewayReady ready{};
-    if (!gateway_decode_ready({{m.ready_json, bytes}, 0, JsonValueKind::object},
-                              {m.ready_structurals, kReadyStructurals}, 64, &ready)
-             .ok())
+    const Utf8View json{m.ready_json, bytes};
+    const auto scan = json_scan_structurals_avx1(json, {m.ready_structurals, kReadyStructurals});
+    if (!scan.ok() ||
+        !gateway_decode_ready({json, {m.ready_structurals, scan.count}}, {json, 0, JsonValueKind::object}, 64, &ready).ok())
         return 2;
     const u64 before = m.counters.gateway_events;
     const auto projected = gateway_ready_project(

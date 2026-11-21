@@ -109,12 +109,10 @@ GatewayEventDecodeResult finish_emoji(const EmojiContext& emoji, u32 offset, Sli
     if (emoji.name_null)
         return emoji.id ? GatewayEventDecodeResult{}
                         : decode_failure(GatewayEventDecodeError::invalid_data, offset);
-    const auto size = json_string_decode_utf8(emoji.name, {});
-    if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
-        !size.bytes || size.bytes > kMessageReactionMaximumEmojiNameBytes || size.bytes > name_output.count)
-        return decode_failure(GatewayEventDecodeError::invalid_data, offset);
-    const auto name = json_string_decode_utf8(emoji.name, name_output);
-    if (!name.ok() || name.bytes != size.bytes)
+    // One decode both sizes and writes the name: a name too long for the room is measured without a write.
+    const auto name = json_string_decode_utf8(
+        emoji.name, {name_output.data, minimum(name_output.count, kMessageReactionMaximumEmojiNameBytes)});
+    if (!name.ok() || !name.bytes)
         return decode_failure(GatewayEventDecodeError::invalid_data, offset);
     output->name = {name_output.data, name.bytes};
     return {};

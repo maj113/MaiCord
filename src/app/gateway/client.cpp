@@ -141,23 +141,23 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
     if (!runtime->user || runtime->user->metadata.profile_id == 0) {
         return false;
     }
+    // Written in place: a local copy and a zeroed snapshot would each move the 2.3 KB resume state again.
     AcquireSRWLockShared(const_cast<SRWLOCK*>(&runtime->resume_lock));
-    GatewayResumeState resume = runtime->resume;
+    session->resume = runtime->resume;
     // The lock pairs the session with its READY; the worker advances the sequence without it.
-    resume.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
-    const u64 self_user_id = runtime->resume_user_id;
+    session->resume.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
+    session->self_user_id = runtime->resume_user_id;
     ReleaseSRWLockShared(const_cast<SRWLOCK*>(&runtime->resume_lock));
-    GatewayUserSessionSnapshot snapshot{};
-    snapshot.profile_id = runtime->user->metadata.profile_id;
-    if (resume.valid) {
-        if (!gateway_resume_validate(resume)) {
-            return false;
-        }
-        snapshot.resume = resume;
-        snapshot.self_user_id = self_user_id;
-        snapshot.has_resume = true;
+    session->profile_id = runtime->user->metadata.profile_id;
+    session->has_resume = session->resume.valid;
+    if (!session->has_resume) {
+        reset_value(&session->resume);
+        session->self_user_id = 0;
+    } else if (!gateway_resume_validate(session->resume)) {
+        // Every caller that reads a failed snapshot passes a zeroed one.
+        reset_value(session);
+        return false;
     }
-    *session = snapshot;
     return true;
 }
 

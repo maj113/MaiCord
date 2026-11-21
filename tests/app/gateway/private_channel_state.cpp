@@ -48,7 +48,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     const auto ready_decode = [&](Utf8View json, GatewayReady* ready) noexcept {
         GatewayEnvelope envelope{};
         return gateway_decode_envelope(json, {scratch, 1024}, 32, &envelope).ok() &&
-            gateway_decode_ready(envelope.data, {scratch, 1024}, 32, ready).ok();
+            gateway_decode_ready(envelope.document, envelope.data, 32, ready).ok();
     };
     GatewayReady ready{};
     check(ready_decode(utf8_literal(R"({"op":0,"s":1,"t":"READY","d":{"v":9,"user":{"id":"1"},"guilds":[],"session_id":"fixture","resume_gateway_url":"wss://gateway.discord.gg","private_channels":[{"id":"10","type":1,"recipient_ids":["2"]}],"users":[{"id":"2","username":"peer"}]}})"), &ready) &&

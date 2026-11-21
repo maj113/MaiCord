@@ -39,6 +39,32 @@ bool assignment(void* opaque, u32, JsonValue value) noexcept {
     }
     return true;
 }
+// The user's entry of apex_experiments.assignments["1"]: no source bytes when it is absent. False when assignments
+// is not an object.
+bool user_entry(const JsonIndexedDocument& document, JsonValue apex, u64 user_id, JsonValue* entry) noexcept {
+    *entry = {};
+    auto value = find(document, apex, utf8_literal("assignments"));
+    if (value.kind != JsonValueKind::object) return false;
+    value = find(document, value, utf8_literal("1"));
+    if (!value.source.bytes) return true;
+    char id[20]; const u32 id_bytes = decimal_write(id, user_id);
+    *entry = find(document, value, {id, id_bytes});
+    return true;
+}
+// Resets the policy and reads it from the user's entry.
+bool decode_entry(const JsonIndexedDocument& document, JsonValue entry, UploadPolicy* policy) noexcept {
+    reset_value(policy);
+    const auto value = find(document, entry, utf8_literal("assignments"));
+    if (value.kind != JsonValueKind::array) return false;
+    Assignments assignments{&document};
+    if (!json_visit_indexed_array(document, value, 64, assignment, &assignments).ok()) return false;
+    const auto* variant = assignments.variants;
+    if (variant[0] >= 1 && variant[0] <= 3) policy->floor_bytes = (10u + variant[0] * 5u) * kUploadMiB;
+    if (variant[1] == 1) policy->floor_bytes = 20u * kUploadMiB;
+    if (variant[2] == 1) policy->nitro_bytes = 1024u * kUploadMiB;
+    policy->guild_250_disabled = variant[3] == 1;
+    return true;
+}
 }
 bool upload_policy_state(JsonValue state, u64 user_id, Slice<u32> scratch, UploadPolicy* policy, bool* changed) noexcept {
     if (!user_id) return false;
@@ -49,14 +75,10 @@ bool upload_policy_state(JsonValue state, u64 user_id, Slice<u32> scratch, Uploa
     state.source_offset = 0;
     const auto apex = find(document, state, utf8_literal("apex_experiments"));
     if (!apex.source.bytes || apex.kind == JsonValueKind::null_value) return true;
-    auto value = find(document, apex, utf8_literal("assignments"));
-    if (value.kind != JsonValueKind::object) return false;
-    value = find(document, value, utf8_literal("1"));
-    if (!value.source.bytes) return true;
-    char id[20]; const u32 id_bytes = decimal_write(id, user_id);
-    value = find(document, value, {id, id_bytes});
-    if (!value.source.bytes) return true;
-    if (!upload_policy_decode(apex, user_id, scratch, policy)) return false;
+    JsonValue entry;
+    if (!user_entry(document, apex, user_id, &entry)) return false;
+    if (!entry.source.bytes) return true;
+    if (!decode_entry(document, entry, policy)) return false;
     *changed = true; return true;
 }
 bool upload_policy_decode(JsonValue apex, u64 user_id, Slice<u32> scratch, UploadPolicy* policy) noexcept {
@@ -67,22 +89,8 @@ bool upload_policy_decode(JsonValue apex, u64 user_id, Slice<u32> scratch, Uploa
     if (!scan.ok()) return false;
     const JsonIndexedDocument document{apex.source, {scratch.data, scan.count}};
     apex.source_offset = 0;
-    auto value = find(document, apex, utf8_literal("assignments"));
-    if (value.kind != JsonValueKind::object) return false;
-    value = find(document, value, utf8_literal("1"));
-    if (!value.source.bytes) return true;
-    char id[20]; const u32 id_bytes = decimal_write(id, user_id);
-    value = find(document, value, {id, id_bytes});
-    if (!value.source.bytes) return true;
-    value = find(document, value, utf8_literal("assignments"));
-    if (value.kind != JsonValueKind::array) return false;
-    Assignments assignments{&document};
-    if (!json_visit_indexed_array(document, value, 64, assignment, &assignments).ok()) return false;
-    const auto* variant = assignments.variants;
-    if (variant[0] >= 1 && variant[0] <= 3) policy->floor_bytes = (10u + variant[0] * 5u) * kUploadMiB;
-    if (variant[1] == 1) policy->floor_bytes = 20u * kUploadMiB;
-    if (variant[2] == 1) policy->nitro_bytes = 1024u * kUploadMiB;
-    policy->guild_250_disabled = variant[3] == 1;
-    return true;
+    JsonValue entry;
+    if (!user_entry(document, apex, user_id, &entry)) return false;
+    return !entry.source.bytes || decode_entry(document, entry, policy);
 }
 }

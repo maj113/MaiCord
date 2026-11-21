@@ -3,6 +3,8 @@
 #include "maicord/model/user/activity.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "dispatch_common.hpp"
+// Only static_asserts: the layout contract of the packer below. Keep this include.
+#include "message_mailbox.hpp"
 #include "user_payload.hpp"
 #include "maicord/protocol/media/upload_allowance.hpp"
 #include "private_dispatch.hpp"
@@ -960,6 +962,12 @@ struct NotificationSnapshot {
     bool incomplete, interrupted;
     const JsonIndexedDocument* doc;
     JsonValue entries;
+    // An entry needs the visit of the entries before it to be complete: the whole array visits (entries_walk),
+    // no earlier entry failed its fields visit (prior_failed), and none named the same guild. prior_guilds has
+    // a bit for each guild an earlier entry named (a hash of the ID). Only an entry whose bit is set visits the
+    // earlier entries again to compare the IDs, so the snapshot is not quadratic in the entries.
+    bool entries_walk, prior_failed;
+    u64 prior_guilds[64];
 };
 struct NotificationPrior {
     const JsonIndexedDocument* doc;
@@ -978,17 +986,35 @@ bool notification_prior(void* opaque, u32 index, JsonValue value) noexcept {
         p.duplicate = true;
     return true;
 }
+u32 prior_guild_bit(u64 guild) noexcept {
+    return static_cast<u32>((guild * 0x9E3779B97F4A7C15ull) >> 52);
+}
 bool snapshot_entry(void* opaque, u32 index, JsonValue value) noexcept {
     auto& s = *static_cast<NotificationSnapshot*>(opaque);
     auto e = gateway_dispatch_event(GatewayClientDispatchKind::notification_settings_entry, s.sequence,
                                     s.now);
     ConstSlice<u8> payload{};
     notification_entry(value, s.objects, s.storage, &e, &payload);
+    // What a visit of the earlier entries finds about this one when later entries look back.
+    NotificationFields fields{};
+    const bool fields_ok = json_visit_indexed_object(*s.doc, value, 64, notification_fields, &fields).ok();
     if (e.dispatch_kind == GatewayClientDispatchKind::notification_settings_entry) {
-        NotificationPrior prior{s.doc, index, e.notification.guild_id, false};
-        if (!json_visit_indexed_array(*s.doc, s.entries, 64, notification_prior, &prior).ok() ||
-            prior.duplicate)
-            notification_incomplete(&e, &payload, e.notification.guild_id);
+        const u64 guild = e.notification.guild_id;
+        const u32 bit = prior_guild_bit(guild);
+        bool complete = s.entries_walk && !s.prior_failed;
+        if (complete && ((s.prior_guilds[bit >> 6] >> (bit & 63)) & 1)) {
+            NotificationPrior prior{s.doc, index, guild, false};
+            complete = json_visit_indexed_array(*s.doc, s.entries, 64, notification_prior, &prior).ok() &&
+                       !prior.duplicate;
+        }
+        if (!complete)
+            notification_incomplete(&e, &payload, guild);
+    }
+    if (!fields_ok) {
+        s.prior_failed = true;
+    } else if (fields.seen & 2) {
+        const u32 bit = prior_guild_bit(fields.guild);
+        s.prior_guilds[bit >> 6] |= 1ull << (bit & 63);
     }
     if (e.dispatch_kind == GatewayClientDispatchKind::notification_incomplete)
         s.incomplete = true;
@@ -1017,6 +1043,9 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
                        f.entries.kind == JsonValueKind::array;
     s.doc = &doc;
     s.entries = f.entries;
+    s.entries_walk = valid && json_visit_indexed_array(doc, f.entries, 64,
+                                                       +[](void*, u32, JsonValue) noexcept { return true; }, nullptr)
+                                  .ok();
     s.incomplete |= !valid;
     auto begin = gateway_dispatch_event(GatewayClientDispatchKind::notification_snapshot_begin, s.sequence,
                                         s.now);

@@ -402,9 +402,9 @@ void scale() noexcept {
     const Utf8View source = build_ready();
     check(source.bytes > 1024 * 1024, "fixture: READY is larger than 1 MiB");
     GatewayReady ready{};
-    check(gateway_decode_ready({source, 0, JsonValueKind::object}, {arrays, kReadyStructurals}, 64,
-                               &ready)
-              .ok(),
+    const auto scan = json_scan_structurals_avx1(source, {arrays, kReadyStructurals});
+    check(scan.ok() && gateway_decode_ready({source, {arrays, scan.count}}, {source, 0, JsonValueKind::object}, 64,
+                                            &ready).ok(),
           "fixture: READY decodes");
     const auto projected = gateway_ready_project(
         ready, {{arrays, kReadyStructurals}, {records, 256 * 1024},

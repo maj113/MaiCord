@@ -385,7 +385,8 @@ struct EtfTerm {
 Utf8View transcode(EtfTerm& term, u8 (&json)[4096]) noexcept {
     Slice<u8> output{json, sizeof(json)};
     u32 marks = 0;
-    const auto result = etf_to_json_indexed({term.data, term.used}, &output, sizeof(json), nullptr, nullptr, {}, &marks);
+    const auto result =
+        etf_to_json_indexed({term.data, term.used}, &output, sizeof(json), nullptr, nullptr, {}, nullptr, &marks);
     return result.ok() ? Utf8View{reinterpret_cast<const char*>(json), result.bytes} : Utf8View{};
 }
 // Poll answer IDs and component IDs are integers, but the ETF transcoder quotes every value under an
